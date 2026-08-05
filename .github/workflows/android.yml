@@ -37,5 +37,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hyperglow-debug-apk
-          path: app/build/outputs/apk/debug/*.ark
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
