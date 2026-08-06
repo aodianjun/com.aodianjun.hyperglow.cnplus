@@ -3,9 +3,6 @@ pluginManagement {
         mavenLocal()
         maven("https://maven.aliyun.com/repository/google")
         maven("https://maven.aliyun.com/repository/public")
-        mavenCentral()
-        google()
-        gradlePluginPortal()
         maven("https://api.xposed.info/")
     }
 }
@@ -18,8 +15,6 @@ dependencyResolutionManagement {
         mavenLocal()
         maven("https://maven.aliyun.com/repository/google")
         maven("https://maven.aliyun.com/repository/public")
-        mavenCentral()
-        google()
     }
 }
 
