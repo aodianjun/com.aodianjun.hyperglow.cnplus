@@ -292,4 +292,8 @@
     <string name="diagnostic_failure_network">Network upload failed. Retry manually.</string>
     <string name="diagnostic_failure_receipt">The intake returned an invalid receipt. Retry manually.</string>
     <string name="toast_no_github_handler">No app can open GitHub</string>
+
+    <string name="notification_channel_lyric_bridge">Lyric bridge</string>
+    <string name="notification_lyric_bridge_title">HyperGlow lyric service</string>
+    <string name="notification_lyric_bridge_text">Running to keep AOD and lock screen lyrics updating while the screen is off.</string>
 </resources>
