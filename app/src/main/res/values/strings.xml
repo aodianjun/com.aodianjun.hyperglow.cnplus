@@ -305,4 +305,17 @@
     <string name="notification_channel_lyric_bridge">Lyric bridge</string>
     <string name="notification_lyric_bridge_title">HyperGlow lyric service</string>
     <string name="notification_lyric_bridge_text">Running to keep AOD and lock screen lyrics updating while the screen is off.</string>
+
+    <string name="section_permission_status">Permission status</string>
+    <string name="label_notification_permission">Notifications</string>
+    <string name="summary_notification_permission_granted">Granted</string>
+    <string name="summary_notification_permission_denied">Denied — lyric service may be killed</string>
+    <string name="action_grant_notification_permission">Grant</string>
+    <string name="label_foreground_service">Lyric foreground service</string>
+    <string name="summary_foreground_service_running">Running</string>
+    <string name="summary_foreground_service_not_running">Not running</string>
+    <string name="label_battery_optimization">Battery optimization</string>
+    <string name="summary_battery_optimization_whitelisted">Unrestricted</string>
+    <string name="summary_battery_optimization_optimized">Optimized — may freeze HyperGlow when screen is off</string>
+    <string name="action_open_battery_settings">Open settings</string>
 </resources>

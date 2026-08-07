@@ -392,6 +392,12 @@ private fun HomeScreen(
                             }
                         }
                     }
+                    item { SmallTitle(text = stringResource(R.string.section_permission_status)) }
+                    item {
+                        SettingsCard {
+                            PermissionStatusSection()
+                        }
+                    }
                     item { SmallTitle(text = stringResource(R.string.section_spotify_integration)) }
                     item {
                         SettingsCard {

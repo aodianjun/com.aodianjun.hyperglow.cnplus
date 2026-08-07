@@ -305,4 +305,17 @@
     <string name="notification_channel_lyric_bridge">歌词桥接</string>
     <string name="notification_lyric_bridge_title">HyperGlow 歌词服务</string>
     <string name="notification_lyric_bridge_text">正在运行,以保持息屏和锁屏歌词在熄屏时持续更新。</string>
+
+    <string name="section_permission_status">权限状态</string>
+    <string name="label_notification_permission">通知权限</string>
+    <string name="summary_notification_permission_granted">已授予</string>
+    <string name="summary_notification_permission_denied">被拒绝 —— 歌词服务可能被系统杀死</string>
+    <string name="action_grant_notification_permission">去授予</string>
+    <string name="label_foreground_service">歌词前台服务</string>
+    <string name="summary_foreground_service_running">运行中</string>
+    <string name="summary_foreground_service_not_running">未运行</string>
+    <string name="label_battery_optimization">电池优化</string>
+    <string name="summary_battery_optimization_whitelisted">无限制</string>
+    <string name="summary_battery_optimization_optimized">已优化 —— 息屏时可能冻结 HyperGlow</string>
+    <string name="action_open_battery_settings">打开设置</string>
 </resources>
