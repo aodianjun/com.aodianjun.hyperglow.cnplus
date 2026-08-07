@@ -54,7 +54,10 @@ jobs:
           set -euo pipefail
           SRC=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
           DST="app/build/outputs/apk/debug/app-debug${{ matrix.apk-suffix }}.apk"
-          mv "$SRC" "$DST"
+          # default 变体 suffix 为空时 SRC == DST,mv 同名文件会失败,跳过即可
+          if [ "$SRC" != "$DST" ]; then
+            mv "$SRC" "$DST"
+          fi
           echo "APK_PATH=$DST" >> "$GITHUB_ENV"
 
       - name: Upload debug APK (artifact)
