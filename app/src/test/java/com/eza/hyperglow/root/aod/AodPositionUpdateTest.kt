@@ -404,4 +404,36 @@ class AodPositionUpdateTest {
 
         assertNull(decision)
     }
+
+    @Test
+    fun rememberedPhysicalBoundsOutrankTheManagedRequestWhenTheClockCannotBeMeasured() {
+        val resolved = resolvedAodClockBounds(
+            renderedBounds = null,
+            controlledTop = 263,
+            controlledBottom = 1266,
+            measuredTop = 0,
+            measuredBottom = 0,
+            exactPhysicalBounds = null,
+            rememberedPhysicalBounds = AodRenderedClockBounds(1015, 2019)
+        )
+
+        assertEquals(1015, resolved.top)
+        assertEquals(2019, resolved.bottom)
+    }
+
+    @Test
+    fun aLivePhysicalMeasurementStillOutranksTheRememberedOne() {
+        val resolved = resolvedAodClockBounds(
+            renderedBounds = null,
+            controlledTop = 263,
+            controlledBottom = 1266,
+            measuredTop = 0,
+            measuredBottom = 0,
+            exactPhysicalBounds = AodRenderedClockBounds(300, 1300),
+            rememberedPhysicalBounds = AodRenderedClockBounds(1015, 2019)
+        )
+
+        assertEquals(300, resolved.top)
+        assertEquals(1300, resolved.bottom)
+    }
 }

@@ -74,56 +74,69 @@ class XiaomiCapabilityResolverTest {
     }
 
     @Test
-    fun unknownPackageProfileRejectsMutatingAodCapabilities() {
-        val capabilities = resolveXiaomiCapabilities(
-            XiaomiSymbolSnapshot(
-                aodSurface = true,
-                aodHostContainer = true,
-                aodPositionUpdates = true,
-                aodPositionTarget = true,
-                aodLifetimeGuard = true,
-                aodWakeBroker = true,
-                lockscreenHost = true,
-                lockscreenController = true,
-                lockscreenHostContainer = true,
-                lockscreenGeometry = true,
-                linkageDirection = true,
-                raiseToAod = true,
-                lockscreenEditorGesture = true
-            ),
-            verifiedRuntimeProfile = false
+    fun unverifiedBuildStillResolvesEverySymbolBackedCapability() {
+        val symbols = XiaomiSymbolSnapshot(
+            aodSurface = true,
+            aodHostContainer = true,
+            aodPositionUpdates = true,
+            aodPositionTarget = true,
+            aodLifetimeGuard = true,
+            aodWakeBroker = true,
+            lockscreenHost = true,
+            lockscreenController = true,
+            lockscreenHostContainer = true,
+            lockscreenGeometry = true,
+            linkageDirection = true,
+            raiseToAod = true,
+            lockscreenEditorGesture = true
         )
+        val capabilities = resolveXiaomiCapabilities(symbols)
 
-        assertFalse(XiaomiCapability.AOD_SURFACE in capabilities)
-        assertFalse(XiaomiCapability.AOD_LIFETIME_GUARD in capabilities)
-        assertFalse(XiaomiCapability.AOD_WAKE_BROKER in capabilities)
-        assertFalse(XiaomiCapability.AOD_POSITION_UPDATES in capabilities)
-        assertFalse(XiaomiCapability.LOCKSCREEN_HOST in capabilities)
-        assertFalse(XiaomiCapability.RAISE_TO_AOD in capabilities)
-        assertFalse(XiaomiCapability.LOCKSCREEN_EDITOR_GESTURE in capabilities)
+        assertTrue(XiaomiCapability.AOD_SURFACE in capabilities)
+        assertTrue(XiaomiCapability.AOD_LIFETIME_GUARD in capabilities)
+        assertTrue(XiaomiCapability.AOD_WAKE_BROKER in capabilities)
+        assertTrue(XiaomiCapability.AOD_POSITION_UPDATES in capabilities)
+        assertTrue(XiaomiCapability.LOCKSCREEN_HOST in capabilities)
+        assertTrue(XiaomiCapability.RAISE_TO_AOD in capabilities)
+        assertTrue(XiaomiCapability.LOCKSCREEN_EDITOR_GESTURE in capabilities)
+        assertEquals(
+            XiaomiProfileState.EXPERIMENTAL_ACTIVE,
+            resolveXiaomiProfileState(verifiedRuntimeProfile = false, capabilities = capabilities)
+        )
     }
 
     @Test
-    fun unverifiedSurfaceSymbolsAreReportableButRemainFailClosed() {
+    fun unverifiedSurfaceSymbolsRunButRemainFailClosedPerSymbol() {
         val symbols = XiaomiSymbolSnapshot(
             aodSurface = true,
             aodHostContainer = true
         )
-        val capabilities = resolveXiaomiCapabilities(
-            symbols,
-            verifiedRuntimeProfile = false
-        )
+        val capabilities = resolveXiaomiCapabilities(symbols)
 
-        assertEquals(emptySet<XiaomiCapability>(), capabilities)
+        assertEquals(setOf(XiaomiCapability.AOD_SURFACE), capabilities)
         assertEquals(
-            XiaomiProfileState.EXPERIMENTAL_ELIGIBLE,
-            resolveXiaomiProfileState(
-                symbols,
-                verifiedRuntimeProfile = false,
-                capabilities = capabilities
-            )
+            XiaomiProfileState.EXPERIMENTAL_ACTIVE,
+            resolveXiaomiProfileState(verifiedRuntimeProfile = false, capabilities = capabilities)
         )
         assertTrue(symbols.rawProbes().getValue(XiaomiSymbolProbe.AOD_HOST_CONTAINER))
+    }
+
+    @Test
+    fun unverifiedBuildWithoutAnySurfaceRemainsUnsupported() {
+        val capabilities = resolveXiaomiCapabilities(
+            XiaomiSymbolSnapshot(
+                aodSurface = true,
+                aodPositionUpdates = true,
+                lockscreenHost = true
+            )
+        )
+
+        assertFalse(XiaomiCapability.AOD_SURFACE in capabilities)
+        assertFalse(XiaomiCapability.LOCKSCREEN_GEOMETRY in capabilities)
+        assertEquals(
+            XiaomiProfileState.UNSUPPORTED_PROFILE,
+            resolveXiaomiProfileState(verifiedRuntimeProfile = false, capabilities = capabilities)
+        )
     }
 
     @Test
@@ -136,7 +149,7 @@ class XiaomiCapabilityResolverTest {
 
         assertEquals(
             XiaomiProfileState.VERIFIED_PROFILE_MISSING_SYMBOLS,
-            resolveXiaomiProfileState(symbols, true, capabilities)
+            resolveXiaomiProfileState(true, capabilities)
         )
     }
 
@@ -184,8 +197,8 @@ class XiaomiCapabilityResolverTest {
 
     @Test
     fun experimentalModeUnlocksCapabilitiesFromProbesOnUnverifiedProfile() {
-        // 与 unknownPackageProfileRejectsMutatingAodCapabilities 同样的符号探测结果,
-        // 但 experimentalMode=true 时应放开 surface 相关 capability(镜像 hook 端逻辑)。
+        // capabilities 现在按 symbol 直接解析,不再需要 experimentalMode 开关。
+        // 此测试保留以验证未验证设备上符号探测仍能放开 capability。
         val capabilities = resolveXiaomiCapabilities(
             XiaomiSymbolSnapshot(
                 aodSurface = true,
@@ -201,9 +214,7 @@ class XiaomiCapabilityResolverTest {
                 linkageDirection = true,
                 raiseToAod = true,
                 lockscreenEditorGesture = true
-            ),
-            verifiedRuntimeProfile = false,
-            experimentalMode = true
+            )
         )
 
         assertTrue(XiaomiCapability.AOD_SURFACE in capabilities)
@@ -217,8 +228,8 @@ class XiaomiCapabilityResolverTest {
 
     @Test
     fun experimentalModeFailClosedWhenSurfaceSeamMissing() {
-        // surface seam 缺失时,AOD_SURFACE 及其依赖项不应放开;
-        // 但 AOD_WAKE_BROKER 只依赖 aodWakeBroker 符号,实验模式下应放开。
+        // surface seam 缺失时,AOD_SURFACE 及其依赖项不放开;
+        // AOD_WAKE_BROKER 只依赖 aodWakeBroker 符号,应放开。按 symbol fail-closed。
         val capabilities = resolveXiaomiCapabilities(
             XiaomiSymbolSnapshot(
                 aodSurface = false,
@@ -226,9 +237,7 @@ class XiaomiCapabilityResolverTest {
                 aodPositionUpdates = true,
                 aodLifetimeGuard = true,
                 aodWakeBroker = true
-            ),
-            verifiedRuntimeProfile = false,
-            experimentalMode = true
+            )
         )
 
         assertFalse(XiaomiCapability.AOD_SURFACE in capabilities)
