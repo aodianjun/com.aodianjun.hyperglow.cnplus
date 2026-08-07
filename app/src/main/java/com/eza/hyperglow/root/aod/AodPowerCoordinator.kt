@@ -40,6 +40,7 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     fun onSurfaceAttached() {
         if (surfaceAttached) return
         surfaceAttached = true
+        HookLogger.i(TAG, "Surface attached (lifetime guard eligible)")
         guardCause = "surface-attached"
         updateLifetimeGuard()
     }
@@ -48,6 +49,7 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
         aodDisplayOff = false
         if (!surfaceAttached) return
         surfaceAttached = false
+        HookLogger.i(TAG, "Surface detached (lifetime guard released)")
         guardCause = "surface-detached"
         updateLifetimeGuard()
     }

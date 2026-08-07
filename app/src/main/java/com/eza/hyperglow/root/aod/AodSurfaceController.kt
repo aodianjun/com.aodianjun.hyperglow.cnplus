@@ -515,18 +515,37 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     fun attach(root: ViewGroup) {
         mainHandler.post {
             runCatching {
+                HookLogger.i(
+                    TAG,
+                    "attach requested root=${root.javaClass.name} ${root.width}x${root.height}"
+                )
                 XiaomiCapabilityResolver.observeContext(root.context)
                 SystemUiLyricProjectionRuntime.projection.reportCapabilities()
                 if (!XiaomiCapabilityResolver.hasCapability(XiaomiCapability.AOD_SURFACE)) {
                     if (rootRef.get() != null || surface != null) detachCurrent()
-                    HookLogger.w(TAG, "AOD surface capability unavailable; surface disabled")
+                    val report = XiaomiCapabilityResolver.snapshot()
+                    HookLogger.w(
+                        TAG,
+                        "AOD surface capability unavailable; surface disabled " +
+                            "aodSurface=${report.symbols.aodSurface} " +
+                            "aodHostContainer=${report.symbols.aodHostContainer} " +
+                            "profile=${report.profileState.wireValue}"
+                    )
                     return@runCatching
                 }
 
                 val burnInContainer = findBurnInContainer(root) ?: run {
-                    HookLogger.w(TAG, "mTableModeContainer unavailable; surface disabled")
+                    val fields = runCatching {
+                        root.javaClass.declaredFields
+                            .joinToString(",") { "${it.name}:${it.type.simpleName}" }
+                    }.getOrDefault("<unreadable>")
+                    HookLogger.w(
+                        TAG,
+                        "mTableModeContainer unavailable; surface disabled. Fields: $fields"
+                    )
                     return@runCatching
                 }
+                HookLogger.i(TAG, "Burn-in container resolved; building surface")
                 if (rootRef.get() === root && surface != null) return@runCatching
                 detachCurrent()
                 attachmentGeneration++

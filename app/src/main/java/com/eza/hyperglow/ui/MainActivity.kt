@@ -52,6 +52,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.DiagnosticLoggingPreferences
@@ -59,6 +60,7 @@ import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.setDiagnosticLogging
 import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.launch
+import com.eza.hyperglow.aod.AodLyricBridgeService
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
@@ -113,6 +115,14 @@ class MainActivity : ComponentActivity() {
         window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
+        // 从前台上下文启动 AodLyricBridgeService。MIUI 禁止从后台启动前台服务,
+        // HyperGlowApplication.onCreate 的 best-effort 尝试在息屏/后台时会失败;
+        // Activity 处于前台时补启,确保服务进入前台状态以对抗 GreezeManager 冻结。
+        runCatching {
+            startForegroundService(Intent(this, AodLyricBridgeService::class.java))
+        }.onFailure { error ->
+            AppLog.w("MainActivity", "startForegroundService denied: ${error.message}")
+        }
         setContent {
             val controller = remember { ThemeController(colorSchemeMode = ColorSchemeMode.System) }
             MiuixTheme(controller = controller) {
