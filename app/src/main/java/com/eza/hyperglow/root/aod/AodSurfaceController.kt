@@ -1592,10 +1592,45 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (shouldSchedule) mainHandler.post(geometryUpdate)
     }
 
-    private fun findBurnInContainer(root: ViewGroup): FrameLayout? = runCatching {
-        root.javaClass.getDeclaredField("mTableModeContainer").apply { isAccessible = true }
-            .get(root) as? FrameLayout
-    }.getOrNull()
+    private fun findBurnInContainer(root: ViewGroup): FrameLayout? {
+        // Walk the class hierarchy: the field may be declared on AODView or a superclass,
+        // and HyperOS may have renamed it. Try the canonical name first.
+        var klass: Class<*>? = root.javaClass
+        while (klass != null && klass != Any::class.java) {
+            runCatching {
+                klass!!.getDeclaredField("mTableModeContainer").apply { isAccessible = true }
+                    .get(root) as? FrameLayout
+            }.getOrNull()?.let { return it }
+            klass = klass!!.superclass
+        }
+        // Type-based fallback: find the first FrameLayout-typed declared field that holds
+        // a non-null value. Catches HyperOS renames where the type is preserved.
+        klass = root.javaClass
+        while (klass != null && klass != Any::class.java) {
+            runCatching {
+                for (field in klass!!.declaredFields) {
+                    if (!FrameLayout::class.java.isAssignableFrom(field.type)) continue
+                    field.isAccessible = true
+                    val value = field.get(root) as? FrameLayout
+                    if (value != null) {
+                        HookLogger.i(
+                            TAG,
+                            "Burn-in container resolved via fallback field: ${field.name}"
+                        )
+                        return value
+                    }
+                }
+            }
+            klass = klass!!.superclass
+        }
+        // Last resort: AODView typically extends FrameLayout. Use root itself so the
+        // surface can still render; clock geometry falls back to measured bounds.
+        if (root is FrameLayout) {
+            HookLogger.i(TAG, "Burn-in container resolved via root fallback")
+            return root
+        }
+        return null
+    }
 
     private fun isSceneActive(): Boolean = sceneRole != LinkageSceneRole.INACTIVE
 
