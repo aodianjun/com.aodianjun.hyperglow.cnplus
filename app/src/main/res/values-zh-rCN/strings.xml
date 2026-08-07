@@ -301,4 +301,8 @@
     <string name="diagnostic_failure_network">网络上传失败，请手动重试。</string>
     <string name="diagnostic_failure_receipt">接收服务返回无效回执，请手动重试。</string>
     <string name="toast_no_github_handler">没有应用可以打开 GitHub</string>
+
+    <string name="notification_channel_lyric_bridge">歌词桥接</string>
+    <string name="notification_lyric_bridge_title">HyperGlow 歌词服务</string>
+    <string name="notification_lyric_bridge_text">正在运行,以保持息屏和锁屏歌词在熄屏时持续更新。</string>
 </resources>
