@@ -75,6 +75,7 @@ class SystemUiLyricProjectionTest {
                 original = "original",
                 romanized = "romanized",
                 translated = "translated",
+                nextLine = "nextline",
                 metadata = "metadata",
                 alignedRight = true,
                 lineLevelSync = true,
