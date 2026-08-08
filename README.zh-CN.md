@@ -1,0 +1,72 @@
+<div align="center">
+
+# HyperGlow CN+
+
+HyperOS 3 的锁屏与息屏（AOD）歌词动画，支持国内音乐软件。
+
+需要 root、LSPosed 以及一个歌词源（[Spicy EX](https://github.com/amarinne/spicy-ex) 或 [Lyricon](https://github.com/tomakino/lyricon)）。
+
+**中文** · [English](README.md) · [简体中文](README.zh-CN.md)
+
+</div>
+
+## 功能特性
+
+- 通过多种来源在 HyperOS 锁屏与 AOD 上显示歌词：
+  - **Spicy EX**（国际版，Spotify）。
+  - **Lyricon**（热门国内音乐软件 —— QQ音乐、网易云音乐、酷狗音乐等）。
+- 支持逐行、逐词、逐音节同步的卡拉OK。
+- 搭配 Spicy EX Full 支持音译与翻译。
+
+- AOD 时钟位置与防烧屏位移。
+- 歌词显示时保持 AOD 常亮。
+- 播放音乐时保持锁屏常亮。
+- 拿起手机显示 AOD 而非完整锁屏。
+
+## 环境要求
+
+- 已 root 的 HyperOS 3。
+- [LSPosed](https://github.com/LSPosed/LSPosed)。
+- 至少一个歌词源：
+  - Spotify + Spicy EX Lite 或 Full（需开启 **将歌词发布到 HyperGlow**）。
+  - 国内音乐软件 + [Lyricon](https://github.com/tomakino/lyricon)（在 SystemUI 作用域启用）。
+
+## 安装
+
+从 [Releases](https://github.com/aodianjun/hyperglow/releases) 下载 APK。
+
+1. 在 LSPosed 中启用 HyperGlow。
+2. 启用你的歌词源：
+   - **Spotify**：在 LSPosed 中为 Spotify 启用 Spicy EX，然后在 Spicy EX 中开启 **将歌词发布到 HyperGlow**。
+   - **国内音乐软件**：在 LSPosed 中为 SystemUI 启用 [Lyricon](https://github.com/tomakino/lyricon)。
+3. 将 HyperGlow 的电池使用设置为 **无限制**。
+
+> [!NOTE]
+> 已在小米 14（`houji`）上测试。
+> 会比较耗电。
+> `拿起显示 AOD` 需要系统开启 **抬起唤醒** 选项。
+
+## 构建
+
+需要 JDK 21 与 Android SDK。无需任何凭据或账号 —— 所有依赖均从 Google 的 Maven 仓库和 Maven Central 解析。
+
+```sh
+JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
+```
+
+该命令会在 `app/build/outputs/apk/debug/` 下生成可安装的调试 APK。正式发布版使用不在本仓库中的私钥签名，因此从源码构建不会与已发布版本共享签名链：用自己构建的版本覆盖安装正式版需要先卸载，之后还需要在 LSPosed 中重新启用模块。
+
+## 参与贡献
+
+在改动行为之前，请阅读 [`docs/`](docs/) 中的规范 —— `ARCHITECTURE.md` 说明进程边界与信任、`LOCKSCREEN_AOD_BEHAVIOR_SPEC.md` 说明锁屏/AOD 的可见性、生命周期与电源规则、`STYLE_GUIDE.md` 说明代码约定。它们是约定；与它们相矛盾的代码即使能用也是 bug。
+
+本仓库由私有工作仓库生成，提交 Pull Request 前有几件事值得了解：
+
+- 改动仅限于本仓库已有的内容。新增超出本目录文件的 PR 无法按原样合并。
+- `README.md`、`FAQ.md` 和 `.gitignore` 为自动生成，对它们的修改会被丢弃；请改为在 issue 中提出。
+- 每个被接受的改动在发布前都会在维护者的设备上验证。单元测试通过是必要条件而非充分条件 —— 任何涉及 SystemUI 挂钩、AOD 电源或几何布局的改动都需要无法在 CI 中运行的硬件验证。
+- 大型或架构性改动值得先在 issue 中讨论，以便在动手前对照规范检查设计方案。
+
+## 许可证
+
+[GPL-3.0](LICENSE)。参见 [NOTICE](NOTICE)。
