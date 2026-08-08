@@ -1269,6 +1269,13 @@ private fun LyricLayoutScreen(
                             selectedProfile.weight
                         ) { value -> updateSelected { it.copy(weight = value) } }
                     }
+                    AodChoiceRow(AodChoiceKind.TEXT_SIZE, selectedProfile.textSize) {
+                        openChoice(
+                            AodChoiceKind.TEXT_SIZE,
+                            listOf("small", "normal", "large", "xlarge", "custom"),
+                            selectedProfile.textSize
+                        ) { value -> updateSelected { it.copy(textSize = value) } }
+                    }
                     TextSizePreference(
                         title = stringResource(R.string.setting_lyric_size),
                         percent = effectiveTextSizePercent(selectedProfile),
@@ -1728,6 +1735,13 @@ private fun choiceDisplayLabel(
         "Bold" -> R.string.option_bold
         else -> R.string.option_medium
     })
+    AodChoiceKind.TEXT_SIZE -> context.getString(when (value) {
+        "small" -> R.string.option_small
+        "large" -> R.string.option_large
+        "xlarge" -> R.string.option_xlarge
+        "custom" -> R.string.option_custom
+        else -> R.string.option_normal
+    })
     AodChoiceKind.WORD_ANIMATION -> context.getString(
         if (value == "Minimal") R.string.option_minimal else R.string.option_gradient
     )
@@ -1755,6 +1769,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     LYRIC_LINES(R.string.choice_lyric_lines),
     SONG_INFO_POSITION(R.string.choice_song_info_position),
     TEXT_WEIGHT(R.string.choice_text_weight),
+    TEXT_SIZE(R.string.choice_text_size),
     FONT(R.string.choice_font),
     WORD_ANIMATION(R.string.choice_word_animation),
     GLOW(R.string.choice_glow),
