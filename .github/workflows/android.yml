@@ -158,12 +158,22 @@ jobs:
           path: ${{ env.APK_PATH }}
           if-no-files-found: error
 
-      - name: Publish release APK to latest release
+      - name: Publish release APK to release tag
+        # 上传到正式发布 tag。默认取当前版本号对应的 tag(如 v0.3.65),
+        # 或用显式输入的 RELEASE_TAG 覆盖。
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          LATEST_TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
-          echo "Latest release: $LATEST_TAG"
-          gh release upload "$LATEST_TAG" "$APK_PATH" \
+          if [ -n "${RELEASE_TAG:-}" ]; then
+            TAG="$RELEASE_TAG"
+          else
+            TAG="v$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)"
+          fi
+          echo "Publishing to release: $TAG"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || {
+            echo "::error::Release tag $TAG not found"
+            exit 1
+          }
+          gh release upload "$TAG" "$APK_PATH" \
             --repo "$GITHUB_REPOSITORY" --clobber
