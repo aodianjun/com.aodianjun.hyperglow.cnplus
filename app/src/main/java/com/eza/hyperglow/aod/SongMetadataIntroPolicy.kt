@@ -33,34 +33,8 @@ internal class SongMetadataIntroPolicy(
             phase = Phase.PENDING
             startedAtElapsedMs = 0L
         }
-        if (!input.metadataAvailable || phase == Phase.COMPLETE) return false
-
-        if (phase == Phase.SHOWING) {
-            val elapsedMs = (input.nowElapsedMs - startedAtElapsedMs).coerceAtLeast(0L)
-            if (elapsedMs >= durationMs) {
-                phase = Phase.COMPLETE
-                startedAtElapsedMs = 0L
-                return false
-            }
-            val remainingMs = durationMs - elapsedMs
-            if (!canContinue(input, remainingMs)) {
-                phase = Phase.DEFERRED
-                startedAtElapsedMs = 0L
-                return false
-            }
-            return true
-        }
-
-        val canStart = when (phase) {
-            Phase.PENDING -> canStartInitial(input)
-            Phase.DEFERRED -> canStartDeferred(input)
-            else -> false
-        }
-        if (!canStart) return false
-
-        phase = Phase.SHOWING
-        startedAtElapsedMs = input.nowElapsedMs
-        return true
+        // 常驻显示歌名:metadata 可用时始终显示,不再受歌词状态(ACTIVE/INTERLUDE)或时长限制。
+        return input.metadataAvailable
     }
 
     private fun canStartInitial(input: SongMetadataIntroInput): Boolean = when (input.lyricState) {
