@@ -76,6 +76,14 @@ class LyriconLyricProducer(
     @Volatile private var cachedWords: List<LyricWord>? = null
     @Volatile private var renderModesSnapshot: ProducerRenderModes = defaultRenderModes()
 
+    // --- Position extrapolation state ---
+    // When the player process is frozen by MIUI screen-off, the shared-memory position stops
+    // updating but onPositionChanged keeps firing at ~60 Hz with the same stalled value. To keep
+    // lyrics advancing, we extrapolate: currentPositionMs = lastRealPosition + elapsed wall-clock.
+    @Volatile private var lastRealPositionMs: Long = 0L
+    @Volatile private var lastRealPositionClockMs: Long = -1L
+    @Volatile private var extrapolating: Boolean = false
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
@@ -113,6 +121,10 @@ class LyriconLyricProducer(
                 navigator = null
                 currentLineIndex = -1
                 cachedWords = null
+                currentPositionMs = 0L
+                lastRealPositionMs = 0L
+                lastRealPositionClockMs = -1L
+                extrapolating = false
                 mutableState.value = null
             }
         }
@@ -124,6 +136,10 @@ class LyriconLyricProducer(
                 navigator = null
                 currentLineIndex = -1
                 cachedWords = null
+                currentPositionMs = 0L
+                lastRealPositionMs = 0L
+                lastRealPositionClockMs = -1L
+                extrapolating = false
                 mutableState.value = null
                 return
             }
@@ -145,8 +161,14 @@ class LyriconLyricProducer(
             }
             currentLineIndex = -1
             cachedWords = null
+            // Reset position tracking for the new song. The shared memory may still hold the
+            // previous song's position until the player writes the new one, which caused the
+            // active line to jump to a stale index (e.g. idx=64 on song change).
+            currentPositionMs = 0L
+            lastRealPositionMs = 0L
+            lastRealPositionClockMs = -1L
+            extrapolating = false
             refreshRenderModes()
-            // Emit initial state at the last known position (will be refined by onPositionChanged).
             emit()
         }
 
@@ -165,13 +187,45 @@ class LyriconLyricProducer(
         override fun onPositionChanged(position: Long) {
             // High-frequency (~60 Hz) callback on Dispatchers.Default. This IS the SharedMemory
             // position, delivered by the SDK's internal poller. Compute the active line and emit.
-            currentPositionMs = position
+            val now = clock()
+            if (position != lastRealPositionMs) {
+                // Real position update from shared memory.
+                lastRealPositionMs = position
+                lastRealPositionClockMs = now
+                currentPositionMs = position
+                if (extrapolating) {
+                    extrapolating = false
+                    AppLog.i(
+                        "LyriconLyricProducer",
+                        "position resumed: pos=${position}ms (extrapolation stopped)"
+                    )
+                }
+            } else if (isPlayingState && lastRealPositionClockMs >= 0L) {
+                // Position stalled (shared-memory writer frozen by MIUI screen-off) but playback
+                // is still active → extrapolate from the last real position using wall-clock elapsed
+                // time. This keeps lyrics advancing during AOD when the player process is frozen.
+                val elapsed = now - lastRealPositionClockMs
+                val duration = currentSong?.duration ?: Long.MAX_VALUE
+                currentPositionMs = (lastRealPositionMs + elapsed).coerceAtMost(duration)
+                if (!extrapolating) {
+                    extrapolating = true
+                    AppLog.i(
+                        "LyriconLyricProducer",
+                        "position stalled, extrapolating: base=${lastRealPositionMs}ms " +
+                            "elapsed=${elapsed}ms -> ${currentPositionMs}ms"
+                    )
+                }
+            }
             recomputeAndEmit()
         }
 
         override fun onSeekTo(position: Long) {
             AppLog.i("LyriconLyricProducer", "onSeekTo: pos=${position}ms")
+            val now = clock()
+            lastRealPositionMs = position
+            lastRealPositionClockMs = now
             currentPositionMs = position
+            extrapolating = false
             // Seek invalidates the navigator's sequential cache (playback jumped).
             navigator?.resetCache()
             currentLineIndex = -1

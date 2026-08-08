@@ -451,4 +451,108 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(1_500L)
         assertEquals(LyricKind.LINE, producer.state.value!!.lyricKind)
     }
+
+    // --- Position extrapolation (screen-off stall recovery) ---
+
+    @Test
+    fun positionStall_extrapolatesUsingWallClockWhilePlaying() {
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        // Real position update at clock=10000, within line 0 [1000,3000].
+        producer.playerListener.onPositionChanged(2_000L)
+        assertEquals(0, producer.state.value!!.lineIndex)
+        assertEquals(2_000L, producer.state.value!!.positionMs)
+
+        // Position stalls (shared-memory writer frozen by screen-off), but wall-clock advances.
+        // After 1500ms, extrapolated position = 2000 + 1500 = 3500 → line 1 [3500,5000].
+        clockValue = 11_500L
+        producer.playerListener.onPositionChanged(2_000L) // same stalled value
+
+        val state = producer.state.value!!
+        assertEquals(1, state.lineIndex)
+        assertEquals("second", state.line)
+        assertEquals(3_500L, state.positionMs)
+    }
+
+    @Test
+    fun positionStall_doesNotExtrapolateWhenPaused() {
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(2_000L) // line 0
+
+        // Pause → isPlayingState=false. Position stall should NOT extrapolate.
+        producer.playerListener.onPlaybackStateChanged(false)
+        clockValue = 11_500L
+        producer.playerListener.onPositionChanged(2_000L) // stalled
+
+        assertEquals(0, producer.state.value!!.lineIndex)
+        assertEquals(2_000L, producer.state.value!!.positionMs)
+    }
+
+    @Test
+    fun positionResumed_stopsExtrapolationAndUsesRealValue() {
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(2_000L) // line 0, real
+
+        // Stall → extrapolate to 3500 (line 1).
+        clockValue = 11_500L
+        producer.playerListener.onPositionChanged(2_000L)
+        assertEquals(1, producer.state.value!!.lineIndex)
+
+        // Real position resumes (player process unfrozen). The real value may differ from the
+        // extrapolated one — it must replace the extrapolation.
+        clockValue = 11_600L
+        producer.playerListener.onPositionChanged(3_800L) // still line 1, but real value
+
+        val state = producer.state.value!!
+        assertEquals(1, state.lineIndex)
+        assertEquals(3_800L, state.positionMs)
+    }
+
+    @Test
+    fun positionExtrapolation_clampsToSongDuration() {
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(7_500L) // near end
+
+        // Stall for a very long time → extrapolation clamps to duration.
+        clockValue = 100_000L
+        producer.playerListener.onPositionChanged(7_500L)
+
+        assertEquals(8_000L, producer.state.value!!.positionMs)
+    }
+
+    // --- Song change position reset ---
+
+    @Test
+    fun onSongChanged_resetsPositionToZero() {
+        var clockValue = 5_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPositionChanged(6_000L) // line 2
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        // Switch to a new song → position must reset, not carry over from previous song.
+        clockValue = 5_100L
+        producer.playerListener.onSongChanged(threeLineSong())
+
+        val state = producer.state.value!!
+        assertEquals(0L, state.positionMs)
+        assertEquals(-1, state.lineIndex)
+        assertEquals("", state.line)
+    }
 }
