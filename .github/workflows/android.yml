@@ -106,9 +106,11 @@ jobs:
 
   # 发布用 release 变体: R8 压缩体积更小。若配置了 SIGNING_* secrets 则正式签名,
   # 否则构建未签名 APK(需自行补签)。产物上传到正式 Release(如 v0.3.65)。
+  # 签名密钥放在受保护的 release 环境(Actions secrets),支持审批/分支保护。
   release:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    environment: release
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
