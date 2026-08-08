@@ -29,10 +29,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: "21"
           distribution: temurin
@@ -61,7 +61,7 @@ jobs:
           echo "APK_PATH=$DST" >> "$GITHUB_ENV"
 
       - name: Upload debug APK (artifact)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hyperglow-debug-${{ matrix.variant }}
           path: ${{ env.APK_PATH }}
