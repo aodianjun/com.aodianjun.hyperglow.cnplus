@@ -46,16 +46,27 @@ internal fun projectToDisplay(
 ): AodDisplayState {
     val position = projectedPosition(state, now)
 
+    // 息屏外推防护：数据源（如网易云）停写位置后，切歌/重播/缓冲会让外推位置错位并被
+    // projectedPosition 钳制在末行。当外推不可信时，清空活动行，避免 AOD 长期显示旧歌末尾行。
+    val extrapolationInvalid = !extrapolationReliable(
+        positionMs = state.positionMs,
+        sampledAtElapsedMs = state.sampledAtElapsedMs,
+        speed = state.speed,
+        playing = state.playing,
+        durationMs = state.durationMs,
+        now = now
+    )
+
     // --- 活动行判定（原 project() 用 document/row 派生，现直接读 producer 预计算字段）---
     val kind = state.lyricKind
     val unsynced = kind == LyricKind.UNSYNCED
     val noLyrics = kind == LyricKind.NONE
-    val hasActiveLine = state.lineIndex >= 0 && state.line.isNotBlank()
+    val hasActiveLine = state.lineIndex >= 0 && state.line.isNotBlank() && !extrapolationInvalid
     val hasTimedLyrics = state.hasTimedLyrics
     // 原 fallbackLine 条件：!unsynced && !noLyrics && document == null && status == "ready" && it.isNotBlank()
     // document==null 对应 producer 无行级数据（lyricKind==NONE 但 line 非空 → 生产者塞了无时序一行）。
     val fallbackLine = state.line.takeIf {
-        !unsynced && !noLyrics && kind == LyricKind.NONE && state.status == "ready" && it.isNotBlank()
+        !extrapolationInvalid && !unsynced && !noLyrics && kind == LyricKind.NONE && state.status == "ready" && it.isNotBlank()
     }
     val presentable = hasActiveLine || fallbackLine != null
 

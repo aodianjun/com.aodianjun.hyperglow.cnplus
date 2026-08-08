@@ -310,6 +310,52 @@ class AodStateProjectorTest {
     }
 
     @Test
+    fun extrapolationCrossingSongEnd_clearsActiveLineInsteadOfShowingStaleLastLine() {
+        // 息屏时网易云停写位置；外推越过歌曲结尾 → 歌曲已结束/重播。活动行应被清空（显示 ♪），
+        // 而不是继续显示被钳制在末行的旧歌词。
+        val s = state(
+            positionMs = 179_000L,
+            sampledAtElapsedMs = 0L,
+            speed = 1f,
+            playing = true,
+            durationMs = 180_000L,
+            lineIndex = 3,
+            line = "stale last line",
+            hasTimedLyrics = true,
+            title = "",
+            artist = ""
+        )
+        val out = project(s, now = 5_000L) // 179000 + 5000 = 184000 → 越界
+
+        assertEquals("♪", out.original)
+        assertEquals(0L, out.lineStartMs)
+        assertEquals(0L, out.lineEndMs)
+        assertTrue(out.words.isEmpty())
+    }
+
+    @Test
+    fun extrapolationWithinBounds_keepsActiveLine() {
+        // 正常息屏匀速播放：外推仍在歌曲内 → 活动行保留。
+        val s = state(
+            positionMs = 10_000L,
+            sampledAtElapsedMs = 1_000L,
+            speed = 1f,
+            playing = true,
+            durationMs = 180_000L,
+            lineIndex = 2,
+            line = "current line",
+            lineStartMs = 9_000L,
+            lineEndMs = 12_000L,
+            hasTimedLyrics = true
+        )
+        val out = project(s, now = 2_000L)
+
+        assertEquals("current line", out.original)
+        assertEquals(9_000L, out.lineStartMs)
+        assertEquals(12_000L, out.lineEndMs)
+    }
+
+    @Test
     fun positionHoldsWhenNotPlaying() {
         val s = state(
             positionMs = 42_000L,
