@@ -84,6 +84,15 @@ class LyriconLyricProducer(
     @Volatile private var lastRealPositionClockMs: Long = -1L
     @Volatile private var extrapolating: Boolean = false
 
+    // --- Residual position rejection (song change) ---
+    // After onSongChanged, the shared memory may still hold the previous song's position for
+    // ~30s until the player writes the new song's progress. Without filtering, the first
+    // onPositionChanged with the stale value overwrites our reset (stale != 0 → "resumed" branch).
+    // We reject any position that exactly matches the previous song's last position, within a
+    // time window after song change. Once a different (real) position arrives, filtering stops.
+    @Volatile private var previousSongLastPositionMs: Long = -1L
+    @Volatile private var songChangeClockMs: Long = 0L
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
@@ -123,8 +132,10 @@ class LyriconLyricProducer(
                 cachedWords = null
                 currentPositionMs = 0L
                 lastRealPositionMs = 0L
-                lastRealPositionClockMs = -1L
+                lastRealPositionClockMs = clock()
                 extrapolating = false
+                previousSongLastPositionMs = -1L
+                songChangeClockMs = 0L
                 mutableState.value = null
             }
         }
@@ -138,8 +149,10 @@ class LyriconLyricProducer(
                 cachedWords = null
                 currentPositionMs = 0L
                 lastRealPositionMs = 0L
-                lastRealPositionClockMs = -1L
+                lastRealPositionClockMs = clock()
                 extrapolating = false
+                previousSongLastPositionMs = -1L
+                songChangeClockMs = 0L
                 mutableState.value = null
                 return
             }
@@ -164,9 +177,15 @@ class LyriconLyricProducer(
             // Reset position tracking for the new song. The shared memory may still hold the
             // previous song's position until the player writes the new one, which caused the
             // active line to jump to a stale index (e.g. idx=64 on song change).
+            //
+            // Capture the previous song's last position so onPositionChanged can reject the
+            // residual value (it will keep arriving at ~60 Hz until the player writes new progress).
+            // Enable extrapolation from 0 so lyrics advance during the write gap if playing.
+            previousSongLastPositionMs = lastRealPositionMs
+            songChangeClockMs = clock()
             currentPositionMs = 0L
             lastRealPositionMs = 0L
-            lastRealPositionClockMs = -1L
+            lastRealPositionClockMs = clock()
             extrapolating = false
             refreshRenderModes()
             emit()
@@ -188,11 +207,38 @@ class LyriconLyricProducer(
             // High-frequency (~60 Hz) callback on Dispatchers.Default. This IS the SharedMemory
             // position, delivered by the SDK's internal poller. Compute the active line and emit.
             val now = clock()
+            // Reject residual values from the previous song: after onSongChanged, the shared
+            // memory may keep returning the old position until the player writes new progress.
+            // The residual matches the previous song's last position exactly (same bytes in memory).
+            val isResidual = previousSongLastPositionMs >= 0L &&
+                (now - songChangeClockMs) < RESIDUAL_REJECTION_WINDOW_MS &&
+                position == previousSongLastPositionMs
+            if (isResidual) {
+                // Ignore the stale value; fall through to extrapolation if playing.
+                if (isPlayingState && lastRealPositionClockMs >= 0L) {
+                    val elapsed = now - lastRealPositionClockMs
+                    val duration = currentSong?.duration ?: Long.MAX_VALUE
+                    currentPositionMs = (lastRealPositionMs + elapsed).coerceAtMost(duration)
+                    if (!extrapolating) {
+                        extrapolating = true
+                        AppLog.i(
+                            "LyriconLyricProducer",
+                            "residual position rejected ($position ms matches previous song); " +
+                                "extrapolating from ${lastRealPositionMs}ms -> ${currentPositionMs}ms"
+                        )
+                    }
+                }
+                recomputeAndEmit()
+                return
+            }
             if (position != lastRealPositionMs) {
                 // Real position update from shared memory.
                 lastRealPositionMs = position
                 lastRealPositionClockMs = now
                 currentPositionMs = position
+                // A different value means the player has started writing the new song's progress.
+                // Disable residual filtering — subsequent positions are from the new song.
+                previousSongLastPositionMs = -1L
                 if (extrapolating) {
                     extrapolating = false
                     AppLog.i(
