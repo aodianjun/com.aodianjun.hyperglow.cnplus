@@ -20,25 +20,74 @@ internal object AodWakeBroker {
         Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
     )
 
-    // Latest verified host remains usable after Xiaomi tears down the visible AOD plugin instance.
-    // One strong reference is intentional: it is the recovery seam that can recreate sleeping AOD.
-    private var host: Any? = null
+    // Use WeakReference for the host to avoid leaking DozeTriggers$TriggerReceiver.
+    // The DozeHost is managed by MIUI and can be torn down / recreated. Holding a strong
+    // reference prevents GC of the entire DozeTriggers tree, which leaves its inner
+    // TriggerReceiver (BroadcastReceiver) registered — causing IntentReceiverLeaked.
+    // A WeakReference still allows the cached host to survive across short-lived AOD
+    // plugin teardowns (the usual case), while letting the GC clean up stale instances.
+    private var hostRef: java.lang.ref.WeakReference<Any>? = null
     private var fireAodStateMethod: Method? = null
     private var powerManager: PowerManager? = null
     private var lastRequestElapsedMs = Long.MIN_VALUE
     private var unavailableLogged = false
+    private var installRetryCount = 0
+    private var installRetryAttempted = false
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         val triggersClass = runCatching { classLoader.loadClass(DOZE_TRIGGERS_CLASS) }.getOrNull()
-            ?: return
-        val hostField = triggersClass.getDeclaredField("mHost").apply { isAccessible = true }
-        val contextField = triggersClass.getDeclaredField("mContext").apply { isAccessible = true }
-        val fireAodState = classLoader.loadClass(DOZE_HOST_CLASS).getDeclaredMethod(
-            "fireAodState",
-            Boolean::class.javaPrimitiveType,
-            String::class.java
-        ).apply { isAccessible = true }
+            ?: run {
+                HookLogger.w(TAG, "DozeTriggers class not found; will retry on next classloader")
+                return
+            }
+        // Try primary and fallback field names for MIUI version compatibility.
+        val hostField = HOST_FIELD_NAMES.firstNotNullOfOrNull { name ->
+            runCatching { triggersClass.getDeclaredField(name).apply { isAccessible = true } }
+                .getOrNull()
+        }
+        if (hostField == null) {
+            HookLogger.w(
+                TAG,
+                "No host field found (tried ${HOST_FIELD_NAMES.joinToString()}); scheduling retry"
+            )
+            scheduleInstallRetry(module, classLoader)
+            return
+        }
+        val contextField = runCatching {
+            triggersClass.getDeclaredField("mContext").apply { isAccessible = true }
+        }.getOrNull()
+        if (contextField == null) {
+            HookLogger.w(TAG, "mContext field not found; scheduling retry")
+            scheduleInstallRetry(module, classLoader)
+            return
+        }
+        val dozeHostClass = runCatching { classLoader.loadClass(DOZE_HOST_CLASS) }.getOrNull()
+            ?: run {
+                HookLogger.w(TAG, "DozeHost class not found; scheduling retry")
+                scheduleInstallRetry(module, classLoader)
+                return
+            }
+        // Try primary and fallback method names for fireAodState.
+        val fireAodState = FIRE_AOD_STATE_METHOD_NAMES.firstNotNullOfOrNull { name ->
+            runCatching {
+                dozeHostClass.getDeclaredMethod(
+                    name,
+                    Boolean::class.javaPrimitiveType,
+                    String::class.java
+                ).apply { isAccessible = true }
+            }.getOrNull()
+        }
+        if (fireAodState == null) {
+            HookLogger.w(
+                TAG,
+                "No fireAodState method found (tried ${FIRE_AOD_STATE_METHOD_NAMES.joinToString()}); scheduling retry"
+            )
+            scheduleInstallRetry(module, classLoader)
+            return
+        }
         if (!hookedClassLoaders.add(classLoader)) return
+        installRetryCount = 0
+        installRetryAttempted = false
         for (constructor in triggersClass.declaredConstructors) {
             constructor.isAccessible = true
             module.hook(constructor).intercept(
@@ -47,8 +96,21 @@ internal object AodWakeBroker {
         }
         HookLogger.i(
             TAG,
-            "AOD wake broker hook installed constructors=${triggersClass.declaredConstructors.size}"
+            "AOD wake broker hook installed hostField=${hostField.name} " +
+                "fireAodState=${fireAodState.name} constructors=${triggersClass.declaredConstructors.size}"
         )
+    }
+
+    private fun scheduleInstallRetry(module: XposedModule, classLoader: ClassLoader) {
+        if (installRetryCount >= MAX_INSTALL_RETRIES) {
+            HookLogger.e(TAG, "Max install retries ($MAX_INSTALL_RETRIES) reached; giving up")
+            return
+        }
+        installRetryCount++
+        installRetryAttempted = true
+        val delayMs = INSTALL_RETRY_BASE_DELAY_MS * installRetryCount
+        HookLogger.i(TAG, "Scheduling install retry ${installRetryCount}/$MAX_INSTALL_RETRIES in ${delayMs}ms")
+        mainHandler.postDelayed({ install(module, classLoader) }, delayMs)
     }
 
     fun requestWake(signal: Long): Boolean = enqueueWake(signal, "lyrics")
@@ -63,7 +125,7 @@ internal object AodWakeBroker {
                 XiaomiCapability.AOD_WAKE_BROKER
             )
         ) return false
-        val wakeHost = host
+        val wakeHost = hostRef?.get()
         val method = fireAodStateMethod
         val wakePowerManager = powerManager
         if (wakeHost == null || method == null || wakePowerManager == null ||
@@ -82,7 +144,7 @@ internal object AodWakeBroker {
             if (lastRequestElapsedMs != Long.MIN_VALUE &&
                 now - lastRequestElapsedMs < MIN_REQUEST_INTERVAL_MS
             ) return@post
-            val wakeHost = host
+            val wakeHost = hostRef?.get()
             val method = fireAodStateMethod
             val wakePowerManager = powerManager
             if (wakeHost == null || method == null || wakePowerManager == null) {
@@ -122,7 +184,7 @@ internal object AodWakeBroker {
                 val host = hostField.get(owner) ?: return result
                 val context = contextField.get(owner) as? android.content.Context ?: return result
                 val powerManager = context.getSystemService(PowerManager::class.java) ?: return result
-                AodWakeBroker.host = host
+                AodWakeBroker.hostRef = java.lang.ref.WeakReference(host)
                 fireAodStateMethod = fireAodState
                 AodWakeBroker.powerManager = powerManager
                 unavailableLogged = false
@@ -138,5 +200,11 @@ internal object AodWakeBroker {
     private const val DOZE_HOST_CLASS = "com.miui.aod.DozeHost"
     private const val WAKE_REASON = "reason_keycode_goto"
     private const val MIN_REQUEST_INTERVAL_MS = 750L
+    private const val MAX_INSTALL_RETRIES = 3
+    private const val INSTALL_RETRY_BASE_DELAY_MS = 2_000L
+    /** Fallback host field names for MIUI version compatibility. */
+    private val HOST_FIELD_NAMES = listOf("mHost", "mDozeHost")
+    /** Fallback fireAodState method names for MIUI version compatibility. */
+    private val FIRE_AOD_STATE_METHOD_NAMES = listOf("fireAodState", "triggerAodState")
     private const val TAG = "AodWakeBroker"
 }

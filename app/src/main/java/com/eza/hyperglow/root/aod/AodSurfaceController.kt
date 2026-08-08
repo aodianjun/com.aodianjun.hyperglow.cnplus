@@ -85,13 +85,22 @@ internal fun resolveRenderedAodSceneZone(
     }
 }
 
+/**
+ * @param rememberedPhysicalBounds the last physical measurement taken on a root of the same height.
+ *   The physical clock cannot be measured while the panel is dark, so every re-attach in that state
+ *   falls through to the managed position — which is where the clock was asked to go, not where the
+ *   stock AOD clock actually is. On this device those differ by hundreds of pixels, so the lyrics
+ *   appeared far from their configured place until the panel lit and the real bounds resolved. A
+ *   measurement already taken is better evidence than a position we merely requested.
+ */
 internal fun resolvedAodClockBounds(
     renderedBounds: AodRenderedClockBounds?,
     controlledTop: Int?,
     controlledBottom: Int?,
     measuredTop: Int,
     measuredBottom: Int,
-    exactPhysicalBounds: AodRenderedClockBounds? = null
+    exactPhysicalBounds: AodRenderedClockBounds? = null,
+    rememberedPhysicalBounds: AodRenderedClockBounds? = null
 ): AodRenderedClockBounds {
     val controlled = if (controlledTop != null && controlledBottom != null) {
         AodRenderedClockBounds(controlledTop, controlledBottom)
@@ -101,8 +110,10 @@ internal fun resolvedAodClockBounds(
     val validRendered = renderedBounds?.takeIf { it.height > 0 }
     val validControlled = controlled?.takeIf { it.height > 0 }
     val validPhysical = exactPhysicalBounds?.takeIf { it.height > 0 }
+    val validRemembered = rememberedPhysicalBounds?.takeIf { it.height > 0 }
     return when {
         validPhysical != null -> validPhysical
+        validRemembered != null -> validRemembered
         validControlled != null -> validControlled
         validRendered != null -> validRendered
         else -> AodRenderedClockBounds(measuredTop, measuredBottom)
@@ -271,6 +282,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var lastSnapshotTrace: String? = null
     private var lastBrightClockMorphPhase: Boolean? = null
     private var lastClockGeometryAuthority: String? = null
+    private var rememberedPhysicalClockBounds: AodRenderedClockBounds? = null
+    private var rememberedPhysicalClockRootHeight = 0
     @Volatile private var stockWidgetControlActive = false
     @Volatile private var burnInPattern = "static_bottom"
     private var burnInIntervalMs = 60_000L
@@ -301,6 +314,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 HookLogger.i(TAG, "AOD root display state=$state displayId=$displayId")
             }
             LinkageTransitionCoordinator.onAodDisplayState(state)
+            AodPowerCoordinator.onAodDisplayState(state)
             if (changed) requestGeometryUpdate()
         }
     }
@@ -501,18 +515,37 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     fun attach(root: ViewGroup) {
         mainHandler.post {
             runCatching {
+                HookLogger.i(
+                    TAG,
+                    "attach requested root=${root.javaClass.name} ${root.width}x${root.height}"
+                )
                 XiaomiCapabilityResolver.observeContext(root.context)
                 SystemUiLyricProjectionRuntime.projection.reportCapabilities()
                 if (!XiaomiCapabilityResolver.hasCapability(XiaomiCapability.AOD_SURFACE)) {
                     if (rootRef.get() != null || surface != null) detachCurrent()
-                    HookLogger.w(TAG, "AOD surface capability unavailable; surface disabled")
+                    val report = XiaomiCapabilityResolver.snapshot()
+                    HookLogger.w(
+                        TAG,
+                        "AOD surface capability unavailable; surface disabled " +
+                            "aodSurface=${report.symbols.aodSurface} " +
+                            "aodHostContainer=${report.symbols.aodHostContainer} " +
+                            "profile=${report.profileState.wireValue}"
+                    )
                     return@runCatching
                 }
 
                 val burnInContainer = findBurnInContainer(root) ?: run {
-                    HookLogger.w(TAG, "mTableModeContainer unavailable; surface disabled")
+                    val fields = runCatching {
+                        root.javaClass.declaredFields
+                            .joinToString(",") { "${it.name}:${it.type.simpleName}" }
+                    }.getOrDefault("<unreadable>")
+                    HookLogger.w(
+                        TAG,
+                        "mTableModeContainer unavailable; surface disabled. Fields: $fields"
+                    )
                     return@runCatching
                 }
+                HookLogger.i(TAG, "Burn-in container resolved; building surface")
                 if (rootRef.get() === root && surface != null) return@runCatching
                 detachCurrent()
                 attachmentGeneration++
@@ -783,7 +816,11 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         updateLifetimeGuard()
         val wakeRequired = isNewAodWakeSignal(lastWakeSignal, signal.wakeSignal)
         lastWakeSignal = signal.wakeSignal
-        if (!effectiveKeepAlive && !wakeRequired) return
+        // Playback-active keepalives must still pulse the draw wake even when the keepAlive flag
+        // is false: some producers report playbackActive without keepAlive, and the immediate
+        // pulse on each ~4 s keepalive complements the 2.75 s periodic renewal to keep the doze
+        // surface compositing a fresh frame while the screen is off.
+        if (!effectiveKeepAlive && !wakeRequired && !signal.playbackActive) return
         val directSurface = surface ?: return
         val root = rootRef.get() ?: return
         requestWakeIfAllowed(root, directSurface, wakeRequired)
@@ -989,16 +1026,21 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private fun updateLifetimeGuard() {
         val snapshot = latestSnapshot
-        val active = XiaomiCapabilityResolver.hasCapability(
-            XiaomiCapability.AOD_LIFETIME_GUARD
-        ) && shouldRenewAodDraw(
+        // The draw-wake renewal pulses mWakeLock on the AOD root to force Xiaomi's doze
+        // surface to composite a fresh frame, which is what keeps synced-lyric highlights
+        // advancing while the screen is off. It must not be gated on the AOD_LIFETIME_GUARD
+        // capability: that symbol is independent of mWakeLock, and gating on it silently
+        // freezes AOD updates on versions where the probe fails. pulseDrawWakeLock is
+        // guarded by runCatching, so an absent field fails harmlessly.
+        val active = shouldRenewAodDraw(
             surfaceKind = surfaceKind,
             attached = rootRef.get() != null,
             sceneActive = isSceneActive(),
             effectivelyVisible = isSurfaceRenderActive() &&
                 snapshot != null && canRenderAod(snapshot),
             pendingStockMotion = pendingStockMotionUpdate != null,
-            keepAlive = snapshot?.keepAlive == true
+            keepAlive = snapshot?.keepAlive == true,
+            playbackActive = snapshot?.playbackActive == true
         )
         setDrawWakeRenewalActive(active)
     }
@@ -1103,6 +1145,14 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             systemUiClockBounds,
             aodControllerClockBounds
         )
+        if (physicalClockBounds != null && root.height > 0) {
+            rememberedPhysicalClockBounds = physicalClockBounds
+            rememberedPhysicalClockRootHeight = root.height
+        }
+        // A remembered measurement only describes this layout. A different root height means a
+        // different display or configuration, and the old bounds say nothing about it.
+        val rememberedBounds = rememberedPhysicalClockBounds
+            ?.takeIf { rememberedPhysicalClockRootHeight == root.height }
         val effectiveClockBounds = if (brightLinkage && physicalClockBounds == null) {
             brightLinkageClockBounds(root.height)
         } else {
@@ -1112,7 +1162,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 controlledClockBottom,
                 stockTop,
                 stockBottom,
-                physicalClockBounds
+                physicalClockBounds,
+                rememberedBounds
             )
         }
         val effectiveClockTop = effectiveClockBounds.top
@@ -1121,6 +1172,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             systemUiClockBounds != null -> "physical-systemui"
             aodControllerClockBounds != null -> "physical-aod"
             brightLinkage -> "bright-fallback"
+            rememberedBounds != null -> "physical-remembered"
             controlledClockTop != null && controlledClockBottom != null -> "managed"
             renderedClockBounds != null -> "rendered-fallback"
             else -> "measured-fallback"
@@ -1154,6 +1206,13 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             )
         }
         val profile = currentAodProfile()
+        android.util.Log.d(
+            "AODMetadata",
+            "layoutSurface compiled.enabled=${profile.enabled} " +
+                "metadataVisible=${profile.metadataVisible} " +
+                "widgets=${profile.widgets.map { it.type }} " +
+                "runtime=${runtimeProfile?.metadataVisible}"
+        )
         val metadataHeight = if (profile.metadataVisible &&
             profile.widgets.any { it.type == "metadata" }
         ) {
@@ -1514,6 +1573,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 "state=$lastObservedDisplayState"
         )
         LinkageTransitionCoordinator.onAodDisplayState(lastObservedDisplayState)
+        AodPowerCoordinator.onAodDisplayState(lastObservedDisplayState)
     }
 
     private fun enqueueGeometryUpdate(
@@ -1539,10 +1599,45 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (shouldSchedule) mainHandler.post(geometryUpdate)
     }
 
-    private fun findBurnInContainer(root: ViewGroup): FrameLayout? = runCatching {
-        root.javaClass.getDeclaredField("mTableModeContainer").apply { isAccessible = true }
-            .get(root) as? FrameLayout
-    }.getOrNull()
+    private fun findBurnInContainer(root: ViewGroup): FrameLayout? {
+        // Walk the class hierarchy: the field may be declared on AODView or a superclass,
+        // and HyperOS may have renamed it. Try the canonical name first.
+        var klass: Class<*>? = root.javaClass
+        while (klass != null && klass != Any::class.java) {
+            runCatching {
+                klass!!.getDeclaredField("mTableModeContainer").apply { isAccessible = true }
+                    .get(root) as? FrameLayout
+            }.getOrNull()?.let { return it }
+            klass = klass!!.superclass
+        }
+        // Type-based fallback: find the first FrameLayout-typed declared field that holds
+        // a non-null value. Catches HyperOS renames where the type is preserved.
+        klass = root.javaClass
+        while (klass != null && klass != Any::class.java) {
+            runCatching {
+                for (field in klass!!.declaredFields) {
+                    if (!FrameLayout::class.java.isAssignableFrom(field.type)) continue
+                    field.isAccessible = true
+                    val value = field.get(root) as? FrameLayout
+                    if (value != null) {
+                        HookLogger.i(
+                            TAG,
+                            "Burn-in container resolved via fallback field: ${field.name}"
+                        )
+                        return value
+                    }
+                }
+            }
+            klass = klass!!.superclass
+        }
+        // Last resort: AODView typically extends FrameLayout. Use root itself so the
+        // surface can still render; clock geometry falls back to measured bounds.
+        if (root is FrameLayout) {
+            HookLogger.i(TAG, "Burn-in container resolved via root fallback")
+            return root
+        }
+        return null
+    }
 
     private fun isSceneActive(): Boolean = sceneRole != LinkageSceneRole.INACTIVE
 

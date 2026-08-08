@@ -172,6 +172,7 @@ object CustomizationRepository {
         secondaryMode = secondaryMode,
         secondaryTextBright = secondaryTextBright,
         lyricLineLimit = lyricLineLimit,
+        showNextLine = showNextLine,
         metadataVisible = metadataVisible,
         metadataAnchor = metadataAnchor,
         metadataSizePercent = metadataSizePercent,
@@ -186,6 +187,8 @@ object CustomizationRepository {
         overflow = overflow,
         adaptiveSectioning = adaptiveSectioning,
         palette = palette,
-        backgroundStyle = backgroundStyle
+        backgroundStyle = backgroundStyle,
+        cardAlpha = cardAlpha,
+        cardColor = cardColor
     )
 }

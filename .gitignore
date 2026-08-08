@@ -8,7 +8,7 @@
 local.properties
 **/build/
 artifacts/
-docs/
+docs/private/
 research/
 
 AGENTS.md
@@ -17,8 +17,6 @@ AI-DECLARATION.md
 
 *.apk
 *.iml
-*.jks
-*.keystore
 *.p12
 *.pfx
 *.pem
@@ -26,3 +24,7 @@ AI-DECLARATION.md
 *.log
 .env
 .env.*
+# 固定的调试签名密钥需入库(用于 CI 与本地签名一致,更新免卸载)
+!app/keystore/
+app/keystore/*
+!app/keystore/hyperglow-dbg.jks

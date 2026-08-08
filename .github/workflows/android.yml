@@ -8,26 +8,38 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # trace=default: 诊断日志开关可控(默认关闭,仅 w/e 级错误日志)
+        # trace=false:    编译时硬关闭 trace,即使误开诊断日志开关也不输出 i 级日志
+        include:
+          - variant: default
+            trace-arg: ""
+            apk-suffix: ""
+          - variant: notrace
+            trace-arg: "-PtraceLogging=false"
+            apk-suffix: "-notrace"
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: "21"
           distribution: temurin
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
@@ -35,11 +47,52 @@ jobs:
       - name: Test and build debug APK
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain ${{ matrix.trace-arg }}
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+      - name: Rename APK with variant suffix
+        run: |
+          set -euo pipefail
+          SRC=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          DST="app/build/outputs/apk/debug/app-debug${{ matrix.apk-suffix }}.apk"
+          # default 变体 suffix 为空时 SRC == DST,mv 同名文件会失败,跳过即可
+          if [ "$SRC" != "$DST" ]; then
+            mv "$SRC" "$DST"
+          fi
+          echo "APK_PATH=$DST" >> "$GITHUB_ENV"
+
+      - name: Upload debug APK (artifact)
+        uses: actions/upload-artifact@v6
         with:
-          name: hyperglow-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: hyperglow-debug-${{ matrix.variant }}
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
+
+      - name: Publish debug APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="debug-${GITHUB_SHA::7}"
+          # 从本次 commit 生成 release 简介(标题行 + 正文,若为空则给占位说明)
+          COMMIT_MSG=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" \
+            --jq '.commit.message' 2>/dev/null || true)
+          NOTES="Automated debug build from commit \`${GITHUB_SHA}\`.
+          ## 本次变更
+          \`\`\`
+          ${COMMIT_MSG:-（无 commit message，仅触发构建）}
+          \`\`\`
+          ## 包含两个变体
+          - app-debug.apk: 诊断日志开关可控(默认仅 w/e 级错误日志)
+          - app-debug-notrace.apk: 编译时硬关闭 trace(即使开诊断日志开关也不输出 i 级日志)
+          This is an unverified debug build for testing. Not for production use.
+          详见 commit 历史: https://github.com/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}"
+          # 若 release 已存在(default job 先创建),则追加 asset;否则创建新 release
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH" \
+              --target "$GITHUB_SHA" \
+              --title "HyperGlow debug ${GITHUB_SHA::7}" \
+              --notes "$NOTES" \
+              --prerelease
+          fi

@@ -147,6 +147,8 @@ data class LyricProducerState(
     val layoutGroups: List<LyricLayoutGroup> = emptyList(),
     val hasTimedLyrics: Boolean = false,
     val nextLineStartMs: Long? = null,
+    /** Text of the lyric line that follows the active line (blank when none). */
+    val nextLine: String = "",
     val staleAfterMs: Long = STALE_AFTER_MS
 ) {
     companion object {

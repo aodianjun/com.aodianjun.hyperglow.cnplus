@@ -76,6 +76,39 @@ class LyriconLyricProducer(
     @Volatile private var cachedWords: List<LyricWord>? = null
     @Volatile private var renderModesSnapshot: ProducerRenderModes = defaultRenderModes()
 
+    // --- Position extrapolation state ---
+    // When the player process is frozen by MIUI screen-off, the shared-memory position stops
+    // updating but onPositionChanged keeps firing at ~60 Hz with the same stalled value. To keep
+    // lyrics advancing, we extrapolate: currentPositionMs = lastRealPosition + elapsed wall-clock.
+    @Volatile private var lastRealPositionMs: Long = 0L
+    @Volatile private var lastRealPositionClockMs: Long = -1L
+    @Volatile private var extrapolating: Boolean = false
+
+    // --- Stale detection ---
+    // If no real position update arrives for STALE_THRESHOLD_MS, the shared-memory writer
+    // may be completely dead (not just stalled). Log a warning so the arbiter can consider
+    // falling back to another producer.
+    @Volatile private var lastRealPositionUpdateMs: Long = -1L
+
+    // --- Residual position rejection (song change) ---
+    // After onSongChanged, the shared memory may still hold the previous song's position for
+    // ~30s until the player writes the new song's progress. Without filtering, the first
+    // onPositionChanged with the stale value overwrites our reset (stale != 0 → "resumed" branch).
+    // We reject any position that exactly matches the previous song's last position, within a
+    // time window after song change. Once a different (real) position arrives, filtering stops.
+    @Volatile private var previousSongLastPositionMs: Long = -1L
+    @Volatile private var songChangeClockMs: Long = 0L
+
+    // --- Seek residual position rejection ---
+    // After onSeekTo, the shared memory may still return the pre-seek position for a short
+    // window until the player writes the new progress. Without filtering, that stale value
+    // (old != seek target) is accepted by the "resumed" branch and undoes the seek target,
+    // so the active line snaps back to the old position. We reject any position that exactly
+    // matches the pre-seek position within a window after the seek. Once a different (real)
+    // position arrives, filtering stops.
+    @Volatile private var seekRejectPositionMs: Long = -1L
+    @Volatile private var seekClockMs: Long = 0L
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
@@ -113,6 +146,15 @@ class LyriconLyricProducer(
                 navigator = null
                 currentLineIndex = -1
                 cachedWords = null
+                currentPositionMs = 0L
+                lastRealPositionMs = 0L
+                lastRealPositionClockMs = clock()
+                lastRealPositionUpdateMs = -1L
+                extrapolating = false
+                previousSongLastPositionMs = -1L
+                songChangeClockMs = 0L
+                seekRejectPositionMs = -1L
+                seekClockMs = 0L
                 mutableState.value = null
             }
         }
@@ -124,6 +166,15 @@ class LyriconLyricProducer(
                 navigator = null
                 currentLineIndex = -1
                 cachedWords = null
+                currentPositionMs = 0L
+                lastRealPositionMs = 0L
+                lastRealPositionClockMs = clock()
+                lastRealPositionUpdateMs = -1L
+                extrapolating = false
+                previousSongLastPositionMs = -1L
+                songChangeClockMs = 0L
+                seekRejectPositionMs = -1L
+                seekClockMs = 0L
                 mutableState.value = null
                 return
             }
@@ -145,8 +196,20 @@ class LyriconLyricProducer(
             }
             currentLineIndex = -1
             cachedWords = null
+            // Reset position tracking for the new song. The shared memory may still hold the
+            // previous song's position until the player writes the new one, which caused the
+            // active line to jump to a stale index (e.g. idx=64 on song change).
+            //
+            // Capture the previous song's last position so onPositionChanged can reject the
+            // residual value (it will keep arriving at ~60 Hz until the player writes new progress).
+            // Enable extrapolation from 0 so lyrics advance during the write gap if playing.
+            previousSongLastPositionMs = lastRealPositionMs
+            songChangeClockMs = clock()
+            currentPositionMs = 0L
+            lastRealPositionMs = 0L
+            lastRealPositionClockMs = clock()
+            extrapolating = false
             refreshRenderModes()
-            // Emit initial state at the last known position (will be refined by onPositionChanged).
             emit()
         }
 
@@ -158,6 +221,11 @@ class LyriconLyricProducer(
         override fun onPlaybackStateChanged(isPlaying: Boolean) {
             AppLog.i("LyriconLyricProducer", "onPlaybackStateChanged: playing=$isPlaying")
             isPlayingState = isPlaying
+            // When resuming playback after a pause, reset the extrapolation clock so we don't
+            // jump forward by the entire pause duration on the next stalled position callback.
+            if (isPlaying && lastRealPositionClockMs >= 0L) {
+                lastRealPositionClockMs = clock()
+            }
             // Re-emit so the engine sees the new playing/speed without waiting for next position.
             emit()
         }
@@ -165,13 +233,147 @@ class LyriconLyricProducer(
         override fun onPositionChanged(position: Long) {
             // High-frequency (~60 Hz) callback on Dispatchers.Default. This IS the SharedMemory
             // position, delivered by the SDK's internal poller. Compute the active line and emit.
-            currentPositionMs = position
+            val now = clock()
+            // Reject residual values from the previous song: after onSongChanged, the shared
+            // memory may keep returning the old position until the player writes new progress.
+            // The residual matches the previous song's last position exactly (same bytes in memory).
+            val isResidual = previousSongLastPositionMs >= 0L &&
+                (now - songChangeClockMs) < RESIDUAL_REJECTION_WINDOW_MS &&
+                position == previousSongLastPositionMs
+            if (isResidual) {
+                // Ignore the stale value; extrapolate from the last real position regardless of
+                // isPlayingState. The playing flag is unreliable (MediaSession jitter between
+                // PLAYING↔BUFFERING can leave it stuck at false), and the real position clock
+                // is the only trustworthy signal. When the player is truly paused the shared
+                // memory position is frozen and the extrapolated position drifts harmlessly
+                // (the line stays the same within a typical pause), corrected on resume.
+                if (lastRealPositionClockMs >= 0L) {
+                    val elapsed = now - lastRealPositionClockMs
+                    currentPositionMs = lastRealPositionMs + elapsed
+                    if (!extrapolating) {
+                        extrapolating = true
+                        AppLog.i(
+                            "LyriconLyricProducer",
+                            "residual position rejected ($position ms matches previous song); " +
+                                "extrapolating from ${lastRealPositionMs}ms -> ${currentPositionMs}ms"
+                        )
+                    }
+                }
+                recomputeAndEmit()
+                return
+            }
+            // Reject the pre-seek stale value that lingers right after a seek. The old value
+            // (still in shared memory) != the seek target, so without this it would be accepted
+            // by the "resumed" branch below and snap the active line back to the old position.
+            val isSeekResidual = seekRejectPositionMs >= 0L &&
+                (now - seekClockMs) < SEEK_RESIDUAL_REJECTION_WINDOW_MS &&
+                position == seekRejectPositionMs
+            if (isSeekResidual) {
+                if (lastRealPositionClockMs >= 0L) {
+                    val elapsed = now - lastRealPositionClockMs
+                    currentPositionMs = lastRealPositionMs + elapsed
+                    if (!extrapolating) {
+                        extrapolating = true
+                        AppLog.i(
+                            "LyriconLyricProducer",
+                            "seek residual rejected ($position ms matches pre-seek); " +
+                                "extrapolating from ${lastRealPositionMs}ms -> ${currentPositionMs}ms"
+                        )
+                    }
+                }
+                recomputeAndEmit()
+                return
+            }
+            if (position != lastRealPositionMs) {
+                // Real position update from shared memory.
+                // Accept wrap-around: when the song loops (single-track repeat), the shared
+                // memory position resets to 0 while our extrapolated position may be at/beyond
+                // duration. Treat a significantly lower position as a wrap-around rather than
+                // rejecting it.
+                lastRealPositionMs = position
+                lastRealPositionClockMs = now
+                lastRealPositionUpdateMs = now
+                currentPositionMs = position
+                // A different value means the player has started writing the new song's progress.
+                // Disable residual filtering — subsequent positions are from the new song.
+                previousSongLastPositionMs = -1L
+                // A real (different) position means the player has written the post-seek value;
+                // stop rejecting the pre-seek position.
+                seekRejectPositionMs = -1L
+                if (extrapolating) {
+                    extrapolating = false
+                    AppLog.i(
+                        "LyriconLyricProducer",
+                        "position resumed: pos=${position}ms (extrapolation stopped)"
+                    )
+                }
+            } else if (lastRealPositionClockMs >= 0L) {
+                // Position stalled (shared-memory writer frozen by MIUI screen-off). Extrapolate
+                // from the last real position using wall-clock elapsed time. This keeps lyrics
+                // advancing during AOD when the player process is frozen.
+                //
+                // Un-gated from isPlayingState: MediaSession jitter between PLAYING↔BUFFERING
+                // can leave the flag stuck at false while the song is actually playing, causing
+                // the lyrics to freeze permanently. The real position clock is the authoritative
+                // signal. When the player is truly paused, the shared memory position is frozen
+                // and the extrapolated drift is corrected on resume.
+                //
+                // Un-capped from duration: when a song loops (single-track repeat), the shared
+                // memory position resets to 0 but our extrapolation would be capped at duration,
+                // freezing the line at the end. Letting it exceed allows the real position to
+                // correct it when the loop restarts.
+                val elapsed = now - lastRealPositionClockMs
+                currentPositionMs = lastRealPositionMs + elapsed
+                val duration = currentSong?.duration ?: 0L
+                // Stale detection: if we haven't seen a real position update for too long, the
+                // shared-memory writer may be completely dead (not just screen-off frozen).
+                // Log a warning so the arbiter can consider falling back to another producer.
+                if (lastRealPositionUpdateMs >= 0L &&
+                    now - lastRealPositionUpdateMs > STALE_POSITION_THRESHOLD_MS
+                ) {
+                    if (lastRealPositionUpdateMs != Long.MAX_VALUE) {
+                        lastRealPositionUpdateMs = Long.MAX_VALUE // one-shot log
+                        val staleSec = (now - lastRealPositionClockMs) / 1000
+                        AppLog.w(
+                            "LyriconLyricProducer",
+                            "position stale for ${staleSec}s (last real=${lastRealPositionMs}ms " +
+                                "extrapolated=${currentPositionMs}ms duration=${duration}ms)" +
+                                if (duration > 0L && currentPositionMs > duration) {
+                                    " — song may have looped"
+                                } else {
+                                    " — shared-memory writer may be dead"
+                                }
+                        )
+                    }
+                }
+                if (!extrapolating) {
+                    extrapolating = true
+                    AppLog.i(
+                        "LyriconLyricProducer",
+                        "position stalled, extrapolating: base=${lastRealPositionMs}ms " +
+                            "elapsed=${elapsed}ms -> ${currentPositionMs}ms"
+                    )
+                }
+            }
             recomputeAndEmit()
         }
 
         override fun onSeekTo(position: Long) {
-            AppLog.i("LyriconLyricProducer", "onSeekTo: pos=${position}ms")
+            AppLog.i("LyriconLyricProducer", "onSeekTo: pos=${position}ms old=${lastRealPositionMs}ms")
+            val now = clock()
+            // Record the pre-seek position so onPositionChanged can reject the stale shared-memory
+            // value that lingers right after the seek (old != seek target would otherwise be
+            // accepted as a "real" update and snap the active line back to the old position).
+            seekRejectPositionMs = lastRealPositionMs
+            seekClockMs = now
+            lastRealPositionMs = position
+            lastRealPositionClockMs = now
+            lastRealPositionUpdateMs = now
             currentPositionMs = position
+            extrapolating = false
+            // A seek is a deliberate position change — clear residual filtering so the new
+            // position is accepted even if it coincidentally matches the previous song's last.
+            previousSongLastPositionMs = -1L
             // Seek invalidates the navigator's sequential cache (playback jumped).
             navigator?.resetCache()
             currentLineIndex = -1
@@ -250,7 +452,23 @@ class LyriconLyricProducer(
         val nav = navigator ?: return emit() // no lyrics yet; emit metadata-only state
         val song = currentSong ?: return
         val pos = currentPositionMs
-        val idx = nav.findTargetIndex(pos)
+
+        // 歌曲边界回绕:息屏后网易云停止写位置,外推会越过歌曲时长继续累加。此时歌曲可能已
+        // 播完/重播(单曲循环)。若仍用 findTargetIndex(pos) 会一直返回旧歌最后一行,导致 AOD
+        // 停在末尾歌词。这里用模运算把位置回绕到时长内(n 次循环),立即选中重播后的正确行,
+        // 无需等亮屏 writer 恢复。对单曲循环这是严格正确的;对切到新歌(HyperGlow 无新歌数据)
+        // 仍依赖 onSongChanged 或亮屏后的真实位置校正。
+        val duration = song.duration
+        if (extrapolating && duration > 0L && pos >= duration) {
+            currentPositionMs = pos % duration
+            AppLog.i(
+                "LyriconLyricProducer",
+                "extrapolation wrapped past song end: ${pos}ms -> ${currentPositionMs}ms " +
+                    "(duration=${duration}ms)"
+            )
+        }
+
+        val idx = nav.findTargetIndex(currentPositionMs)
         if (idx < 0) {
             // Before the first line: no current line yet.
             if (currentLineIndex != -1) {
@@ -300,6 +518,11 @@ class LyriconLyricProducer(
             ?.map { it.begin }
             ?.filter { it > currentPositionMs }
             ?.minOrNull()
+        val nextLineText = lyrics
+            ?.asSequence()
+            ?.firstOrNull { it.begin > currentPositionMs }
+            ?.text
+            .orEmpty()
         sequence++
         mutableState.value = LyricProducerState(
             producerId = PRODUCER_ID,
@@ -331,7 +554,8 @@ class LyriconLyricProducer(
             ruby = emptyList(),
             layoutGroups = emptyList(),
             hasTimedLyrics = hasTimedLyrics,
-            nextLineStartMs = nextLineStartMs
+            nextLineStartMs = nextLineStartMs,
+            nextLine = nextLineText
         )
     }
 
@@ -383,6 +607,28 @@ class LyriconLyricProducer(
 
     companion object {
         private const val PRODUCER_ID = "lyricon"
+
+        /**
+         * Window after [onSongChanged] during which incoming positions that exactly match the
+         * previous song's last position are rejected as residual shared-memory values. Observed
+         * gap on NetEase can reach ~36s, so 60s gives ample margin while ensuring real seeks to
+         * the same position are eventually honored.
+         */
+        private const val RESIDUAL_REJECTION_WINDOW_MS = 60_000L
+
+        /**
+         * Window after [onSeekTo] during which incoming positions that exactly match the pre-seek
+         * position are rejected as lingering shared-memory values. Short (the player writes the
+         * post-seek position within a second or two); generous enough to cover the write gap.
+         */
+        private const val SEEK_RESIDUAL_REJECTION_WINDOW_MS = 3_000L
+
+        /**
+         * If no real position update arrives from shared memory for this duration, the writer
+         * is considered completely dead (not just screen-off frozen). A one-shot warning is
+         * logged so the arbiter can consider falling back to another producer.
+         */
+        private const val STALE_POSITION_THRESHOLD_MS = 15_000L
 
         /** Default render modes when customization is unavailable; matches SpicyBridgeState defaults. */
         private fun defaultRenderModes() = ProducerRenderModes(

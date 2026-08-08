@@ -11,6 +11,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     original = original,
     romanized = romanized,
     translated = translated,
+    nextLine = nextLine,
     alignedRight = alignedRight,
     lineLevelSync = lineLevelSync,
     lineStartMs = lineStartMs,
@@ -62,5 +63,6 @@ internal fun LyricSnapshot.toAodCanvasContent(
     metadataAnchor = if ((profile?.metadataAnchor ?: metadataAnchor) == "bottom") "bottom" else "top",
     metadataSizePercent = profile?.metadataSizePercent ?: 100,
     adaptiveSectioning = profile?.adaptiveSectioning ?: adaptiveSectioning,
-    palette = profile?.palette.orEmpty()
+    palette = profile?.palette.orEmpty(),
+    showNextLine = profile?.showNextLine ?: false
 )

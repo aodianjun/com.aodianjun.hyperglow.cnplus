@@ -34,7 +34,9 @@ object SceneCompiler {
                 collisionPolicy = lockscreenSource.collisionPolicy,
                 widgets = lockscreenSource.widgets,
                 metadataVisible = lockscreenSource.metadataVisible,
-                backgroundStyle = lockscreenSource.backgroundStyle
+                backgroundStyle = lockscreenSource.backgroundStyle,
+                cardAlpha = lockscreenSource.cardAlpha,
+                cardColor = lockscreenSource.cardColor
             ) ?: lockscreenSource
         )
         val aod = compileProfile(SURFACE_AOD, aodSource)
@@ -145,6 +147,7 @@ object SceneCompiler {
             secondaryMode = profile.secondaryMode.takeIf { it in SECONDARY_MODES } ?: "Main only",
             secondaryTextBright = profile.secondaryTextBright,
             lyricLineLimit = normalizeLyricLineLimit(profile.lyricLineLimit),
+            showNextLine = profile.showNextLine,
             metadataVisible = profile.metadataVisible &&
                 supportedWidgets.any { it.type == "metadata" },
             metadataAnchor = if (profile.metadataAnchor == "bottom") "bottom" else "top",
@@ -168,7 +171,9 @@ object SceneCompiler {
                 aod -> "none"
                 profile.backgroundStyle == "none" -> "none"
                 else -> "card"
-            }
+            },
+            cardAlpha = normalizeCardAlpha(profile.cardAlpha),
+            cardColor = normalizeCardColor(profile.cardColor)
         )
     }
 

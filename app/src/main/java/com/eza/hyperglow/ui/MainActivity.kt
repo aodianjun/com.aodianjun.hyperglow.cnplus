@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.LocaleList
 import android.widget.Toast
@@ -43,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -50,6 +52,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.DiagnosticLoggingPreferences
@@ -57,6 +60,7 @@ import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.setDiagnosticLogging
 import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.launch
+import com.eza.hyperglow.aod.AodLyricBridgeService
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
@@ -65,8 +69,13 @@ import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
+import com.eza.hyperglow.producer.LyricProducerState
+import com.eza.hyperglow.producer.LyricProducers
+import com.eza.hyperglow.producer.LyricSource
+import com.eza.hyperglow.producer.ProducerConnection
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.capability.XiaomiCapability
+import com.eza.hyperglow.root.capability.XiaomiProfileState
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.currentProcessUserId
@@ -93,6 +102,7 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
+import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -105,6 +115,14 @@ class MainActivity : ComponentActivity() {
         window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
+        // 从前台上下文启动 AodLyricBridgeService。MIUI 禁止从后台启动前台服务,
+        // HyperGlowApplication.onCreate 的 best-effort 尝试在息屏/后台时会失败;
+        // Activity 处于前台时补启,确保服务进入前台状态以对抗 GreezeManager 冻结。
+        runCatching {
+            startForegroundService(Intent(this, AodLyricBridgeService::class.java))
+        }.onFailure { error ->
+            AppLog.w("MainActivity", "startForegroundService denied: ${error.message}")
+        }
         setContent {
             val controller = remember { ThemeController(colorSchemeMode = ColorSchemeMode.System) }
             MiuixTheme(controller = controller) {
@@ -187,6 +205,7 @@ private fun HomeScreen(
     var showPauseLingerDialog by remember { mutableStateOf(false) }
     var showKeepAwakeDurationDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
+    var showSourceDialog by remember { mutableStateOf(false) }
     val selectedTab = SettingsTab.entries.firstOrNull { it.name == selectedTabName }
         ?: SettingsTab.OVERVIEW
     val selectedTabIndex = SettingsTab.entries.indexOf(selectedTab)
@@ -213,18 +232,25 @@ private fun HomeScreen(
     }
     val initialConfig = remember { AodRenderPreferences.read(context) }
     val initialDocument = remember { CustomizationRepository.loadDocument(context) }
-    val supportState = capabilityReport.supportState()
-    val aodSupported = capabilityReport.has(XiaomiCapability.AOD_SURFACE)
-    val lockscreenSupported = capabilityReport.has(XiaomiCapability.LOCKSCREEN_HOST) &&
-        capabilityReport.has(XiaomiCapability.LOCKSCREEN_GEOMETRY)
+    var experimentalMode by remember { mutableStateOf(initialConfig.experimentalMode) }
+    // App-side overlay: hook 端上报的 report 保持原样,UI 把用户开关叠加到
+    // experimentalModeEnabled 上,据此推导 supportState / has()。开关切换即时生效,
+    // 无需等 hook 重新上报。
+    val effectiveReport = capabilityReport.copy(experimentalModeEnabled = experimentalMode)
+    val supportState = effectiveReport.supportState()
+    val aodSupported = effectiveReport.has(XiaomiCapability.AOD_SURFACE)
+    val lockscreenSupported = effectiveReport.has(XiaomiCapability.LOCKSCREEN_HOST) &&
+        effectiveReport.has(XiaomiCapability.LOCKSCREEN_GEOMETRY)
     val runtimeProfileAvailable = supportState == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
         supportState == XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ||
         supportState == XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
-    val positionFollowingSupported = capabilityReport.has(XiaomiCapability.AOD_POSITION_UPDATES)
-    val raiseToAodSupported = capabilityReport.has(XiaomiCapability.RAISE_TO_AOD)
-    val lockscreenEditorGestureSupported = capabilityReport.has(
+    val positionFollowingSupported = effectiveReport.has(XiaomiCapability.AOD_POSITION_UPDATES)
+    val raiseToAodSupported = effectiveReport.has(XiaomiCapability.RAISE_TO_AOD)
+    val lockscreenEditorGestureSupported = effectiveReport.has(
         XiaomiCapability.LOCKSCREEN_EDITOR_GESTURE
     )
+    val experimentalEligible = effectiveReport.profileState ==
+        XiaomiProfileState.EXPERIMENTAL_ELIGIBLE
     var aodEnabled by remember {
         mutableStateOf(
             initialDocument.profiles[SceneCompiler.SURFACE_AOD]?.enabled
@@ -294,6 +320,11 @@ private fun HomeScreen(
             ) {
                 when (SettingsTab.entries[page]) {
                 SettingsTab.OVERVIEW -> {
+                    item { SmallTitle(text = stringResource(R.string.section_live_status)) }
+                    item { LiveStatusSection() }
+                    item { SmallTitle(text = stringResource(R.string.section_lyric_source)) }
+                    item { LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true }) }
+                    item { LyriconSetupHint() }
                     item { SmallTitle(text = stringResource(R.string.section_runtime_status)) }
                     item {
                         SettingsCard {
@@ -347,17 +378,34 @@ private fun HomeScreen(
                                 } else {
                                     stringResource(R.string.action_report_problem)
                                 },
-                                summary = if (aodSupported || lockscreenSupported) {
-                                    stringResource(R.string.summary_report_supported)
-                                } else {
-                                    stringResource(R.string.summary_report_unsupported)
-                                },
                                 onClick = onOpenDiagnostics
                             )
                             ArrowPreference(
                                 title = stringResource(R.string.action_restart_systemui),
                                 onClick = { showRestartDialog = true }
                             )
+                            if (experimentalEligible) {
+                                SwitchPreference(
+                                    experimentalMode,
+                                    { enabled ->
+                                        if (updateExperimentalMode(context, enabled)) {
+                                            experimentalMode = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_experimental_mode),
+                                    summary = if (experimentalMode) {
+                                        stringResource(R.string.summary_experimental_mode_on)
+                                    } else {
+                                        stringResource(R.string.summary_experimental_mode)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_permission_status)) }
+                    item {
+                        SettingsCard {
+                            PermissionStatusSection()
                         }
                     }
                     item { SmallTitle(text = stringResource(R.string.section_spotify_integration)) }
@@ -432,7 +480,7 @@ private fun HomeScreen(
                                 },
                                 stringResource(R.string.setting_show_aod),
                                 summary = if (aodSupported) {
-                                    stringResource(R.string.summary_show_aod_supported)
+                                    null
                                 } else {
                                     stringResource(R.string.summary_show_aod_unsupported)
                                 },
@@ -460,7 +508,7 @@ private fun HomeScreen(
                                 },
                                 stringResource(R.string.setting_show_lockscreen),
                                 summary = if (lockscreenSupported) {
-                                    stringResource(R.string.summary_show_lockscreen_supported)
+                                    null
                                 } else {
                                     stringResource(R.string.summary_unavailable_systemui_version)
                                 },
@@ -526,7 +574,6 @@ private fun HomeScreen(
                                     keepAwakeUnsynced = enabled
                                 },
                                 stringResource(R.string.setting_keep_aod_unsynced),
-                                summary = stringResource(R.string.summary_keep_aod_unsynced),
                                 enabled = aodSupported && keepAwake
                             )
                             ArrowPreference(
@@ -642,6 +689,10 @@ private fun HomeScreen(
         }
     }
 
+    if (showSourceDialog) {
+        LyricSourcePickerDialog(onDismiss = { showSourceDialog = false })
+    }
+
     if (showRestartDialog) {
         WindowDialog(
             title = stringResource(R.string.dialog_restart_systemui_title),
@@ -673,8 +724,6 @@ private fun HomeScreen(
     if (showBurnInPatternDialog) {
         WindowDialog(
             title = stringResource(R.string.setting_aod_clock_image),
-            summary =
-                stringResource(R.string.dialog_aod_clock_summary),
             show = true,
             onDismissRequest = { showBurnInPatternDialog = false }
         ) {
@@ -760,7 +809,6 @@ private fun HomeScreen(
     if (showBurnInIntervalDialog) {
         WindowDialog(
             title = stringResource(R.string.setting_movement_interval),
-            summary = stringResource(R.string.dialog_movement_interval_summary),
             show = true,
             onDismissRequest = { showBurnInIntervalDialog = false }
         ) {
@@ -786,6 +834,7 @@ internal fun SettingsCard(content: @Composable () -> Unit) {
     Card(
         modifier = Modifier
             .padding(horizontal = 12.dp)
+            .padding(bottom = 8.dp)
             .fillMaxWidth()
     ) {
         Column { content() }
@@ -1099,6 +1148,16 @@ private fun LyricLayoutScreen(
                             selectedProfile.widthFraction.toString()
                         ) { value -> updateSelected { it.copy(widthFraction = value.toFloat()) } }
                     }
+                    AodChoiceRow(
+                        AodChoiceKind.HEIGHT,
+                        selectedProfile.maxHeightFraction.toString()
+                    ) {
+                        openChoice(
+                            AodChoiceKind.HEIGHT,
+                            heightChoices(editorState.selectedSurface),
+                            selectedProfile.maxHeightFraction.toString()
+                        ) { value -> updateSelected { it.copy(maxHeightFraction = value.toFloat()) } }
+                    }
                     if (selectedProfile.anchor == "custom_vertical_bias") {
                         AodChoiceRow(AodChoiceKind.VERTICAL_POSITION, selectedProfile.verticalBias.toString()) {
                             openChoice(
@@ -1138,15 +1197,13 @@ private fun LyricLayoutScreen(
                         SwitchPreference(
                             selectedProfile.secondaryTextBright,
                             { bright -> updateSelected { it.copy(secondaryTextBright = bright) } },
-                            stringResource(R.string.setting_bright_secondary_text),
-                            summary = stringResource(R.string.summary_bright_secondary_text)
+                            stringResource(R.string.setting_bright_secondary_text)
                         )
                     }
                     SwitchPreference(
                         selectedProfile.rubyVisible,
                         { visible -> updateSelected { it.copy(rubyVisible = visible) } },
-                        stringResource(R.string.setting_show_furigana),
-                        summary = stringResource(R.string.summary_show_furigana)
+                        stringResource(R.string.setting_show_furigana)
                     )
                     AodChoiceRow(AodChoiceKind.LONG_LINES, selectedProfile.overflow) {
                         openChoice(
@@ -1169,8 +1226,12 @@ private fun LyricLayoutScreen(
                     SwitchPreference(
                         selectedProfile.adaptiveSectioning,
                         { enabled -> updateSelected { it.copy(adaptiveSectioning = enabled) } },
-                        stringResource(R.string.setting_keep_phrases_together),
-                        summary = stringResource(R.string.summary_keep_phrases_together)
+                        stringResource(R.string.setting_keep_phrases_together)
+                    )
+                    SwitchPreference(
+                        selectedProfile.showNextLine,
+                        { enabled -> updateSelected { it.copy(showNextLine = enabled) } },
+                        stringResource(R.string.setting_show_next_line)
                     )
                     SwitchPreference(
                         selectedProfile.metadataVisible,
@@ -1212,6 +1273,13 @@ private fun LyricLayoutScreen(
                             listOf("Regular", "Medium", "Bold"),
                             selectedProfile.weight
                         ) { value -> updateSelected { it.copy(weight = value) } }
+                    }
+                    AodChoiceRow(AodChoiceKind.TEXT_SIZE, selectedProfile.textSize) {
+                        openChoice(
+                            AodChoiceKind.TEXT_SIZE,
+                            listOf("small", "normal", "large", "xlarge", "custom"),
+                            selectedProfile.textSize
+                        ) { value -> updateSelected { it.copy(textSize = value) } }
                     }
                     TextSizePreference(
                         title = stringResource(R.string.setting_lyric_size),
@@ -1303,10 +1371,30 @@ private fun LyricLayoutScreen(
                                     it.copy(backgroundStyle = if (enabled) "card" else "none")
                                 }
                             },
-                            stringResource(R.string.setting_show_lyric_card),
-                            summary =
-                                stringResource(R.string.summary_show_lyric_card)
+                            stringResource(R.string.setting_show_lyric_card)
                         )
+                        if (selectedProfile.backgroundStyle == "card") {
+                            AodChoiceRow(AodChoiceKind.CARD_COLOR, selectedProfile.cardColor) {
+                                openChoice(
+                                    AodChoiceKind.CARD_COLOR,
+                                    com.eza.hyperglow.customization.CARD_COLOR_VALUES.toList(),
+                                    selectedProfile.cardColor
+                                ) { value -> updateSelected { it.copy(cardColor = value) } }
+                            }
+                            SliderPreference(
+                                value = selectedProfile.cardAlpha.toFloat(),
+                                onValueChange = { value ->
+                                    updateSelected {
+                                        it.copy(cardAlpha = value.roundToInt())
+                                    }
+                                },
+                                title = stringResource(R.string.setting_card_transparency),
+                                summary = stringResource(R.string.summary_card_transparency),
+                                valueText = "${selectedProfile.cardAlpha}%",
+                                valueRange = 0f..100f,
+                                steps = 19
+                            )
+                        }
                         val progressEnabled = selectedProfile.widgets.any { it.type == "media_progress" }
                         SwitchPreference(
                             progressEnabled,
@@ -1560,6 +1648,18 @@ private fun effectiveTextSizePercent(profile: SurfaceProfile): Int = when (profi
     else -> 100
 }
 
+/**
+ * Discrete lyric-block height choices (as `maxHeightFraction` fractions). AOD clamps to 0.5,
+ * lockscreen to 0.8 (see [com.eza.hyperglow.customization.SceneCompiler]), so the offered
+ * ranges differ per surface.
+ */
+private fun heightChoices(surface: String): List<String> =
+    if (surface == SceneCompiler.SURFACE_AOD) {
+        listOf("0.3", "0.4", "0.5")
+    } else {
+        listOf("0.4", "0.5", "0.6", "0.7")
+    }
+
 private fun choiceDisplayLabel(
     context: android.content.Context,
     kind: AodChoiceKind,
@@ -1574,6 +1674,8 @@ private fun choiceDisplayLabel(
         else -> R.string.option_below_clock
     })
     AodChoiceKind.WIDTH ->
+        value.toFloatOrNull()?.let { "${(it * 100).roundToInt()}%" } ?: value
+    AodChoiceKind.HEIGHT ->
         value.toFloatOrNull()?.let { "${(it * 100).roundToInt()}%" } ?: value
     AodChoiceKind.VERTICAL_POSITION -> context.getString(when (value) {
         "0.25" -> R.string.option_upper
@@ -1638,17 +1740,32 @@ private fun choiceDisplayLabel(
         "Bold" -> R.string.option_bold
         else -> R.string.option_medium
     })
+    AodChoiceKind.TEXT_SIZE -> context.getString(when (value) {
+        "small" -> R.string.option_small
+        "large" -> R.string.option_large
+        "xlarge" -> R.string.option_xlarge
+        "custom" -> R.string.option_custom
+        else -> R.string.option_normal
+    })
     AodChoiceKind.WORD_ANIMATION -> context.getString(
         if (value == "Minimal") R.string.option_minimal else R.string.option_gradient
     )
     AodChoiceKind.GLOW -> context.getString(
         if (value == "On") R.string.option_on else R.string.option_off
     )
+    AodChoiceKind.CARD_COLOR -> context.getString(when (value) {
+        "white" -> R.string.option_card_color_white
+        "dark_gray" -> R.string.option_card_color_dark_gray
+        "accent" -> R.string.option_card_color_accent
+        "blur" -> R.string.option_card_color_blur
+        else -> R.string.option_card_color_black
+    })
 }
 
 private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     POSITION(R.string.choice_position),
     WIDTH(R.string.choice_width),
+    HEIGHT(R.string.choice_height),
     VERTICAL_POSITION(R.string.choice_vertical_position),
     OVERLAP(R.string.choice_overlap_handling),
     ALIGNMENT(R.string.choice_alignment),
@@ -1657,12 +1774,14 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     LYRIC_LINES(R.string.choice_lyric_lines),
     SONG_INFO_POSITION(R.string.choice_song_info_position),
     TEXT_WEIGHT(R.string.choice_text_weight),
+    TEXT_SIZE(R.string.choice_text_size),
     FONT(R.string.choice_font),
     WORD_ANIMATION(R.string.choice_word_animation),
     GLOW(R.string.choice_glow),
     LINE_PROGRESS(R.string.choice_line_progress_effect),
     TEXT_BRIGHTNESS(R.string.choice_text_brightness),
-    TRANSITION_SPEED(R.string.choice_scene_transition_speed)
+    TRANSITION_SPEED(R.string.choice_scene_transition_speed),
+    CARD_COLOR(R.string.choice_card_color)
 }
 
 private data class AodChoice(
@@ -1787,10 +1906,23 @@ private fun updateLockscreenEditorLongPress(
     return true
 }
 
+private fun updateExperimentalMode(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.EXPERIMENTAL_MODE, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 private fun publishRuntimeConfiguration(context: android.content.Context) {
     AodStateBridge.publishConfiguration(
         RuntimeCustomization.loadCompiled(context),
-        currentProcessUserId()
+        currentProcessUserId(),
+        experimentalMode = AodRenderPreferences.read(context).experimentalMode
     )
 }
 
@@ -1816,3 +1948,195 @@ private fun updateDiagnosticLogging(
     context: android.content.Context,
     enabled: Boolean
 ): Boolean = setDiagnosticLogging(context, enabled)
+
+// --- Phase 3 UI: lyric source + live status + Lyricon setup hint ---
+
+/**
+ * Collects the arbiter's [active] state in a Compose-stable way. Returns null before the
+ * arbiter is started (e.g. in previews) — `collectAsState` is still invoked unconditionally
+ * so Compose's remember-slot invariants hold.
+ */
+@Composable
+private fun collectActiveState(): androidx.compose.runtime.State<LyricProducerState?> {
+    val arbiter = LyricProducers.arbiterOrNull()
+    val flow = remember(arbiter) {
+        arbiter?.active
+            ?: kotlinx.coroutines.flow.MutableStateFlow<LyricProducerState?>(null)
+    }
+    return flow.collectAsState()
+}
+
+@Composable
+private fun collectPreference(): androidx.compose.runtime.State<LyricSource> {
+    val arbiter = LyricProducers.arbiterOrNull()
+    val flow = remember(arbiter) {
+        arbiter?.preference
+            ?: kotlinx.coroutines.flow.MutableStateFlow(LyricSource.SPICY)
+    }
+    return flow.collectAsState()
+}
+
+@Composable
+private fun collectConnection(source: LyricSource): androidx.compose.runtime.State<ProducerConnection> {
+    val arbiter = LyricProducers.arbiterOrNull()
+    val flow = remember(arbiter, source) {
+        arbiter?.connection(source)
+            ?: kotlinx.coroutines.flow.MutableStateFlow(ProducerConnection.DISCONNECTED)
+    }
+    return flow.collectAsState()
+}
+
+/**
+ * Live status card: surfaces the track the active source is currently reporting, plus the
+ * projection state (showing / paused / idle), so the user can tell at a glance whether
+ * HyperGlow is actively projecting lyrics.
+ */
+@Composable
+private fun LiveStatusSection() {
+    val context = LocalContext.current
+    val activeState by collectActiveState()
+    val preference by collectPreference()
+    val active = activeState
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(R.string.label_now_playing),
+            summary = active?.let { nowPlayingSummary(context, it, preference) }
+                ?: context.getString(R.string.summary_no_track)
+        )
+        BasicComponent(
+            title = stringResource(R.string.label_projection_state),
+            summary = projectionStateSummary(context, active)
+        )
+    }
+}
+
+/**
+ * Lyric source card: shows the selected source and its connection state, with a tap target
+ * to switch between Spicy EX and Lyricon.
+ */
+@Composable
+private fun LyricSourceSection(onOpenSourceDialog: () -> Unit) {
+    val context = LocalContext.current
+    val preference by collectPreference()
+    val lyriconConnection by collectConnection(LyricSource.LYRICON)
+    val activeConnection = if (preference == LyricSource.LYRICON) lyriconConnection
+        else ProducerConnection.CONNECTED
+    SettingsCard {
+        ArrowPreference(
+            title = stringResource(R.string.label_active_source),
+            summary = context.getString(
+                R.string.summary_active_source,
+                lyricSourceLabel(context, preference),
+                connectionLabel(context, activeConnection, preference)
+            ),
+            onClick = onOpenSourceDialog
+        )
+    }
+}
+
+/**
+ * Conditional Lyricon setup hint: only rendered when the user picked Lyricon but it isn't
+ * connected (missing/ inactive Xposed module, or API too low). Hidden once connected or
+ * when Spicy is the active source.
+ */
+@Composable
+private fun LyriconSetupHint() {
+    val context = LocalContext.current
+    val preference by collectPreference()
+    val lyriconConnection by collectConnection(LyricSource.LYRICON)
+    if (preference != LyricSource.LYRICON) return
+    if (lyriconConnection == ProducerConnection.CONNECTED ||
+        lyriconConnection == ProducerConnection.RECONNECTED
+    ) return
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(R.string.title_lyricon_setup),
+            summary = stringResource(R.string.summary_lyricon_not_connected)
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_lyricon_guide),
+            onClick = { openExternalUrl(context, LYRICON_GUIDE_URL) }
+        )
+    }
+}
+
+@Composable
+private fun LyricSourcePickerDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val arbiter = LyricProducers.arbiterOrNull()
+    val current by collectPreference()
+    WindowDialog(
+        title = stringResource(R.string.section_lyric_source),
+        summary = stringResource(R.string.dialog_lyric_source_summary),
+        show = true,
+        onDismissRequest = onDismiss
+    ) {
+        Column {
+            LyricSource.entries.forEach { source ->
+                RadioButtonPreference(
+                    lyricSourceLabel(context, source),
+                    current == source,
+                    {
+                        arbiter?.setPreference(source, context)
+                        onDismiss()
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun lyricSourceLabel(context: android.content.Context, source: LyricSource): String =
+    context.getString(
+        when (source) {
+            LyricSource.SPICY -> R.string.lyric_source_spicy
+            LyricSource.LYRICON -> R.string.lyric_source_lyricon
+        }
+    )
+
+private fun connectionLabel(
+    context: android.content.Context,
+    connection: ProducerConnection,
+    source: LyricSource
+): String {
+    // Lyricon needs API >= 27 (O_MR1); below that the producer is a no-op.
+    if (source == LyricSource.LYRICON && Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+        return context.getString(R.string.source_status_unavailable_api)
+    }
+    return context.getString(
+        when (connection) {
+            ProducerConnection.CONNECTED -> R.string.source_status_connected
+            ProducerConnection.RECONNECTED -> R.string.source_status_reconnected
+            ProducerConnection.CONNECT_TIMEOUT -> R.string.source_status_connect_timeout
+            ProducerConnection.DISCONNECTED -> R.string.source_status_disconnected
+        }
+    )
+}
+
+private fun nowPlayingSummary(
+    context: android.content.Context,
+    state: LyricProducerState,
+    source: LyricSource
+): String {
+    val title = state.title.ifBlank { context.getString(R.string.summary_no_track) }
+    val artist = state.artist.trim()
+    return when {
+        artist.isBlank() -> "$title  ·  ${lyricSourceLabel(context, source)}"
+        else -> "$title · $artist  ·  ${lyricSourceLabel(context, source)}"
+    }
+}
+
+private fun projectionStateSummary(
+    context: android.content.Context,
+    active: LyricProducerState?
+): String {
+    if (active == null) return context.getString(R.string.projection_state_idle)
+    return when {
+        !active.playing -> context.getString(R.string.projection_state_paused)
+        active.line.isNotBlank() || active.hasTimedLyrics ->
+            context.getString(R.string.projection_state_active)
+        else -> context.getString(R.string.projection_state_idle)
+    }
+}
+
+private const val LYRICON_GUIDE_URL = "https://github.com/amarinne/hyperglow#lyricon-setup"

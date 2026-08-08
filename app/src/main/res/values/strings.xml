@@ -22,13 +22,40 @@
     <string name="label_aod_lyrics">AOD lyrics</string>
     <string name="label_lockscreen_lyrics">Lock screen lyrics</string>
     <string name="label_diagnostic_logging">Diagnostic logging</string>
-    <string name="summary_diagnostic_logging_available">Records detailed module events. This can reduce performance.</string>
+    <string name="summary_diagnostic_logging_available">Can reduce performance.</string>
     <string name="summary_diagnostic_logging_unavailable">This build does not include diagnostic logging.</string>
     <string name="action_send_compatibility_report">Send compatibility report</string>
     <string name="action_report_problem">Report a problem</string>
-    <string name="summary_report_supported">Capture filtered diagnostics or send compatibility metadata.</string>
-    <string name="summary_report_unsupported">Send a compatibility report for this unsupported profile.</string>
     <string name="action_restart_systemui">Restart System UI</string>
+    <string name="setting_experimental_mode">Experimental mode</string>
+    <string name="summary_experimental_mode">This System UI version is not verified, but the required symbols were detected. Enable to unlock AOD and lock screen configuration at your own risk — surface hooks may not behave correctly on unverified builds.</string>
+    <string name="summary_experimental_mode_on">Unverified profile unlocked via experimental mode. Surface behavior is not guaranteed.</string>
+
+    <string name="section_lyric_source">Lyrics source</string>
+    <string name="lyric_source_spicy">Spicy EX</string>
+    <string name="lyric_source_lyricon">Lyricon</string>
+    <string name="summary_lyric_source_spicy">In-process bridge bundled with HyperGlow. Always available.</string>
+    <string name="summary_lyric_source_lyricon">Uses the Lyricon Xposed module in SystemUI for callback-driven lyrics.</string>
+    <string name="label_active_source">Active source</string>
+    <string name="summary_active_source">%1$s · %2$s</string>
+    <string name="source_status_connected">Connected</string>
+    <string name="source_status_reconnected">Reconnecting</string>
+    <string name="source_status_disconnected">Disconnected</string>
+    <string name="source_status_connect_timeout">Connection timed out</string>
+    <string name="source_status_unavailable_api">Unavailable (requires Android 8.1+)</string>
+    <string name="dialog_lyric_source_summary">Pick which provider feeds lyrics to AOD and the lock screen. The other source is used as an automatic fallback.</string>
+
+    <string name="section_live_status">Live status</string>
+    <string name="label_now_playing">Now playing</string>
+    <string name="summary_no_track">No track from the active source yet.</string>
+    <string name="label_projection_state">Projection</string>
+    <string name="projection_state_active">Showing lyrics</string>
+    <string name="projection_state_idle">Idle</string>
+    <string name="projection_state_paused">Paused</string>
+
+    <string name="title_lyricon_setup">Finish Lyricon setup</string>
+    <string name="summary_lyricon_not_connected">Lyricon is selected but not connected. Make sure the Lyricon Xposed module is installed and active in SystemUI, then restart System UI.</string>
+    <string name="action_lyricon_guide">Lyricon setup guide</string>
 
     <string name="section_spotify_integration">Spotify integration</string>
     <string name="action_download_spicy_ex">Download Spicy EX</string>
@@ -38,10 +65,8 @@
 
     <string name="section_surfaces">Surfaces</string>
     <string name="setting_show_aod">Show on AOD</string>
-    <string name="summary_show_aod_supported">Show lyrics on the verified AOD surface.</string>
     <string name="summary_show_aod_unsupported">Configured value is preserved, but this profile cannot run AOD lyrics.</string>
     <string name="setting_show_lockscreen">Show on lock screen</string>
-    <string name="summary_show_lockscreen_supported">Show lyrics while the phone is locked.</string>
     <string name="summary_unavailable_systemui_version">Unavailable on this System UI version.</string>
 
     <string name="section_appearance">Appearance</string>
@@ -52,31 +77,28 @@
 
     <string name="section_aod_behavior">AOD behavior</string>
     <string name="setting_keep_aod_active">Keep AOD active</string>
-    <string name="summary_keep_aod_active">Keeps AOD on while Spotify plays timed lyrics. Uses more battery.</string>
+    <string name="summary_keep_aod_active">Uses more battery.</string>
     <string name="summary_unavailable_systemui_profile">Unavailable on this System UI profile.</string>
     <string name="setting_keep_aod_active_for">Keep AOD active for</string>
     <string name="setting_keep_aod_unsynced">Also keep AOD active without timed lyrics</string>
-    <string name="summary_keep_aod_unsynced">Applies during loading and to songs with no timed lyrics.</string>
     <string name="setting_aod_clock_image">AOD clock or image</string>
     <string name="summary_aod_placement_unsupported">This System UI version does not support coordinated AOD placement.</string>
     <string name="setting_movement_interval">Movement interval</string>
 
     <string name="section_lockscreen_behavior">Lock screen behavior</string>
     <string name="setting_keep_lockscreen_awake">Keep lock screen awake</string>
-    <string name="summary_keep_lockscreen_awake">Stops the screen from dimming while Spotify plays and lyrics are visible. Uses more battery.</string>
+    <string name="summary_keep_lockscreen_awake">Uses more battery.</string>
     <string name="setting_block_lockscreen_customization">Block lock screen customization</string>
     <string name="summary_block_lockscreen_customization">Stops the wallpaper editor and carousel preview from opening.</string>
     <string name="section_wake_gestures">Wake gestures</string>
     <string name="setting_raise_to_aod">Raise to show AOD</string>
-    <string name="summary_raise_to_aod">Requires HyperOS Raise to wake. Lifting the phone shows AOD instead of the lock screen.</string>
+    <string name="summary_raise_to_aod">Requires HyperOS Raise to wake.</string>
 
     <string name="dialog_restart_systemui_title">Restart System UI?</string>
-    <string name="dialog_restart_systemui_summary">System UI will restart. The screen, status bar, and AOD will briefly disappear. Root access is required.</string>
-    <string name="dialog_aod_clock_summary">Choose where it stays or how it moves while lyrics are shown.</string>
+    <string name="dialog_restart_systemui_summary">The screen, status bar, and AOD will briefly disappear. Root access is required.</string>
     <string name="option_follow_xiaomi">Follow Xiaomi</string>
     <string name="dialog_pause_summary">Applies to both AOD and lock screen lyrics.</string>
     <string name="dialog_keep_aod_duration_summary">Bounds one continuous playing session. Pausing Spotify starts a new one.</string>
-    <string name="dialog_movement_interval_summary">Choose how often the AOD clock or image moves.</string>
 
     <string name="status_no_systemui_report">No SystemUI report</string>
     <string name="status_verified_profile">Verified profile</string>
@@ -113,23 +135,23 @@
     <string name="section_placement">Placement</string>
     <string name="choice_position">Position</string>
     <string name="choice_width">Width</string>
+    <string name="choice_height">Height</string>
     <string name="choice_vertical_position">Vertical position</string>
     <string name="choice_overlap_handling">Overlap handling</string>
     <string name="section_text_language">Text and language</string>
     <string name="choice_alignment">Alignment</string>
     <string name="choice_secondary_text">Secondary text</string>
     <string name="setting_bright_secondary_text">Bright secondary text</string>
-    <string name="summary_bright_secondary_text">Off keeps transliteration and translation dimmed.</string>
     <string name="setting_show_furigana">Show furigana</string>
-    <string name="summary_show_furigana">Shows small readings above Japanese text.</string>
     <string name="choice_long_lines">Long lines</string>
     <string name="choice_lyric_lines">Lyric lines</string>
     <string name="setting_keep_phrases_together">Keep phrases together</string>
-    <string name="summary_keep_phrases_together">Keeps words and phrases together when lyric lines wrap.</string>
+    <string name="setting_show_next_line">Show next line</string>
     <string name="setting_show_song_info">Show song info</string>
     <string name="choice_song_info_position">Song info position</string>
     <string name="setting_song_info_size">Song info size</string>
     <string name="choice_text_weight">Text weight</string>
+    <string name="choice_text_size">Text size</string>
     <string name="setting_lyric_size">Lyric size</string>
     <string name="choice_font">Font</string>
     <string name="section_effects">Effects</string>
@@ -140,9 +162,16 @@
     <string name="choice_scene_transition_speed">Scene transition speed</string>
     <string name="section_lockscreen_card">Lock screen card</string>
     <string name="setting_show_lyric_card">Show lyric card</string>
-    <string name="summary_show_lyric_card">Adds a notification-style background behind lock screen lyrics.</string>
     <string name="setting_show_playback_progress">Show playback progress</string>
-    <string name="summary_show_playback_progress">Adds a noninteractive progress bar below the lyrics.</string>
+    <string name="summary_show_playback_progress">The progress bar is not interactive.</string>
+    <string name="setting_card_transparency">Card transparency</string>
+    <string name="summary_card_transparency">Adjust the background opacity of the lyric card.</string>
+    <string name="choice_card_color">Card color</string>
+    <string name="option_card_color_black">Black</string>
+    <string name="option_card_color_dark_gray">Dark gray</string>
+    <string name="option_card_color_white">White</string>
+    <string name="option_card_color_accent">Accent</string>
+    <string name="option_card_color_blur">Blur</string>
     <string name="section_both_surfaces">Both surfaces</string>
     <string name="action_import_appearance">Import appearance file</string>
     <string name="action_export_appearance">Export appearance file</string>
@@ -187,6 +216,10 @@
     <string name="option_regular">Regular</string>
     <string name="option_medium">Medium</string>
     <string name="option_bold">Bold</string>
+    <string name="option_small">Small</string>
+    <string name="option_large">Large</string>
+    <string name="option_xlarge">Extra large</string>
+    <string name="option_custom">Custom</string>
     <string name="option_minimal">Minimal</string>
     <string name="option_gradient">Gradient</string>
     <string name="option_off">Off</string>
@@ -275,4 +308,21 @@
     <string name="diagnostic_failure_network">Network upload failed. Retry manually.</string>
     <string name="diagnostic_failure_receipt">The intake returned an invalid receipt. Retry manually.</string>
     <string name="toast_no_github_handler">No app can open GitHub</string>
+
+    <string name="notification_channel_lyric_bridge">Lyric bridge</string>
+    <string name="notification_lyric_bridge_title">HyperGlow lyric service</string>
+    <string name="notification_lyric_bridge_text">Running to keep AOD and lock screen lyrics updating while the screen is off.</string>
+
+    <string name="section_permission_status">Permission status</string>
+    <string name="label_notification_permission">Notifications</string>
+    <string name="summary_notification_permission_granted">Granted</string>
+    <string name="summary_notification_permission_denied">Denied — lyric service may be killed</string>
+    <string name="action_grant_notification_permission">Grant</string>
+    <string name="label_foreground_service">Lyric foreground service</string>
+    <string name="summary_foreground_service_running">Running</string>
+    <string name="summary_foreground_service_not_running">Not running</string>
+    <string name="label_battery_optimization">Battery optimization</string>
+    <string name="summary_battery_optimization_whitelisted">Unrestricted</string>
+    <string name="summary_battery_optimization_optimized">Optimized — may freeze HyperGlow when screen is off</string>
+    <string name="action_open_battery_settings">Open settings</string>
 </resources>

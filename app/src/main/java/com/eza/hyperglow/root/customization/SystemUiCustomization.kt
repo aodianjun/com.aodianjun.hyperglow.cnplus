@@ -5,6 +5,8 @@ import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.WidgetSpec
+import com.eza.hyperglow.customization.normalizeCardAlpha
+import com.eza.hyperglow.customization.normalizeCardColor
 import com.eza.hyperglow.customization.normalizeLyricLineLimit
 import com.eza.hyperglow.aod.normalizePauseLingerMs
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
@@ -48,7 +50,9 @@ internal object SystemUiCustomizationValidator {
                 collisionPolicy = rawLockscreen.collisionPolicy,
                 widgets = rawLockscreen.widgets,
                 metadataVisible = rawLockscreen.metadataVisible,
-                backgroundStyle = rawLockscreen.backgroundStyle
+                backgroundStyle = rawLockscreen.backgroundStyle,
+                cardAlpha = rawLockscreen.cardAlpha,
+                cardColor = rawLockscreen.cardColor
             )
         } else {
             rawLockscreen
@@ -131,6 +135,8 @@ internal object SystemUiCustomizationValidator {
             lineSyncFillMode = normalizeLineSyncFillMode(profile.lineSyncFillMode),
             overflow = if (profile.overflow == "Clip") "Clip" else "Wrap",
             backgroundStyle = if (!aod && profile.backgroundStyle == "card") "card" else "none",
+            cardAlpha = normalizeCardAlpha(profile.cardAlpha),
+            cardColor = normalizeCardColor(profile.cardColor),
             palette = profile.palette.asSequence()
                 .filter { it.key in SEMANTIC_COLORS && it.value in PALETTE_VALUES }
                 .take(SEMANTIC_COLORS.size)
@@ -190,21 +196,33 @@ internal object CompiledCustomizationBundleCodec {
         val userId: Int,
         val revision: Long,
         val hash: String,
-        val json: String
+        val json: String,
+        /**
+         * App-side experimental-mode toggle, forwarded so the hook side can let
+         * [com.eza.hyperglow.root.capability.XiaomiCapabilityResolver] derive
+         * surface capabilities from symbol probes on EXPERIMENTAL_ELIGIBLE profiles.
+         * Defaults to false for older producers (backwards compatible).
+         */
+        val experimentalMode: Boolean = false
     )
 
-    fun toBundle(configuration: CompiledCustomization, userId: Int = 0): Bundle =
-        toBundle(toWirePayload(configuration, userId))
+    fun toBundle(
+        configuration: CompiledCustomization,
+        userId: Int = 0,
+        experimentalMode: Boolean = false
+    ): Bundle = toBundle(toWirePayload(configuration, userId, experimentalMode))
 
     fun toWirePayload(
         configuration: CompiledCustomization,
-        userId: Int = 0
+        userId: Int = 0,
+        experimentalMode: Boolean = false
     ): WirePayload = WirePayload(
         protocol = PROTOCOL_VERSION,
         userId = userId.coerceAtLeast(0),
         revision = configuration.revision,
         hash = configuration.hash,
-        json = SceneCompiler.json.encodeToString(configuration)
+        json = SceneCompiler.json.encodeToString(configuration),
+        experimentalMode = experimentalMode
     )
 
     fun snapshotFromBundle(bundle: Bundle): WirePayload? {
@@ -213,7 +231,8 @@ internal object CompiledCustomizationBundleCodec {
             userId = bundle.getInt(KEY_USER_ID, -1),
             revision = bundle.getLong(KEY_REVISION, -1L),
             hash = bundle.getString(KEY_HASH).orEmpty(),
-            json = bundle.getString(KEY_JSON).orEmpty()
+            json = bundle.getString(KEY_JSON).orEmpty(),
+            experimentalMode = bundle.getBoolean(KEY_EXPERIMENTAL_MODE, false)
         )
         return payload.takeIf(::isValidWirePayload)
     }
@@ -256,6 +275,7 @@ internal object CompiledCustomizationBundleCodec {
         putLong(KEY_REVISION, payload.revision)
         putString(KEY_HASH, payload.hash)
         putString(KEY_JSON, payload.json)
+        putBoolean(KEY_EXPERIMENTAL_MODE, payload.experimentalMode)
     }
 
     private const val PROTOCOL_VERSION = 3
@@ -265,4 +285,5 @@ internal object CompiledCustomizationBundleCodec {
     private const val KEY_REVISION = "revision"
     private const val KEY_HASH = "hash"
     private const val KEY_JSON = "json"
+    private const val KEY_EXPERIMENTAL_MODE = "experimentalMode"
 }

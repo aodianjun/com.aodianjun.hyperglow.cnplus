@@ -25,6 +25,7 @@ data class AodDisplayState(
     val original: String = "",
     val romanized: String = "",
     val translated: String = "",
+    val nextLine: String = "",
     val metadata: String = "",
     val alignedRight: Boolean = false,
     val lineLevelSync: Boolean = false,
@@ -144,9 +145,13 @@ object AodStateBridge {
     }
 
     @Synchronized
-    fun publishConfiguration(configuration: CompiledCustomization, userId: Int) {
+    fun publishConfiguration(
+        configuration: CompiledCustomization,
+        userId: Int,
+        experimentalMode: Boolean = false
+    ) {
         if (configuration.hash == lastConfigurationHash) return
-        val bundle = CompiledCustomizationBundleCodec.toBundle(configuration, userId)
+        val bundle = CompiledCustomizationBundleCodec.toBundle(configuration, userId, experimentalMode)
         lastConfigurationHash = configuration.hash
         latestConfiguration = bundle
         val count = callbacks.beginBroadcast()
@@ -302,6 +307,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         original = original,
         romanized = state.romanized.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
         translated = state.translated.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
+        nextLine = state.nextLine.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
         metadata = state.metadata.trim().takeUtf16Prefix(AodStateWireLimits.MAX_METADATA_CHARS),
         lineStartMs = lineStart,
         lineEndMs = state.lineEndMs.coerceAtLeast(lineStart),
@@ -363,6 +369,7 @@ private fun AodDisplayState.toWireMessage(
             original = original,
             romanized = romanized,
             translated = translated,
+            nextLine = nextLine,
             metadata = metadata,
             alignedRight = alignedRight,
             lineLevelSync = lineLevelSync,

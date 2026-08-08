@@ -44,8 +44,8 @@ android {
         applicationId = "com.eza.hyperglow"
         minSdk = 33
         targetSdk = 37
-        versionCode = 62
-        versionName = "0.3.50"
+        versionCode = 77
+        versionName = "0.3.65"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
@@ -63,10 +63,23 @@ android {
                 keyPassword = requireNotNull(signingKeyPassword)
             }
         }
+        // 固定调试签名密钥(已入库): 保证本地与 CI 每次构建签名一致,
+        // 更新时可覆盖安装,无需卸载。仅用于调试/测试分发。
+        // 注意: 不能命名为 "debug"(AGP 已自动创建同名配置)。
+        val debugKeystore = file("keystore/hyperglow-dbg.jks")
+        if (debugKeystore.exists()) {
+            create("hyperglowDebug") {
+                storeFile = debugKeystore
+                storePassword = "hyperglow_debug_2026"
+                keyAlias = "hyperglow"
+                keyPassword = "hyperglow_debug_2026"
+            }
+        }
     }
 
     buildTypes {
         debug {
+            signingConfig = signingConfigs.findByName("hyperglowDebug")
             buildConfigField(
                 "boolean",
                 "TRACE_LOGGING_AVAILABLE",

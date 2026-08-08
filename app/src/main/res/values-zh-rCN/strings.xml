@@ -22,13 +22,40 @@
     <string name="label_aod_lyrics">息屏歌词</string>
     <string name="label_lockscreen_lyrics">锁屏歌词</string>
     <string name="label_diagnostic_logging">诊断日志</string>
-    <string name="summary_diagnostic_logging_available">记录详细的模块事件，可能降低性能。</string>
+    <string name="summary_diagnostic_logging_available">可能降低性能。</string>
     <string name="summary_diagnostic_logging_unavailable">此构建不包含诊断日志。</string>
     <string name="action_send_compatibility_report">发送兼容性报告</string>
     <string name="action_report_problem">报告问题</string>
-    <string name="summary_report_supported">捕获经过筛选的诊断信息，或发送兼容性元数据。</string>
-    <string name="summary_report_unsupported">为此不受支持的配置发送兼容性报告。</string>
     <string name="action_restart_systemui">重启系统界面</string>
+    <string name="setting_experimental_mode">实验模式</string>
+    <string name="summary_experimental_mode">此系统界面版本未经验证，但所需符号已检测到。开启后将解锁 AOD 与锁屏配置，风险自负 —— 未验证版本上的 surface hook 行为可能异常。</string>
+    <string name="summary_experimental_mode_on">已通过实验模式解锁未验证配置。Surface 行为不作保证。</string>
+
+    <string name="section_lyric_source">歌词源</string>
+    <string name="lyric_source_spicy">Spicy EX</string>
+    <string name="lyric_source_lyricon">Lyricon</string>
+    <string name="summary_lyric_source_spicy">HyperGlow 内置的进程内桥接，始终可用。</string>
+    <string name="summary_lyric_source_lyricon">通过系统界面中的 Lyricon Xposed 模块，以回调方式驱动歌词。</string>
+    <string name="label_active_source">当前歌词源</string>
+    <string name="summary_active_source">%1$s · %2$s</string>
+    <string name="source_status_connected">已连接</string>
+    <string name="source_status_reconnected">重新连接中</string>
+    <string name="source_status_disconnected">未连接</string>
+    <string name="source_status_connect_timeout">连接超时</string>
+    <string name="source_status_unavailable_api">不可用（需 Android 8.1 及以上）</string>
+    <string name="dialog_lyric_source_summary">选择为息屏和锁屏提供歌词的来源。另一个来源会作为自动回退使用。</string>
+
+    <string name="section_live_status">实时状态</string>
+    <string name="label_now_playing">正在播放</string>
+    <string name="summary_no_track">当前歌词源暂无曲目。</string>
+    <string name="label_projection_state">投影</string>
+    <string name="projection_state_active">正在显示歌词</string>
+    <string name="projection_state_idle">空闲</string>
+    <string name="projection_state_paused">已暂停</string>
+
+    <string name="title_lyricon_setup">完成 Lyricon 配置</string>
+    <string name="summary_lyricon_not_connected">已选择 Lyricon 但未连接。请确认 Lyricon Xposed 模块已安装并在系统界面中激活，然后重启系统界面。</string>
+    <string name="action_lyricon_guide">Lyricon 配置指南</string>
 
     <string name="section_spotify_integration">Spotify 集成</string>
     <string name="action_download_spicy_ex">下载 Spicy EX</string>
@@ -38,10 +65,8 @@
 
     <string name="section_surfaces">显示区域</string>
     <string name="setting_show_aod">在息屏显示</string>
-    <string name="summary_show_aod_supported">在已验证的息屏区域显示歌词。</string>
     <string name="summary_show_aod_unsupported">已保留配置，但此配置无法运行息屏歌词。</string>
     <string name="setting_show_lockscreen">在锁屏显示</string>
-    <string name="summary_show_lockscreen_supported">手机锁定时显示歌词。</string>
     <string name="summary_unavailable_systemui_version">此系统界面版本不可用。</string>
 
     <string name="section_appearance">外观</string>
@@ -52,31 +77,28 @@
 
     <string name="section_aod_behavior">息屏行为</string>
     <string name="setting_keep_aod_active">保持息屏活动</string>
-    <string name="summary_keep_aod_active">Spotify 播放计时歌词时保持息屏开启。会增加耗电。</string>
+    <string name="summary_keep_aod_active">会增加耗电。</string>
     <string name="summary_unavailable_systemui_profile">此系统界面配置不可用。</string>
     <string name="setting_keep_aod_active_for">保持息屏活动时长</string>
     <string name="setting_keep_aod_unsynced">没有计时歌词时也保持息屏活动</string>
-    <string name="summary_keep_aod_unsynced">适用于加载期间及没有计时歌词的歌曲。</string>
     <string name="setting_aod_clock_image">息屏时钟或图片</string>
     <string name="summary_aod_placement_unsupported">此系统界面版本不支持协调息屏位置。</string>
     <string name="setting_movement_interval">移动间隔</string>
 
     <string name="section_lockscreen_behavior">锁屏行为</string>
     <string name="setting_keep_lockscreen_awake">保持锁屏唤醒</string>
-    <string name="summary_keep_lockscreen_awake">Spotify 播放且歌词可见时阻止屏幕变暗。会增加耗电。</string>
+    <string name="summary_keep_lockscreen_awake">会增加耗电。</string>
     <string name="setting_block_lockscreen_customization">阻止锁屏自定义</string>
     <string name="summary_block_lockscreen_customization">阻止壁纸编辑器和轮播预览打开。</string>
     <string name="section_wake_gestures">唤醒手势</string>
     <string name="setting_raise_to_aod">抬起显示息屏</string>
-    <string name="summary_raise_to_aod">需要启用 HyperOS 抬起唤醒。抬起手机时显示息屏，而不是锁屏。</string>
+    <string name="summary_raise_to_aod">需要启用 HyperOS 抬起唤醒。</string>
 
     <string name="dialog_restart_systemui_title">重启系统界面？</string>
-    <string name="dialog_restart_systemui_summary">系统界面将重启。屏幕、状态栏和息屏显示会短暂消失。需要 Root 权限。</string>
-    <string name="dialog_aod_clock_summary">选择歌词显示时它保持的位置或移动方式。</string>
+    <string name="dialog_restart_systemui_summary">屏幕、状态栏和息屏显示会短暂消失。需要 Root 权限。</string>
     <string name="option_follow_xiaomi">跟随小米</string>
     <string name="dialog_pause_summary">同时应用于息屏和锁屏歌词。</string>
     <string name="dialog_keep_aod_duration_summary">限制一次连续播放会话。暂停 Spotify 后，下次播放会开始新会话。</string>
-    <string name="dialog_movement_interval_summary">选择息屏时钟或图片移动的频率。</string>
 
     <string name="status_no_systemui_report">没有系统界面报告</string>
     <string name="status_verified_profile">已验证配置</string>
@@ -113,23 +135,23 @@
     <string name="section_placement">位置</string>
     <string name="choice_position">位置</string>
     <string name="choice_width">宽度</string>
+    <string name="choice_height">高度</string>
     <string name="choice_vertical_position">垂直位置</string>
     <string name="choice_overlap_handling">重叠处理</string>
     <string name="section_text_language">文字和语言</string>
     <string name="choice_alignment">对齐</string>
     <string name="choice_secondary_text">辅助文字</string>
     <string name="setting_bright_secondary_text">高亮辅助文字</string>
-    <string name="summary_bright_secondary_text">关闭时，转写和翻译会以较暗样式显示。</string>
     <string name="setting_show_furigana">显示振假名</string>
-    <string name="summary_show_furigana">在日文文字上方显示小号读音。</string>
     <string name="choice_long_lines">长歌词</string>
     <string name="choice_lyric_lines">歌词行数</string>
     <string name="setting_keep_phrases_together">保持词组完整</string>
-    <string name="summary_keep_phrases_together">歌词换行时尽量保持单词和词组完整。</string>
+    <string name="setting_show_next_line">显示下一行歌词</string>
     <string name="setting_show_song_info">显示歌曲信息</string>
     <string name="choice_song_info_position">歌曲信息位置</string>
     <string name="setting_song_info_size">歌曲信息大小</string>
     <string name="choice_text_weight">文字粗细</string>
+    <string name="choice_text_size">字号</string>
     <string name="setting_lyric_size">歌词大小</string>
     <string name="choice_font">字体</string>
     <string name="section_effects">效果</string>
@@ -140,9 +162,16 @@
     <string name="choice_scene_transition_speed">场景过渡速度</string>
     <string name="section_lockscreen_card">锁屏歌词卡片</string>
     <string name="setting_show_lyric_card">显示歌词卡片</string>
-    <string name="summary_show_lyric_card">在锁屏歌词后添加通知样式背景。</string>
     <string name="setting_show_playback_progress">显示播放进度</string>
-    <string name="summary_show_playback_progress">在歌词下方添加不可交互的进度条。</string>
+    <string name="summary_show_playback_progress">进度条不可交互。</string>
+    <string name="setting_card_transparency">卡片透明度</string>
+    <string name="summary_card_transparency">调整歌词卡片背景的不透明度。</string>
+    <string name="choice_card_color">卡片颜色</string>
+    <string name="option_card_color_black">黑色</string>
+    <string name="option_card_color_dark_gray">深灰</string>
+    <string name="option_card_color_white">白色</string>
+    <string name="option_card_color_accent">强调色</string>
+    <string name="option_card_color_blur">模糊</string>
     <string name="section_both_surfaces">两个显示区域</string>
     <string name="action_import_appearance">导入外观文件</string>
     <string name="action_export_appearance">导出外观文件</string>
@@ -187,6 +216,10 @@
     <string name="option_regular">常规</string>
     <string name="option_medium">中等</string>
     <string name="option_bold">粗体</string>
+    <string name="option_small">小</string>
+    <string name="option_large">大</string>
+    <string name="option_xlarge">超大</string>
+    <string name="option_custom">自定义</string>
     <string name="option_minimal">最简</string>
     <string name="option_gradient">渐变</string>
     <string name="option_off">关闭</string>
@@ -275,4 +308,21 @@
     <string name="diagnostic_failure_network">网络上传失败，请手动重试。</string>
     <string name="diagnostic_failure_receipt">接收服务返回无效回执，请手动重试。</string>
     <string name="toast_no_github_handler">没有应用可以打开 GitHub</string>
+
+    <string name="notification_channel_lyric_bridge">歌词桥接</string>
+    <string name="notification_lyric_bridge_title">HyperGlow 歌词服务</string>
+    <string name="notification_lyric_bridge_text">正在运行,以保持息屏和锁屏歌词在熄屏时持续更新。</string>
+
+    <string name="section_permission_status">权限状态</string>
+    <string name="label_notification_permission">通知权限</string>
+    <string name="summary_notification_permission_granted">已授予</string>
+    <string name="summary_notification_permission_denied">被拒绝 —— 歌词服务可能被系统杀死</string>
+    <string name="action_grant_notification_permission">去授予</string>
+    <string name="label_foreground_service">歌词前台服务</string>
+    <string name="summary_foreground_service_running">运行中</string>
+    <string name="summary_foreground_service_not_running">未运行</string>
+    <string name="label_battery_optimization">电池优化</string>
+    <string name="summary_battery_optimization_whitelisted">无限制</string>
+    <string name="summary_battery_optimization_optimized">已优化 —— 息屏时可能冻结 HyperGlow</string>
+    <string name="action_open_battery_settings">打开设置</string>
 </resources>

@@ -28,39 +28,30 @@ internal class SongMetadataIntroPolicy(
 
     @Synchronized
     fun shouldShowLargeMetadata(input: SongMetadataIntroInput): Boolean {
+        if (!input.metadataAvailable) return false
         if (session != input.session) {
             session = input.session
             phase = Phase.PENDING
             startedAtElapsedMs = 0L
         }
-        if (!input.metadataAvailable || phase == Phase.COMPLETE) return false
-
-        if (phase == Phase.SHOWING) {
-            val elapsedMs = (input.nowElapsedMs - startedAtElapsedMs).coerceAtLeast(0L)
-            if (elapsedMs >= durationMs) {
-                phase = Phase.COMPLETE
-                startedAtElapsedMs = 0L
-                return false
+        // 只有无歌词/间奏(没有活动歌词行)时才显示大元数据(歌名 · 歌手),
+        // 歌词 ACTIVE 时优先显示歌词本身,避免歌名顶掉歌词行。
+        when (phase) {
+            Phase.PENDING -> if (canStartInitial(input)) {
+                phase = Phase.SHOWING
+                startedAtElapsedMs = input.nowElapsedMs
             }
-            val remainingMs = durationMs - elapsedMs
-            if (!canContinue(input, remainingMs)) {
-                phase = Phase.DEFERRED
-                startedAtElapsedMs = 0L
-                return false
+            Phase.DEFERRED -> if (canStartDeferred(input)) {
+                phase = Phase.SHOWING
+                startedAtElapsedMs = input.nowElapsedMs
             }
-            return true
+            Phase.SHOWING -> {
+                val remainingMs = durationMs - (input.nowElapsedMs - startedAtElapsedMs)
+                if (!canContinue(input, remainingMs)) phase = Phase.COMPLETE
+            }
+            Phase.COMPLETE -> {}
         }
-
-        val canStart = when (phase) {
-            Phase.PENDING -> canStartInitial(input)
-            Phase.DEFERRED -> canStartDeferred(input)
-            else -> false
-        }
-        if (!canStart) return false
-
-        phase = Phase.SHOWING
-        startedAtElapsedMs = input.nowElapsedMs
-        return true
+        return phase == Phase.SHOWING
     }
 
     private fun canStartInitial(input: SongMetadataIntroInput): Boolean = when (input.lyricState) {

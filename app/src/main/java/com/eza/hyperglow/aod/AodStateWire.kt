@@ -63,6 +63,7 @@ internal data class AodStateWireSnapshot(
     val original: String,
     val romanized: String,
     val translated: String,
+    val nextLine: String,
     val metadata: String,
     val alignedRight: Boolean,
     val lineLevelSync: Boolean,
@@ -259,6 +260,7 @@ internal object AodStateWireCodec {
                 output.writeBoundedString(snapshot.original)
                 output.writeBoundedString(snapshot.romanized)
                 output.writeBoundedString(snapshot.translated)
+                output.writeBoundedString(snapshot.nextLine)
                 output.writeBoundedString(snapshot.metadata)
                 output.writeStrictBoolean(snapshot.alignedRight)
                 output.writeStrictBoolean(snapshot.lineLevelSync)
@@ -344,6 +346,11 @@ internal object AodStateWireCodec {
                 budget = budget
             ) ?: return null
             val translated = input.readBoundedString(
+                AodStateWireLimits.MAX_LYRIC_CHARS,
+                allowEmpty = true,
+                budget = budget
+            ) ?: return null
+            val nextLine = input.readBoundedString(
                 AodStateWireLimits.MAX_LYRIC_CHARS,
                 allowEmpty = true,
                 budget = budget
@@ -436,6 +443,7 @@ internal object AodStateWireCodec {
                 original = original,
                 romanized = romanized,
                 translated = translated,
+                nextLine = nextLine,
                 metadata = metadata,
                 alignedRight = alignedRight,
                 lineLevelSync = lineLevelSync,
@@ -488,6 +496,7 @@ internal object AodStateWireCodec {
             snapshot.original != snapshot.original.trim() ||
             snapshot.romanized != snapshot.romanized.trim() ||
             snapshot.translated != snapshot.translated.trim() ||
+            snapshot.nextLine != snapshot.nextLine.trim() ||
             snapshot.metadata != snapshot.metadata.trim() ||
             snapshot.weight != normalizeAodWeight(snapshot.weight) ||
             snapshot.textSizeMode != normalizeAodTextSize(snapshot.textSizeMode) ||
@@ -506,6 +515,7 @@ internal object AodStateWireCodec {
         if (!budget.accept(snapshot.original, AodStateWireLimits.MAX_LYRIC_CHARS, false) ||
             !budget.accept(snapshot.romanized, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
             !budget.accept(snapshot.translated, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+            !budget.accept(snapshot.nextLine, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
             !budget.accept(snapshot.metadata, AodStateWireLimits.MAX_METADATA_CHARS, true)
         ) return false
         val styles = listOf(
