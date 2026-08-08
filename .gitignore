@@ -28,3 +28,5 @@ AI-DECLARATION.md
 !app/keystore/
 app/keystore/*
 !app/keystore/hyperglow-dbg.jks
+# 正式发布签名密钥 — 严禁入库
+/hyperglow-release.jks
