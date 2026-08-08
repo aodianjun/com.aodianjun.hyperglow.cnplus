@@ -63,10 +63,22 @@ android {
                 keyPassword = requireNotNull(signingKeyPassword)
             }
         }
+        // 固定调试签名密钥(已入库): 保证本地与 CI 每次构建签名一致,
+        // 更新时可覆盖安装,无需卸载。仅用于调试/测试分发。
+        val debugKeystore = file("keystore/hyperglow-dbg.jks")
+        if (debugKeystore.exists()) {
+            create("debug") {
+                storeFile = debugKeystore
+                storePassword = "hyperglow_debug_2026"
+                keyAlias = "hyperglow"
+                keyPassword = "hyperglow_debug_2026"
+            }
+        }
     }
 
     buildTypes {
         debug {
+            signingConfig = signingConfigs.findByName("debug")
             buildConfigField(
                 "boolean",
                 "TRACE_LOGGING_AVAILABLE",
