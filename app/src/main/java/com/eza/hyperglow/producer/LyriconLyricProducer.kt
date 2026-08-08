@@ -84,6 +84,12 @@ class LyriconLyricProducer(
     @Volatile private var lastRealPositionClockMs: Long = -1L
     @Volatile private var extrapolating: Boolean = false
 
+    // --- Stale detection ---
+    // If no real position update arrives for STALE_THRESHOLD_MS, the shared-memory writer
+    // may be completely dead (not just stalled). Log a warning so the arbiter can consider
+    // falling back to another producer.
+    @Volatile private var lastRealPositionUpdateMs: Long = -1L
+
     // --- Residual position rejection (song change) ---
     // After onSongChanged, the shared memory may still hold the previous song's position for
     // ~30s until the player writes the new song's progress. Without filtering, the first
@@ -133,6 +139,7 @@ class LyriconLyricProducer(
                 currentPositionMs = 0L
                 lastRealPositionMs = 0L
                 lastRealPositionClockMs = clock()
+                lastRealPositionUpdateMs = -1L
                 extrapolating = false
                 previousSongLastPositionMs = -1L
                 songChangeClockMs = 0L
@@ -150,6 +157,7 @@ class LyriconLyricProducer(
                 currentPositionMs = 0L
                 lastRealPositionMs = 0L
                 lastRealPositionClockMs = clock()
+                lastRealPositionUpdateMs = -1L
                 extrapolating = false
                 previousSongLastPositionMs = -1L
                 songChangeClockMs = 0L
@@ -219,11 +227,15 @@ class LyriconLyricProducer(
                 (now - songChangeClockMs) < RESIDUAL_REJECTION_WINDOW_MS &&
                 position == previousSongLastPositionMs
             if (isResidual) {
-                // Ignore the stale value; fall through to extrapolation if playing.
-                if (isPlayingState && lastRealPositionClockMs >= 0L) {
+                // Ignore the stale value; extrapolate from the last real position regardless of
+                // isPlayingState. The playing flag is unreliable (MediaSession jitter between
+                // PLAYING↔BUFFERING can leave it stuck at false), and the real position clock
+                // is the only trustworthy signal. When the player is truly paused the shared
+                // memory position is frozen and the extrapolated position drifts harmlessly
+                // (the line stays the same within a typical pause), corrected on resume.
+                if (lastRealPositionClockMs >= 0L) {
                     val elapsed = now - lastRealPositionClockMs
-                    val duration = currentSong?.duration ?: Long.MAX_VALUE
-                    currentPositionMs = (lastRealPositionMs + elapsed).coerceAtMost(duration)
+                    currentPositionMs = lastRealPositionMs + elapsed
                     if (!extrapolating) {
                         extrapolating = true
                         AppLog.i(
@@ -238,8 +250,13 @@ class LyriconLyricProducer(
             }
             if (position != lastRealPositionMs) {
                 // Real position update from shared memory.
+                // Accept wrap-around: when the song loops (single-track repeat), the shared
+                // memory position resets to 0 while our extrapolated position may be at/beyond
+                // duration. Treat a significantly lower position as a wrap-around rather than
+                // rejecting it.
                 lastRealPositionMs = position
                 lastRealPositionClockMs = now
+                lastRealPositionUpdateMs = now
                 currentPositionMs = position
                 // A different value means the player has started writing the new song's progress.
                 // Disable residual filtering — subsequent positions are from the new song.
@@ -251,13 +268,45 @@ class LyriconLyricProducer(
                         "position resumed: pos=${position}ms (extrapolation stopped)"
                     )
                 }
-            } else if (isPlayingState && lastRealPositionClockMs >= 0L) {
-                // Position stalled (shared-memory writer frozen by MIUI screen-off) but playback
-                // is still active → extrapolate from the last real position using wall-clock elapsed
-                // time. This keeps lyrics advancing during AOD when the player process is frozen.
+            } else if (lastRealPositionClockMs >= 0L) {
+                // Position stalled (shared-memory writer frozen by MIUI screen-off). Extrapolate
+                // from the last real position using wall-clock elapsed time. This keeps lyrics
+                // advancing during AOD when the player process is frozen.
+                //
+                // Un-gated from isPlayingState: MediaSession jitter between PLAYING↔BUFFERING
+                // can leave the flag stuck at false while the song is actually playing, causing
+                // the lyrics to freeze permanently. The real position clock is the authoritative
+                // signal. When the player is truly paused, the shared memory position is frozen
+                // and the extrapolated drift is corrected on resume.
+                //
+                // Un-capped from duration: when a song loops (single-track repeat), the shared
+                // memory position resets to 0 but our extrapolation would be capped at duration,
+                // freezing the line at the end. Letting it exceed allows the real position to
+                // correct it when the loop restarts.
                 val elapsed = now - lastRealPositionClockMs
-                val duration = currentSong?.duration ?: Long.MAX_VALUE
-                currentPositionMs = (lastRealPositionMs + elapsed).coerceAtMost(duration)
+                currentPositionMs = lastRealPositionMs + elapsed
+                val duration = currentSong?.duration ?: 0L
+                // Stale detection: if we haven't seen a real position update for too long, the
+                // shared-memory writer may be completely dead (not just screen-off frozen).
+                // Log a warning so the arbiter can consider falling back to another producer.
+                if (lastRealPositionUpdateMs >= 0L &&
+                    now - lastRealPositionUpdateMs > STALE_POSITION_THRESHOLD_MS
+                ) {
+                    if (lastRealPositionUpdateMs != Long.MAX_VALUE) {
+                        lastRealPositionUpdateMs = Long.MAX_VALUE // one-shot log
+                        val staleSec = (now - lastRealPositionClockMs) / 1000
+                        AppLog.w(
+                            "LyriconLyricProducer",
+                            "position stale for ${staleSec}s (last real=${lastRealPositionMs}ms " +
+                                "extrapolated=${currentPositionMs}ms duration=${duration}ms)" +
+                                if (duration > 0L && currentPositionMs > duration) {
+                                    " — song may have looped"
+                                } else {
+                                    " — shared-memory writer may be dead"
+                                }
+                        )
+                    }
+                }
                 if (!extrapolating) {
                     extrapolating = true
                     AppLog.i(
@@ -275,6 +324,7 @@ class LyriconLyricProducer(
             val now = clock()
             lastRealPositionMs = position
             lastRealPositionClockMs = now
+            lastRealPositionUpdateMs = now
             currentPositionMs = position
             extrapolating = false
             // A seek is a deliberate position change — clear residual filtering so the new
@@ -499,6 +549,13 @@ class LyriconLyricProducer(
          * the same position are eventually honored.
          */
         private const val RESIDUAL_REJECTION_WINDOW_MS = 60_000L
+
+        /**
+         * If no real position update arrives from shared memory for this duration, the writer
+         * is considered completely dead (not just screen-off frozen). A one-shot warning is
+         * logged so the arbiter can consider falling back to another producer.
+         */
+        private const val STALE_POSITION_THRESHOLD_MS = 15_000L
 
         /** Default render modes when customization is unavailable; matches SpicyBridgeState defaults. */
         private fun defaultRenderModes() = ProducerRenderModes(
