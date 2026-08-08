@@ -1,16 +1,18 @@
 <div align="center">
 
-# HyperGlow
+# HyperGlow CN+
 
-Animated lock screen and always-on display lyrics for HyperOS 3.
+Animated lock screen and always-on display lyrics for HyperOS 3, with support for Chinese music apps.
 
-Requires root, LSPosed and [Spicy EX](https://github.com/amarinne/spicy-ex).
+Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarinne/spicy-ex) or [Lyricon](https://github.com/tomakino/lyricon)).
 
 </div>
 
 ## Features
 
-- Spicy EX lyrics on the HyperOS lock screen and AOD.
+- Lyrics on the HyperOS lock screen and AOD from multiple sources:
+  - **Spicy EX** (Spotify, international).
+  - **Lyricon** (popular Chinese music apps — QQ音乐、网易云音乐、酷狗音乐等).
 - Line-, word- and syllable-synchronized karaoke.
 - Transliteration and translation with Spicy EX Full.
 
@@ -23,17 +25,19 @@ Requires root, LSPosed and [Spicy EX](https://github.com/amarinne/spicy-ex).
 
 - Rooted HyperOS 3.
 - [LSPosed](https://github.com/LSPosed/LSPosed).
-- Spotify.
-- Spicy EX Lite or Full with **Publish lyrics to HyperGlow** enabled.
+- At least one lyrics source:
+  - Spotify with Spicy EX Lite or Full (**Publish lyrics to HyperGlow** enabled).
+  - A Chinese music app with [Lyricon](https://github.com/tomakino/lyricon) active in SystemUI.
 
 ## Install
 
-APK from [Releases](https://github.com/amarinne/hyperglow/releases).
+APK from [Releases](https://github.com/aodianjun/hyperglow/releases).
 
-1. Enable Spicy EX for **Spotify** in LSPosed.
-2. Enable HyperGlow in LSPosed.
-3. Enable **Publish lyrics to HyperGlow** in Spicy EX.
-4. Set HyperGlow battery usage to **No restrictions**.
+1. Enable HyperGlow in LSPosed.
+2. Enable your lyrics source:
+   - **Spotify**: enable Spicy EX for Spotify in LSPosed, then enable **Publish lyrics to HyperGlow** in Spicy EX.
+   - **Chinese music apps**: enable [Lyricon](https://github.com/tomakino/lyricon) for SystemUI in LSPosed.
+3. Set HyperGlow battery usage to **No restrictions**.
 
 > [!NOTE]
 > Tested on Xiaomi 14 (`houji`).
