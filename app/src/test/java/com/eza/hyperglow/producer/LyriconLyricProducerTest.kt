@@ -478,7 +478,10 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun positionStall_doesNotExtrapolateWhenPaused() {
+    fun positionStall_extrapolatesEvenWhenPausedFlagSet() {
+        // The MediaSession playing flag jitters between PLAYING↔BUFFERING and can be stuck at
+        // false while the song is actually playing, so extrapolation is NOT gated on it. A flagged
+        // pause must not freeze the line; the real position corrects it on resume.
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -486,13 +489,13 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPlaybackStateChanged(true)
         producer.playerListener.onPositionChanged(2_000L) // line 0
 
-        // Pause → isPlayingState=false. Position stall should NOT extrapolate.
+        // Stale playing flag → extrapolation still advances (authoritative signal is the clock).
         producer.playerListener.onPlaybackStateChanged(false)
         clockValue = 11_500L
         producer.playerListener.onPositionChanged(2_000L) // stalled
 
-        assertEquals(0, producer.state.value!!.lineIndex)
-        assertEquals(2_000L, producer.state.value!!.positionMs)
+        assertEquals(1, producer.state.value!!.lineIndex)
+        assertEquals(3_500L, producer.state.value!!.positionMs)
     }
 
     @Test
@@ -520,7 +523,9 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun positionExtrapolation_clampsToSongDuration() {
+    fun positionExtrapolation_isNotClampedToSongDuration() {
+        // Single-track repeat: the shared-memory position resets to 0 on loop, so extrapolation
+        // must be allowed to exceed duration (no coerceAtMost) to let the real value correct it.
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -528,11 +533,11 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPlaybackStateChanged(true)
         producer.playerListener.onPositionChanged(7_500L) // near end
 
-        // Stall for a very long time → extrapolation clamps to duration.
+        // Stall for a very long time → extrapolation exceeds duration (no clamp).
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(7_500L)
 
-        assertEquals(8_000L, producer.state.value!!.positionMs)
+        assertEquals(7_500L + (100_000L - 10_000L), producer.state.value!!.positionMs)
     }
 
     // --- Song change position reset ---
