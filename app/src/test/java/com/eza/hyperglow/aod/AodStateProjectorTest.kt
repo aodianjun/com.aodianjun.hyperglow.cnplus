@@ -225,11 +225,11 @@ class AodStateProjectorTest {
             alignedRight = true
         )
         val out = project(s)
-        // 歌名常驻显示:metadata 可用时 original 是 "Title · Artist",不再显示歌词行
-        assertEquals("Title · Artist", out.original)
-        assertEquals("", out.romanized)
-        assertEquals("", out.translated)
-        assertFalse(out.lineLevelSync) // metadata 模式下 lineLevelSync 为 false
+        // 有活动歌词行时优先显示歌词,而非歌名
+        assertEquals("hello world", out.original)
+        assertEquals("roma", out.romanized)
+        assertEquals("tr", out.translated)
+        assertTrue(out.lineLevelSync) // 活动行 LINE 模式开启行级同步
         assertEquals(1_000L, out.lineStartMs)
         assertEquals(3_000L, out.lineEndMs)
         assertTrue(out.alignedRight)
@@ -253,15 +253,15 @@ class AodStateProjectorTest {
             lineEndMs = 2_000L
         )
         val out = project(s)
-        // 歌名常驻显示:metadata 可用时 original 是 "Title · Artist",words 被清空
-        assertEquals("Title · Artist", out.original)
-        assertFalse(out.lineLevelSync)
-        assertTrue(out.words.isEmpty())
+        // 有活动歌词行时显示歌词,words 保留
+        assertEquals("hello", out.original)
+        assertFalse(out.lineLevelSync) // SYLLABLE 且有 words → 音节级同步
+        assertEquals(2, out.words.size)
     }
 
     @Test
-    fun syllableKind_withActiveLineButNoWords_metadataModeDisablesLineLevelSync() {
-        // metadata 常驻显示模式下 lineLevelSync 为 false,words 为空
+    fun syllableKind_withActiveLineButNoWords_lineLevelSyncEnabled() {
+        // SYLLABLE 且无 words → 行级同步开启,但 words 为空
         val s = state(
             lyricKind = LyricKind.SYLLABLE,
             line = "hello",
@@ -271,7 +271,7 @@ class AodStateProjectorTest {
             lineEndMs = 2_000L
         )
         val out = project(s)
-        assertFalse(out.lineLevelSync)
+        assertTrue(out.lineLevelSync)
         assertTrue(out.words.isEmpty())
     }
 
@@ -380,8 +380,8 @@ class AodStateProjectorTest {
     // --- ruby / layoutGroups 透传 ---
 
     @Test
-    fun rubyAndLayoutGroupsClearedInMetadataMode() {
-        // metadata 常驻显示模式下 ruby 和 layoutGroups 被清空
+    fun rubyAndLayoutGroupsPreservedDuringActiveLyric() {
+        // 有活动歌词行时 ruby 和 layoutGroups 保留(不再被歌名清空)
         val ruby = listOf(LyricRuby(0, 2, "ha"))
         val groups = listOf(LyricLayoutGroup(0, 5, "word", true, 0.9))
         val s = state(
@@ -395,8 +395,8 @@ class AodStateProjectorTest {
             layoutGroups = groups
         )
         val out = project(s)
-        assertTrue(out.ruby.isEmpty())
-        assertTrue(out.layoutGroups.isEmpty())
+        assertEquals(ruby.size, out.ruby.size)
+        assertEquals(groups.size, out.layoutGroups.size)
     }
 
     @Test

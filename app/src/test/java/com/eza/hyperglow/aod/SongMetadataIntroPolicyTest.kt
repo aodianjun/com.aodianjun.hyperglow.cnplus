@@ -6,20 +6,6 @@ import org.junit.Test
 
 class SongMetadataIntroPolicyTest {
     @Test
-    fun alwaysShowsWhenMetadataAvailable() {
-        val policy = SongMetadataIntroPolicy()
-
-        // 所有歌词状态下,只要 metadata 可用就显示
-        SongIntroLyricState.entries.forEach { state ->
-            assertTrue(
-                policy.shouldShowLargeMetadata(
-                    input(now = 1_000L, lyricState = state)
-                )
-            )
-        }
-    }
-
-    @Test
     fun neverShowsWhenMetadataUnavailable() {
         val policy = SongMetadataIntroPolicy()
 
@@ -39,17 +25,17 @@ class SongMetadataIntroPolicyTest {
     }
 
     @Test
-    fun activeStateNoLongerBlocksDisplay() {
+    fun activeLyricShowsLyricsNotMetadata() {
         val policy = SongMetadataIntroPolicy()
 
-        // ACTIVE 状态时不再阻止显示(回归:息屏打开显示歌词信息无效)
-        assertTrue(
+        // 有活动歌词行时禁止显示大元数据,避免歌名顶掉歌词
+        assertFalse(
             policy.shouldShowLargeMetadata(
                 input(now = 1_000L, lyricState = SongIntroLyricState.ACTIVE)
             )
         )
-        // 持续显示,不会因 duration 超时或 ACTIVE 状态而消失
-        assertTrue(
+        // 持续 ACTIVE 仍不显示
+        assertFalse(
             policy.shouldShowLargeMetadata(
                 input(now = 10_000L, lyricState = SongIntroLyricState.ACTIVE)
             )
@@ -57,21 +43,49 @@ class SongMetadataIntroPolicyTest {
     }
 
     @Test
-    fun noDurationBasedTimeout() {
-        val policy = SongMetadataIntroPolicy(durationMs = 3_000L)
+    fun introStatesShowMetadata() {
+        val policy = SongMetadataIntroPolicy()
 
-        // 进入显示后,即使超过 3 秒仍持续显示
-        assertTrue(policy.shouldShowLargeMetadata(input(now = 1_000L)))
-        assertTrue(policy.shouldShowLargeMetadata(input(now = 5_000L)))
-        assertTrue(policy.shouldShowLargeMetadata(input(now = 30_000L)))
+        // 无歌词/未知状态(歌曲开头)显示大元数据
+        assertTrue(
+            policy.shouldShowLargeMetadata(
+                input(now = 1_000L, lyricState = SongIntroLyricState.NONE)
+            )
+        )
+        assertTrue(
+            policy.shouldShowLargeMetadata(
+                input(now = 1_000L, lyricState = SongIntroLyricState.UNKNOWN)
+            )
+        )
     }
 
     @Test
-    fun sessionChangeResetsButStillShows() {
+    fun interludeShowsOnlyWhenGapEnough() {
+        val policy = SongMetadataIntroPolicy(durationMs = 3_000L)
+
+        // 间奏且距离下一句歌词足够远 → 显示
+        assertTrue(
+            policy.shouldShowLargeMetadata(
+                input(now = 1_000L, nextStart = 10_000L)
+            )
+        )
+        // 间奏但下一句马上就开始 → 不显示
+        assertFalse(
+            policy.shouldShowLargeMetadata(
+                input(now = 1_000L, nextStart = 1_500L)
+            )
+        )
+    }
+
+    @Test
+    fun sessionChangeResetsState() {
         val policy = SongMetadataIntroPolicy()
 
+        // 上一首进入 COMPLETE 后,切歌(新 session)应重置为 PENDING 重新判定
         assertTrue(policy.shouldShowLargeMetadata(input(now = 1_000L, generation = 1)))
-        // 切歌后仍显示(metadata 可用)
+        assertTrue(policy.shouldShowLargeMetadata(input(now = 5_000L, generation = 1)))
+        assertTrue(policy.shouldShowLargeMetadata(input(now = 9_000L, generation = 1)))
+        // 切歌后仍是 INTERLUDE 且 gap 足够 → 重新显示
         assertTrue(
             policy.shouldShowLargeMetadata(
                 input(now = 5_000L, generation = 2)

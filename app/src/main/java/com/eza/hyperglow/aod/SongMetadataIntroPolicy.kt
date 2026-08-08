@@ -28,13 +28,30 @@ internal class SongMetadataIntroPolicy(
 
     @Synchronized
     fun shouldShowLargeMetadata(input: SongMetadataIntroInput): Boolean {
+        if (!input.metadataAvailable) return false
         if (session != input.session) {
             session = input.session
             phase = Phase.PENDING
             startedAtElapsedMs = 0L
         }
-        // 常驻显示歌名:metadata 可用时始终显示,不再受歌词状态(ACTIVE/INTERLUDE)或时长限制。
-        return input.metadataAvailable
+        // 只有无歌词/间奏(没有活动歌词行)时才显示大元数据(歌名 · 歌手),
+        // 歌词 ACTIVE 时优先显示歌词本身,避免歌名顶掉歌词行。
+        when (phase) {
+            Phase.PENDING -> if (canStartInitial(input)) {
+                phase = Phase.SHOWING
+                startedAtElapsedMs = input.nowElapsedMs
+            }
+            Phase.DEFERRED -> if (canStartDeferred(input)) {
+                phase = Phase.SHOWING
+                startedAtElapsedMs = input.nowElapsedMs
+            }
+            Phase.SHOWING -> {
+                val remainingMs = durationMs - (input.nowElapsedMs - startedAtElapsedMs)
+                if (!canContinue(input, remainingMs)) phase = Phase.COMPLETE
+            }
+            Phase.COMPLETE -> {}
+        }
+        return phase == Phase.SHOWING
     }
 
     private fun canStartInitial(input: SongMetadataIntroInput): Boolean = when (input.lyricState) {
