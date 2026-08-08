@@ -39,7 +39,7 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
@@ -61,7 +61,7 @@ jobs:
           echo "APK_PATH=$DST" >> "$GITHUB_ENV"
 
       - name: Upload debug APK (artifact)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: hyperglow-debug-${{ matrix.variant }}
           path: ${{ env.APK_PATH }}
