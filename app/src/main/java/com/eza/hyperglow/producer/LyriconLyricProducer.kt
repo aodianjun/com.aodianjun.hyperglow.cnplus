@@ -199,6 +199,11 @@ class LyriconLyricProducer(
         override fun onPlaybackStateChanged(isPlaying: Boolean) {
             AppLog.i("LyriconLyricProducer", "onPlaybackStateChanged: playing=$isPlaying")
             isPlayingState = isPlaying
+            // When resuming playback after a pause, reset the extrapolation clock so we don't
+            // jump forward by the entire pause duration on the next stalled position callback.
+            if (isPlaying && lastRealPositionClockMs >= 0L) {
+                lastRealPositionClockMs = clock()
+            }
             // Re-emit so the engine sees the new playing/speed without waiting for next position.
             emit()
         }
@@ -272,6 +277,9 @@ class LyriconLyricProducer(
             lastRealPositionClockMs = now
             currentPositionMs = position
             extrapolating = false
+            // A seek is a deliberate position change — clear residual filtering so the new
+            // position is accepted even if it coincidentally matches the previous song's last.
+            previousSongLastPositionMs = -1L
             // Seek invalidates the navigator's sequential cache (playback jumped).
             navigator?.resetCache()
             currentLineIndex = -1
@@ -483,6 +491,14 @@ class LyriconLyricProducer(
 
     companion object {
         private const val PRODUCER_ID = "lyricon"
+
+        /**
+         * Window after [onSongChanged] during which incoming positions that exactly match the
+         * previous song's last position are rejected as residual shared-memory values. Observed
+         * gap on NetEase can reach ~36s, so 60s gives ample margin while ensuring real seeks to
+         * the same position are eventually honored.
+         */
+        private const val RESIDUAL_REJECTION_WINDOW_MS = 60_000L
 
         /** Default render modes when customization is unavailable; matches SpicyBridgeState defaults. */
         private fun defaultRenderModes() = ProducerRenderModes(
