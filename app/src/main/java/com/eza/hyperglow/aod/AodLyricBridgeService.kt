@@ -48,7 +48,7 @@ class AodLyricBridgeService : Service() {
         startForeground(
             NOTIFICATION_ID,
             buildNotification(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
         AppLog.bootstrap(TAG, "foreground_service_started")
         return START_STICKY
