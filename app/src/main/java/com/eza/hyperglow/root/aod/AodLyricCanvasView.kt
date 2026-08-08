@@ -1384,12 +1384,20 @@ internal class AodLyricCanvasView(
     private fun rebuildLayout() {
         val originalLayout = buildOriginalLayout()
         val rows = ArrayList<Row>(4)
+        val hasTimedWords = content.words.any { it.endMs > it.startMs }
         val metadataPlaceholder = isSongChangeMetadataPlaceholder(
             content.original,
             content.metadata,
             content.lineStartMs,
             content.lineEndMs,
-            content.words.any { it.endMs > it.startMs }
+            hasTimedWords
+        )
+        android.util.Log.d(
+            "AODMetadata",
+            "rebuild metadataVisible=${content.metadataVisible} " +
+                "metadata='${content.metadata}' original='${content.original}' " +
+                "line=[${content.lineStartMs}..${content.lineEndMs}] timed=$hasTimedWords " +
+                "placeholder=$metadataPlaceholder"
         )
         if (content.metadataVisible && content.metadata.isNotBlank() && !metadataPlaceholder) {
             rows += row(RowKind.METADATA, content.metadata, metadataPaint, 0f, false)
