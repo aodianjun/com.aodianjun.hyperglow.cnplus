@@ -409,28 +409,22 @@ class LyriconLyricProducer(
         val song = currentSong ?: return
         val pos = currentPositionMs
 
-        // 歌曲边界重置:息屏后网易云停止写位置,外推会越过歌曲时长继续累加。此时歌曲可能已
-        // 播完/切歌/重播,旧歌末尾的行不再有效。若仍用 findTargetIndex(pos) 会一直返回旧歌
-        // 最后一行,导致 AOD 停在旧歌末尾歌词、与新歌完全错位。这里把活动行重置为 -1(无活动
-        // 行),AOD 显示 ♪ 而非错位的旧行;亮屏后真实位置或新歌的 onSongChanged 会恢复正确行。
-        // 注意:不解耦 positionMs 的累加(单曲循环时真实位置会回绕到 0,靠该值校正),仅重置
-        // 活动行,避免破坏单曲循环的 wrap-around 恢复。
+        // 歌曲边界回绕:息屏后网易云停止写位置,外推会越过歌曲时长继续累加。此时歌曲可能已
+        // 播完/重播(单曲循环)。若仍用 findTargetIndex(pos) 会一直返回旧歌最后一行,导致 AOD
+        // 停在末尾歌词。这里用模运算把位置回绕到时长内(n 次循环),立即选中重播后的正确行,
+        // 无需等亮屏 writer 恢复。对单曲循环这是严格正确的;对切到新歌(HyperGlow 无新歌数据)
+        // 仍依赖 onSongChanged 或亮屏后的真实位置校正。
         val duration = song.duration
         if (extrapolating && duration > 0L && pos >= duration) {
-            if (currentLineIndex != -1 || cachedWords != null) {
-                currentLineIndex = -1
-                cachedWords = null
-                AppLog.i(
-                    "LyriconLyricProducer",
-                    "extrapolation past song end, resetting active line (pos=${pos}ms " +
-                        "duration=${duration}ms)"
-                )
-            }
-            emit()
-            return
+            currentPositionMs = pos % duration
+            AppLog.i(
+                "LyriconLyricProducer",
+                "extrapolation wrapped past song end: ${pos}ms -> ${currentPositionMs}ms " +
+                    "(duration=${duration}ms)"
+            )
         }
 
-        val idx = nav.findTargetIndex(pos)
+        val idx = nav.findTargetIndex(currentPositionMs)
         if (idx < 0) {
             // Before the first line: no current line yet.
             if (currentLineIndex != -1) {

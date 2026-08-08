@@ -523,27 +523,9 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun positionExtrapolation_isNotClampedToSongDuration() {
-        // Single-track repeat: the shared-memory position resets to 0 on loop, so extrapolation
-        // must be allowed to exceed duration (no coerceAtMost) to let the real value correct it.
-        var clockValue = 10_000L
-        val producer = LyriconLyricProducer { clockValue }
-
-        producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
-        producer.playerListener.onPlaybackStateChanged(true)
-        producer.playerListener.onPositionChanged(7_500L) // near end
-
-        // Stall for a very long time → extrapolation exceeds duration (no clamp).
-        clockValue = 100_000L
-        producer.playerListener.onPositionChanged(7_500L)
-
-        assertEquals(7_500L + (100_000L - 10_000L), producer.state.value!!.positionMs)
-    }
-
-    @Test
-    fun positionExtrapolation_pastSongEnd_resetsActiveLineToNoLine() {
-        // 息屏后网易云停止写位置,外推越过歌曲时长。此时歌曲可能已播完/切歌/重播,旧歌末尾的
-        // 行不再有效——活动行必须重置为 -1(AOD 显示 ♪),而不是停在旧歌最后一行等待亮屏校正。
+    fun positionExtrapolation_wrapsPastSongEnd() {
+        // 单曲循环:外推越过歌曲时长时,用模运算把位置回绕到时长内,立即选中重播后的正确行,
+        // 无需等亮屏 writer 恢复。positionMs 也随之回绕。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -552,20 +534,42 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(7_500L) // near end → line 2
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Stall past the song boundary → active line resets to no active line.
+        // Stall for a very long time → extrapolation exceeds duration, then wraps.
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(7_500L)
 
         val state = producer.state.value!!
-        assertEquals(-1, state.lineIndex)
-        assertEquals("", state.line)
-        // positionMs 仍按外推累加(供单曲循环 wrap-around 校正),不封顶。
-        assertEquals(7_500L + (100_000L - 10_000L), state.positionMs)
+        // 97500 % 8000 = 1500 → line 0 [1000,3000]
+        assertEquals(1_500L, state.positionMs)
+        assertEquals(0, state.lineIndex)
+        assertEquals("first", state.line)
     }
 
     @Test
-    fun positionExtrapolation_pastSongEnd_resetsAndRealPositionRestoresLine() {
-        // 边界重置后,一旦真实位置恢复(亮屏 writer 恢复),应重新选中正确行。
+    fun positionExtrapolation_pastSongEnd_wrapsActiveLine() {
+        // 息屏后网易云停止写位置,外推越过歌曲时长。单曲循环时位置回绕,活动行回到重播位置,
+        // AOD 显示正确行而非卡在旧歌末尾。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(7_500L) // near end → line 2
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        // Stall past the song boundary → position wraps to the looped position.
+        clockValue = 100_000L
+        producer.playerListener.onPositionChanged(7_500L)
+
+        val state = producer.state.value!!
+        assertEquals(1_500L, state.positionMs) // wrapped
+        assertEquals(0, state.lineIndex)
+        assertEquals("first", state.line)
+    }
+
+    @Test
+    fun positionExtrapolation_pastSongEnd_wrapAndRealPositionRestoresLine() {
+        // 回绕后,一旦真实位置恢复(亮屏 writer 恢复),应重新选中正确行。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -574,10 +578,10 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(7_500L) // line 2
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // 越过时长 → 重置为无活动行。
+        // 越过时长 → 回绕到 line 0。
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(7_500L)
-        assertEquals(-1, producer.state.value!!.lineIndex)
+        assertEquals(0, producer.state.value!!.lineIndex)
 
         // 真实位置恢复(新歌/重播回绕),重新选中行。
         clockValue = 100_200L
