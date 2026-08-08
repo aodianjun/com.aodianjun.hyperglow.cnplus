@@ -362,6 +362,14 @@ class SceneCompilerTest {
         assertEquals("card", lockscreen.backgroundStyle)
         assertEquals(30, lockscreen.cardAlpha)
         assertEquals("accent", lockscreen.cardColor)
+
+        // 运行时验证器在 linkSurfaces=true 时同样必须保留锁屏卡片的颜色/透明度,
+        // 而不是回退到 AOD 取值(回归:锁屏卡片颜色/透明度调整无效)。
+        val validated = SystemUiCustomizationValidator.validate(compiled)!!
+            .profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        assertEquals("card", validated.backgroundStyle)
+        assertEquals(30, validated.cardAlpha)
+        assertEquals("accent", validated.cardColor)
     }
 
     @Test
@@ -416,6 +424,32 @@ class SceneCompilerTest {
             assertEquals(42, validated.cardAlpha)
             assertEquals("card", validated.backgroundStyle)
         }
+    }
+
+    @Test
+    fun cardAlphaAndColorSurviveCanonicalizeRoundTrip() {
+        // 仓库保存/加载会对文档做 canonicalize 往返(compile -> toSurfaceProfile)。
+        // 回归:锁屏卡片颜色/透明度经往返后必须保留,否则滑条拖动会立刻弹回默认。
+        val document = CustomizationDocument(
+            linkSurfaces = true,
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    backgroundStyle = "none",
+                    cardAlpha = 90,
+                    cardColor = "black"
+                ),
+                SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                    backgroundStyle = "card",
+                    cardAlpha = 30,
+                    cardColor = "accent"
+                )
+            )
+        )
+        val canonical = CustomizationRepository.canonicalizeDocument(document)!!
+        val lockscreen = canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        assertEquals("card", lockscreen.backgroundStyle)
+        assertEquals(30, lockscreen.cardAlpha)
+        assertEquals("accent", lockscreen.cardColor)
     }
 
     @Test

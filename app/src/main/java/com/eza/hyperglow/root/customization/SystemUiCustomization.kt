@@ -50,7 +50,9 @@ internal object SystemUiCustomizationValidator {
                 collisionPolicy = rawLockscreen.collisionPolicy,
                 widgets = rawLockscreen.widgets,
                 metadataVisible = rawLockscreen.metadataVisible,
-                backgroundStyle = rawLockscreen.backgroundStyle
+                backgroundStyle = rawLockscreen.backgroundStyle,
+                cardAlpha = rawLockscreen.cardAlpha,
+                cardColor = rawLockscreen.cardColor
             )
         } else {
             rawLockscreen

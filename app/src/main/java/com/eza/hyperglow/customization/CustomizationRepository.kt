@@ -186,6 +186,8 @@ object CustomizationRepository {
         overflow = overflow,
         adaptiveSectioning = adaptiveSectioning,
         palette = palette,
-        backgroundStyle = backgroundStyle
+        backgroundStyle = backgroundStyle,
+        cardAlpha = cardAlpha,
+        cardColor = cardColor
     )
 }
