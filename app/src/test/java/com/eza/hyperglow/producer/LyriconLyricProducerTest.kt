@@ -697,6 +697,58 @@ class LyriconLyricProducerTest {
         assertEquals(6_000L, state.positionMs)
     }
 
+    @Test
+    fun seekTo_rejectsPreSeekResidualPosition() {
+        // 拖动进度条后,共享内存可能短暂回传 seek 前的旧位置。该旧值 != seek 目标,若被当作
+        // 真实位置接受会把歌词打回旧位置。必须在 seek 后的窗口内拒绝它。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(4_200L) // line 1
+        assertEquals(1, producer.state.value!!.lineIndex)
+
+        // Seek forward to 6000 (line 2). Immediately after, shared memory still returns 4200.
+        clockValue = 10_100L
+        producer.playerListener.onSeekTo(6_000L)
+        assertEquals(2, producer.state.value!!.lineIndex)
+        assertEquals(6_000L, producer.state.value!!.positionMs)
+
+        // Stale pre-seek value 4200 arrives → must be rejected, not snapped back to line 1.
+        clockValue = 10_200L
+        producer.playerListener.onPositionChanged(4_200L)
+        val state = producer.state.value!!
+        assertEquals(2, state.lineIndex) // stays on seek target
+        assertEquals(6_000L + (10_200L - 10_100L), state.positionMs) // extrapolated from 6000
+    }
+
+    @Test
+    fun seekTo_residualRejection_stopsWhenRealPositionArrives() {
+        // 一旦 seek 后的真实位置(不同于 pre-seek)到达,拒绝停止,恢复接受共享内存位置。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(4_200L) // line 1
+
+        clockValue = 10_100L
+        producer.playerListener.onSeekTo(6_000L) // line 2
+
+        // 拒绝 stale pre-seek value。
+        clockValue = 10_200L
+        producer.playerListener.onPositionChanged(4_200L)
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        // 真实 post-seek 位置到达(可能略有偏移,如 6100)→ 接受。
+        clockValue = 10_300L
+        producer.playerListener.onPositionChanged(6_100L)
+        val state = producer.state.value!!
+        assertEquals(2, state.lineIndex)
+        assertEquals(6_100L, state.positionMs)
+    }
+
     // --- Playback state change extrapolation reset ---
 
     @Test

@@ -99,6 +99,16 @@ class LyriconLyricProducer(
     @Volatile private var previousSongLastPositionMs: Long = -1L
     @Volatile private var songChangeClockMs: Long = 0L
 
+    // --- Seek residual position rejection ---
+    // After onSeekTo, the shared memory may still return the pre-seek position for a short
+    // window until the player writes the new progress. Without filtering, that stale value
+    // (old != seek target) is accepted by the "resumed" branch and undoes the seek target,
+    // so the active line snaps back to the old position. We reject any position that exactly
+    // matches the pre-seek position within a window after the seek. Once a different (real)
+    // position arrives, filtering stops.
+    @Volatile private var seekRejectPositionMs: Long = -1L
+    @Volatile private var seekClockMs: Long = 0L
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
@@ -143,6 +153,8 @@ class LyriconLyricProducer(
                 extrapolating = false
                 previousSongLastPositionMs = -1L
                 songChangeClockMs = 0L
+                seekRejectPositionMs = -1L
+                seekClockMs = 0L
                 mutableState.value = null
             }
         }
@@ -161,6 +173,8 @@ class LyriconLyricProducer(
                 extrapolating = false
                 previousSongLastPositionMs = -1L
                 songChangeClockMs = 0L
+                seekRejectPositionMs = -1L
+                seekClockMs = 0L
                 mutableState.value = null
                 return
             }
@@ -248,6 +262,28 @@ class LyriconLyricProducer(
                 recomputeAndEmit()
                 return
             }
+            // Reject the pre-seek stale value that lingers right after a seek. The old value
+            // (still in shared memory) != the seek target, so without this it would be accepted
+            // by the "resumed" branch below and snap the active line back to the old position.
+            val isSeekResidual = seekRejectPositionMs >= 0L &&
+                (now - seekClockMs) < SEEK_RESIDUAL_REJECTION_WINDOW_MS &&
+                position == seekRejectPositionMs
+            if (isSeekResidual) {
+                if (lastRealPositionClockMs >= 0L) {
+                    val elapsed = now - lastRealPositionClockMs
+                    currentPositionMs = lastRealPositionMs + elapsed
+                    if (!extrapolating) {
+                        extrapolating = true
+                        AppLog.i(
+                            "LyriconLyricProducer",
+                            "seek residual rejected ($position ms matches pre-seek); " +
+                                "extrapolating from ${lastRealPositionMs}ms -> ${currentPositionMs}ms"
+                        )
+                    }
+                }
+                recomputeAndEmit()
+                return
+            }
             if (position != lastRealPositionMs) {
                 // Real position update from shared memory.
                 // Accept wrap-around: when the song loops (single-track repeat), the shared
@@ -261,6 +297,9 @@ class LyriconLyricProducer(
                 // A different value means the player has started writing the new song's progress.
                 // Disable residual filtering — subsequent positions are from the new song.
                 previousSongLastPositionMs = -1L
+                // A real (different) position means the player has written the post-seek value;
+                // stop rejecting the pre-seek position.
+                seekRejectPositionMs = -1L
                 if (extrapolating) {
                     extrapolating = false
                     AppLog.i(
@@ -320,8 +359,13 @@ class LyriconLyricProducer(
         }
 
         override fun onSeekTo(position: Long) {
-            AppLog.i("LyriconLyricProducer", "onSeekTo: pos=${position}ms")
+            AppLog.i("LyriconLyricProducer", "onSeekTo: pos=${position}ms old=${lastRealPositionMs}ms")
             val now = clock()
+            // Record the pre-seek position so onPositionChanged can reject the stale shared-memory
+            // value that lingers right after the seek (old != seek target would otherwise be
+            // accepted as a "real" update and snap the active line back to the old position).
+            seekRejectPositionMs = lastRealPositionMs
+            seekClockMs = now
             lastRealPositionMs = position
             lastRealPositionClockMs = now
             lastRealPositionUpdateMs = now
@@ -571,6 +615,13 @@ class LyriconLyricProducer(
          * the same position are eventually honored.
          */
         private const val RESIDUAL_REJECTION_WINDOW_MS = 60_000L
+
+        /**
+         * Window after [onSeekTo] during which incoming positions that exactly match the pre-seek
+         * position are rejected as lingering shared-memory values. Short (the player writes the
+         * post-seek position within a second or two); generous enough to cover the write gap.
+         */
+        private const val SEEK_RESIDUAL_REJECTION_WINDOW_MS = 3_000L
 
         /**
          * If no real position update arrives from shared memory for this duration, the writer
