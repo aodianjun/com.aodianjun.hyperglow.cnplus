@@ -111,16 +111,6 @@ android {
         buildConfig = true
         compose = true
     }
-
-    // APK 文件名标注构建变体、版本号与 versionCode,便于区分不同版本。
-    applicationVariants.all {
-        val variant = this
-        outputs.all {
-            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName =
-                "hyperglow-${variant.name}-v${variant.versionName}-${variant.versionCode}.apk"
-        }
-    }
 }
 
 dependencies {
