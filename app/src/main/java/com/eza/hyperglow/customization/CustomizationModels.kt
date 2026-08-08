@@ -25,6 +25,8 @@ data class SurfaceProfile(
     val secondaryMode: String = "Main only",
     val secondaryTextBright: Boolean = true,
     val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
+    /** Show the upcoming next lyric line dimmed below the active line. */
+    val showNextLine: Boolean = false,
     val metadataVisible: Boolean = false,
     val metadataAnchor: String = "top",
     val metadataSizePercent: Int = 100,
@@ -109,7 +111,9 @@ data class CompiledSurfaceProfile(
     val metadataSizePercent: Int = 100,
     val rubyVisible: Boolean = true,
     val secondaryTextBright: Boolean = true,
-    val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT
+    val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
+    /** Show the upcoming next lyric line dimmed below the active line. */
+    val showNextLine: Boolean = false
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1

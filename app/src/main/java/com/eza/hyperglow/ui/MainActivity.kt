@@ -1229,6 +1229,11 @@ private fun LyricLayoutScreen(
                         stringResource(R.string.setting_keep_phrases_together)
                     )
                     SwitchPreference(
+                        selectedProfile.showNextLine,
+                        { enabled -> updateSelected { it.copy(showNextLine = enabled) } },
+                        stringResource(R.string.setting_show_next_line)
+                    )
+                    SwitchPreference(
                         selectedProfile.metadataVisible,
                         { visible -> updateSelected { withMetadataVisible(it, visible) } },
                         stringResource(R.string.setting_show_song_info)

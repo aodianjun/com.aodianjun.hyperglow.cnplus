@@ -458,6 +458,11 @@ class LyriconLyricProducer(
             ?.map { it.begin }
             ?.filter { it > currentPositionMs }
             ?.minOrNull()
+        val nextLineText = lyrics
+            ?.asSequence()
+            ?.firstOrNull { it.begin > currentPositionMs }
+            ?.text
+            .orEmpty()
         sequence++
         mutableState.value = LyricProducerState(
             producerId = PRODUCER_ID,
@@ -489,7 +494,8 @@ class LyriconLyricProducer(
             ruby = emptyList(),
             layoutGroups = emptyList(),
             hasTimedLyrics = hasTimedLyrics,
-            nextLineStartMs = nextLineStartMs
+            nextLineStartMs = nextLineStartMs,
+            nextLine = nextLineText
         )
     }
 

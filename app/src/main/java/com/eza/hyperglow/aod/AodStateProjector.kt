@@ -95,6 +95,7 @@ internal fun projectToDisplay(
     }
     val romanized = if (showLargeMetadata || unsynced || noLyrics) "" else state.romanizedLine
     val translated = if (showLargeMetadata || unsynced || noLyrics) "" else state.translatedLine
+    val nextLine = if (showLargeMetadata || unsynced || noLyrics) "" else state.nextLine
 
     // --- 渲染模式（原 project() 从 state.liveCard* + prefs 混合取，现统一从 renderModes 取）---
     // 原 project() 里 weight/textSize/textSizeCustom/secondaryMode/animationMode/glowMode/
@@ -157,6 +158,7 @@ internal fun projectToDisplay(
         original = original,
         romanized = romanized,
         translated = translated,
+        nextLine = nextLine,
         metadata = metadata,
         alignedRight = state.alignedRight,
         lineLevelSync = lineLevelSync,

@@ -145,6 +145,10 @@ class SpicyLyricProducer : LyricProducer {
             ?.map { it.startMs }
             ?.filter { it > position }
             ?.minOrNull()
+        val nextLineText = timedDocument?.rows?.asSequence()
+            ?.firstOrNull { it.startMs > position }
+            ?.text
+            .orEmpty()
 
         return LyricProducerState(
             producerId = spicy.producerId,
@@ -188,7 +192,8 @@ class SpicyLyricProducer : LyricProducer {
                 LyricLayoutGroup(it.start, it.end, it.kind, it.keepTogether, it.confidence)
             } ?: emptyList(),
             hasTimedLyrics = hasTimedLyrics,
-            nextLineStartMs = nextLineStartMs
+            nextLineStartMs = nextLineStartMs,
+            nextLine = nextLineText
         )
     }
 

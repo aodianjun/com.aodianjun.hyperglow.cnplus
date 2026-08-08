@@ -147,6 +147,7 @@ object SceneCompiler {
             secondaryMode = profile.secondaryMode.takeIf { it in SECONDARY_MODES } ?: "Main only",
             secondaryTextBright = profile.secondaryTextBright,
             lyricLineLimit = normalizeLyricLineLimit(profile.lyricLineLimit),
+            showNextLine = profile.showNextLine,
             metadataVisible = profile.metadataVisible &&
                 supportedWidgets.any { it.type == "metadata" },
             metadataAnchor = if (profile.metadataAnchor == "bottom") "bottom" else "top",

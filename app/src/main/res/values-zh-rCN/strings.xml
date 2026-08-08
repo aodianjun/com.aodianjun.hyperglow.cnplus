@@ -146,6 +146,7 @@
     <string name="choice_long_lines">长歌词</string>
     <string name="choice_lyric_lines">歌词行数</string>
     <string name="setting_keep_phrases_together">保持词组完整</string>
+    <string name="setting_show_next_line">显示下一行歌词</string>
     <string name="setting_show_song_info">显示歌曲信息</string>
     <string name="choice_song_info_position">歌曲信息位置</string>
     <string name="setting_song_info_size">歌曲信息大小</string>

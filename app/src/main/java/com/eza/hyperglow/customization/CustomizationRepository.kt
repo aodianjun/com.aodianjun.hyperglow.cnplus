@@ -172,6 +172,7 @@ object CustomizationRepository {
         secondaryMode = secondaryMode,
         secondaryTextBright = secondaryTextBright,
         lyricLineLimit = lyricLineLimit,
+        showNextLine = showNextLine,
         metadataVisible = metadataVisible,
         metadataAnchor = metadataAnchor,
         metadataSizePercent = metadataSizePercent,

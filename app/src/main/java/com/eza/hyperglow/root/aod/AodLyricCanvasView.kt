@@ -168,6 +168,7 @@ internal data class AodCanvasContent(
     val original: String,
     val romanized: String,
     val translated: String,
+    val nextLine: String = "",
     val alignedRight: Boolean,
     val lineLevelSync: Boolean,
     val lineStartMs: Long,
@@ -196,7 +197,8 @@ internal data class AodCanvasContent(
     val adaptiveSectioning: Boolean,
     val palette: Map<String, String>,
     val secondaryTextBright: Boolean = true,
-    val lyricLineLimit: Int = 3
+    val lyricLineLimit: Int = 3,
+    val showNextLine: Boolean = false
 )
 
 internal data class AodCanvasLineIdentity(
@@ -824,6 +826,9 @@ private fun steadyTextAlpha(factor: Float): Float = if (factor < 0.5f) {
 
 internal fun staticSecondaryTextFactor(bright: Boolean): Float = if (bright) 1f else 0.35f
 
+/** Dimmed preview alpha for the upcoming next lyric line. */
+internal fun staticNextLineTextFactor(): Float = 0.35f
+
 /** Bounded Spicy live-card renderer adapted for Xiaomi AOD. */
 internal class AodLyricCanvasView(
     context: Context,
@@ -890,6 +895,9 @@ internal class AodLyricCanvasView(
     private val originalPaint = paint(27f, Color.WHITE, Typeface.NORMAL)
     private val romanizedPaint = paint(17f, Color.WHITE, Typeface.NORMAL)
     private val translatedPaint = paint(17f, Color.WHITE, Typeface.ITALIC)
+    private val nextLinePaint = paint(15f, 0x59FFFFFF.toInt(), Typeface.NORMAL).apply {
+        textAlign = Paint.Align.LEFT
+    }
     private val rubyPaint = paint(11f, 0xB3FFFFFF.toInt(), Typeface.NORMAL).apply {
         textAlign = Paint.Align.CENTER
     }
@@ -981,11 +989,13 @@ internal class AodLyricCanvasView(
             metadataPaint.typeface = regularTypeface
             romanizedPaint.typeface = regularTypeface
             translatedPaint.typeface = Typeface.create(regularTypeface, Typeface.ITALIC)
+            nextLinePaint.typeface = regularTypeface
             rubyPaint.typeface = regularTypeface
         } else {
             metadataPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             romanizedPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             translatedPaint.typeface = Typeface.create("sans-serif", Typeface.ITALIC)
+            nextLinePaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             rubyPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
         }
         originalPaint.textSize = baseSp * scaledDensity
@@ -1253,12 +1263,21 @@ internal class AodLyricCanvasView(
                 rowIndex++
                 continue
             }
-            setTextAlpha(
-                positioned.row.paint,
-                staticSecondaryTextFactor(bright),
-                1f,
-                resolvedPalette.secondaryText
-            )
+            if (positioned.row.kind == RowKind.NEXT_LINE) {
+                setTextAlpha(
+                    positioned.row.paint,
+                    staticNextLineTextFactor(),
+                    1f,
+                    resolvedPalette.secondaryText
+                )
+            } else {
+                setTextAlpha(
+                    positioned.row.paint,
+                    staticSecondaryTextFactor(bright),
+                    1f,
+                    resolvedPalette.secondaryText
+                )
+            }
             if (!keepShader) positioned.row.paint.shader = null
             positioned.row.paint.clearShadowLayer()
             var lineIndex = 0
@@ -1434,6 +1453,15 @@ internal class AodLyricCanvasView(
                 translatedPaint,
                 2f * density,
                 wrapSecondaryText(content.translated, translatedPaint, originalLayout.lineCount)
+            )
+        }
+        if (content.showNextLine && content.nextLine.isNotBlank()) {
+            rows += rowWithLines(
+                RowKind.NEXT_LINE,
+                content.nextLine,
+                nextLinePaint,
+                4f * density,
+                wrapSecondaryText(content.nextLine, nextLinePaint, 1)
             )
         }
         layout = LayoutState(positionRows(rows, originalLayout), originalLayout)
@@ -2271,6 +2299,8 @@ internal class AodLyricCanvasView(
                 row.paint.color = resolvedPalette.metadataText
                 row.paint.alpha = 255
                 canvas.drawText(line.text, line.startX, lineBaseline, row.paint)
+            } else if (row.kind == RowKind.NEXT_LINE) {
+                drawNextLine(canvas, row.paint, line.text, line.startX, lineBaseline)
             } else {
                 drawSecondaryLine(canvas, row.paint, line.text, line.startX, lineBaseline)
             }
@@ -2451,6 +2481,20 @@ internal class AodLyricCanvasView(
         canvas.drawText(text, x, baseline, paint)
     }
 
+    private fun drawNextLine(
+        canvas: Canvas,
+        paint: Paint,
+        text: String,
+        x: Float,
+        baseline: Float
+    ) {
+        paint.color = resolvedPalette.secondaryText
+        paint.alpha = (255f * staticNextLineTextFactor()).toInt()
+        paint.shader = null
+        paint.clearShadowLayer()
+        canvas.drawText(text, x, baseline, paint)
+    }
+
     private fun paint(sizeSp: Float, color: Int, weight: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = sizeSp * scaledDensity
         setColor(color)
@@ -2484,7 +2528,7 @@ internal class AodLyricCanvasView(
         return typeface
     }
 
-    private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED }
+    private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE }
     private data class Row(
         val kind: RowKind,
         val text: String,
