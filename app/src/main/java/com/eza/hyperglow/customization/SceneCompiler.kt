@@ -34,7 +34,9 @@ object SceneCompiler {
                 collisionPolicy = lockscreenSource.collisionPolicy,
                 widgets = lockscreenSource.widgets,
                 metadataVisible = lockscreenSource.metadataVisible,
-                backgroundStyle = lockscreenSource.backgroundStyle
+                backgroundStyle = lockscreenSource.backgroundStyle,
+                cardAlpha = lockscreenSource.cardAlpha,
+                cardColor = lockscreenSource.cardColor
             ) ?: lockscreenSource
         )
         val aod = compileProfile(SURFACE_AOD, aodSource)

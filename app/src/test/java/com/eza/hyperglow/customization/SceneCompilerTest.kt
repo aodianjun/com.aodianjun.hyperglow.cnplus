@@ -338,6 +338,33 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun linkedLockScreenCardAppearanceIsNotOverriddenByAod() {
+        // linkSurfaces=true 时锁屏卡片背景应保留锁屏自己的颜色/透明度,
+        // 而不是被 AOD 的 cardAlpha/cardColor 覆盖(回归:调整锁屏卡片无效)。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                linkSurfaces = true,
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        backgroundStyle = "card",
+                        cardAlpha = 30,
+                        cardColor = "accent"
+                    ),
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        backgroundStyle = "none",
+                        cardAlpha = 90,
+                        cardColor = "black"
+                    )
+                )
+            )
+        )
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        assertEquals("card", lockscreen.backgroundStyle)
+        assertEquals(30, lockscreen.cardAlpha)
+        assertEquals("accent", lockscreen.cardColor)
+    }
+
+    @Test
     fun cardAlphaAndColorAreClampedAndFallenBackOnCompile() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(
