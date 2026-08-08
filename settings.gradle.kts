@@ -14,6 +14,8 @@ dependencyResolutionManagement {
         // the public mirror can build; only signing a release requires the owner's private keystore.
         google()
         mavenCentral()
+        // SuperLyricApi publishes to JitPack; only needed for the SuperLyric lyric source.
+        maven("https://jitpack.io")
     }
 }
 

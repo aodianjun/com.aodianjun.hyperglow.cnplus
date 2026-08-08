@@ -25,6 +25,7 @@ import android.content.Context
  */
 object LyricProducers {
     @Volatile private var instance: LyricProducerArbiter? = null
+    @Volatile private var lyricInfoProducer: LyricInfoLyricProducer? = null
 
     val arbiter: LyricProducerArbiter
         get() = instance ?: error("LyricProducers not started; call start(context) first")
@@ -34,11 +35,29 @@ object LyricProducers {
         if (instance != null) return
         val spicy = SpicyLyricProducer()
         val lyricon = LyriconLyricProducer()
-        val arbiter = LyricProducerArbiter(spicy, lyricon)
+        val superLyric = SuperLyricLyricProducer()
+        val lyricInfo = LyricInfoLyricProducer()
+        val arbiter = LyricProducerArbiter(
+            mapOf(
+                LyricSource.SPICY to spicy,
+                LyricSource.LYRICON to lyricon,
+                LyricSource.SUPERLYRIC to superLyric,
+                LyricSource.LYRICINFO to lyricInfo
+            )
+        )
         arbiter.start(context.applicationContext)
         instance = arbiter
+        lyricInfoProducer = lyricInfo
     }
 
     /** Test/preview accessor; returns null before [start]. */
     fun arbiterOrNull(): LyricProducerArbiter? = instance
+
+    /**
+     * Called by [LyricInfoNotificationListener] when notification access is granted; lets the
+     * LyricInfo producer re-enumerate cross-app sessions immediately.
+     */
+    fun onLyricInfoListenerConnected() {
+        lyricInfoProducer?.onListenerConnected()
+    }
 }

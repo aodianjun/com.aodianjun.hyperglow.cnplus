@@ -26,6 +26,9 @@ class LyricProducerArbiterTest {
         font = "spotify"
     )
 
+    private fun arbiterMap(vararg producers: FakeProducer): Map<LyricSource, LyricProducer> =
+        producers.associateBy { it.id }
+
     private fun state(producerId: String, receivedAt: Long, generation: Int = 1) =
         LyricProducerState(
             producerId = producerId,
@@ -62,7 +65,7 @@ class LyricProducerArbiterTest {
         val now = 1_000L
         val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", now))
         val lyricon = FakeProducer(LyricSource.LYRICON)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
         val active = arbiter.computeActiveOnce()
 
@@ -76,7 +79,7 @@ class LyricProducerArbiterTest {
         val lyricon = FakeProducer(
             LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", now)
         )
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
         val active = arbiter.computeActiveOnce()
 
@@ -90,7 +93,7 @@ class LyricProducerArbiterTest {
         val lyricon = FakeProducer(
             LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", 4_500L)
         )
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { 5_000L }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
 
         val active = arbiter.computeActiveOnce()
 
@@ -104,7 +107,7 @@ class LyricProducerArbiterTest {
         val lyricon = FakeProducer(
             LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", 0L)
         )
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { 5_000L }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
 
         assertNull(arbiter.computeActiveOnce())
     }
@@ -115,7 +118,7 @@ class LyricProducerArbiterTest {
         val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", now))
         // Lyricon not yet connected at switch time.
         val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
         // Before switch: Spicy active.
         assertEquals("spicy", arbiter.computeActiveOnce()?.producerId)
@@ -139,7 +142,7 @@ class LyricProducerArbiterTest {
         val lyricon = FakeProducer(
             LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", now)
         )
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
         val active = arbiter.computeActiveOnce()
 
@@ -151,7 +154,7 @@ class LyricProducerArbiterTest {
     fun noProducerConnected_returnsNull() {
         val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
         val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { 1_000L }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 1_000L }
 
         assertNull(arbiter.computeActiveOnce())
     }
@@ -163,7 +166,7 @@ class LyricProducerArbiterTest {
             LyricSource.SPICY, ProducerConnection.RECONNECTED, state("spicy", now)
         )
         val lyricon = FakeProducer(LyricSource.LYRICON)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
         assertEquals("spicy", arbiter.computeActiveOnce()?.producerId)
     }
@@ -178,7 +181,7 @@ class LyricProducerArbiterTest {
         val lyricon = FakeProducer(
             LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", now)
         )
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
         val active = arbiter.computeActiveOnce()
         assertEquals("spicy", active?.producerId)
@@ -200,7 +203,7 @@ class LyricProducerArbiterTest {
         val now = 1_000L
         val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", now))
         val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
         assertEquals("spicy", arbiter.computeActiveOnce()?.producerId)
 
         // Spicy disconnects, lyricon still disconnected → no fallback → null.
@@ -216,7 +219,7 @@ class LyricProducerArbiterTest {
             LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", receivedAt = 0L)
         )
         val lyricon = FakeProducer(LyricSource.LYRICON)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { LyricProducerState.STALE_AFTER_MS }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { LyricProducerState.STALE_AFTER_MS }
 
         assertEquals("spicy", arbiter.computeActiveOnce()?.producerId)
     }
@@ -228,7 +231,7 @@ class LyricProducerArbiterTest {
             LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", receivedAt = 0L)
         )
         val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { LyricProducerState.STALE_AFTER_MS + 1 }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { LyricProducerState.STALE_AFTER_MS + 1 }
 
         assertNull(arbiter.computeActiveOnce())
     }
@@ -242,11 +245,11 @@ class LyricProducerArbiterTest {
         val lyricon = FakeProducer(
             LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", receivedAt = 0L)
         )
-        val arbiterAtThreshold = LyricProducerArbiter(spicy, lyricon) { 3_000L }
+        val arbiterAtThreshold = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 3_000L }
         assertEquals("lyricon", arbiterAtThreshold.computeActiveOnce()?.producerId)
 
         // One ms later: lyricon stale → null (no spicy fallback, spicy disconnected).
-        val arbiterBeyondThreshold = LyricProducerArbiter(spicy, lyricon) { 3_001L }
+        val arbiterBeyondThreshold = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 3_001L }
         assertNull(arbiterBeyondThreshold.computeActiveOnce())
     }
 
@@ -259,7 +262,7 @@ class LyricProducerArbiterTest {
         val now = 1_000L
         val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", now))
         val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
         assertEquals("spicy", arbiter.computeActiveOnce()?.producerId)
 
         // Switch to lyricon which is still DISCONNECTED.
@@ -282,7 +285,7 @@ class LyricProducerArbiterTest {
         val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
         // Give lyricon a state too — it must NOT be surfaced while disconnected.
         lyricon.emit(state("lyricon", now))
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
         arbiter.setPreference(LyricSource.LYRICON)
 
@@ -298,7 +301,7 @@ class LyricProducerArbiterTest {
         val now = 1_000L
         val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", now))
         val lyricon = FakeProducer(LyricSource.LYRICON)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
         assertEquals("spicy", arbiter.computeActiveOnce()?.producerId)
 
         // Switching to the same source is a no-op (does not clear).
@@ -310,7 +313,7 @@ class LyricProducerArbiterTest {
     fun connectTimeout_withNoFallback_returnsNull() {
         val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECT_TIMEOUT)
         val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { 1_000L }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 1_000L }
 
         assertNull(arbiter.computeActiveOnce())
     }
@@ -324,12 +327,73 @@ class LyricProducerArbiterTest {
         val lyricon = FakeProducer(
             LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", now)
         )
-        val arbiter = LyricProducerArbiter(spicy, lyricon) { now }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
         // Default preference is SPICY.
         assertEquals("spicy", arbiter.computeActiveOnce()?.producerId)
 
         arbiter.setPreference(LyricSource.LYRICON)
         assertEquals("lyricon", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    // --- New sources (SUPERLYRIC, LYRICINFO): selection and fallback order. ---
+
+    @Test
+    fun superLyric_canBePreferred_whenConnectedAndFresh() {
+        val now = 1_000L
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED, state("superlyric", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(superLyric)) { now }
+        arbiter.setPreference(LyricSource.SUPERLYRIC)
+
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    @Test
+    fun lyricInfo_canBePreferred_whenConnectedAndFresh() {
+        val now = 1_000L
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED, state("lyricinfo", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricInfo)) { now }
+        arbiter.setPreference(LyricSource.LYRICINFO)
+
+        assertEquals("lyricinfo", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    @Test
+    fun fallbackOrder_skipsPreferredAndPicksFirstConnectedNewSource() {
+        // Preferred (SPICY) disconnected; SUPERLYRIC connected+fresh → fallback to SUPERLYRIC
+        // (enum order BEFORE LYRICINFO), never LYRICINFO even if it is also connected.
+        val now = 1_000L
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED, state("superlyric", now)
+        )
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED, state("lyricinfo", now)
+        )
+        val arbiter = LyricProducerArbiter(
+            arbiterMap(spicy, superLyric, lyricInfo)
+        ) { now }
+
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    @Test
+    fun fallback_preferredDisconnected_superLyricDisconnected_usesLyricInfo() {
+        val now = 1_000L
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val superLyric = FakeProducer(LyricSource.SUPERLYRIC, ProducerConnection.DISCONNECTED)
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED, state("lyricinfo", now)
+        )
+        val arbiter = LyricProducerArbiter(
+            arbiterMap(spicy, superLyric, lyricInfo)
+        ) { now }
+
+        // SUPERLYRIC skipped (disconnected), LYRICINFO is the next connected non-stale source.
+        assertEquals("lyricinfo", arbiter.computeActiveOnce()?.producerId)
     }
 }

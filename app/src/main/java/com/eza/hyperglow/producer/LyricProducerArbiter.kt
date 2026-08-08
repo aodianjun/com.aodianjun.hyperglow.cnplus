@@ -39,8 +39,7 @@ import kotlinx.coroutines.launch
  *   Injected in unit tests so staleness can be advanced without Android.
  */
 class LyricProducerArbiter(
-    private val spicy: LyricProducer,
-    private val lyricon: LyricProducer,
+    private val producers: Map<LyricSource, LyricProducer>,
     private val clock: () -> Long = SystemClock::elapsedRealtime
 ) {
     /**
@@ -80,8 +79,7 @@ class LyricProducerArbiter(
             AppLog.i("LyricProducerArbiter", "restored preference: $restored")
             mutablePreference.value = restored
         }
-        spicy.start(context)
-        lyricon.start(context)
+        producers.values.forEach { it.start(context) }
         arbitrationJob = scope.launch { arbitrateLoop(context) }
         staleSweepJob = scope.launch { staleSweepLoop() }
         AppLog.i("LyricProducerArbiter", "started")
@@ -96,8 +94,7 @@ class LyricProducerArbiter(
         started = false
         arbitrationJob?.cancel(); arbitrationJob = null
         staleSweepJob?.cancel(); staleSweepJob = null
-        spicy.stop()
-        lyricon.stop()
+        producers.values.forEach { it.stop() }
         mutableActive.value = null
         scope.cancel()
         AppLog.i("LyricProducerArbiter", "stopped")
@@ -127,8 +124,8 @@ class LyricProducerArbiter(
      * the selected (or fallback) source is actually connected — e.g. whether the Lyricon
      * Xposed module is active in SystemUI.
      */
-    fun connection(source: LyricSource): StateFlow<ProducerConnection> =
-        producer(source).connection
+    fun connection(source: LyricSource): StateFlow<ProducerConnection>? =
+        producer(source)?.connection
 
     private suspend fun arbitrateLoop(context: Context) {
         // Collect both producers' connection and state, recomputing `active` on any change.
@@ -161,6 +158,10 @@ class LyricProducerArbiter(
     internal fun computeActiveOnce(): LyricProducerState? {
         val pref = mutablePreference.value
         val preferred = producer(pref)
+        if (preferred == null) {
+            // Preference names a source with no producer registered: fall back.
+            return fallbackState(pref)
+        }
         val preferredConn = preferred.connection.value
         val preferredState = preferred.state.value
         val now = clock()
@@ -201,38 +202,47 @@ class LyricProducerArbiter(
     }
 
     private fun fallbackState(excluded: LyricSource): LyricProducerState? {
-        val otherSource = other(excluded)
-        val other = producer(otherSource)
-        val otherConn = other.connection.value
-        if (otherConn != ProducerConnection.CONNECTED &&
-            otherConn != ProducerConnection.RECONNECTED) {
-            AppLog.i(
-                "LyricProducerArbiter",
-                "fallback: $otherSource conn=$otherConn (not connected) -> null"
-            )
-            return null
-        }
-        val otherState = other.state.value
-        if (otherState == null) {
-            AppLog.i("LyricProducerArbiter", "fallback: $otherSource connected but nullState -> null")
-            return null
-        }
-        val now = clock()
-        return if (isStale(otherState)) {
-            AppLog.i(
-                "LyricProducerArbiter",
-                "fallback: $otherSource stale(age=${now - otherState.receivedAtElapsedMs}ms) -> null"
-            )
-            null
-        } else {
+        // Try every other producer in enum order (SPICY, LYRICON, SUPERLYRIC, LYRICINFO),
+        // returning the first that is connected and has non-stale state.
+        for (otherSource in LyricSource.entries) {
+            if (otherSource == excluded) continue
+            val other = producer(otherSource) ?: continue
+            val otherConn = other.connection.value
+            if (otherConn != ProducerConnection.CONNECTED &&
+                otherConn != ProducerConnection.RECONNECTED
+            ) {
+                AppLog.i(
+                    "LyricProducerArbiter",
+                    "fallback: $otherSource conn=$otherConn (not connected) -> skip"
+                )
+                continue
+            }
+            val otherState = other.state.value
+            if (otherState == null) {
+                AppLog.i(
+                    "LyricProducerArbiter",
+                    "fallback: $otherSource connected but nullState -> skip"
+                )
+                continue
+            }
+            val now = clock()
+            if (isStale(otherState)) {
+                AppLog.i(
+                    "LyricProducerArbiter",
+                    "fallback: $otherSource stale(age=${now - otherState.receivedAtElapsedMs}ms) -> skip"
+                )
+                continue
+            }
             AppLog.i(
                 "LyricProducerArbiter",
                 "fallback: $otherSource producer=${otherState.producerId} " +
                     "gen=${otherState.generation} seq=${otherState.sequence} " +
                     "age=${now - otherState.receivedAtElapsedMs}ms"
             )
-            otherState
+            return otherState
         }
+        AppLog.i("LyricProducerArbiter", "fallback: no connected non-stale producer -> null")
+        return null
     }
 
     private fun staleSweepLoop() = scope.launch {
@@ -248,11 +258,7 @@ class LyricProducerArbiter(
         }
     }
 
-    private fun producer(source: LyricSource): LyricProducer =
-        if (source == LyricSource.SPICY) spicy else lyricon
-
-    private fun other(source: LyricSource): LyricSource =
-        if (source == LyricSource.SPICY) LyricSource.LYRICON else LyricSource.SPICY
+    private fun producer(source: LyricSource): LyricProducer? = producers[source]
 
     private fun isStale(state: LyricProducerState): Boolean {
         // Uniform staleness: now - receivedAtElapsedMs > staleAfterMs.

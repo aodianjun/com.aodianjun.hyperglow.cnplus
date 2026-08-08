@@ -202,10 +202,8 @@ object AodRenderPreferences {
      */
     fun readLyricSource(context: Context): LyricSource {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return when (prefs.getString(LYRIC_SOURCE, LyricSource.SPICY.name)) {
-            LyricSource.LYRICON.name -> LyricSource.LYRICON
-            else -> LyricSource.SPICY
-        }
+        val stored = prefs.getString(LYRIC_SOURCE, LyricSource.SPICY.name)
+        return LyricSource.entries.firstOrNull { it.name == stored } ?: LyricSource.SPICY
     }
 
     fun writeLyricSource(context: Context, source: LyricSource) {

@@ -5,8 +5,8 @@
 Animated lock screen and always-on display lyrics for HyperOS 3, with support for Chinese music apps.
 HyperOS 3 的锁屏与息屏（AOD）歌词动画，支持国内音乐软件。
 
-Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarinne/spicy-ex) or [Lyricon](https://github.com/tomakino/lyricon)).
-需要 root、LSPosed 以及一个歌词源（[Spicy EX](https://github.com/amarinne/spicy-ex) 或 [Lyricon](https://github.com/tomakino/lyricon)）。
+Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarinne/spicy-ex), [Lyricon](https://github.com/tomakino/lyricon), [SuperLyric](https://github.com/HChenX/SuperLyric) or [LyricInfo](https://github.com/limczhh/LyricInfo)).
+需要 root、LSPosed 以及一个歌词源（[Spicy EX](https://github.com/amarinne/spicy-ex)、[Lyricon](https://github.com/tomakino/lyricon)、[SuperLyric](https://github.com/HChenX/SuperLyric) 或 [LyricInfo](https://github.com/limczhh/LyricInfo)）。
 
 </div>
 
@@ -19,6 +19,8 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 - Lyrics on the HyperOS lock screen and AOD from multiple sources:
   - **Spicy EX** (Spotify, international).
   - **Lyricon** (popular Chinese music apps — QQ Music, NetEase Cloud Music, Kugou, etc.).
+  - **SuperLyric** (active-line push via Binder, works with many music apps).
+  - **LyricInfo** (injects elrc/lrc lyrics into the media session metadata of supported apps).
 - Line-, word- and syllable-synchronized karaoke.
 - Transliteration and translation with Spicy EX Full.
 
@@ -34,6 +36,8 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 - At least one lyrics source:
   - Spotify with Spicy EX Lite or Full (**Publish lyrics to HyperGlow** enabled).
   - A Chinese music app with [Lyricon](https://github.com/tomakino/lyricon) active in SystemUI.
+  - [SuperLyric](https://github.com/HChenX/SuperLyric) active in the system service.
+  - [LyricInfo](https://github.com/limczhh/LyricInfo) active in the music app, plus notification access for HyperGlow.
 
 ## Install
 
@@ -43,6 +47,8 @@ APK from [Releases](https://github.com/aodianjun/hyperglow/releases).
 2. Enable your lyrics source:
    - **Spotify**: enable Spicy EX for Spotify in LSPosed, then enable **Publish lyrics to HyperGlow** in Spicy EX.
    - **Chinese music apps**: enable [Lyricon](https://github.com/tomakino/lyricon) for SystemUI in LSPosed.
+   - **SuperLyric**: enable [SuperLyric](https://github.com/HChenX/SuperLyric) in LSPosed.
+   - **LyricInfo**: enable [LyricInfo](https://github.com/limczhh/LyricInfo) for the music app in LSPosed, and grant HyperGlow notification access.
 3. Set HyperGlow battery usage to **No restrictions**.
 
 > [!NOTE]
@@ -97,6 +103,8 @@ before opening a pull request:
 - 通过多种来源在 HyperOS 锁屏与 AOD 上显示歌词：
   - **Spicy EX**（国际版，Spotify）。
   - **Lyricon**（热门国内音乐软件 —— QQ音乐、网易云音乐、酷狗音乐等）。
+  - **SuperLyric**（通过 Binder 实时推送当前歌词行，支持众多音乐软件）。
+  - **LyricInfo**（向受支持应用的媒体会话元数据注入 elrc/lrc 歌词）。
 - 支持逐行、逐词、逐音节同步的卡拉OK。
 - 搭配 Spicy EX Full 支持音译与翻译。
 
@@ -112,6 +120,8 @@ before opening a pull request:
 - 至少一个歌词源：
   - Spotify + Spicy EX Lite 或 Full（需开启 **将歌词发布到 HyperGlow**）。
   - 国内音乐软件 + [Lyricon](https://github.com/tomakino/lyricon)（在 SystemUI 作用域启用）。
+  - [SuperLyric](https://github.com/HChenX/SuperLyric)（在系统服务中启用）。
+  - [LyricInfo](https://github.com/limczhh/LyricInfo)（在音乐软件中启用，并为 HyperGlow 授予通知使用权）。
 
 ## 安装
 
@@ -121,6 +131,8 @@ before opening a pull request:
 2. 启用你的歌词源：
    - **Spotify**：在 LSPosed 中为 Spotify 启用 Spicy EX，然后在 Spicy EX 中开启 **将歌词发布到 HyperGlow**。
    - **国内音乐软件**：在 LSPosed 中为 SystemUI 启用 [Lyricon](https://github.com/tomakino/lyricon)。
+   - **SuperLyric**：在 LSPosed 中启用 [SuperLyric](https://github.com/HChenX/SuperLyric)。
+   - **LyricInfo**：在 LSPosed 中为音乐软件启用 [LyricInfo](https://github.com/limczhh/LyricInfo)，并为 HyperGlow 授予通知使用权。
 3. 将 HyperGlow 的电池使用设置为 **无限制**。
 
 > [!NOTE]

@@ -1,6 +1,7 @@
 package com.eza.hyperglow.ui
 
 import android.content.Intent
+import android.provider.Settings
 import android.app.LocaleManager
 import android.content.res.Configuration
 import android.graphics.Color
@@ -324,7 +325,7 @@ private fun HomeScreen(
                     item { LiveStatusSection() }
                     item { SmallTitle(text = stringResource(R.string.section_lyric_source)) }
                     item { LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true }) }
-                    item { LyriconSetupHint() }
+                    item { SourceSetupHint() }
                     item { SmallTitle(text = stringResource(R.string.section_runtime_status)) }
                     item {
                         SettingsCard {
@@ -2035,27 +2036,78 @@ private fun LyricSourceSection(onOpenSourceDialog: () -> Unit) {
 }
 
 /**
- * Conditional Lyricon setup hint: only rendered when the user picked Lyricon but it isn't
- * connected (missing/ inactive Xposed module, or API too low). Hidden once connected or
- * when Spicy is the active source.
+ * Conditional setup hint for the source-selectable Xposed/music sources (Lyricon, SuperLyric,
+ * LyricInfo): only rendered when the user picked that source but it isn't connected. Hidden once
+ * connected/reconnecting or when Spicy is the active source.
  */
 @Composable
-private fun LyriconSetupHint() {
+private fun SourceSetupHint() {
     val context = LocalContext.current
     val preference by collectPreference()
-    val lyriconConnection by collectConnection(LyricSource.LYRICON)
-    if (preference != LyricSource.LYRICON) return
-    if (lyriconConnection == ProducerConnection.CONNECTED ||
-        lyriconConnection == ProducerConnection.RECONNECTED
+    when (preference) {
+        LyricSource.LYRICON -> SourceHint(
+            titleRes = R.string.title_lyricon_setup,
+            summaryRes = R.string.summary_lyricon_not_connected,
+            actionRes = R.string.action_lyricon_guide,
+            url = LYRICON_GUIDE_URL
+        )
+
+        LyricSource.SUPERLYRIC -> SourceHint(
+            titleRes = R.string.title_superlyric_setup,
+            summaryRes = R.string.summary_superlyric_not_connected,
+            actionRes = R.string.action_superlyric_guide,
+            url = SUPERLYRIC_GUIDE_URL
+        )
+
+        LyricSource.LYRICINFO -> LyricInfoHint(context)
+
+        LyricSource.SPICY -> Unit
+    }
+}
+
+@Composable
+private fun SourceHint(titleRes: Int, summaryRes: Int, actionRes: Int, url: String) {
+    val context = LocalContext.current
+    val preference by collectPreference()
+    val connection by collectConnection(preference)
+    if (connection == ProducerConnection.CONNECTED ||
+        connection == ProducerConnection.RECONNECTED
     ) return
     SettingsCard {
         BasicComponent(
-            title = stringResource(R.string.title_lyricon_setup),
-            summary = stringResource(R.string.summary_lyricon_not_connected)
+            title = stringResource(titleRes),
+            summary = stringResource(summaryRes)
         )
         ArrowPreference(
-            title = stringResource(R.string.action_lyricon_guide),
-            onClick = { openExternalUrl(context, LYRICON_GUIDE_URL) }
+            title = stringResource(actionRes),
+            onClick = { openExternalUrl(context, url) }
+        )
+    }
+}
+
+@Composable
+private fun LyricInfoHint(context: android.content.Context) {
+    val preference by collectPreference()
+    val connection by collectConnection(preference)
+    if (connection == ProducerConnection.CONNECTED ||
+        connection == ProducerConnection.RECONNECTED
+    ) return
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(R.string.title_lyricinfo_setup),
+            summary = stringResource(R.string.summary_lyricinfo_not_connected)
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_lyricinfo_notification_access),
+            onClick = {
+                context.startActivity(
+                    Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                )
+            }
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_lyricinfo_guide),
+            onClick = { openExternalUrl(context, LYRICINFO_GUIDE_URL) }
         )
     }
 }
@@ -2091,6 +2143,8 @@ private fun lyricSourceLabel(context: android.content.Context, source: LyricSour
         when (source) {
             LyricSource.SPICY -> R.string.lyric_source_spicy
             LyricSource.LYRICON -> R.string.lyric_source_lyricon
+            LyricSource.SUPERLYRIC -> R.string.lyric_source_superlyric
+            LyricSource.LYRICINFO -> R.string.lyric_source_lyricinfo
         }
     )
 
@@ -2140,3 +2194,5 @@ private fun projectionStateSummary(
 }
 
 private const val LYRICON_GUIDE_URL = "https://github.com/amarinne/hyperglow#lyricon-setup"
+private const val SUPERLYRIC_GUIDE_URL = "https://github.com/HChenX/SuperLyric#readme"
+private const val LYRICINFO_GUIDE_URL = "https://github.com/limczhh/LyricInfo#readme"

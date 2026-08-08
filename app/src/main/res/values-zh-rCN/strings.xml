@@ -34,8 +34,12 @@
     <string name="section_lyric_source">歌词源</string>
     <string name="lyric_source_spicy">Spicy EX</string>
     <string name="lyric_source_lyricon">Lyricon</string>
+    <string name="lyric_source_superlyric">SuperLyric</string>
+    <string name="lyric_source_lyricinfo">LyricInfo</string>
     <string name="summary_lyric_source_spicy">HyperGlow 内置的进程内桥接，始终可用。</string>
     <string name="summary_lyric_source_lyricon">通过系统界面中的 Lyricon Xposed 模块，以回调方式驱动歌词。</string>
+    <string name="summary_lyric_source_superlyric">使用 SuperLyric Xposed 模块，通过 Binder 实时推送当前歌词行。</string>
+    <string name="summary_lyric_source_lyricinfo">使用 LyricInfo Xposed 模块，读取注入到媒体会话元数据中的歌词。</string>
     <string name="label_active_source">当前歌词源</string>
     <string name="summary_active_source">%1$s · %2$s</string>
     <string name="source_status_connected">已连接</string>
@@ -56,6 +60,14 @@
     <string name="title_lyricon_setup">完成 Lyricon 配置</string>
     <string name="summary_lyricon_not_connected">已选择 Lyricon 但未连接。请确认 Lyricon Xposed 模块已安装并在系统界面中激活，然后重启系统界面。</string>
     <string name="action_lyricon_guide">Lyricon 配置指南</string>
+    <string name="title_superlyric_setup">完成 SuperLyric 配置</string>
+    <string name="summary_superlyric_not_connected">已选择 SuperLyric 但未连接。请安装并在系统界面中激活 SuperLyric Xposed 模块，然后重启系统界面。</string>
+    <string name="action_superlyric_guide">SuperLyric 配置指南</string>
+    <string name="title_lyricinfo_setup">完成 LyricInfo 配置</string>
+    <string name="summary_lyricinfo_not_connected">已选择 LyricInfo 但未连接。请在音乐应用中激活 LyricInfo Xposed 模块，并授予 HyperGlow 通知使用权。</string>
+    <string name="action_lyricinfo_notification_access">授予通知使用权</string>
+    <string name="action_lyricinfo_guide">LyricInfo 配置指南</string>
+    <string name="lyric_info_notification_listener">LyricInfo 通知监听器</string>
 
     <string name="section_spotify_integration">Spotify 集成</string>
     <string name="action_download_spicy_ex">下载 Spicy EX</string>

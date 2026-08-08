@@ -130,6 +130,11 @@ dependencies {
     // (Xposed-injected into com.android.systemui). Transitively pulls in
     // io.github.proify.lyricon.lyric:model (the Song/RichLyricLine model).
     implementation("io.github.proify.lyricon:subscriber:0.1.70")
+    // SuperLyricApi — Binder-based receiver for lyrics published by the SuperLyric
+    // Xposed module (com.hchen.superlyricapi: SuperLyricHelper / ISuperLyricReceiver).
+    implementation("com.github.HChenX:SuperLyricApi:3.4")
+    // LyricInfo needs no dependency: it injects lyrics into MediaSession metadata
+    // (MediaMetadata.extras.lyricInfo, elrc format), consumed via MediaSessionManager.
     compileOnly("io.github.libxposed:api:102.0.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

@@ -56,5 +56,15 @@
             android:grantUriPermissions="true">
             <grant-uri-permission android:pathPrefix="/" />
         </provider>
+
+        <service
+            android:name=".producer.LyricInfoNotificationListener"
+            android:exported="false"
+            android:label="@string/lyric_info_notification_listener"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

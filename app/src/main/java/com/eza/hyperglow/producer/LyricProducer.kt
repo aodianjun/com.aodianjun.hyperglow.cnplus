@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
  * with the arbiter. The `spotify:track:` URI constraint stays internal to the Spicy producer
  * and MUST NOT be re-imposed at this boundary.
  */
-enum class LyricSource { SPICY, LYRICON }
+enum class LyricSource { SPICY, LYRICON, SUPERLYRIC, LYRICINFO }
 
 /**
  * Connection state of a [LyricProducer]. The arbiter uses this to decide when to fall back.
