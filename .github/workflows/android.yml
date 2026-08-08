@@ -204,7 +204,7 @@ jobs:
           - **`__REL__`（正式版）**：正常使用请安装此版本。正式签名、R8 压缩，适合日常安装使用。
           - **`__DBG__`（调试版）**：提 issue 反馈问题时请安装此版本，可提供详细诊断日志辅助排查。调试签名，仅用于测试与问题排查，请勿作为日常版本长期安装。
           EOF
-          sed -i "s|__REL__|$RELEASE_APK|g; s|__DBG__|$DEBUG_APK|g" release-notes-extra.md
+          sed -i "s|__REL__|$(basename "$RELEASE_APK")|g; s|__DBG__|$(basename "$DEBUG_APK")|g" release-notes-extra.md
           EXISTING=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
             --json body --jq '.body' 2>/dev/null || true)
           { cat release-notes-extra.md; echo; echo "---"; echo "$EXISTING"; } > release-notes-final.md
