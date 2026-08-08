@@ -140,12 +140,6 @@ internal fun projectToDisplay(
     val words = if (showLargeMetadata || !hasActiveLine) emptyList() else state.words.orEmpty().map(::toDisplayWord)
     val ruby = if (showLargeMetadata || !hasActiveLine) emptyList() else state.ruby.map(::toDisplayRuby)
     val layoutGroups = if (showLargeMetadata || !hasActiveLine) emptyList() else state.layoutGroups.map(::toDisplayLayoutGroup)
-    android.util.Log.d(
-        "AODMetadata",
-        "project title='${state.title}' artist='${state.artist}' metadata='$metadata' " +
-            "metadataVisible=${aodProfile?.metadataVisible} " +
-            "showLargeMetadata=$showLargeMetadata lyricState=$lyricState"
-    )
 
     return AodDisplayState(
         visible = original.isNotBlank(),
