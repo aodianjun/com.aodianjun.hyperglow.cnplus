@@ -408,6 +408,28 @@ class LyriconLyricProducer(
         val nav = navigator ?: return emit() // no lyrics yet; emit metadata-only state
         val song = currentSong ?: return
         val pos = currentPositionMs
+
+        // 歌曲边界重置:息屏后网易云停止写位置,外推会越过歌曲时长继续累加。此时歌曲可能已
+        // 播完/切歌/重播,旧歌末尾的行不再有效。若仍用 findTargetIndex(pos) 会一直返回旧歌
+        // 最后一行,导致 AOD 停在旧歌末尾歌词、与新歌完全错位。这里把活动行重置为 -1(无活动
+        // 行),AOD 显示 ♪ 而非错位的旧行;亮屏后真实位置或新歌的 onSongChanged 会恢复正确行。
+        // 注意:不解耦 positionMs 的累加(单曲循环时真实位置会回绕到 0,靠该值校正),仅重置
+        // 活动行,避免破坏单曲循环的 wrap-around 恢复。
+        val duration = song.duration
+        if (extrapolating && duration > 0L && pos >= duration) {
+            if (currentLineIndex != -1 || cachedWords != null) {
+                currentLineIndex = -1
+                cachedWords = null
+                AppLog.i(
+                    "LyriconLyricProducer",
+                    "extrapolation past song end, resetting active line (pos=${pos}ms " +
+                        "duration=${duration}ms)"
+                )
+            }
+            emit()
+            return
+        }
+
         val idx = nav.findTargetIndex(pos)
         if (idx < 0) {
             // Before the first line: no current line yet.

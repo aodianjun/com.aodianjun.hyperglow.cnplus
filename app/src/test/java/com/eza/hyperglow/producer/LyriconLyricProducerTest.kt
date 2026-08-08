@@ -540,6 +540,54 @@ class LyriconLyricProducerTest {
         assertEquals(7_500L + (100_000L - 10_000L), producer.state.value!!.positionMs)
     }
 
+    @Test
+    fun positionExtrapolation_pastSongEnd_resetsActiveLineToNoLine() {
+        // 息屏后网易云停止写位置,外推越过歌曲时长。此时歌曲可能已播完/切歌/重播,旧歌末尾的
+        // 行不再有效——活动行必须重置为 -1(AOD 显示 ♪),而不是停在旧歌最后一行等待亮屏校正。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(7_500L) // near end → line 2
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        // Stall past the song boundary → active line resets to no active line.
+        clockValue = 100_000L
+        producer.playerListener.onPositionChanged(7_500L)
+
+        val state = producer.state.value!!
+        assertEquals(-1, state.lineIndex)
+        assertEquals("", state.line)
+        // positionMs 仍按外推累加(供单曲循环 wrap-around 校正),不封顶。
+        assertEquals(7_500L + (100_000L - 10_000L), state.positionMs)
+    }
+
+    @Test
+    fun positionExtrapolation_pastSongEnd_resetsAndRealPositionRestoresLine() {
+        // 边界重置后,一旦真实位置恢复(亮屏 writer 恢复),应重新选中正确行。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(7_500L) // line 2
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        // 越过时长 → 重置为无活动行。
+        clockValue = 100_000L
+        producer.playerListener.onPositionChanged(7_500L)
+        assertEquals(-1, producer.state.value!!.lineIndex)
+
+        // 真实位置恢复(新歌/重播回绕),重新选中行。
+        clockValue = 100_200L
+        producer.playerListener.onPositionChanged(4_000L)
+
+        val state = producer.state.value!!
+        assertEquals(1, state.lineIndex) // [3500,5000] contains 4000
+        assertEquals(4_000L, state.positionMs)
+    }
+
     // --- Song change position reset ---
 
     @Test
