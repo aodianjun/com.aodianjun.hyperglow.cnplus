@@ -77,19 +77,15 @@ jobs:
           COMMIT_MSG=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" \
             --jq '.commit.message' 2>/dev/null || true)
           NOTES="Automated debug build from commit \`${GITHUB_SHA}\`.
-
-## 本次变更
-\`\`\`
-${COMMIT_MSG:-（无 commit message，仅触发构建）}
-\`\`\`
-
-## 包含两个变体
-- app-debug.apk: 诊断日志开关可控(默认仅 w/e 级错误日志)
-- app-debug-notrace.apk: 编译时硬关闭 trace(即使开诊断日志开关也不输出 i 级日志)
-
-This is an unverified debug build for testing. Not for production use.
-
-详见 commit 历史: https://github.com/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}"
+          ## 本次变更
+          \`\`\`
+          ${COMMIT_MSG:-（无 commit message，仅触发构建）}
+          \`\`\`
+          ## 包含两个变体
+          - app-debug.apk: 诊断日志开关可控(默认仅 w/e 级错误日志)
+          - app-debug-notrace.apk: 编译时硬关闭 trace(即使开诊断日志开关也不输出 i 级日志)
+          This is an unverified debug build for testing. Not for production use.
+          详见 commit 历史: https://github.com/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}"
           # 若 release 已存在(default job 先创建),则追加 asset;否则创建新 release
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --clobber
