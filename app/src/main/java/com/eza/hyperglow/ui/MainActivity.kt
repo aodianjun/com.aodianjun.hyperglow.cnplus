@@ -1148,6 +1148,16 @@ private fun LyricLayoutScreen(
                             selectedProfile.widthFraction.toString()
                         ) { value -> updateSelected { it.copy(widthFraction = value.toFloat()) } }
                     }
+                    AodChoiceRow(
+                        AodChoiceKind.HEIGHT,
+                        selectedProfile.maxHeightFraction.toString()
+                    ) {
+                        openChoice(
+                            AodChoiceKind.HEIGHT,
+                            heightChoices(editorState.selectedSurface),
+                            selectedProfile.maxHeightFraction.toString()
+                        ) { value -> updateSelected { it.copy(maxHeightFraction = value.toFloat()) } }
+                    }
                     if (selectedProfile.anchor == "custom_vertical_bias") {
                         AodChoiceRow(AodChoiceKind.VERTICAL_POSITION, selectedProfile.verticalBias.toString()) {
                             openChoice(
@@ -1626,6 +1636,18 @@ private fun effectiveTextSizePercent(profile: SurfaceProfile): Int = when (profi
     else -> 100
 }
 
+/**
+ * Discrete lyric-block height choices (as `maxHeightFraction` fractions). AOD clamps to 0.5,
+ * lockscreen to 0.8 (see [com.eza.hyperglow.customization.SceneCompiler]), so the offered
+ * ranges differ per surface.
+ */
+private fun heightChoices(surface: String): List<String> =
+    if (surface == SceneCompiler.SURFACE_AOD) {
+        listOf("0.3", "0.4", "0.5")
+    } else {
+        listOf("0.4", "0.5", "0.6", "0.7")
+    }
+
 private fun choiceDisplayLabel(
     context: android.content.Context,
     kind: AodChoiceKind,
@@ -1640,6 +1662,8 @@ private fun choiceDisplayLabel(
         else -> R.string.option_below_clock
     })
     AodChoiceKind.WIDTH ->
+        value.toFloatOrNull()?.let { "${(it * 100).roundToInt()}%" } ?: value
+    AodChoiceKind.HEIGHT ->
         value.toFloatOrNull()?.let { "${(it * 100).roundToInt()}%" } ?: value
     AodChoiceKind.VERTICAL_POSITION -> context.getString(when (value) {
         "0.25" -> R.string.option_upper
@@ -1722,6 +1746,7 @@ private fun choiceDisplayLabel(
 private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     POSITION(R.string.choice_position),
     WIDTH(R.string.choice_width),
+    HEIGHT(R.string.choice_height),
     VERTICAL_POSITION(R.string.choice_vertical_position),
     OVERLAP(R.string.choice_overlap_handling),
     ALIGNMENT(R.string.choice_alignment),

@@ -135,6 +135,7 @@
     <string name="section_placement">位置</string>
     <string name="choice_position">位置</string>
     <string name="choice_width">宽度</string>
+    <string name="choice_height">高度</string>
     <string name="choice_vertical_position">垂直位置</string>
     <string name="choice_overlap_handling">重叠处理</string>
     <string name="section_text_language">文字和语言</string>
