@@ -212,7 +212,7 @@ class AodStateProjectorTest {
     // --- lyricKind = LINE (活动行无 words) ---
 
     @Test
-    fun lineKind_withActiveLine_rendersLineTextAndLineLevelSync() {
+    fun lineKind_withActiveLine_showsMetadataInsteadOfLineText() {
         val s = state(
             lyricKind = LyricKind.LINE,
             line = "hello world",
@@ -225,20 +225,21 @@ class AodStateProjectorTest {
             alignedRight = true
         )
         val out = project(s)
-        assertEquals("hello world", out.original)
-        assertEquals("roma", out.romanized)
-        assertEquals("tr", out.translated)
-        assertTrue(out.lineLevelSync) // LINE → lineLevelSync
+        // 歌名常驻显示:metadata 可用时 original 是 "Title · Artist",不再显示歌词行
+        assertEquals("Title · Artist", out.original)
+        assertEquals("", out.romanized)
+        assertEquals("", out.translated)
+        assertFalse(out.lineLevelSync) // metadata 模式下 lineLevelSync 为 false
         assertEquals(1_000L, out.lineStartMs)
         assertEquals(3_000L, out.lineEndMs)
         assertTrue(out.alignedRight)
-        assertTrue(out.words.isEmpty()) // 无 words
+        assertTrue(out.words.isEmpty())
     }
 
     // --- lyricKind = SYLLABLE (活动行有 words) ---
 
     @Test
-    fun syllableKind_withActiveLineAndWords_rendersWordsAndDisablesLineLevelSync() {
+    fun syllableKind_withActiveLine_showsMetadataInsteadOfSyllables() {
         val words = listOf(
             LyricWord("he", "", 1_000L, 1_500L, false),
             LyricWord("llo", "", 1_500L, 2_000L, true)
@@ -252,18 +253,15 @@ class AodStateProjectorTest {
             lineEndMs = 2_000L
         )
         val out = project(s)
-        assertEquals("hello", out.original)
-        assertFalse(out.lineLevelSync) // SYLLABLE + 有 words → false
-        assertEquals(2, out.words.size)
-        assertEquals("he", out.words[0].text)
-        assertEquals(1_000L, out.words[0].startMs)
-        assertEquals("llo", out.words[1].text)
-        assertTrue(out.words[1].boundaryAfter)
+        // 歌名常驻显示:metadata 可用时 original 是 "Title · Artist",words 被清空
+        assertEquals("Title · Artist", out.original)
+        assertFalse(out.lineLevelSync)
+        assertTrue(out.words.isEmpty())
     }
 
     @Test
-    fun syllableKind_withActiveLineButNoWords_treatsAsLineLevelSync() {
-        // 对应原 isEffectiveLineLevelSync("Syllable", wordCount=0) = true
+    fun syllableKind_withActiveLineButNoWords_metadataModeDisablesLineLevelSync() {
+        // metadata 常驻显示模式下 lineLevelSync 为 false,words 为空
         val s = state(
             lyricKind = LyricKind.SYLLABLE,
             line = "hello",
@@ -273,7 +271,7 @@ class AodStateProjectorTest {
             lineEndMs = 2_000L
         )
         val out = project(s)
-        assertTrue(out.lineLevelSync)
+        assertFalse(out.lineLevelSync)
         assertTrue(out.words.isEmpty())
     }
 
@@ -382,7 +380,8 @@ class AodStateProjectorTest {
     // --- ruby / layoutGroups 透传 ---
 
     @Test
-    fun rubyAndLayoutGroupsArePassedThroughWhenActiveLine() {
+    fun rubyAndLayoutGroupsClearedInMetadataMode() {
+        // metadata 常驻显示模式下 ruby 和 layoutGroups 被清空
         val ruby = listOf(LyricRuby(0, 2, "ha"))
         val groups = listOf(LyricLayoutGroup(0, 5, "word", true, 0.9))
         val s = state(
@@ -396,10 +395,8 @@ class AodStateProjectorTest {
             layoutGroups = groups
         )
         val out = project(s)
-        assertEquals(1, out.ruby.size)
-        assertEquals("ha", out.ruby[0].reading)
-        assertEquals(1, out.layoutGroups.size)
-        assertEquals("word", out.layoutGroups[0].kind)
+        assertTrue(out.ruby.isEmpty())
+        assertTrue(out.layoutGroups.isEmpty())
     }
 
     @Test
