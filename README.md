@@ -41,7 +41,7 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 
 ## Install
 
-APK from [Releases](https://github.com/aodianjun/hyperglow/releases).
+APK from [Releases](https://github.com/aodianjun/hyperglow_CNplus/releases).
 
 1. Enable HyperGlow in LSPosed.
 2. Enable your lyrics source:
@@ -125,7 +125,7 @@ before opening a pull request:
 
 ## 安装
 
-从 [Releases](https://github.com/aodianjun/hyperglow/releases) 下载 APK。
+从 [Releases](https://github.com/aodianjun/hyperglow_CNplus/releases) 下载 APK。
 
 1. 在 LSPosed 中启用 HyperGlow。
 2. 启用你的歌词源：
