@@ -453,19 +453,32 @@ class LyriconLyricProducer(
         val song = currentSong ?: return
         val pos = currentPositionMs
 
-        // 歌曲边界回绕:息屏后网易云停止写位置,外推会越过歌曲时长继续累加。此时歌曲可能已
-        // 播完/重播(单曲循环)。若仍用 findTargetIndex(pos) 会一直返回旧歌最后一行,导致 AOD
-        // 停在末尾歌词。这里用模运算把位置回绕到时长内(n 次循环),立即选中重播后的正确行,
-        // 无需等亮屏 writer 恢复。对单曲循环这是严格正确的;对切到新歌(HyperGlow 无新歌数据)
-        // 仍依赖 onSongChanged 或亮屏后的真实位置校正。
+        // 歌曲边界处理:息屏后数据源(如网易云)停止写位置,外推会越过歌曲时长继续累加。
+        //
+        // 旧实现用模运算把位置回绕到时长内(pos % duration),但这会让位置在 [0, duration) 间
+        // 反复循环累加:每次回绕到 ~0ms 时 findTargetIndex 选不到行、活动行被清空,而投影层
+        // 因 sampledAtElapsedMs==now 又把回绕后的低位置判为「回到开头」的有效位置
+        // (extrapolationReliable 判定可信),于是行被反复选中/清空 → AOD '♪' 占位闪烁 +
+        // SystemUI 对相同占位 state 无去重的重建风暴(错误清单 #2/#3/#4)。
+        //
+        // 正确语义:外推一旦越过歌曲时长,说明当前这首歌已播完,之后不再有更多行。此时应
+        // 清空活动行并结束外推,让投影层稳定显示占位;同时保持位置不变以触发状态去重,
+        // 避免 60Hz 重复投递。等数据源写回真实位置(重播/切歌)或 onSongChanged 到来时再校正。
         val duration = song.duration
         if (extrapolating && duration > 0L && pos >= duration) {
-            currentPositionMs = pos % duration
+            currentPositionMs = duration
+            extrapolating = false
+            if (currentLineIndex != -1) {
+                currentLineIndex = -1
+                cachedWords = null
+            }
             AppLog.i(
                 "LyriconLyricProducer",
-                "extrapolation wrapped past song end: ${pos}ms -> ${currentPositionMs}ms " +
-                    "(duration=${duration}ms)"
+                "extrapolation reached song end: pos=${pos}ms capped=${duration}ms " +
+                    "(duration=${duration}ms); holding stable placeholder"
             )
+            emit()
+            return
         }
 
         val idx = nav.findTargetIndex(currentPositionMs)
