@@ -79,7 +79,11 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.findByName("hyperglowDebug")
+            // 优先使用正式签名:CI release job 中 release 与 debug 使用同一正式密钥,
+            // 使 release 版可直接覆盖已安装的 debug 版(签名一致才能覆盖安装)。
+            // 无正式签名密钥(本地/普通 CI)时回退到固定调试签名,保证每次构建签名一致。
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.findByName("hyperglowDebug")
             buildConfigField(
                 "boolean",
                 "TRACE_LOGGING_AVAILABLE",
