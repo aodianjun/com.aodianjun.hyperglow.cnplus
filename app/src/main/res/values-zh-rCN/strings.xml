@@ -151,10 +151,9 @@
     <string name="choice_position">位置</string>
     <string name="choice_width">宽度</string>
     <string name="choice_height">高度</string>
-    <string name="choice_vertical_position">垂直位置</string>
     <string name="choice_overlap_handling">重叠处理</string>
-    <string name="setting_custom_height">自定义高度</string>
-    <string name="summary_custom_height">拖动调节歌词块高度。</string>
+    <string name="setting_custom_position">自定义纵向位置</string>
+    <string name="summary_custom_position">拖动调节歌词块相对屏幕的纵向位置。</string>
     <string name="section_text_language">文字和语言</string>
     <string name="choice_alignment">对齐</string>
     <string name="choice_secondary_text">辅助文字</string>
@@ -201,9 +200,7 @@
     <string name="option_top_safe_area">顶部安全区域</string>
     <string name="option_bottom_safe_area">底部安全区域</string>
     <string name="option_custom_vertical_position">自定义垂直位置</string>
-    <string name="option_upper">上部</string>
     <string name="option_center">中央</string>
-    <string name="option_lower">下部</string>
     <string name="option_avoid_system_content">避开系统内容</string>
     <string name="option_allow_overlap">允许重叠</string>
     <string name="option_hide_extra_text">先隐藏附加文字</string>

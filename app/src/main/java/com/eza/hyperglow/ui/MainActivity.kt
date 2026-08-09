@@ -1167,27 +1167,21 @@ private fun LyricLayoutScreen(
                         ) { value -> updateSelected { it.copy(maxHeightFraction = value.toFloat()) } }
                     }
                     SliderPreference(
-                        value = selectedProfile.maxHeightFraction * 100f,
+                        value = selectedProfile.verticalBias * 100f,
                         onValueChange = { pct ->
                             updateSelected {
-                                it.copy(maxHeightFraction = (pct / 100f).coerceIn(0.2f, 0.9f))
+                                it.copy(
+                                    anchor = "custom_vertical_bias",
+                                    verticalBias = (pct / 100f).coerceIn(0f, 1f)
+                                )
                             }
                         },
-                        title = stringResource(R.string.setting_custom_height),
-                        summary = stringResource(R.string.summary_custom_height),
-                        valueText = "${(selectedProfile.maxHeightFraction * 100).roundToInt()}%",
-                        valueRange = 20f..90f,
-                        steps = 13
+                        title = stringResource(R.string.setting_custom_position),
+                        summary = stringResource(R.string.summary_custom_position),
+                        valueText = "${(selectedProfile.verticalBias * 100).roundToInt()}%",
+                        valueRange = 0f..100f,
+                        steps = 20
                     )
-                    if (selectedProfile.anchor == "custom_vertical_bias") {
-                        AodChoiceRow(AodChoiceKind.VERTICAL_POSITION, selectedProfile.verticalBias.toString()) {
-                            openChoice(
-                                AodChoiceKind.VERTICAL_POSITION,
-                                listOf("0.25", "0.5", "0.75"),
-                                selectedProfile.verticalBias.toString()
-                            ) { value -> updateSelected { it.copy(verticalBias = value.toFloat()) } }
-                        }
-                    }
                     AodChoiceRow(AodChoiceKind.OVERLAP, selectedProfile.collisionPolicy) {
                         openChoice(
                             AodChoiceKind.OVERLAP,
@@ -1698,12 +1692,6 @@ private fun choiceDisplayLabel(
         value.toFloatOrNull()?.let { "${(it * 100).roundToInt()}%" } ?: value
     AodChoiceKind.HEIGHT ->
         value.toFloatOrNull()?.let { "${(it * 100).roundToInt()}%" } ?: value
-    AodChoiceKind.VERTICAL_POSITION -> context.getString(when (value) {
-        "0.25" -> R.string.option_upper
-        "0.5", "0.50" -> R.string.option_center
-        "0.75" -> R.string.option_lower
-        else -> R.string.option_center
-    })
     AodChoiceKind.OVERLAP -> context.getString(when (value) {
         "avoid" -> R.string.option_avoid_system_content
         "behind_system" -> R.string.option_allow_overlap
@@ -1787,7 +1775,6 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     POSITION(R.string.choice_position),
     WIDTH(R.string.choice_width),
     HEIGHT(R.string.choice_height),
-    VERTICAL_POSITION(R.string.choice_vertical_position),
     OVERLAP(R.string.choice_overlap_handling),
     ALIGNMENT(R.string.choice_alignment),
     SECONDARY_TEXT(R.string.choice_secondary_text),
