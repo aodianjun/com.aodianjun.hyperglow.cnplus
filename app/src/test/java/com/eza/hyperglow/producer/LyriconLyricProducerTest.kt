@@ -499,6 +499,61 @@ class LyriconLyricProducerTest {
     }
 
     @Test
+    fun positionResume_slightlyBehindExtrapolation_keepsMonotonicLine() {
+        // NetEase's ~60 Hz feed stalls then resumes with a value slightly *below* the position we
+        // extrapolated to. Snapping backward would rewind the active line and flicker it across a
+        // boundary; within tolerance we must keep the smooth extrapolated value.
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(2_000L) // line 0, real
+
+        // Stall → extrapolate to 3500 (line 1).
+        clockValue = 11_500L
+        producer.playerListener.onPositionChanged(2_000L)
+        assertEquals(1, producer.state.value!!.lineIndex)
+        assertEquals(3_500L, producer.state.value!!.positionMs)
+
+        // Resume reports 3400 — only 100 ms behind our extrapolated 3500 (within tolerance).
+        // The line must stay on "second" (monotonic), not rewind to "first".
+        clockValue = 11_600L
+        producer.playerListener.onPositionChanged(3_400L)
+
+        val state = producer.state.value!!
+        assertEquals(1, state.lineIndex)
+        assertEquals("second", state.line)
+        assertEquals(3_500L, state.positionMs)
+    }
+
+    @Test
+    fun positionResume_materiallyBehindExtrapolation_isHonoredAsRewind() {
+        // A real position that drops well below the extrapolated value (seek / wrap-around /
+        // genuine pause) is beyond the resume tolerance and must be honored as a rewind.
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(2_000L) // line 0, real
+
+        // Stall → extrapolate to 3500 (line 1).
+        clockValue = 11_500L
+        producer.playerListener.onPositionChanged(2_000L)
+        assertEquals(1, producer.state.value!!.lineIndex)
+
+        // Resume at 2000 — 1500 ms behind the extrapolated 3500 (beyond 300 ms tolerance).
+        clockValue = 11_600L
+        producer.playerListener.onPositionChanged(2_000L)
+
+        val state = producer.state.value!!
+        assertEquals(0, state.lineIndex)
+        assertEquals("first", state.line)
+        assertEquals(2_000L, state.positionMs)
+    }
+
+    @Test
     fun positionResumed_stopsExtrapolationAndUsesRealValue() {
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }

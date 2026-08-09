@@ -290,17 +290,35 @@ class LyriconLyricProducer(
                 // memory position resets to 0 while our extrapolated position may be at/beyond
                 // duration. Treat a significantly lower position as a wrap-around rather than
                 // rejecting it.
-                lastRealPositionMs = position
-                lastRealPositionClockMs = now
-                lastRealPositionUpdateMs = now
-                currentPositionMs = position
+                val wasExtrapolating = extrapolating
+                // When the player's position stream resumes after a stall it can briefly report a
+                // value slightly *below* the position we extrapolated to (shared-memory latency /
+                // stall-to-resume race). NetEase's ~60 Hz feed stalls and resumes constantly, so
+                // snapping backward on every such resume rewinds the active line and makes it
+                // flicker back and forth across a boundary. Within a small tolerance we keep the
+                // monotonic extrapolated value (re-basing the extrapolation clock on it) so the
+                // line advances smoothly; only a materially-lower real position (seek, song
+                // wrap-around, or a genuine pause) is honored as a rewind.
+                val realBehindMs = currentPositionMs - position
+                val monotonicResume = wasExtrapolating &&
+                    realBehindMs in 1..EXTRAPOLATION_RESUME_TOLERANCE_MS
+                if (monotonicResume) {
+                    lastRealPositionMs = currentPositionMs
+                    lastRealPositionClockMs = now
+                    lastRealPositionUpdateMs = now
+                } else {
+                    lastRealPositionMs = position
+                    lastRealPositionClockMs = now
+                    lastRealPositionUpdateMs = now
+                    currentPositionMs = position
+                }
                 // A different value means the player has started writing the new song's progress.
                 // Disable residual filtering — subsequent positions are from the new song.
                 previousSongLastPositionMs = -1L
                 // A real (different) position means the player has written the post-seek value;
                 // stop rejecting the pre-seek position.
                 seekRejectPositionMs = -1L
-                if (extrapolating) {
+                if (wasExtrapolating && !monotonicResume) {
                     extrapolating = false
                     AppLog.i(
                         "LyriconLyricProducer",
@@ -642,6 +660,16 @@ class LyriconLyricProducer(
          * logged so the arbiter can consider falling back to another producer.
          */
         private const val STALE_POSITION_THRESHOLD_MS = 15_000L
+
+        /**
+         * When the player's position stream resumes after a stall, how far below our extrapolated
+         * position it may be before we treat it as a real rewind (seek / wrap-around / pause)
+         * rather than resume-stage jitter. The Lyricon feed from NetEase is delivered in bursts
+         * (~60 Hz with frequent stall/resume), so a small backward drift is normal and must not
+         * rewind the active line. Any drop beyond this (a genuine seek or the song resetting to
+         * 0 on wrap-around) is honored as a rewind.
+         */
+        private const val EXTRAPOLATION_RESUME_TOLERANCE_MS = 300L
 
         /** Default render modes when customization is unavailable; matches SpicyBridgeState defaults. */
         private fun defaultRenderModes() = ProducerRenderModes(

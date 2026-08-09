@@ -49,6 +49,7 @@ import com.eza.hyperglow.root.surface.PlacementRect
 import com.eza.hyperglow.root.surface.WidgetMeasurement
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 internal data class LockscreenSceneRect(
@@ -126,6 +127,13 @@ private const val MIN_VISIBLE_ALPHA = 0.01f
 private const val MAX_NOTIFICATION_TRACE_CHILDREN = 6
 private const val VISIBILITY_DIAGNOSTIC_INTERVAL_MS = 2_000L
 private const val NOTIFICATION_TRACE_INTERVAL_MS = 1_000L
+/**
+ * Notification rows animate while the keyguard settles (fade in/out, expand/collapse), so their
+ * union bounds can jitter by a few px every frame. The lyric card's placement is derived from
+ * these bounds, so following every frame makes the card "jump" during the animation. Only adopt a
+ * new bounds value once it differs from the last applied one by more than this dead-band (dp).
+ */
+private const val NOTIFICATION_GEOMETRY_DEAD_BAND_DP = 8f
 private const val REVERSE_ANCHOR_MINIMUM_DELAY_MS = 48L
 private const val REVERSE_ANCHOR_QUIET_PERIOD_MS = 32L
 private const val REVERSE_ANCHOR_FALLBACK_DEADLINE_MS = 240L
@@ -374,6 +382,25 @@ internal fun resolveLockscreenNotificationGeometry(
         effectiveBounds = retained ?: LockscreenNotificationBounds(0, hostHeight),
         cachedBounds = retained
     )
+}
+
+/**
+ * Dead-band stabilizer for the notification union bounds. Notification rows animate while the
+ * keyguard settles, so their bounds can jitter by a few px every frame; the lyric card's placement
+ * is derived from them, so following every frame makes the card "jump". Only adopt a new value once
+ * it differs from the last applied one by at least [deadBandPx] in either top or bottom; otherwise
+ * keep the last applied (stable) value. A null [current] clears the bounds as before.
+ */
+internal fun stabilizeNotificationBounds(
+    current: LockscreenNotificationBounds?,
+    lastApplied: LockscreenNotificationBounds?,
+    deadBandPx: Int
+): LockscreenNotificationBounds? {
+    if (current == null) return null
+    val last = lastApplied ?: return current
+    val topDrift = abs(current.top - last.top)
+    val bottomDrift = abs(current.bottom - last.bottom)
+    return if (topDrift < deadBandPx && bottomDrift < deadBandPx) last else current
 }
 
 internal fun largestLockscreenFreeRegion(
@@ -1299,9 +1326,20 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         } else {
             null
         }
+        // Dead-band stabilize the freshly computed bounds against the last applied one so that
+        // per-frame animation jitter (a few px) doesn't re-derive the lyric card's placement every
+        // frame and make it "jump". Only a drift beyond the dead band is adopted as a real change.
+        val deadBandPx = (NOTIFICATION_GEOMETRY_DEAD_BAND_DP * host.resources.displayMetrics.density)
+            .toInt()
+            .coerceAtLeast(1)
+        val stabilizedCurrent = stabilizeNotificationBounds(
+            current,
+            lastNotificationBounds,
+            deadBandPx
+        )
         val geometry = resolveLockscreenNotificationGeometry(
             hasNotification,
-            current,
+            stabilizedCurrent,
             lastNotificationBounds,
             host.height
         )

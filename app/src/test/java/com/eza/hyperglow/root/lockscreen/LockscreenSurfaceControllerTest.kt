@@ -331,6 +331,30 @@ class LockscreenSurfaceControllerTest {
     }
 
     @Test
+    fun smallNotificationJitterIsFilteredByDeadBand() {
+        val last = LockscreenNotificationBounds(955, 1300)
+        val jittered = LockscreenNotificationBounds(956, 1302) // < 8px drift
+
+        // Per-frame animation jitter well within the dead band must keep the last applied bounds.
+        assertEquals(last, stabilizeNotificationBounds(jittered, last, deadBandPx = 8))
+    }
+
+    @Test
+    fun largeNotificationShiftBeyondDeadBandIsAdopted() {
+        val last = LockscreenNotificationBounds(955, 1300)
+        val shifted = LockscreenNotificationBounds(900, 1380) // > 8px drift
+
+        // A real layout change beyond the dead band must be adopted as the new bounds.
+        assertEquals(shifted, stabilizeNotificationBounds(shifted, last, deadBandPx = 8))
+    }
+
+    @Test
+    fun absentNotificationBoundsClearStabilizedValue() {
+        // A null current clears the bounds as before — the dead band never resurrects a stale value.
+        assertNull(stabilizeNotificationBounds(null, LockscreenNotificationBounds(955, 1300), 8))
+    }
+
+    @Test
     fun clockBottomPrefersXiaomiAnchorAndUsesDeepestFallbackOnlyWhenMissing() {
         assertEquals(
             578,
