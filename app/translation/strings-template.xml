@@ -123,6 +123,16 @@
     <string name="summary_hide_background_card">Exclude HyperGlow from the recent apps list.</string>
     <string name="setting_hide_launcher_icon">Hide launcher icon</string>
     <string name="summary_hide_launcher_icon">Remove the app icon from the home screen launcher. You can still launch HyperGlow from LSPosed manager or other app launchers.</string>
+
+    <string name="section_config_backup">Config backup</string>
+    <string name="setting_export_config">Export config</string>
+    <string name="summary_export_config">Save all settings to a JSON file.</string>
+    <string name="setting_import_config">Import config</string>
+    <string name="summary_import_config">Restore all settings from a JSON file. Some interface settings may require restarting the app to take full effect.</string>
+    <string name="toast_config_exported">Config exported</string>
+    <string name="toast_config_export_failed">Config export failed</string>
+    <string name="toast_config_imported">Config imported</string>
+    <string name="toast_config_import_invalid">Invalid or corrupt config file</string>
     <string name="dialog_restart_systemui_title">Restart System UI?</string>
     <string name="dialog_restart_systemui_summary">The screen, status bar, and AOD will briefly disappear. Root access is required.</string>
     <string name="option_follow_xiaomi">Follow Xiaomi</string>

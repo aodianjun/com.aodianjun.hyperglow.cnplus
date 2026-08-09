@@ -95,6 +95,7 @@ import com.eza.hyperglow.root.surface.PlacementRect
 import com.eza.hyperglow.root.surface.ResolvedPlacement
 import com.eza.hyperglow.root.surface.WidgetMeasurement
 import kotlin.math.roundToInt
+import kotlinx.serialization.json.*
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -234,6 +235,50 @@ private fun HomeScreen(
         }
     }
     val prefs = remember { context.getSharedPreferences(AodRenderPreferences.PREFS, 0) }
+    val exportConfigLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val written = runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                it.write(exportAllConfig(context))
+            } ?: error("Config export unavailable")
+        }.isSuccess
+        Toast.makeText(
+            context,
+            context.getString(
+                if (written) R.string.toast_config_exported
+                else R.string.toast_config_export_failed
+            ),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    val importConfigLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val raw = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val bytes = input.readNBytes(MAX_CONFIG_FILE_BYTES + 1)
+                if (bytes.size > MAX_CONFIG_FILE_BYTES) error("Config file too large")
+                bytes.toString(Charsets.UTF_8)
+            } ?: error("Config file unavailable")
+        }.getOrNull()
+        val imported = raw != null && importAllConfig(context, raw)
+        if (imported) {
+            // 写入 SharedPreferences 会自动触发 AodRenderPreferences 缓存失效,
+            // 这里同步把运行时配置推给 SystemUI 生效。
+            publishRuntimeConfiguration(context)
+        }
+        Toast.makeText(
+            context,
+            context.getString(
+                if (imported) R.string.toast_config_imported
+                else R.string.toast_config_import_invalid
+            ),
+            Toast.LENGTH_LONG
+        ).show()
+    }
     var capabilityReport by remember { mutableStateOf(XiaomiCapabilityStore.read(context)) }
     DisposableEffect(context) {
         val capabilityPrefs = context.getSharedPreferences(XiaomiCapabilityStore.PREFS, 0)
@@ -723,6 +768,25 @@ private fun HomeScreen(
                                 },
                                 stringResource(R.string.setting_hide_launcher_icon),
                                 summary = stringResource(R.string.summary_hide_launcher_icon)
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_config_backup)) }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_export_config),
+                                summary = stringResource(R.string.summary_export_config),
+                                onClick = { exportConfigLauncher.launch("hyperglow-config.json") }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_import_config),
+                                summary = stringResource(R.string.summary_import_config),
+                                onClick = {
+                                    importConfigLauncher.launch(
+                                        arrayOf("application/json", "text/plain", "application/octet-stream")
+                                    )
+                                }
                             )
                         }
                     }
@@ -2005,6 +2069,59 @@ private fun publishRuntimeConfiguration(context: android.content.Context) {
         experimentalMode = AodRenderPreferences.read(context).experimentalMode
     )
 }
+
+/** 配置备份文件格式标识与版本。 */
+private const val CONFIG_BACKUP_FORMAT = "hyperglow-config"
+private const val CONFIG_BACKUP_VERSION = 1
+private const val MAX_CONFIG_FILE_BYTES = 512 * 1024
+
+private fun exportAllConfig(context: android.content.Context): String {
+    val prefs = context.getSharedPreferences(AodRenderPreferences.PREFS, 0)
+    return buildJsonObject {
+        put("format", JsonPrimitive(CONFIG_BACKUP_FORMAT))
+        put("version", JsonPrimitive(CONFIG_BACKUP_VERSION))
+        putJsonObject("preferences") {
+            prefs.all.forEach { (key, value) ->
+                when (value) {
+                    is Boolean -> put(key, JsonPrimitive(value))
+                    is Int -> put(key, JsonPrimitive(value))
+                    is Long -> put(key, JsonPrimitive(value))
+                    is Float -> put(key, JsonPrimitive(value))
+                    is String -> put(key, JsonPrimitive(value))
+                    is Set<*> -> putJsonArray(key) {
+                        value.forEach { add(JsonPrimitive(it.toString())) }
+                    }
+                }
+            }
+        }
+    }.toString()
+}
+
+private fun importAllConfig(context: android.content.Context, raw: String): Boolean = runCatching {
+    val root = Json.parseToJsonElement(raw).jsonObject
+    if (root["format"]?.jsonPrimitive?.content != CONFIG_BACKUP_FORMAT) return false
+    val preferences = root["preferences"]?.jsonObject ?: return false
+    val editor = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+    preferences.forEach { (key, element) ->
+        when (element) {
+            is JsonPrimitive -> when {
+                element.booleanOrNull != null -> editor.putBoolean(key, element.boolean)
+                element.intOrNull != null -> editor.putInt(key, element.int)
+                element.longOrNull != null -> editor.putLong(key, element.long)
+                else -> {
+                    val float = element.content.toFloatOrNull()
+                    if (float != null) editor.putFloat(key, float) else editor.putString(key, element.content)
+                }
+            }
+            is JsonArray -> editor.putStringSet(
+                key,
+                element.map { it.jsonPrimitive.content }.toSet()
+            )
+            else -> Unit
+        }
+    }
+    editor.commit()
+}.getOrDefault(false)
 
 private fun updateKeepAwakeDuration(context: android.content.Context, value: Long): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()

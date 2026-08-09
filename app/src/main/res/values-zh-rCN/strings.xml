@@ -123,6 +123,16 @@
     <string name="setting_hide_launcher_icon">隐藏桌面图标</string>
     <string name="summary_hide_launcher_icon">从桌面启动器中移除应用图标。仍可通过 LSPosed 管理器或其他应用启动器启动 HyperGlow。</string>
 
+    <string name="section_config_backup">配置备份</string>
+    <string name="setting_export_config">导出配置</string>
+    <string name="summary_export_config">将所有设置保存为 JSON 文件。</string>
+    <string name="setting_import_config">导入配置</string>
+    <string name="summary_import_config">从 JSON 文件恢复所有设置。部分界面设置可能需要重启应用后完全生效。</string>
+    <string name="toast_config_exported">配置已导出</string>
+    <string name="toast_config_export_failed">配置导出失败</string>
+    <string name="toast_config_imported">配置已导入</string>
+    <string name="toast_config_import_invalid">配置文件无效或已损坏</string>
+
     <string name="dialog_restart_systemui_title">重启系统界面？</string>
     <string name="dialog_restart_systemui_summary">屏幕、状态栏和息屏显示会短暂消失。需要 Root 权限。</string>
     <string name="option_follow_xiaomi">跟随小米</string>
