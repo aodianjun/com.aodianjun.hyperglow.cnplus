@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.lockscreen
 import com.eza.hyperglow.customization.SceneCompiler
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
