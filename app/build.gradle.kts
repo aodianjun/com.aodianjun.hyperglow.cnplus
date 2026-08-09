@@ -41,7 +41,10 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.eza.hyperglow"
+        // LSPosed 模块仓库按 applicationId(应用包名)索引。
+        // 原包名 com.eza.hyperglow 已被原作者占用，CN+ 独立版改用此包名发布。
+        // 代码包路径/namespace 保留 com.eza.hyperglow，组件相对名与 import 均无需改动。
+        applicationId = "com.aodianjun.hyperglow.cnplus"
         minSdk = 33
         targetSdk = 37
         versionCode = 85

@@ -55,6 +55,6 @@ class SpicyLyricBridgeProvider : ContentProvider() {
     companion object {
         private const val TAG = "SpicyBridgeProvider"
         private const val SPOTIFY_PACKAGE = "com.spotify.music"
-        private val BRIDGE_URI = Uri.parse("content://com.eza.hyperglow.spicybridge/session")
+        private val BRIDGE_URI = Uri.parse("content://com.aodianjun.hyperglow.cnplus.spicybridge/session")
     }
 }

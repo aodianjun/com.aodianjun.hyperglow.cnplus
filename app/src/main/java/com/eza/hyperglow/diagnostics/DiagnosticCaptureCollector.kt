@@ -176,7 +176,7 @@ internal fun checkDiagnosticRootAccess(runner: DiagnosticRootCommandRunner): Str
 
 internal fun filterHyperGlowModuleLines(output: String): String = output.lineSequence()
     .filter {
-        line -> line.contains("HyperGlow") || line.contains("com.eza.hyperglow")
+        line -> line.contains("HyperGlow") || line.contains("com.eza.hyperglow") || line.contains("com.aodianjun.hyperglow.cnplus")
     }
     .joinToString("\n")
 
