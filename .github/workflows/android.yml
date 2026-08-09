@@ -188,7 +188,11 @@ jobs:
           if [ -n "${RELEASE_TAG:-}" ]; then
             TAG="$RELEASE_TAG"
           else
-            TAG="v$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)"
+            # 默认 tag 用 VersionCode-VersionName 格式(如 85-0.3.68),
+            # 符合 LSPosed 模块仓库对 release tag 的规范要求。
+            VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+            VC=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts)
+            TAG="${VC}-${VN}"
           fi
           echo "Publishing to release: $TAG"
           # 首次发布时 release 可能不存在,则创建
