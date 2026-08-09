@@ -1,8 +1,10 @@
 package com.eza.hyperglow.ui
 
+import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -14,10 +16,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.eza.hyperglow.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 
@@ -44,6 +50,11 @@ internal fun PermissionStatusSection() {
     var batteryWhitelisted by remember {
         mutableStateOf(checkBatteryOptimizationWhitelisted(context))
     }
+    var rootGranted by remember { mutableStateOf(false) }
+    var queryAllPackages by remember {
+        mutableStateOf(checkQueryAllPackages(context))
+    }
+    val scope = rememberCoroutineScope()
 
     // 从系统设置返回时刷新权限状态
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -52,6 +63,7 @@ internal fun PermissionStatusSection() {
         notificationGranted = checkNotificationPermission(context)
         foregroundServiceRunning = checkForegroundServiceRunning(context)
         batteryWhitelisted = checkBatteryOptimizationWhitelisted(context)
+        queryAllPackages = checkQueryAllPackages(context)
     }
 
     LaunchedEffect(Unit) {
@@ -59,6 +71,8 @@ internal fun PermissionStatusSection() {
         notificationGranted = checkNotificationPermission(context)
         foregroundServiceRunning = checkForegroundServiceRunning(context)
         batteryWhitelisted = checkBatteryOptimizationWhitelisted(context)
+        queryAllPackages = checkQueryAllPackages(context)
+        rootGranted = checkRootGranted()
     }
 
     // 1. 通知权限
@@ -118,6 +132,76 @@ internal fun PermissionStatusSection() {
             title = stringResource(R.string.label_battery_optimization),
             summary = stringResource(R.string.summary_battery_optimization_whitelisted)
         )
+    }
+
+    // 4. Root 权限(重启 SystemUI 等系统级操作需要)
+    if (rootGranted) {
+        BasicComponent(
+            title = stringResource(R.string.label_root_permission),
+            summary = stringResource(R.string.summary_root_permission_granted)
+        )
+    } else {
+        ArrowPreference(
+            title = stringResource(R.string.label_root_permission),
+            summary = stringResource(R.string.summary_root_permission_denied),
+            onClick = {
+                // 触发一次 su 授权请求,弹出 Root 授权对话框
+                scope.launch {
+                    requestRootAccess()
+                    rootGranted = checkRootGranted()
+                }
+            }
+        )
+    }
+
+    // 5. 获取应用列表(枚举已安装应用,用于检测可用的音乐应用)
+    if (queryAllPackages) {
+        BasicComponent(
+            title = stringResource(R.string.label_query_all_packages),
+            summary = stringResource(R.string.summary_query_all_packages_granted)
+        )
+    } else {
+        ArrowPreference(
+            title = stringResource(R.string.label_query_all_packages),
+            summary = stringResource(R.string.summary_query_all_packages_denied),
+            onClick = {
+                permissionLauncher.launch(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                )
+            }
+        )
+    }
+}
+
+private fun checkQueryAllPackages(context: Context): Boolean {
+    // Android 11+ 枚举全部已安装应用需要 QUERY_ALL_PACKAGES 特殊权限
+    // (MIUI 上表现为「获取应用列表」开关);低于 11 无此限制,视为已授予。
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        context.checkSelfPermission(Manifest.permission.QUERY_ALL_PACKAGES) ==
+            PackageManager.PERMISSION_GRANTED
+    } else {
+        true
+    }
+}
+
+private suspend fun checkRootGranted(): Boolean = withContext(Dispatchers.IO) {
+    runCatching {
+        val process = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        process.waitFor()
+        output.contains("uid=0")
+    }.getOrDefault(false)
+}
+
+private suspend fun requestRootAccess() {
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val process = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
+            process.inputStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+        }
     }
 }
 

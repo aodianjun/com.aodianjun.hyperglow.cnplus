@@ -333,4 +333,10 @@
     <string name="summary_battery_optimization_whitelisted">Unrestricted</string>
     <string name="summary_battery_optimization_optimized">Optimized — may freeze HyperGlow when screen is off</string>
     <string name="action_open_battery_settings">Open settings</string>
+    <string name="label_root_permission">Root permission</string>
+    <string name="summary_root_permission_granted">Root access granted</string>
+    <string name="summary_root_permission_denied">Tap to grant root access</string>
+    <string name="label_query_all_packages">Get app list</string>
+    <string name="summary_query_all_packages_granted">Can see installed apps</string>
+    <string name="summary_query_all_packages_denied">Tap to allow listing installed apps</string>
 </resources>

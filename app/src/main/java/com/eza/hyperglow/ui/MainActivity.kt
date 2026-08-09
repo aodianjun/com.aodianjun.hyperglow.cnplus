@@ -2117,10 +2117,18 @@ private fun XposedSourceHint(
 }
 
 private fun openLsposedManager(context: android.content.Context) {
-    val opened = runCatching {
-        context.startActivity(
-            Intent(Intent.ACTION_MAIN).setPackage(LSPOSED_MANAGER_PACKAGE)
-        )
+    // 用 getLaunchIntentForPackage 获取带 LAUNCHER category 的完整启动 Intent。
+    // 直接 Intent(ACTION_MAIN).setPackage(...) 不带任何 category,隐式解析仅匹配声明了
+    // android.intent.category.DEFAULT 的 filter;而 LSPosed 管理器的 MainActivity 只声明了
+    // LAUNCHER、没有 DEFAULT,导致 startActivity 抛 ActivityNotFoundException,被误报为
+    // 「此设备未安装 LSPosed」。getLaunchIntentForPackage 返回带 LAUNCHER 的完整 Intent,
+    // 可正确解析打开。
+    val launchIntent = runCatching {
+        context.packageManager.getLaunchIntentForPackage(LSPOSED_MANAGER_PACKAGE)
+    }.getOrNull()
+    val opened = launchIntent != null && runCatching {
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(launchIntent)
     }.isSuccess
     if (!opened) {
         Toast.makeText(
