@@ -198,7 +198,7 @@ jobs:
           fi
           gh release upload "$TAG" "$RELEASE_APK" "$DEBUG_APK" \
             --repo "$GITHUB_REPOSITORY" --clobber
-          # 生成两个版本用途说明,追加到现有说明之前
+          # 生成两个版本用途说明;写入前先剔除正文中旧的安装说明块,避免重复堆积
           cat > release-notes-extra.md <<'EOF'
           ## 安装包用途说明
           - **`__REL__`（正式版）**：正常使用请安装此版本。正式签名、R8 压缩，适合日常安装使用。
@@ -207,5 +207,12 @@ jobs:
           sed -i "s|__REL__|$(basename "$RELEASE_APK")|g; s|__DBG__|$(basename "$DEBUG_APK")|g" release-notes-extra.md
           EXISTING=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
             --json body --jq '.body' 2>/dev/null || true)
-          { cat release-notes-extra.md; echo; echo "---"; echo "$EXISTING"; } > release-notes-final.md
+          # 移除已有正文中旧的"## 安装包用途说明"块(从该标题到其后第一个 --- 分隔线)
+          CLEANED=$(printf '%s' "$EXISTING" | sed '/^## 安装包用途说明/,/^---/d')
+          # 仅当清理后仍有正文时,才放在新安装说明之后;否则只保留安装说明
+          if printf '%s' "$CLEANED" | sed '/^[[:space:]]*$/d' | grep -q .; then
+            { cat release-notes-extra.md; echo; echo "---"; echo "$CLEANED"; } > release-notes-final.md
+          else
+            cat release-notes-extra.md > release-notes-final.md
+          fi
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file release-notes-final.md
