@@ -13,6 +13,7 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
@@ -1684,8 +1685,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private fun pulseDrawWakeLock(root: ViewGroup) {
         runCatching {
-            val wakeLock = root.javaClass.getDeclaredField("mWakeLock").apply { isAccessible = true }
-                .get(root) ?: return
+            val wakeLock = readHierarchyField(root, "mWakeLock") ?: return
             wakeLock.javaClass.getMethod("setMaxAcquireTime", Long::class.javaPrimitiveType)
                 .invoke(wakeLock, DRAW_WAKE_LOCK_MS)
             wakeLock.javaClass.getMethod("acquire", String::class.java)

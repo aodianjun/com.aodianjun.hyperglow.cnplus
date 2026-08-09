@@ -6,14 +6,27 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Bundle
 import android.os.IBinder
-import android.os.Process
 import androidx.core.app.NotificationCompat
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.R
+
+/** 未能解析出 SystemUI 的 uid。绝不会匹配任何真实调用者。 */
+internal const val UNRESOLVED_SYSTEM_UI_UID = -1
+
+/**
+ * SystemUI 并不总是 uid 1000。HyperOS 3 的 Xiaomi 17 系列把 com.android.systemui
+ * 跑在普通应用 uid 下,硬编码 system-uid 检查会拒绝一切正常工作的 Hook 调用:模块明明
+ * 绑定、注册并上报了 capability,而 app 什么都没存,显示 no_systemui_report。改用包名
+ * 解析出的 uid 匹配,在 SystemUI 共享 android.uid.system 的设备上仍得到 1000,语义一致;
+ * 在新设备上则正确放行。
+ */
+internal fun isSystemUiBridgeCaller(callingUid: Int, systemUiUid: Int): Boolean =
+    systemUiUid != UNRESOLVED_SYSTEM_UI_UID && callingUid == systemUiUid
 
 class AodLyricBridgeService : Service() {
     private val binder = object : IAodLyricBridge.Stub() {
@@ -62,10 +75,21 @@ class AodLyricBridgeService : Service() {
 
     private fun isSystemUiCaller(): Boolean {
         val uid = Binder.getCallingUid()
-        val packages = packageManager.getPackagesForUid(uid).orEmpty()
-        val allowed = uid == Process.SYSTEM_UID && packages.contains(SYSTEM_UI_PACKAGE)
-        if (!allowed) AppLog.w(TAG, "Rejected caller uid=$uid")
+        val systemUiUid = resolveSystemUiUid()
+        val allowed = isSystemUiBridgeCaller(uid, systemUiUid)
+        if (!allowed) {
+            // 打印两个 uid,单独一个 "rejected" 无法区分伪造调用者与本门禁与平台不匹配。
+            AppLog.bootstrap(TAG, "systemui_caller_rejected uid=$uid systemui_uid=$systemUiUid")
+            AppLog.w(TAG, "Rejected caller uid=$uid systemui_uid=$systemUiUid")
+        }
         return allowed
+    }
+
+    private fun resolveSystemUiUid(): Int = try {
+        packageManager.getPackageUid(SYSTEM_UI_PACKAGE, 0)
+    } catch (error: PackageManager.NameNotFoundException) {
+        AppLog.w(TAG, "SystemUI package not installed", error)
+        UNRESOLVED_SYSTEM_UI_UID
     }
 
     private fun ensureNotificationChannel() {
