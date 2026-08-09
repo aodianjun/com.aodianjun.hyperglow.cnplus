@@ -543,14 +543,16 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(2_000L)
         assertEquals(1, producer.state.value!!.lineIndex)
 
-        // Resume at 2000 — 1500 ms behind the extrapolated 3500 (beyond 300 ms tolerance).
+        // Resume at 2500 — a real value that differs from lastRealPositionMs (2000) yet is
+        // 1000 ms behind the extrapolated 3500 (beyond the 300 ms tolerance), i.e. a genuine seek
+        // back into line 0. It must be honored as a rewind.
         clockValue = 11_600L
-        producer.playerListener.onPositionChanged(2_000L)
+        producer.playerListener.onPositionChanged(2_500L)
 
         val state = producer.state.value!!
         assertEquals(0, state.lineIndex)
         assertEquals("first", state.line)
-        assertEquals(2_000L, state.positionMs)
+        assertEquals(2_500L, state.positionMs)
     }
 
     @Test
