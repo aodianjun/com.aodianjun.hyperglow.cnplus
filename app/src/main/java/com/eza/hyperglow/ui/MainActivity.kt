@@ -2077,11 +2077,9 @@ private fun XposedSourceHint(
     guideUrl: String
 ) {
     val context = LocalContext.current
-    val preference by collectPreference()
-    val connection by collectConnection(preference)
-    if (connection == ProducerConnection.CONNECTED ||
-        connection == ProducerConnection.RECONNECTED
-    ) return
+    // 该引导是"如何配置该源"的说明，与连接状态无关，选中即显示。
+    // 注意：SuperLyric/Lyricon 的 connection 在模块服务可达时即为 CONNECTED
+    // （即使未真正配置好），不能据此隐藏引导。
     SettingsCard {
         BasicComponent(
             title = stringResource(titleRes),
