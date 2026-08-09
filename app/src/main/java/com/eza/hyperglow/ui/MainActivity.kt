@@ -1166,6 +1166,19 @@ private fun LyricLayoutScreen(
                             selectedProfile.maxHeightFraction.toString()
                         ) { value -> updateSelected { it.copy(maxHeightFraction = value.toFloat()) } }
                     }
+                    SliderPreference(
+                        value = selectedProfile.maxHeightFraction * 100f,
+                        onValueChange = { pct ->
+                            updateSelected {
+                                it.copy(maxHeightFraction = (pct / 100f).coerceIn(0.2f, 0.9f))
+                            }
+                        },
+                        title = stringResource(R.string.setting_custom_height),
+                        summary = stringResource(R.string.summary_custom_height),
+                        valueText = "${(selectedProfile.maxHeightFraction * 100).roundToInt()}%",
+                        valueRange = 20f..90f,
+                        steps = 13
+                    )
                     if (selectedProfile.anchor == "custom_vertical_bias") {
                         AodChoiceRow(AodChoiceKind.VERTICAL_POSITION, selectedProfile.verticalBias.toString()) {
                             openChoice(

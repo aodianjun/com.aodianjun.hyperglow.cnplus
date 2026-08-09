@@ -153,6 +153,8 @@
     <string name="choice_height">高度</string>
     <string name="choice_vertical_position">垂直位置</string>
     <string name="choice_overlap_handling">重叠处理</string>
+    <string name="setting_custom_height">自定义高度</string>
+    <string name="summary_custom_height">拖动调节歌词块高度。</string>
     <string name="section_text_language">文字和语言</string>
     <string name="choice_alignment">对齐</string>
     <string name="choice_secondary_text">辅助文字</string>
