@@ -17,6 +17,12 @@
     <string name="action_open_github_issue">打开 GitHub Issue</string>
 
     <string name="section_runtime_status">运行状态</string>
+    <string name="section_home_status">模块状态</string>
+    <string name="home_working">运行正常</string>
+    <string name="home_not_working">未运行</string>
+    <string name="label_app_version">应用版本</string>
+    <string name="label_android_version">Android 版本</string>
+    <string name="label_device_model">设备型号</string>
     <string name="label_compatibility">兼容性</string>
     <string name="label_systemui_aod">系统界面 / 息屏显示</string>
     <string name="label_aod_lyrics">息屏歌词</string>

@@ -22,6 +22,12 @@
     <string name="action_copy_id">Copy ID</string>
     <string name="action_open_github_issue">Open GitHub issue</string>
     <string name="section_runtime_status">Runtime status</string>
+    <string name="section_home_status">Module status</string>
+    <string name="home_working">Working</string>
+    <string name="home_not_working">Not working</string>
+    <string name="label_app_version">App version</string>
+    <string name="label_android_version">Android version</string>
+    <string name="label_device_model">Device model</string>
     <string name="label_compatibility">Compatibility</string>
     <string name="label_systemui_aod">System UI / AOD</string>
     <string name="label_aod_lyrics">AOD lyrics</string>

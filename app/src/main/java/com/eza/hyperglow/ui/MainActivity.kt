@@ -27,11 +27,17 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
@@ -50,6 +56,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,8 +98,10 @@ import java.util.Locale
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -99,6 +109,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -321,6 +332,17 @@ private fun HomeScreen(
             ) {
                 when (SettingsTab.entries[page]) {
                 SettingsTab.OVERVIEW -> {
+                    item { SmallTitle(text = stringResource(R.string.section_home_status)) }
+                    item {
+                        HomeOverviewHero(
+                            working = resolveModuleWorking(supportState),
+                            supportLabel = supportStateLabel(context, supportState),
+                            aodEnabled = aodEnabled,
+                            lockscreenEnabled = lockscreenEnabled,
+                            systemUiVersion = capabilityReport.systemUiVersion,
+                            aodVersion = capabilityReport.aodVersion
+                        )
+                    }
                     item { SmallTitle(text = stringResource(R.string.section_live_status)) }
                     item { LiveStatusSection() }
                     item { SmallTitle(text = stringResource(R.string.section_lyric_source)) }
@@ -1992,6 +2014,160 @@ private fun collectConnection(source: LyricSource): androidx.compose.runtime.Sta
             ?: kotlinx.coroutines.flow.MutableStateFlow(ProducerConnection.DISCONNECTED)
     }
     return flow.collectAsState()
+}
+
+// 判断模块当前是否处于可用的运行状态(与 runtimeProfileAvailable 一致)。
+private fun resolveModuleWorking(state: XiaomiRuntimeSupportState): Boolean =
+    state == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
+        state == XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ||
+        state == XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
+
+/**
+ * Home hero section (HyperHome 风格):顶部的模块运行状态卡 + 两个 surface 统计卡 + 系统信息卡。
+ * 参照 HyperHome 的主页布局:状态卡用彩色背景 + 大号半透明图标,AOD/锁屏两个统计卡并排,
+ * 下方为系统信息列表。
+ */
+@Composable
+private fun HomeOverviewHero(
+    working: Boolean,
+    supportLabel: String,
+    aodEnabled: Boolean,
+    lockscreenEnabled: Boolean,
+    systemUiVersion: String,
+    aodVersion: String
+) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            HomeStatusCard(
+                working = working,
+                supportLabel = supportLabel,
+                modifier = Modifier.weight(1f).aspectRatio(1f)
+            )
+            Column(
+                Modifier.weight(1f).aspectRatio(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                HomeStatCard(
+                    title = stringResource(R.string.label_aod_lyrics),
+                    value = homeSurfaceState(context, working, aodEnabled),
+                    modifier = Modifier.weight(1f)
+                )
+                HomeStatCard(
+                    title = stringResource(R.string.label_lockscreen_lyrics),
+                    value = homeSurfaceState(context, working, lockscreenEnabled),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        Card {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                HomeInfoRow(stringResource(R.string.label_compatibility), supportLabel)
+                HomeInfoRow(
+                    stringResource(R.string.label_systemui_aod),
+                    "$systemUiVersion / $aodVersion"
+                )
+                HomeInfoRow(stringResource(R.string.label_app_version), BuildConfig.VERSION_NAME)
+                HomeInfoRow(
+                    stringResource(R.string.label_android_version),
+                    Build.VERSION.RELEASE
+                )
+                HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL, last = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Modifier) {
+    val statusColor = if (working) ComposeColor(0xFF36D167) else ComposeColor(0xFFFF5A52)
+    val statusBackground = if (working) ComposeColor(0xFFDFFAE4) else ComposeColor(0xFFFFE5E3)
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.defaultColors(color = statusBackground)
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier.fillMaxSize().offset(34.dp, 38.dp),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.Copy,
+                    contentDescription = null,
+                    tint = statusColor.copy(alpha = 0.78f),
+                    modifier = Modifier.size(136.dp)
+                )
+            }
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Text(
+                    stringResource(if (working) R.string.home_working else R.string.home_not_working),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ComposeColor(0xFF101010)
+                )
+                Text(
+                    supportLabel,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = ComposeColor(0xFF2F3A32).copy(alpha = 0.78f),
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeStatCard(title: String, value: String, modifier: Modifier) {
+    Card(modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxSize().padding(14.dp),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Text(
+                value,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeInfoRow(title: String, content: String, last: Boolean = false) {
+    Text(
+        title,
+        fontSize = MiuixTheme.textStyles.headline1.fontSize,
+        fontWeight = FontWeight.Medium
+    )
+    Text(
+        content,
+        fontSize = MiuixTheme.textStyles.body2.fontSize,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(top = 2.dp, bottom = if (last) 0.dp else 24.dp)
+    )
+}
+
+private fun homeSurfaceState(
+    context: android.content.Context,
+    working: Boolean,
+    enabled: Boolean
+): String = if (!working) {
+    context.getString(R.string.runtime_unavailable)
+} else {
+    context.getString(if (enabled) R.string.runtime_enabled else R.string.runtime_disabled)
 }
 
 /**
