@@ -22,14 +22,20 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
-        <!-- 主界面：始终启用。声明 Xposed 模块入口 category，让 LSPosed 管理器在隐藏桌面图标后
-             仍能通过该 category 启动本应用。 -->
+        <!-- 主界面：始终启用。声明 Xposed 模块入口 category 供 LSPosed 的“设置”入口使用，
+             同时声明 CATEGORY_INFO 供 LSPosed 的“启动”入口(getLaunchIntentForPackage 优先
+             解析 CATEGORY_INFO)使用，从而在隐藏桌面图标(仅禁用下方 alias)后仍可启动本应用。
+             CATEGORY_INFO 不会在桌面生成图标，因此不会产生重复图标。 -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.INFO" />
             </intent-filter>
         </activity>
 
