@@ -76,6 +76,7 @@
     <string name="action_open_spotify">Open Spotify</string>
     <string name="section_project">Project</string>
     <string name="action_hyperglow_github">HyperGlow on GitHub</string>
+    <string name="action_hyperglow_cnplus_github">HyperGlow CN+ on GitHub</string>
 
     <string name="section_surfaces">Surfaces</string>
     <string name="setting_show_aod">Show on AOD</string>
@@ -87,7 +88,7 @@
     <string name="title_aod_appearance">AOD appearance</string>
     <string name="title_lockscreen_appearance">Lock screen appearance</string>
     <string name="section_playback_behavior">Playback behavior</string>
-    <string name="setting_after_spotify_pauses">After Spotify pauses</string>
+    <string name="setting_after_spotify_pauses">After music pauses</string>
 
     <string name="section_aod_behavior">AOD behavior</string>
     <string name="setting_keep_aod_active">Keep AOD active</string>

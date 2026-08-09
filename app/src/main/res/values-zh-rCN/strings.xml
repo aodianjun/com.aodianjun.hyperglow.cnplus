@@ -76,6 +76,7 @@
     <string name="action_open_spotify">打开 Spotify</string>
     <string name="section_project">项目</string>
     <string name="action_hyperglow_github">在 GitHub 查看 HyperGlow</string>
+    <string name="action_hyperglow_cnplus_github">在 GitHub 查看 HyperGlow CN+</string>
 
     <string name="section_surfaces">显示区域</string>
     <string name="setting_show_aod">在息屏显示</string>
@@ -87,7 +88,7 @@
     <string name="title_aod_appearance">息屏外观</string>
     <string name="title_lockscreen_appearance">锁屏外观</string>
     <string name="section_playback_behavior">播放行为</string>
-    <string name="setting_after_spotify_pauses">Spotify 暂停后</string>
+    <string name="setting_after_spotify_pauses">音乐暂停后</string>
 
     <string name="section_aod_behavior">息屏行为</string>
     <string name="setting_keep_aod_active">保持息屏活动</string>

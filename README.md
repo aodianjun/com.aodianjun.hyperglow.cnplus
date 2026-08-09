@@ -52,7 +52,7 @@ APK from [Releases](https://github.com/aodianjun/hyperglow/releases).
 3. Set HyperGlow battery usage to **No restrictions**.
 
 > [!NOTE]
-> Tested on Xiaomi 14 (`houji`).
+> Tested on Redmi K80 Pro.
 > Will eat battery.
 > `Raise to show AOD` requires the system **Raise to wake** option enabled.
 
@@ -136,7 +136,7 @@ before opening a pull request:
 3. 将 HyperGlow 的电池使用设置为 **无限制**。
 
 > [!NOTE]
-> 已在小米 14（`houji`）上测试。
+> 已在 Redmi K80 Pro 上测试。
 > 会比较耗电。
 > `拿起显示 AOD` 需要系统开启 **抬起唤醒** 选项。
 

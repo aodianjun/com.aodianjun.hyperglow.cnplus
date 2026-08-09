@@ -445,6 +445,12 @@ private fun HomeScreen(
                                     openExternalUrl(context, GITHUB_URL)
                                 }
                             )
+                            ArrowPreference(
+                                title = stringResource(R.string.action_hyperglow_cnplus_github),
+                                onClick = {
+                                    openExternalUrl(context, GITHUB_CNPLUS_URL)
+                                }
+                            )
                         }
                     }
                 }
@@ -852,6 +858,7 @@ private enum class SettingsTab {
 
 private const val DIAGNOSTICS_DESTINATION = "__diagnostics__"
 private const val GITHUB_URL = "https://github.com/amarinne/hyperglow"
+private const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/hyperglow_CNplus"
 private const val SPICY_EX_GITHUB_URL = "https://github.com/amarinne/spicy-ex/releases"
 
 private fun currentUiLanguage(context: android.content.Context): UiLanguage {
