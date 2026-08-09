@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -54,11 +53,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.AppLog
@@ -351,32 +352,6 @@ private fun HomeScreen(
                     item { SmallTitle(text = stringResource(R.string.section_runtime_status)) }
                     item {
                         SettingsCard {
-                            BasicComponent(
-                                title = stringResource(R.string.label_compatibility),
-                                summary = supportStateLabel(context, supportState)
-                            )
-                            BasicComponent(
-                                title = stringResource(R.string.label_systemui_aod),
-                                summary = "${capabilityReport.systemUiVersion} / ${capabilityReport.aodVersion}"
-                            )
-                            BasicComponent(
-                                title = stringResource(R.string.label_aod_lyrics),
-                                summary = runtimeSurfaceSummary(
-                                    context = context,
-                                    configured = aodEnabled,
-                                    supported = aodSupported,
-                                    surfaceName = context.getString(R.string.surface_aod)
-                                )
-                            )
-                            BasicComponent(
-                                title = stringResource(R.string.label_lockscreen_lyrics),
-                                summary = runtimeSurfaceSummary(
-                                    context = context,
-                                    configured = lockscreenEnabled,
-                                    supported = lockscreenSupported,
-                                    surfaceName = context.getString(R.string.surface_lockscreen)
-                                )
-                            )
                             SwitchPreference(
                                 diagnosticLogging,
                                 { enabled ->
@@ -924,19 +899,6 @@ private fun openExternalUrl(context: android.content.Context, url: String) {
     if (!opened) {
         Toast.makeText(context, context.getString(R.string.toast_no_link_handler), Toast.LENGTH_LONG).show()
     }
-}
-
-private fun runtimeSurfaceSummary(
-    context: android.content.Context,
-    configured: Boolean,
-    supported: Boolean,
-    surfaceName: String
-): String = when (resolveRuntimeSurfaceState(configured, supported)) {
-    RuntimeSurfaceState.ENABLED -> context.getString(R.string.runtime_enabled)
-    RuntimeSurfaceState.DISABLED -> context.getString(R.string.runtime_disabled)
-    RuntimeSurfaceState.CONFIGURED_UNAVAILABLE ->
-        context.getString(R.string.runtime_configured_unavailable, surfaceName)
-    RuntimeSurfaceState.UNAVAILABLE -> context.getString(R.string.runtime_unavailable)
 }
 
 private fun supportStateLabel(
@@ -2091,15 +2053,16 @@ private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Mod
         colors = CardDefaults.defaultColors(color = statusBackground)
     ) {
         Box(Modifier.fillMaxSize()) {
+            // 背景大图标:固定在卡片右下角,并裁剪到卡片内,避免超出卡片宽度/高度
             Box(
-                Modifier.fillMaxSize().offset(34.dp, 38.dp),
+                Modifier.fillMaxSize().clipToBounds(),
                 contentAlignment = Alignment.BottomEnd
             ) {
                 Icon(
                     imageVector = MiuixIcons.Copy,
                     contentDescription = null,
                     tint = statusColor.copy(alpha = 0.78f),
-                    modifier = Modifier.size(136.dp)
+                    modifier = Modifier.size(120.dp).padding(end = 4.dp, bottom = 4.dp)
                 )
             }
             Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -2107,14 +2070,18 @@ private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Mod
                     stringResource(if (working) R.string.home_working else R.string.home_not_working),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = ComposeColor(0xFF101010)
+                    color = ComposeColor(0xFF101010),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     supportLabel,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = ComposeColor(0xFF2F3A32).copy(alpha = 0.78f),
-                    modifier = Modifier.padding(top = 2.dp)
+                    modifier = Modifier.padding(top = 2.dp),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -2139,7 +2106,9 @@ private fun HomeStatCard(title: String, value: String, modifier: Modifier) {
                 value,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 2.dp)
+                modifier = Modifier.padding(top = 2.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -2156,7 +2125,7 @@ private fun HomeInfoRow(title: String, content: String, last: Boolean = false) {
         content,
         fontSize = MiuixTheme.textStyles.body2.fontSize,
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(top = 2.dp, bottom = if (last) 0.dp else 24.dp)
+        modifier = Modifier.padding(top = 2.dp, bottom = if (last) 0.dp else 16.dp)
     )
 }
 
