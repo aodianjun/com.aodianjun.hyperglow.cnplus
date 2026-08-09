@@ -12,6 +12,7 @@ import android.graphics.Typeface
 import android.os.SystemClock
 import android.util.SparseArray
 import android.view.View
+import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.root.HookLogger
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -889,7 +890,7 @@ internal class AodLyricCanvasView(
     private val density = resources.displayMetrics.density
     private val scaledDensity = resources.displayMetrics.scaledDensity
     private val fontContext = runCatching {
-        context.createPackageContext("com.eza.hyperglow", Context.CONTEXT_IGNORE_SECURITY)
+        context.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_IGNORE_SECURITY)
     }.getOrNull()
     private val metadataPaint = paint(14f, 0xB3FFFFFF.toInt(), Typeface.NORMAL)
     private val originalPaint = paint(27f, Color.WHITE, Typeface.NORMAL)

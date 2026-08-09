@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.os.UserHandle
+import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.aod.AodStateWireBundleCodec
 import com.eza.hyperglow.aod.AodStateWireMessage
 import com.eza.hyperglow.aod.IAodLyricBridge
@@ -385,7 +386,7 @@ internal class AodLyricClient(
 
     companion object {
         private const val TAG = "AodLyricClient"
-        private const val APP_PACKAGE = "com.eza.hyperglow"
+        private const val APP_PACKAGE = BuildConfig.APPLICATION_ID
         private const val SERVICE_CLASS = "com.eza.hyperglow.aod.AodLyricBridgeService"
         private const val PER_USER_RANGE = 100_000L
         private const val NO_BRIDGE_REPORT_MARKER_INTERVAL_MS = 5_000L
