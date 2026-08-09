@@ -2047,9 +2047,14 @@ private fun applyHideFromRecents(context: android.content.Context, exclude: Bool
 }
 
 private fun applyHideLauncherIcon(context: android.content.Context, hide: Boolean) {
-    // 禁用/启用 MainActivity 的 LAUNCHER 组件,从而隐藏/恢复桌面图标。
+    // 只禁用/启用 LAUNCHER alias 组件来隐藏/恢复桌面图标。
+    // 关键:不能禁用 MainActivity 本身,否则 LSPosed 管理器将无法再启动本应用
+    // (LSPosed 通过 MainActivity 声明的 MODULE_SETTINGS category 作为模块入口)。
     runCatching {
-        val component = android.content.ComponentName(context, MainActivity::class.java)
+        val component = android.content.ComponentName(
+            context,
+            "com.eza.hyperglow.ui.MainActivityAlias"
+        )
         context.packageManager.setComponentEnabledSetting(
             component,
             if (hide) {

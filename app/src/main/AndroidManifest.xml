@@ -22,14 +22,28 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- 主界面：始终启用。声明 Xposed 模块入口 category，让 LSPosed 管理器在隐藏桌面图标后
+             仍能通过该 category 启动本应用。 -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
             </intent-filter>
         </activity>
+
+        <!-- 桌面图标入口：真正的 LAUNCHER。隐藏桌面图标时仅禁用该 alias，
+             不影响 MainActivity 本身，从而保留 LSPosed 的启动入口。 -->
+        <activity-alias
+            android:name=".ui.MainActivityAlias"
+            android:exported="true"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".bridge.SpicyLyricBridgeService"

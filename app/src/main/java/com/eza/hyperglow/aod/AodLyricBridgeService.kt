@@ -85,15 +85,16 @@ class AodLyricBridgeService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val pendingIntent = launchIntent?.let {
-            PendingIntent.getActivity(
-                this,
-                0,
-                it,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-        }
+        // 用显式组件启动 MainActivity:桌面图标被隐藏时(LAUNCHER alias 被禁用),
+        // getLaunchIntentForPackage 会返回 null,导致点击通知无法打开应用。
+        // MainActivity 始终启用,因此显式 Intent 在隐藏图标后依然有效。
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, com.eza.hyperglow.ui.MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_lyric_notification)
             .setContentTitle(getString(R.string.notification_lyric_bridge_title))
@@ -102,7 +103,7 @@ class AodLyricBridgeService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setShowWhen(false)
-            .apply { pendingIntent?.let { setContentIntent(it) } }
+            .setContentIntent(pendingIntent)
             .build()
     }
 
