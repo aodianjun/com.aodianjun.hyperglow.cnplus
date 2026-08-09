@@ -514,7 +514,7 @@ internal data class DiagnosticGitHubIssue(
 )
 
 internal const val HYPERGLOW_DIAGNOSTIC_DATA_POLICY_URL =
-    "https://github.com/amarinne/hyperglow/blob/main/DIAGNOSTIC_DATA_POLICY.md"
+    "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/blob/main/DIAGNOSTIC_DATA_POLICY.md"
 
 internal fun buildHyperGlowGitHubIssue(report: DiagnosticReportEnvelope): DiagnosticGitHubIssue {
     val product = report.commonMetadata
