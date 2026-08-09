@@ -67,6 +67,8 @@
     <string name="summary_lyricinfo_not_connected">已选择 LyricInfo 但未连接。请在音乐应用中激活 LyricInfo Xposed 模块，并授予 HyperGlow 通知使用权。</string>
     <string name="action_lyricinfo_notification_access">授予通知使用权</string>
     <string name="action_lyricinfo_guide">LyricInfo 配置指南</string>
+    <string name="action_open_lsposed">打开 LSPosed 模块设置</string>
+    <string name="toast_lsposed_not_installed">此设备未安装 LSPosed</string>
     <string name="lyric_info_notification_listener">LyricInfo 通知监听器</string>
 
     <string name="section_spotify_integration">Spotify 集成</string>

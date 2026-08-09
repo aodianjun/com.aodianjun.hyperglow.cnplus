@@ -2045,18 +2045,18 @@ private fun SourceSetupHint() {
     val context = LocalContext.current
     val preference by collectPreference()
     when (preference) {
-        LyricSource.LYRICON -> SourceHint(
+        LyricSource.LYRICON -> XposedSourceHint(
             titleRes = R.string.title_lyricon_setup,
             summaryRes = R.string.summary_lyricon_not_connected,
-            actionRes = R.string.action_lyricon_guide,
-            url = LYRICON_GUIDE_URL
+            guideActionRes = R.string.action_lyricon_guide,
+            guideUrl = LYRICON_GUIDE_URL
         )
 
-        LyricSource.SUPERLYRIC -> SourceHint(
+        LyricSource.SUPERLYRIC -> XposedSourceHint(
             titleRes = R.string.title_superlyric_setup,
             summaryRes = R.string.summary_superlyric_not_connected,
-            actionRes = R.string.action_superlyric_guide,
-            url = SUPERLYRIC_GUIDE_URL
+            guideActionRes = R.string.action_superlyric_guide,
+            guideUrl = SUPERLYRIC_GUIDE_URL
         )
 
         LyricSource.LYRICINFO -> LyricInfoHint(context)
@@ -2065,8 +2065,17 @@ private fun SourceSetupHint() {
     }
 }
 
+/**
+ * Setup hint for Xposed-module-based lyric sources (Lyricon, SuperLyric): shows the module must be
+ * activated in SystemUI, with a direct shortcut to the LSPosed manager plus the setup guide.
+ */
 @Composable
-private fun SourceHint(titleRes: Int, summaryRes: Int, actionRes: Int, url: String) {
+private fun XposedSourceHint(
+    titleRes: Int,
+    summaryRes: Int,
+    guideActionRes: Int,
+    guideUrl: String
+) {
     val context = LocalContext.current
     val preference by collectPreference()
     val connection by collectConnection(preference)
@@ -2079,9 +2088,28 @@ private fun SourceHint(titleRes: Int, summaryRes: Int, actionRes: Int, url: Stri
             summary = stringResource(summaryRes)
         )
         ArrowPreference(
-            title = stringResource(actionRes),
-            onClick = { openExternalUrl(context, url) }
+            title = stringResource(R.string.action_open_lsposed),
+            onClick = { openLsposedManager(context) }
         )
+        ArrowPreference(
+            title = stringResource(guideActionRes),
+            onClick = { openExternalUrl(context, guideUrl) }
+        )
+    }
+}
+
+private fun openLsposedManager(context: android.content.Context) {
+    val opened = runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_MAIN).setPackage(LSPOSED_MANAGER_PACKAGE)
+        )
+    }.isSuccess
+    if (!opened) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.toast_lsposed_not_installed),
+            Toast.LENGTH_LONG
+        ).show()
     }
 }
 
@@ -2196,3 +2224,4 @@ private fun projectionStateSummary(
 private const val LYRICON_GUIDE_URL = "https://github.com/amarinne/hyperglow#lyricon-setup"
 private const val SUPERLYRIC_GUIDE_URL = "https://github.com/HChenX/SuperLyric#readme"
 private const val LYRICINFO_GUIDE_URL = "https://github.com/limczhh/LyricInfo#readme"
+private const val LSPOSED_MANAGER_PACKAGE = "org.lsposed.manager"

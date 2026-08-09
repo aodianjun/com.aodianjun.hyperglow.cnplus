@@ -67,6 +67,8 @@
     <string name="summary_lyricinfo_not_connected">LyricInfo is selected but not connected. Activate the LyricInfo Xposed module in your music app and grant HyperGlow notification access.</string>
     <string name="action_lyricinfo_notification_access">Grant notification access</string>
     <string name="action_lyricinfo_guide">LyricInfo setup guide</string>
+    <string name="action_open_lsposed">Open LSPosed module settings</string>
+    <string name="toast_lsposed_not_installed">LSPosed is not installed on this device</string>
     <string name="lyric_info_notification_listener">LyricInfo notification listener</string>
 
     <string name="section_spotify_integration">Spotify integration</string>

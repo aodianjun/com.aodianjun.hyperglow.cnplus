@@ -885,7 +885,7 @@ internal class AodLyricCanvasView(
     private var cadenceDrawCount = 0
     private var cadenceMaxDrawGapMs = 0L
     private var cadenceLastDrawAt = 0L
-    private var verticalAlignment = AodCanvasVerticalAlignment.CENTER
+    private var verticalAlignment = AodCanvasVerticalAlignment.TOP
     private val density = resources.displayMetrics.density
     private val scaledDensity = resources.displayMetrics.scaledDensity
     private val fontContext = runCatching {
