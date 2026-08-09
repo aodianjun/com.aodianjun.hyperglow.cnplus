@@ -50,6 +50,10 @@ class AodLyricBridgeService : Service() {
             buildNotification(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
+        // "常驻通知"关闭时:保持前台服务(进程不被冻结)但隐藏通知栏,让通知栏更干净。
+        if (!AodRenderPreferences.read(this).persistentNotification) {
+            getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        }
         AppLog.bootstrap(TAG, "foreground_service_started")
         return START_STICKY
     }

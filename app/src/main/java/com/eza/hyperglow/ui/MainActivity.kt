@@ -295,6 +295,20 @@ private fun HomeScreen(
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
+    var persistentNotification by remember {
+        mutableStateOf(initialConfig.persistentNotification)
+    }
+    var hideBackgroundCard by remember {
+        mutableStateOf(initialConfig.hideBackgroundCard)
+    }
+    var hideLauncherIcon by remember {
+        mutableStateOf(initialConfig.hideLauncherIcon)
+    }
+
+    // 每次进入应用都按持久化配置重新应用"隐藏后台卡片",避免重启后失效。
+    LaunchedEffect(Unit) {
+        if (initialConfig.hideBackgroundCard) applyHideFromRecents(context, true)
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = stringResource(R.string.app_name)) },
@@ -660,6 +674,55 @@ private fun HomeScreen(
                                     stringResource(R.string.summary_unavailable_systemui_version)
                                 },
                                 enabled = raiseToAodSupported
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_system_integration)) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                persistentNotification,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.PERSISTENT_NOTIFICATION,
+                                        enabled
+                                    ).apply()
+                                    persistentNotification = enabled
+                                    // 重新触发前台服务,让常驻通知按新开关显示/隐藏
+                                    runCatching {
+                                        context.startService(
+                                            Intent(context, AodLyricBridgeService::class.java)
+                                        )
+                                    }
+                                },
+                                stringResource(R.string.setting_foreground_notification),
+                                summary = stringResource(R.string.summary_foreground_notification)
+                            )
+                            SwitchPreference(
+                                hideBackgroundCard,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.HIDE_BACKGROUND_CARD,
+                                        enabled
+                                    ).apply()
+                                    hideBackgroundCard = enabled
+                                    applyHideFromRecents(context, enabled)
+                                },
+                                stringResource(R.string.setting_hide_background_card),
+                                summary = stringResource(R.string.summary_hide_background_card)
+                            )
+                            SwitchPreference(
+                                hideLauncherIcon,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.HIDE_LAUNCHER_ICON,
+                                        enabled
+                                    ).apply()
+                                    hideLauncherIcon = enabled
+                                    applyHideLauncherIcon(context, enabled)
+                                },
+                                stringResource(R.string.setting_hide_launcher_icon),
+                                summary = stringResource(R.string.summary_hide_launcher_icon)
                             )
                         }
                     }
@@ -1908,6 +1971,31 @@ private fun updateExperimentalMode(
     if (!saved) return false
     publishRuntimeConfiguration(context)
     return true
+}
+
+private fun applyHideFromRecents(context: android.content.Context, exclude: Boolean) {
+    // 运行时把本应用的任务从最近任务列表隐藏/恢复,无需重启 Activity。
+    runCatching {
+        context.getSystemService(android.app.ActivityManager::class.java)
+            ?.appTasks
+            ?.forEach { it.setExcludeFromRecents(exclude) }
+    }
+}
+
+private fun applyHideLauncherIcon(context: android.content.Context, hide: Boolean) {
+    // 禁用/启用 MainActivity 的 LAUNCHER 组件,从而隐藏/恢复桌面图标。
+    runCatching {
+        val component = android.content.ComponentName(context, MainActivity::class.java)
+        context.packageManager.setComponentEnabledSetting(
+            component,
+            if (hide) {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            } else {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            },
+            android.content.pm.PackageManager.DONT_KILL_APP
+        )
+    }
 }
 
 private fun publishRuntimeConfiguration(context: android.content.Context) {

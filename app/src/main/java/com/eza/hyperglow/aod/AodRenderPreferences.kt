@@ -39,7 +39,16 @@ data class AodRenderConfig(
      * hook(符号在则装上,符号不在则跳过)。风险:未验证版本上符号签名可能不一致,
      * hook 装上但行为异常 —— 由用户自行承担。
      */
-    val experimentalMode: Boolean = false
+    val experimentalMode: Boolean = false,
+    /**
+     * 是否在状态栏常驻前台服务通知(true 默认显示,false 拉起前台服务后立刻隐藏通知,
+     * 以保持进程前台不被冻结,同时让通知栏更干净)。
+     */
+    val persistentNotification: Boolean = true,
+    /** 是否从最近任务列表(后台卡片)中隐藏本应用。 */
+    val hideBackgroundCard: Boolean = false,
+    /** 是否从桌面启动器中隐藏应用图标。 */
+    val hideLauncherIcon: Boolean = false
 )
 
 internal fun normalizeAodAlignment(value: String?): String = when (value) {
@@ -152,6 +161,9 @@ object AodRenderPreferences {
     const val SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS = "suppress_lockscreen_editor_long_press"
     const val LYRIC_SOURCE = "lyric_source"
     const val EXPERIMENTAL_MODE = "experimental_mode"
+    const val PERSISTENT_NOTIFICATION = "persistent_notification"
+    const val HIDE_BACKGROUND_CARD = "hide_background_card"
+    const val HIDE_LAUNCHER_ICON = "hide_launcher_icon"
 
     private var preferences: SharedPreferences? = null
     private var cachedConfig: AodRenderConfig? = null
@@ -191,7 +203,10 @@ object AodRenderPreferences {
             prefs.getBoolean(LOCKSCREEN_KEEP_AWAKE, false),
             prefs.getBoolean(RAISE_TO_AOD, false),
             prefs.getBoolean(SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS, false),
-            prefs.getBoolean(EXPERIMENTAL_MODE, false)
+            prefs.getBoolean(EXPERIMENTAL_MODE, false),
+            prefs.getBoolean(PERSISTENT_NOTIFICATION, true),
+            prefs.getBoolean(HIDE_BACKGROUND_CARD, false),
+            prefs.getBoolean(HIDE_LAUNCHER_ICON, false)
         ).also { cachedConfig = it }
     }
 

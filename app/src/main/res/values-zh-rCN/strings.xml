@@ -115,6 +115,14 @@
     <string name="setting_raise_to_aod">抬起显示息屏</string>
     <string name="summary_raise_to_aod">需要启用 HyperOS 抬起唤醒。</string>
 
+    <string name="section_system_integration">系统集成</string>
+    <string name="setting_foreground_notification">常驻通知</string>
+    <string name="summary_foreground_notification">保持前台服务运行，但不在状态栏显示通知。</string>
+    <string name="setting_hide_background_card">隐藏后台卡片</string>
+    <string name="summary_hide_background_card">将 HyperGlow 从最近应用列表中排除。</string>
+    <string name="setting_hide_launcher_icon">隐藏桌面图标</string>
+    <string name="summary_hide_launcher_icon">从桌面启动器中移除应用图标。仍可通过 LSPosed 管理器或其他应用启动器启动 HyperGlow。</string>
+
     <string name="dialog_restart_systemui_title">重启系统界面？</string>
     <string name="dialog_restart_systemui_summary">屏幕、状态栏和息屏显示会短暂消失。需要 Root 权限。</string>
     <string name="option_follow_xiaomi">跟随小米</string>

@@ -115,6 +115,14 @@
     <string name="section_wake_gestures">Wake gestures</string>
     <string name="setting_raise_to_aod">Raise to show AOD</string>
     <string name="summary_raise_to_aod">Requires HyperOS Raise to wake.</string>
+
+    <string name="section_system_integration">System integration</string>
+    <string name="setting_foreground_notification">Persistent notification</string>
+    <string name="summary_foreground_notification">Keep the foreground service alive without showing a notification in the status bar.</string>
+    <string name="setting_hide_background_card">Hide background card</string>
+    <string name="summary_hide_background_card">Exclude HyperGlow from the recent apps list.</string>
+    <string name="setting_hide_launcher_icon">Hide launcher icon</string>
+    <string name="summary_hide_launcher_icon">Remove the app icon from the home screen launcher. You can still launch HyperGlow from LSPosed manager or other app launchers.</string>
     <string name="dialog_restart_systemui_title">Restart System UI?</string>
     <string name="dialog_restart_systemui_summary">The screen, status bar, and AOD will briefly disappear. Root access is required.</string>
     <string name="option_follow_xiaomi">Follow Xiaomi</string>
