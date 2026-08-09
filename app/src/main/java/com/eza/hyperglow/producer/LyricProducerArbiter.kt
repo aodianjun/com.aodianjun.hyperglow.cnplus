@@ -158,47 +158,52 @@ class LyricProducerArbiter(
     internal fun computeActiveOnce(): LyricProducerState? {
         val pref = mutablePreference.value
         val preferred = producer(pref)
-        if (preferred == null) {
-            // Preference names a source with no producer registered: fall back.
-            return fallbackState(pref)
-        }
-        val preferredConn = preferred.connection.value
-        val preferredState = preferred.state.value
         val now = clock()
-        return when {
-            preferredConn == ProducerConnection.CONNECTED ||
-                preferredConn == ProducerConnection.RECONNECTED -> {
-                if (preferredState != null && !isStale(preferredState)) {
-                    AppLog.i(
-                        "LyricProducerArbiter",
-                        "select: pref=$pref conn=$preferredConn producer=${preferredState.producerId} " +
-                            "gen=${preferredState.generation} seq=${preferredState.sequence} " +
-                            "age=${now - preferredState.receivedAtElapsedMs}ms"
-                    )
-                    preferredState
-                } else {
-                    // Preferred connected but no/stale state: try fallback before null.
-                    val reason = when {
-                        preferredState == null -> "nullState"
-                        isStale(preferredState) -> "stale(age=${now - preferredState.receivedAtElapsedMs}ms)"
-                        else -> "unknown"
+        val result = if (preferred == null) {
+            // Preference names a source with no producer registered: fall back.
+            fallbackState(pref)
+        } else {
+            val preferredConn = preferred.connection.value
+            val preferredState = preferred.state.value
+            when {
+                preferredConn == ProducerConnection.CONNECTED ||
+                    preferredConn == ProducerConnection.RECONNECTED -> {
+                    if (preferredState != null && !isStale(preferredState)) {
+                        AppLog.i(
+                            "LyricProducerArbiter",
+                            "select: pref=$pref conn=$preferredConn producer=${preferredState.producerId} " +
+                                "gen=${preferredState.generation} seq=${preferredState.sequence} " +
+                                "age=${ageSeconds(now, preferredState)}s"
+                        )
+                        preferredState
+                    } else {
+                        // Preferred connected but no/stale state: try fallback before null.
+                        val reason = when {
+                            preferredState == null -> "nullState"
+                            isStale(preferredState) -> "stale(age=${ageSeconds(now, preferredState)}s)"
+                            else -> "unknown"
+                        }
+                        AppLog.i(
+                            "LyricProducerArbiter",
+                            "select: pref=$pref conn=$preferredConn but $reason -> fallback"
+                        )
+                        fallbackState(pref)
                     }
+                }
+                else -> {
+                    // Preferred disconnected/timeout: fall back to the other producer.
                     AppLog.i(
                         "LyricProducerArbiter",
-                        "select: pref=$pref conn=$preferredConn but $reason -> fallback"
+                        "select: pref=$pref conn=$preferredConn (not connected) -> fallback"
                     )
                     fallbackState(pref)
                 }
             }
-            else -> {
-                // Preferred disconnected/timeout: fall back to the other producer.
-                AppLog.i(
-                    "LyricProducerArbiter",
-                    "select: pref=$pref conn=$preferredConn (not connected) -> fallback"
-                )
-                fallbackState(pref)
-            }
         }
+        // 无可用歌词源时,输出一次全源汇总,便于定位是哪一环断了(播放器未上报进度 /
+        // 源 stale / 未连接)。按诊断签名去重,只在画面变化时记录,避免每 100ms 刷屏。
+        if (result == null) logSourceSummaryOnce(pref, now)
+        return result
     }
 
     private fun fallbackState(excluded: LyricSource): LyricProducerState? {
@@ -229,7 +234,7 @@ class LyricProducerArbiter(
             if (isStale(otherState)) {
                 AppLog.i(
                     "LyricProducerArbiter",
-                    "fallback: $otherSource stale(age=${now - otherState.receivedAtElapsedMs}ms) -> skip"
+                    "fallback: $otherSource stale(age=${ageSeconds(now, otherState)}s) -> skip"
                 )
                 continue
             }
@@ -237,13 +242,46 @@ class LyricProducerArbiter(
                 "LyricProducerArbiter",
                 "fallback: $otherSource producer=${otherState.producerId} " +
                     "gen=${otherState.generation} seq=${otherState.sequence} " +
-                    "age=${now - otherState.receivedAtElapsedMs}ms"
+                    "age=${ageSeconds(now, otherState)}s"
             )
             return otherState
         }
         AppLog.i("LyricProducerArbiter", "fallback: no connected non-stale producer -> null")
         return null
     }
+
+    /**
+     * Consolidates every producer's connection / staleness / playback position into ONE line so an
+     * empty-lyrics screen shows the whole chain at a glance. Emitted only when the picture changes
+     * (see [computeActiveOnce]), so a stalled stream is diagnosable without spamming 10 lines/sec.
+     */
+    private var lastSourceSummary: String? = null
+
+    private fun logSourceSummaryOnce(pref: LyricSource, now: Long) {
+        val parts = LyricSource.entries.map { source ->
+            val p = producer(source)
+            val conn = p?.connection?.value
+            val st = p?.state?.value
+            val health = when {
+                conn == null -> "-"
+                st == null -> "nullState"
+                isStale(st) -> "stale(${ageSeconds(now, st)}s)"
+                else -> "ok(${ageSeconds(now, st)}s)"
+            }
+            val progress = st?.let { "pos=${it.positionMs}/${it.durationMs} play=${if (it.playing) 1 else 0}" }
+                ?: ""
+            val lineInfo = st?.line?.takeIf { it.isNotEmpty() }?.let { " line=\"${it.take(24)}\"" } ?: ""
+            "$source[$conn/$health $progress$lineInfo]"
+        }
+        val signature = "pref=$pref " + parts.joinToString(" ")
+        if (signature != lastSourceSummary) {
+            lastSourceSummary = signature
+            AppLog.i("LyricProducerArbiter", "sources stalled: $signature")
+        }
+    }
+
+    private fun ageSeconds(now: Long, state: LyricProducerState): Long =
+        (now - state.receivedAtElapsedMs) / 1000L
 
     private fun staleSweepLoop() = scope.launch {
         // Independently clear `active` if the currently-forwarded state goes stale between
