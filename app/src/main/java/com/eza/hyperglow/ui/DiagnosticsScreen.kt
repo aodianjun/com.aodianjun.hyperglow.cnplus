@@ -42,7 +42,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.aod.AodStateBridge
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
@@ -55,8 +54,6 @@ import com.eza.hyperglow.diagnostics.DiagnosticReportCodec
 import com.eza.hyperglow.diagnostics.DiagnosticReportEnvelope
 import com.eza.hyperglow.diagnostics.DiagnosticReportFactory
 import com.eza.hyperglow.diagnostics.DiagnosticReportReceipt
-import com.eza.hyperglow.diagnostics.DiagnosticUploadResult
-import com.eza.hyperglow.diagnostics.DiagnosticUploader
 import com.eza.hyperglow.diagnostics.HyperGlowReportCategory
 import com.eza.hyperglow.diagnostics.HyperGlowSetupChecks
 import com.eza.hyperglow.diagnostics.HYPERGLOW_DIAGNOSTIC_DATA_POLICY_URL
@@ -436,24 +433,25 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                                             )
                                             return@launch
                                         }
-                                        when (val result = DiagnosticUploader(
-                                            BuildConfig.DIAGNOSTIC_INTAKE_URL
-                                        ).upload(currentReport)) {
-                                            is DiagnosticUploadResult.Success -> {
-                                                val issue = buildHyperGlowGitHubIssue(currentReport)
-                                                DiagnosticDraftStore.clear(context)
-                                                draft = null
-                                                success = SuccessfulDiagnosticReport(
-                                                    result.receipt,
-                                                    issue,
-                                                    DiagnosticReportCodec.encodePretty(currentReport)
-                                                )
-                                                retentionAccepted = false
-                                            }
-                                            is DiagnosticUploadResult.Failure -> {
-                                                statusMessage = uploadFailureMessage(context, result.kind)
-                                            }
-                                        }
+                                        // 完全本地生成回执:不再上传到 reports.eza.dpdns.org,
+                                        // json 不流向源仓库服务(reportId 本地已生成)。
+                                        val receipt = DiagnosticReportReceipt(
+                                            reportId = currentReport.reportId,
+                                            receivedAtUtc = java.time.OffsetDateTime
+                                                .now(java.time.ZoneOffset.UTC)
+                                                .format(LOCAL_RECEIPT_TIME_FORMAT),
+                                            rawExpiresAtUtc = null,
+                                            retentionPolicy = "indefinite"
+                                        )
+                                        val issue = buildHyperGlowGitHubIssue(currentReport)
+                                        DiagnosticDraftStore.clear(context)
+                                        draft = null
+                                        success = SuccessfulDiagnosticReport(
+                                            receipt,
+                                            issue,
+                                            DiagnosticReportCodec.encodePretty(currentReport)
+                                        )
+                                        retentionAccepted = false
                                         busy = false
                                     }
                                 }
@@ -786,27 +784,8 @@ private fun profileStateLabel(context: Context, value: String): String = context
     }
 )
 
-private fun uploadFailureMessage(
-    context: Context,
-    kind: DiagnosticUploadResult.Failure.Kind
-): String = context.getString(when (kind) {
-    DiagnosticUploadResult.Failure.Kind.INVALID_REPORT -> R.string.diagnostic_failure_invalid
-    DiagnosticUploadResult.Failure.Kind.REPORT_ID_COLLISION ->
-        R.string.diagnostic_failure_collision
-    DiagnosticUploadResult.Failure.Kind.REQUEST_TOO_LARGE -> R.string.diagnostic_failure_too_large
-    DiagnosticUploadResult.Failure.Kind.RATE_LIMITED ->
-        R.string.diagnostic_failure_rate_limited
-    DiagnosticUploadResult.Failure.Kind.STORAGE_UNAVAILABLE ->
-        R.string.diagnostic_failure_storage
-    DiagnosticUploadResult.Failure.Kind.SERVER_ERROR ->
-        R.string.diagnostic_failure_server
-    DiagnosticUploadResult.Failure.Kind.REDIRECT_REJECTED ->
-        R.string.diagnostic_failure_redirect
-    DiagnosticUploadResult.Failure.Kind.TIMEOUT -> R.string.diagnostic_failure_timeout
-    DiagnosticUploadResult.Failure.Kind.NETWORK -> R.string.diagnostic_failure_network
-    DiagnosticUploadResult.Failure.Kind.INVALID_RESPONSE ->
-        R.string.diagnostic_failure_receipt
-})
+private val LOCAL_RECEIPT_TIME_FORMAT =
+    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
 
 private fun openGitHubIssue(context: Context, issue: DiagnosticGitHubIssue) {
     val uri = Uri.Builder()
