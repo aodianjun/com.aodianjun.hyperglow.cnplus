@@ -460,7 +460,7 @@ class AodPositionUpdateTest {
         repeat(20) {
             t += 10_000L
             anchor = stabilizeAodClockAnchor(anchor, squeezed, t)
-            assertEquals(1626, anchor.bottom, "squeezed state must not pull the anchor")
+            assertEquals("squeezed state must not pull the anchor", 1626, anchor.bottom)
             t += 10_000L
             anchor = stabilizeAodClockAnchor(anchor, deep, t)
             assertEquals(1626, anchor.bottom)
