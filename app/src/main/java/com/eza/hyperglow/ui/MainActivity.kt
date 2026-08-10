@@ -402,8 +402,6 @@ private fun HomeScreen(
             ) {
                 when (SettingsTab.entries[page]) {
                 SettingsTab.OVERVIEW -> {
-                    val compiled = remember { SceneCompiler.compile(initialDocument) }
-                    val previewLive = collectLiveSnapshot()
                     item { SmallTitle(text = stringResource(R.string.section_home_status)) }
                     item {
                         HomeOverviewHero(
@@ -417,6 +415,8 @@ private fun HomeScreen(
                     }
                     item { SmallTitle(text = stringResource(R.string.section_live_status)) }
                     item {
+                        val compiled = remember { SceneCompiler.compile(initialDocument) }
+                        val previewLive = collectLiveSnapshot()
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
