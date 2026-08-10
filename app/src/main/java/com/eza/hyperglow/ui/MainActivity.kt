@@ -95,6 +95,9 @@ import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiProfileState
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
+import com.eza.hyperglow.root.projection.LyricSurfaceKind
+import com.eza.hyperglow.root.projection.SystemUiLyricProjectionRuntime
+import com.eza.hyperglow.root.projection.SystemUiLyricSubscriber
 import com.eza.hyperglow.root.projection.currentProcessUserId
 import com.eza.hyperglow.root.surface.PlacementEngine
 import com.eza.hyperglow.root.surface.PlacementEnvironment
@@ -2196,6 +2199,30 @@ private fun collectConnection(source: LyricSource): androidx.compose.runtime.Sta
     return flow.collectAsState()
 }
 
+/**
+ * 实时歌词快照:订阅进程内投影单例,把 SystemUI 上报的最新歌词以响应式 State 暴露给
+ * 主页预览卡片。没有实时数据时返回 null,由调用方回退到静态示例快照。
+ */
+@Composable
+private fun collectProjectionSnapshot(): androidx.compose.runtime.State<LyricSnapshot?> {
+    val projection = SystemUiLyricProjectionRuntime.projection
+    val context = LocalContext.current
+    val state = remember {
+        mutableStateOf<LyricSnapshot?>(projection.cachedSnapshot())
+    }
+    DisposableEffect(projection) {
+        val subscriber = object : SystemUiLyricSubscriber {
+            override val surfaceKind = LyricSurfaceKind.LOCKSCREEN
+            override fun onLyricSnapshot(snapshot: LyricSnapshot) { state.value = snapshot }
+            override fun onLyricProjectionStale() { state.value = projection.cachedSnapshot() }
+            override fun onLyricProjectionDisconnected() { state.value = projection.cachedSnapshot() }
+        }
+        projection.attach(subscriber, context.applicationContext)
+        onDispose { projection.detach(subscriber) }
+    }
+    return state
+}
+
 // 判断模块当前是否处于可用的运行状态(与 runtimeProfileAvailable 一致)。
 private fun resolveModuleWorking(state: XiaomiRuntimeSupportState): Boolean =
     state == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
@@ -2218,6 +2245,7 @@ private fun HomeOverviewHero(
     compiled: com.eza.hyperglow.customization.CompiledCustomization
 ) {
     val context = LocalContext.current
+    val liveSnapshot by collectProjectionSnapshot()
     Column(
         modifier = Modifier.padding(horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -2256,12 +2284,14 @@ private fun HomeOverviewHero(
                 title = stringResource(R.string.label_lockscreen_preview),
                 profile = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
                 scenario = "Lockscreen · notifications",
+                live = liveSnapshot,
                 modifier = Modifier.weight(1f)
             )
             LyricPreviewCard(
                 title = stringResource(R.string.label_aod_preview),
                 profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
                 scenario = "Full AOD",
+                live = liveSnapshot,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -2389,6 +2419,7 @@ private fun LyricPreviewCard(
     title: String,
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
     scenario: String,
+    live: LyricSnapshot?,
     modifier: Modifier
 ) {
     Card(modifier = modifier) {
@@ -2407,7 +2438,11 @@ private fun LyricPreviewCard(
                     .clip(RoundedCornerShape(16.dp))
                     .background(ComposeColor(0xFF0B0B0F))
             ) {
-                LyricPreviewSurface(profile, scenario)
+                LyricPreviewSurface(
+                    profile = profile,
+                    scenario = scenario,
+                    live = live
+                )
             }
         }
     }
@@ -2416,7 +2451,8 @@ private fun LyricPreviewCard(
 @Composable
 private fun LyricPreviewSurface(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
-    scenario: String
+    scenario: String,
+    live: LyricSnapshot?
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // constraints 是像素,而渲染用 .offset/.width(...dp) 是 dp;必须先换算成 dp,
@@ -2429,7 +2465,8 @@ private fun LyricPreviewSurface(
         }
         val rect = placement.contentRect
         if (rect == null) return@BoxWithConstraints
-        val snapshot = previewSnapshot(scenario)
+        // 有实时歌词时跟随最新快照,否则回退到硬编码示例,保证预览始终有内容。
+        val snapshot = live ?: previewSnapshot(scenario)
         val lyricColor = if (profile.palette.values.any { it == "dimmed" }) {
             ComposeColor(0xFF9AA0A6)
         } else {
