@@ -44,20 +44,27 @@ internal object PlacementEngine {
         }
         val width = canvas.width * profile.widthFraction
         val left = canvas.left + (canvas.width - width) / 2f
-        val safeTop = if (profile.collisionPolicy == "behind_system") {
+        // The custom bias anchor is user-controlled and should roam the entire safe canvas,
+        // including above the stock clock and mid-screen. Other anchors stay below the clock.
+        val customFreeRoam = profile.anchor == "custom_vertical_bias"
+        val safeTop = if (customFreeRoam || profile.collisionPolicy == "behind_system") {
             canvas.top
         } else {
             maxOf(canvas.top, environment.stockClockBottom)
         }
-        val safeBottom = minOf(
-            canvas.bottom,
-            environment.bottomReserveTop,
-            if (profile.collisionPolicy == "behind_system") {
-                Float.POSITIVE_INFINITY
-            } else {
-                environment.notificationTop ?: Float.POSITIVE_INFINITY
-            }
-        )
+        val safeBottom = if (customFreeRoam) {
+            canvas.bottom
+        } else {
+            minOf(
+                canvas.bottom,
+                environment.bottomReserveTop,
+                if (profile.collisionPolicy == "behind_system") {
+                    Float.POSITIVE_INFINITY
+                } else {
+                    environment.notificationTop ?: Float.POSITIVE_INFINITY
+                }
+            )
+        }
         if (safeBottom <= safeTop) return ResolvedPlacement(null, emptyList(), measurements.map { it.spec })
         val maxHeight = minOf(safeBottom - safeTop, canvas.height * profile.maxHeightFraction)
         val kept = measurements.toMutableList()
@@ -84,7 +91,7 @@ internal object PlacementEngine {
         val top = when (profile.anchor) {
             "screen_center" -> ((canvas.top + canvas.bottom - height) / 2f).coerceIn(safeTop, safeBottom - height)
             "screen_bottom_safe" -> safeBottom - height
-            "custom_vertical_bias" -> safeTop + (safeBottom - safeTop - height) * profile.verticalBias
+            "custom_vertical_bias" -> canvas.top + (canvas.bottom - canvas.top - height) * profile.verticalBias
             else -> safeTop
         }
         return ResolvedPlacement(

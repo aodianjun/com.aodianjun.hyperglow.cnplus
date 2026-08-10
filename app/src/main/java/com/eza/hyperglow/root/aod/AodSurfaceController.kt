@@ -1285,14 +1285,20 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 else -> null
             }
         }
-        val safeCanvas = aodSceneSafeCanvas(
-            root.width,
-            root.height,
-            effectiveClockTop,
-            minOf(controlledLyricTopSafe ?: margin, effectiveClockTop).coerceAtLeast(0),
-            margin,
-            layoutZone
-        )
+        // The custom bias anchor is user-controlled and should roam the entire screen Y range,
+        // including above the stock clock and mid-screen, so give it a full-screen canvas.
+        val safeCanvas = if (profile.anchor == "custom_vertical_bias") {
+            PlacementRect(0f, 0f, root.width.toFloat(), root.height.toFloat())
+        } else {
+            aodSceneSafeCanvas(
+                root.width,
+                root.height,
+                effectiveClockTop,
+                minOf(controlledLyricTopSafe ?: margin, effectiveClockTop).coerceAtLeast(0),
+                margin,
+                layoutZone
+            )
+        }
         val placement = PlacementEngine.resolve(
             profile.copy(
                 maxHeightFraction = aodPlacementMaxHeightFraction(
