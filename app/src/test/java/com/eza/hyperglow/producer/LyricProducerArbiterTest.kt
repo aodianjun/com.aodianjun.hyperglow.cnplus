@@ -434,4 +434,71 @@ class LyricProducerArbiterTest {
         assertNull(arbiter.computeActiveOnce())
         assertNull(arbiter.activeSource.value)
     }
+
+    // --- prefer timed source: when the preferred source is line-level only, a connected
+    //     non-stale source with per-word timing wins the slot. ---
+
+    private fun timedState(producerId: String, receivedAt: Long) =
+        LyricProducerState(
+            producerId = producerId,
+            generation = 1,
+            sequence = 1L,
+            status = "ready",
+            trackUri = "track:$producerId",
+            title = producerId, artist = "", album = "", imageId = "",
+            line = "lyric", romanizedLine = "", translatedLine = "",
+            lineIndex = 0, positionMs = 0L, durationMs = 180_000L,
+            sampledAtElapsedMs = receivedAt, speed = 1f, playing = true,
+            receivedAtElapsedMs = receivedAt,
+            words = listOf(LyricWord("你", "", 100L, 200L, false)),
+            renderModes = renderModes()
+        )
+
+    @Test
+    fun preferredLineLevel_prefersConnectedTimedSource_superLyric() {
+        // User prefers LYRICINFO (line-level, no words); SUPERLYRIC is connected with per-word
+        // timing → arbiter upgrades to SUPERLYRIC so word animation is available.
+        val now = 1_000L
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED, state("lyricinfo", now)
+        )
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED, timedState("superlyric", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricInfo, superLyric)) { now }
+        arbiter.setPreference(LyricSource.LYRICINFO)
+
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+        assertEquals(LyricSource.SUPERLYRIC, arbiter.activeSource.value)
+    }
+
+    @Test
+    fun preferredLineLevel_timedSourceDisconnected_keepsPreferred() {
+        // SuperLyric disconnected → no timed upgrade; LYRICINFO (preferred) stays active.
+        val now = 1_000L
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED, state("lyricinfo", now)
+        )
+        val superLyric = FakeProducer(LyricSource.SUPERLYRIC, ProducerConnection.DISCONNECTED)
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricInfo, superLyric)) { now }
+        arbiter.setPreference(LyricSource.LYRICINFO)
+
+        assertEquals("lyricinfo", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    @Test
+    fun preferredTimed_keepsPreferred_evenIfOtherTimedExists() {
+        // Preferred source already has word timing → no upgrade, stays on preferred.
+        val now = 1_000L
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED, timedState("superlyric", now)
+        )
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED, timedState("lyricinfo", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(superLyric, lyricInfo)) { now }
+        arbiter.setPreference(LyricSource.SUPERLYRIC)
+
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+    }
 }

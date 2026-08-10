@@ -173,39 +173,27 @@ class LyricProducerArbiter(
         } else {
             val preferredConn = preferred.connection.value
             val preferredState = preferred.state.value
-            when {
-                preferredConn == ProducerConnection.CONNECTED ||
-                    preferredConn == ProducerConnection.RECONNECTED -> {
-                    if (preferredState != null && !isStale(preferredState)) {
-                        AppLog.i(
-                            "LyricProducerArbiter",
-                            "select: pref=$pref conn=$preferredConn producer=${preferredState.producerId} " +
-                                "gen=${preferredState.generation} seq=${preferredState.sequence} " +
-                                "age=${ageSeconds(now, preferredState)}s"
-                        )
-                        preferredState
-                    } else {
-                        // Preferred connected but no/stale state: try fallback before null.
-                        val reason = when {
-                            preferredState == null -> "nullState"
-                            isStale(preferredState) -> "stale(age=${ageSeconds(now, preferredState)}s)"
-                            else -> "unknown"
-                        }
-                        AppLog.i(
-                            "LyricProducerArbiter",
-                            "select: pref=$pref conn=$preferredConn but $reason -> fallback"
-                        )
-                        fallbackState(pref)
-                    }
+            val preferredUsable = (preferredConn == ProducerConnection.CONNECTED ||
+                preferredConn == ProducerConnection.RECONNECTED) &&
+                preferredState != null && !isStale(preferredState)
+            if (preferredUsable) {
+                // 首选源可用。若它只带行级歌词（无词级时间戳），却存在另一个已连接、非 stale
+                // 且带词级时间戳的源（如 SuperLyric 的逐字卡拉OK），优先切到带词级数据的源，
+                // 避免"普通 LRC 无词级时间→单词动画缺失"的时有时无。有词级数据时仍用首选源。
+                val timed = timedState()
+                if (timed != null && !hasWordTiming(preferredState)) timed else preferredState
+            } else {
+                // Preferred disconnected/stale/no-state: fall back.
+                val reason = when {
+                    preferredState == null -> "nullState"
+                    isStale(preferredState) -> "stale(age=${ageSeconds(now, preferredState)}s)"
+                    else -> "notConnected($preferredConn)"
                 }
-                else -> {
-                    // Preferred disconnected/timeout: fall back to the other producer.
-                    AppLog.i(
-                        "LyricProducerArbiter",
-                        "select: pref=$pref conn=$preferredConn (not connected) -> fallback"
-                    )
-                    fallbackState(pref)
-                }
+                AppLog.i(
+                    "LyricProducerArbiter",
+                    "select: pref=$pref conn=$preferredConn but $reason -> fallback"
+                )
+                fallbackState(pref)
             }
         }
         // 无可用歌词源时,输出一次全源汇总,便于定位是哪一环断了(播放器未上报进度 /
@@ -218,6 +206,28 @@ class LyricProducerArbiter(
         }
         return result
     }
+
+    /**
+     * 是否带词级时间戳（逐字卡拉OK）：有非空 words 且存在 endMs > startMs。
+     */
+    private fun hasWordTiming(state: LyricProducerState): Boolean =
+        state.words?.any { it.endMs > it.startMs } == true
+
+    /**
+     * 返回一个已连接、非 stale 且带词级时间戳的源的状态；多个命中时按 enum 顺序取最早
+     * （SuperLyric 优先于 lyricinfo）。无则返回 null。
+     */
+    private fun timedState(): LyricProducerState? =
+        LyricSource.entries.firstNotNullOfOrNull { source ->
+            val p = producer(source) ?: return@firstNotNullOfOrNull null
+            val conn = p.connection.value
+            if (conn != ProducerConnection.CONNECTED &&
+                conn != ProducerConnection.RECONNECTED
+            ) return@firstNotNullOfOrNull null
+            val st = p.state.value ?: return@firstNotNullOfOrNull null
+            if (isStale(st)) return@firstNotNullOfOrNull null
+            st.takeIf(::hasWordTiming)
+        }
 
     private fun fallbackState(excluded: LyricSource): LyricProducerState? {
         // Try every other producer in enum order (SPICY, LYRICON, SUPERLYRIC, LYRICINFO),

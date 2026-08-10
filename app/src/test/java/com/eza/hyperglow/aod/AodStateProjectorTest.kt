@@ -494,6 +494,126 @@ class AodStateProjectorTest {
         assertTrue(project(none).visible)
     }
 
+    // --- synthesizeLineWords：普通 LRC 行级→词级时间戳合成 ---
+
+    @Test
+    fun synthesizeLineWords_splitsByWhitespaceAndAllocatesTimeByCharCount() {
+        // "hi world"：h-i(2字符) + w-o-r-l-d(5字符)，totalChars=7
+        // hi:   [0,2/7)   → 1000 + 0*1400/7 .. 1000 + 2*1400/7 = 1000..1400
+        // world:[2/7,7/7) → 1000 + 2*1400/7 .. 1000 + 7*1400/7 = 1400..2400
+        val words = synthesizeLineWords("hi world", 1_000L, 2_400L)
+        assertEquals(2, words.size)
+
+        assertEquals("hi", words[0].text)
+        assertEquals(1_000L, words[0].startMs)
+        assertEquals(1_400L, words[0].endMs)
+        assertEquals(true, words[0].boundaryAfter)
+        assertEquals(0, words[0].sourceStart)
+        assertEquals(2, words[0].sourceEnd)
+
+        assertEquals("world", words[1].text)
+        assertEquals(1_400L, words[1].startMs)
+        assertEquals(2_400L, words[1].endMs)
+        assertEquals(5, words[1].sourceStart)
+        assertEquals(10, words[1].sourceEnd)
+    }
+
+    @Test
+    fun synthesizeLineWords_handlesMultipleAndLeadingTrailingSpaces() {
+        // 前导/连续/尾随空白都应被忽略，只按非空白词切分
+        val words = synthesizeLineWords("  a   bb  ", 0L, 300L)
+        assertEquals(2, words.size)
+        assertEquals("a", words[0].text)
+        assertEquals(0, words[0].sourceStart)
+        assertEquals(1, words[0].sourceEnd)
+        assertEquals("bb", words[1].text)
+        // 索引基于原始字符串（含空白）
+        assertEquals(6, words[1].sourceStart)
+        assertEquals(8, words[1].sourceEnd)
+    }
+
+    @Test
+    fun synthesizeLineWords_blankLineReturnsEmpty() {
+        assertTrue(synthesizeLineWords("", 0L, 1_000L).isEmpty())
+        assertTrue(synthesizeLineWords("   ", 0L, 1_000L).isEmpty())
+    }
+
+    @Test
+    fun synthesizeLineWords_zeroOrNegativeDurationReturnsEmpty() {
+        assertTrue(synthesizeLineWords("hello", 1_000L, 1_000L).isEmpty()) // end == start
+        assertTrue(synthesizeLineWords("hello", 2_000L, 1_000L).isEmpty()) // end < start
+    }
+
+    @Test
+    fun synthesizeLineWords_singleWordCoversWholeLine() {
+        val words = synthesizeLineWords("hello", 5_000L, 8_000L)
+        assertEquals(1, words.size)
+        assertEquals("hello", words[0].text)
+        assertEquals(5_000L, words[0].startMs)
+        assertEquals(8_000L, words[0].endMs)
+        assertEquals(0, words[0].sourceStart)
+        assertEquals(5, words[0].sourceEnd)
+    }
+
+    // --- 集成：LINE 无 words 时合成词级时间戳并关闭行级同步 ---
+
+    @Test
+    fun lineKind_withoutWords_synthesizesWordTimingAndDisablesLineLevelSync() {
+        // 普通 LRC（lyricinfo 源）只有行级时间 → 项目应为该行合成词级时间戳，驱动逐字动画
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "hello world",
+            lineIndex = 0,
+            words = null,
+            lineStartMs = 1_000L,
+            lineEndMs = 3_400L
+        )
+        val out = project(s)
+        assertEquals("hello world", out.original)
+        assertFalse(out.lineLevelSync) // 合成出词级时间戳后按有词处理，走逐字动画路径
+        assertEquals(2, out.words.size)
+        assertEquals("hello", out.words[0].text)
+        assertEquals(1_000L, out.words[0].startMs)
+        assertEquals(1_400L, out.words[0].endMs)
+        assertEquals("world", out.words[1].text)
+        assertEquals(1_400L, out.words[1].startMs)
+        assertEquals(3_400L, out.words[1].endMs)
+    }
+
+    @Test
+    fun lineKind_existingWords_doNotSynthesize() {
+        // 已有真实词级数据（SYLLABLE 语义）时，不合成，直接透传真实 words
+        val words = listOf(LyricWord("hello", "", 1_000L, 1_500L, false))
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "hello world",
+            lineIndex = 0,
+            words = words,
+            lineStartMs = 1_000L,
+            lineEndMs = 3_400L
+        )
+        val out = project(s)
+        assertEquals(1, out.words.size)
+        assertEquals("hello", out.words[0].text)
+        assertEquals(1_000L, out.words[0].startMs)
+        assertFalse(out.lineLevelSync)
+    }
+
+    @Test
+    fun lineKind_noActiveLine_doesNotSynthesize() {
+        // 无活动行（lineIndex=-1）时不合成，words 保持为空
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "hello world",
+            lineIndex = -1,
+            words = null,
+            lineStartMs = 1_000L,
+            lineEndMs = 3_400L
+        )
+        val out = project(s)
+        assertTrue(out.words.isEmpty())
+    }
+
     // --- shouldKeepAodAliveFor 顶层函数 ---
 
     @Test
