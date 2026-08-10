@@ -402,6 +402,8 @@ private fun HomeScreen(
             ) {
                 when (SettingsTab.entries[page]) {
                 SettingsTab.OVERVIEW -> {
+                    val compiled = remember { SceneCompiler.compile(initialDocument) }
+                    val previewLive = collectLiveSnapshot()
                     item { SmallTitle(text = stringResource(R.string.section_home_status)) }
                     item {
                         HomeOverviewHero(
@@ -410,12 +412,39 @@ private fun HomeScreen(
                             aodEnabled = aodEnabled,
                             lockscreenEnabled = lockscreenEnabled,
                             systemUiVersion = capabilityReport.systemUiVersion,
-                            aodVersion = capabilityReport.aodVersion,
-                            compiled = remember { SceneCompiler.compile(initialDocument) }
+                            aodVersion = capabilityReport.aodVersion
                         )
                     }
                     item { SmallTitle(text = stringResource(R.string.section_live_status)) }
-                    item { LiveStatusSection() }
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            LiveStatusSection()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                LyricPreviewCard(
+                                    title = stringResource(R.string.label_lockscreen_preview),
+                                    profile = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
+                                    scenario = "Lockscreen · notifications",
+                                    live = previewLive,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                LyricPreviewCard(
+                                    title = stringResource(R.string.label_aod_preview),
+                                    profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
+                                    scenario = "Full AOD",
+                                    live = previewLive,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
                     item { SmallTitle(text = stringResource(R.string.section_lyric_source)) }
                     item { LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true }) }
                     item { SourceSetupHint() }
@@ -474,33 +503,6 @@ private fun HomeScreen(
                     item {
                         SettingsCard {
                             PermissionStatusSection()
-                        }
-                    }
-                    item { SmallTitle(text = stringResource(R.string.section_spotify_integration)) }
-                    item {
-                        SettingsCard {
-                            ArrowPreference(
-                                title = stringResource(R.string.action_download_spicy_ex),
-                                onClick = {
-                                    openExternalUrl(context, SPICY_EX_GITHUB_URL)
-                                }
-                            )
-                            ArrowPreference(
-                                title = stringResource(R.string.action_open_spotify),
-                                onClick = {
-                                    val launchIntent = context.packageManager
-                                        .getLaunchIntentForPackage("com.spotify.music")
-                                    if (launchIntent != null) {
-                                        context.startActivity(launchIntent)
-                                    } else {
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.toast_spotify_not_installed),
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }
-                            )
                         }
                     }
                     item { SmallTitle(text = stringResource(R.string.section_project)) }
@@ -2303,11 +2305,9 @@ private fun HomeOverviewHero(
     aodEnabled: Boolean,
     lockscreenEnabled: Boolean,
     systemUiVersion: String,
-    aodVersion: String,
-    compiled: com.eza.hyperglow.customization.CompiledCustomization
+    aodVersion: String
 ) {
     val context = LocalContext.current
-    val liveSnapshot = collectLiveSnapshot()
     Column(
         modifier = Modifier.padding(horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -2337,25 +2337,6 @@ private fun HomeOverviewHero(
                     modifier = Modifier.weight(1f)
                 )
             }
-        }
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            LyricPreviewCard(
-                title = stringResource(R.string.label_lockscreen_preview),
-                profile = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
-                scenario = "Lockscreen · notifications",
-                live = liveSnapshot,
-                modifier = Modifier.fillMaxWidth()
-            )
-            LyricPreviewCard(
-                title = stringResource(R.string.label_aod_preview),
-                profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
-                scenario = "Full AOD",
-                live = liveSnapshot,
-                modifier = Modifier.fillMaxWidth()
-            )
         }
         Card {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
