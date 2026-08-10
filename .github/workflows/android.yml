@@ -74,12 +74,25 @@ jobs:
           path: ${{ env.APK_PATH }}
           if-no-files-found: error
 
+  # 汇总两个 debug 变体并发布为预发行 release。必须独立 job:矩阵两个变体并行,
+  # 若各自 delete+create+upload 会互相覆盖(后删的删掉先传的 APK),导致缺一个变体。
+  publish-debug:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download debug APKs
+        uses: actions/download-artifact@v4
+        with:
+          path: apks
+          pattern: hyperglow-debug-*
+          merge-multiple: true
+
       - name: Publish debug APK to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # 稳定的 debug release:每次构建都覆盖更新,便于提 issue 时拿到最新调试包
+          # 稳定的 debug release:每次构建都删除旧 release 再重建,确保发布时间刷新
           TAG="debug"
           # 从本次 commit 生成 release 简介(标题行 + 正文,若为空则给占位说明)
           COMMIT_MSG=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" \
@@ -96,17 +109,20 @@ jobs:
           - hyperglow-cnplus-debug-notrace-v{版本号}.apk: 编译时硬关闭 trace(即使开诊断日志开关也不输出 i 级日志)
           This is an unverified debug build for testing. Not for production use.
           详见 commit 历史: https://github.com/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}"
-          # 预发行 debug:每次构建都删除旧 release 再重建,确保发布时间刷新,
-          # 而不是 --clobber 覆盖上传(覆盖不会更新发布时间)。矩阵两个变体
-          # 并行,target 同一 debug release,删除/创建可能并发冲突,用 || true 容忍,
-          # 最终统一走 upload(带 --clobber 覆盖同名文件)。
+          # 预发行 debug:每次构建都删除旧 release 再重建,确保发布时间刷新(而非 --clobber 覆盖)。
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes || true
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
             --title "HyperGlow Debug (latest)" \
             --notes "$NOTES" \
             --prerelease || true
-          gh release upload "$TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --clobber || true
+          # 串行上传全部已下载的 APK(两个变体),避免并行覆盖
+          find apks -maxdepth 1 -name '*.apk' -print0 | while IFS= read -r -d '' apk; do
+            echo "Uploading $(basename "$apk")"
+            gh release upload "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --clobber || true
+          done
+          echo "Debug release assets:" && gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name'
 
   # 发布用 release 变体: R8 压缩体积更小。若配置了 SIGNING_* secrets 则正式签名,
   # 否则构建未签名 APK(需自行补签)。产物上传到正式 Release(如 v0.3.65)。
