@@ -27,6 +27,8 @@
     <string name="label_systemui_aod">系统界面 / 息屏显示</string>
     <string name="label_aod_lyrics">息屏歌词</string>
     <string name="label_lockscreen_lyrics">锁屏歌词</string>
+    <string name="label_lockscreen_preview">锁屏歌词预览</string>
+    <string name="label_aod_preview">息屏歌词预览</string>
     <string name="label_diagnostic_logging">诊断日志</string>
     <string name="summary_diagnostic_logging_available">可能降低性能。</string>
     <string name="summary_diagnostic_logging_unavailable">此构建不包含诊断日志。</string>

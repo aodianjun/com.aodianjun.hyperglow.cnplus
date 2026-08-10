@@ -26,6 +26,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
@@ -35,9 +37,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -53,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -400,7 +406,8 @@ private fun HomeScreen(
                             aodEnabled = aodEnabled,
                             lockscreenEnabled = lockscreenEnabled,
                             systemUiVersion = capabilityReport.systemUiVersion,
-                            aodVersion = capabilityReport.aodVersion
+                            aodVersion = capabilityReport.aodVersion,
+                            compiled = remember { SceneCompiler.compile(initialDocument) }
                         )
                     }
                     item { SmallTitle(text = stringResource(R.string.section_live_status)) }
@@ -2206,7 +2213,8 @@ private fun HomeOverviewHero(
     aodEnabled: Boolean,
     lockscreenEnabled: Boolean,
     systemUiVersion: String,
-    aodVersion: String
+    aodVersion: String,
+    compiled: com.eza.hyperglow.customization.CompiledCustomization
 ) {
     val context = LocalContext.current
     Column(
@@ -2238,6 +2246,23 @@ private fun HomeOverviewHero(
                     modifier = Modifier.weight(1f)
                 )
             }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            LyricPreviewCard(
+                title = stringResource(R.string.label_lockscreen_preview),
+                profile = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
+                scenario = "Lockscreen · notifications",
+                modifier = Modifier.weight(1f)
+            )
+            LyricPreviewCard(
+                title = stringResource(R.string.label_aod_preview),
+                profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
+                scenario = "Full AOD",
+                modifier = Modifier.weight(1f)
+            )
         }
         Card {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -2350,6 +2375,199 @@ private fun homeSurfaceState(
     context.getString(R.string.runtime_unavailable)
 } else {
     context.getString(if (enabled) R.string.runtime_enabled else R.string.runtime_disabled)
+}
+
+/**
+ * Home lyric-widget preview card. Renders a phone-like dark surface sized to the card and draws a
+ * stylized lyric block using the compiled [profile] (text size/weight/alignment, secondary text,
+ * metadata, card background, next line) placed via [resolvePreviewPlacement], so the home page
+ * gives a quick visual sense of how the lockscreen / AOD lyric control looks.
+ */
+@Composable
+private fun LyricPreviewCard(
+    title: String,
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    scenario: String,
+    modifier: Modifier
+) {
+    Card(modifier = modifier) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(
+                title,
+                fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Spacer(Modifier.height(8.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(150.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(ComposeColor(0xFF0B0B0F))
+            ) {
+                LyricPreviewSurface(profile, scenario)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricPreviewSurface(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    scenario: String
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val width = constraints.maxWidth.toFloat()
+        val height = constraints.maxHeight.toFloat()
+        val placement = remember(profile, width, height) {
+            resolvePreviewPlacement(profile, scenario, width, height)
+        }
+        val rect = placement.contentRect
+        if (rect == null) return@BoxWithConstraints
+        val snapshot = previewSnapshot(scenario)
+        val lyricColor = if (profile.palette.values.any { it == "dimmed" }) {
+            ComposeColor(0xFF9AA0A6)
+        } else {
+            ComposeColor(0xFFFFFFFF)
+        }
+        val secondaryColor = lyricColor.copy(alpha = 0.72f)
+        val metadataColor = lyricColor.copy(alpha = 0.6f)
+        val textSize = previewTextSizeSp(profile)
+        val weight = previewFontWeight(profile)
+        val textAlign = previewTextAlign(profile)
+        val showMetadata = profile.metadataVisible
+        val showNext = profile.showNextLine
+        val secondaryLines = previewSecondaryLines(profile, snapshot)
+
+        // Card background (lockscreen only)
+        if (profile.backgroundStyle == "card") {
+            Box(
+                Modifier
+                    .offset(x = rect.left.dp, y = rect.top.dp)
+                    .width(rect.width.dp)
+                    .height(rect.height.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(previewCardColor(profile))
+            )
+        }
+        Box(
+            Modifier
+                .offset(x = rect.left.dp, y = rect.top.dp)
+                .width(rect.width.dp)
+                .height(rect.height.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = when (textAlign) {
+                    TextAlign.Start -> Alignment.Start
+                    TextAlign.End -> Alignment.End
+                    else -> Alignment.CenterHorizontally
+                },
+                verticalArrangement = Arrangement.Center
+            ) {
+                if (showMetadata && profile.metadataAnchor == "top") {
+                    PreviewMetaLine(snapshot.metadata, metadataColor)
+                }
+                Text(
+                    snapshot.original,
+                    fontSize = textSize,
+                    fontWeight = weight,
+                    color = lyricColor,
+                    textAlign = textAlign,
+                    maxLines = if (profile.lyricLineLimit > 0) profile.lyricLineLimit else Int.MAX_VALUE,
+                    overflow = if (profile.overflow == "Clip") TextOverflow.Clip else TextOverflow.Ellipsis
+                )
+                secondaryLines.forEach { line ->
+                    Text(
+                        line,
+                        fontSize = textSize * 0.72f,
+                        fontWeight = FontWeight.Normal,
+                        color = secondaryColor,
+                        textAlign = textAlign,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (showNext && snapshot.nextLine.isNotBlank()) {
+                    Text(
+                        snapshot.nextLine,
+                        fontSize = textSize * 0.72f,
+                        fontWeight = FontWeight.Normal,
+                        color = lyricColor.copy(alpha = 0.45f),
+                        textAlign = textAlign,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (showMetadata && profile.metadataAnchor == "bottom") {
+                    PreviewMetaLine(snapshot.metadata, metadataColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewMetaLine(text: String, color: ComposeColor) {
+    Text(
+        text,
+        fontSize = 10.sp,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+private fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): FontWeight =
+    when (profile.weight) {
+        "Regular" -> FontWeight.Normal
+        "Bold" -> FontWeight.Bold
+        else -> FontWeight.Medium
+    }
+
+private fun previewTextAlign(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): TextAlign =
+    when (profile.alignment) {
+        "start" -> TextAlign.Start
+        "center" -> TextAlign.Center
+        "end" -> TextAlign.End
+        else -> TextAlign.Center
+    }
+
+private fun previewTextSizeSp(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): androidx.compose.ui.unit.TextUnit {
+    val percent = when (profile.textSize) {
+        "small" -> 90
+        "large" -> 118
+        "xlarge" -> 140
+        "custom" -> profile.textSizeCustom.coerceIn(50, 200)
+        else -> 100
+    }
+    return (20 * percent / 100).sp
+}
+
+private fun previewSecondaryLines(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    snapshot: LyricSnapshot
+): List<String> = when (profile.secondaryMode) {
+    "Transliteration" -> listOfNotNull(snapshot.romanized.ifBlank { null })
+    "Translation" -> listOfNotNull(snapshot.translated.ifBlank { null })
+    "Both" -> listOfNotNull(
+        snapshot.romanized.ifBlank { null },
+        snapshot.translated.ifBlank { null }
+    )
+    else -> emptyList()
+}
+
+private fun previewCardColor(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): ComposeColor {
+    val base = when (profile.cardColor) {
+        "white" -> ComposeColor(0xFFFFFFFF)
+        "dark_gray" -> ComposeColor(0xFF2A2A2A)
+        "accent" -> ComposeColor(0xFF3A6EA5)
+        "blur" -> ComposeColor(0xFF1A1A1E)
+        else -> ComposeColor(0xFF000000)
+    }
+    return base.copy(alpha = profile.cardAlpha.coerceIn(0, 100) / 100f)
 }
 
 /**
