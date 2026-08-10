@@ -341,14 +341,14 @@ internal object XiaomiCapabilityResolver {
             ),
             aodLifetimeGuard = hasNoArgMethod(classLoader, AOD_LIFETIME_CONTROLLER, "smartHide") &&
                 hasNoArgMethod(classLoader, AOD_LIFETIME_CONTROLLER, "hideDoze"),
-            aodWakeBroker = hasField(
+            aodWakeBroker = hasFieldInAny(
                 classLoader,
-                AOD_DOZE_TRIGGERS,
+                AOD_DOZE_TRIGGER_CANDIDATES,
                 "mHost",
                 AOD_DOZE_HOST
-            ) && hasField(
+            ) && hasFieldInAny(
                 classLoader,
-                AOD_DOZE_TRIGGERS,
+                AOD_DOZE_TRIGGER_CANDIDATES,
                 "mContext",
                 "android.content.Context"
             ) && hasMethod(
@@ -462,6 +462,19 @@ internal object XiaomiCapabilityResolver {
     }
 
     /**
+     * True when any candidate class declares [fieldName] (optionally assignable to
+     * [expectedTypeName]). The MIUI AOD doze-trigger class has been relocated across ROM
+     * versions (e.g. from `com.miui.aod.doze.DozeTriggers` to the AOSP `com.android.systemui`
+     * package in HyperOS DEV), so the probe must not hardcode a single package.
+     */
+    internal fun hasFieldInAny(
+        classLoader: ClassLoader,
+        classNames: List<String>,
+        fieldName: String,
+        expectedTypeName: String? = null
+    ): Boolean = classNames.any { hasField(classLoader, it, fieldName, expectedTypeName) }
+
+    /**
      * Deliberately does NOT walk the superclass chain, unlike [hasField]. These probes gate hook
      * installation, and a hook binds to the exact declaring method: `AodSurfaceHook` resolves
      * `AODView.getDeclaredMethod("onAttachedToWindow")` and hooks that Method. Walking would report
@@ -509,7 +522,13 @@ internal object XiaomiCapabilityResolver {
     private const val AOD_VIEW = "com.miui.aod.AODView"
     private const val AOD_POSITION_CONTROLLER = "com.miui.aod.AODUpdatePositionController"
     private const val AOD_LIFETIME_CONTROLLER = "com.miui.aod.doze.MiuiShowStyleController"
-    private const val AOD_DOZE_TRIGGERS = "com.miui.aod.doze.DozeTriggers"
+    // The MIUI AOD doze-trigger class moved out of the `com.miui.aod.doze` package in newer
+    // HyperOS builds (DEV-2313 hosts it as the AOSP `com.android.systemui.doze.DozeTriggers`).
+    private val AOD_DOZE_TRIGGER_CANDIDATES = listOf(
+        "com.miui.aod.doze.DozeTriggers",
+        "com.android.systemui.doze.DozeTriggers",
+        "com.miui.aod.DozeTriggers"
+    )
     private const val AOD_DOZE_HOST = "com.miui.aod.DozeHost"
     private const val AOD_SETTINGS = "com.miui.aod.widget.AODSettings"
     private const val KEYGUARD_PANEL_SECTION =

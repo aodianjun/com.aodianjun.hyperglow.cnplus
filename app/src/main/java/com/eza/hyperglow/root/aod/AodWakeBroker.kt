@@ -35,15 +35,35 @@ internal object AodWakeBroker {
     private var installRetryAttempted = false
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
-        val triggersClass = runCatching { classLoader.loadClass(DOZE_TRIGGERS_CLASS) }.getOrNull()
-            ?: run {
-                HookLogger.w(TAG, "DozeTriggers class not found; will retry on next classloader")
-                return
+        val dozeHostClass = runCatching { classLoader.loadClass(DOZE_HOST_CLASS) }.getOrNull()
+        // The MIUI AOD doze-trigger class has been relocated across ROM versions (e.g. from the
+        // `com.miui.aod.doze` package to the AOSP `com.android.systemui.doze` package in HyperOS
+        // DEV). Locate the first candidate whose cached host is the MIUI DozeHost we wake, so a
+        // refactor of the package path does not silently break the wake seam.
+        val triggersClass = TRIGGER_CLASS_CANDIDATES.asSequence().mapNotNull { triggersName ->
+            runCatching { classLoader.loadClass(triggersName) }.getOrNull()
+        }.firstOrNull { candidate ->
+            HOST_FIELD_NAMES.any { name ->
+                runCatching {
+                    val field = candidate.getDeclaredField(name)
+                    dozeHostClass == null || dozeHostClass.isAssignableFrom(field.type)
+                }.getOrDefault(false)
             }
+        }
+        if (triggersClass == null) {
+            HookLogger.w(TAG, "DozeTriggers class not found; will retry on next classloader")
+            return
+        }
         // Try primary and fallback field names for MIUI version compatibility.
         val hostField = HOST_FIELD_NAMES.firstNotNullOfOrNull { name ->
-            runCatching { triggersClass.getDeclaredField(name).apply { isAccessible = true } }
-                .getOrNull()
+            runCatching {
+                triggersClass.getDeclaredField(name).apply {
+                    if (dozeHostClass != null && !dozeHostClass.isAssignableFrom(type)) {
+                        throw NoSuchFieldException(name)
+                    }
+                    isAccessible = true
+                }
+            }.getOrNull()
         }
         if (hostField == null) {
             HookLogger.w(
@@ -61,12 +81,11 @@ internal object AodWakeBroker {
             scheduleInstallRetry(module, classLoader)
             return
         }
-        val dozeHostClass = runCatching { classLoader.loadClass(DOZE_HOST_CLASS) }.getOrNull()
-            ?: run {
-                HookLogger.w(TAG, "DozeHost class not found; scheduling retry")
-                scheduleInstallRetry(module, classLoader)
-                return
-            }
+        if (dozeHostClass == null) {
+            HookLogger.w(TAG, "DozeHost class not found; scheduling retry")
+            scheduleInstallRetry(module, classLoader)
+            return
+        }
         // Try primary and fallback method names for fireAodState.
         val fireAodState = FIRE_AOD_STATE_METHOD_NAMES.firstNotNullOfOrNull { name ->
             runCatching {
@@ -96,7 +115,7 @@ internal object AodWakeBroker {
         }
         HookLogger.i(
             TAG,
-            "AOD wake broker hook installed hostField=${hostField.name} " +
+            "AOD wake broker hook installed triggers=${triggersClass.name} hostField=${hostField.name} " +
                 "fireAodState=${fireAodState.name} constructors=${triggersClass.declaredConstructors.size}"
         )
     }
@@ -196,8 +215,14 @@ internal object AodWakeBroker {
         }
     }
 
-    private const val DOZE_TRIGGERS_CLASS = "com.miui.aod.doze.DozeTriggers"
     private const val DOZE_HOST_CLASS = "com.miui.aod.DozeHost"
+    // The doze-trigger class has been relocated across ROM versions; AOD wake must match the
+    // package actually present in the running SystemUI loader.
+    private val TRIGGER_CLASS_CANDIDATES = listOf(
+        "com.miui.aod.doze.DozeTriggers",
+        "com.android.systemui.doze.DozeTriggers",
+        "com.miui.aod.DozeTriggers"
+    )
     private const val WAKE_REASON = "reason_keycode_goto"
     private const val MIN_REQUEST_INTERVAL_MS = 750L
     private const val MAX_INSTALL_RETRIES = 3
