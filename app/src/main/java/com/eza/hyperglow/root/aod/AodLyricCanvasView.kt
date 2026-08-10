@@ -1758,8 +1758,8 @@ internal class AodLyricCanvasView(
                 layout.original.lineGap
             )
             val clipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
-            val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off" && !bright) {
-                0.55f * glowSpline(progress)
+            val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off" && bright) {
+                GLOW_LINE_INTENSITY
             } else 0f
             applyGlow(originalPaint, glow)
             setTextAlpha(
@@ -2243,14 +2243,13 @@ internal class AodLyricCanvasView(
         val x = line.startX
         val clipSave = if (clipToPaddedWidth) canvas.save() else -1
         if (clipToPaddedWidth) canvas.clipRect(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
-        val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
-            0.55f * glowSpline(progress)
-        } else 0f
-        applyGlow(originalPaint, glow)
         originalPaint.shader = null
         setTextAlpha(originalPaint, 0.35f, 1f, resolvedPalette.unsungText)
         drawOriginalText(canvas, line, baseline)
         setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
+        if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+            applyGlow(originalPaint, GLOW_LINE_INTENSITY)
+        }
         applySoftSweep(
             originalPaint,
             resolvedPalette.sungText,
@@ -2449,9 +2448,10 @@ internal class AodLyricCanvasView(
 
     private fun applyGlow(paint: Paint, glow: Float) {
         if (glow > 0.02f) {
-            val alpha = (255f * glow.coerceIn(0f, 1f)).toInt()
+            val intensity = glow.coerceIn(0f, 1f)
+            val alpha = (230f * intensity).toInt()
             paint.setShadowLayer(
-                7f * glow,
+                GLOW_RADIUS_DP * density * intensity,
                 0f,
                 0f,
                 Color.argb(
@@ -2630,5 +2630,7 @@ internal class AodLyricCanvasView(
         private const val END_EDGE_SAFETY_DP = 4f
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
+        private const val GLOW_LINE_INTENSITY = 0.6f
+        private const val GLOW_RADIUS_DP = 11f
     }
 }

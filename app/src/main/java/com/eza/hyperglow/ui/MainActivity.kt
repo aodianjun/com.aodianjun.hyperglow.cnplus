@@ -5,11 +5,19 @@ import android.provider.Settings
 import android.app.LocaleManager
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Shader
+import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.LocaleList
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.text.TextUtils
 import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.activity.ComponentActivity
@@ -19,18 +27,22 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -59,12 +71,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.AppLog
@@ -2562,11 +2579,13 @@ private fun LyricPreviewSurface(
             if (showMetadata && profile.metadataAnchor == "top") {
                 PreviewMetaLine(snapshot.metadata, metadataColor)
             }
-            Text(
-                snapshot.original,
-                fontSize = textSize,
-                fontWeight = weight,
+            PreviewAnimatedLyric(
+                text = snapshot.original,
+                textSize = textSize,
+                weight = weight,
                 color = lyricColor,
+                glowColor = lyricColor,
+                glowEnabled = profile.glow == "On",
                 textAlign = textAlign,
                 maxLines = if (profile.lyricLineLimit > 0) profile.lyricLineLimit else Int.MAX_VALUE,
                 overflow = if (profile.overflow == "Clip") TextOverflow.Clip else TextOverflow.Ellipsis
@@ -2609,6 +2628,148 @@ private fun PreviewMetaLine(text: String, color: ComposeColor) {
         maxLines = 1,
         overflow = TextOverflow.Ellipsis
     )
+}
+
+/**
+ * 主页预览的歌词主体渲染:在原生 Canvas 上用 StaticLayout 绘制主歌词,按播放进度模拟
+ * 息屏外观的三种效果 —— 文字发光(glow)、整行进度扫光(line progress sweep)与逐字高亮
+ * (当前演唱词的强调光斑)。这样预览与 AodLyricCanvasView 的息屏渲染保持一致。
+ */
+@Composable
+private fun PreviewAnimatedLyric(
+    text: String,
+    textSize: TextUnit,
+    weight: FontWeight,
+    color: ComposeColor,
+    glowColor: ComposeColor,
+    glowEnabled: Boolean,
+    textAlign: TextAlign,
+    maxLines: Int,
+    overflow: TextOverflow
+) {
+    val density = LocalDensity.current
+    val glowArgb = glowColor.toArgb()
+    val dimArgb = color.copy(alpha = 0.30f).toArgb()
+    val sungArgb = color.copy(alpha = 1f).toArgb()
+    val nativeTypeface = when (weight) {
+        FontWeight.Normal -> Typeface.create("sans-serif", Typeface.NORMAL)
+        FontWeight.Bold -> Typeface.create("sans-serif", Typeface.BOLD)
+        else -> Typeface.create("sans-serif", Typeface.BOLD)
+    }
+    val align = when (textAlign) {
+        TextAlign.Center -> android.text.Layout.Alignment.ALIGN_CENTER
+        TextAlign.End -> android.text.Layout.Alignment.ALIGN_OPPOSITE
+        else -> android.text.Layout.Alignment.ALIGN_NORMAL
+    }
+    val truncate = if (overflow == TextOverflow.Clip) null else TextUtils.TruncateAt.END
+    val maxLinesSafe = maxLines.coerceAtLeast(1)
+
+    // 逐条演示行播放时,进度从 0 扫到 1,驱动扫光与逐字高亮。
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(text) {
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(DEMO_LINE_SWITCH_MS.toInt(), easing = LinearEasing))
+    }
+    // 在组合作用域读取进度,保证每次动画变化都会重绘 Canvas。
+    val progressValue = progress.value
+
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val widthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
+        val fontSizePx = with(density) { textSize.toPx() }
+        val layoutHeight = remember(text, textSize, maxLines, widthPx) {
+            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.textSize = fontSizePx
+                typeface = nativeTypeface
+            }
+            val layout = StaticLayout.Builder
+                .obtain(text, 0, text.length, paint, widthPx)
+                .setAlignment(align)
+                .setMaxLines(maxLinesSafe)
+                .setEllipsize(truncate)
+                .build()
+            with(density) { layout.height.toDp() }
+        }
+        Canvas(Modifier.fillMaxWidth().height(layoutHeight)) {
+            val p = progressValue
+            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.textSize = fontSizePx
+                typeface = nativeTypeface
+            }
+            val layout = StaticLayout.Builder
+                .obtain(text, 0, text.length, paint, size.width.toInt().coerceAtLeast(1))
+                .setAlignment(align)
+                .setMaxLines(maxLinesSafe)
+                .setEllipsize(truncate)
+                .build()
+            val top = (size.height - layout.height) / 2f
+            drawIntoCanvas { canvas ->
+                val nc = canvas.nativeCanvas
+                nc.save()
+                nc.translate(0f, top)
+
+                // Pass 1: 未唱(暗)底色
+                paint.shader = null
+                paint.setShadowLayer(0f, 0f, 0f, 0)
+                paint.color = dimArgb
+                layout.draw(nc)
+
+                // Pass 2: 整行进度扫光 + 文字发光(已唱部分从左向右扫出并带光晕)
+                paint.color = sungArgb
+                if (glowEnabled) paint.setShadowLayer(paint.textSize * 0.28f, 0f, 0f, glowArgb)
+                val middle = Color.argb(
+                    184,
+                    Color.red(sungArgb),
+                    Color.green(sungArgb),
+                    Color.blue(sungArgb)
+                )
+                val transparent = Color.argb(
+                    0,
+                    Color.red(sungArgb),
+                    Color.green(sungArgb),
+                    Color.blue(sungArgb)
+                )
+                val sweepShader = LinearGradient(
+                    0f, 0f, 1f, 0f,
+                    intArrayOf(sungArgb, middle, transparent),
+                    floatArrayOf(0f, 0.45f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                val band = (size.width * 0.4f).coerceAtLeast(1f)
+                val sweepStart = -band + (size.width + band) * p
+                val sweepMatrix = Matrix().apply {
+                    setScale(band, 1f)
+                    postTranslate(sweepStart, 0f)
+                }
+                sweepShader.setLocalMatrix(sweepMatrix)
+                paint.shader = sweepShader
+                layout.draw(nc)
+                paint.shader = null
+
+                // Pass 3: 逐字高亮(当前演唱词处的更强光斑)
+                if (glowEnabled) {
+                    paint.setShadowLayer(paint.textSize * 0.55f, 0f, 0f, glowArgb)
+                    val spotShader = LinearGradient(
+                        0f, 0f, 1f, 0f,
+                        intArrayOf(transparent, transparent, sungArgb, transparent, transparent),
+                        floatArrayOf(
+                            0f,
+                            (p - 0.08f).coerceAtLeast(0f),
+                            p,
+                            (p + 0.08f).coerceAtMost(1f),
+                            1f
+                        ),
+                        Shader.TileMode.CLAMP
+                    )
+                    val spotMatrix = Matrix().apply { setScale(size.width, 1f) }
+                    spotShader.setLocalMatrix(spotMatrix)
+                    paint.shader = spotShader
+                    layout.draw(nc)
+                    paint.shader = null
+                }
+                nc.restore()
+            }
+        }
+    }
 }
 
 private fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): FontWeight =
