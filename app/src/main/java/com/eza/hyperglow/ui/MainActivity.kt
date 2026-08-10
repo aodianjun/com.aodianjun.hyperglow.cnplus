@@ -1756,7 +1756,7 @@ private fun collectDemoSnapshot(scenario: String): LyricSnapshot {
         original = line.original,
         romanized = line.romanized,
         translated = line.translated,
-        metadata = "Preview track · HyperGlow",
+        metadata = "蝴蝶 · 洛天依",
         lineLevelSync = true,
         lineStartMs = 0,
         lineEndMs = DEMO_LINE_SWITCH_MS,
@@ -1775,10 +1775,26 @@ private fun collectDemoSnapshot(scenario: String): LyricSnapshot {
 private class DemoLine(val original: String, val romanized: String, val translated: String)
 
 private val DEMO_LINES = listOf(
-    DemoLine("今夜も眠れない", "kon'ya mo nemurenai", "I cannot sleep tonight"),
-    DemoLine("街のはしを歩いて", "machi no hashi o aruite", "Walking down the street"),
-    DemoLine("Ah 届かない想い", "Ah todokanai omoi", "Ah, feelings out of reach"),
-    DemoLine("君の声が聞こえる", "kimi no koe ga kikoeru", "I can hear your voice")
+    DemoLine(
+        "你说你来到这世界的那天 神给了每个人快乐入场券",
+        "nǐ shuō nǐ lái dào zhè shìjiè de nà tiān",
+        "You said the day you came to this world, heaven gave everyone a ticket to joy"
+    ),
+    DemoLine(
+        "那一只蝴蝶 拼了命破茧 却没有漂亮的鳞片",
+        "nà yī zhī húdié pīn le mìng pò jiǎn",
+        "That butterfly bursts its cocoon with all its might, yet bears no pretty scales"
+    ),
+    DemoLine(
+        "走吧 就算我们无法让大雨停下",
+        "zǒu ba jiùsuàn wǒmen wúfǎ ràng dàyǔ tíng xià",
+        "Let's go, even if we can't make the heavy rain stop"
+    ),
+    DemoLine(
+        "你我生来时就注定 天真而伟大",
+        "nǐ wǒ shēnglái shí jiù zhùdìng tiānzhēn ér wěidà",
+        "You and I are destined from birth to be innocent and great"
+    )
 )
 
 /** How long each demo line stays on screen before cycling to the next. */

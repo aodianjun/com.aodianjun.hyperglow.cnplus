@@ -939,7 +939,10 @@ internal class AodLyricCanvasView(
     }
 
     init {
-        setLayerType(LAYER_TYPE_NONE, null)
+        // 息屏作曲通常走硬件加速合成,而 Paint.setShadowLayer 的文本阴影在硬件层/硬件
+        // 合成的 surface 上不可靠(常常整段不渲染,导致发光在实机上看不到)。改用软件层,
+        // 让 setShadowLayer 的发光稳定生效。AOD 文本重绘频率低,软件层开销可接受。
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
 
     fun setContent(incomingContent: AodCanvasContent) {
