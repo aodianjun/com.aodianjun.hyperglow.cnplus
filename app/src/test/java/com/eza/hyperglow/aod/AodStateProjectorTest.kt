@@ -229,8 +229,8 @@ class AodStateProjectorTest {
         assertEquals("hello world", out.original)
         assertEquals("roma", out.romanized)
         assertEquals("tr", out.translated)
-        // LINE 有活动行且行有时长 → 合成词级时间戳驱动逐字动画(lineLevelSync 关闭)
-        assertFalse(out.lineLevelSync)
+        // LINE 有活动行且行有时长 → 合成词级时间戳随 words 下发，但仍保持行级同步(整行扫光+逐字叠加)
+        assertTrue(out.lineLevelSync)
         assertEquals(1_000L, out.lineStartMs)
         assertEquals(3_000L, out.lineEndMs)
         assertTrue(out.alignedRight)
@@ -558,11 +558,12 @@ class AodStateProjectorTest {
         assertEquals(5, words[0].sourceEnd)
     }
 
-    // --- 集成：LINE 无 words 时合成词级时间戳并关闭行级同步 ---
+    // --- 集成：LINE 无 words 时合成词级时间戳，仍保持行级同步 ---
 
     @Test
-    fun lineKind_withoutWords_synthesizesWordTimingAndDisablesLineLevelSync() {
-        // 普通 LRC（lyricinfo 源）只有行级时间 → 项目应为该行合成词级时间戳，驱动逐字动画
+    fun lineKind_withoutWords_synthesizesWordTimingAndKeepsLineLevelSync() {
+        // 普通 LRC（lyricinfo 源）只有行级时间 → 项目应为该行合成词级时间戳随 words 下发，
+        // 同时保持行级同步以便画布在整行扫光基础上叠加逐字高亮
         val s = state(
             lyricKind = LyricKind.LINE,
             line = "hello world",
@@ -573,7 +574,7 @@ class AodStateProjectorTest {
         )
         val out = project(s)
         assertEquals("hello world", out.original)
-        assertFalse(out.lineLevelSync) // 合成出词级时间戳后按有词处理，走逐字动画路径
+        assertTrue(out.lineLevelSync) // LINE 保持行级同步(整行扫光+逐字叠加)
         assertEquals(2, out.words.size)
         assertEquals("hello", out.words[0].text)
         assertEquals(1_000L, out.words[0].startMs)
@@ -599,7 +600,7 @@ class AodStateProjectorTest {
         assertEquals(1, out.words.size)
         assertEquals("hello", out.words[0].text)
         assertEquals(1_000L, out.words[0].startMs)
-        assertFalse(out.lineLevelSync)
+        assertTrue(out.lineLevelSync) // LINE 始终保持行级同步
     }
 
     @Test

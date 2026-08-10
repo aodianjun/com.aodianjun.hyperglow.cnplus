@@ -157,8 +157,9 @@ internal fun projectToDisplay(
 
     // --- 行级同步标志（原 isEffectiveLineLevelSync(document.type, presentedRow.words.size)）---
     // LINE → true；SYLLABLE && 无 words → true；SYLLABLE && 有 words → false；NONE/UNSYNCED → false。
-    // 当合成出词级时间戳后按有词处理，关闭行级同步，走逐字动画路径。
-    val lineLevelSync = hasActiveLine && !showLargeMetadata && effectiveWords.isEmpty() &&
+    // LINE 保持行级同步以保留整行扫光发光（发光最饱满）；合成出的词级时间戳仍随 words 下发，
+    // 由画布在整行扫光基础上叠加缩小幅度的逐字高亮，兼顾发光与逐字动画。
+    val lineLevelSync = hasActiveLine && !showLargeMetadata &&
         when (kind) {
             LyricKind.LINE -> true
             LyricKind.SYLLABLE -> state.words.isNullOrEmpty()

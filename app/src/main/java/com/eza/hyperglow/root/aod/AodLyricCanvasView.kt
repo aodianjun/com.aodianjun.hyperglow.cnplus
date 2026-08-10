@@ -1199,6 +1199,7 @@ internal class AodLyricCanvasView(
         val mode = resolvedLineSyncFillMode(content.lineLevelSync, content.lineSyncFillMode)
         if (mode == "Left to right (whole block)") {
             drawWholeBlockSweepRows(canvas, rows, original.baseline, progress)
+            drawLineLevelWordOverlay(canvas, original.baseline)
             return
         }
         drawSecondaryRowsStatic(canvas, rows, bright = content.secondaryTextBright)
@@ -1226,7 +1227,68 @@ internal class AodLyricCanvasView(
                 clearBlockSweepShaders()
             }
         }
+        // 整行扫光基础上叠加缩小幅度的逐字高亮：发光保持饱满，同时当前演唱词有轻微放大/光斑。
+        drawLineLevelWordOverlay(canvas, original.baseline)
     }
+
+    /**
+     * 行级同步(整行扫光)时叠加的逐字高亮：仅对当前演唱词做缩小幅度的放大/光斑，
+     * 兼顾整行扫光的饱满发光与逐字动画的节奏感（幅度弱于逐字路径的 drawOriginal）。
+     */
+    private fun drawLineLevelWordOverlay(canvas: Canvas, baseline: Float) {
+        if (content.animationMode == "Minimal" || content.words.isEmpty()) return
+        val position = projectedPosition()
+        var precedingRuby = 0f
+        var lineIndex = 0
+        while (lineIndex < layout.original.lines.size) {
+            val line = layout.original.lines[lineIndex]
+            if (line.words.isEmpty()) {
+                precedingRuby += line.rubyHeight
+                lineIndex++
+                continue
+            }
+            val lineBaseline = originalLineBaseline(
+                baseline,
+                lineIndex,
+                layout.original.lineHeight,
+                precedingRuby,
+                line.rubyHeight,
+                layout.original.lineGap
+            )
+            var x = 0f
+            var wordIndex = 0
+            while (wordIndex < line.words.size) {
+                val placed = line.words[wordIndex]
+                val word = placed.word
+                val width = placed.width
+                val wordX = line.startX + x
+                val active = position >= word.startMs && position < word.endMs
+                if (active) {
+                    val progress = timedWordProgress(position, word.startMs, word.endMs)
+                    val scale = if (content.animationMode != "Minimal") {
+                        lineLevelWordScale(progress)
+                    } else 1f
+                    val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+                        LINE_LEVEL_GLOW_PEAK * glowSpline(progress)
+                    } else 0f
+                    canvas.save()
+                    canvas.scale(scale, scale, wordX + width / 2f, lineBaseline)
+                    originalPaint.shader = null
+                    setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
+                    drawGlowHalo(canvas, word.text, 0, word.text.length, wordX, lineBaseline, originalPaint, glow)
+                    canvas.drawText(word.text, wordX, lineBaseline, originalPaint)
+                    canvas.restore()
+                }
+                x += width + placed.gapAfter
+                wordIndex++
+            }
+            precedingRuby += line.rubyHeight
+            lineIndex++
+        }
+    }
+
+    private fun lineLevelWordScale(t: Float): Float =
+        if (t <= 0.7f) lerp(0.98f, 1.02f, t / 0.7f) else lerp(1.02f, 1f, (t - 0.7f) / 0.3f)
 
     private fun drawWholeBlockSweepRows(
         canvas: Canvas,
@@ -2659,6 +2721,7 @@ internal class AodLyricCanvasView(
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_LINE_INTENSITY = 0.8f
         private const val GLOW_ACTIVE_PEAK = 1f
+        private const val LINE_LEVEL_GLOW_PEAK = 0.5f
         private const val GLOW_HALO_ALPHA = 235
         private const val GLOW_HALO_RADIUS = 0.36f
     }
