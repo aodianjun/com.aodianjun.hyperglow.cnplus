@@ -396,4 +396,42 @@ class LyricProducerArbiterTest {
         // SUPERLYRIC skipped (disconnected), LYRICINFO is the next connected non-stale source.
         assertEquals("lyricinfo", arbiter.computeActiveOnce()?.producerId)
     }
+
+    // --- activeSource: reflects the source actually feeding `active` (incl. fallback). ---
+
+    @Test
+    fun activeSource_matchesPreferred_whenPreferredIsHealthy() {
+        val now = 1_000L
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", now))
+        val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
+
+        assertEquals("spicy", arbiter.computeActiveOnce()?.producerId)
+        assertEquals(LyricSource.SPICY, arbiter.activeSource.value)
+    }
+
+    @Test
+    fun activeSource_reflectsFallback_WhenPreferredDisconnected() {
+        val now = 1_000L
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
+
+        assertEquals("lyricon", arbiter.computeActiveOnce()?.producerId)
+        // Even though the user's preference is SPICY, the active source is the LYRICON fallback.
+        assertEquals(LyricSource.LYRICON, arbiter.activeSource.value)
+    }
+
+    @Test
+    fun activeSource_isNull_whenNoActiveLyrics() {
+        val now = 1_000L
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.DISCONNECTED)
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
+
+        assertNull(arbiter.computeActiveOnce())
+        assertNull(arbiter.activeSource.value)
+    }
 }

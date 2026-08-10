@@ -2214,6 +2214,16 @@ private fun collectPreference(): androidx.compose.runtime.State<LyricSource> {
 }
 
 @Composable
+private fun collectActiveSource(): androidx.compose.runtime.State<LyricSource?> {
+    val arbiter = LyricProducers.arbiterOrNull()
+    val flow = remember(arbiter) {
+        arbiter?.activeSource
+            ?: kotlinx.coroutines.flow.MutableStateFlow<LyricSource?>(null)
+    }
+    return flow.collectAsState()
+}
+
+@Composable
 private fun collectConnection(source: LyricSource): androidx.compose.runtime.State<ProducerConnection> {
     val arbiter = LyricProducers.arbiterOrNull()
     val flow = remember(arbiter, source) {
@@ -2674,12 +2684,16 @@ private fun previewCardColor(profile: com.eza.hyperglow.customization.CompiledSu
 private fun LiveStatusSection() {
     val context = LocalContext.current
     val activeState by collectActiveState()
+    val activeSource by collectActiveSource()
     val preference by collectPreference()
     val active = activeState
+    // 显示"正在播放"时标注实际在用的歌词源:若回退到了其他源,则显示回退到的那个,
+    // 而不是用户当前选中的源。activeSource 为 null 时回退到选中源(理论上不会发生)。
+    val source = activeSource ?: preference
     SettingsCard {
         BasicComponent(
             title = stringResource(R.string.label_now_playing),
-            summary = active?.let { nowPlayingSummary(context, it, preference) }
+            summary = active?.let { nowPlayingSummary(context, it, source) }
                 ?: context.getString(R.string.summary_no_track)
         )
         BasicComponent(

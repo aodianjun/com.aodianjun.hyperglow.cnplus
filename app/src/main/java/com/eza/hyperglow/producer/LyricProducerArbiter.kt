@@ -51,10 +51,18 @@ class LyricProducerArbiter(
      */
     val active: StateFlow<LyricProducerState?> get() = mutableActive.asStateFlow()
 
+    /**
+     * The source currently feeding [active] — the selected source when healthy, or the fallback
+     * source it fell back to when the selected one is disconnected/stale. Null when no lyrics
+     * are active. UI uses this to label "now playing" with the source actually in use.
+     */
+    val activeSource: StateFlow<LyricSource?> get() = mutableActiveSource.asStateFlow()
+
     /** The currently selected source. Drives which producer is forwarded when healthy. */
     val preference: StateFlow<LyricSource> get() = mutablePreference.asStateFlow()
 
     private val mutableActive = MutableStateFlow<LyricProducerState?>(null)
+    private val mutableActiveSource = MutableStateFlow<LyricSource?>(null)
     private val mutablePreference = MutableStateFlow(LyricSource.SPICY)
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -203,6 +211,11 @@ class LyricProducerArbiter(
         // 无可用歌词源时,输出一次全源汇总,便于定位是哪一环断了(播放器未上报进度 /
         // 源 stale / 未连接)。按诊断签名去重,只在画面变化时记录,避免每 100ms 刷屏。
         if (result == null) logSourceSummaryOnce(pref, now)
+        // Track which source actually produced `active` (selected when healthy, fallback
+        // otherwise). StateFlow de-dupes equal enums, so no redundant emission on replay.
+        mutableActiveSource.value = result?.let { r ->
+            LyricSource.entries.firstOrNull { source -> producer(source)?.state?.value === r }
+        }
         return result
     }
 
