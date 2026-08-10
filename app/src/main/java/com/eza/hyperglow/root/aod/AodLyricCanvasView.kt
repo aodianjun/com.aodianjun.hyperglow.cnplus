@@ -2464,32 +2464,25 @@ internal class AodLyricCanvasView(
         if (glow <= 0.02f || end <= start) return
         val intensity = glow.coerceIn(0f, 1f)
         val glowColor = resolvedPalette.glow
-        val savedStyle = paint.style
-        val savedStrokeWidth = paint.strokeWidth
-        val savedStrokeCap = paint.strokeCap
-        val savedStrokeJoin = paint.strokeJoin
         val savedShader = paint.shader
+        val savedColor = paint.color
         val savedAlpha = paint.alpha
-        paint.style = Paint.Style.STROKE
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeJoin = Paint.Join.ROUND
+        // 柔和光晕：单独绘制一个带模糊阴影的发光层，shader 置空以规避
+        // 硬件加速下 shadow+shader 同置导致发光丢失的问题。
+        paint.shader = null
+        paint.color = glowColor
+        paint.alpha = (GLOW_HALO_ALPHA * intensity).roundToInt().coerceIn(0, 255)
+        paint.setShadowLayer(
+            paint.textSize * GLOW_HALO_RADIUS * intensity,
+            0f,
+            0f,
+            glowColor
+        )
+        canvas.drawText(text, start, end, x, y, paint)
         paint.setShadowLayer(0f, 0f, 0f, 0)
-        val baseWidth = GLOW_STROKE_DP * density * intensity
-        val baseAlpha = (190 * intensity).roundToInt().coerceIn(0, 255)
-        for (i in GLOW_PASSES - 1 downTo 0) {
-            val passFactor = (i + 1) / GLOW_PASSES.toFloat()
-            paint.shader = null
-            paint.color = glowColor
-            paint.strokeWidth = baseWidth * (0.5f + 0.5f * passFactor)
-            paint.alpha = (baseAlpha * passFactor).roundToInt().coerceIn(0, 255)
-            canvas.drawText(text, start, end, x, y, paint)
-        }
-        paint.style = savedStyle
-        paint.strokeWidth = savedStrokeWidth
-        paint.strokeCap = savedStrokeCap
-        paint.strokeJoin = savedStrokeJoin
-        paint.shader = savedShader
+        paint.color = savedColor
         paint.alpha = savedAlpha
+        paint.shader = savedShader
     }
 
     private fun drawSecondaryLine(
@@ -2659,7 +2652,7 @@ internal class AodLyricCanvasView(
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_LINE_INTENSITY = 0.8f
-        private const val GLOW_STROKE_DP = 6f
-        private const val GLOW_PASSES = 3
+        private const val GLOW_HALO_ALPHA = 150
+        private const val GLOW_HALO_RADIUS = 0.30f
     }
 }
