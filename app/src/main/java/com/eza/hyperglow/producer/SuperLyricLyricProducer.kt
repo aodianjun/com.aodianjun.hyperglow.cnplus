@@ -94,7 +94,7 @@ class SuperLyricLyricProducer(
         }
         started = true
         AppLog.i("SuperLyricLyricProducer", "start: registering receiver")
-        SuperLyricHelper.registerReceiver(receiver)
+        ensureReceiverRegistered()
         // Poll the service availability so the arbiter can fall back when SuperLyric is absent.
         scope.launch { availabilityLoop() }
     }
@@ -113,16 +113,44 @@ class SuperLyricLyricProducer(
         AppLog.i("SuperLyricLyricProducer", "stop: done")
     }
 
+    /**
+     * Registers [receiver] with SuperLyric, tolerating the SuperLyric module being absent. The
+     * API's `registerReceiver` throws `IllegalStateException` when its manager is not attached
+     * (module inactive / IPC not yet bound), so this MUST NOT be called unguarded — doing so
+     * crashes the app at startup on devices without SuperLyric. Registration is retried from the
+     * availability loop once the service becomes reachable.
+     */
+    private fun ensureReceiverRegistered() {
+        val already = runCatching { SuperLyricHelper.isReceiverRegistered(receiver) }
+            .getOrDefault(false)
+        if (already) {
+            if (mutableConnection.value != ProducerConnection.CONNECTED &&
+                mutableConnection.value != ProducerConnection.RECONNECTED
+            ) {
+                mutableConnection.value = ProducerConnection.CONNECTED
+            }
+            return
+        }
+        val ok = runCatching {
+            SuperLyricHelper.registerReceiver(receiver)
+            SuperLyricHelper.isReceiverRegistered(receiver)
+        }.getOrDefault(false)
+        if (ok) {
+            mutableConnection.value = ProducerConnection.CONNECTED
+            AppLog.i("SuperLyricLyricProducer", "receiver registered")
+        } else {
+            AppLog.w(
+                "SuperLyricLyricProducer",
+                "receiver registration deferred; SuperLyric manager not attached"
+            )
+        }
+    }
+
     private suspend fun availabilityLoop() {
         while (scope.isActive) {
             val available = runCatching { SuperLyricHelper.isAvailable() }.getOrDefault(false)
             if (available) {
-                if (mutableConnection.value != ProducerConnection.CONNECTED &&
-                    mutableConnection.value != ProducerConnection.RECONNECTED
-                ) {
-                    AppLog.i("SuperLyricLyricProducer", "service available -> CONNECTED")
-                    mutableConnection.value = ProducerConnection.CONNECTED
-                }
+                ensureReceiverRegistered()
             } else {
                 if (mutableConnection.value != ProducerConnection.DISCONNECTED) {
                     AppLog.i("SuperLyricLyricProducer", "service gone -> DISCONNECTED")
