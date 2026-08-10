@@ -84,7 +84,9 @@ jobs:
           # 从本次 commit 生成 release 简介(标题行 + 正文,若为空则给占位说明)
           COMMIT_MSG=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" \
             --jq '.commit.message' 2>/dev/null || true)
-          NOTES="Automated debug build from commit \`${GITHUB_SHA}\`.
+          NOTES="> ⚠️ **测试版本请勿下载** — 此调试包仅供测试与问题排查，请勿用于日常使用。
+
+          Automated debug build from commit \`${GITHUB_SHA}\`.
           ## 本次变更
           \`\`\`
           ${COMMIT_MSG:-（无 commit message，仅触发构建）}

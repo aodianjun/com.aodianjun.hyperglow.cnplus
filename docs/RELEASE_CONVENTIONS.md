@@ -34,3 +34,4 @@ Notes are written in Chinese, organized by category from most to least important
 - Keep each bullet concise and concrete. Name the affected feature or fix explicitly.
 - Preserve the existing "安装包用途说明" section that follows the changelog when present.
 - The `Full Changelog` link uses the previous version tag and the current version tag.
+- **预发行版本（Pre-release）**：所有以 Pre-release 发布的版本，说明正文开头必须添加醒目提示 `> ⚠️ **测试版本请勿下载**`，避免用户误将测试包当作正式版安装。CI 自动发布的 debug 版本始终遵循此规则。
