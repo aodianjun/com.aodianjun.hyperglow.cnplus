@@ -6,8 +6,10 @@ import com.eza.hyperglow.aod.AodRenderPreferences
 import kotlinx.serialization.encodeToString
 
 object CustomizationRepository {
-    private const val PREFS = "surface_customization"
-    private const val KEY_DOCUMENT = "document_json"
+    /** SharedPreferences name holding the customization document. */
+    const val PREFS = "surface_customization"
+    /** SharedPreferences key holding the serialized [CustomizationDocument]. */
+    const val KEY_DOCUMENT = "document_json"
     private const val KEY_PREVIOUS_DOCUMENT = "previous_document_json"
     private const val KEY_MIGRATION_VERSION = "migration_version"
 

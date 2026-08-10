@@ -27,7 +27,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
@@ -61,7 +60,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.text.font.FontWeight
@@ -359,6 +357,24 @@ private fun HomeScreen(
     var hideLauncherIcon by remember {
         mutableStateOf(initialConfig.hideLauncherIcon)
     }
+    // 监听外观配置变化:在"外观"编辑器里保存后,主页两个歌词预览立即反映最新设置。
+    // 用 State 承载文档,预览 item 读取该 State,配置一变即触发重绘,无需依赖页面重建。
+    var customizationDocument by remember {
+        mutableStateOf(CustomizationRepository.loadDocument(context))
+    }
+    DisposableEffect(context) {
+        val prefs = context.getSharedPreferences(
+            CustomizationRepository.PREFS,
+            android.content.Context.MODE_PRIVATE
+        )
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == CustomizationRepository.KEY_DOCUMENT) {
+                customizationDocument = CustomizationRepository.loadDocument(context)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     // 每次进入应用都按持久化配置重新应用"隐藏后台卡片",避免重启后失效。
     LaunchedEffect(Unit) {
@@ -415,12 +431,9 @@ private fun HomeScreen(
                     }
                     item { SmallTitle(text = stringResource(R.string.section_live_status)) }
                     item {
-                        // 每次重绘都重新读取并编译外观文档,保证两个预览始终跟随当前外观设置
-                        // (在"外观"编辑器里改完返回主页即会重新组合;此处不缓存 initialDocument,
-                        // 避免改动外观后预览仍显示旧设置)。
-                        val compiled = SceneCompiler.compile(
-                            CustomizationRepository.loadDocument(context)
-                        )
+                        // 读取上面的 customizationDocument State:配置一变化该 item 即重绘,
+                        // 保证两个预览始终跟随当前外观设置(在"外观"编辑器里改完即生效)。
+                        val compiled = SceneCompiler.compile(customizationDocument)
                         val previewLive = collectLiveSnapshot()
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -2482,7 +2495,7 @@ private fun LyricPreviewCard(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(150.dp)
+                    .height(180.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(ComposeColor(0xFF0B0B0F))
             ) {
@@ -2502,99 +2515,86 @@ private fun LyricPreviewSurface(
     scenario: String,
     live: LyricSnapshot?
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // constraints 是像素,而渲染用 .offset/.width(...dp) 是 dp;必须先换算成 dp,
-        // 否则 rect 被放大 density 倍,内容会被 .clip 裁到可见区域外导致预览空白。
-        val density = LocalDensity.current
-        val width = with(density) { constraints.maxWidth.toDp().value }
-        val height = with(density) { constraints.maxHeight.toDp().value }
-        val placement = remember(profile, width, height) {
-            resolvePreviewPlacement(profile, scenario, width, height)
-        }
-        val rect = placement.contentRect
-        // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
-        val snapshot = live ?: collectDemoSnapshot(scenario)
-        // 布局引擎可能因 profile 配置(如锁屏 hide_scene、AOD 过小 maxHeightFraction)返回
-        // 空 contentRect。兜底成整盒居中,确保预览卡片永远有可见内容。
-        val drawRect = rect ?: PlacementRect(0f, 0f, width, height)
-        val lyricColor = if (profile.palette.values.any { it == "dimmed" }) {
-            ComposeColor(0xFF9AA0A6)
-        } else {
-            ComposeColor(0xFFFFFFFF)
-        }
-        val secondaryColor = lyricColor.copy(alpha = 0.72f)
-        val metadataColor = lyricColor.copy(alpha = 0.6f)
-        val textSize = previewTextSizeSp(profile)
-        val weight = previewFontWeight(profile)
-        val textAlign = previewTextAlign(profile)
-        val showMetadata = profile.metadataVisible
-        val showNext = profile.showNextLine
-        val secondaryLines = previewSecondaryLines(profile, snapshot)
+    // 预览卡片空间有限,直接在卡片内水平居中、垂直居中渲染歌词块,忽略真实曲面上的
+    // 时钟/通知等占位偏移——否则息屏(AOD)歌词会按真实布局被挤到卡片顶部一小条,
+    // 大字号下一行就被裁掉,看起来像被遮挡。这样无论字号多大都完整可见。
+    // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
+    val snapshot = live ?: collectDemoSnapshot(scenario)
+    val lyricColor = if (profile.palette.values.any { it == "dimmed" }) {
+        ComposeColor(0xFF9AA0A6)
+    } else {
+        ComposeColor(0xFFFFFFFF)
+    }
+    val secondaryColor = lyricColor.copy(alpha = 0.72f)
+    val metadataColor = lyricColor.copy(alpha = 0.6f)
+    val textSize = previewTextSizeSp(profile)
+    val weight = previewFontWeight(profile)
+    val textAlign = previewTextAlign(profile)
+    val showMetadata = profile.metadataVisible
+    val showNext = profile.showNextLine
+    val secondaryLines = previewSecondaryLines(profile, snapshot)
 
-        // Card background (lockscreen only)
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        // 锁屏卡片背景(息屏强制无卡片背景),按宽度占比居中显示。
         if (profile.backgroundStyle == "card") {
             Box(
                 Modifier
-                    .offset(x = drawRect.left.dp, y = drawRect.top.dp)
-                    .width(drawRect.width.dp)
-                    .height(drawRect.height.dp)
+                    .fillMaxSize()
+                    .padding(4.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(previewCardColor(profile))
             )
         }
-        Box(
-            Modifier
-                .offset(x = drawRect.left.dp, y = drawRect.top.dp)
-                .width(drawRect.width.dp)
-                .height(drawRect.height.dp)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(profile.widthFraction)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalAlignment = when (textAlign) {
+                TextAlign.Start -> Alignment.Start
+                TextAlign.End -> Alignment.End
+                else -> Alignment.CenterHorizontally
+            },
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                horizontalAlignment = when (textAlign) {
-                    TextAlign.Start -> Alignment.Start
-                    TextAlign.End -> Alignment.End
-                    else -> Alignment.CenterHorizontally
-                },
-                verticalArrangement = Arrangement.Center
-            ) {
-                if (showMetadata && profile.metadataAnchor == "top") {
-                    PreviewMetaLine(snapshot.metadata, metadataColor)
-                }
+            if (showMetadata && profile.metadataAnchor == "top") {
+                PreviewMetaLine(snapshot.metadata, metadataColor)
+            }
+            Text(
+                snapshot.original,
+                fontSize = textSize,
+                fontWeight = weight,
+                color = lyricColor,
+                textAlign = textAlign,
+                maxLines = if (profile.lyricLineLimit > 0) profile.lyricLineLimit else Int.MAX_VALUE,
+                overflow = if (profile.overflow == "Clip") TextOverflow.Clip else TextOverflow.Ellipsis
+            )
+            secondaryLines.forEach { line ->
                 Text(
-                    snapshot.original,
-                    fontSize = textSize,
-                    fontWeight = weight,
-                    color = lyricColor,
+                    line,
+                    fontSize = textSize * 0.72f,
+                    fontWeight = FontWeight.Normal,
+                    color = secondaryColor,
                     textAlign = textAlign,
-                    maxLines = if (profile.lyricLineLimit > 0) profile.lyricLineLimit else Int.MAX_VALUE,
-                    overflow = if (profile.overflow == "Clip") TextOverflow.Clip else TextOverflow.Ellipsis
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                secondaryLines.forEach { line ->
-                    Text(
-                        line,
-                        fontSize = textSize * 0.72f,
-                        fontWeight = FontWeight.Normal,
-                        color = secondaryColor,
-                        textAlign = textAlign,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (showNext && snapshot.nextLine.isNotBlank()) {
-                    Text(
-                        snapshot.nextLine,
-                        fontSize = textSize * 0.72f,
-                        fontWeight = FontWeight.Normal,
-                        color = lyricColor.copy(alpha = 0.45f),
-                        textAlign = textAlign,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (showMetadata && profile.metadataAnchor == "bottom") {
-                    PreviewMetaLine(snapshot.metadata, metadataColor)
-                }
+            }
+            if (showNext && snapshot.nextLine.isNotBlank()) {
+                Text(
+                    snapshot.nextLine,
+                    fontSize = textSize * 0.72f,
+                    fontWeight = FontWeight.Normal,
+                    color = lyricColor.copy(alpha = 0.45f),
+                    textAlign = textAlign,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (showMetadata && profile.metadataAnchor == "bottom") {
+                PreviewMetaLine(snapshot.metadata, metadataColor)
             }
         }
     }
