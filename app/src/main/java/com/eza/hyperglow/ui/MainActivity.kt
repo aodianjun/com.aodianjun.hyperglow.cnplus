@@ -95,9 +95,6 @@ import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiProfileState
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
-import com.eza.hyperglow.root.projection.LyricSurfaceKind
-import com.eza.hyperglow.root.projection.SystemUiLyricProjectionRuntime
-import com.eza.hyperglow.root.projection.SystemUiLyricSubscriber
 import com.eza.hyperglow.root.projection.currentProcessUserId
 import com.eza.hyperglow.root.surface.PlacementEngine
 import com.eza.hyperglow.root.surface.PlacementEnvironment
@@ -2200,28 +2197,44 @@ private fun collectConnection(source: LyricSource): androidx.compose.runtime.Sta
 }
 
 /**
- * 实时歌词快照:订阅进程内投影单例,把 SystemUI 上报的最新歌词以响应式 State 暴露给
- * 主页预览卡片。没有实时数据时返回 null,由调用方回退到静态示例快照。
+ * 实时歌词快照:从进程内 arbiter(可靠地在 app 进程内填充,与 LiveStatusSection 同源)读取
+ * 当前歌词源上报的 [LyricProducerState],映射成预览所需的 [LyricSnapshot]。无实时数据时返回
+ * null,由调用方回退到静态示例快照。
+ *
+ * 注意:不从这里读 SystemUiLyricProjection —— 那是 SystemUI 侧投影,app 进程内并不保证
+ * 被喂入实时快照,会导致预览不更新。
  */
 @Composable
-private fun collectProjectionSnapshot(): androidx.compose.runtime.State<LyricSnapshot?> {
-    val projection = SystemUiLyricProjectionRuntime.projection
-    val context = LocalContext.current
-    val state = remember {
-        mutableStateOf<LyricSnapshot?>(projection.cachedSnapshot())
-    }
-    DisposableEffect(projection) {
-        val subscriber = object : SystemUiLyricSubscriber {
-            override val surfaceKind = LyricSurfaceKind.LOCKSCREEN
-            override fun onLyricSnapshot(snapshot: LyricSnapshot) { state.value = snapshot }
-            override fun onLyricProjectionStale() { state.value = projection.cachedSnapshot() }
-            override fun onLyricProjectionDisconnected() { state.value = projection.cachedSnapshot() }
-        }
-        projection.attach(subscriber, context.applicationContext)
-        onDispose { projection.detach(subscriber) }
-    }
-    return state
+private fun collectLiveSnapshot(): LyricSnapshot? {
+    val active by collectActiveState()
+    return active?.toPreviewSnapshot()
 }
+
+private fun LyricProducerState.toPreviewSnapshot(): LyricSnapshot = LyricSnapshot(
+    revision = sequence,
+    trackGeneration = generation.toLong(),
+    updatedAtElapsedMs = sampledAtElapsedMs,
+    visible = true,
+    original = line,
+    romanized = romanizedLine,
+    translated = translatedLine,
+    nextLine = nextLine,
+    metadata = listOfNotNull(
+        title.takeIf { it.isNotBlank() },
+        artist.takeIf { it.isNotBlank() }
+    ).joinToString(" · ").ifBlank { "HyperGlow" },
+    alignedRight = alignedRight,
+    lineLevelSync = words == null,
+    lineStartMs = lineStartMs,
+    lineEndMs = lineEndMs,
+    durationMs = durationMs,
+    positionMs = positionMs,
+    sampledAtElapsedMs = sampledAtElapsedMs,
+    speed = speed,
+    words = words ?: emptyList(),
+    ruby = ruby,
+    layoutGroups = layoutGroups
+)
 
 // 判断模块当前是否处于可用的运行状态(与 runtimeProfileAvailable 一致)。
 private fun resolveModuleWorking(state: XiaomiRuntimeSupportState): Boolean =
@@ -2245,7 +2258,7 @@ private fun HomeOverviewHero(
     compiled: com.eza.hyperglow.customization.CompiledCustomization
 ) {
     val context = LocalContext.current
-    val liveSnapshot by collectProjectionSnapshot()
+    val liveSnapshot = collectLiveSnapshot()
     Column(
         modifier = Modifier.padding(horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
