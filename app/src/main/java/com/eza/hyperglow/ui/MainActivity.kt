@@ -415,7 +415,12 @@ private fun HomeScreen(
                     }
                     item { SmallTitle(text = stringResource(R.string.section_live_status)) }
                     item {
-                        val compiled = remember { SceneCompiler.compile(initialDocument) }
+                        // 每次重绘都重新读取并编译外观文档,保证两个预览始终跟随当前外观设置
+                        // (在"外观"编辑器里改完返回主页即会重新组合;此处不缓存 initialDocument,
+                        // 避免改动外观后预览仍显示旧设置)。
+                        val compiled = SceneCompiler.compile(
+                            CustomizationRepository.loadDocument(context)
+                        )
                         val previewLive = collectLiveSnapshot()
                         Column(
                             modifier = Modifier.fillMaxWidth(),
