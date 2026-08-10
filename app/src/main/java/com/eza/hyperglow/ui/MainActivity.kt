@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.text.font.FontWeight
@@ -2418,8 +2419,11 @@ private fun LyricPreviewSurface(
     scenario: String
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val width = constraints.maxWidth.toFloat()
-        val height = constraints.maxHeight.toFloat()
+        // constraints 是像素,而渲染用 .offset/.width(...dp) 是 dp;必须先换算成 dp,
+        // 否则 rect 被放大 density 倍,内容会被 .clip 裁到可见区域外导致预览空白。
+        val density = LocalDensity.current
+        val width = with(density) { constraints.maxWidth.toDp().value }
+        val height = with(density) { constraints.maxHeight.toDp().value }
         val placement = remember(profile, width, height) {
             resolvePreviewPlacement(profile, scenario, width, height)
         }
