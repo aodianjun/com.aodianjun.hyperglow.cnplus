@@ -1712,7 +1712,7 @@ private fun collectDemoSnapshot(scenario: String): LyricSnapshot {
     }
     val line = DEMO_LINES[index]
     return LyricSnapshot(
-        revision = index,
+        revision = index.toLong(),
         trackGeneration = 1,
         updatedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
         visible = true,
