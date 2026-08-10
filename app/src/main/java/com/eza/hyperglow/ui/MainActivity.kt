@@ -2464,9 +2464,11 @@ private fun LyricPreviewSurface(
             resolvePreviewPlacement(profile, scenario, width, height)
         }
         val rect = placement.contentRect
-        if (rect == null) return@BoxWithConstraints
         // 有实时歌词时跟随最新快照,否则回退到硬编码示例,保证预览始终有内容。
         val snapshot = live ?: previewSnapshot(scenario)
+        // 布局引擎可能因 profile 配置(如锁屏 hide_scene、AOD 过小 maxHeightFraction)返回
+        // 空 contentRect。兜底成整盒居中,确保预览卡片永远有可见内容。
+        val drawRect = rect ?: PlacementRect(0f, 0f, width, height)
         val lyricColor = if (profile.palette.values.any { it == "dimmed" }) {
             ComposeColor(0xFF9AA0A6)
         } else {
@@ -2485,18 +2487,18 @@ private fun LyricPreviewSurface(
         if (profile.backgroundStyle == "card") {
             Box(
                 Modifier
-                    .offset(x = rect.left.dp, y = rect.top.dp)
-                    .width(rect.width.dp)
-                    .height(rect.height.dp)
+                    .offset(x = drawRect.left.dp, y = drawRect.top.dp)
+                    .width(drawRect.width.dp)
+                    .height(drawRect.height.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(previewCardColor(profile))
             )
         }
         Box(
             Modifier
-                .offset(x = rect.left.dp, y = rect.top.dp)
-                .width(rect.width.dp)
-                .height(rect.height.dp)
+                .offset(x = drawRect.left.dp, y = drawRect.top.dp)
+                .width(drawRect.width.dp)
+                .height(drawRect.height.dp)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -2643,9 +2645,17 @@ private fun LiveStatusSection() {
 private fun LyricSourceSection(onOpenSourceDialog: () -> Unit) {
     val context = LocalContext.current
     val preference by collectPreference()
-    val lyriconConnection by collectConnection(LyricSource.LYRICON)
-    val activeConnection = if (preference == LyricSource.LYRICON) lyriconConnection
-        else ProducerConnection.CONNECTED
+    val lyricon by collectConnection(LyricSource.LYRICON)
+    val superlyric by collectConnection(LyricSource.SUPERLYRIC)
+    val lyricinfo by collectConnection(LyricSource.LYRICINFO)
+    // 按实际选择的源读取其真实连接状态,与 SourceSetupHint 保持一致,避免"上面已连接、
+    // 下面未连接"的矛盾提示(此前对非 Lyricon 源硬编码为 CONNECTED)。
+    val activeConnection = when (preference) {
+        LyricSource.LYRICON -> lyricon
+        LyricSource.SUPERLYRIC -> superlyric
+        LyricSource.LYRICINFO -> lyricinfo
+        LyricSource.SPICY -> ProducerConnection.CONNECTED
+    }
     SettingsCard {
         ArrowPreference(
             title = stringResource(R.string.label_active_source),
@@ -2668,6 +2678,22 @@ private fun LyricSourceSection(onOpenSourceDialog: () -> Unit) {
 private fun SourceSetupHint() {
     val context = LocalContext.current
     val preference by collectPreference()
+    // 仅当源实际未连接时才显示"未连接"引导,与上方 LyricSourceSection 的连接状态保持一致,
+    // 避免出现"上面已连接、下面未连接"的矛盾提示。
+    val lyricon by collectConnection(LyricSource.LYRICON)
+    val superlyric by collectConnection(LyricSource.SUPERLYRIC)
+    val lyricinfo by collectConnection(LyricSource.LYRICINFO)
+    val connection = when (preference) {
+        LyricSource.LYRICON -> lyricon
+        LyricSource.SUPERLYRIC -> superlyric
+        LyricSource.LYRICINFO -> lyricinfo
+        LyricSource.SPICY -> ProducerConnection.CONNECTED
+    }
+    if (connection == ProducerConnection.CONNECTED ||
+        connection == ProducerConnection.RECONNECTED
+    ) {
+        return
+    }
     when (preference) {
         LyricSource.LYRICON -> XposedSourceHint(
             titleRes = R.string.title_lyricon_setup,
