@@ -65,12 +65,19 @@ class SuperLyricLyricProducer(
     private var generation: Int = 0
     private var sequence: Long = 0L
 
+    // Monotonic time of the last delivered lyric (0 = never received / not playing). Used as a
+    // heartbeat: if lyrics stop being delivered while we were previously receiving them, we force
+    // re-register to recover the IPC callback path (guards against service-side silent drops).
+    private var lastLyricElapsedMs: Long = 0L
+    private var lastForceReRegisterElapsed: Long = 0L
+
     internal val receiver = object : ISuperLyricReceiver.Stub() {
         override fun onLyric(publisher: String?, data: SuperLyricData?) {
             AppLog.i(
                 "SuperLyricLyricProducer",
                 "onLyric: publisher=$publisher title=${data?.title} lyric=${data?.lyric?.text?.take(24)}"
             )
+            lastLyricElapsedMs = clock()
             mutableConnection.value = ProducerConnection.CONNECTED
             if (data == null || data.hasLyric().not()) {
                 // No lyric payload: keep metadata but clear the active line.
@@ -83,6 +90,7 @@ class SuperLyricLyricProducer(
         override fun onStop(publisher: String?, data: SuperLyricData?) {
             AppLog.i("SuperLyricLyricProducer", "onStop: publisher=$publisher")
             // Playback paused/stopped: clear the active state so the arbiter can fall back / idle.
+            lastLyricElapsedMs = 0L
             mutableState.value = null
         }
     }
@@ -151,6 +159,7 @@ class SuperLyricLyricProducer(
             val available = runCatching { SuperLyricHelper.isAvailable() }.getOrDefault(false)
             if (available) {
                 ensureReceiverRegistered()
+                maybeForceReRegisterOnStall()
             } else {
                 if (mutableConnection.value != ProducerConnection.DISCONNECTED) {
                     AppLog.i("SuperLyricLyricProducer", "service gone -> DISCONNECTED")
@@ -159,6 +168,39 @@ class SuperLyricLyricProducer(
                 }
             }
             delay(AVAILABILITY_POLL_MS)
+        }
+    }
+
+    /**
+     * Recovers from a "frozen lyrics" state: if we have previously received lyrics (so the user is
+     * clearly playing) but no `onLyric` has arrived for a long time, the service-side IPC delivery
+     * may have been silently dropped while `isReceiverRegistered` still reports registered. Force a
+     * fresh unregister+register to re-arm the callback path.
+     */
+    private fun maybeForceReRegisterOnStall() {
+        val last = lastLyricElapsedMs
+        if (last <= 0L) return // never received lyrics / not playing: nothing to stall on
+        val now = clock()
+        val stalledFor = now - last
+        if (stalledFor < STALL_RECOVERY_MS) return
+        if (now - lastForceReRegisterElapsed < FORCE_RE_REGISTER_COOLDOWN_MS) return
+        lastForceReRegisterElapsed = now
+        val ok = runCatching {
+            SuperLyricHelper.unregisterReceiver(receiver)
+            SuperLyricHelper.registerReceiver(receiver)
+            SuperLyricHelper.isReceiverRegistered(receiver)
+        }.getOrDefault(false)
+        if (ok) {
+            mutableConnection.value = ProducerConnection.RECONNECTED
+            AppLog.i(
+                "SuperLyricLyricProducer",
+                "force re-register after $stalledFor ms without lyric (recovered)"
+            )
+        } else {
+            AppLog.w(
+                "SuperLyricLyricProducer",
+                "force re-register failed after $stalledFor ms stall; will retry"
+            )
         }
     }
 
@@ -229,6 +271,12 @@ class SuperLyricLyricProducer(
     companion object {
         private const val PRODUCER_ID = "superlyric"
         private const val AVAILABILITY_POLL_MS = 5_000L
+
+        /** No `onLyric` for this long while playing → the callback path is likely dropped. */
+        private const val STALL_RECOVERY_MS = 60_000L
+
+        /** Minimum gap between two forced re-registers, so a persistent stall doesn't hammer IPC. */
+        private const val FORCE_RE_REGISTER_COOLDOWN_MS = 30_000L
 
         /** Default render modes when customization is unavailable; matches the other producers. */
         private fun defaultRenderModes() = ProducerRenderModes(
