@@ -939,10 +939,7 @@ internal class AodLyricCanvasView(
     }
 
     init {
-        // 息屏作曲通常走硬件加速合成,而 Paint.setShadowLayer 的文本阴影在硬件层/硬件
-        // 合成的 surface 上不可靠(常常整段不渲染,导致发光在实机上看不到)。改用软件层,
-        // 让 setShadowLayer 的发光稳定生效。AOD 文本重绘频率低,软件层开销可接受。
-        setLayerType(LAYER_TYPE_SOFTWARE, null)
+        setLayerType(LAYER_TYPE_NONE, null)
     }
 
     fun setContent(incomingContent: AodCanvasContent) {
@@ -1645,12 +1642,11 @@ internal class AodLyricCanvasView(
                 val y = if (animated && active) yOffsetSpline(progress) * originalPaint.textSize
                 else if (animated && !sung) 0.01f * originalPaint.textSize else 0f
                 val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off" && active) {
-                    0.55f * glowSpline(progress)
+                    0.85f * glowSpline(progress)
                 } else 0f
                 canvas.save()
                 val wordBaseline = lineBaseline
                 if (animated) canvas.scale(scale, scale, wordX + width / 2f, wordBaseline)
-                applyGlow(originalPaint, glow)
                 originalPaint.shader = null
                 setTextAlpha(
                     originalPaint,
@@ -1658,6 +1654,7 @@ internal class AodLyricCanvasView(
                     1f,
                     if (sung) resolvedPalette.sungText else resolvedPalette.unsungText
                 )
+                drawGlowHalo(canvas, word.text, 0, word.text.length, wordX, wordBaseline + y, originalPaint, glow)
                 canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
                 if (active && content.animationMode == "Gradient") {
                     setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
@@ -1672,7 +1669,6 @@ internal class AodLyricCanvasView(
                     canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
                     originalPaint.shader = null
                 }
-                originalPaint.clearShadowLayer()
                 canvas.restore()
                 x += width + placed.gapAfter
                 wordIndex++
@@ -1764,15 +1760,13 @@ internal class AodLyricCanvasView(
             val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off" && bright) {
                 GLOW_LINE_INTENSITY
             } else 0f
-            applyGlow(originalPaint, glow)
             setTextAlpha(
                 originalPaint,
                 if (bright) 1f else 0.35f,
                 1f,
                 if (bright) resolvedPalette.sungText else resolvedPalette.unsungText
             )
-            drawOriginalText(canvas, line, lineBaseline)
-            originalPaint.clearShadowLayer()
+            drawOriginalText(canvas, line, lineBaseline, glow)
             if (clipSave != -1) canvas.restoreToCount(clipSave)
             precedingRuby += line.rubyHeight
             lineIndex++
@@ -2250,9 +2244,9 @@ internal class AodLyricCanvasView(
         setTextAlpha(originalPaint, 0.35f, 1f, resolvedPalette.unsungText)
         drawOriginalText(canvas, line, baseline)
         setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-        if (content.animationMode != "Minimal" && content.glowMode != "Off") {
-            applyGlow(originalPaint, GLOW_LINE_INTENSITY)
-        }
+        val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+            GLOW_LINE_INTENSITY
+        } else 0f
         applySoftSweep(
             originalPaint,
             resolvedPalette.sungText,
@@ -2261,29 +2255,37 @@ internal class AodLyricCanvasView(
             extent = line.width,
             vertical = false
         )
-        drawOriginalText(canvas, line, baseline)
+        drawOriginalText(canvas, line, baseline, glow)
         originalPaint.shader = null
-        originalPaint.clearShadowLayer()
         if (clipToPaddedWidth) canvas.restoreToCount(clipSave)
     }
 
-    private fun drawOriginalText(canvas: Canvas, line: OriginalLine, baseline: Float) {
+    private fun drawOriginalText(
+        canvas: Canvas,
+        line: OriginalLine,
+        baseline: Float,
+        glow: Float = 0f
+    ) {
         if (line.ruby.isEmpty()) {
+            drawGlowHalo(canvas, line.text, 0, line.text.length, line.startX, baseline, originalPaint, glow)
             canvas.drawText(line.text, line.startX, baseline, originalPaint)
             return
         }
         if (line.textRuns.isEmpty()) {
+            drawGlowHalo(canvas, line.text, 0, line.text.length, line.startX, baseline, originalPaint, glow)
             canvas.drawText(line.text, line.startX, baseline, originalPaint)
             return
         }
         var index = 0
         while (index < line.textRuns.size) {
             val run = line.textRuns[index]
+            val runX = line.startX + run.x
+            drawGlowHalo(canvas, line.text, run.start, run.end, runX, baseline, originalPaint, glow)
             canvas.drawText(
                 line.text,
                 run.start,
                 run.end,
-                line.startX + run.x,
+                runX,
                 baseline,
                 originalPaint
             )
@@ -2449,22 +2451,45 @@ internal class AodLyricCanvasView(
         rubyPaint.shader = null
     }
 
-    private fun applyGlow(paint: Paint, glow: Float) {
-        if (glow > 0.02f) {
-            val intensity = glow.coerceIn(0f, 1f)
-            val alpha = (230f * intensity).toInt()
-            paint.setShadowLayer(
-                GLOW_RADIUS_DP * density * intensity,
-                0f,
-                0f,
-                Color.argb(
-                    alpha,
-                    Color.red(resolvedPalette.glow),
-                    Color.green(resolvedPalette.glow),
-                    Color.blue(resolvedPalette.glow)
-                )
-            )
+    private fun drawGlowHalo(
+        canvas: Canvas,
+        text: String,
+        start: Int,
+        end: Int,
+        x: Float,
+        y: Float,
+        paint: Paint,
+        glow: Float
+    ) {
+        if (glow <= 0.02f || end <= start) return
+        val intensity = glow.coerceIn(0f, 1f)
+        val glowColor = resolvedPalette.glow
+        val savedStyle = paint.style
+        val savedStrokeWidth = paint.strokeWidth
+        val savedStrokeCap = paint.strokeCap
+        val savedStrokeJoin = paint.strokeJoin
+        val savedShader = paint.shader
+        val savedAlpha = paint.alpha
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeJoin = Paint.Join.ROUND
+        paint.setShadowLayer(0f, 0f, 0f, 0)
+        val baseWidth = GLOW_STROKE_DP * density * intensity
+        val baseAlpha = (190 * intensity).roundToInt().coerceIn(0, 255)
+        for (i in GLOW_PASSES - 1 downTo 0) {
+            val passFactor = (i + 1) / GLOW_PASSES.toFloat()
+            paint.shader = null
+            paint.color = glowColor
+            paint.strokeWidth = baseWidth * (0.5f + 0.5f * passFactor)
+            paint.alpha = (baseAlpha * passFactor).roundToInt().coerceIn(0, 255)
+            canvas.drawText(text, start, end, x, y, paint)
         }
+        paint.style = savedStyle
+        paint.strokeWidth = savedStrokeWidth
+        paint.strokeCap = savedStrokeCap
+        paint.strokeJoin = savedStrokeJoin
+        paint.shader = savedShader
+        paint.alpha = savedAlpha
     }
 
     private fun drawSecondaryLine(
@@ -2633,7 +2658,8 @@ internal class AodLyricCanvasView(
         private const val END_EDGE_SAFETY_DP = 4f
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
-        private const val GLOW_LINE_INTENSITY = 0.6f
-        private const val GLOW_RADIUS_DP = 11f
+        private const val GLOW_LINE_INTENSITY = 0.8f
+        private const val GLOW_STROKE_DP = 6f
+        private const val GLOW_PASSES = 3
     }
 }
