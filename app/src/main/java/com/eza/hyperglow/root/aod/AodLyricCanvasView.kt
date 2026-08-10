@@ -1641,8 +1641,14 @@ internal class AodLyricCanvasView(
                 val scale = if (animated && active) scaleSpline(progress) else if (animated && !sung) 0.95f else 1f
                 val y = if (animated && active) yOffsetSpline(progress) * originalPaint.textSize
                 else if (animated && !sung) 0.01f * originalPaint.textSize else 0f
-                val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off" && active) {
-                    0.85f * glowSpline(progress)
+                val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+                    when {
+                        // 已唱词持续发光(对齐预览 pass2 整行发光),避免词间发光消失导致闪烁
+                        sung -> GLOW_LINE_INTENSITY
+                        // 当前演唱词额外增强(对齐预览 pass3 逐字光斑)
+                        active -> GLOW_ACTIVE_PEAK * glowSpline(progress)
+                        else -> 0f
+                    }
                 } else 0f
                 canvas.save()
                 val wordBaseline = lineBaseline
@@ -2652,6 +2658,7 @@ internal class AodLyricCanvasView(
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_LINE_INTENSITY = 0.8f
+        private const val GLOW_ACTIVE_PEAK = 1f
         private const val GLOW_HALO_ALPHA = 235
         private const val GLOW_HALO_RADIUS = 0.36f
     }

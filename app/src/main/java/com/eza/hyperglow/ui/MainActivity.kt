@@ -2729,64 +2729,81 @@ private fun PreviewAnimatedLyric(
                 paint.color = dimArgb
                 layout.draw(nc)
 
-                // Pass 2: 整行进度扫光 + 文字发光(已唱部分从左向右扫出并带光晕)
-                paint.color = sungArgb
-                if (glowEnabled) paint.setShadowLayer(paint.textSize * 0.28f, 0f, 0f, glowArgb)
-                val middle = Color.argb(
-                    184,
-                    Color.red(sungArgb),
-                    Color.green(sungArgb),
-                    Color.blue(sungArgb)
-                )
-                val transparent = Color.argb(
-                    0,
-                    Color.red(sungArgb),
-                    Color.green(sungArgb),
-                    Color.blue(sungArgb)
-                )
-                val sweepShader = LinearGradient(
-                    0f, 0f, 1f, 0f,
-                    intArrayOf(sungArgb, middle, transparent),
-                    floatArrayOf(0f, 0.45f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-                val band = (size.width * 0.4f).coerceAtLeast(1f)
-                val sweepStart = -band + (size.width + band) * p
-                val sweepMatrix = Matrix().apply {
-                    setScale(band, 1f)
-                    postTranslate(sweepStart, 0f)
-                }
-                sweepShader.setLocalMatrix(sweepMatrix)
-                paint.shader = sweepShader
-                layout.draw(nc)
-                paint.shader = null
-
-                // Pass 3: 逐字高亮(当前演唱词处的更强光斑)
-                if (glowEnabled) {
-                    paint.setShadowLayer(paint.textSize * 0.55f, 0f, 0f, glowArgb)
-                    val spotShader = LinearGradient(
-                        0f, 0f, 1f, 0f,
-                        intArrayOf(transparent, transparent, sungArgb, transparent, transparent),
-                        floatArrayOf(
-                            0f,
-                            (p - 0.08f).coerceAtLeast(0f),
-                            p,
-                            (p + 0.08f).coerceAtMost(1f),
-                            1f
-                        ),
-                        Shader.TileMode.CLAMP
-                    )
-                    val spotMatrix = Matrix().apply { setScale(size.width, 1f) }
-                    spotShader.setLocalMatrix(spotMatrix)
-                    paint.shader = spotShader
-                    layout.draw(nc)
-                    paint.shader = null
+                // 逐词渲染:按播放进度逐字点亮,已唱词常亮发光,当前演唱词轻微放大/位移,
+                // 与 AodLyricCanvasView 的逐字路径(单词动画)保持一致。
+                val words = splitPreviewWords(text)
+                if (words.isNotEmpty()) {
+                    val totalChars = words.sumOf { it.first.length }.coerceAtLeast(1)
+                    var sungChars = 0
+                    for ((word, startChar) in words) {
+                        val wordCount = word.length
+                        val ws = sungChars.toFloat() / totalChars
+                        val we = (sungChars + wordCount).toFloat() / totalChars
+                        val active = p >= ws && p < we
+                        val sung = p >= we
+                        val frac = if (active) (p - ws) / (we - ws).coerceAtLeast(1e-4f) else 0f
+                        val x = layout.getPrimaryHorizontal(startChar)
+                        val baseBaseline = layout.getLineBaseline(layout.getLineForOffset(startChar)).toFloat()
+                        val wordWidth = paint.measureText(word)
+                        val scale = if (active) previewScaleSpline(frac) else if (!sung) 0.95f else 1f
+                        val dy = if (active) previewYOffsetSpline(frac) * fontSizePx
+                        else if (!sung) 0.01f * fontSizePx else 0f
+                        val glow = if (glowEnabled) {
+                            when {
+                                sung -> 0.8f
+                                active -> previewGlowSpline(frac)
+                                else -> 0f
+                            }
+                        } else 0f
+                        nc.save()
+                        if (scale != 1f) nc.scale(scale, scale, x + wordWidth / 2f, baseBaseline)
+                        paint.shader = null
+                        paint.color = if (sung) sungArgb else dimArgb
+                        if (glow > 0f) {
+                            paint.setShadowLayer(fontSizePx * 0.36f * glow, 0f, 0f, glowArgb)
+                        } else {
+                            paint.setShadowLayer(0f, 0f, 0f, 0)
+                        }
+                        nc.drawText(word, x, baseBaseline + dy, paint)
+                        paint.setShadowLayer(0f, 0f, 0f, 0)
+                        nc.restore()
+                        sungChars += wordCount
+                    }
                 }
                 nc.restore()
             }
         }
     }
 }
+
+/** 把歌词文本拆成 (词, 在原文中的起始字符下标)，供预览逐词渲染使用。 */
+private fun splitPreviewWords(text: String): List<Pair<String, Int>> {
+    val result = ArrayList<Pair<String, Int>>()
+    var scan = 0
+    while (scan < text.length) {
+        while (scan < text.length && text[scan].isWhitespace()) scan++
+        if (scan >= text.length) break
+        val start = scan
+        while (scan < text.length && !text[scan].isWhitespace()) scan++
+        result += text.substring(start, scan) to start
+    }
+    return result
+}
+
+// 与 AodLyricCanvasView 的逐字动画曲线保持一致(缩放/位移/发光)。
+private fun previewScaleSpline(t: Float): Float =
+    if (t <= 0.7f) lerp(0.95f, 1.0505f, t / 0.7f) else lerp(1.0505f, 1f, (t - 0.7f) / 0.3f)
+
+private fun previewYOffsetSpline(t: Float): Float =
+    if (t <= 0.9f) lerp(0.01f, -(1f / 60f), t / 0.9f) else lerp(-(1f / 60f), 0f, (t - 0.9f) / 0.1f)
+
+private fun previewGlowSpline(t: Float): Float = when {
+    t <= 0.15f -> lerp(0f, 1f, t / 0.15f)
+    t <= 0.6f -> 1f
+    else -> lerp(1f, 0f, (t - 0.6f) / 0.4f)
+}
+
+private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
 
 private fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): FontWeight =
     when (profile.weight) {
