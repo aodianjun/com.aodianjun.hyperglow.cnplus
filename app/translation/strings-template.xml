@@ -32,6 +32,8 @@
     <string name="label_systemui_aod">System UI / AOD</string>
     <string name="label_aod_lyrics">AOD lyrics</string>
     <string name="label_lockscreen_lyrics">Lock screen lyrics</string>
+    <string name="label_lockscreen_preview">Lock screen preview</string>
+    <string name="label_aod_preview">Always-on display preview</string>
     <string name="label_diagnostic_logging">Diagnostic logging</string>
     <string name="summary_diagnostic_logging_available">Can reduce performance.</string>
     <string name="summary_diagnostic_logging_unavailable">This build does not include diagnostic logging.</string>
