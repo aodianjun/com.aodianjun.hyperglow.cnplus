@@ -229,11 +229,14 @@ class AodStateProjectorTest {
         assertEquals("hello world", out.original)
         assertEquals("roma", out.romanized)
         assertEquals("tr", out.translated)
-        assertTrue(out.lineLevelSync) // 活动行 LINE 模式开启行级同步
+        // LINE 有活动行且行有时长 → 合成词级时间戳驱动逐字动画(lineLevelSync 关闭)
+        assertFalse(out.lineLevelSync)
         assertEquals(1_000L, out.lineStartMs)
         assertEquals(3_000L, out.lineEndMs)
         assertTrue(out.alignedRight)
-        assertTrue(out.words.isEmpty())
+        assertEquals(2, out.words.size)
+        assertEquals(1_000L, out.words[0].startMs)
+        assertEquals(3_000L, out.words[1].endMs)
     }
 
     // --- lyricKind = SYLLABLE (活动行有 words) ---
@@ -514,8 +517,8 @@ class AodStateProjectorTest {
         assertEquals("world", words[1].text)
         assertEquals(1_400L, words[1].startMs)
         assertEquals(2_400L, words[1].endMs)
-        assertEquals(5, words[1].sourceStart)
-        assertEquals(10, words[1].sourceEnd)
+        assertEquals(3, words[1].sourceStart) // "world" 在原串 "hi world" 中从索引 3 开始
+        assertEquals(8, words[1].sourceEnd)
     }
 
     @Test
@@ -524,8 +527,8 @@ class AodStateProjectorTest {
         val words = synthesizeLineWords("  a   bb  ", 0L, 300L)
         assertEquals(2, words.size)
         assertEquals("a", words[0].text)
-        assertEquals(0, words[0].sourceStart)
-        assertEquals(1, words[0].sourceEnd)
+        assertEquals(2, words[0].sourceStart) // "a" 在原串 "  a   bb  " 中位于索引 2
+        assertEquals(3, words[0].sourceEnd)
         assertEquals("bb", words[1].text)
         // 索引基于原始字符串（含空白）
         assertEquals(6, words[1].sourceStart)
@@ -574,9 +577,9 @@ class AodStateProjectorTest {
         assertEquals(2, out.words.size)
         assertEquals("hello", out.words[0].text)
         assertEquals(1_000L, out.words[0].startMs)
-        assertEquals(1_400L, out.words[0].endMs)
+        assertEquals(2_200L, out.words[0].endMs) // 5/10 字符 → 均摊 1200ms
         assertEquals("world", out.words[1].text)
-        assertEquals(1_400L, out.words[1].startMs)
+        assertEquals(2_200L, out.words[1].startMs)
         assertEquals(3_400L, out.words[1].endMs)
     }
 
