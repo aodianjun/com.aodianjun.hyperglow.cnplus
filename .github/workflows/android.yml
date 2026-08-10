@@ -205,11 +205,19 @@ jobs:
           fi
           gh release upload "$TAG" "$RELEASE_APK" "$DEBUG_APK" \
             --repo "$GITHUB_REPOSITORY" --clobber
+          # 预发行(Pre-release)版本在说明开头加醒目提示,避免用户误装测试包
+          IS_PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isPrerelease --jq '.isPrerelease' 2>/dev/null || echo false)
+          echo "isPrerelease=$IS_PRERELEASE"
           # 生成两个版本用途说明;写入前先剔除正文中旧的安装说明块,避免重复堆积
-          cat > release-notes-extra.md <<'EOF'
+          cat > release-notes-extra.md <<EOF
+          $(if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "> ⚠️ **测试版本请勿下载** — 此版本为预发行测试版，仅供测试与问题排查，请勿用于日常使用。"
+            echo
+          fi)
           ## 安装包用途说明
-          - **`__REL__`（正式版）**：正常使用请安装此版本。正式签名、R8 压缩，适合日常安装使用。
-          - **`__DBG__`（调试版）**：提 issue 反馈问题时请安装此版本，可提供详细诊断日志辅助排查。调试签名，仅用于测试与问题排查，请勿作为日常版本长期安装。
+          - **\`__REL__\`（正式版）**：正常使用请安装此版本。正式签名、R8 压缩，适合日常安装使用。
+          - **\`__DBG__\`（调试版）**：提 issue 反馈问题时请安装此版本，可提供详细诊断日志辅助排查。调试签名，仅用于测试与问题排查，请勿作为日常版本长期安装。
           EOF
           sed -i "s|__REL__|$(basename "$RELEASE_APK")|g; s|__DBG__|$(basename "$DEBUG_APK")|g" release-notes-extra.md
           EXISTING=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
