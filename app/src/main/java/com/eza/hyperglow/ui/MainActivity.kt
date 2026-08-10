@@ -2338,23 +2338,23 @@ private fun HomeOverviewHero(
                 )
             }
         }
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             LyricPreviewCard(
                 title = stringResource(R.string.label_lockscreen_preview),
                 profile = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
                 scenario = "Lockscreen · notifications",
                 live = liveSnapshot,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             )
             LyricPreviewCard(
                 title = stringResource(R.string.label_aod_preview),
                 profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
                 scenario = "Full AOD",
                 live = liveSnapshot,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             )
         }
         Card {
