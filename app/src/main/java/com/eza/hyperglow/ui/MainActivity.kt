@@ -2619,11 +2619,12 @@ private fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledS
     }
 
 private fun previewTextAlign(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): TextAlign =
+    // "auto" 与应用渲染一致:在 alignedRight=false 时解析为左对齐(见 AodLyricCanvasView)。
     when (profile.alignment) {
         "start" -> TextAlign.Start
         "center" -> TextAlign.Center
         "end" -> TextAlign.End
-        else -> TextAlign.Center
+        else -> TextAlign.Start
     }
 
 private fun previewTextSizeSp(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): androidx.compose.ui.unit.TextUnit {
