@@ -94,8 +94,10 @@ import com.eza.hyperglow.producer.ProducerConnection
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiProfileState
+import com.eza.hyperglow.root.projection.LyricLayoutGroup
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
+import com.eza.hyperglow.root.projection.LyricWord
 import com.eza.hyperglow.root.projection.currentProcessUserId
 import com.eza.hyperglow.root.surface.PlacementEngine
 import com.eza.hyperglow.root.surface.PlacementEnvironment
@@ -2256,9 +2258,21 @@ private fun LyricProducerState.toPreviewSnapshot(): LyricSnapshot = LyricSnapsho
     positionMs = positionMs,
     sampledAtElapsedMs = sampledAtElapsedMs,
     speed = speed,
-    words = words ?: emptyList(),
-    ruby = ruby,
-    layoutGroups = layoutGroups
+    words = (words ?: emptyList()).map {
+        LyricWord(
+            text = it.text,
+            romanized = it.romanized,
+            startMs = it.startMs,
+            endMs = it.endMs,
+            boundaryAfter = it.boundaryAfter,
+            sourceStart = it.sourceStart,
+            sourceEnd = it.sourceEnd
+        )
+    },
+    ruby = ruby.map { LyricRuby(it.start, it.end, it.reading) },
+    layoutGroups = layoutGroups.map {
+        LyricLayoutGroup(it.start, it.end, it.kind, it.keepTogether, it.confidence)
+    }
 )
 
 // 判断模块当前是否处于可用的运行状态(与 runtimeProfileAvailable 一致)。
