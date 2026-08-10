@@ -49,7 +49,10 @@
     <string name="lyric_source_lyricon">Lyricon</string>
     <string name="lyric_source_superlyric">SuperLyric</string>
     <string name="lyric_source_lyricinfo">LyricInfo</string>
-    <string name="summary_lyric_source_spicy">In-process bridge bundled with HyperGlow. Always available.</string>
+    <string name="summary_lyric_source_spicy">Feeds lyrics from Spotify via Spicy EX. Requires Spicy EX installed and playing a track.</string>
+    <string name="title_spicy_setup">Spicy EX not connected</string>
+    <string name="summary_spicy_not_connected">Spicy EX is selected but not publishing lyrics. Install Spicy EX and play a track in Spotify to feed lyrics in real time.</string>
+    <string name="action_open_spotify_for_spicy">Open Spotify</string>
     <string name="summary_lyric_source_lyricon">Uses the Lyricon Xposed module in SystemUI for callback-driven lyrics.</string>
     <string name="summary_lyric_source_superlyric">Uses the SuperLyric Xposed module, which pushes active lines over Binder.</string>
     <string name="summary_lyric_source_lyricinfo">Uses the LyricInfo Xposed module, reading lyrics injected into MediaSession metadata.</string>

@@ -1,6 +1,7 @@
 package com.eza.hyperglow.producer
 
 import android.content.Context
+import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.bridge.SpicyBridgeDocument
 import com.eza.hyperglow.bridge.SpicyBridgeDocumentStore
@@ -9,7 +10,9 @@ import com.eza.hyperglow.bridge.SpicyBridgeStore
 import com.eza.hyperglow.bridge.SpicyBridgeWord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * Wraps the existing [SpicyBridgeStore] (+ [SpicyBridgeDocumentStore]) as a [LyricProducer], so
@@ -30,12 +35,13 @@ import kotlinx.coroutines.flow.stateIn
  *   [SpicyBridgeDocument] via [SpicyBridgeDocument.primaryRowAt] at the **sampled position**
  *   (`state.positionMs`), per spec clause 9. The `spotify:track:` constraint stays enforced inside
  *   `SpicyBridgeStateReducer` (it never reaches this wrapper).
- * - [connection] is always [ProducerConnection.CONNECTED]: the Spicy bridge is an in-process
- *   ContentProvider/AIDL surface, so it has no async connect/disconnect lifecycle the way the
- *   lyricon subscriber does. It is "connected" whenever the app process is running.
- * - [start]/[stop] are no-ops for the Spicy path: [SpicyBridgeStore] is a process-global
- *   singleton already started by the bridge service; the producer only exposes it. This keeps
- *   the interface symmetric with the lyricon producer without changing Spicy's lifecycle.
+ * - [connection] is derived from [SpicyBridgeStore.state]: CONNECTED while it holds a non-stale
+ *   [SpicyBridgeState] (i.e. Spicy EX is installed and actively publishing), DISCONNECTED
+ *   otherwise. This makes the UI reflect reality — a device without Spicy EX (or with Spicy EX
+ *   idle/stale) reports DISCONNECTED instead of the old hard-coded CONNECTED.
+ * - [start]/[stop] drive a connection sweep that reconciles [connection] against the real
+ *   ingest state. [SpicyBridgeStore] itself is a process-global singleton already fed by the
+ *   bridge service.
  *
  * Spec clause 9: the Spicy producer populates the active-row fields from
  * [SpicyBridgeDocumentStore] (computing the active row via `primaryRowAt` at the sampled
@@ -46,8 +52,9 @@ class SpicyLyricProducer : LyricProducer {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    private val mutableConnection = MutableStateFlow(ProducerConnection.CONNECTED)
+    private val mutableConnection = MutableStateFlow(ProducerConnection.DISCONNECTED)
     override val connection: StateFlow<ProducerConnection> = mutableConnection.asStateFlow()
+    private var connectionJob: Job? = null
 
     override val state: StateFlow<LyricProducerState?> =
         combine(SpicyBridgeStore.state, SpicyBridgeDocumentStore.state) { spicy, document ->
@@ -74,14 +81,46 @@ class SpicyLyricProducer : LyricProducer {
         )
 
     override fun start(context: Context) {
-        // SpicyBridgeStore is already active process-wide; nothing to start.
-        AppLog.i("SpicyLyricProducer", "start (no-op, SpicyBridgeStore is process-global)")
+        // SpicyBridgeStore is already active process-wide; we only reconcile [connection]
+        // against whether it is actually feeding live data.
+        if (connectionJob != null) return
+        AppLog.i("SpicyLyricProducer", "start")
+        connectionJob = scope.launch {
+            while (scope.isActive) {
+                val connected = isSpicyConnected()
+                val target = if (connected) {
+                    ProducerConnection.CONNECTED
+                } else {
+                    ProducerConnection.DISCONNECTED
+                }
+                if (mutableConnection.value != target) {
+                    AppLog.i("SpicyLyricProducer", "connection -> $target")
+                    mutableConnection.value = target
+                }
+                delay(CONNECTION_SWEEP_MS)
+            }
+        }
     }
 
     override fun stop() {
         // Intentionally not clearing SpicyBridgeStore: other surfaces (e.g. diagnostics) may
         // still read it. The arbiter handles clearing `active` on disconnect/stop.
-        AppLog.i("SpicyLyricProducer", "stop (no-op)")
+        connectionJob?.cancel()
+        connectionJob = null
+        mutableConnection.value = ProducerConnection.DISCONNECTED
+        AppLog.i("SpicyLyricProducer", "stop")
+    }
+
+    /**
+     * Spicy EX is considered connected while [SpicyBridgeStore] holds a recent (non-stale)
+     * [SpicyBridgeState]. A device without Spicy EX never publishes state, so it reads as
+     * DISCONNECTED; an installed-but-idle Spicy EX goes stale after [SpicyBridgeStore.STALE_AFTER_MS]
+     * and also reads as DISCONNECTED.
+     */
+    private fun isSpicyConnected(): Boolean {
+        val state = SpicyBridgeStore.state.value ?: return false
+        val now = SystemClock.elapsedRealtime()
+        return now - state.receivedAtElapsedMs <= SpicyBridgeStore.STALE_AFTER_MS
     }
 
     /**
@@ -215,4 +254,9 @@ class SpicyLyricProducer : LyricProducer {
 
     private fun hasActualLyricTiming(document: SpicyBridgeDocument): Boolean =
         isTimedDocumentType(document.type) && document.rows.any { it.endMs > it.startMs }
+
+    companion object {
+        /** How often the connection sweep re-checks SpicyBridgeStore freshness. */
+        private const val CONNECTION_SWEEP_MS = 1_000L
+    }
 }

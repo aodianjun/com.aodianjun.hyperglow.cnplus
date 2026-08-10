@@ -76,6 +76,7 @@ import com.eza.hyperglow.DiagnosticLoggingPreferences
 import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.setDiagnosticLogging
 import com.eza.hyperglow.root.utils.ShellUtils
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.eza.hyperglow.aod.AodLyricBridgeService
 import com.eza.hyperglow.aod.AodRenderPreferences
@@ -1693,32 +1694,56 @@ internal fun previewEnvironment(
     notificationTop = if (scenario == "Lockscreen · notifications") height * 0.62f else null
 )
 
-private fun previewSnapshot(scenario: String): LyricSnapshot = LyricSnapshot(
-    revision = 1,
-    trackGeneration = 1,
-    updatedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
-    visible = true,
-    original = if (scenario == "Long/ruby/translated") {
-        "これは長いレイアウト検証用の歌詞テキスト"
-    } else {
-        "今夜も眠れない"
-    },
-    romanized = "kon'ya mo nemurenai",
-    translated = "I cannot sleep tonight",
-    metadata = "Preview track · HyperGlow",
-    lineLevelSync = true,
-    lineStartMs = 0,
-    lineEndMs = 4_000,
-    durationMs = 180_000,
-    positionMs = 1_800,
-    sampledAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
-    words = emptyList(),
-    ruby = if (scenario == "Long/ruby/translated") {
-        listOf(LyricRuby(0, 3, "kore wa"))
-    } else {
-        emptyList()
+/**
+ * Demo snapshot that cycles through a few sample lines every couple of seconds, so the home
+ * preview visibly updates even when no live lyric source is connected. When a real producer
+ * starts feeding `arbiter.active`, the preview switches to the live snapshot instead.
+ */
+@Composable
+private fun collectDemoSnapshot(scenario: String): LyricSnapshot {
+    var index by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(DEMO_LINE_SWITCH_MS)
+            index = (index + 1) % DEMO_LINES.size
+        }
     }
+    val line = DEMO_LINES[index]
+    return LyricSnapshot(
+        revision = index,
+        trackGeneration = 1,
+        updatedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
+        visible = true,
+        original = line.original,
+        romanized = line.romanized,
+        translated = line.translated,
+        metadata = "Preview track · HyperGlow",
+        lineLevelSync = true,
+        lineStartMs = 0,
+        lineEndMs = DEMO_LINE_SWITCH_MS,
+        durationMs = DEMO_LINES.size * DEMO_LINE_SWITCH_MS,
+        positionMs = ((index * DEMO_LINE_SWITCH_MS).toFloat()).toLong(),
+        sampledAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
+        words = emptyList(),
+        ruby = if (scenario == "Long/ruby/translated") {
+            listOf(LyricRuby(0, 3, "kore wa"))
+        } else {
+            emptyList()
+        }
+    )
+}
+
+private class DemoLine(val original: String, val romanized: String, val translated: String)
+
+private val DEMO_LINES = listOf(
+    DemoLine("今夜も眠れない", "kon'ya mo nemurenai", "I cannot sleep tonight"),
+    DemoLine("街のはしを歩いて", "machi no hashi o aruite", "Walking down the street"),
+    DemoLine("Ah 届かない想い", "Ah todokanai omoi", "Ah, feelings out of reach"),
+    DemoLine("君の声が聞こえる", "kimi no koe ga kikoeru", "I can hear your voice")
 )
+
+/** How long each demo line stays on screen before cycling to the next. */
+private const val DEMO_LINE_SWITCH_MS = 2_500L
 
 @Composable
 private fun AodChoiceRow(kind: AodChoiceKind, value: String, onClick: () -> Unit) {
@@ -2477,8 +2502,8 @@ private fun LyricPreviewSurface(
             resolvePreviewPlacement(profile, scenario, width, height)
         }
         val rect = placement.contentRect
-        // 有实时歌词时跟随最新快照,否则回退到硬编码示例,保证预览始终有内容。
-        val snapshot = live ?: previewSnapshot(scenario)
+        // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
+        val snapshot = live ?: collectDemoSnapshot(scenario)
         // 布局引擎可能因 profile 配置(如锁屏 hide_scene、AOD 过小 maxHeightFraction)返回
         // 空 contentRect。兜底成整盒居中,确保预览卡片永远有可见内容。
         val drawRect = rect ?: PlacementRect(0f, 0f, width, height)
@@ -2658,16 +2683,14 @@ private fun LiveStatusSection() {
 private fun LyricSourceSection(onOpenSourceDialog: () -> Unit) {
     val context = LocalContext.current
     val preference by collectPreference()
-    val lyricon by collectConnection(LyricSource.LYRICON)
-    val superlyric by collectConnection(LyricSource.SUPERLYRIC)
-    val lyricinfo by collectConnection(LyricSource.LYRICINFO)
     // 按实际选择的源读取其真实连接状态,与 SourceSetupHint 保持一致,避免"上面已连接、
-    // 下面未连接"的矛盾提示(此前对非 Lyricon 源硬编码为 CONNECTED)。
+    // 下面未连接"的矛盾提示。Spicy 也读取 producer 的真实连接(无 Spicy EX/数据过期时为
+    // DISCONNECTED),不再硬编码 CONNECTED。
     val activeConnection = when (preference) {
-        LyricSource.LYRICON -> lyricon
-        LyricSource.SUPERLYRIC -> superlyric
-        LyricSource.LYRICINFO -> lyricinfo
-        LyricSource.SPICY -> ProducerConnection.CONNECTED
+        LyricSource.LYRICON -> collectConnection(LyricSource.LYRICON).value
+        LyricSource.SUPERLYRIC -> collectConnection(LyricSource.SUPERLYRIC).value
+        LyricSource.LYRICINFO -> collectConnection(LyricSource.LYRICINFO).value
+        LyricSource.SPICY -> collectConnection(LyricSource.SPICY).value
     }
     SettingsCard {
         ArrowPreference(
@@ -2692,15 +2715,12 @@ private fun SourceSetupHint() {
     val context = LocalContext.current
     val preference by collectPreference()
     // 仅当源实际未连接时才显示"未连接"引导,与上方 LyricSourceSection 的连接状态保持一致,
-    // 避免出现"上面已连接、下面未连接"的矛盾提示。
-    val lyricon by collectConnection(LyricSource.LYRICON)
-    val superlyric by collectConnection(LyricSource.SUPERLYRIC)
-    val lyricinfo by collectConnection(LyricSource.LYRICINFO)
+    // 避免出现"上面已连接、下面未连接"的矛盾提示。Spicy 也读取真实连接。
     val connection = when (preference) {
-        LyricSource.LYRICON -> lyricon
-        LyricSource.SUPERLYRIC -> superlyric
-        LyricSource.LYRICINFO -> lyricinfo
-        LyricSource.SPICY -> ProducerConnection.CONNECTED
+        LyricSource.LYRICON -> collectConnection(LyricSource.LYRICON).value
+        LyricSource.SUPERLYRIC -> collectConnection(LyricSource.SUPERLYRIC).value
+        LyricSource.LYRICINFO -> collectConnection(LyricSource.LYRICINFO).value
+        LyricSource.SPICY -> collectConnection(LyricSource.SPICY).value
     }
     if (connection == ProducerConnection.CONNECTED ||
         connection == ProducerConnection.RECONNECTED
@@ -2724,7 +2744,41 @@ private fun SourceSetupHint() {
 
         LyricSource.LYRICINFO -> LyricInfoHint(context)
 
-        LyricSource.SPICY -> Unit
+        LyricSource.SPICY -> SpicyHint(context)
+    }
+}
+
+/**
+ * Setup hint for Spicy EX when it is selected but not publishing lyrics (Spicy EX not installed,
+ * or no active Spotify playback). Points the user to install Spicy EX / open Spotify.
+ */
+@Composable
+private fun SpicyHint(context: android.content.Context) {
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(R.string.title_spicy_setup),
+            summary = stringResource(R.string.summary_spicy_not_connected)
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_download_spicy_ex),
+            onClick = { openExternalUrl(context, SPICY_EX_GITHUB_URL) }
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_open_spotify_for_spicy),
+            onClick = {
+                val launchIntent = context.packageManager
+                    .getLaunchIntentForPackage("com.spotify.music")
+                if (launchIntent != null) {
+                    context.startActivity(launchIntent)
+                } else {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.toast_spotify_not_installed),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
     }
 }
 
