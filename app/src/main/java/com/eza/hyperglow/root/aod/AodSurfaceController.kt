@@ -126,6 +126,47 @@ internal fun selectPhysicalAodClockBounds(
     aodControllerBounds: AodRenderedClockBounds?
 ): AodRenderedClockBounds? = systemUiBounds ?: aodControllerBounds
 
+/**
+ * Held stable position of the AOD clock, used as an anchor for lyric placement.
+ *
+ * @param sinceElapsedMs monotonic time the held position was last confirmed (set to the current
+ *   bounds).
+ */
+internal data class AodClockAnchor(
+    val top: Int,
+    val bottom: Int,
+    val sinceElapsedMs: Long
+)
+
+/** How long a held clock position may go unconfirmed before it is treated as a genuine move. */
+internal const val AOD_CLOCK_ANCHOR_HOLD_MS = 40_000L
+
+/**
+ * Stabilizes the clock bounds used for lyric placement against fast oscillation (e.g. the media
+ * header toggling the AOD layout, which squeezes/releases the clock by hundreds of pixels). The
+ * anchor holds the last *confirmed* clock position: as long as the raw bounds keep returning to it
+ * (oscillation), the anchor stays put so the lyric never jumps. It only relocates when the held
+ * position has gone unconfirmed for [AOD_CLOCK_ANCHOR_HOLD_MS] — a genuinely persistent move.
+ */
+internal fun stabilizeAodClockAnchor(
+    previous: AodClockAnchor?,
+    raw: AodRenderedClockBounds,
+    nowElapsedMs: Long,
+    holdMs: Long = AOD_CLOCK_ANCHOR_HOLD_MS
+): AodClockAnchor {
+    if (raw.top >= raw.bottom) return previous ?: AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
+    if (previous == null) return AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
+    if (raw.top == previous.top && raw.bottom == previous.bottom) {
+        // Held position reconfirmed: refresh so oscillation never ages it out.
+        return previous.copy(sinceElapsedMs = nowElapsedMs)
+    }
+    return if (nowElapsedMs - previous.sinceElapsedMs >= holdMs) {
+        AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
+    } else {
+        previous
+    }
+}
+
 internal fun brightLinkageClockBounds(rootHeight: Int): AodRenderedClockBounds =
     AodRenderedClockBounds(0, (rootHeight * BRIGHT_LINKAGE_CLOCK_RESERVE_FRACTION).roundToInt())
 
@@ -295,6 +336,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var systemUiClockBounds: AodRenderedClockBounds? = null
     private var aodControllerClockBounds: AodRenderedClockBounds? = null
     private var renderedClockBounds: AodRenderedClockBounds? = null
+    private var clockAnchor: AodClockAnchor? = null
     private val renderedClockRootLocation = IntArray(2)
     private val renderedClockUnion = Rect()
     private val renderedClockScratch = Rect()
@@ -994,6 +1036,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         systemUiClockBounds = null
         aodControllerClockBounds = null
         renderedClockBounds = null
+        clockAnchor = null
         environment = SurfaceEnvironment(LyricSurfaceKind.AOD, attachmentGeneration)
     }
 
@@ -1154,7 +1197,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // different display or configuration, and the old bounds say nothing about it.
         val rememberedBounds = rememberedPhysicalClockBounds
             ?.takeIf { rememberedPhysicalClockRootHeight == root.height }
-        val effectiveClockBounds = if (brightLinkage && physicalClockBounds == null) {
+        val rawClockBounds = if (brightLinkage && physicalClockBounds == null) {
             brightLinkageClockBounds(root.height)
         } else {
             resolvedAodClockBounds(
@@ -1167,6 +1210,16 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 rememberedBounds
             )
         }
+        // Stabilize against fast clock-bound oscillation (e.g. the media header toggling the AOD
+        // layout). The anchor holds the outer clock extent so the lyric placement below/above the
+        // clock no longer jumps; it only relocates on a genuinely sustained move.
+        val anchor = stabilizeAodClockAnchor(
+            clockAnchor,
+            rawClockBounds,
+            SystemClock.elapsedRealtime()
+        )
+        clockAnchor = anchor
+        val effectiveClockBounds = AodRenderedClockBounds(anchor.top, anchor.bottom)
         val effectiveClockTop = effectiveClockBounds.top
         val effectiveClockBottom = effectiveClockBounds.bottom
         val clockGeometryAuthority = when {

@@ -436,4 +436,65 @@ class AodPositionUpdateTest {
         assertEquals(300, resolved.top)
         assertEquals(1300, resolved.bottom)
     }
+
+    @Test
+    fun anchorSeedsFromFirstRawBounds() {
+        val anchor = stabilizeAodClockAnchor(
+            previous = null,
+            raw = AodRenderedClockBounds(546, 1626),
+            nowElapsedMs = 0L
+        )
+        assertEquals(546, anchor.top)
+        assertEquals(1626, anchor.bottom)
+    }
+
+    @Test
+    fun anchorHoldsOuterExtentThroughMediaHeaderOscillation() {
+        // Media header present squeezes the clock up; absent releases it. Oscillation must not move
+        // the anchor because the held position keeps getting reconfirmed.
+        val deep = AodRenderedClockBounds(546, 1626)
+        val squeezed = AodRenderedClockBounds(336, 1416)
+        var t = 0L
+        var anchor = stabilizeAodClockAnchor(null, deep, t)
+        // Oscillate between the two states every ~10s for well over the hold window.
+        repeat(20) {
+            t += 10_000L
+            anchor = stabilizeAodClockAnchor(anchor, squeezed, t)
+            assertEquals(1626, anchor.bottom, "squeezed state must not pull the anchor")
+            t += 10_000L
+            anchor = stabilizeAodClockAnchor(anchor, deep, t)
+            assertEquals(1626, anchor.bottom)
+        }
+    }
+
+    @Test
+    fun anchorRelocatesOnlyAfterAGenuinePersistentMove() {
+        val deep = AodRenderedClockBounds(546, 1626)
+        val movedUp = AodRenderedClockBounds(336, 1416)
+        var t = 0L
+        var anchor = stabilizeAodClockAnchor(null, deep, t)
+        // Within the hold window the anchor holds.
+        t = 30_000L
+        anchor = stabilizeAodClockAnchor(anchor, movedUp, t)
+        assertEquals(1626, anchor.bottom)
+        // Past the hold window (40s) the anchor follows the persistent move.
+        t = 60_000L
+        anchor = stabilizeAodClockAnchor(anchor, movedUp, t)
+        assertEquals(1416, anchor.bottom)
+        assertEquals(336, anchor.top)
+    }
+
+    @Test
+    fun anchorFollowsASustainedBurnInMoveAfterTheHoldWindow() {
+        var t = 0L
+        var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
+        // A slow drift down is suppressed while the old position could still reconfirm.
+        t = 5_000L
+        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
+        assertEquals(1626, anchor.bottom)
+        // Once the drift is sustained past the hold window, the anchor follows.
+        t = 45_000L
+        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
+        assertEquals(1700, anchor.bottom)
+    }
 }
