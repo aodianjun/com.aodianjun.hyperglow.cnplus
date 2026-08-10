@@ -1,3 +1,10 @@
+HyperGlow CN+ is a fork of HyperGlow:
+https://github.com/amarinne/hyperglow
+
+HyperGlow copyright belongs to its contributors and is licensed under GPL-3.0.
+This CN+ derivation is licensed under GPL-3.0 with an independent application id
+(com.aodianjun.hyperglow.cnplus) and does not conflict with the original package.
+
 HyperGlow contains code adapted from HyperLyric:
 https://github.com/limczhh/HyperLyric
 
