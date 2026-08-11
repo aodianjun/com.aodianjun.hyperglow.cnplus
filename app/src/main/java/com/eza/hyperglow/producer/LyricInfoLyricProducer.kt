@@ -194,6 +194,17 @@ class LyricInfoLyricProducer(
 
     private fun applyPlaybackState(ps: PlaybackState) {
         val now = clock()
+        // MIUI 息屏冻结播放器进程后，playbackState 非 null 但 position 卡在冻结时刻
+        //（lastPositionUpdateTime 不再推进）。继续采用 ps.position 会把外推位置每 250ms
+        // 拉回旧值，歌词永远停在最后一句。检测到 stale 改为按播放速率外推。
+        val updateTime = ps.lastPositionUpdateTime
+        if (updateTime > 0L && now - updateTime > STALE_POSITION_MS &&
+            lastPlaybackSpeed > 0f && lastRealPositionClockMs >= 0L
+        ) {
+            currentPositionMs =
+                lastRealPositionMs + ((now - lastRealPositionClockMs) * lastPlaybackSpeed).toLong()
+            return
+        }
         lastRealPositionMs = ps.position
         lastRealPositionClockMs = now
         lastPlaybackSpeed = ps.playbackSpeed
@@ -339,6 +350,8 @@ class LyricInfoLyricProducer(
         private const val LYRIC_INFO_KEY = "lyricInfo"
         private const val MEDIA_METADATA_KEY_DURATION = "android.media.metadata.DURATION"
         private const val POSITION_POLL_MS = 250L
+        /** PlaybackState position 多久未更新视为 stale（播放器进程被冻结）。 */
+        private const val STALE_POSITION_MS = 2_000L
 
         private val lyricInfoJson = Json { ignoreUnknownKeys = true }
 
