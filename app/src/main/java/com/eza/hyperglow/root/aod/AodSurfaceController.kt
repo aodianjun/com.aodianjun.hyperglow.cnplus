@@ -606,6 +606,17 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 burnInContainerRef = WeakReference(burnInContainer)
                 observeDisplayState(root)
                 AodPositionHook.observeAodRoot(root)
+                if (clockAnchor == null) {
+                    rememberedPhysicalClockBounds
+                        ?.takeIf { rememberedPhysicalClockRootHeight == root.height }
+                        ?.let { b ->
+                            clockAnchor = AodClockAnchor(b.top, b.bottom, SystemClock.elapsedRealtime())
+                            HookLogger.i(TAG, "Anchor seeded from remembered bounds ${b.top}..${b.bottom} (re-attach throttle)")
+                        }
+                } else if (rememberedPhysicalClockRootHeight != root.height) {
+                    clockAnchor = null
+                    HookLogger.i(TAG, "Display root height changed; anchor dropped")
+                }
                 val directSurface = buildSurface(root)
                 surface = directSurface
                 root.overlay.add(directSurface)
@@ -1036,7 +1047,6 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         systemUiClockBounds = null
         aodControllerClockBounds = null
         renderedClockBounds = null
-        clockAnchor = null
         environment = SurfaceEnvironment(LyricSurfaceKind.AOD, attachmentGeneration)
     }
 
