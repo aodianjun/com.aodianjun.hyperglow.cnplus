@@ -5,8 +5,10 @@ import android.provider.Settings
 import android.app.LocaleManager
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
