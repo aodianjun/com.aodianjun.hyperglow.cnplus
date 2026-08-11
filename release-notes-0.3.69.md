@@ -53,3 +53,5 @@
 
 ---
 > 本版本为当前最新正式版（Latest）。下载过测试/预发行版本的设备，检测到 versionCode 87 高于预发行版即可收到更新提示。
+
+> 本版本已提交至 LSPosed 模块仓库（modules.lsposed.org）。
