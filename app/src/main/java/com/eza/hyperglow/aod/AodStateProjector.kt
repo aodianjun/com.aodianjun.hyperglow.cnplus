@@ -140,12 +140,13 @@ internal fun projectToDisplay(
         persistentKeepAlive = persistentKeepAlive
     )
 
-    // --- per-word（逐字动画已关闭）---
-    // 逐字动画已整体关闭：words 恒为空，画布退化为纯整行扫光，不再做逐字高亮/放大/光斑。
-    val effectiveWords = emptyList<LyricWord>()
+    // --- per-word（透传真实词级数据）---
+    // 真实词级时间戳随 words 下发，供画布在整行水平扫光基础上叠加"当前演唱词微光"
+    // （小幅放大/光斑，见 AodLyricCanvasView.drawLineLevelWordOverlay）。
+    val effectiveWords = if (showLargeMetadata || !hasActiveLine) emptyList() else state.words.orEmpty()
 
-    // --- 行级同步标志（逐字关闭后统一走整行扫光）---
-    // 有活动歌词行时一律行级同步，以整行扫光为唯一渲染效果；
+    // --- 行级同步标志（统一走整行水平扫光）---
+    // 有活动歌词行时一律行级同步，以整行水平扫光为主要效果；
     // NONE/UNSYNCED 无活动行 → false。
     val lineLevelSync = hasActiveLine && !showLargeMetadata
 

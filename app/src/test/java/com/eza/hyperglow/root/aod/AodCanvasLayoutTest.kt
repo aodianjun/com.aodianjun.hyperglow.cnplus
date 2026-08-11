@@ -115,9 +115,13 @@ class AodCanvasLayoutTest {
             "Left to right (main only)",
             resolvedLineSyncFillMode(true, "Left to right (main only)")
         )
-        assertEquals("None", resolvedLineSyncFillMode(true, "None"))
+        // 行级同步时固定水平扫光：None / Top to bottom 也归一到主行水平扫光（与预览一致）
         assertEquals(
-            "Top to bottom",
+            "Left to right (main only)",
+            resolvedLineSyncFillMode(true, "None")
+        )
+        assertEquals(
+            "Left to right (main only)",
             resolvedLineSyncFillMode(true, "Top to bottom")
         )
         assertEquals(

@@ -254,10 +254,10 @@ class AodStateProjectorTest {
             lineEndMs = 2_000L
         )
         val out = project(s)
-        // 有活动歌词行时显示歌词;逐字动画已关闭 → words 恒为空,统一走整行扫光
+        // 有活动歌词行时显示歌词;words 透传供"当前词微光"叠加,行级同步保持水平扫光
         assertEquals("hello", out.original)
-        assertTrue(out.lineLevelSync) // 逐字关闭后一律行级同步(整行扫光)
-        assertTrue(out.words.isEmpty())
+        assertTrue(out.lineLevelSync) // 行级同步(整行水平扫光)
+        assertEquals(2, out.words.size)
     }
 
     @Test
@@ -516,8 +516,8 @@ class AodStateProjectorTest {
     }
 
     @Test
-    fun lineKind_existingWords_ignoredWhenPerWordDisabled() {
-        // 逐字动画已关闭：即使源提供了真实词级数据，words 也恒为空，仅整行扫光
+    fun lineKind_existingWords_passedThroughWithLineLevelSync() {
+        // 真实词级数据透传供"当前词微光"叠加，同时保持行级同步(整行水平扫光)
         val words = listOf(LyricWord("hello", "", 1_000L, 1_500L, false))
         val s = state(
             lyricKind = LyricKind.LINE,
@@ -528,8 +528,9 @@ class AodStateProjectorTest {
             lineEndMs = 3_400L
         )
         val out = project(s)
-        assertTrue(out.words.isEmpty()) // words 恒为空(逐字关闭)
-        assertTrue(out.lineLevelSync) // LINE 一律保持行级同步(整行扫光)
+        assertEquals(1, out.words.size) // words 透传
+        assertEquals("hello", out.words[0].text)
+        assertTrue(out.lineLevelSync) // 行级同步(整行水平扫光)
     }
 
     @Test

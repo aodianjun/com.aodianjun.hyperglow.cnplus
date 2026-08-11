@@ -796,12 +796,10 @@ internal fun hasActiveCanvasTiming(
 internal fun resolvedLineSyncFillMode(lineLevelSync: Boolean, configuredMode: String): String =
     if (!lineLevelSync) configuredMode
     else when (configuredMode) {
-        "None" -> "None"
+        // 行级同步时固定水平扫光，与预览（PreviewAnimatedLyric 整行从左到右渐进点亮）一致。
+        // "None"/"Top to bottom" 等对歌词行几乎看不出水平扫光，统一归一到主行水平扫光。
         "Left to right (whole block)" -> "Left to right (whole block)"
-        "Left to right",
-        "Left to right (main only)",
-        "Left to right (sentence)" -> "Left to right (main only)"
-        else -> "Top to bottom"
+        else -> "Left to right (main only)"
     }
 
 internal fun resolvedLyricLayoutLineLimit(
