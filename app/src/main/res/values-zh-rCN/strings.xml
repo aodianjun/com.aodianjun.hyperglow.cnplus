@@ -31,6 +31,8 @@
     <string name="update_check_failed">检查失败，请确认网络连接</string>
     <string name="update_dialog_title">发现新版本</string>
     <string name="update_dialog_summary">发现新版本 v%1$s，可前往发布页下载安装。</string>
+    <string name="update_mismatch_dialog_title">安装版本与官方发布不一致</string>
+    <string name="update_mismatch_dialog_summary">检测到已安装 APK 的指纹与官方发布不一致，可能为旧版或非官方构建。请前往发布页下载安装最新正式版。</string>
     <string name="action_download">前往下载</string>
     <string name="label_systemui_aod">系统界面 / 息屏显示</string>
     <string name="label_aod_lyrics">息屏歌词</string>

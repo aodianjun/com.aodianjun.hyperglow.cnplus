@@ -36,6 +36,8 @@
     <string name="update_check_failed">Check failed. Please check your network connection</string>
     <string name="update_dialog_title">Update available</string>
     <string name="update_dialog_summary">A newer version v%1$s is available. Download and install it from the release page.</string>
+    <string name="update_mismatch_dialog_title">Installed version differs from release</string>
+    <string name="update_mismatch_dialog_summary">The installed APK fingerprint does not match the official release. It may be an older or non-official build. Download and install the latest release.</string>
     <string name="action_download">Download</string>
     <string name="label_systemui_aod">System UI / AOD</string>
     <string name="label_aod_lyrics">AOD lyrics</string>

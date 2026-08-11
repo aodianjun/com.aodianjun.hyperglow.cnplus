@@ -126,8 +126,10 @@ import com.eza.hyperglow.root.surface.ResolvedPlacement
 import com.eza.hyperglow.root.surface.WidgetMeasurement
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.*
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -1086,7 +1088,13 @@ private fun openExternalUrl(context: android.content.Context, url: String) {
     }
 }
 
-private fun queryLatestReleaseTag(): String? {
+private data class LatestReleaseInfo(
+    val tag: String,
+    /** GitHub release 资产的 SHA256（不含 "sha256:" 前缀）。空集合表示未取到哈希。 */
+    val sha256: Set<String>
+)
+
+private fun queryLatestReleaseInfo(): LatestReleaseInfo? {
     var connection: HttpURLConnection? = null
     return try {
         val url = URL("https://api.github.com/repos/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest")
@@ -1098,15 +1106,44 @@ private fun queryLatestReleaseTag(): String? {
         if (connection.responseCode == HttpURLConnection.HTTP_OK) {
             val response = connection.inputStream.bufferedReader().readText()
             val json = Json.parseToJsonElement(response)
-            json.jsonObject["tag_name"]?.jsonPrimitive?.content
+            val tag = json.jsonObject["tag_name"]?.jsonPrimitive?.content ?: return null
+            val digests = json.jsonObject["assets"]?.jsonArray
+                ?.mapNotNull { asset ->
+                    asset.jsonObject["digest"]?.jsonPrimitive?.content
+                        ?.substringAfter("sha256:", "")
+                        ?.takeIf { it.isNotBlank() }
+                }
+                ?.toSet()
+                .orEmpty()
+            LatestReleaseInfo(tag = tag, sha256 = digests)
         } else null
     } catch (e: Exception) {
-        AppLog.e("MainActivity", "queryLatestReleaseTag failed", e)
+        AppLog.e("MainActivity", "queryLatestReleaseInfo failed", e)
         null
     } finally {
         connection?.disconnect()
     }
 }
+
+/**
+ * 计算本地已安装 APK 的 SHA256(hex)。用于与 GitHub release 资产指纹比对:
+ * 若不一致,说明安装的不是官方最新发布,视为"不是最新版"。
+ */
+private fun localApkSha256(context: android.content.Context): String? = runCatching {
+    val sourceDir = context.packageManager
+        .getApplicationInfo(context.packageName, 0)
+        .sourceDir
+    val digest = MessageDigest.getInstance("SHA-256")
+    File(sourceDir).inputStream().use { input ->
+        val buffer = ByteArray(8192)
+        while (true) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            digest.update(buffer, 0, n)
+        }
+    }
+    digest.digest().joinToString("") { "%02x".format(it) }
+}.getOrNull()
 
 private fun compareVersions(v1: String, v2: String): Int {
     val a = v1.trim().split(".").mapNotNull { it.toIntOrNull() }
@@ -2406,20 +2443,30 @@ private fun HomeOverviewHero(
     val scope = rememberCoroutineScope()
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateDialogVersion by remember { mutableStateOf<String?>(null) }
+    var updateMismatch by remember { mutableStateOf(false) }
 
     fun startCheckUpdate() {
         if (checkingUpdate) return
         checkingUpdate = true
         scope.launch(Dispatchers.IO) {
-            val tag = queryLatestReleaseTag()
-            val latest = tag?.substringAfterLast('-')
+            val info = queryLatestReleaseInfo()
+            val latest = info?.tag?.substringAfterLast('-')
+            val localHash = localApkSha256(context)
             withContext(Dispatchers.Main) {
                 checkingUpdate = false
                 when {
-                    latest == null ->
+                    info == null || latest == null ->
                         Toast.makeText(context, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
-                    compareVersions(latest, BuildConfig.VERSION_NAME) > 0 ->
+                    // 哈希校验:release 能取到资产指纹,且本地安装 APK 指纹不在其中
+                    // → 安装的不是官方发布,视为"不是最新版",引导前往发布页下载。
+                    info.sha256.isNotEmpty() && localHash != null && localHash !in info.sha256 -> {
                         updateDialogVersion = latest
+                        updateMismatch = true
+                    }
+                    compareVersions(latest, BuildConfig.VERSION_NAME) > 0 -> {
+                        updateDialogVersion = latest
+                        updateMismatch = false
+                    }
                     else ->
                         Toast.makeText(context, R.string.update_check_up_to_date, Toast.LENGTH_SHORT).show()
                 }
@@ -2483,8 +2530,15 @@ private fun HomeOverviewHero(
 
     updateDialogVersion?.let { version ->
         WindowDialog(
-            title = stringResource(R.string.update_dialog_title),
-            summary = stringResource(R.string.update_dialog_summary, version),
+            title = stringResource(
+                if (updateMismatch) R.string.update_mismatch_dialog_title
+                else R.string.update_dialog_title
+            ),
+            summary = if (updateMismatch) {
+                stringResource(R.string.update_mismatch_dialog_summary)
+            } else {
+                stringResource(R.string.update_dialog_summary, version)
+            },
             show = true,
             onDismissRequest = { updateDialogVersion = null }
         ) {
