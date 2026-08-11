@@ -38,6 +38,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
@@ -93,6 +94,10 @@ import com.eza.hyperglow.setDiagnosticLogging
 import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import com.eza.hyperglow.aod.AodLyricBridgeService
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
@@ -121,6 +126,8 @@ import com.eza.hyperglow.root.surface.ResolvedPlacement
 import com.eza.hyperglow.root.surface.WidgetMeasurement
 import kotlin.math.roundToInt
 import kotlinx.serialization.json.*
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -1074,6 +1081,40 @@ private fun openExternalUrl(context: android.content.Context, url: String) {
     if (!opened) {
         Toast.makeText(context, context.getString(R.string.toast_no_link_handler), Toast.LENGTH_LONG).show()
     }
+}
+
+private fun queryLatestReleaseTag(): String? {
+    var connection: HttpURLConnection? = null
+    return try {
+        val url = URL("https://api.github.com/repos/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest")
+        connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+            val response = connection.inputStream.bufferedReader().readText()
+            val json = Json.parseToJsonElement(response)
+            json.jsonObject["tag_name"]?.jsonPrimitive?.content
+        } else null
+    } catch (e: Exception) {
+        AppLog.e("MainActivity", "queryLatestReleaseTag failed", e)
+        null
+    } finally {
+        connection?.disconnect()
+    }
+}
+
+private fun compareVersions(v1: String, v2: String): Int {
+    val a = v1.trim().split(".").mapNotNull { it.toIntOrNull() }
+    val b = v2.trim().split(".").mapNotNull { it.toIntOrNull() }
+    val n = maxOf(a.size, b.size)
+    for (i in 0 until n) {
+        val x = a.getOrElse(i) { 0 }
+        val y = b.getOrElse(i) { 0 }
+        if (x != y) return if (x > y) 1 else -1
+    }
+    return 0
 }
 
 private fun supportStateLabel(
@@ -2359,6 +2400,30 @@ private fun HomeOverviewHero(
     aodVersion: String
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateDialogVersion by remember { mutableStateOf<String?>(null) }
+
+    fun startCheckUpdate() {
+        if (checkingUpdate) return
+        checkingUpdate = true
+        scope.launch(Dispatchers.IO) {
+            val tag = queryLatestReleaseTag()
+            val latest = tag?.substringAfterLast('-')
+            withContext(Dispatchers.Main) {
+                checkingUpdate = false
+                when {
+                    latest == null ->
+                        Toast.makeText(context, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+                    compareVersions(latest, BuildConfig.VERSION_NAME) > 0 ->
+                        updateDialogVersion = latest
+                    else ->
+                        Toast.makeText(context, R.string.update_check_up_to_date, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     Column(
         modifier = Modifier.padding(horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -2396,7 +2461,14 @@ private fun HomeOverviewHero(
                     stringResource(R.string.label_systemui_aod),
                     "$systemUiVersion / $aodVersion"
                 )
-                HomeInfoRow(stringResource(R.string.label_app_version), BuildConfig.VERSION_NAME)
+                HomeInfoRow(
+                    stringResource(R.string.label_app_version),
+                    BuildConfig.VERSION_NAME
+                )
+                HomeUpdateRow(
+                    checking = checkingUpdate,
+                    onClick = { startCheckUpdate() }
+                )
                 HomeInfoRow(
                     stringResource(R.string.label_android_version),
                     Build.VERSION.RELEASE
@@ -2404,6 +2476,59 @@ private fun HomeOverviewHero(
                 HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL, last = true)
             }
         }
+    }
+
+    updateDialogVersion?.let { version ->
+        WindowDialog(
+            title = stringResource(R.string.update_dialog_title),
+            summary = stringResource(R.string.update_dialog_summary, version),
+            show = true,
+            onDismissRequest = { updateDialogVersion = null }
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = { updateDialogVersion = null }
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_download),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = {
+                        updateDialogVersion = null
+                        openExternalUrl(
+                            context,
+                            "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest"
+                        )
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeUpdateRow(checking: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !checking, onClick = onClick)
+            .padding(vertical = 4.dp)
+    ) {
+        Text(
+            stringResource(R.string.action_check_update),
+            fontSize = MiuixTheme.textStyles.headline1.fontSize,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = stringResource(if (checking) R.string.update_checking else R.string.action_check_update_short),
+            fontSize = MiuixTheme.textStyles.body2.fontSize,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.align(Alignment.CenterVertically)
+        )
     }
 }
 

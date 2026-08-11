@@ -24,6 +24,14 @@
     <string name="label_android_version">Android version</string>
     <string name="label_device_model">Device model</string>
     <string name="label_compatibility">Compatibility</string>
+    <string name="action_check_update">Check for updates</string>
+    <string name="action_check_update_short">Check</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_check_up_to_date">You are on the latest version</string>
+    <string name="update_check_failed">Check failed. Please check your network connection</string>
+    <string name="update_dialog_title">Update available</string>
+    <string name="update_dialog_summary">A newer version v%1$s is available. Download and install it from the release page.</string>
+    <string name="action_download">Download</string>
     <string name="label_systemui_aod">System UI / AOD</string>
     <string name="label_aod_lyrics">AOD lyrics</string>
     <string name="label_lockscreen_lyrics">Lock screen lyrics</string>
