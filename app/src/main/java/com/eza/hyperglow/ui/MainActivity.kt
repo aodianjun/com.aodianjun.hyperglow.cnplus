@@ -2727,81 +2727,43 @@ private fun PreviewAnimatedLyric(
                 paint.color = dimArgb
                 layout.draw(nc)
 
-                // 逐词渲染:按播放进度逐字点亮,已唱词常亮发光,当前演唱词轻微放大/位移,
-                // 与 AodLyricCanvasView 的逐字路径(单词动画)保持一致。
-                val words = splitPreviewWords(text)
-                if (words.isNotEmpty()) {
-                    val totalChars = words.sumOf { it.first.length }.coerceAtLeast(1)
-                    var sungChars = 0
-                    for ((word, startChar) in words) {
-                        val wordCount = word.length
-                        val ws = sungChars.toFloat() / totalChars
-                        val we = (sungChars + wordCount).toFloat() / totalChars
-                        val active = p >= ws && p < we
-                        val sung = p >= we
-                        val frac = if (active) (p - ws) / (we - ws).coerceAtLeast(1e-4f) else 0f
-                        val x = layout.getPrimaryHorizontal(startChar)
-                        val baseBaseline = layout.getLineBaseline(layout.getLineForOffset(startChar)).toFloat()
-                        val wordWidth = paint.measureText(word)
-                        val scale = if (active) previewScaleSpline(frac) else if (!sung) 0.95f else 1f
-                        val dy = if (active) previewYOffsetSpline(frac) * fontSizePx
-                        else if (!sung) 0.01f * fontSizePx else 0f
-                        val glow = if (glowEnabled) {
-                            when {
-                                sung -> 0.8f
-                                active -> previewGlowSpline(frac)
-                                else -> 0f
-                            }
-                        } else 0f
-                        nc.save()
-                        if (scale != 1f) nc.scale(scale, scale, x + wordWidth / 2f, baseBaseline)
-                        paint.shader = null
-                        paint.color = if (sung) sungArgb else dimArgb
-                        if (glow > 0f) {
-                            paint.setShadowLayer(fontSizePx * 0.36f * glow, 0f, 0f, glowArgb)
-                        } else {
-                            paint.setShadowLayer(0f, 0f, 0f, 0)
-                        }
-                        nc.drawText(word, x, baseBaseline + dy, paint)
-                        paint.setShadowLayer(0f, 0f, 0f, 0)
-                        nc.restore()
-                        sungChars += wordCount
-                    }
+                // 整行扫光:整行文字从左到右渐进点亮,光带左侧(已唱区)CLAMP 常亮,
+                // 光带为柔和前沿,右侧未唱区保持暗底。与 AodLyricCanvasView 的 applySoftSweep 一致,
+                // 已移除逐字缩放/光斑。
+                val band = (size.width * PREVIEW_SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+                val sweepStart = -band + (size.width + band) * p
+                val sweepEnd = sweepStart + band
+                if (glowEnabled) {
+                    // 光晕层:在已点亮区域(0..sweepEnd)绘制带模糊阴影的整行文字,模拟扫光发光
+                    nc.save()
+                    nc.clipRect(0f, 0f, sweepEnd, size.height)
+                    paint.shader = null
+                    paint.color = sungArgb
+                    paint.setShadowLayer(fontSizePx * 0.36f, 0f, 0f, glowArgb)
+                    layout.draw(nc)
+                    paint.setShadowLayer(0f, 0f, 0f, 0)
+                    nc.restore()
                 }
+                // 亮部:渐变 [sung -> middle -> transparent],band 左侧 CLAMP 常亮,右侧渐隐
+                val sweepTransparent = Color.argb(0, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
+                val sweepMiddle = Color.argb(184, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
+                paint.shader = LinearGradient(
+                    sweepStart, 0f, sweepEnd, 0f,
+                    intArrayOf(sungArgb, sweepMiddle, sweepTransparent),
+                    floatArrayOf(0f, 0.45f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                paint.color = sungArgb
+                layout.draw(nc)
+                paint.shader = null
                 nc.restore()
             }
         }
     }
 }
 
-/** 把歌词文本拆成 (词, 在原文中的起始字符下标)，供预览逐词渲染使用。 */
-private fun splitPreviewWords(text: String): List<Pair<String, Int>> {
-    val result = ArrayList<Pair<String, Int>>()
-    var scan = 0
-    while (scan < text.length) {
-        while (scan < text.length && text[scan].isWhitespace()) scan++
-        if (scan >= text.length) break
-        val start = scan
-        while (scan < text.length && !text[scan].isWhitespace()) scan++
-        result += text.substring(start, scan) to start
-    }
-    return result
-}
-
-// 与 AodLyricCanvasView 的逐字动画曲线保持一致(缩放/位移/发光)。
-private fun previewScaleSpline(t: Float): Float =
-    if (t <= 0.7f) lerp(0.95f, 1.0505f, t / 0.7f) else lerp(1.0505f, 1f, (t - 0.7f) / 0.3f)
-
-private fun previewYOffsetSpline(t: Float): Float =
-    if (t <= 0.9f) lerp(0.01f, -(1f / 60f), t / 0.9f) else lerp(-(1f / 60f), 0f, (t - 0.9f) / 0.1f)
-
-private fun previewGlowSpline(t: Float): Float = when {
-    t <= 0.15f -> lerp(0f, 1f, t / 0.15f)
-    t <= 0.6f -> 1f
-    else -> lerp(1f, 0f, (t - 0.6f) / 0.4f)
-}
-
-private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
+// 预览整行扫光的光带宽度占比,与 AodLyricCanvasView 的 SWEEP_BAND_FRACTION 保持一致。
+private const val PREVIEW_SWEEP_BAND_FRACTION = 0.4f
 
 private fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): FontWeight =
     when (profile.weight) {
