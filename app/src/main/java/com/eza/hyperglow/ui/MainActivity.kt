@@ -2729,15 +2729,16 @@ private fun PreviewAnimatedLyric(
                 paint.color = dimArgb
                 layout.draw(nc)
 
-                // 整行扫光:整行文字用左→右渐变光带扫过,band 内亮起(sung),其余维持暗底。
-                // 与 AodLyricCanvasView 的整行扫光(LinearGradient 光带)一致,已移除逐字缩放/光斑。
+                // 整行扫光:整行文字从左到右渐进点亮,光带左侧(已唱区)CLAMP 常亮,
+                // 光带为柔和前沿,右侧未唱区保持暗底。与 AodLyricCanvasView 的 applySoftSweep 一致,
+                // 已移除逐字缩放/光斑。
                 val band = (size.width * PREVIEW_SWEEP_BAND_FRACTION).coerceAtLeast(1f)
                 val sweepStart = -band + (size.width + band) * p
                 val sweepEnd = sweepStart + band
                 if (glowEnabled) {
-                    // 光晕层:仅在当前光带范围绘制带模糊阴影的整行文字,模拟扫光的发光拖尾
+                    // 光晕层:在已点亮区域(0..sweepEnd)绘制带模糊阴影的整行文字,模拟扫光发光
                     nc.save()
-                    nc.clipRect(sweepStart, 0f, sweepEnd, size.height)
+                    nc.clipRect(0f, 0f, sweepEnd, size.height)
                     paint.shader = null
                     paint.color = sungArgb
                     paint.setShadowLayer(fontSizePx * 0.36f, 0f, 0f, glowArgb)
@@ -2745,11 +2746,13 @@ private fun PreviewAnimatedLyric(
                     paint.setShadowLayer(0f, 0f, 0f, 0)
                     nc.restore()
                 }
-                // 亮部:渐变光带内以 sung 色整行绘制,band 外透明(透出暗底)
+                // 亮部:渐变 [sung -> middle -> transparent],band 左侧 CLAMP 常亮,右侧渐隐
+                val sweepTransparent = Color.argb(0, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
+                val sweepMiddle = Color.argb(184, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
                 paint.shader = LinearGradient(
                     sweepStart, 0f, sweepEnd, 0f,
-                    intArrayOf(0, sungArgb, 0),
-                    floatArrayOf(0f, 0.5f, 1f),
+                    intArrayOf(sungArgb, sweepMiddle, sweepTransparent),
+                    floatArrayOf(0f, 0.45f, 1f),
                     Shader.TileMode.CLAMP
                 )
                 paint.color = sungArgb
