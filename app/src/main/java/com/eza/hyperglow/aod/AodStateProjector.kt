@@ -140,16 +140,19 @@ internal fun projectToDisplay(
         persistentKeepAlive = persistentKeepAlive
     )
 
-    // --- per-word（逐字动画已关闭）---
-    // 逐字动画已整体关闭：words 恒为空，画布退化为纯整行扫光，不再做逐字高亮/放大/光斑。
-    // 布局在 words 为空时会回退到整行文本渲染，因此整行扫光仍能正常绘制。
-    // 若后续需恢复逐字，可将此处改回 `state.words.orEmpty()`。
-    val effectiveWords = emptyList<LyricWord>()
+    // --- per-word（透传真实词级数据）---
+    // 有真实词级时间戳时随 words 下发,驱动逐字高亮;无真实数据时 words 为空,退化为整行扫光。
+    val effectiveWords = if (showLargeMetadata || !hasActiveLine) emptyList() else state.words.orEmpty()
 
-    // --- 行级同步标志（逐字关闭后统一走整行扫光）---
-    // 有活动歌词行时一律行级同步，以整行扫光为唯一渲染效果；
-    // NONE/UNSYNCED 无活动行 → false。
-    val lineLevelSync = hasActiveLine && !showLargeMetadata
+    // --- 行级同步标志 ---
+    // LINE → true；SYLLABLE && 无 words → true；SYLLABLE && 有 words → false；NONE/UNSYNCED → false。
+    // LINE 保持行级同步以保留整行扫光发光；有真实词级数据时由画布叠加逐字高亮。
+    val lineLevelSync = hasActiveLine && !showLargeMetadata &&
+        when (kind) {
+            LyricKind.LINE -> true
+            LyricKind.SYLLABLE -> state.words.isNullOrEmpty()
+            else -> false
+        }
 
     // --- ruby / layoutGroup（原 presentedRow.words/ruby/layoutGroups）---
     val words = if (showLargeMetadata || !hasActiveLine) emptyList() else effectiveWords.map(::toDisplayWord)
