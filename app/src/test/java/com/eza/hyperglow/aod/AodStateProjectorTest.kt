@@ -229,14 +229,12 @@ class AodStateProjectorTest {
         assertEquals("hello world", out.original)
         assertEquals("roma", out.romanized)
         assertEquals("tr", out.translated)
-        // LINE 有活动行且行有时长 → 合成词级时间戳随 words 下发，但仍保持行级同步(整行扫光+逐字叠加)
+        // LINE 有活动行 → 保持行级同步(整行扫光)；无真实词级数据时不合成，words 为空
         assertTrue(out.lineLevelSync)
         assertEquals(1_000L, out.lineStartMs)
         assertEquals(3_000L, out.lineEndMs)
         assertTrue(out.alignedRight)
-        assertEquals(2, out.words.size)
-        assertEquals(1_000L, out.words[0].startMs)
-        assertEquals(3_000L, out.words[1].endMs)
+        assertTrue(out.words.isEmpty())
     }
 
     // --- lyricKind = SYLLABLE (活动行有 words) ---
@@ -497,73 +495,12 @@ class AodStateProjectorTest {
         assertTrue(project(none).visible)
     }
 
-    // --- synthesizeLineWords：普通 LRC 行级→词级时间戳合成 ---
+    // --- 集成：LINE 无 words 时仅整行扫光（不合成逐字）；有真实 words 时透传叠加 ---
 
     @Test
-    fun synthesizeLineWords_splitsByWhitespaceAndAllocatesTimeByCharCount() {
-        // "hi world"：h-i(2字符) + w-o-r-l-d(5字符)，totalChars=7
-        // hi:   [0,2/7)   → 1000 + 0*1400/7 .. 1000 + 2*1400/7 = 1000..1400
-        // world:[2/7,7/7) → 1000 + 2*1400/7 .. 1000 + 7*1400/7 = 1400..2400
-        val words = synthesizeLineWords("hi world", 1_000L, 2_400L)
-        assertEquals(2, words.size)
-
-        assertEquals("hi", words[0].text)
-        assertEquals(1_000L, words[0].startMs)
-        assertEquals(1_400L, words[0].endMs)
-        assertEquals(true, words[0].boundaryAfter)
-        assertEquals(0, words[0].sourceStart)
-        assertEquals(2, words[0].sourceEnd)
-
-        assertEquals("world", words[1].text)
-        assertEquals(1_400L, words[1].startMs)
-        assertEquals(2_400L, words[1].endMs)
-        assertEquals(3, words[1].sourceStart) // "world" 在原串 "hi world" 中从索引 3 开始
-        assertEquals(8, words[1].sourceEnd)
-    }
-
-    @Test
-    fun synthesizeLineWords_handlesMultipleAndLeadingTrailingSpaces() {
-        // 前导/连续/尾随空白都应被忽略，只按非空白词切分
-        val words = synthesizeLineWords("  a   bb  ", 0L, 300L)
-        assertEquals(2, words.size)
-        assertEquals("a", words[0].text)
-        assertEquals(2, words[0].sourceStart) // "a" 在原串 "  a   bb  " 中位于索引 2
-        assertEquals(3, words[0].sourceEnd)
-        assertEquals("bb", words[1].text)
-        // 索引基于原始字符串（含空白）
-        assertEquals(6, words[1].sourceStart)
-        assertEquals(8, words[1].sourceEnd)
-    }
-
-    @Test
-    fun synthesizeLineWords_blankLineReturnsEmpty() {
-        assertTrue(synthesizeLineWords("", 0L, 1_000L).isEmpty())
-        assertTrue(synthesizeLineWords("   ", 0L, 1_000L).isEmpty())
-    }
-
-    @Test
-    fun synthesizeLineWords_zeroOrNegativeDurationReturnsEmpty() {
-        assertTrue(synthesizeLineWords("hello", 1_000L, 1_000L).isEmpty()) // end == start
-        assertTrue(synthesizeLineWords("hello", 2_000L, 1_000L).isEmpty()) // end < start
-    }
-
-    @Test
-    fun synthesizeLineWords_singleWordCoversWholeLine() {
-        val words = synthesizeLineWords("hello", 5_000L, 8_000L)
-        assertEquals(1, words.size)
-        assertEquals("hello", words[0].text)
-        assertEquals(5_000L, words[0].startMs)
-        assertEquals(8_000L, words[0].endMs)
-        assertEquals(0, words[0].sourceStart)
-        assertEquals(5, words[0].sourceEnd)
-    }
-
-    // --- 集成：LINE 无 words 时合成词级时间戳，仍保持行级同步 ---
-
-    @Test
-    fun lineKind_withoutWords_synthesizesWordTimingAndKeepsLineLevelSync() {
-        // 普通 LRC（lyricinfo 源）只有行级时间 → 项目应为该行合成词级时间戳随 words 下发，
-        // 同时保持行级同步以便画布在整行扫光基础上叠加逐字高亮
+    fun lineKind_withoutWords_pureScanLight_noWordOverlay() {
+        // 普通 LRC（lyricinfo 源）只有行级时间、无词级数据 → words 为空，纯整行扫光，
+        // 不合成逐字；lineLevelSync 保持 true 以保留扫光发光
         val s = state(
             lyricKind = LyricKind.LINE,
             line = "hello world",
@@ -574,19 +511,13 @@ class AodStateProjectorTest {
         )
         val out = project(s)
         assertEquals("hello world", out.original)
-        assertTrue(out.lineLevelSync) // LINE 保持行级同步(整行扫光+逐字叠加)
-        assertEquals(2, out.words.size)
-        assertEquals("hello", out.words[0].text)
-        assertEquals(1_000L, out.words[0].startMs)
-        assertEquals(2_200L, out.words[0].endMs) // 5/10 字符 → 均摊 1200ms
-        assertEquals("world", out.words[1].text)
-        assertEquals(2_200L, out.words[1].startMs)
-        assertEquals(3_400L, out.words[1].endMs)
+        assertTrue(out.lineLevelSync) // LINE 保持行级同步(整行扫光)
+        assertTrue(out.words.isEmpty()) // 无真实词级数据 → 不合成
     }
 
     @Test
-    fun lineKind_existingWords_doNotSynthesize() {
-        // 已有真实词级数据（SYLLABLE 语义）时，不合成，直接透传真实 words
+    fun lineKind_existingWords_passedThroughWithLineLevelSync() {
+        // 已有真实词级数据时透传真实 words，同时保持行级同步(扫光+逐字叠加)
         val words = listOf(LyricWord("hello", "", 1_000L, 1_500L, false))
         val s = state(
             lyricKind = LyricKind.LINE,
@@ -600,12 +531,12 @@ class AodStateProjectorTest {
         assertEquals(1, out.words.size)
         assertEquals("hello", out.words[0].text)
         assertEquals(1_000L, out.words[0].startMs)
-        assertTrue(out.lineLevelSync) // LINE 始终保持行级同步
+        assertTrue(out.lineLevelSync) // LINE 始终保持行级同步(扫光)
     }
 
     @Test
-    fun lineKind_noActiveLine_doesNotSynthesize() {
-        // 无活动行（lineIndex=-1）时不合成，words 保持为空
+    fun lineKind_noActiveLine_wordsEmpty() {
+        // 无活动行（lineIndex=-1）→ 无歌词，words 保持为空
         val s = state(
             lyricKind = LyricKind.LINE,
             line = "hello world",

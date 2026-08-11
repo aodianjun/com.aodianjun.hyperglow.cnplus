@@ -140,25 +140,15 @@ internal fun projectToDisplay(
         persistentKeepAlive = persistentKeepAlive
     )
 
-    // --- per-word（含合成词级时间戳）---
-    // 普通 LRC（lyricinfo 源）只有行级时间、没有词级时间戳，导致单词动画缺失、与预览不一致。
-    // 当首选的 LINE 歌词仅有行级时间且活动行有时长时，把行时长按字符均摊合成词级时间戳，
-    // 让普通 LRC 也能驱动逐字动画；有真实词级数据（SYLLABLE）时仍用真实数据。
-    val sourceWords = if (showLargeMetadata || !hasActiveLine) emptyList() else state.words.orEmpty()
-    val synthesizedWords = if (sourceWords.isEmpty() && kind == LyricKind.LINE &&
-        hasActiveLine && !showLargeMetadata && state.lineEndMs > state.lineStartMs &&
-        state.line.isNotBlank()
-    ) {
-        synthesizeLineWords(state.line, state.lineStartMs, state.lineEndMs)
-    } else {
-        emptyList()
-    }
-    val effectiveWords = if (sourceWords.isNotEmpty()) sourceWords else synthesizedWords
+    // --- per-word（仅透传真实词级数据）---
+    // 以整行扫光为主效果；仅当歌词源提供了真实词级时间戳（SYLLABLE）时，
+    // 才在扫光基础上叠加逐字动画。没有逐字数据（如普通 LRC 只有行级时间）时
+    // words 为空，画布退化为纯整行扫光，不作合成。
+    val effectiveWords = if (showLargeMetadata || !hasActiveLine) emptyList() else state.words.orEmpty()
 
     // --- 行级同步标志（原 isEffectiveLineLevelSync(document.type, presentedRow.words.size)）---
     // LINE → true；SYLLABLE && 无 words → true；SYLLABLE && 有 words → false；NONE/UNSYNCED → false。
-    // LINE 保持行级同步以保留整行扫光发光（发光最饱满）；合成出的词级时间戳仍随 words 下发，
-    // 由画布在整行扫光基础上叠加缩小幅度的逐字高亮，兼顾发光与逐字动画。
+    // LINE 保持行级同步以保留整行扫光发光（发光最饱满）；有真实词级数据时由画布叠加逐字高亮。
     val lineLevelSync = hasActiveLine && !showLargeMetadata &&
         when (kind) {
             LyricKind.LINE -> true
@@ -227,47 +217,6 @@ private fun toDisplayWord(word: LyricWord) = AodDisplayWord(
     sourceStart = word.sourceStart,
     sourceEnd = word.sourceEnd
 )
-
-/**
- * 当仅有行级时间、没有词级时间戳时，把行文本按空白切词，并将 [lineStartMs, lineEndMs] 的时长
- * 按字符数均摊到每个词，生成合成词级时间戳。与主页预览的逐字渲染（按字符切分）保持一致，
- * 使普通 LRC 也能驱动逐字高亮动画。每个词都带 sourceStart/sourceEnd，便于画布映射回原文。
- */
-internal fun synthesizeLineWords(
-    line: String,
-    lineStartMs: Long,
-    lineEndMs: Long
-): List<LyricWord> {
-    if (line.isBlank() || lineEndMs <= lineStartMs) return emptyList()
-    val parts = ArrayList<Pair<String, Int>>()
-    var scan = 0
-    while (scan < line.length) {
-        while (scan < line.length && line[scan].isWhitespace()) scan++
-        if (scan >= line.length) break
-        val start = scan
-        while (scan < line.length && !line[scan].isWhitespace()) scan++
-        parts += line.substring(start, scan) to start
-    }
-    if (parts.isEmpty()) return emptyList()
-    val totalChars = parts.sumOf { it.first.length }.coerceAtLeast(1)
-    val duration = lineEndMs - lineStartMs
-    var cursor = 0
-    return parts.map { (wordText, start) ->
-        val wordChars = wordText.length
-        val wordStart = lineStartMs + (duration * cursor) / totalChars
-        cursor += wordChars
-        val wordEnd = lineStartMs + (duration * cursor) / totalChars
-        LyricWord(
-            text = wordText,
-            romanized = "",
-            startMs = wordStart,
-            endMs = wordEnd.coerceAtLeast(wordStart),
-            boundaryAfter = true,
-            sourceStart = start,
-            sourceEnd = start + wordChars
-        )
-    }
-}
 
 /** [LyricRuby] → [AodDisplayRuby]。 */
 private fun toDisplayRuby(ruby: LyricRuby) = AodDisplayRuby(ruby.start, ruby.end, ruby.reading)
