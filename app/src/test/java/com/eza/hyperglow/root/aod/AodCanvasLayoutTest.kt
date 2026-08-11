@@ -632,12 +632,13 @@ class AodCanvasLayoutTest {
     }
 
     @Test
-    fun wordTimingDrivesCadenceWithoutLineBoundsAndNoneDisablesLineSweep() {
+    fun wordTimingDrivesCadenceAndLineSyncForcesSweep() {
         val words = listOf(AodCanvasWord("word", "", 1_000L, 2_000L, false))
 
         assertTrue(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, words))
         assertTrue(hasActiveCanvasTiming(true, "Top to bottom", 1_000L, 2_000L, emptyList()))
-        assertFalse(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words))
+        // None / Top to bottom 在行级同步时归一为水平扫光，不再禁用时序
+        assertTrue(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, emptyList()))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, words, speed = 0f))
     }
