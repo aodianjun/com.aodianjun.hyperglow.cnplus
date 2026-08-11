@@ -41,7 +41,11 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 
 ## Install
 
-APK from [Releases](https://github.com/aodianjun/hyperglow_CNplus/releases).
+APK from [Releases](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases).
+
+> [!TIP]
+> Also available on the [LSPosed Modules Repository](https://modules.lsposed.org) under
+> **HyperGlow CN+** (`com.aodianjun.hyperglow.cnplus`), which tracks each release automatically.
 
 1. Enable HyperGlow in LSPosed.
 2. Enable your lyrics source:
@@ -125,7 +129,11 @@ before opening a pull request:
 
 ## 安装
 
-从 [Releases](https://github.com/aodianjun/hyperglow_CNplus/releases) 下载 APK。
+从 [Releases](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases) 下载 APK。
+
+> [!TIP]
+> 也已在 [LSPosed 模块仓库](https://modules.lsposed.org)上架（**HyperGlow CN+**，包名
+> `com.aodianjun.hyperglow.cnplus`），会自动同步每个新版本。
 
 1. 在 LSPosed 中启用 HyperGlow。
 2. 启用你的歌词源：
