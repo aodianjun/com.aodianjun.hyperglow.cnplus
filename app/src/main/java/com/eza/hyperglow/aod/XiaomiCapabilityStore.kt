@@ -57,7 +57,10 @@ internal data class StoredXiaomiCapabilityReport(
             else XiaomiRuntimeSupportState.EXPERIMENTAL_ELIGIBLE
         profileState == XiaomiProfileState.EXPERIMENTAL_ACTIVE ->
             XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
-        else -> XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE
+        // 系统判定不可用(UNSUPPORTED_PROFILE)时,开启实验模式同样视为已解锁:
+        // 取消版本/符号白名单限制,按 rawProbes 能否解析出可用 surface 决定实际能力。
+        else -> if (experimentalModeEnabled) XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
+            else XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE
     }
 
     /**
@@ -257,10 +260,12 @@ internal object XiaomiCapabilityBundleCodec {
             XiaomiSymbolProbe.entries.firstOrNull { it.name == name }
         }.distinct()
         val present = presentProbeNames.toSet()
-        val profileState = XiaomiProfileState.fromWireValue(
-            payload.profileState
-        ) ?: return null
-        if (!isConsistentProfileState(
+        // 未知的 profileState(如新 ROM 上报的 "available" / "verified")不应丢弃整个报告:
+        // 回退为 UNSUPPORTED_PROFILE,让报告仍能解码,UI 至少显示"不支持"而非"无报告"。
+        // 仅对已知状态做一致性校验,回退状态不参与校验(否则又会被拒收)。
+        val knownState = XiaomiProfileState.fromWireValue(payload.profileState)
+        val profileState = knownState ?: XiaomiProfileState.UNSUPPORTED_PROFILE
+        if (knownState != null && !isConsistentProfileState(
                 profileState,
                 payload.verifiedRuntimeProfile,
                 payload.experimentalModeActive

@@ -339,8 +339,11 @@ private fun HomeScreen(
     val lockscreenEditorGestureSupported = effectiveReport.has(
         XiaomiCapability.LOCKSCREEN_EDITOR_GESTURE
     )
-    val experimentalEligible = effectiveReport.profileState ==
-        XiaomiProfileState.EXPERIMENTAL_ELIGIBLE
+    // 实验模式开关的显示条件:未验证但符号可用(EXPERIMENTAL_ELIGIBLE),或系统判定
+    // 不可用(UNSUPPORTED_PROFILE)时都显示。开启后取消版本/符号白名单,直接无视版本强制使用。
+    val experimentalEligible =
+        effectiveReport.profileState == XiaomiProfileState.EXPERIMENTAL_ELIGIBLE ||
+            effectiveReport.profileState == XiaomiProfileState.UNSUPPORTED_PROFILE
     var aodEnabled by remember {
         mutableStateOf(
             initialDocument.profiles[SceneCompiler.SURFACE_AOD]?.enabled
