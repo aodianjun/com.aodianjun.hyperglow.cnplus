@@ -9,14 +9,14 @@
 | 仓库名 | `aodianjun/hyperglow_CNplus` |
 | 模块包名（applicationId） | `com.aodianjun.hyperglow.cnplus` |
 | 仓库描述（模块名） | `Animated lock screen and always-on display lyrics for HyperOS 3` |
-| Release tag | `85-0.3.68`（VersionCode-VersionName 格式） |
-| 发布 APK | `hyperglow-cnplus-release-v0.3.68-85.apk` |
+| Release tag | `87-0.3.69`（VersionCode-VersionName 格式） |
+| 发布 APK | `hyperglow-cnplus-release-v0.3.69-87.apk` |
 
 ## 提交前检查清单
 
 - [x] 仓库有非空 description（作模块名）
 - [x] 至少一个有效 release，含 apk 资产
-- [x] release tag 格式为 `VersionCode-VersionName`（`85-0.3.68`）
+- [x] release tag 格式为 `VersionCode-VersionName`（`87-0.3.69`）
 - [x] `META-INF/xposed/module.prop`（现代 API：minApiVersion / targetApiVersion / staticScope）
 - [x] `META-INF/xposed/java_init.list`（模块入口）
 - [x] `META-INF/xposed/scope.list`（作用域：com.android.systemui）
@@ -43,5 +43,5 @@
 
 ## 后续维护
 
-- 每次发版用 `VersionCode-VersionName` 作为 tag（如 `86-0.3.69`）。
+- 每次发版用 `VersionCode-VersionName` 作为 tag（如 `87-0.3.69`）。
 - 更新时编辑 release 内容（不仅是资产），以触发 bot 同步。
