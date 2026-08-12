@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.Shader
 import android.graphics.Typeface
@@ -683,7 +684,11 @@ internal fun frameIntervalForTiming(
 ): Long = if (contentVisible && (timingActive || exitTransitionActive)) 16L else 0L
 
 private const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
-private const val SWEEP_BAND_FRACTION = 0.4f
+private const val SWEEP_BAND_FRACTION = 0.34f
+private const val SWEEP_BAND_ALPHA_PEAK = 255
+// 扫光余晖：行扫完后已唱区亮度在 SWEEP_DECAY_MS 内量化缓降，制造"光痕消散"质感。
+private const val SWEEP_DECAY_MS = 350L
+private const val SWEEP_DECAY_AMOUNT = 0.16f
 
 internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
     startedAtMs > 0L && nowMs - startedAtMs >= durationMs
@@ -1739,6 +1744,8 @@ internal class AodLyricCanvasView(
                 x += width + placed.gapAfter
                 wordIndex++
             }
+            // 整行扫光叠加层(参考发光方案)：光锋预照 + 已唱区余晖，保留逐字动画不变
+            drawSweepBand(canvas, line, lineBaseline, lineProgress())
             if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
             precedingRuby += line.rubyHeight
             lineIndex++
@@ -2549,6 +2556,118 @@ internal class AodLyricCanvasView(
         paint.color = savedColor
         paint.alpha = savedAlpha
         paint.shader = savedShader
+    }
+
+    private fun easeInOutSine(t: Float): Float =
+        -(kotlin.math.cos(kotlin.math.PI.toFloat() * t.coerceIn(0f, 1f)) - 1f) / 2f
+
+    private fun catmullRom(p0: Float, p1: Float, p2: Float, p3: Float, t: Float): Float {
+        val t2 = t * t
+        val t3 = t2 * t
+        return 0.5f * ((2f * p1) + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 + (-p0 + 3f * p1 - 3f * p2 + p3) * t3)
+    }
+
+    private fun sweepPeakX(line: OriginalLine, progress: Float): Float {
+        val timed = line.words.filter { it.word.startMs >= 0L && it.word.endMs > it.word.startMs }
+        if (timed.size >= 2 && content.lineEndMs > content.lineStartMs) {
+            val now = projectedPosition()
+            var x = line.startX
+            val centers = ArrayList<Float>(timed.size)
+            timed.forEach { pw ->
+                centers.add(x + pw.width * 0.5f)
+                x += pw.width + pw.gapAfter
+            }
+            val n = timed.size
+            val us = ArrayList<Float>(n)
+            timed.forEach { pw ->
+                us.add((pw.word.startMs + (pw.word.endMs - pw.word.startMs) * 0.5f).toFloat())
+            }
+            val span = us[n - 1] - us[0]
+            if (span <= 0f) return centers[0]
+            // 全局缓动一次, 整行速度连续; 逐字节奏由时间比例承载
+            val us0 = us[0]
+            val u = easeInOutSine(((now - us0) / span).coerceIn(0f, 1f))
+            for (i in 0 until n) us[i] = (us[i] - us0) / span
+            // 定位到当前字区间
+            var i = 0
+            while (i < n - 1 && u > us[i + 1]) i++
+            val lt = if (n > 1 && us[i + 1] > us[i]) ((u - us[i]) / (us[i + 1] - us[i])).coerceIn(0f, 1f) else 0f
+            val p0 = centers[if (i > 0) i - 1 else 0]
+            val p1 = centers[i]
+            val p2 = centers[if (i + 1 < n) i + 1 else n - 1]
+            val p3 = centers[if (i + 2 < n) i + 2 else n - 1]
+            return catmullRom(p0, p1, p2, p3, lt)
+        }
+        return line.startX + easeInOutSine(progress.coerceIn(0f, 1f)) * line.width
+    }
+
+    // 整行扫光叠加层：在逐字文字之上叠加光锋预照与已唱区余晖，保留逐字动画不变。
+    private fun drawSweepBand(
+        canvas: Canvas,
+        line: OriginalLine,
+        baseline: Float,
+        progress: Float
+    ) {
+        if (content.animationMode == "Minimal" || content.glowMode == "Off") return
+        val timed = line.words.filter { it.word.startMs >= 0L && it.word.endMs > it.word.startMs }
+        if (timed.isEmpty()) return
+        val savedAlpha = originalPaint.alpha
+        val savedShader = originalPaint.shader
+        // 光锋(扫光头)：Catmull-Rom 平滑定位，RadialGradient 提亮光锋处文字
+        val cx = sweepPeakX(line, progress)
+        val band = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+        val fm = originalPaint.fontMetrics
+        val midY = baseline + fm.ascent * 0.94f
+        // 与光束同呼吸：光与字一体明暗
+        val t = System.nanoTime() / 1000000000f
+        val pulse = 0.88f + 0.12f * kotlin.math.sin(t * 1.1f)
+        // 光锋只在行内可见，两端淡入淡出
+        val fadeIn = ((cx - (line.startX - band * 0.35f)) / (band * 0.55f)).coerceIn(0f, 1f)
+        val fadeOut = ((line.startX + line.width + band * 0.25f - cx) / (band * 0.55f)).coerceIn(0f, 1f)
+        val peakA = (SWEEP_BAND_ALPHA_PEAK * pulse * fadeIn * fadeOut).toInt()
+        if (peakA > 0) {
+            originalPaint.alpha = 255
+            originalPaint.shader = RadialGradient(
+                cx,
+                midY,
+                band * 0.42f,
+                intArrayOf(
+                    Color.argb(peakA, 255, 252, 245),
+                    Color.argb((peakA * 0.55f).toInt(), 255, 252, 245),
+                    Color.argb((peakA * 0.18f).toInt(), 255, 252, 245),
+                    Color.argb(0, 255, 252, 245)
+                ),
+                floatArrayOf(0f, 0.10f, 0.30f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            drawOriginalText(canvas, line, baseline)
+        }
+        // 已唱区余晖：行扫完后暖光在 SWEEP_DECAY_MS 内量化缓降，制造光痕消散
+        val now = projectedPosition()
+        val sungLast = timed.lastOrNull { it.word.endMs <= now }?.word?.endMs
+        val decay = if (sungLast != null && now - sungLast < SWEEP_DECAY_MS) {
+            (1f - (now - sungLast).toFloat() / SWEEP_DECAY_MS) * SWEEP_DECAY_AMOUNT
+        } else 0f
+        if (decay > 0f) {
+            val decayAlpha = (SWEEP_BAND_ALPHA_PEAK * decay).toInt()
+            originalPaint.alpha = 255
+            originalPaint.shader = LinearGradient(
+                line.startX,
+                0f,
+                cx.coerceAtLeast(line.startX + 1f),
+                0f,
+                intArrayOf(
+                    Color.argb(decayAlpha, 255, 252, 245),
+                    Color.argb((decayAlpha * 0.4f).toInt(), 255, 252, 245),
+                    Color.argb(0, 255, 252, 245)
+                ),
+                floatArrayOf(0f, 0.6f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            drawOriginalText(canvas, line, baseline)
+        }
+        originalPaint.shader = savedShader
+        originalPaint.alpha = savedAlpha
     }
 
     private fun drawSecondaryLine(
