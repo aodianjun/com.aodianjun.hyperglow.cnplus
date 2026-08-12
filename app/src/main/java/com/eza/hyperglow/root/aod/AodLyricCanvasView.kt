@@ -683,7 +683,7 @@ internal fun frameIntervalForTiming(
 ): Long = if (contentVisible && (timingActive || exitTransitionActive)) 16L else 0L
 
 private const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
-private const val SWEEP_BAND_FRACTION = 0.34f
+private const val SWEEP_BAND_FRACTION = 0.4f
 // 扫光余晖：行扫完后已唱区亮度在 SWEEP_DECAY_MS 内量化缓降，制造"光痕消散"质感。
 private const val SWEEP_DECAY_MS = 350L
 private const val SWEEP_DECAY_AMOUNT = 0.16f
@@ -2637,14 +2637,17 @@ internal class AodLyricCanvasView(
         val savedShader = originalPaint.shader
         val savedColor = originalPaint.color
         val savedAlpha = originalPaint.alpha
+        // 光晕半径作为纵向溢出余量：仅需覆盖文字高度 + 光晕模糊范围，
+        // 避免用水平扫光带宽度做纵向扩展（行宽大时会过度扩展到数倍文字高度）。
+        val haloRadius = originalPaint.textSize * GLOW_HALO_RADIUS
 
         // Pass 2: 光晕层 — clip 到已扫区域，sungText 色文字 + glow 色阴影
         canvas.save()
         canvas.clipRect(
             line.startX - band,
-            baseline + fm.ascent - band * 0.3f,
+            baseline + fm.ascent - haloRadius,
             sweepEnd,
-            baseline + fm.descent + band * 0.3f
+            baseline + fm.descent + haloRadius
         )
         originalPaint.shader = null
         originalPaint.color = sungColor
