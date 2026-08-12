@@ -1,11 +1,13 @@
 package com.eza.hyperglow.root.aod
 
 import android.content.Context
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.Shader
@@ -908,6 +910,7 @@ internal class AodLyricCanvasView(
     private val horizontalSweepShaders = SparseArray<LinearGradient>(4)
     private val verticalSweepShaders = SparseArray<LinearGradient>(4)
     private val sweepMatrix = Matrix()
+    private val sweepBandPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
     private val typefaceCache = HashMap<TypefaceKey, Typeface>(3)
@@ -1744,8 +1747,11 @@ internal class AodLyricCanvasView(
                 x += width + placed.gapAfter
                 wordIndex++
             }
-            // 整行扫光叠加层(参考发光方案)：光锋预照 + 已唱区余晖，保留逐字动画不变
-            drawSweepBand(canvas, line, lineBaseline, lineProgress())
+            // 整行发光叠加层(参考发光方案)：常驻光带 + 扫光带，保留逐字动画不变
+            if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+                drawResidentGlow(canvas, line, lineBaseline)
+                drawSweepBand(canvas, line, lineBaseline, lineProgress())
+            }
             if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
             precedingRuby += line.rubyHeight
             lineIndex++
@@ -2601,73 +2607,133 @@ internal class AodLyricCanvasView(
         return line.startX + easeInOutSine(progress.coerceIn(0f, 1f)) * line.width
     }
 
-    // 整行扫光叠加层：在逐字文字之上叠加光锋预照与已唱区余晖，保留逐字动画不变。
+    // 常驻光带：文字上方柔和光带，所有文字都有光（逐字 halo 提供点光，此为整行水平光带）
+    private fun drawResidentGlow(canvas: Canvas, line: OriginalLine, baseline: Float) {
+        val band = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+        val fm = originalPaint.fontMetrics
+        val midY = baseline + fm.ascent * 0.94f
+        val lx = line.startX
+        val rx = line.startX + line.width
+        // 平直亮带: 两端收进文字内, 两端亮度虚化, 锥形突出交给扫光
+        val edgeL = lx + band * 0.04f
+        val edgeR = rx - band * 0.04f
+        sweepBandPaint.alpha = 255
+        sweepBandPaint.shader = LinearGradient(
+            edgeL, 0f, edgeR, 0f,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 255, 236, 198),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.78f).toInt(), 255, 236, 198),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 255, 236, 198)
+            ),
+            floatArrayOf(0f, 0.5f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.06f, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawRect(edgeL, midY - band * 0.05f, edgeR, midY + band * 0.05f, sweepBandPaint)
+        sweepBandPaint.maskFilter = null
+        sweepBandPaint.shader = null
+    }
+
     private fun drawSweepBand(
         canvas: Canvas,
         line: OriginalLine,
         baseline: Float,
         progress: Float
     ) {
-        if (content.animationMode == "Minimal" || content.glowMode == "Off") return
-        val timed = line.words.filter { it.word.startMs >= 0L && it.word.endMs > it.word.startMs }
-        if (timed.isEmpty()) return
-        val savedAlpha = originalPaint.alpha
-        val savedShader = originalPaint.shader
-        // 光锋(扫光头)：Catmull-Rom 平滑定位，RadialGradient 提亮光锋处文字
-        val cx = sweepPeakX(line, progress)
         val band = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+        val cx = sweepPeakX(line, progress)
         val fm = originalPaint.fontMetrics
         val midY = baseline + fm.ascent * 0.94f
-        // 与光束同呼吸：光与字一体明暗
+        val lx = line.startX
+        val rx = line.startX + line.width
+        val gx0 = lx - band * 0.10f
+        val gx1 = cx + band * 0.32f
+        val cxFrac = ((cx - gx0) / (gx1 - gx0)).coerceIn(0f, 1f)
+        // 呼吸与进出: 与文字亮度波同一套曲线, 光与字同步明暗
         val t = System.nanoTime() / 1000000000f
-        val pulse = 0.88f + 0.12f * kotlin.math.sin(t * 1.1f)
-        // 光锋只在行内可见，两端淡入淡出
-        val fadeIn = ((cx - (line.startX - band * 0.35f)) / (band * 0.55f)).coerceIn(0f, 1f)
-        val fadeOut = ((line.startX + line.width + band * 0.25f - cx) / (band * 0.55f)).coerceIn(0f, 1f)
-        val peakA = (SWEEP_BAND_ALPHA_PEAK * pulse * fadeIn * fadeOut).toInt()
-        if (peakA > 0) {
-            originalPaint.alpha = 255
-            originalPaint.shader = RadialGradient(
-                cx,
-                midY,
-                band * 0.42f,
-                intArrayOf(
-                    Color.argb(peakA, 255, 252, 245),
-                    Color.argb((peakA * 0.55f).toInt(), 255, 252, 245),
-                    Color.argb((peakA * 0.18f).toInt(), 255, 252, 245),
-                    Color.argb(0, 255, 252, 245)
-                ),
-                floatArrayOf(0f, 0.10f, 0.30f, 1f),
-                Shader.TileMode.CLAMP
-            )
-            drawOriginalText(canvas, line, baseline)
-        }
-        // 已唱区余晖：行扫完后暖光在 SWEEP_DECAY_MS 内量化缓降，制造光痕消散
-        val now = projectedPosition()
-        val sungLast = timed.lastOrNull { it.word.endMs <= now }?.word?.endMs
-        val decay = if (sungLast != null && now - sungLast < SWEEP_DECAY_MS) {
-            (1f - (now - sungLast).toFloat() / SWEEP_DECAY_MS) * SWEEP_DECAY_AMOUNT
-        } else 0f
-        if (decay > 0f) {
-            val decayAlpha = (SWEEP_BAND_ALPHA_PEAK * decay).toInt()
-            originalPaint.alpha = 255
-            originalPaint.shader = LinearGradient(
-                line.startX,
-                0f,
-                cx.coerceAtLeast(line.startX + 1f),
-                0f,
-                intArrayOf(
-                    Color.argb(decayAlpha, 255, 252, 245),
-                    Color.argb((decayAlpha * 0.4f).toInt(), 255, 252, 245),
-                    Color.argb(0, 255, 252, 245)
-                ),
-                floatArrayOf(0f, 0.6f, 1f),
-                Shader.TileMode.CLAMP
-            )
-            drawOriginalText(canvas, line, baseline)
-        }
-        originalPaint.shader = savedShader
-        originalPaint.alpha = savedAlpha
+        var pulse = 0.88f + 0.12f * kotlin.math.sin(t * 1.1f)
+        val fadeIn = ((cx - (lx - band * 0.35f)) / (band * 0.55f)).coerceIn(0f, 1f)
+        val fadeOut = ((rx + band * 0.25f - cx) / (band * 0.55f)).coerceIn(0f, 1f)
+        pulse *= fadeIn * fadeOut
+        sweepBandPaint.alpha = (255 * pulse).toInt()
+
+        // 层1: 上方氛围光带 - 极淡, 只暗示光源来自文字上方, 不形成独立图形
+        sweepBandPaint.shader = LinearGradient(
+            gx0, 0f, gx1, 0f,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.28f).toInt(), 255, 240, 210),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.40f).toInt(), 255, 240, 210),
+                Color.argb(0, 255, 240, 210)
+            ),
+            floatArrayOf(0f, cxFrac, 1f),
+            Shader.TileMode.CLAMP
+        )
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.12f, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawRect(gx0, baseline + fm.ascent, gx1, midY, sweepBandPaint)
+        sweepBandPaint.maskFilter = null
+        sweepBandPaint.shader = null
+
+        // 层2: 扫光锥 - 光锋处圆润凸起(小锥+圆顶), 比常驻光带亮约30%
+        sweepBandPaint.shader = LinearGradient(
+            gx0, 0f, gx1, 0f,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.12f).toInt(), 210, 228, 255),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 226, 236, 252),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.52f).toInt(), 248, 240, 220),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.82f).toInt(), 255, 222, 170),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 1.00f).toInt(), 255, 216, 150),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.52f).toInt(), 255, 238, 200),
+                Color.argb(0, 255, 255, 255)
+            ),
+            floatArrayOf(0f, cxFrac * 0.40f, cxFrac * 0.70f, cxFrac * 0.92f, cxFrac, cxFrac + (1f - cxFrac) * 0.18f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        val coneTop = midY - band * 0.10f
+        val coneBottom = midY + band * 0.04f
+        val beam = Path()
+        beam.moveTo(gx0, coneBottom)
+        beam.lineTo(gx1, coneBottom)
+        beam.cubicTo(cx + band * 0.26f, coneBottom - band * 0.02f, cx + band * 0.14f, coneTop, cx, coneTop)
+        beam.cubicTo(cx - band * 0.14f, coneTop, cx - band * 0.26f, coneBottom - band * 0.02f, gx0, coneBottom)
+        beam.close()
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.05f, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawPath(beam, sweepBandPaint)
+        // 高光锥: 圆润顶, 垂直渐亮, 光锋处最突出
+        sweepBandPaint.shader = LinearGradient(
+            0f, coneTop, 0f, coneBottom,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 1.00f).toInt(), 255, 250, 232),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.20f).toInt(), 255, 250, 232)
+            ),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.03f, BlurMaskFilter.Blur.NORMAL)
+        val hc = Path()
+        hc.moveTo(cx - band * 0.13f, coneBottom - band * 0.02f)
+        hc.lineTo(cx + band * 0.13f, coneBottom - band * 0.02f)
+        hc.cubicTo(cx + band * 0.10f, coneBottom - band * 0.02f, cx + band * 0.08f, coneTop + band * 0.02f, cx, coneTop + band * 0.02f)
+        hc.cubicTo(cx - band * 0.08f, coneTop + band * 0.02f, cx - band * 0.10f, coneBottom - band * 0.02f, cx - band * 0.13f, coneBottom - band * 0.02f)
+        hc.close()
+        canvas.drawPath(hc, sweepBandPaint)
+        sweepBandPaint.maskFilter = null
+        sweepBandPaint.shader = null
+
+        // 层3: 光锋柔光团 - 极柔和, 从光锋向下融进文字, 与文字亮度波同一光源
+        sweepBandPaint.shader = RadialGradient(
+            cx, midY + band * 0.03f, band * 0.22f,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.70f).toInt(), 255, 242, 206),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.28f).toInt(), 255, 242, 206),
+                Color.argb(0, 255, 242, 206)
+            ),
+            floatArrayOf(0f, 0.45f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.06f, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawCircle(cx, midY + band * 0.03f, band * 0.22f, sweepBandPaint)
+        sweepBandPaint.maskFilter = null
+        sweepBandPaint.shader = null
     }
 
     private fun drawSecondaryLine(
