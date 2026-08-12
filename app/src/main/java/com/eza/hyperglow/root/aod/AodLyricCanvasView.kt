@@ -1,13 +1,10 @@
 package com.eza.hyperglow.root.aod
 
 import android.content.Context
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
-import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.graphics.Rect
 import android.graphics.Typeface
@@ -1692,10 +1689,9 @@ internal class AodLyricCanvasView(
             if (line.ruby.isNotEmpty()) {
                 drawRuby(canvas, line, lineBaseline)
             }
-            // 整行发光：文字形环境光 + 扫光，画在文字背后，让光从文字本身散发
+            // 整行发光：复刻预览方式，画在文字背后，光从文字背后透出
             if (content.animationMode != "Minimal" && content.glowMode != "Off") {
-                drawAmbientGlow(canvas, line, lineBaseline)
-                drawSweepGlow(canvas, line, lineBaseline, lineProgress())
+                drawPreviewStyleGlow(canvas, line, lineBaseline, lineProgress())
             }
             var x = 0f
             var wordIndex = 0
@@ -2618,84 +2614,65 @@ internal class AodLyricCanvasView(
         }
     }
 
-    // 常驻环境光：以文字本身为光源，宽半径 setShadowLayer 从文字背后散发柔光。
-    // 替代旧的矩形光带(drawRect)，让发光跟随文字轮廓，与文字融为一体。
-    private fun drawAmbientGlow(canvas: Canvas, line: OriginalLine, baseline: Float) {
-        val glowColor = resolvedPalette.glow
-        val savedShader = originalPaint.shader
-        val savedColor = originalPaint.color
-        val savedAlpha = originalPaint.alpha
-        originalPaint.shader = null
-        originalPaint.color = glowColor
-        originalPaint.alpha = GLOW_AMBIENT_ALPHA
-        originalPaint.setShadowLayer(
-            originalPaint.textSize * GLOW_AMBIENT_RADIUS,
-            0f, 0f,
-            glowColor
-        )
-        drawLineTextForGlow(canvas, line, baseline, originalPaint)
-        originalPaint.setShadowLayer(0f, 0f, 0f, 0)
-        originalPaint.color = savedColor
-        originalPaint.alpha = savedAlpha
-        originalPaint.shader = savedShader
-    }
-
-    // 文字形扫光：RadialGradient 以光锋为中心，文字本身在光锋处更亮。
-    // 替代旧的几何扫光带(矩形/圆/Path)，扫光跟随文字轮廓而非独立图形。
-    // 颜色统一取自 resolvedPalette.glow，消除硬编码 RGB 与调色板割裂。
-    private fun drawSweepGlow(
+    // 复刻预览 PreviewAnimatedLyric 的发光方式：
+    // Pass 2 — clip 到已扫区域，用 setShadowLayer 画 sungText 色文字产生光晕，
+    //          文字本身保持 sungText 色（不被 glow 色覆盖），shadow 用 glow 色散发柔光。
+    // Pass 3 — LinearGradient 扫光带（sung→middle→transparent, CLAMP），
+    //          左侧已唱区常亮，光锋处柔和过渡，右侧未唱区透明。
+    // 两层都画在文字背后（per-word 循环之前），光从文字背后透出，不遮挡文字。
+    private fun drawPreviewStyleGlow(
         canvas: Canvas,
         line: OriginalLine,
         baseline: Float,
         progress: Float
     ) {
         val glowColor = resolvedPalette.glow
-        val cx = sweepPeakX(line, progress)
-        val fm = originalPaint.fontMetrics
-        val midY = baseline + fm.ascent * 0.5f
+        val sungColor = resolvedPalette.sungText
         val band = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-        val lx = line.startX
-        val rx = line.startX + line.width
-        // 呼吸与进出: 与文字亮度波同一套曲线, 光与字同步明暗
-        val t = System.nanoTime() / 1000000000f
-        var pulse = 0.88f + 0.12f * kotlin.math.sin(t * 1.1f)
-        val fadeIn = ((cx - (lx - band * 0.35f)) / (band * 0.55f)).coerceIn(0f, 1f)
-        val fadeOut = ((rx + band * 0.25f - cx) / (band * 0.55f)).coerceIn(0f, 1f)
-        pulse *= fadeIn * fadeOut
-
-        val r = Color.red(glowColor)
-        val g = Color.green(glowColor)
-        val b = Color.blue(glowColor)
+        val sweepStart = line.startX - band + (line.width + band) * progress.coerceIn(0f, 1f)
+        val sweepEnd = sweepStart + band
+        val fm = originalPaint.fontMetrics
 
         val savedShader = originalPaint.shader
         val savedColor = originalPaint.color
         val savedAlpha = originalPaint.alpha
-        val savedMaskFilter = originalPaint.maskFilter
 
-        // 文字形扫光：径向渐变中心在光锋位置，文字在光锋处更亮，向外渐隐。
-        // BlurMaskFilter 轻微模糊让光锋边缘柔和过渡，不形成独立几何图形。
-        originalPaint.shader = RadialGradient(
-            cx, midY, band * 0.5f,
-            intArrayOf(
-                Color.argb((GLOW_SWEEP_PEAK_ALPHA * pulse).toInt().coerceIn(0, 255), r, g, b),
-                Color.argb((GLOW_SWEEP_MID_ALPHA * pulse).toInt().coerceIn(0, 255), r, g, b),
-                Color.argb(0, r, g, b)
-            ),
-            floatArrayOf(0f, 0.5f, 1f),
-            Shader.TileMode.CLAMP
+        // Pass 2: 光晕层 — clip 到已扫区域，sungText 色文字 + glow 色阴影
+        canvas.save()
+        canvas.clipRect(
+            line.startX - band,
+            baseline + fm.ascent - band * 0.3f,
+            sweepEnd,
+            baseline + fm.descent + band * 0.3f
         )
-        originalPaint.color = glowColor
+        originalPaint.shader = null
+        originalPaint.color = sungColor
         originalPaint.alpha = 255
-        originalPaint.maskFilter = BlurMaskFilter(
-            originalPaint.textSize * 0.10f, BlurMaskFilter.Blur.NORMAL
+        originalPaint.setShadowLayer(
+            originalPaint.textSize * GLOW_HALO_RADIUS,
+            0f, 0f,
+            glowColor
         )
         drawLineTextForGlow(canvas, line, baseline, originalPaint)
+        originalPaint.setShadowLayer(0f, 0f, 0f, 0)
+        canvas.restore()
 
-        originalPaint.maskFilter = null
+        // Pass 3: 扫光亮部 — LinearGradient(sung→middle→transparent, CLAMP)
+        val transparent = Color.argb(0, Color.red(sungColor), Color.green(sungColor), Color.blue(sungColor))
+        val middle = Color.argb(184, Color.red(sungColor), Color.green(sungColor), Color.blue(sungColor))
+        originalPaint.shader = LinearGradient(
+            sweepStart, 0f, sweepEnd, 0f,
+            intArrayOf(sungColor, middle, transparent),
+            floatArrayOf(0f, 0.45f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        originalPaint.color = sungColor
+        originalPaint.alpha = 255
+        drawLineTextForGlow(canvas, line, baseline, originalPaint)
         originalPaint.shader = null
+
         originalPaint.color = savedColor
         originalPaint.alpha = savedAlpha
-        originalPaint.maskFilter = savedMaskFilter
         originalPaint.shader = savedShader
     }
 
@@ -2870,11 +2847,5 @@ internal class AodLyricCanvasView(
         private const val LINE_LEVEL_GLOW_PEAK = 0.5f
         private const val GLOW_HALO_ALPHA = 235
         private const val GLOW_HALO_RADIUS = 0.36f
-        // 整行环境光：宽半径柔光从文字背后散发，低 alpha 保证不喧宾夺主
-        private const val GLOW_AMBIENT_ALPHA = 38
-        private const val GLOW_AMBIENT_RADIUS = 0.55f
-        // 文字形扫光：径向渐变中心亮度与中段亮度
-        private const val GLOW_SWEEP_PEAK_ALPHA = 190
-        private const val GLOW_SWEEP_MID_ALPHA = 80
     }
 }
