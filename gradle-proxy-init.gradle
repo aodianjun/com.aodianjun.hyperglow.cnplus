@@ -1,8 +1,0 @@
-// Temporary init script: route Gradle's HTTP through the sandbox proxy.
-beforeSettings {
-    System.setProperty("http.proxyHost", "127.0.0.1")
-    System.setProperty("http.proxyPort", "18080")
-    System.setProperty("https.proxyHost", "127.0.0.1")
-    System.setProperty("https.proxyPort", "18080")
-    System.setProperty("http.nonProxyHosts", "localhost|127.0.0.1")
-}
