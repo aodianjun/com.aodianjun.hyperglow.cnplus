@@ -1691,7 +1691,8 @@ internal class AodLyricCanvasView(
                 drawRuby(canvas, line, lineBaseline)
             }
             // 整行发光：复刻预览方式，画在文字背后，光从文字背后透出
-            if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+            val previewGlow = content.animationMode != "Minimal" && content.glowMode != "Off"
+            if (previewGlow) {
                 drawPreviewStyleGlow(canvas, line, lineBaseline, lineProgress())
             }
             var x = 0f
@@ -1704,15 +1705,23 @@ internal class AodLyricCanvasView(
                 val progress = timedWordProgress(position, word.startMs, word.endMs)
                 val active = position >= word.startMs && position < word.endMs
                 val sung = position >= word.endMs
+                // 整行扫光生效时，已唱区由 Pass3 的平滑扫光层覆盖，不必再逐字重绘，
+                // 避免与扫光层叠加导致已扫区过亮、发白，扫光边界也更清晰(对齐预览)。
+                if (previewGlow && sung) {
+                    x += width + placed.gapAfter
+                    wordIndex++
+                    continue
+                }
                 val animated = content.animationMode != "Minimal"
                 val scale = if (animated && active) scaleSpline(progress) else if (animated && !sung) 0.95f else 1f
                 val y = if (animated && active) yOffsetSpline(progress) * originalPaint.textSize
                 else if (animated && !sung) 0.01f * originalPaint.textSize else 0f
                 val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
                     when {
-                        // 已唱词持续发光(对齐预览 pass2 整行发光),避免词间发光消失导致闪烁
-                        sung -> GLOW_LINE_INTENSITY
-                        // 当前演唱词额外增强(对齐预览 pass3 逐字光斑)
+                        // 已唱区整行已由整行光晕层(Pass2)覆盖，这里不再逐字叠加光晕，
+                        // 避免两层光晕叠加导致已扫区过亮、扫光前沿被模糊掉。
+                        sung -> 0f
+                        // 当前演唱词额外保留轻微光斑，点出演唱焦点而不遮蔽扫光
                         active -> GLOW_ACTIVE_PEAK * glowSpline(progress)
                         else -> 0f
                     }
