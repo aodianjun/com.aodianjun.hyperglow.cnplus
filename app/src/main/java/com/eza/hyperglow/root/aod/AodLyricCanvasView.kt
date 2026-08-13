@@ -1690,10 +1690,21 @@ internal class AodLyricCanvasView(
             if (line.ruby.isNotEmpty()) {
                 drawRuby(canvas, line, lineBaseline)
             }
-            // 整行发光：复刻预览方式，画在文字背后，光从文字背后透出
+            // 整行发光：纯复刻预览 PreviewAnimatedLyric，整行扫光，无逐字动画。
+            // Pass 1 未唱整行暗底 + Pass 2 已扫光晕 + Pass 3 扫光带，完全对齐预览。
             val previewGlow = content.animationMode != "Minimal" && content.glowMode != "Off"
             if (previewGlow) {
+                // Pass 1: 未唱区整行暗底（对齐预览 dim 底色）
+                originalPaint.shader = null
+                originalPaint.setShadowLayer(0f, 0f, 0f, 0)
+                setTextAlpha(originalPaint, 0.35f, 1f, resolvedPalette.unsungText)
+                drawOriginalText(canvas, line, lineBaseline)
+                // Pass 2 + Pass 3: 已扫区光晕 + 扫光带（drawPreviewStyleGlow 内部完成）
                 drawPreviewStyleGlow(canvas, line, lineBaseline, lineProgress())
+                if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
+                precedingRuby += line.rubyHeight
+                lineIndex++
+                continue
             }
             var x = 0f
             var wordIndex = 0
@@ -1705,27 +1716,11 @@ internal class AodLyricCanvasView(
                 val progress = timedWordProgress(position, word.startMs, word.endMs)
                 val active = position >= word.startMs && position < word.endMs
                 val sung = position >= word.endMs
-                // 整行扫光生效时，已唱区由 Pass3 的平滑扫光层覆盖，不必再逐字重绘，
-                // 避免与扫光层叠加导致已扫区过亮、发白，扫光边界也更清晰(对齐预览)。
-                if (previewGlow && sung) {
-                    x += width + placed.gapAfter
-                    wordIndex++
-                    continue
-                }
                 val animated = content.animationMode != "Minimal"
                 val scale = if (animated && active) scaleSpline(progress) else if (animated && !sung) 0.95f else 1f
                 val y = if (animated && active) yOffsetSpline(progress) * originalPaint.textSize
                 else if (animated && !sung) 0.01f * originalPaint.textSize else 0f
-                val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
-                    when {
-                        // 已唱区整行已由整行光晕层(Pass2)覆盖，这里不再逐字叠加光晕，
-                        // 避免两层光晕叠加导致已扫区过亮、扫光前沿被模糊掉。
-                        sung -> 0f
-                        // 当前演唱词额外保留轻微光斑，点出演唱焦点而不遮蔽扫光
-                        active -> GLOW_ACTIVE_PEAK * glowSpline(progress)
-                        else -> 0f
-                    }
-                } else 0f
+                val glow = 0f
                 canvas.save()
                 val wordBaseline = lineBaseline
                 if (animated) canvas.scale(scale, scale, wordX + width / 2f, wordBaseline)
