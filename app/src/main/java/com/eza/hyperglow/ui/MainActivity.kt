@@ -1060,6 +1060,7 @@ private fun setUiLanguage(context: android.content.Context, language: UiLanguage
         UiLanguage.SYSTEM -> LocaleList.getEmptyLocaleList()
         UiLanguage.ENGLISH -> LocaleList.forLanguageTags("en")
         UiLanguage.SIMPLIFIED_CHINESE -> LocaleList.forLanguageTags("zh-CN")
+        UiLanguage.TRADITIONAL_CHINESE -> LocaleList.forLanguageTags("zh-TW")
     }
 }
 
@@ -1069,6 +1070,7 @@ private fun uiLanguageLabel(context: android.content.Context, language: UiLangua
             UiLanguage.SYSTEM -> R.string.language_system_default
             UiLanguage.ENGLISH -> R.string.language_english
             UiLanguage.SIMPLIFIED_CHINESE -> R.string.language_simplified_chinese
+            UiLanguage.TRADITIONAL_CHINESE -> R.string.language_traditional_chinese
         }
     )
 
