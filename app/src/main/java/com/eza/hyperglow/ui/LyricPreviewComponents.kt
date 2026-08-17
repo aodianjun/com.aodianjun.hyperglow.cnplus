@@ -429,7 +429,7 @@ private fun PreviewAnimatedLyric(
                         layout.getLineEnd(i),
                         layout.getLineLeft(i),
                         layout.getLineWidth(i),
-                        layout.getLineBaseline(i)
+                        layout.getLineBaseline(i).toFloat()
                     )
                 }
                 // 与实机一致:整行总进度按行宽加权分摊到各视觉行,扫光逐行推进。
