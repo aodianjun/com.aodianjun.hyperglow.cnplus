@@ -2851,7 +2851,6 @@ internal class AodLyricCanvasView(
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_LINE_INTENSITY = 0.8f
-        private const val GLOW_ACTIVE_PEAK = 1f
         private const val LINE_LEVEL_GLOW_PEAK = 0.5f
         private const val GLOW_HALO_ALPHA = 235
         private const val GLOW_HALO_RADIUS = 0.36f
