@@ -24,6 +24,10 @@ AI-DECLARATION.md
 *.log
 .env
 .env.*
+# CI 生成的临时 release notes,不应入库
+.tmp-release-notes.md
+release-notes-extra.md
+release-notes-final.md
 # 固定的调试签名密钥需入库(用于 CI 与本地签名一致,更新免卸载)
 !app/keystore/
 app/keystore/*

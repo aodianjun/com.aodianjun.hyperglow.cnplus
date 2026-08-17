@@ -93,4 +93,10 @@ class AodRenderPreferencesTest {
         assertFalse(config.suppressLockscreenEditorLongPress)
         assertFalse(config.experimentalMode)
     }
+
+    @Test
+    fun schemaVersionIsStampedForFutureMigrations() {
+        assertEquals(1, AodRenderPreferences.SCHEMA_VERSION)
+        assertEquals("schema_version", AodRenderPreferences.SCHEMA_VERSION_KEY)
+    }
 }

@@ -134,6 +134,13 @@ internal fun normalizePauseLingerMs(value: Long): Long = when (value) {
 
 object AodRenderPreferences {
     const val PREFS = "aod_render"
+    const val SCHEMA_VERSION_KEY = "schema_version"
+    /**
+     * SharedPreferences 结构版本号。当 key 重命名、默认值变更或格式不兼容时递增,
+     * 并在 [migrateIfNeeded] 中添加从旧版本到新版本的迁移逻辑。
+     * v0 = 无版本戳(旧安装); v1 = 首次引入版本号。
+     */
+    const val SCHEMA_VERSION = 1
     const val AOD_ENABLED = "aod_enabled"
     const val LOCKSCREEN_ENABLED = "lockscreen_enabled"
     const val SEAMLESS_TRANSITION_ENABLED = "seamless_transition_enabled"
@@ -176,6 +183,7 @@ object AodRenderPreferences {
         val prefs = preferences ?: context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).also {
             preferences = it
             it.registerOnSharedPreferenceChangeListener(preferenceListener)
+            migrateIfNeeded(it)
         }
         return cachedConfig ?: AodRenderConfig(
             prefs.getBoolean(AOD_ENABLED, true),
@@ -208,6 +216,17 @@ object AodRenderPreferences {
             prefs.getBoolean(HIDE_BACKGROUND_CARD, false),
             prefs.getBoolean(HIDE_LAUNCHER_ICON, false)
         ).also { cachedConfig = it }
+    }
+
+    /**
+     * 将旧版本的 SharedPreferences 迁移到当前 [SCHEMA_VERSION]。
+     * v0→v1: 无结构变更,各 normalize* 函数已内联处理旧值;仅写入版本戳。
+     * 后续版本在此追加 `if (from < 2) { ... }` 分支。
+     */
+    private fun migrateIfNeeded(prefs: SharedPreferences) {
+        val current = prefs.getInt(SCHEMA_VERSION_KEY, 0)
+        if (current >= SCHEMA_VERSION) return
+        prefs.edit().putInt(SCHEMA_VERSION_KEY, SCHEMA_VERSION).apply()
     }
 
     /**
