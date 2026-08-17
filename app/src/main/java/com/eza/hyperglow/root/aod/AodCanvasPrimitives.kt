@@ -627,7 +627,7 @@ internal fun isEffectiveCadenceActive(inputs: EffectiveCadenceInputs): Boolean =
         verifiedDozeHost = inputs.verifiedDozeHost
     )
 
-private fun isEffectiveCadenceActive(
+internal fun isEffectiveCadenceActive(
     attached: Boolean,
     sceneActive: Boolean,
     ownVisible: Boolean,
@@ -671,8 +671,8 @@ internal fun frameIntervalForTiming(
     exitTransitionActive: Boolean = false
 ): Long = if (contentVisible && (timingActive || exitTransitionActive)) 16L else 0L
 
-private const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
-private const val SWEEP_BAND_FRACTION = 0.4f
+internal const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
+internal const val SWEEP_BAND_FRACTION = 0.4f
 // 扫光余晖：行扫完后已唱区亮度在 SWEEP_DECAY_MS 内量化缓降，制造"光痕消散"质感。
 private const val SWEEP_DECAY_MS = 350L
 private const val SWEEP_DECAY_AMOUNT = 0.16f
