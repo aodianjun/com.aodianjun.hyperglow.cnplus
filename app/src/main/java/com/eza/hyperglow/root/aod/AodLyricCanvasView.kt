@@ -860,6 +860,12 @@ internal class AodLyricCanvasView(
             return
         }
         val position = projectedPosition()
+        // 与预览一致：整块单一总进度，进入逐行循环前一次算好，
+        // 循环内按行宽加权分摊（OriginalLayout.continuousFill ≙ 预览 splitContinuousFill），
+        // 扫光作为一条连续光带依次穿过各视觉行，而非各行各自独立推进。
+        val blockFill = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+            blockSweepProgress(originalLayout)
+        } else 0f
         var precedingRuby = 0f
         var lineIndex = 0
         while (lineIndex < lines.size) {
@@ -880,13 +886,15 @@ internal class AodLyricCanvasView(
             // Pass 1 未唱整行暗底 + Pass 2 已扫光晕 + Pass 3 扫光带，完全对齐预览。
             val previewGlow = content.animationMode != "Minimal" && content.glowMode != "Off"
             if (previewGlow) {
-                // Pass 1: 未唱区整行暗底（对齐预览 dim 底色）
+                // Pass 1: 未唱区整行暗底 —— 对齐预览 dim 底色（主色 30% 不透明度）。
+                // 不走 steadyTextAlpha：其 AOD 增亮(≈0.56)会明显压低已唱/未唱对比度。
                 originalPaint.shader = null
                 originalPaint.setShadowLayer(0f, 0f, 0f, 0)
-                setTextAlpha(originalPaint, 0.35f, 1f, resolvedPalette.unsungText)
+                originalPaint.color = resolvedPalette.unsungText
+                originalPaint.alpha = UNSUNG_BASE_ALPHA
                 drawOriginalText(canvas, line, lineBaseline)
                 // Pass 2 + Pass 3: 已扫区光晕 + 扫光带（drawPreviewStyleGlow 内部完成）
-                drawPreviewStyleGlow(canvas, line, lineBaseline, previewSweepProgress(line))
+                drawPreviewStyleGlow(canvas, line, lineBaseline, originalLayout.continuousFill(blockFill, lineIndex))
                 if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
                 precedingRuby += line.rubyHeight
                 lineIndex++
@@ -1811,13 +1819,24 @@ internal class AodLyricCanvasView(
     // Pass 3 — LinearGradient 扫光带（sung→middle→transparent, CLAMP），
     //          左侧已唱区常亮，光锋处柔和过渡，右侧未唱区透明。
     // 两层都画在文字背后（per-word 循环之前），光从文字背后透出，不遮挡文字。
-    // 扫光进度优先取本行逐字时间戳（首词 startMs → 末词 endMs）。
-    // 行级 lineStartMs/lineEndMs 在纯逐字歌词源下常为 0，progress() 会退化为 1f，
-    // 导致整行全亮、已唱未唱无法区分；按行内单词时间计算同时修复多行各自进度。
-    private fun previewSweepProgress(line: OriginalLine): Float {
-        val timed = line.words.filter { it.word.startMs >= 0L && it.word.endMs > it.word.startMs }
-        if (timed.isNotEmpty()) {
-            return progress(projectedPosition(), timed.first().word.startMs, timed.last().word.endMs)
+    // 整块扫光总进度（对齐预览 previewProjectedProgress 的"整块单一进度"结构）：
+    // 预览按行级时间戳驱动整块 p，再 splitContinuousFill 按行宽加权分摊到各视觉行。
+    // 纯逐字歌词源行级时间常为 0，progress() 会退化为 1f（整块全亮、已唱未唱无法区分），
+    // 故优先取整块全部单词范围（全局首词 startMs → 末词 endMs），无单词时间再回退行级。
+    private fun blockSweepProgress(layout: OriginalLayout): Float {
+        var startMs = Long.MAX_VALUE
+        var endMs = Long.MIN_VALUE
+        layout.lines.forEach { line ->
+            line.words.forEach { placed ->
+                val word = placed.word
+                if (word.startMs >= 0L && word.endMs > word.startMs) {
+                    if (word.startMs < startMs) startMs = word.startMs
+                    if (word.endMs > endMs) endMs = word.endMs
+                }
+            }
+        }
+        if (startMs != Long.MAX_VALUE && endMs > startMs) {
+            return progress(projectedPosition(), startMs, endMs)
         }
         return lineProgress()
     }
@@ -2051,5 +2070,7 @@ internal class AodLyricCanvasView(
         private const val LINE_LEVEL_GLOW_PEAK = 0.5f
         private const val GLOW_HALO_ALPHA = 235
         private const val GLOW_HALO_RADIUS = 0.36f
+        // 未唱底色不透明度，对齐预览 dim 底色 color.copy(alpha = 0.30f)。
+        private const val UNSUNG_BASE_ALPHA = (255 * 0.30f).toInt()
     }
 }
