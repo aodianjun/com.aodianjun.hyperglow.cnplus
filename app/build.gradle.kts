@@ -38,7 +38,8 @@ val releaseSigningConfigured = listOf(
 
 android {
     namespace = "com.eza.hyperglow"
-    compileSdk = 37
+    // API 36 (Android 16) 为当前正式版 SDK;37 仍为预览,回退避免预览 API 泄漏
+    compileSdk = 36
 
     defaultConfig {
         // LSPosed 模块仓库按 applicationId(应用包名)索引。
@@ -46,7 +47,7 @@ android {
         // 代码包路径/namespace 保留 com.eza.hyperglow，组件相对名与 import 均无需改动。
         applicationId = "com.aodianjun.hyperglow.cnplus"
         minSdk = 33
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 88
         versionName = "0.3.70"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
