@@ -38,8 +38,8 @@ val releaseSigningConfigured = listOf(
 
 android {
     namespace = "com.eza.hyperglow"
-    // API 36 (Android 16) 为当前正式版 SDK;37 仍为预览,回退避免预览 API 泄漏
-    compileSdk = 36
+    // miuix-shader-android:0.9.3 要求 compileSdk 37,降级会导致依赖检查失败
+    compileSdk = 37
 
     defaultConfig {
         // LSPosed 模块仓库按 applicationId(应用包名)索引。

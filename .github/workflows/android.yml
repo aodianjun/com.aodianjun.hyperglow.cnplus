@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     # 同分支快速连推时取消排队中的旧构建,只保留最新 commit 的验证结果
     concurrency:
-      group: build-${{ github.ref }}
+      group: build-${{ github.ref }}-${{ matrix.variant }}
       cancel-in-progress: true
     timeout-minutes: 30
     strategy:
