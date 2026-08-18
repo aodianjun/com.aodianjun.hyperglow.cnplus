@@ -412,11 +412,11 @@ internal fun LyricLayoutScreen(
                             selectedProfile.animation
                         ) { value -> updateSelected { it.copy(animation = value) } }
                     }
-                    AodChoiceRow(AodChoiceKind.GLOW, selectedProfile.glow) {
-                        openChoice(AodChoiceKind.GLOW, listOf("Off", "On"), selectedProfile.glow) { value ->
-                            updateSelected { it.copy(glow = value) }
-                        }
-                    }
+                    SwitchPreference(
+                        selectedProfile.glow == "On",
+                        { on -> updateSelected { it.copy(glow = if (on) "On" else "Off") } },
+                        stringResource(R.string.choice_glow)
+                    )
                     AodChoiceRow(AodChoiceKind.LINE_PROGRESS, selectedProfile.lineSyncFillMode) {
                         openChoice(
                             AodChoiceKind.LINE_PROGRESS,
@@ -443,6 +443,38 @@ internal fun LyricLayoutScreen(
                             fontColorPresetName(selectedProfile.palette)
                         ) { value ->
                             updateSelected { it.copy(palette = applyFontColor(it.palette, value)) }
+                        }
+                    }
+                    if (selectedProfile.metadataVisible) {
+                        AodChoiceRow(
+                            AodChoiceKind.SONG_INFO_COLOR,
+                            metadataColorPresetName(selectedProfile.palette)
+                        ) {
+                            openChoice(
+                                AodChoiceKind.SONG_INFO_COLOR,
+                                FONT_COLOR_CHOICES,
+                                metadataColorPresetName(selectedProfile.palette)
+                            ) { value ->
+                                updateSelected {
+                                    it.copy(palette = applyMetadataColor(it.palette, value))
+                                }
+                            }
+                        }
+                    }
+                    if (selectedProfile.showNextLine) {
+                        AodChoiceRow(
+                            AodChoiceKind.NEXT_LINE_COLOR,
+                            nextLineColorPresetName(selectedProfile.palette)
+                        ) {
+                            openChoice(
+                                AodChoiceKind.NEXT_LINE_COLOR,
+                                FONT_COLOR_CHOICES,
+                                nextLineColorPresetName(selectedProfile.palette)
+                            ) { value ->
+                                updateSelected {
+                                    it.copy(palette = applyNextLineColor(it.palette, value))
+                                }
+                            }
                         }
                     }
                     AodChoiceRow(
@@ -551,11 +583,11 @@ internal fun LyricLayoutScreen(
             Column {
                 selected.values.forEach { value ->
                     val label = choiceDisplayLabel(context, selected.kind, value)
-                    if (selected.kind == AodChoiceKind.FONT_COLOR) {
-                        // 字体颜色用色块行直观展示颜色效果,其余选项保持单选样式
-                        FontColorOptionRow(
+                    if (selected.kind.swatchColorFor(value) != null) {
+                        // 颜色类选项用色块行直观展示颜色效果,其余选项保持单选样式
+                        ColorSwatchOptionRow(
                             label = label,
-                            hex = value,
+                            swatch = selected.kind.swatchColorFor(value)!!,
                             selected = selected.current == value,
                             onClick = {
                                 selected.onSelect(value)
@@ -663,22 +695,16 @@ private fun AppearancePreviewHeader(
 }
 
 /**
- * 字体颜色选项行:色块 + 名称,替代纯文字单选,选中色一眼可辨。
- * 非 hex token(default)显示白色色块,与实际渲染颜色一致。
+ * 颜色类选项(字体/歌曲信息/下一行歌词/卡片颜色)的色块行:色块 + 名称 + 选中勾,
+ * 替代纯文字单选,颜色效果一眼可辨。色块颜色与实际渲染颜色一致。
  */
 @Composable
-private fun FontColorOptionRow(
+private fun ColorSwatchOptionRow(
     label: String,
-    hex: String,
+    swatch: ComposeColor,
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val dotColor = if (hex.startsWith("#")) {
-        runCatching { ComposeColor(android.graphics.Color.parseColor(hex)) }
-            .getOrDefault(ComposeColor.White)
-    } else {
-        ComposeColor.White
-    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -690,7 +716,7 @@ private fun FontColorOptionRow(
             Modifier
                 .size(22.dp)
                 .clip(CircleShape)
-                .background(dotColor)
+                .background(swatch)
                 .border(1.dp, ComposeColor(0x33FFFFFF), CircleShape)
         )
         Spacer(Modifier.width(14.dp))
@@ -703,6 +729,31 @@ private fun FontColorOptionRow(
             Text("✓", color = MiuixTheme.colorScheme.primary)
         }
     }
+}
+
+/**
+ * 选项值对应的色块颜色;非颜色类选项返回 null(走普通单选样式)。
+ * 字体/歌曲信息/下一行颜色:hex token 解析为色块,default 显示白;
+ * 卡片颜色:预设 token 映射为对应底色(与 previewCardColor 的基色一致)。
+ */
+private fun AodChoiceKind.swatchColorFor(value: String): ComposeColor? = when (this) {
+    AodChoiceKind.FONT_COLOR,
+    AodChoiceKind.SONG_INFO_COLOR,
+    AodChoiceKind.NEXT_LINE_COLOR ->
+        if (value.startsWith("#")) {
+            runCatching { ComposeColor(android.graphics.Color.parseColor(value)) }
+                .getOrDefault(ComposeColor.White)
+        } else {
+            ComposeColor.White
+        }
+    AodChoiceKind.CARD_COLOR -> when (value) {
+        "white" -> ComposeColor(0xFFFFFFFF)
+        "dark_gray" -> ComposeColor(0xFF2A2A2A)
+        "accent" -> ComposeColor(0xFF3A6EA5)
+        "blur" -> ComposeColor(0xFF1A1A1E)
+        else -> ComposeColor(0xFF000000)
+    }
+    else -> null
 }
 
 @Composable
@@ -817,7 +868,9 @@ private fun choiceDisplayLabel(
     AodChoiceKind.TEXT_BRIGHTNESS -> context.getString(
         if (value == "dimmed") R.string.option_dimmed else R.string.option_default
     )
-    AodChoiceKind.FONT_COLOR -> context.getString(when (value) {
+    AodChoiceKind.FONT_COLOR,
+    AodChoiceKind.SONG_INFO_COLOR,
+    AodChoiceKind.NEXT_LINE_COLOR -> context.getString(when (value) {
         "#FFD9A0" -> R.string.option_color_warm_gold
         "#A9D9FF" -> R.string.option_color_ice_blue
         "#B8F0C9" -> R.string.option_color_mint_green
@@ -862,9 +915,6 @@ private fun choiceDisplayLabel(
     AodChoiceKind.WORD_ANIMATION -> context.getString(
         if (value == "Minimal") R.string.option_minimal else R.string.option_gradient
     )
-    AodChoiceKind.GLOW -> context.getString(
-        if (value == "On") R.string.option_on else R.string.option_off
-    )
     AodChoiceKind.CARD_COLOR -> context.getString(when (value) {
         "white" -> R.string.option_card_color_white
         "dark_gray" -> R.string.option_card_color_dark_gray
@@ -888,10 +938,11 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     TEXT_SIZE(R.string.choice_text_size),
     FONT(R.string.choice_font),
     WORD_ANIMATION(R.string.choice_word_animation),
-    GLOW(R.string.choice_glow),
     LINE_PROGRESS(R.string.choice_line_progress_effect),
     TEXT_BRIGHTNESS(R.string.choice_text_brightness),
     FONT_COLOR(R.string.choice_font_color),
+    SONG_INFO_COLOR(R.string.choice_song_info_color),
+    NEXT_LINE_COLOR(R.string.choice_next_line_color),
     TRANSITION_SPEED(R.string.choice_scene_transition_speed),
     CARD_COLOR(R.string.choice_card_color)
 }

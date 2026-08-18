@@ -68,17 +68,38 @@ internal val FONT_COLOR_CHOICES = listOf(
 /** 字体颜色作用于主文字/已唱/未唱/光晕四个语义键;选 default 时清除这些键恢复白。 */
 private val FONT_COLOR_KEYS = listOf("primaryText", "sungText", "unsungText", "glow")
 
-internal fun applyFontColor(palette: Map<String, String>, value: String): Map<String, String> {
-    val keys = FONT_COLOR_KEYS
-    return if (value == "default") {
-        palette.filterKeys { it !in keys }
-    } else {
-        palette + keys.associateWith { value }
-    }
-}
+internal fun applyFontColor(palette: Map<String, String>, value: String): Map<String, String> =
+    applyPaletteColor(palette, FONT_COLOR_KEYS, value)
 
 internal fun fontColorPresetName(palette: Map<String, String>): String =
-    palette["primaryText"]?.takeIf { it.startsWith("#") } ?: "default"
+    paletteColorPresetName(palette, "primaryText")
+
+/** 歌曲信息颜色只作用于 metadataText 键。 */
+internal fun applyMetadataColor(palette: Map<String, String>, value: String): Map<String, String> =
+    applyPaletteColor(palette, listOf("metadataText"), value)
+
+internal fun metadataColorPresetName(palette: Map<String, String>): String =
+    paletteColorPresetName(palette, "metadataText")
+
+/** 下一行歌词颜色只作用于 nextLineText 键。 */
+internal fun applyNextLineColor(palette: Map<String, String>, value: String): Map<String, String> =
+    applyPaletteColor(palette, listOf("nextLineText"), value)
+
+internal fun nextLineColorPresetName(palette: Map<String, String>): String =
+    paletteColorPresetName(palette, "nextLineText")
+
+private fun applyPaletteColor(
+    palette: Map<String, String>,
+    keys: List<String>,
+    value: String
+): Map<String, String> = if (value == "default") {
+    palette.filterKeys { it !in keys }
+} else {
+    palette + keys.associateWith { value }
+}
+
+private fun paletteColorPresetName(palette: Map<String, String>, key: String): String =
+    palette[key]?.takeIf { it.startsWith("#") } ?: "default"
 
 private fun applyDocumentToLegacyPreferences(
     context: android.content.Context,

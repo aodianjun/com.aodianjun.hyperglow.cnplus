@@ -248,6 +248,7 @@ object SceneCompiler {
         "primaryText",
         "secondaryText",
         "metadataText",
+        "nextLineText",
         "sungText",
         "unsungText",
         "glow",

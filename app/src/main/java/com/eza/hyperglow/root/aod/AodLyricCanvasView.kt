@@ -928,7 +928,7 @@ internal class AodLyricCanvasView(
         x: Float,
         baseline: Float
     ) {
-        paint.color = resolvedPalette.secondaryText
+        paint.color = resolvedPalette.nextLineText
         paint.alpha = (255f * staticNextLineTextFactor()).toInt()
         paint.shader = null
         paint.clearShadowLayer()

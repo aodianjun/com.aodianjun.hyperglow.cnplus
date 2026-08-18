@@ -250,6 +250,7 @@ private fun LyricPreviewSurface(
     val lyricColor = ComposeColor(resolvedColors.primaryText)
     val secondaryColor = ComposeColor(resolvedColors.secondaryText).copy(alpha = 0.72f)
     val metadataColor = ComposeColor(resolvedColors.metadataText).copy(alpha = 0.6f)
+    val nextLineColor = ComposeColor(resolvedColors.nextLineText).copy(alpha = 0.45f)
     val textSize = previewTextSizeSp(profile)
     val weight = previewFontWeight(profile)
     val textAlign = previewTextAlign(profile)
@@ -322,7 +323,7 @@ private fun LyricPreviewSurface(
                     snapshot.nextLine,
                     fontSize = textSize * 0.72f,
                     fontWeight = FontWeight.Normal,
-                    color = lyricColor.copy(alpha = 0.45f),
+                    color = nextLineColor,
                     textAlign = textAlign,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

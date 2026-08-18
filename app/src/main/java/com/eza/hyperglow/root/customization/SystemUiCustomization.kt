@@ -154,6 +154,7 @@ internal object SystemUiCustomizationValidator {
         "primaryText",
         "secondaryText",
         "metadataText",
+        "nextLineText",
         "sungText",
         "unsungText",
         "glow",

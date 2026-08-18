@@ -216,6 +216,8 @@
     <string name="choice_line_progress_effect">整行进度效果</string>
     <string name="choice_text_brightness">文字亮度</string>
     <string name="choice_font_color">字体颜色</string>
+    <string name="choice_song_info_color">歌曲信息颜色</string>
+    <string name="choice_next_line_color">下一行歌词颜色</string>
     <string name="choice_scene_transition_speed">场景过渡速度</string>
     <string name="title_appearance_preview">实时预览</string>
     <string name="section_lockscreen_card">锁屏歌词卡片</string>
