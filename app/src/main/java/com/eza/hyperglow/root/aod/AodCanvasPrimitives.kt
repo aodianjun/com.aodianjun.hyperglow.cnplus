@@ -672,10 +672,6 @@ internal fun frameIntervalForTiming(
 ): Long = if (contentVisible && (timingActive || exitTransitionActive)) 16L else 0L
 
 internal const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
-internal const val SWEEP_BAND_FRACTION = 0.4f
-// 扫光余晖：行扫完后已唱区亮度在 SWEEP_DECAY_MS 内量化缓降，制造"光痕消散"质感。
-private const val SWEEP_DECAY_MS = 350L
-private const val SWEEP_DECAY_AMOUNT = 0.16f
 
 internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
     startedAtMs > 0L && nowMs - startedAtMs >= durationMs
@@ -759,21 +755,51 @@ internal fun edgeSafeAlignedStart(
     }
 }
 
-internal fun sharedBlockClipBottom(progress: Float, top: Float, bottom: Float): Float =
-    top + (bottom - top).coerceAtLeast(0f) * progress.coerceIn(0f, 1f)
+/** 归一化进度:end<=start 时按"已过 end 即完成"处理,与预览 previewProjectedProgress 语义一致。 */
+internal fun normalizedProgress(positionMs: Long, startMs: Long, endMs: Long): Float =
+    if (endMs <= startMs) {
+        if (positionMs >= endMs) 1f else 0f
+    } else {
+        ((positionMs - startMs).toFloat() / (endMs - startMs)).coerceIn(0f, 1f)
+    }
 
-internal fun shouldUseSharedLineLevelSweep(
-    lineLevelSync: Boolean,
-    hasOriginalLines: Boolean,
+/**
+ * 是否走共享 LyricGlowRenderer 预览管线:
+ * 行级同步源、无词级时间源、或开启发光 —— 与预览 PreviewAnimatedLyric 同源渲染;
+ * 仅"逐字时间源 + 关闭发光 + 非行级同步"保留逐字卡拉OK路径。
+ */
+internal fun usesPreviewGlowPipeline(
     animationMode: String,
+    timed: Boolean,
+    lineLevelSync: Boolean,
+    glowMode: String
+): Boolean = animationMode != "Minimal" && (glowMode != "Off" || lineLevelSync || !timed)
+
+/**
+ * 整块扫光总进度(对齐预览 previewProjectedProgress 的"整块单一进度"结构):
+ * 行级时间戳有效时用行区间;纯逐字源(行级时间为 0)回退到全局首词 startMs→末词 endMs;
+ * 两者皆无时按行区间语义归一(通常为 0 或 1)。
+ */
+internal fun unifiedBlockProgress(
+    positionMs: Long,
     lineStartMs: Long,
     lineEndMs: Long,
-    glowMode: String = "Off"
-): Boolean = lineLevelSync && hasOriginalLines && animationMode != "Minimal" &&
-    lineEndMs > lineStartMs &&
-    // 发光开启时走 drawOriginal 的预览风格三层绘制（dim 底 + 光晕 + 扫光带），
-    // 旧的 shared sweep（applySoftSweep 渐变，无光晕无 dim 底）会导致 AOD 与预览不一致。
-    glowMode == "Off"
+    words: List<AodCanvasWord>
+): Float {
+    if (lineEndMs > lineStartMs) return normalizedProgress(positionMs, lineStartMs, lineEndMs)
+    var startMs = Long.MAX_VALUE
+    var endMs = Long.MIN_VALUE
+    words.forEach { word ->
+        if (word.startMs >= 0L && word.endMs > word.startMs) {
+            if (word.startMs < startMs) startMs = word.startMs
+            if (word.endMs > endMs) endMs = word.endMs
+        }
+    }
+    if (startMs != Long.MAX_VALUE && endMs > startMs) {
+        return normalizedProgress(positionMs, startMs, endMs)
+    }
+    return normalizedProgress(positionMs, lineStartMs, lineEndMs)
+}
 
 internal fun hasActiveCanvasTiming(
     lineLevelSync: Boolean,

@@ -99,13 +99,6 @@ class AodCanvasLayoutTest {
     }
 
     @Test
-    fun topToBottomFillUsesOneSharedBlockCoordinate() {
-        assertEquals(100f, sharedBlockClipBottom(0f, 100f, 500f), 0.0001f)
-        assertEquals(300f, sharedBlockClipBottom(0.5f, 100f, 500f), 0.0001f)
-        assertEquals(500f, sharedBlockClipBottom(1f, 100f, 500f), 0.0001f)
-    }
-
-    @Test
     fun lineLevelSyncHonorsConfiguredSweepDirection() {
         assertEquals(
             "Left to right (main only)",
@@ -261,7 +254,7 @@ class AodCanvasLayoutTest {
     }
 
     @Test
-    fun lineLevelRowsWithTransportWordsStillUseOneSharedCanvasSweep() {
+    fun lineLevelRowsWithTransportWordsAlwaysUseSharedGlowPipeline() {
         val content = LyricSnapshot(
             original = "絡み合う迷宮",
             lineLevelSync = true,
@@ -271,36 +264,83 @@ class AodCanvasLayoutTest {
         ).toAodCanvasContent()
 
         assertTrue(content.lineLevelSync)
-        assertTrue(
-            shouldUseSharedLineLevelSweep(
-                lineLevelSync = content.lineLevelSync,
-                hasOriginalLines = true,
-                animationMode = content.animationMode,
-                lineStartMs = content.lineStartMs,
-                lineEndMs = content.lineEndMs
-            )
-        )
-        // 发光开启时必须绕过 shared sweep,改走 drawOriginal 的预览风格三层绘制,
+        // 发光开启时必须走共享渲染核心(LyricGlowRenderer)的预览管线,
         // 否则行级同步源渲染旧渐变扫光,AOD 与预览不一致。
-        assertFalse(
-            shouldUseSharedLineLevelSweep(
-                lineLevelSync = content.lineLevelSync,
-                hasOriginalLines = true,
+        assertTrue(
+            usesPreviewGlowPipeline(
                 animationMode = content.animationMode,
-                lineStartMs = content.lineStartMs,
-                lineEndMs = content.lineEndMs,
+                timed = true,
+                lineLevelSync = content.lineLevelSync,
                 glowMode = "On"
             )
         )
-        assertFalse(
-            shouldUseSharedLineLevelSweep(
-                lineLevelSync = false,
-                hasOriginalLines = true,
+        // 行级同步 + 关闭发光:同样走统一管线(dim 底 + 扫光,无光晕)
+        assertTrue(
+            usesPreviewGlowPipeline(
                 animationMode = content.animationMode,
-                lineStartMs = content.lineStartMs,
-                lineEndMs = content.lineEndMs
+                timed = true,
+                lineLevelSync = true,
+                glowMode = "Off"
             )
         )
+        // 逐字时间源 + 关闭发光 + 非行级同步:保留逐字卡拉OK路径
+        assertFalse(
+            usesPreviewGlowPipeline(
+                animationMode = content.animationMode,
+                timed = true,
+                lineLevelSync = false,
+                glowMode = "Off"
+            )
+        )
+        // Minimal 模式永远不走扫光管线
+        assertFalse(
+            usesPreviewGlowPipeline(
+                animationMode = "Minimal",
+                timed = true,
+                lineLevelSync = true,
+                glowMode = "On"
+            )
+        )
+    }
+
+    @Test
+    fun unifiedBlockProgressPrefersLineTimingThenWordSpans() {
+        // 行级时间有效:完全对齐预览 previewProjectedProgress 的行区间归一
+        assertEquals(
+            0.5f,
+            unifiedBlockProgress(1_500L, 1_000L, 2_000L, emptyList()),
+            0.0001f
+        )
+        // 行级时间无效 + 词级时间有效:回退全局首词→末词范围
+        assertEquals(
+            0.5f,
+            unifiedBlockProgress(
+                positionMs = 1_500L,
+                lineStartMs = 0L,
+                lineEndMs = 0L,
+                words = listOf(
+                    AodCanvasWord("絡み", "karami", 1_000L, 2_000L, true),
+                    AodCanvasWord("合う", "au", 2_000L, 3_000L, false)
+                )
+            ),
+            0.0001f
+        )
+        // 两者皆无:退化区间语义,已到达即全亮(静态整行,与旧 lineProgress 行为一致)
+        assertEquals(
+            1f,
+            unifiedBlockProgress(positionMs = 0L, lineStartMs = 0L, lineEndMs = 0L, words = emptyList()),
+            0.0001f
+        )
+    }
+
+    @Test
+    fun normalizedProgressMatchesPreviewProjectionSemantics() {
+        assertEquals(0f, normalizedProgress(500L, 1_000L, 2_000L), 0.0001f)
+        assertEquals(0.5f, normalizedProgress(1_500L, 1_000L, 2_000L), 0.0001f)
+        assertEquals(1f, normalizedProgress(2_500L, 1_000L, 2_000L), 0.0001f)
+        // 退化区间(end<=start):到达即完成
+        assertEquals(0f, normalizedProgress(499L, 500L, 500L), 0.0001f)
+        assertEquals(1f, normalizedProgress(500L, 500L, 500L), 0.0001f)
     }
 
     @Test

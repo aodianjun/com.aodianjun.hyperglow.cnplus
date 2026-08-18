@@ -1,9 +1,6 @@
 package com.eza.hyperglow.ui
 
-import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -45,7 +42,9 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.producer.LyricProducerState
-import com.eza.hyperglow.root.aod.splitContinuousFill
+import com.eza.hyperglow.root.aod.LyricGlowRenderer
+import com.eza.hyperglow.root.aod.LyricGlowRow
+import com.eza.hyperglow.root.aod.normalizedProgress
 import com.eza.hyperglow.root.projection.LyricLayoutGroup
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
@@ -348,7 +347,7 @@ private fun PreviewAnimatedLyric(
 ) {
     val density = LocalDensity.current
     val glowArgb = glowColor.toArgb()
-    val dimArgb = color.copy(alpha = 0.30f).toArgb()
+    val dimBaseArgb = color.toArgb()
     val sungArgb = color.copy(alpha = 1f).toArgb()
     val nativeTypeface = when (weight) {
         FontWeight.Normal -> Typeface.create("sans-serif", Typeface.NORMAL)
@@ -416,75 +415,30 @@ private fun PreviewAnimatedLyric(
                 nc.save()
                 nc.translate(0f, top)
 
-                // 多行分行几何:每个视觉行的字符范围/左界/宽度/基线,用于逐行扫光。
-                class PreviewRow(
-                    val start: Int,
-                    val end: Int,
-                    val left: Float,
-                    val width: Float,
-                    val baseline: Float
-                )
+                // 多行分行几何:每个视觉行的字符范围/左界/宽度/基线,映射为共享渲染核心的行模型。
                 val rows = (0 until layout.lineCount).map { i ->
-                    PreviewRow(
-                        layout.getLineStart(i),
-                        layout.getLineEnd(i),
-                        layout.getLineLeft(i),
-                        layout.getLineWidth(i),
-                        layout.getLineBaseline(i).toFloat()
+                    val start = layout.getLineStart(i)
+                    val end = layout.getLineEnd(i)
+                    val left = layout.getLineLeft(i)
+                    val baseline = layout.getLineBaseline(i).toFloat()
+                    LyricGlowRow(
+                        left = left,
+                        width = layout.getLineWidth(i),
+                        baseline = baseline,
+                        drawText = { c, p -> c.drawText(text, start, end, left, baseline, p) }
                     )
                 }
-                // 与实机一致:整行总进度按行宽加权分摊到各视觉行,扫光逐行推进。
-                val rowProgress = splitContinuousFill(p, rows.map { it.width })
-                val fm = paint.fontMetrics
-                val haloRadius = fontSizePx * 0.36f
-
-                // Pass 1: 未唱(暗)底色 —— 整块绘制
-                paint.shader = null
-                paint.setShadowLayer(0f, 0f, 0f, 0)
-                paint.color = dimArgb
-                layout.draw(nc)
-
-                // 逐行扫光:每行光带左侧(已唱区)CLAMP 常亮,光带为柔和前沿,
-                // 右侧未唱区保持暗底。与 AodLyricCanvasView 的 drawPreviewStyleGlow 一致。
-                if (glowEnabled) {
-                    rows.forEachIndexed { index, row ->
-                        val lp = rowProgress[index]
-                        val band = (row.width * PREVIEW_SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-                        // Pass 2: 光晕层 —— clip 到该行已扫区域,sung 文字 + glow 色阴影
-                        nc.save()
-                        nc.clipRect(
-                            row.left - band,
-                            row.baseline + fm.ascent - haloRadius,
-                            row.left + (row.width + band) * lp,
-                            row.baseline + fm.descent + haloRadius
-                        )
-                        paint.shader = null
-                        paint.color = sungArgb
-                        paint.setShadowLayer(fontSizePx * 0.36f, 0f, 0f, glowArgb)
-                        nc.drawText(text, row.start, row.end, row.left, row.baseline, paint)
-                        paint.setShadowLayer(0f, 0f, 0f, 0)
-                        nc.restore()
-                    }
-                }
-                // Pass 3: 扫光亮部 —— 每行渐变 [sung -> middle -> transparent],
-                // band 左侧 CLAMP 常亮,右侧渐隐
-                val sweepTransparent = Color.argb(0, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
-                val sweepMiddle = Color.argb(184, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
-                rows.forEachIndexed { index, row ->
-                    val lp = rowProgress[index]
-                    val band = (row.width * PREVIEW_SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-                    val sweepStart = row.left - band + (row.width + band) * lp
-                    val sweepEnd = sweepStart + band
-                    paint.shader = LinearGradient(
-                        sweepStart, 0f, sweepEnd, 0f,
-                        intArrayOf(sungArgb, sweepMiddle, sweepTransparent),
-                        floatArrayOf(0f, 0.45f, 1f),
-                        Shader.TileMode.CLAMP
-                    )
-                    paint.color = sungArgb
-                    nc.drawText(text, row.start, row.end, row.left, row.baseline, paint)
-                    paint.shader = null
-                }
+                // 与实机同一实现:dim 底 + 光晕(发光开启) + 扫光带,整块进度按行宽加权分摊。
+                LyricGlowRenderer.draw(
+                    canvas = nc,
+                    paint = paint,
+                    rows = rows,
+                    progress = p,
+                    sungColor = sungArgb,
+                    dimBaseColor = dimBaseArgb,
+                    glowColor = glowArgb,
+                    glowEnabled = glowEnabled
+                )
                 nc.restore()
             }
         }
@@ -500,16 +454,12 @@ internal class PreviewLineTiming(
     val speed: Float
 )
 
-/** 与实机 projectedPosition/progress 一致:按采样时刻外推播放位置,再归一化到行区间。 */
+/** 与实机 projectedPosition/unifiedBlockProgress 一致:按采样时刻外推播放位置,再归一化到行区间。 */
 internal fun previewProjectedProgress(timing: PreviewLineTiming): Float {
     val elapsed = (android.os.SystemClock.elapsedRealtime() - timing.sampledAtElapsedMs).coerceAtLeast(0L)
     val projected = timing.positionMs + (elapsed * timing.speed).toLong()
-    val span = (timing.lineEndMs - timing.lineStartMs).coerceAtLeast(1L)
-    return ((projected - timing.lineStartMs).toFloat() / span).coerceIn(0f, 1f)
+    return normalizedProgress(projected, timing.lineStartMs, timing.lineEndMs)
 }
-
-// 预览整行扫光的光带宽度占比,与 AodLyricCanvasView 的 SWEEP_BAND_FRACTION 保持一致。
-internal const val PREVIEW_SWEEP_BAND_FRACTION = 0.4f
 
 internal fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): FontWeight =
     when (profile.weight) {

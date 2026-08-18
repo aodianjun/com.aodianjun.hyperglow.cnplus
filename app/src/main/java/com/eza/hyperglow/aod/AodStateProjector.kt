@@ -141,8 +141,8 @@ internal fun projectToDisplay(
     )
 
     // --- per-word（透传真实词级数据）---
-    // 真实词级时间戳随 words 下发，供画布在整行水平扫光基础上叠加"当前演唱词微光"
-    // （小幅放大/光斑，见 AodLyricCanvasView.drawLineLevelWordOverlay）。
+    // 真实词级时间戳随 words 下发：统一扫光管线以其计算整块进度（无行级时间时），
+    // 逐字卡拉OK路径（逐字源+关闭发光）以逐词时间驱动缩放/渐变。
     val effectiveWords = if (showLargeMetadata || !hasActiveLine) emptyList() else state.words.orEmpty()
 
     // --- 行级同步标志（统一走整行水平扫光）---
