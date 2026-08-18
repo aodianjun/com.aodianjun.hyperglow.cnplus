@@ -311,9 +311,10 @@ class AodCanvasLayoutTest {
             unifiedBlockProgress(1_500L, 1_000L, 2_000L, emptyList()),
             0.0001f
         )
-        // 行级时间无效 + 词级时间有效:回退全局首词→末词范围
+        // 行级时间无效 + 词级时间有效:回退全局首词→末词范围 [1000,3000],
+        // 1500 处即 (1500-1000)/(3000-1000) = 0.25
         assertEquals(
-            0.5f,
+            0.25f,
             unifiedBlockProgress(
                 positionMs = 1_500L,
                 lineStartMs = 0L,
