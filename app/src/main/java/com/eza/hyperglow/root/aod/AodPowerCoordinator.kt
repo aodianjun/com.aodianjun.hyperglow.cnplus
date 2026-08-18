@@ -22,6 +22,8 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     private var graceEligible = false
     private var graceActive = false
     private var lastWakeSignal = Long.MIN_VALUE
+    private var lastRetriedSignal = Long.MIN_VALUE
+    private var projectionVisible = false
     private var lifetimeActive = false
     private var lifetimeActiveSinceElapsedMs = Long.MIN_VALUE
     private var hideRaceRecoveryPending = false
@@ -82,6 +84,7 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     }
 
     override fun onLyricSnapshot(snapshot: LyricSnapshot) {
+        projectionVisible = snapshot.visible
         guardCause = "snapshot visible=${snapshot.visible} playing=${snapshot.playbackActive} " +
             "keepAlive=${snapshot.keepAlive} grace=$graceActive"
         if (snapshot.visible) {
@@ -116,7 +119,13 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
             cancelGrace()
             keepAliveRequested = false
             graceEligible = false
-        } else if (signal.keepAlive) {
+        } else if (
+            signal.keepAlive &&
+            shouldAcceptKeepAliveHeartbeat(
+                projectionVisible = projectionVisible,
+                graceActive = graceActive
+            )
+        ) {
             keepAliveRequested = aodEnabled
             cancelGrace()
         } else if (!graceActive) {
@@ -127,22 +136,30 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
         dispatchWake(
             signal = signal.wakeSignal,
             allowed = aodEnabled,
-            forceRetry = shouldRetryDetachedAodWake(surfaceAttached, keepAliveRequested)
+            forceRetry = shouldRetryDetachedAodWake(
+                surfaceAttached = surfaceAttached,
+                keepAliveRequested = keepAliveRequested,
+                signal = signal.wakeSignal,
+                lastRetriedSignal = lastRetriedSignal
+            )
         )
     }
 
-    override fun onLyricProjectionDisconnected() = clear()
+    override fun onLyricProjectionDisconnected() = clear("projection-disconnected")
 
-    override fun onLyricProjectionStale() = clear()
+    override fun onLyricProjectionStale() = clear("projection-stale")
 
-    private fun clear() {
+    private fun clear(cause: String) {
         cancelGrace()
         keepAliveRequested = false
         graceEligible = false
         aodEnabled = false
         aodDisplayOff = false
         hideRaceRecoveryPending = false
+        projectionVisible = false
         lastWakeSignal = Long.MIN_VALUE
+        lastRetriedSignal = Long.MIN_VALUE
+        guardCause = cause
         updateLifetimeGuard()
     }
 
@@ -166,6 +183,7 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     private fun dispatchWake(signal: Long, allowed: Boolean, forceRetry: Boolean = false) {
         val newSignal = isNewAodWakeSignal(lastWakeSignal, signal)
         if (!allowed || (!newSignal && !forceRetry)) return
+        if (forceRetry) lastRetriedSignal = signal
         val accepted = AodWakeBroker.requestWake(signal)
         if (newSignal && accepted) lastWakeSignal = signal
         HookLogger.i(
@@ -206,10 +224,23 @@ internal fun shouldStartAodPowerGrace(
     graceEligible: Boolean
 ): Boolean = aodEnabled && playbackActive && keepAliveRequested && graceEligible
 
+/**
+ * A keepalive heartbeat may only sustain an AOD that is already presenting. Sustaining the grace
+ * window of a hidden lyric stretches the recovery allowance to an unbounded session: the grace
+ * expires, the heartbeat re-arms it, and the cycle repeats while the producer keeps beating.
+ */
+internal fun shouldAcceptKeepAliveHeartbeat(
+    projectionVisible: Boolean,
+    graceActive: Boolean
+): Boolean = projectionVisible || !graceActive
+
 internal fun shouldRetryDetachedAodWake(
     surfaceAttached: Boolean,
-    keepAliveRequested: Boolean
-): Boolean = !surfaceAttached && keepAliveRequested
+    keepAliveRequested: Boolean,
+    signal: Long,
+    lastRetriedSignal: Long
+): Boolean = !surfaceAttached && keepAliveRequested &&
+    isNewAodWakeSignal(lastRetriedSignal, signal)
 
 /**
  * Bounded to the one unwinnable race: keepalive intent landing after Xiaomi's policy hide has

@@ -183,10 +183,14 @@ internal class SystemUiLyricProjection(
             is LyricProjectionMessage.Snapshot -> {
                 lastRevision = message.revision
                 lastUpdatedAt = message.updatedAtElapsedMs
-                latestSnapshot = message.value
-                if (message.value.visible) latestVisibleSnapshot = message.value
-                scheduleExpiry(message.value)
-                subscribers.keys.toList().forEach { it.onLyricSnapshot(message.value) }
+                val acceptedSnapshot = stampTransportGapEdge(latestSnapshot, message.value)
+                latestSnapshot = acceptedSnapshot
+                if (acceptedSnapshot.visible) latestVisibleSnapshot = acceptedSnapshot
+                // 终止隐藏态清空缓存可见快照。留着它会让缓存变成无界的重建源:surface 很晚
+                // 附着时从这补齐自己的 last-visible 槽,可能呈现一个早已结束会话的歌词。
+                else if (acceptedSnapshot.isTerminalHidden()) latestVisibleSnapshot = null
+                scheduleExpiry(acceptedSnapshot)
+                subscribers.keys.toList().forEach { it.onLyricSnapshot(acceptedSnapshot) }
                 true
             }
             is LyricProjectionMessage.KeepAlive -> {

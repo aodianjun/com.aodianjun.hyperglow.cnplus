@@ -21,12 +21,15 @@ import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import com.eza.hyperglow.root.projection.LyricKeepAliveSignal
 import com.eza.hyperglow.root.projection.LyricRenderContent
+import com.eza.hyperglow.root.projection.LyricRetentionAnchor
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
 import com.eza.hyperglow.root.projection.SystemUiLyricProjectionRuntime
 import com.eza.hyperglow.root.projection.SystemUiLyricSubscriber
+import com.eza.hyperglow.root.projection.edgeFor
 import com.eza.hyperglow.root.projection.freezeAt
 import com.eza.hyperglow.root.projection.isAuthorizedForPresentation
+import com.eza.hyperglow.root.projection.nextLyricRetentionAnchor
 import com.eza.hyperglow.root.projection.pauseLingerRemainingMs
 import com.eza.hyperglow.root.projection.shouldRenewAodDraw
 import com.eza.hyperglow.root.projection.shouldRequestAodWake
@@ -248,6 +251,7 @@ internal fun retainedAodSnapshotAfterUpdate(
     incoming: LyricSnapshot,
     lastVisible: LyricSnapshot?,
     retained: LyricSnapshot?,
+    anchor: LyricRetentionAnchor?,
     mediaPlayerPresent: Boolean,
     nowElapsedMs: Long,
     pauseLingerMs: Long = 5_000L
@@ -255,7 +259,10 @@ internal fun retainedAodSnapshotAfterUpdate(
     incoming.visible -> null
     !mediaPlayerPresent -> null
     incoming.pauseRetentionEligible -> {
-        val pauseAtElapsedMs = incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
+        val pauseAtElapsedMs = anchor.edgeFor(
+            pauseRetentionEligible = true,
+            fallbackElapsedMs = incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
+        )
         val candidate = retained?.takeIf { it.pauseRetentionEligible } ?: lastVisible?.freezeAt(
             pauseAtElapsedMs,
             keepAliveWhileFrozen = false
@@ -265,11 +272,18 @@ internal fun retainedAodSnapshotAfterUpdate(
         }
     }
     incoming.playbackActive -> {
+        val gapAtElapsedMs = anchor.edgeFor(
+            pauseRetentionEligible = false,
+            fallbackElapsedMs = nowElapsedMs
+        )
         val candidate = retained?.takeIf { it.playbackActive } ?: lastVisible?.freezeAt(
-            nowElapsedMs,
+            gapAtElapsedMs,
             keepAliveWhileFrozen = lastVisible.keepAlive
         )?.copy(playbackActive = true, pauseRetentionEligible = false)
-        candidate?.let { expirePausedAodKeepAlive(it, nowElapsedMs) }
+        // 仍在播放的隐藏边是传输间隙,间隙自身的界就是电源宽限。没有它,producer 持续重发
+        // 间隙时冻结歌词会活过所有计时器,因为没有任何东西给一条从不停歇的快照计时。
+        candidate?.takeIf { nowElapsedMs - gapAtElapsedMs < PAUSED_AOD_KEEP_ALIVE_MS }
+            ?.let { expirePausedAodKeepAlive(it, nowElapsedMs) }
     }
     else -> null
 }
@@ -312,6 +326,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var latestSnapshot: LyricSnapshot? = null
     private var lastVisibleSnapshot: LyricSnapshot? = null
     private var retainedMediaSnapshot: LyricSnapshot? = null
+    private var retentionAnchor: LyricRetentionAnchor? = null
     private var stockMediaPlayerPresent = false
     private var customization: CompiledCustomization? = null
     private var runtimeProfile: CompiledSurfaceProfile? = null
@@ -398,6 +413,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 return
             }
             retainedMediaSnapshot = null
+            retentionAnchor = null
             lastVisibleSnapshot = null
             latestSnapshot = latestSnapshot?.takeUnless { it === retained }
             setStockWidgetControlActive(false)
@@ -742,6 +758,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             cancelPausedKeepAliveExpiry()
             cancelPauseLingerExpiry()
             retainedMediaSnapshot = null
+            retentionAnchor = null
             lastVisibleSnapshot = null
             latestSnapshot = null
             setStockWidgetControlActive(false)
@@ -760,12 +777,15 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         else if (lastVisibleSnapshot == null) {
             lastVisibleSnapshot = SystemUiLyricProjectionRuntime.projection.cachedVisibleSnapshot()
         }
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        retentionAnchor = nextLyricRetentionAnchor(incomingSnapshot, retentionAnchor, nowElapsedMs)
         retainedMediaSnapshot = retainedAodSnapshotAfterUpdate(
             incomingSnapshot,
             lastVisibleSnapshot,
             retainedMediaSnapshot,
+            retentionAnchor,
             stockMediaPlayerPresent,
-            SystemClock.elapsedRealtime(),
+            nowElapsedMs,
             customization?.pauseLingerMs ?: 5_000L
         )
         schedulePausedKeepAliveExpiry(retainedMediaSnapshot)
@@ -886,6 +906,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         latestSnapshot = null
         lastVisibleSnapshot = null
         retainedMediaSnapshot = null
+        retentionAnchor = null
         customization = null
         runtimeProfile = null
         setStockWidgetControlActive(false)
@@ -898,6 +919,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         latestSnapshot = null
         lastVisibleSnapshot = null
         retainedMediaSnapshot = null
+        retentionAnchor = null
         setStockWidgetControlActive(false)
         hideSurfaceOnly(pulse = false)
     }
@@ -913,6 +935,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         if (retainedMediaSnapshot != null && retained == null) {
             retainedMediaSnapshot = null
+            retentionAnchor = null
             lastVisibleSnapshot = null
             latestSnapshot = null
             cancelPauseLingerExpiry()
@@ -953,6 +976,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             SystemClock.elapsedRealtime()
         ) ?: run {
             retainedMediaSnapshot = null
+            retentionAnchor = null
             lastVisibleSnapshot = null
             latestSnapshot = latestSnapshot?.takeUnless { it === retained }
             setStockWidgetControlActive(false)
@@ -1024,6 +1048,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         latestSnapshot = null
         lastVisibleSnapshot = null
         retainedMediaSnapshot = null
+        retentionAnchor = null
         stockMediaPlayerPresent = false
         customization = null
         runtimeProfile = null
