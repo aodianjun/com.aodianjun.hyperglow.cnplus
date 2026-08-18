@@ -6,12 +6,9 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
-import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.SystemClock
 import android.view.View
-import com.eza.hyperglow.BuildConfig
-import com.eza.hyperglow.root.HookLogger
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -66,17 +63,10 @@ internal class AodLyricCanvasView(
     private var handoffActive = false
     private var suppressNextLineTransition = false
     private var timingEffectEnabled = false
-    private var cadenceWindowStartedAt = 0L
-    private var cadenceCallbackCount = 0
-    private var cadenceDrawCount = 0
-    private var cadenceMaxDrawGapMs = 0L
-    private var cadenceLastDrawAt = 0L
+    private val dozeCadenceTracker = DozeCadenceTracker(useDozeHandlerCadence)
     private var verticalAlignment = AodCanvasVerticalAlignment.TOP
     private val density = resources.displayMetrics.density
     private val scaledDensity = resources.displayMetrics.scaledDensity
-    private val fontContext = runCatching {
-        context.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_IGNORE_SECURITY)
-    }.getOrNull()
     private val metadataPaint = paint(14f, 0xB3FFFFFF.toInt(), Typeface.NORMAL)
     private val originalPaint = paint(27f, Color.WHITE, Typeface.NORMAL)
     private val romanizedPaint = paint(17f, Color.WHITE, Typeface.NORMAL)
@@ -89,7 +79,7 @@ internal class AodLyricCanvasView(
     }
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
-    private val typefaceCache = HashMap<TypefaceKey, Typeface>(3)
+    private val typefaceResolver = AodTypefaceResolver(context)
     private var sceneActive = false
     private var aggregatedVisible = false
     private val cadenceGate = EffectiveCadenceGate()
@@ -99,7 +89,7 @@ internal class AodLyricCanvasView(
                 syncCadence()
                 return
             }
-            recordDozeCadenceCallback()
+            dozeCadenceTracker.recordDozeCadenceCallback()
             if (exitSnapshot != null && isExitTransitionExpired(
                     transitionStartedAt,
                     SystemClock.elapsedRealtime(),
@@ -165,10 +155,10 @@ internal class AodLyricCanvasView(
         }
         val sizeScale = textSizeModeMultiplier(nextContent.textSizeMode, nextContent.textSizeCustom)
         val baseSp = baseTextSizeSp(nextContent.original) * sizeScale
-        val typeface = resolveTypeface(nextContent.fontFamily, nextContent.weight)
+        val typeface = typefaceResolver.resolve(nextContent.fontFamily, nextContent.weight)
         originalPaint.typeface = typeface
         if (nextContent.fontFamily != "auto") {
-            val regularTypeface = resolveTypeface(nextContent.fontFamily, "Regular")
+            val regularTypeface = typefaceResolver.resolve(nextContent.fontFamily, "Regular")
             metadataPaint.typeface = regularTypeface
             romanizedPaint.typeface = regularTypeface
             translatedPaint.typeface = Typeface.create(regularTypeface, Typeface.ITALIC)
@@ -217,8 +207,8 @@ internal class AodLyricCanvasView(
 
     fun visibleContentVerticalBounds(): AodCanvasVerticalBounds? =
         unionAodCanvasVerticalBounds(
-            verticalBounds(layout),
-            exitSnapshot?.layout?.let(::verticalBounds)
+            verticalBounds(layout, height),
+            exitSnapshot?.layout?.let { verticalBounds(it, height) }
         )
 
     fun setHandoffActive(active: Boolean) {
@@ -276,7 +266,7 @@ internal class AodLyricCanvasView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        recordDozeDraw()
+        dozeCadenceTracker.recordDozeDraw()
         syncCadence()
         val snapshot = exitSnapshot
         if (snapshot == null) {
@@ -453,7 +443,8 @@ internal class AodLyricCanvasView(
     }
 
     private fun rebuildLayout() {
-        val originalLayout = buildOriginalLayout()
+        val input = layoutInput()
+        val originalLayout = buildOriginalLayout(input)
         val rows = ArrayList<Row>(4)
         val hasTimedWords = content.words.any { it.endMs > it.startMs }
         val metadataPlaceholder = isSongChangeMetadataPlaceholder(
@@ -471,7 +462,7 @@ internal class AodLyricCanvasView(
                 "placeholder=$metadataPlaceholder"
         )
         if (content.metadataVisible && content.metadata.isNotBlank() && !metadataPlaceholder) {
-            rows += row(RowKind.METADATA, content.metadata, metadataPaint, 0f, false)
+            rows += row(input, RowKind.METADATA, content.metadata, metadataPaint, 0f, false)
         }
         if (content.original.isNotBlank()) {
             val metrics = originalPaint.fontMetrics
@@ -494,8 +485,8 @@ internal class AodLyricCanvasView(
         val showReading = content.secondaryMode == "Transliteration" || content.secondaryMode == "Both"
         val showTranslation = content.secondaryMode == "Translation" || content.secondaryMode == "Both"
         if (showReading && content.romanized.isNotBlank()) {
-            val lines = transliterationLines(originalLayout)
-                ?: wrapSecondaryText(content.romanized, romanizedPaint, originalLayout.lineCount)
+            val lines = transliterationLines(input, originalLayout)
+                ?: wrapSecondaryText(input, content.romanized, romanizedPaint, originalLayout.lineCount)
             rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, 2f * density, lines)
         }
         if (showTranslation && content.translated.isNotBlank()) {
@@ -504,7 +495,7 @@ internal class AodLyricCanvasView(
                 content.translated,
                 translatedPaint,
                 2f * density,
-                wrapSecondaryText(content.translated, translatedPaint, originalLayout.lineCount)
+                wrapSecondaryText(input, content.translated, translatedPaint, originalLayout.lineCount)
             )
         }
         if (content.showNextLine && content.nextLine.isNotBlank()) {
@@ -513,113 +504,28 @@ internal class AodLyricCanvasView(
                 content.nextLine,
                 nextLinePaint,
                 4f * density,
-                wrapSecondaryText(content.nextLine, nextLinePaint, 1)
+                wrapSecondaryText(input, content.nextLine, nextLinePaint, 1)
             )
         }
-        layout = LayoutState(positionRows(rows, originalLayout), originalLayout)
+        layout = LayoutState(positionRows(input, rows, originalLayout), originalLayout)
         contentBoundsChangedListener?.invoke()
     }
 
-    private fun verticalBounds(state: LayoutState): AodCanvasVerticalBounds? {
-        if (state.rows.isEmpty()) return null
-        var top = Float.POSITIVE_INFINITY
-        var bottom = Float.NEGATIVE_INFINITY
-        state.rows.forEach { positioned ->
-            val rowTop = positioned.baseline + positioned.row.paint.fontMetrics.ascent
-            top = minOf(top, rowTop)
-            bottom = maxOf(bottom, rowTop + positioned.row.height)
-        }
-        if (!top.isFinite() || !bottom.isFinite() || bottom <= top) return null
-        return AodCanvasVerticalBounds(
-            top.coerceIn(0f, height.toFloat()),
-            bottom.coerceIn(0f, height.toFloat())
-        )
-    }
-
-    private fun row(kind: RowKind, text: String, paint: Paint, gap: Float, allowWrap: Boolean = true): Row {
-        val lines = if (allowWrap) {
-            wrapSecondaryText(text, paint, MAX_SECONDARY_LINES)
-        } else {
-            listOf(textLine(text, paint.measureText(text), paint, alignmentFor(kind)))
-        }
-        return rowWithLines(kind, text, paint, gap, lines)
-    }
-
-    private fun rowWithLines(
-        kind: RowKind,
-        text: String,
-        paint: Paint,
-        gap: Float,
-        lines: List<TextLine>
-    ): Row {
-        val metrics = paint.fontMetrics
-        val lineHeight = safeSecondaryLineHeight(metrics.ascent, metrics.descent, metrics.bottom)
-        return Row(kind, text, paint, lineHeight * lines.size, gap, lines, lineHeight)
-    }
-
-    private fun positionRows(rows: List<Row>, originalLayout: OriginalLayout): List<PositionedRow> {
-        val positioned = ArrayList<PositionedRow>(rows.size)
-        val metadata = rows.firstOrNull { it.kind == RowKind.METADATA }
-        if (metadata != null) {
-            val anchor = when (content.metadataAnchor) {
-                "bottom" -> "bottom"
-                else -> "top"
-            }
-            val metadataBounds = metadataLayoutBounds(
-                anchor,
-                height.toFloat(),
-                paddingTop.toFloat(),
-                paddingBottom.toFloat(),
-                metadata.paint.fontMetrics.ascent,
-                metadata.paint.fontMetrics.descent,
-                10f * density
-            )
-            val metadataBaseline = metadataBounds.metadataBaseline
-            positioned += PositionedRow(metadata, metadataBaseline, false)
-            val lyricRows = rows.filterNot { it.kind == RowKind.METADATA }
-            val gap = 10f * density
-            if (anchor == "bottom") {
-                var bottom = metadataBounds.lyricEnd
-                lyricRows.asReversed().forEach { row ->
-                    bottom -= row.height
-                    positioned += PositionedRow(row, bottom - row.paint.fontMetrics.ascent, true)
-                    bottom -= row.gapBefore
-                }
-                positioned.sortBy { it.baseline }
-            } else {
-                var top = metadataBounds.lyricStart
-                lyricRows.forEach { row ->
-                    top += row.gapBefore
-                    positioned += PositionedRow(row, top - row.paint.fontMetrics.ascent, true)
-                    top += row.height
-                }
-            }
-        } else {
-            val total = rows.sumOf { (it.height + it.gapBefore).toDouble() }.toFloat()
-            val topPadding = paddingTop.toFloat()
-            val bottomPadding = height - paddingBottom
-            val available = (bottomPadding - topPadding).coerceAtLeast(0f)
-            var top = if (verticalAlignment == AodCanvasVerticalAlignment.TOP) {
-                topPadding
-            } else {
-                topPadding + max(0f, (available - total) / 2f)
-            }
-            rows.forEach { row ->
-                top += row.gapBefore
-                positioned += PositionedRow(row, top - row.paint.fontMetrics.ascent, true)
-                top += row.height
-            }
-        }
-        val original = positioned.firstOrNull { it.row.kind == RowKind.ORIGINAL }
-        val firstLine = originalLayout.lines.firstOrNull()
-        if (original == null || firstLine == null || firstLine.rubyHeight <= 0f) return positioned
-        val firstBaseBaseline = original.baseline + firstLine.rubyHeight
-        val top = rubyClipTop(firstBaseBaseline, originalPaint.fontMetrics.ascent, firstLine.rubyHeight)
-        val shift = rubyTopShift(top, paddingTop.toFloat())
-        return if (shift == 0f) positioned else positioned.map {
-            if (it.row.kind == RowKind.METADATA) it else it.copy(baseline = it.baseline + shift)
-        }
-    }
+    private fun layoutInput() = AodLyricLayoutInput(
+        content = content,
+        originalPaint = originalPaint,
+        romanizedPaint = romanizedPaint,
+        rubyPaint = rubyPaint,
+        alignment = alignment,
+        verticalAlignment = verticalAlignment,
+        width = width,
+        height = height,
+        paddingLeft = paddingLeft,
+        paddingTop = paddingTop,
+        paddingRight = paddingRight,
+        paddingBottom = paddingBottom,
+        density = density
+    )
 
     private fun drawOriginal(canvas: Canvas, baseline: Float) {
         val originalLayout = layout.original
@@ -886,381 +792,6 @@ internal class AodLyricCanvasView(
         else postOnAnimation(action)
     }
 
-    private fun recordDozeCadenceCallback() {
-        if (!useDozeHandlerCadence || !HookLogger.traceEnabled) return
-        val now = SystemClock.elapsedRealtime()
-        if (cadenceWindowStartedAt == 0L) cadenceWindowStartedAt = now
-        cadenceCallbackCount++
-        if (now - cadenceWindowStartedAt < CADENCE_DIAGNOSTIC_WINDOW_MS) return
-        HookLogger.i(
-            CADENCE_DIAGNOSTIC_TAG,
-            "callbacks=$cadenceCallbackCount draws=$cadenceDrawCount " +
-                "maxDrawGapMs=$cadenceMaxDrawGapMs"
-        )
-        cadenceWindowStartedAt = now
-        cadenceCallbackCount = 0
-        cadenceDrawCount = 0
-        cadenceMaxDrawGapMs = 0L
-    }
-
-    private fun recordDozeDraw() {
-        if (!useDozeHandlerCadence || !HookLogger.traceEnabled) return
-        val now = SystemClock.elapsedRealtime()
-        if (cadenceLastDrawAt > 0L) {
-            cadenceMaxDrawGapMs = maxOf(cadenceMaxDrawGapMs, now - cadenceLastDrawAt)
-        }
-        cadenceLastDrawAt = now
-        cadenceDrawCount++
-    }
-
-    private fun buildOriginalLayout(): OriginalLayout {
-        val words = coalesceRubyWords(
-            content.original,
-            content.words.filter { it.text.isNotBlank() },
-            content.ruby
-        )
-        val lines = if (words.isEmpty()) {
-            if (content.adaptiveSectioning) layoutTextByGroups()
-            else wrapText(content.original, originalPaint)
-        } else {
-            layoutWordLines(words, 8f * density)
-        }
-        val metrics = originalPaint.fontMetrics
-        return OriginalLayout(
-            assignRuby(lines),
-            metrics.descent - metrics.ascent + 2f * density,
-            ORIGINAL_LINE_GAP_DP * density,
-            words.isNotEmpty()
-        )
-    }
-
-    private fun layoutTextByGroups(): List<OriginalLine> {
-        val ranges = coveredLayoutRanges(content.original, content.layoutGroups)
-        if (ranges.isEmpty()) return wrapText(content.original, originalPaint)
-        val synthetic = ranges.mapIndexed { index, range ->
-            val nextStart = ranges.getOrNull(index + 1)?.first ?: range.last + 1
-            val boundaryAfter = index < ranges.lastIndex && content.original
-                .substring(range.last + 1, nextStart).any { it.isWhitespace() }
-            AodCanvasWord(
-                content.original.substring(range.first, range.last + 1),
-                "",
-                0L,
-                0L,
-                boundaryAfter,
-                range.first,
-                range.last + 1
-            )
-        }
-        return layoutWordLines(synthetic, 8f * density)
-    }
-
-    private fun layoutWordLines(words: List<AodCanvasWord>, gap: Float): List<OriginalLine> {
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
-        val maxLines = lyricLayoutLineLimit(words.size)
-        val offsets = wordOffsets(words)
-        val placed = words.mapIndexed { index, word ->
-            val wordWidth = originalPaint.measureText(word.text)
-            val gapAfter = if (index == words.lastIndex) {
-                0f
-            } else {
-                authoredWordSeparator(content.original, word, words[index + 1])
-                    ?.let(originalPaint::measureText)
-                    ?: aodWordGapAfter(word.boundaryAfter, gap)
-            }
-            PlacedWord(word, wordWidth, gapAfter, offsets[index])
-        }
-        if (content.overflowMode != "Wrap") {
-            return listOf(wordLine(placed))
-        }
-        if (!content.adaptiveSectioning) {
-            return legacyAttachedWordLineRanges(
-                words,
-                placed.map(PlacedWord::width),
-                placed.map(PlacedWord::gapAfter),
-                available,
-                maxLines
-            ).map { range ->
-                val lineWords = range.map(placed::get)
-                wordLine(lineWords)
-            }
-        }
-        val groupIds = lexicalGroupIds(offsets, content.layoutGroups)
-        val chunks = ArrayList<List<PlacedWord>>()
-        var index = 0
-        while (index < placed.size) {
-            val groupId = groupIds[index]
-            var end = index + 1
-            if (groupId != null) while (end < placed.size && groupIds[end] == groupId) end++
-            val chunk = placed.subList(index, end)
-            val chunkWidth = chunk.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
-            if (chunkWidth > available && chunk.size > 1) chunk.forEach { chunks += listOf(it) }
-            else chunks += chunk.toList()
-            index = end
-        }
-        val chunkWidths = chunks.map { chunk ->
-            chunk.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
-        }
-        val lines = balancedChunkRanges(chunkWidths, available, maxLines).map { range ->
-            val lineWords = range.flatMap { chunks[it] }
-            wordLine(lineWords)
-        }
-        return lines.ifEmpty { listOf(originalLine("", 0f, null, null)) }
-    }
-
-    private fun wordLine(words: List<PlacedWord>): OriginalLine {
-        val mapped = words.mapNotNull { word -> word.offset?.let { it.first to it.last + 1 } }
-        val offsets = mapped.takeIf { it.size == words.size }
-        val start = offsets?.minOf { it.first }
-        val end = offsets?.maxOf { it.second }
-        val text = if (start != null && end != null && start >= 0 && end <= content.original.length) {
-            content.original.substring(start, end)
-        } else {
-            buildString {
-                words.forEachIndexed { index, placed ->
-                    append(placed.word.text)
-                    if (index < words.lastIndex && placed.gapAfter > 0f) append(' ')
-                }
-            }
-        }
-        val width = words.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat() -
-            (words.lastOrNull()?.gapAfter ?: 0f)
-        return originalLine(
-            text,
-            width,
-            start,
-            end
-        )
-            .copy(words = words)
-    }
-
-    private fun wrapText(text: String, paint: Paint): List<OriginalLine> {
-        if (text.isBlank()) return emptyList()
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
-        if (content.overflowMode != "Wrap") {
-            return listOf(originalLine(text, paint.measureText(text), 0, text.length))
-        }
-        val maxLines = lyricLayoutLineLimit()
-        val lines = ArrayList<OriginalLine>(maxLines)
-        var remaining = text
-        var charStart = 0
-        while (remaining.isNotEmpty() && lines.size < maxLines) {
-            val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-            val line = remaining.take(count)
-            lines += originalLine(line, paint.measureText(line), charStart, charStart + line.length)
-            remaining = remaining.drop(count)
-            charStart += count
-        }
-        return lines
-    }
-
-    private fun lyricLayoutLineLimit(wordCount: Int = content.words.size): Int =
-        resolvedLyricLayoutLineLimit(
-            content.lyricLineLimit,
-            content.original.length,
-            wordCount
-        )
-
-    private fun transliterationLines(originalLayout: OriginalLayout): List<TextLine>? {
-        if (originalLayout.lines.isEmpty() || originalLayout.lines.any { it.words.isEmpty() }) return null
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
-        val sourceWords = originalLayout.lines.flatMap { it.words }.map { it.word }
-        if (sourceWords.isEmpty()) return null
-        val spaceWidth = romanizedPaint.measureText(" ")
-        val timedIndexes = timedRomanizedWordIndexes(sourceWords)
-        val segments = timedIndexes.mapIndexed { renderedIndex, sourceIndex ->
-            val word = sourceWords[sourceIndex]
-            val text = word.romanized.trim()
-            val nextSourceIndex = timedIndexes.getOrNull(renderedIndex + 1)
-            SecondaryTimedSegment(
-                text = text,
-                width = romanizedPaint.measureText(text),
-                gapAfter = if (nextSourceIndex != null && word.boundaryAfter) spaceWidth else 0f,
-                startMs = word.startMs,
-                endMs = word.endMs
-            )
-        }
-        if (segments.isEmpty()) return null
-        return secondaryTimedVisualRanges(
-            segments,
-            available,
-            MAX_SECONDARY_LINES,
-            wrap = content.adaptiveSectioning && content.overflowMode == "Wrap"
-        ).map { range ->
-            val lineSegments = range.map(segments::get).mapIndexed { index, segment ->
-                if (index == range.count() - 1) segment.copy(gapAfter = 0f) else segment
-            }
-            val text = buildString {
-                lineSegments.forEach { segment ->
-                    append(segment.text)
-                    if (segment.gapAfter > 0f) append(' ')
-                }
-            }
-            val lineWidth = lineSegments.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
-            textLine(text, lineWidth, romanizedPaint).copy(timedSegments = lineSegments)
-        }
-    }
-
-    private fun wrapSecondaryText(text: String, paint: Paint, preferredLines: Int): List<TextLine> {
-        if (!content.adaptiveSectioning || content.overflowMode != "Wrap") {
-            return listOf(textLine(text, paint.measureText(text), paint))
-        }
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
-        val tokens = secondaryTokens(text).flatMap { token ->
-            if (paint.measureText(token) <= available) {
-                listOf(token)
-            } else {
-                val pieces = ArrayList<String>()
-                var remaining = token
-                while (remaining.isNotEmpty()) {
-                    val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-                    pieces += remaining.take(count)
-                    remaining = remaining.drop(count)
-                }
-                pieces
-            }
-        }
-        if (tokens.isEmpty()) return emptyList()
-        val maxLines = if (paint.measureText(text) > available) {
-            maxOf(preferredLines, MAX_SECONDARY_LINES)
-        } else {
-            preferredLines
-        }.coerceIn(1, MAX_SECONDARY_LINES)
-        return balancedTokenLineTexts(
-            tokens,
-            tokens.map(paint::measureText),
-            paint.measureText(" "),
-            available,
-            maxLines
-        ).map { line -> textLine(line, paint.measureText(line), paint) }
-    }
-
-    private fun textLine(
-        text: String,
-        width: Float,
-        paint: Paint,
-        lineAlignment: Alignment = alignment
-    ): TextLine {
-        val visual = visualExtents(text, paint, width)
-        return TextLine(text, width, alignedStart(width, lineAlignment, visual.first, visual.second))
-    }
-
-    private fun originalLine(text: String, width: Float, charStart: Int?, charEnd: Int?): OriginalLine {
-        val visual = visualExtents(text, originalPaint, width)
-        return OriginalLine(
-            text,
-            emptyList(),
-            width,
-            alignedStart(width, alignment, visual.first, visual.second),
-            charStart,
-            charEnd
-        )
-    }
-
-    private fun wordOffsets(words: List<AodCanvasWord>): List<IntRange?> =
-        words.map { transportedWordOffset(content.original, it) }
-
-    private fun assignRuby(lines: List<OriginalLine>): List<OriginalLine> = lines.map { line ->
-        val lineStart = line.charStart
-        val lineEnd = line.charEnd
-        if (lineStart == null || lineEnd == null) return@map line
-
-        val placements = content.ruby.asSequence()
-            .filter { segment ->
-                segment.start >= 0 && segment.end > segment.start &&
-                    segment.end <= content.original.length &&
-                    segment.start < lineEnd && segment.end > lineStart
-            }
-            .sortedBy { it.start }
-            .mapNotNull { segment ->
-                val baseStart = maxOf(segment.start, lineStart)
-                val baseEnd = minOf(segment.end, lineEnd)
-                val baseRun = measureBaseRun(line, baseStart, baseEnd) ?: return@mapNotNull null
-                val geometry = rubySpanGeometry(
-                    baseRun.x,
-                    baseRun.width,
-                    rubyPaint.measureText(segment.reading)
-                )
-                RubyPlacement(
-                    baseStart = baseStart,
-                    baseEnd = baseEnd,
-                    baseX = geometry.baseX,
-                    baseWidth = geometry.baseWidth,
-                    spanX = geometry.spanX,
-                    spanWidth = geometry.spanWidth,
-                    extraWidth = 0f,
-                    baseOffset = 0f,
-                    rubyCenterX = geometry.rubyCenterX,
-                    reading = segment.reading
-                )
-            }
-            .toList()
-        val rubyHeight = if (placements.isEmpty()) 0f else {
-            rubyReservation(originalPaint.textSize, rubyPaint.fontMetrics.ascent)
-        }
-        val baseVisual = visualExtents(line.text, originalPaint, line.width)
-        val visualLeft = minOf(
-            baseVisual.first,
-            placements.minOfOrNull { it.spanX } ?: baseVisual.first
-        )
-        val visualRight = maxOf(
-            baseVisual.second,
-            placements.maxOfOrNull { it.spanX + it.spanWidth } ?: baseVisual.second
-        )
-        line.copy(
-            startX = alignedStart(line.width, alignment, visualLeft, visualRight),
-            ruby = placements,
-            rubyHeight = rubyHeight,
-            textRuns = originalTextRuns(
-                line.text.length,
-                placements.map { placement ->
-                    OriginalTextRun(
-                        (placement.baseStart - lineStart).coerceIn(0, line.text.length),
-                        (placement.baseEnd - lineStart).coerceIn(0, line.text.length),
-                        placement.baseX
-                    )
-                }
-            ) { end -> originalPaint.measureText(line.text, 0, end) }
-        )
-    }
-
-    private fun measureBaseRun(line: OriginalLine, start: Int, end: Int): BaseRun? {
-        if (start >= end) return null
-        val lineStart = line.charStart ?: return null
-        if (line.words.isEmpty()) {
-            val localStart = (start - lineStart).coerceIn(0, line.text.length)
-            val localEnd = (end - lineStart).coerceIn(localStart, line.text.length)
-            val prefixWidth = originalPaint.measureText(line.text, 0, localStart)
-            return BaseRun(
-                prefixWidth,
-                originalPaint.measureText(line.text, localStart, localEnd)
-            )
-        }
-
-        var x = 0f
-        var firstX: Float? = null
-        var lastX = 0f
-        line.words.forEach { placed ->
-            val offset = placed.offset
-            if (offset != null) {
-                val wordStart = offset.first
-                val wordEnd = offset.last + 1
-                val overlapStart = maxOf(start, wordStart)
-                val overlapEnd = minOf(end, wordEnd)
-                if (overlapStart < overlapEnd) {
-                    val localStart = overlapStart - wordStart
-                    val localEnd = overlapEnd - wordStart
-                    val runStart = x + originalPaint.measureText(placed.word.text, 0, localStart)
-                    val runEnd = x + originalPaint.measureText(placed.word.text, 0, localEnd)
-                    if (firstX == null) firstX = runStart
-                    lastX = runEnd
-                }
-            }
-            x += placed.width + placed.gapAfter
-        }
-        val baseX = firstX ?: return null
-        return BaseRun(baseX, (lastX - baseX).coerceAtLeast(0f))
-    }
-
     private fun drawOriginalText(
         canvas: Canvas,
         line: OriginalLine,
@@ -1305,43 +836,6 @@ internal class AodLyricCanvasView(
             lineIndex++
         }
         canvas.restore()
-    }
-
-    private fun alignmentFor(kind: RowKind): Alignment = if (kind == RowKind.METADATA) {
-        when (content.alignmentMode) {
-            "start" -> Alignment.START
-            "center" -> Alignment.CENTER
-            "end" -> Alignment.END
-            else -> Alignment.START
-        }
-    } else {
-        alignment
-    }
-
-    private fun alignedStart(
-        textWidth: Float,
-        lineAlignment: Alignment = alignment,
-        visualLeft: Float = 0f,
-        visualRight: Float = textWidth
-    ): Float = edgeSafeAlignedStart(
-        canvasWidth = width.toFloat(),
-        paddingLeft = paddingLeft.toFloat(),
-        paddingRight = paddingRight.toFloat(),
-        visualLeft = visualLeft,
-        visualRight = visualRight,
-        alignment = when (lineAlignment) {
-            Alignment.START -> "start"
-            Alignment.CENTER -> "center"
-            Alignment.END -> "end"
-        },
-        safetyInset = if (lineAlignment == Alignment.END) END_EDGE_SAFETY_DP * density else 0f
-    )
-
-    private fun visualExtents(text: String, paint: Paint, advanceWidth: Float): Pair<Float, Float> {
-        if (text.isEmpty()) return 0f to advanceWidth
-        val bounds = Rect()
-        paint.getTextBounds(text, 0, text.length, bounds)
-        return minOf(0f, bounds.left.toFloat()) to maxOf(advanceWidth, bounds.right.toFloat())
     }
 
     private fun projectedPosition(): Long {
@@ -1448,78 +942,6 @@ internal class AodLyricCanvasView(
         isSubpixelText = true
     }
 
-    private fun resolveTypeface(family: String, weight: String): Typeface {
-        val key = TypefaceKey(family, weight)
-        typefaceCache[key]?.let { return it }
-        val asset = if (family == "noto") {
-            "fonts/NotoSans-" + when (weight) {
-                "Bold" -> "Bold"
-                "Medium" -> "Medium"
-                else -> "Regular"
-            } + ".ttf"
-        } else if (family == "apple") {
-            if (weight == "Regular") "fonts/lyrics_medium.ttf" else "fonts/sf-pro-display-bold.ttf"
-        } else if (weight == "Bold") {
-            "fonts/sf-pro-display-bold.ttf"
-        } else {
-            "fonts/spotifymix-medium.ttf"
-        }
-        val typeface = runCatching {
-            Typeface.createFromAsset(fontContext?.assets ?: context.assets, asset)
-        }.getOrElse {
-            val fallback = if (family == "apple") "sans-serif" else "sans-serif-medium"
-            Typeface.create(fallback, if (weight == "Bold") Typeface.BOLD else Typeface.NORMAL)
-        }
-        typefaceCache[key] = typeface
-        return typeface
-    }
-
-    private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE }
-    private data class Row(
-        val kind: RowKind,
-        val text: String,
-        val paint: Paint,
-        val height: Float,
-        val gapBefore: Float,
-        val lines: List<TextLine>,
-        val lineHeight: Float
-    )
-    private data class PlacedWord(
-        val word: AodCanvasWord,
-        val width: Float,
-        val gapAfter: Float,
-        val offset: IntRange?
-    )
-    private data class OriginalLine(
-        val text: String,
-        val words: List<PlacedWord>,
-        val width: Float,
-        val startX: Float,
-        val charStart: Int?,
-        val charEnd: Int?,
-        val ruby: List<RubyPlacement> = emptyList(),
-        val rubyHeight: Float = 0f,
-        val textRuns: List<OriginalTextRun> = emptyList()
-    )
-    private data class TextLine(
-        val text: String,
-        val width: Float,
-        val startX: Float,
-        val timedSegments: List<SecondaryTimedSegment> = emptyList()
-    )
-    private data class BaseRun(val x: Float, val width: Float)
-    private data class RubyPlacement(
-        val baseStart: Int,
-        val baseEnd: Int,
-        val baseX: Float,
-        val baseWidth: Float,
-        val spanX: Float,
-        val spanWidth: Float,
-        val extraWidth: Float,
-        val baseOffset: Float,
-        val rubyCenterX: Float,
-        val reading: String
-    )
     private data class CanvasSnapshot(
         val content: AodCanvasContent,
         val layout: LayoutState,
@@ -1534,46 +956,9 @@ internal class AodLyricCanvasView(
         val palette: AodResolvedPalette,
         val alignment: Alignment
     )
-    private data class PositionedRow(val row: Row, val baseline: Float, val animate: Boolean)
-    private data class OriginalLayout(
-        val lines: List<OriginalLine>,
-        val lineHeight: Float,
-        val lineGap: Float,
-        val timed: Boolean
-    ) {
-        val lineCount: Int
-            get() = lines.size
-        val rubyHeight: Float
-            get() = lines.sumOf { it.rubyHeight.toDouble() }.toFloat()
-        private val totalLineWidth = lines.sumOf { it.width.coerceAtLeast(0f).toDouble() }.toFloat()
-        private val precedingWidths = FloatArray(lines.size).also { values ->
-            var preceding = 0f
-            lines.forEachIndexed { index, line ->
-                values[index] = preceding
-                preceding += line.width.coerceAtLeast(0f)
-            }
-        }
-
-        fun continuousFill(progress: Float, lineIndex: Int): Float {
-            val width = lines[lineIndex].width.coerceAtLeast(0f)
-            if (width == 0f || totalLineWidth <= 0f) return 0f
-            return ((progress.coerceIn(0f, 1f) * totalLineWidth - precedingWidths[lineIndex]) / width)
-                .coerceIn(0f, 1f)
-        }
-    }
-    private data class LayoutState(
-        val rows: List<PositionedRow>,
-        val original: OriginalLayout
-    )
-    private data class TypefaceKey(val family: String, val weight: String)
 
     companion object {
-        private const val MAX_SECONDARY_LINES = 2
         private const val ENTER_TRANSITION_MS = 210L
         private const val EXIT_TRANSITION_MS = 130L
-        private const val ORIGINAL_LINE_GAP_DP = 4f
-        private const val END_EDGE_SAFETY_DP = 4f
-        private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
-        private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
     }
 }

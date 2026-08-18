@@ -876,4 +876,40 @@ class AodCanvasLayoutTest {
         val lines = balancedTokenLineTexts(tokens, tokens.map { it.length * 8f }, 4f, 190f, 2)
         assertEquals(tokens, lines.flatMap(::secondaryTokens))
     }
+
+    @Test
+    fun sweepBandWidthScalesWithRowWidthAndFloorsAtOnePixel() {
+        assertEquals(40f, sweepBandWidth(100f), 0.0001f)
+        // 极窄行宽：width * 0.4 < 1f 时下限 1px 生效
+        assertEquals(1f, sweepBandWidth(2f), 0.0001f)
+        assertEquals(1f, sweepBandWidth(0f), 0.0001f)
+    }
+
+    @Test
+    fun sweepGradientStartCoversRowFromBandOffsetToLeftPlusWidth() {
+        val band = 100f * LyricGlowRenderer.SWEEP_BAND_FRACTION
+
+        // lp=0：光锋起点在 rowLeft-band（band 左外沿）
+        assertEquals(10f - band, sweepGradientStart(10f, 100f, 0f), 0.0001f)
+        // lp=1：起点推进到 rowLeft+rowWidth（行右缘）
+        assertEquals(10f + 100f, sweepGradientStart(10f, 100f, 1f), 0.0001f)
+        // lp=0.5：起点居中
+        assertEquals(10f - band + (100f + band) * 0.5f, sweepGradientStart(10f, 100f, 0.5f), 0.0001f)
+    }
+
+    @Test
+    fun haloClipRectTracksSweptPrefixAndHaloMargins() {
+        val row = LyricGlowRow(left = 10f, width = 100f, baseline = 200f, drawText = { _, _ -> })
+
+        // lp<=0 的跳过语义由调用方负责，函数本身不做特殊处理：lp=0 时右边界收缩到 rowLeft
+        val untouched = haloClipRect(row, 0f, ascent = -20f, descent = 6f, haloRadius = 8f)
+        assertEquals(10f - 40f, untouched.left, 0.0001f)
+        assertEquals(10f, untouched.right, 0.0001f)
+        // lp=1：右边界到 rowLeft+rowWidth+band
+        val full = haloClipRect(row, 1f, ascent = -20f, descent = 6f, haloRadius = 8f)
+        assertEquals(10f + 100f + 40f, full.right, 0.0001f)
+        // 上下边界 = baseline + ascent/descent ± haloRadius
+        assertEquals(200f - 20f - 8f, full.top, 0.0001f)
+        assertEquals(200f + 6f + 8f, full.bottom, 0.0001f)
+    }
 }

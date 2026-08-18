@@ -65,13 +65,13 @@ internal object LyricGlowRenderer {
             rows.forEachIndexed { index, row ->
                 val lp = rowProgress[index]
                 if (lp <= 0f) return@forEachIndexed
-                val band = (row.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+                val clip = haloClipRect(row, lp, fm.ascent, fm.descent, haloRadius)
                 canvas.save()
                 canvas.clipRect(
-                    row.left - band,
-                    row.baseline + fm.ascent - haloRadius,
-                    row.left + (row.width + band) * lp,
-                    row.baseline + fm.descent + haloRadius
+                    clip.left,
+                    clip.top,
+                    clip.right,
+                    clip.bottom
                 )
                 paint.shader = null
                 paint.color = sungColor
@@ -91,9 +91,8 @@ internal object LyricGlowRenderer {
         rows.forEachIndexed { index, row ->
             val lp = rowProgress[index]
             if (lp <= 0f) return@forEachIndexed
-            val band = (row.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-            val sweepStart = row.left - band + (row.width + band) * lp
-            val sweepEnd = sweepStart + band
+            val sweepStart = sweepGradientStart(row.left, row.width, lp)
+            val sweepEnd = sweepStart + sweepBandWidth(row.width)
             paint.shader = LinearGradient(
                 sweepStart, 0f, sweepEnd, 0f,
                 intArrayOf(sungColor, middle, transparent),
@@ -106,4 +105,39 @@ internal object LyricGlowRenderer {
             paint.shader = null
         }
     }
+}
+
+/** 扫光几何纯函数的矩形返回值（四边浮点，避免在纯 JVM 单测中触碰 android.graphics.RectF）。 */
+internal data class HaloClipBounds(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float
+)
+
+/** 扫光带宽度：行宽 × 占比，下限 1px 保证极窄行也有可感知的渐变过渡。 */
+internal fun sweepBandWidth(rowWidth: Float): Float =
+    (rowWidth * LyricGlowRenderer.SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+
+/** 扫光渐变起点：band 从行左外沿起推进 (rowWidth + band) × lp，光锋落在已扫区右缘。 */
+internal fun sweepGradientStart(rowLeft: Float, rowWidth: Float, rowProgress: Float): Float {
+    val band = sweepBandWidth(rowWidth)
+    return rowLeft - band + (rowWidth + band) * rowProgress
+}
+
+/** Pass 2 光晕裁剪矩形：已扫前缀（右侧到 left+(width+band)×lp）上下各外扩 haloRadius。 */
+internal fun haloClipRect(
+    row: LyricGlowRow,
+    rowProgress: Float,
+    ascent: Float,
+    descent: Float,
+    haloRadius: Float
+): HaloClipBounds {
+    val band = sweepBandWidth(row.width)
+    return HaloClipBounds(
+        left = row.left - band,
+        top = row.baseline + ascent - haloRadius,
+        right = row.left + (row.width + band) * rowProgress,
+        bottom = row.baseline + descent + haloRadius
+    )
 }
