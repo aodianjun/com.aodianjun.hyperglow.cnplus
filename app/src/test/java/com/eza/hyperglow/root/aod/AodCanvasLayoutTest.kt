@@ -280,6 +280,18 @@ class AodCanvasLayoutTest {
                 lineEndMs = content.lineEndMs
             )
         )
+        // 发光开启时必须绕过 shared sweep,改走 drawOriginal 的预览风格三层绘制,
+        // 否则行级同步源渲染旧渐变扫光,AOD 与预览不一致。
+        assertFalse(
+            shouldUseSharedLineLevelSweep(
+                lineLevelSync = content.lineLevelSync,
+                hasOriginalLines = true,
+                animationMode = content.animationMode,
+                lineStartMs = content.lineStartMs,
+                lineEndMs = content.lineEndMs,
+                glowMode = "On"
+            )
+        )
         assertFalse(
             shouldUseSharedLineLevelSweep(
                 lineLevelSync = false,

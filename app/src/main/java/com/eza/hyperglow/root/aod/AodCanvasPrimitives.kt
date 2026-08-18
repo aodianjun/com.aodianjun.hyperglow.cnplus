@@ -767,9 +767,13 @@ internal fun shouldUseSharedLineLevelSweep(
     hasOriginalLines: Boolean,
     animationMode: String,
     lineStartMs: Long,
-    lineEndMs: Long
+    lineEndMs: Long,
+    glowMode: String = "Off"
 ): Boolean = lineLevelSync && hasOriginalLines && animationMode != "Minimal" &&
-    lineEndMs > lineStartMs
+    lineEndMs > lineStartMs &&
+    // 发光开启时走 drawOriginal 的预览风格三层绘制（dim 底 + 光晕 + 扫光带），
+    // 旧的 shared sweep（applySoftSweep 渐变，无光晕无 dim 底）会导致 AOD 与预览不一致。
+    glowMode == "Off"
 
 internal fun hasActiveCanvasTiming(
     lineLevelSync: Boolean,

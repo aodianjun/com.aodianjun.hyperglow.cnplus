@@ -357,7 +357,8 @@ internal class AodLyricCanvasView(
             drawLayout.original.lines.isNotEmpty(),
             drawContent.animationMode,
             drawContent.lineStartMs,
-            drawContent.lineEndMs
+            drawContent.lineEndMs,
+            drawContent.glowMode
         )
         if (sharedLineLevelSweep) {
             drawSharedLineLevelRows(canvas, drawLayout.rows)
@@ -822,6 +823,44 @@ internal class AodLyricCanvasView(
     private fun drawOriginal(canvas: Canvas, baseline: Float) {
         val originalLayout = layout.original
         val lines = originalLayout.lines
+        // 整行发光（纯复刻预览 PreviewAnimatedLyric）不再区分 timed/untimed：
+        // 预览无论有无逐字数据都走三层绘制（dim 底 + 光晕 + 扫光带），
+        // 而 untimed 路径（行级歌词源，words 为空）之前走 drawLineFill 普通渐变填充，
+        // 完全没有光晕/扫光 —— 这正是"开发光后 AOD 与预览不一致"的根因。
+        // 进度：timed 用整块词时间戳（blockSweepProgress 内部处理），untimed 回退 lineProgress()。
+        if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+            val blockFill = blockSweepProgress(originalLayout)
+            var precedingRuby = 0f
+            var lineIndex = 0
+            while (lineIndex < lines.size) {
+                val line = lines[lineIndex]
+                val lineBaseline = originalLineBaseline(
+                    baseline,
+                    lineIndex,
+                    originalLayout.lineHeight,
+                    precedingRuby,
+                    line.rubyHeight,
+                    originalLayout.lineGap
+                )
+                val lineClipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
+                if (line.ruby.isNotEmpty()) {
+                    drawRuby(canvas, line, lineBaseline)
+                }
+                // Pass 1: 未唱区整行暗底 —— 对齐预览 dim 底色（主色 30% 不透明度）。
+                // 不走 steadyTextAlpha：其 AOD 增亮(≈0.56)会明显压低已唱/未唱对比度。
+                originalPaint.shader = null
+                originalPaint.setShadowLayer(0f, 0f, 0f, 0)
+                originalPaint.color = resolvedPalette.unsungText
+                originalPaint.alpha = UNSUNG_BASE_ALPHA
+                drawOriginalText(canvas, line, lineBaseline)
+                // Pass 2 + Pass 3: 已扫区光晕 + 扫光带（drawPreviewStyleGlow 内部完成）
+                drawPreviewStyleGlow(canvas, line, lineBaseline, originalLayout.continuousFill(blockFill, lineIndex))
+                if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
+                precedingRuby += line.rubyHeight
+                lineIndex++
+            }
+            return
+        }
         if (!originalLayout.timed) {
             val progress = if (content.animationMode == "Minimal") 1f else lineProgress()
             if (resolvedLineSyncFillMode(content.lineLevelSync, content.lineSyncFillMode) ==
@@ -860,12 +899,6 @@ internal class AodLyricCanvasView(
             return
         }
         val position = projectedPosition()
-        // 与预览一致：整块单一总进度，进入逐行循环前一次算好，
-        // 循环内按行宽加权分摊（OriginalLayout.continuousFill ≙ 预览 splitContinuousFill），
-        // 扫光作为一条连续光带依次穿过各视觉行，而非各行各自独立推进。
-        val blockFill = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
-            blockSweepProgress(originalLayout)
-        } else 0f
         var precedingRuby = 0f
         var lineIndex = 0
         while (lineIndex < lines.size) {
@@ -881,24 +914,6 @@ internal class AodLyricCanvasView(
             val lineClipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
             if (line.ruby.isNotEmpty()) {
                 drawRuby(canvas, line, lineBaseline)
-            }
-            // 整行发光：纯复刻预览 PreviewAnimatedLyric，整行扫光，无逐字动画。
-            // Pass 1 未唱整行暗底 + Pass 2 已扫光晕 + Pass 3 扫光带，完全对齐预览。
-            val previewGlow = content.animationMode != "Minimal" && content.glowMode != "Off"
-            if (previewGlow) {
-                // Pass 1: 未唱区整行暗底 —— 对齐预览 dim 底色（主色 30% 不透明度）。
-                // 不走 steadyTextAlpha：其 AOD 增亮(≈0.56)会明显压低已唱/未唱对比度。
-                originalPaint.shader = null
-                originalPaint.setShadowLayer(0f, 0f, 0f, 0)
-                originalPaint.color = resolvedPalette.unsungText
-                originalPaint.alpha = UNSUNG_BASE_ALPHA
-                drawOriginalText(canvas, line, lineBaseline)
-                // Pass 2 + Pass 3: 已扫区光晕 + 扫光带（drawPreviewStyleGlow 内部完成）
-                drawPreviewStyleGlow(canvas, line, lineBaseline, originalLayout.continuousFill(blockFill, lineIndex))
-                if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
-                precedingRuby += line.rubyHeight
-                lineIndex++
-                continue
             }
             var x = 0f
             var wordIndex = 0
@@ -1821,9 +1836,13 @@ internal class AodLyricCanvasView(
     // 两层都画在文字背后（per-word 循环之前），光从文字背后透出，不遮挡文字。
     // 整块扫光总进度（对齐预览 previewProjectedProgress 的"整块单一进度"结构）：
     // 预览按行级时间戳驱动整块 p，再 splitContinuousFill 按行宽加权分摊到各视觉行。
+    // 行级时间戳有效时完全对齐预览（lineStartMs→lineEndMs）；
     // 纯逐字歌词源行级时间常为 0，progress() 会退化为 1f（整块全亮、已唱未唱无法区分），
-    // 故优先取整块全部单词范围（全局首词 startMs → 末词 endMs），无单词时间再回退行级。
+    // 故回退到整块全部单词范围（全局首词 startMs → 末词 endMs）。
     private fun blockSweepProgress(layout: OriginalLayout): Float {
+        if (content.lineEndMs > content.lineStartMs) {
+            return lineProgress()
+        }
         var startMs = Long.MAX_VALUE
         var endMs = Long.MIN_VALUE
         layout.lines.forEach { line ->
