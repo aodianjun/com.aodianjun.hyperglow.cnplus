@@ -123,7 +123,7 @@ object SceneCompiler {
             supportedWidgets.add(0, WidgetSpec("lyrics"))
         }
         val palette = profile.palette.asSequence()
-            .filter { it.key in SEMANTIC_COLORS && it.value in PALETTE_VALUES }
+            .filter { it.key in SEMANTIC_COLORS && isAllowedPaletteValue(it.value) }
             .take(SEMANTIC_COLORS.size)
             .associate { it.key to it.value }
         return CompiledSurfaceProfile(
@@ -255,6 +255,22 @@ object SceneCompiler {
         "surfaceScrim"
     )
     private val PALETTE_VALUES = setOf("default", "clock", "wallpaper", "white", "dimmed")
+
+    /**
+     * 调色板 token 是否允许通过编译白名单:预设名或合法 hex 色值("#RGB"/"#RRGGBB"/"#AARRGGBB")。
+     * 字体颜色等自定义色以 hex token 存储,各编译/投影层共用本判定避免被预设白名单过滤掉。
+     */
+    fun isAllowedPaletteValue(value: String): Boolean =
+        value in PALETTE_VALUES || isHexColorToken(value)
+
+    private fun isHexColorToken(value: String): Boolean {
+        if (value[0] != '#' || value.length !in intArrayOf(4, 7, 9)) return false
+        for (c in value.substring(1)) {
+            if (Character.digit(c, 16) < 0) return false
+        }
+        return true
+    }
+
     private val FORBIDDEN_SCHEMA_KEYS = setOf(
         "class",
         "resource",

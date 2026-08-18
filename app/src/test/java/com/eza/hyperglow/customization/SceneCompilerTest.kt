@@ -34,6 +34,38 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun hexPaletteTokensSurviveCompilation() {
+        // 回归:字体颜色以 hex token 写入 palette,编译白名单不得将其过滤掉
+        // (否则保存后被 strip,UI 选项弹回"默认",实机/预览都不生效)
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        palette = mapOf(
+                            "primaryText" to "#FFD9A0",
+                            "sungText" to "#FFD9A0",
+                            "unsungText" to "#FFD9A0",
+                            "glow" to "#FFD9A0",
+                            "surfaceScrim" to "#BADTOKEN"
+                        )
+                    )
+                )
+            )
+        )
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("#FFD9A0", aod.palette["primaryText"])
+        assertEquals("#FFD9A0", aod.palette["glow"])
+        assertNull(aod.palette["surfaceScrim"])
+
+        // 白名单判定:预设名与合法 hex 放行,非法值拒绝
+        assertTrue(SceneCompiler.isAllowedPaletteValue("dimmed"))
+        assertTrue(SceneCompiler.isAllowedPaletteValue("#123"))
+        assertTrue(SceneCompiler.isAllowedPaletteValue("#CC00AABB"))
+        assertFalse(SceneCompiler.isAllowedPaletteValue("#BADTOKEN"))
+        assertFalse(SceneCompiler.isAllowedPaletteValue("random"))
+    }
+
+    @Test
     fun legacyPreferencesMigrateWithoutEnablingLockscreen() {
         val document = CustomizationRepository.documentFromLegacy(
             AodRenderConfig(
