@@ -58,6 +58,7 @@ import com.eza.hyperglow.diagnostics.HyperGlowReportCategory
 import com.eza.hyperglow.diagnostics.HyperGlowSetupChecks
 import com.eza.hyperglow.diagnostics.HYPERGLOW_DIAGNOSTIC_DATA_POLICY_URL
 import com.eza.hyperglow.diagnostics.buildHyperGlowGitHubIssue
+import com.eza.hyperglow.diagnostics.buildHyperGlowGitHubIssueWithData
 import com.eza.hyperglow.diagnostics.utf8Prefix
 import com.eza.hyperglow.diagnostics.utf8Size
 import kotlinx.coroutines.delay
@@ -78,6 +79,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 private data class SuccessfulDiagnosticReport(
     val receipt: DiagnosticReportReceipt,
     val issue: DiagnosticGitHubIssue,
+    val issueWithData: DiagnosticGitHubIssue,
     val payloadJson: String
 )
 
@@ -449,6 +451,7 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                                         success = SuccessfulDiagnosticReport(
                                             receipt,
                                             issue,
+                                            buildHyperGlowGitHubIssueWithData(currentReport),
                                             DiagnosticReportCodec.encodePretty(currentReport)
                                         )
                                         retentionAccepted = false
@@ -518,8 +521,16 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                             }
                         )
                         ArrowPreference(
+                            title = stringResource(R.string.action_open_github_issue_with_data),
+                            onClick = { openGitHubIssue(context, completed.issueWithData) }
+                        )
+                        ArrowPreference(
                             title = stringResource(R.string.action_open_github_issue),
                             onClick = { openGitHubIssue(context, completed.issue) }
+                        )
+                        ArrowPreference(
+                            title = stringResource(R.string.action_share_diagnostics),
+                            onClick = { shareDiagnostics(context, completed) }
                         )
                     }
                 }
@@ -786,6 +797,43 @@ private fun profileStateLabel(context: Context, value: String): String = context
 
 private val LOCAL_RECEIPT_TIME_FORMAT =
     java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
+
+/**
+ * 用系统分享把 issue 正文 + 完整诊断 JSON 发出去(邮件/笔记/其它 App),由用户自行送达
+ * GitHub。完整负载不受 issue 正文截断限制;共享文本以标题开头方便接收方定位。
+ */
+private fun shareDiagnostics(
+    context: Context,
+    completed: SuccessfulDiagnosticReport
+) {
+    val title = completed.issue.title
+    val sharedText = buildString {
+        append(title).append('\n').append('\n')
+        append(completed.issue.body).append('\n').append('\n')
+        append("## Full diagnostic JSON\n\n")
+        append("```json\n").append(completed.payloadJson).append('\n').append("```")
+    }
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, title)
+        putExtra(Intent.EXTRA_TEXT, sharedText)
+    }
+    val opened = runCatching {
+        context.startActivity(
+            Intent.createChooser(
+                send,
+                context.getString(R.string.action_share_diagnostics)
+            )
+        )
+    }.isSuccess
+    if (!opened) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.toast_no_github_handler),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+}
 
 private fun openGitHubIssue(context: Context, issue: DiagnosticGitHubIssue) {
     val uri = Uri.Builder()

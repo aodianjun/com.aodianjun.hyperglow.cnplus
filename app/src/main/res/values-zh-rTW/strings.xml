@@ -16,6 +16,8 @@
     <string name="action_discard">丟棄</string>
     <string name="action_copy_id">複製 ID</string>
     <string name="action_open_github_issue">打開 GitHub Issue</string>
+    <string name="action_open_github_issue_with_data">打開 GitHub Issue（附診斷資料）</string>
+    <string name="action_share_diagnostics">分享診斷資料</string>
 
     <string name="section_runtime_status">運行狀態</string>
     <string name="section_home_status">模塊狀態</string>
