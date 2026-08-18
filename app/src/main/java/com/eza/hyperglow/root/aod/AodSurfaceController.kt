@@ -145,17 +145,28 @@ internal data class AodClockAnchor(
 internal const val AOD_CLOCK_ANCHOR_HOLD_MS = 40_000L
 
 /**
+ * Shorter hold for moves that extend the clock *below* the held position. The lyric surface is
+ * placed under the anchor's bottom edge, so a clock that drifted downward (stock burn-in moves it
+ * in persistent steps) would render on top of the lyrics for the whole hold window; the anchor
+ * must follow after only a short debounce. Upward moves keep the long hold — the media-header
+ * oscillation squeezes the clock upward and must not relocate the anchor.
+ */
+internal const val AOD_CLOCK_ANCHOR_OVERLAP_HOLD_MS = 2_000L
+
+/**
  * Stabilizes the clock bounds used for lyric placement against fast oscillation (e.g. the media
  * header toggling the AOD layout, which squeezes/releases the clock by hundreds of pixels). The
  * anchor holds the last *confirmed* clock position: as long as the raw bounds keep returning to it
  * (oscillation), the anchor stays put so the lyric never jumps. It only relocates when the held
- * position has gone unconfirmed for [AOD_CLOCK_ANCHOR_HOLD_MS] — a genuinely persistent move.
+ * position has gone unconfirmed for [holdMs] — a genuinely persistent move — or, when the clock
+ * extends below the anchor (overlap risk), after [overlapHoldMs].
  */
 internal fun stabilizeAodClockAnchor(
     previous: AodClockAnchor?,
     raw: AodRenderedClockBounds,
     nowElapsedMs: Long,
-    holdMs: Long = AOD_CLOCK_ANCHOR_HOLD_MS
+    holdMs: Long = AOD_CLOCK_ANCHOR_HOLD_MS,
+    overlapHoldMs: Long = AOD_CLOCK_ANCHOR_OVERLAP_HOLD_MS
 ): AodClockAnchor {
     if (raw.top >= raw.bottom) return previous ?: AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
     if (previous == null) return AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
@@ -163,7 +174,10 @@ internal fun stabilizeAodClockAnchor(
         // Held position reconfirmed: refresh so oscillation never ages it out.
         return previous.copy(sinceElapsedMs = nowElapsedMs)
     }
-    return if (nowElapsedMs - previous.sinceElapsedMs >= holdMs) {
+    // A clock extending below the held position would overlap the lyric surface placed under
+    // the anchor; follow it after only the short overlap debounce.
+    val effectiveHoldMs = if (raw.bottom > previous.bottom) overlapHoldMs else holdMs
+    return if (nowElapsedMs - previous.sinceElapsedMs >= effectiveHoldMs) {
         AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
     } else {
         previous
@@ -319,7 +333,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var attachmentGeneration = 0L
     private var environment = SurfaceEnvironment(LyricSurfaceKind.AOD, 0L)
     private var rootRef = WeakReference<ViewGroup>(null)
-    private var burnInContainerRef = WeakReference<FrameLayout>(null)
+    private var burnInContainerRef = WeakReference<ViewGroup>(null)
     private var surface: LinearLayout? = null
     private var lyricCanvas: AodLyricCanvasView? = null
     private var spicyAnimationView: AodSpicyAnimationView? = null
@@ -1192,7 +1206,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private fun layoutSurface(
         root: ViewGroup,
-        burnInContainer: FrameLayout,
+        burnInContainer: ViewGroup,
         directSurface: View
     ): Boolean {
         if (!hasUsableAodRootSize(root.width, root.height)) {
@@ -1694,26 +1708,29 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (shouldSchedule) mainHandler.post(geometryUpdate)
     }
 
-    private fun findBurnInContainer(root: ViewGroup): FrameLayout? {
+    private fun findBurnInContainer(root: ViewGroup): ViewGroup? {
         // Walk the class hierarchy: the field may be declared on AODView or a superclass,
-        // and HyperOS may have renamed it. Try the canonical name first.
+        // and HyperOS may have renamed it. Try the canonical name first. HyperOS 3 declares
+        // the field as plain android.view.View — the runtime instance is still the clock
+        // container, so accept any ViewGroup (the surface attaches to root.overlay; the
+        // container is only measured and observed).
         var klass: Class<*>? = root.javaClass
         while (klass != null && klass != Any::class.java) {
             runCatching {
                 klass!!.getDeclaredField("mTableModeContainer").apply { isAccessible = true }
-                    .get(root) as? FrameLayout
+                    .get(root) as? ViewGroup
             }.getOrNull()?.let { return it }
             klass = klass!!.superclass
         }
-        // Type-based fallback: find the first FrameLayout-typed declared field that holds
+        // Type-based fallback: find the first ViewGroup-typed declared field that holds
         // a non-null value. Catches HyperOS renames where the type is preserved.
         klass = root.javaClass
         while (klass != null && klass != Any::class.java) {
             runCatching {
                 for (field in klass!!.declaredFields) {
-                    if (!FrameLayout::class.java.isAssignableFrom(field.type)) continue
+                    if (!ViewGroup::class.java.isAssignableFrom(field.type)) continue
                     field.isAccessible = true
-                    val value = field.get(root) as? FrameLayout
+                    val value = field.get(root) as? ViewGroup
                     if (value != null) {
                         HookLogger.i(
                             TAG,

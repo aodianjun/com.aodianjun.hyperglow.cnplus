@@ -375,8 +375,8 @@ internal object AodPositionHook {
     private fun readClockGeometry(controller: Any): AodClockGeometry? = runCatching {
         AodClockGeometry(
             mode = readIntField(controller, "mMode"),
-            baseTranslationY = readFloatField(controller, "mTranslationY"),
-            translationYStep = readFloatField(controller, "mTranslationYStep"),
+            baseTranslationY = readNumberField(controller, "mTranslationY"),
+            translationYStep = readNumberField(controller, "mTranslationYStep"),
             viewTop = readIntField(controller, "mViewTop"),
             viewHeight = readIntField(controller, "mViewHeight"),
             translationXStep = readIntField(controller, "mTranslationX")
@@ -390,8 +390,16 @@ internal object AodPositionHook {
     private fun readIntField(controller: Any, name: String): Int =
         requireField(controller, name).getInt(controller)
 
-    private fun readFloatField(controller: Any, name: String): Float =
-        requireField(controller, name).getFloat(controller)
+    /**
+     * HyperOS 3 widened the controller's Y-translation fields from float to int
+     * (`mTranslationY:I` while `mTranslationYStep:F` stayed float); older builds keep both
+     * float. Field.getFloat() throws IllegalArgumentException on an int field, which used to
+     * null out the whole geometry and silently disable managed placement. Read whatever
+     * numeric type the ROM declares.
+     */
+    private fun readNumberField(controller: Any, name: String): Float =
+        (requireField(controller, name).get(controller) as? Number)?.toFloat()
+            ?: throw IllegalStateException("Field $name holds a non-numeric value")
 
     private fun readFodSafeBottom(controller: Any?): Int? = runCatching {
         controller ?: return null
