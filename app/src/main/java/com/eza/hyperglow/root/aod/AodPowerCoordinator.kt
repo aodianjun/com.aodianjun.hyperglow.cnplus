@@ -225,14 +225,13 @@ internal fun shouldStartAodPowerGrace(
 ): Boolean = aodEnabled && playbackActive && keepAliveRequested && graceEligible
 
 /**
- * A keepalive heartbeat may only sustain an AOD that is already presenting. Sustaining the grace
- * window of a hidden lyric stretches the recovery allowance to an unbounded session: the grace
- * expires, the heartbeat re-arms it, and the cycle repeats while the producer keeps beating.
+ * A heartbeat cannot turn a hidden transport grace back into an unbounded active session.
+ * 心跳只能维持正在呈现的 AOD:靠心跳续期隐藏歌词的宽限窗口会把恢复余量拉成无限会话。
  */
 internal fun shouldAcceptKeepAliveHeartbeat(
     projectionVisible: Boolean,
     graceActive: Boolean
-): Boolean = projectionVisible || !graceActive
+): Boolean = projectionVisible
 
 internal fun shouldRetryDetachedAodWake(
     surfaceAttached: Boolean,
