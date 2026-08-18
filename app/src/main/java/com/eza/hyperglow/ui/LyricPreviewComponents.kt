@@ -211,6 +211,29 @@ internal fun LyricPreviewCard(
     }
 }
 
+/**
+ * 外观编辑页顶部的常驻悬浮预览:与实机同一编译管线(调用方传入 compile 后的 profile,
+ * 归一化/白名单与真机一致,所见即所得),实时歌词优先,无歌词时循环播放演示动画。
+ */
+@Composable
+internal fun AppearanceLivePreview(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    scenario: String,
+    modifier: Modifier = Modifier
+) {
+    val live = collectLiveSnapshot()
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .height(150.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(ComposeColor(0xFF0B0B0F))
+    ) {
+        LyricPreviewSurface(profile = profile, scenario = scenario, live = live)
+    }
+}
+
 @Composable
 private fun LyricPreviewSurface(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,

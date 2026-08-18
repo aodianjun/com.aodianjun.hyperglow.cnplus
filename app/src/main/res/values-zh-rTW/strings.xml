@@ -217,6 +217,7 @@
     <string name="choice_text_brightness">文字亮度</string>
     <string name="choice_font_color">字體顏色</string>
     <string name="choice_scene_transition_speed">場景過渡速度</string>
+    <string name="title_appearance_preview">即時預覽</string>
     <string name="section_lockscreen_card">鎖屏歌詞卡片</string>
     <string name="setting_show_lyric_card">顯示歌詞卡片</string>
     <string name="setting_show_playback_progress">顯示播放進度</string>

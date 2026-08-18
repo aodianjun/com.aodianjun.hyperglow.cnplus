@@ -214,6 +214,7 @@
     <string name="choice_text_brightness">Text brightness</string>
     <string name="choice_font_color">Font color</string>
     <string name="choice_scene_transition_speed">Scene transition speed</string>
+    <string name="title_appearance_preview">Live preview</string>
     <string name="section_lockscreen_card">Lock screen card</string>
     <string name="setting_show_lyric_card">Show lyric card</string>
     <string name="setting_show_playback_progress">Show playback progress</string>

@@ -5,23 +5,35 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -152,6 +164,12 @@ internal fun LyricLayoutScreen(
     }
 
     val selectedProfile = editorState.document.profiles[editorState.selectedSurface] ?: SurfaceProfile()
+    // 预览走与实机相同的编译管线(归一化/白名单),编辑后立即反映最终生效效果,所见即所得
+    val compiledPreviewProfile = remember(editorState.document) {
+        SceneCompiler.compile(editorState.document)
+            .profiles.getValue(editorState.selectedSurface)
+    }
+    var previewCollapsed by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -169,12 +187,29 @@ internal fun LyricLayoutScreen(
             )
         }
     ) { innerPadding ->
-        LazyColumn(
-            contentPadding = PaddingValues(
-                top = innerPadding.calculateTopPadding() + 12.dp,
-                bottom = innerPadding.calculateBottomPadding() + 20.dp
-            )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = innerPadding.calculateTopPadding())
         ) {
+            // 顶部常驻悬浮预览:调节下方选项时效果实时可见;点击标题栏可折叠让位给长列表
+            AppearancePreviewHeader(
+                expanded = !previewCollapsed,
+                onToggle = { previewCollapsed = !previewCollapsed }
+            )
+            AnimatedVisibility(visible = !previewCollapsed) {
+                AppearanceLivePreview(
+                    profile = compiledPreviewProfile,
+                    scenario = editorState.selectedSurface
+                )
+            }
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    top = 4.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 20.dp
+                ),
+                modifier = Modifier.weight(1f)
+            ) {
             item { SmallTitle(text = stringResource(R.string.section_placement)) }
             item {
                 SettingsCard {
@@ -504,6 +539,7 @@ internal fun LyricLayoutScreen(
                 }
             }
         }
+        }
     }
 
     activeChoice?.let { selected ->
@@ -514,14 +550,28 @@ internal fun LyricLayoutScreen(
         ) {
             Column {
                 selected.values.forEach { value ->
-                    RadioButtonPreference(
-                        choiceDisplayLabel(context, selected.kind, value),
-                        selected.current == value,
-                        {
-                            selected.onSelect(value)
-                            activeChoice = null
-                        }
-                    )
+                    val label = choiceDisplayLabel(context, selected.kind, value)
+                    if (selected.kind == AodChoiceKind.FONT_COLOR) {
+                        // 字体颜色用色块行直观展示颜色效果,其余选项保持单选样式
+                        FontColorOptionRow(
+                            label = label,
+                            hex = value,
+                            selected = selected.current == value,
+                            onClick = {
+                                selected.onSelect(value)
+                                activeChoice = null
+                            }
+                        )
+                    } else {
+                        RadioButtonPreference(
+                            label,
+                            selected.current == value,
+                            {
+                                selected.onSelect(value)
+                                activeChoice = null
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -580,6 +630,79 @@ private fun AodChoiceRow(kind: AodChoiceKind, value: String, onClick: () -> Unit
         summary = choiceDisplayLabel(context, kind, value),
         onClick = onClick
     )
+}
+
+/**
+ * 悬浮预览的标题栏:整行可点击切换展开/折叠。折叠后预览让位给设置列表,
+ * 便于长列表快速调整;展开时调节下方选项效果实时可见。
+ */
+@Composable
+private fun AppearancePreviewHeader(
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.title_appearance_preview),
+            fontSize = MiuixTheme.textStyles.headline1.fontSize,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (expanded) "▾" else "▸",
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
+    }
+}
+
+/**
+ * 字体颜色选项行:色块 + 名称,替代纯文字单选,选中色一眼可辨。
+ * 非 hex token(default)显示白色色块,与实际渲染颜色一致。
+ */
+@Composable
+private fun FontColorOptionRow(
+    label: String,
+    hex: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val dotColor = if (hex.startsWith("#")) {
+        runCatching { ComposeColor(android.graphics.Color.parseColor(hex)) }
+            .getOrDefault(ComposeColor.White)
+    } else {
+        ComposeColor.White
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(dotColor)
+                .border(1.dp, ComposeColor(0x33FFFFFF), CircleShape)
+        )
+        Spacer(Modifier.width(14.dp))
+        Text(
+            label,
+            modifier = Modifier.weight(1f),
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
+        if (selected) {
+            Text("✓", color = MiuixTheme.colorScheme.primary)
+        }
+    }
 }
 
 @Composable
