@@ -23,6 +23,12 @@ data class AodRenderConfig(
     val keepAwake: Boolean = true,
     val keepAwakeUnsynced: Boolean = false,
     val keepAwakeDurationMs: Long = -1L,
+    /**
+     * 暂停时保持息屏活动:开启后,音乐暂停时息屏继续按 [pauseLingerMs] 显示冻结的歌曲信息;
+     * 关闭(默认)时,暂停立即清除息屏歌词并释放保活,不因「保持息屏活动」只覆盖播放中
+     * 状态而漏出暂停驻留。
+     */
+    val pauseKeepAwake: Boolean = false,
     val experimentalPositionFollowing: Boolean = false,
     val burnInPattern: String = "static_bottom",
     val burnInIntervalMs: Long = 60_000L,
@@ -159,6 +165,7 @@ object AodRenderPreferences {
     const val KEEP_AWAKE = "keep_awake"
     const val KEEP_AWAKE_UNSYNCED = "keep_awake_unsynced"
     const val KEEP_AWAKE_DURATION_MS = "keep_awake_duration_ms"
+    const val PAUSE_KEEP_AWAKE = "pause_keep_awake"
     const val EXPERIMENTAL_POSITION_FOLLOWING = "experimental_position_following"
     const val BURN_IN_PATTERN = "burn_in_pattern"
     const val BURN_IN_INTERVAL_MS = "burn_in_interval_ms"
@@ -204,6 +211,7 @@ object AodRenderPreferences {
             prefs.getBoolean(KEEP_AWAKE, true),
             prefs.getBoolean(KEEP_AWAKE_UNSYNCED, false),
             normalizeKeepAwakeDurationMs(prefs.getLong(KEEP_AWAKE_DURATION_MS, -1L)),
+            prefs.getBoolean(PAUSE_KEEP_AWAKE, false),
             prefs.getBoolean(EXPERIMENTAL_POSITION_FOLLOWING, false),
             normalizeAodBurnInPattern(prefs.getString(BURN_IN_PATTERN, "static_bottom")),
             normalizeAodBurnInInterval(prefs.getLong(BURN_IN_INTERVAL_MS, 60_000L)),

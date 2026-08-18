@@ -190,6 +190,7 @@ internal fun HomeScreen(
     var keepAwake by remember { mutableStateOf(initialConfig.keepAwake) }
     var keepAwakeUnsynced by remember { mutableStateOf(initialConfig.keepAwakeUnsynced) }
     var keepAwakeDurationMs by remember { mutableStateOf(initialConfig.keepAwakeDurationMs) }
+    var pauseKeepAwake by remember { mutableStateOf(initialConfig.pauseKeepAwake) }
     var lockscreenKeepAwake by remember {
         mutableStateOf(initialConfig.lockscreenKeepAwake)
     }
@@ -526,6 +527,20 @@ internal fun HomeScreen(
                                     keepAwakeUnsynced = enabled
                                 },
                                 stringResource(R.string.setting_keep_aod_unsynced),
+                                enabled = aodSupported && keepAwake
+                            )
+                            SwitchPreference(
+                                pauseKeepAwake,
+                                { enabled ->
+                                    if (updatePauseKeepAwake(context, enabled)) {
+                                        pauseKeepAwake = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_pause_keep_awake),
+                                summary = stringResource(
+                                    R.string.summary_pause_keep_awake,
+                                    stringResource(R.string.setting_after_spotify_pauses)
+                                ),
                                 enabled = aodSupported && keepAwake
                             )
                             ArrowPreference(

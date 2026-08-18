@@ -120,6 +120,8 @@
     <string name="summary_unavailable_systemui_profile">Unavailable on this System UI profile.</string>
     <string name="setting_keep_aod_active_for">Keep AOD active for</string>
     <string name="setting_keep_aod_unsynced">Also keep AOD active without timed lyrics</string>
+    <string name="setting_pause_keep_awake">Keep AOD active while paused</string>
+    <string name="summary_pause_keep_awake">When off, pausing clears AOD lyrics immediately. When on, song info stays for the duration set in "%1$s".</string>
     <string name="setting_aod_clock_image">AOD clock or image</string>
     <string name="summary_aod_placement_unsupported">This System UI version does not support coordinated AOD placement.</string>
     <string name="setting_movement_interval">Movement interval</string>

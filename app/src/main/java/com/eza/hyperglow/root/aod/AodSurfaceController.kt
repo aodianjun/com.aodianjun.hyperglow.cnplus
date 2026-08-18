@@ -268,11 +268,14 @@ internal fun retainedAodSnapshotAfterUpdate(
     anchor: LyricRetentionAnchor?,
     mediaPlayerPresent: Boolean,
     nowElapsedMs: Long,
-    pauseLingerMs: Long = 5_000L
+    pauseLingerMs: Long = 5_000L,
+    pauseRetentionEnabled: Boolean = true
 ): LyricSnapshot? = when {
     incoming.visible -> null
     !mediaPlayerPresent -> null
-    incoming.pauseRetentionEligible -> {
+    // 「暂停时保持息屏活动」关闭时,暂停驻留边按终止态处理:不冻结歌词,息屏立即释放,
+    // 避免「保持息屏活动」仅覆盖播放中状态时,暂停仍漏出歌曲信息驻留。
+    incoming.pauseRetentionEligible && pauseRetentionEnabled -> {
         val pauseAtElapsedMs = anchor.edgeFor(
             pauseRetentionEligible = true,
             fallbackElapsedMs = incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
@@ -800,7 +803,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             retentionAnchor,
             stockMediaPlayerPresent,
             nowElapsedMs,
-            customization?.pauseLingerMs ?: 5_000L
+            customization?.pauseLingerMs ?: 5_000L,
+            pauseRetentionEnabled = customization?.pauseKeepAwake ?: false
         )
         schedulePausedKeepAliveExpiry(retainedMediaSnapshot)
         schedulePauseLingerExpiry(retainedMediaSnapshot)
@@ -941,11 +945,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     override fun onCustomization(configuration: CompiledCustomization) {
         customization = configuration
         val retained = retainedMediaSnapshot?.takeIf { snapshot ->
-            !snapshot.pauseRetentionEligible || pauseLingerRemainingMs(
-                snapshot.sampledAtElapsedMs,
-                configuration.pauseLingerMs,
-                SystemClock.elapsedRealtime()
-            ) != null
+            !snapshot.pauseRetentionEligible || configuration.pauseKeepAwake &&
+                pauseLingerRemainingMs(
+                    snapshot.sampledAtElapsedMs,
+                    configuration.pauseLingerMs,
+                    SystemClock.elapsedRealtime()
+                ) != null
         }
         if (retainedMediaSnapshot != null && retained == null) {
             retainedMediaSnapshot = null

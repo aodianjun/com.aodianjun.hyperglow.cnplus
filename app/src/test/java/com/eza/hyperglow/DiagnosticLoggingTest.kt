@@ -94,6 +94,26 @@ class DiagnosticLoggingTest {
     }
 
     @Test
+    fun pauseKeepAwakeChangesRuntimeIdentityWithoutChangingProfiles() {
+        val base = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+        val disabled = RuntimeCustomization.withDiagnosticLogging(
+            base,
+            diagnosticLogging = false,
+            pauseKeepAwake = false
+        )
+        val enabled = RuntimeCustomization.withDiagnosticLogging(
+            base,
+            diagnosticLogging = false,
+            pauseKeepAwake = true
+        )
+
+        assertFalse(disabled.pauseKeepAwake)
+        assertTrue(enabled.pauseKeepAwake)
+        assertNotEquals(disabled.hash, enabled.hash)
+        assertEquals(base.profiles, enabled.profiles)
+    }
+
+    @Test
     fun raiseToAodChangesRuntimeIdentityIndependentlyOfLyrics() {
         val base = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
         val enabled = RuntimeCustomization.withDiagnosticLogging(

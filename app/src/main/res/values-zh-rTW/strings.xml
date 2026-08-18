@@ -120,6 +120,8 @@
     <string name="summary_unavailable_systemui_profile">此係統界面配置不可用。</string>
     <string name="setting_keep_aod_active_for">保持息屏活動時長</string>
     <string name="setting_keep_aod_unsynced">沒有計時歌詞時也保持息屏活動</string>
+    <string name="setting_pause_keep_awake">暫停時保持息屏活動</string>
+    <string name="summary_pause_keep_awake">關閉後，音樂暫停時立即清除息屏歌詞；開啟後，暫停時按「%1$s」的時長保留歌曲資訊。</string>
     <string name="setting_aod_clock_image">息屏時鐘或圖片</string>
     <string name="summary_aod_placement_unsupported">此係統界面版本不支持協調息屏位置。</string>
     <string name="setting_movement_interval">移動間隔</string>

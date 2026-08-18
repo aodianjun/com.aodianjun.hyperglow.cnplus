@@ -241,6 +241,15 @@ internal fun updatePauseLinger(context: android.content.Context, value: Long): B
     return true
 }
 
+internal fun updatePauseKeepAwake(context: android.content.Context, enabled: Boolean): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.PAUSE_KEEP_AWAKE, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 internal fun updateDiagnosticLogging(
     context: android.content.Context,
     enabled: Boolean

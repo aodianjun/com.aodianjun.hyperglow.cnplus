@@ -156,6 +156,55 @@ class AodLifetimePolicyTest {
     }
 
     @Test
+    fun disabledPauseKeepAwakeClearsPausedLyricsImmediately() {
+        // 「暂停时保持息屏活动」关闭时,暂停驻留边不得冻结歌词:
+        // 「保持息屏活动」只覆盖播放中状态,暂停后息屏应立即释放,不显示歌曲信息。
+        val live = LyricSnapshot(
+            visible = true,
+            playbackActive = true,
+            keepAlive = true,
+            durationMs = 20_000L,
+            positionMs = 4_000L,
+            sampledAtElapsedMs = 1_000L,
+            speed = 1f,
+            original = "line"
+        )
+        val paused = live.copy(
+            visible = false,
+            playbackActive = false,
+            pauseRetentionEligible = true,
+            updatedAtElapsedMs = 3_000L
+        )
+
+        assertEquals(
+            null,
+            retainedAodSnapshotAfterUpdate(
+                paused, live, null, null, true, 3_000L, 30_000L,
+                pauseRetentionEnabled = false
+            )
+        )
+        // 已经驻留中的快照在开关关闭后同样不再保留。
+        val retained = retainedAodSnapshotAfterUpdate(
+            paused, live, null, null, true, 3_000L, 30_000L
+        )!!
+        assertEquals(
+            null,
+            retainedAodSnapshotAfterUpdate(
+                paused, null, retained, null, true, 3_500L, 30_000L,
+                pauseRetentionEnabled = false
+            )
+        )
+        // 传输间隙驻留(仍在播放)不受该开关影响。
+        val gap = live.copy(visible = false, updatedAtElapsedMs = 3_000L)
+        assertTrue(
+            retainedAodSnapshotAfterUpdate(
+                gap, live, null, null, true, 3_000L, 5_000L,
+                pauseRetentionEnabled = false
+            ) != null
+        )
+    }
+
+    @Test
     fun sharedPauseLingerSupportsImmediateBoundedAndIndefiniteModes() {
         val live = LyricSnapshot(
             visible = true,

@@ -84,6 +84,7 @@ class AodRenderPreferencesTest {
         assertEquals(true, config.adaptiveSectioning)
         assertFalse(config.keepAwakeUnsynced)
         assertEquals(-1L, config.keepAwakeDurationMs)
+        assertFalse(config.pauseKeepAwake)
         assertEquals(false, config.experimentalPositionFollowing)
         assertEquals("static_bottom", config.burnInPattern)
         assertEquals(60_000L, config.burnInIntervalMs)
