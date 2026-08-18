@@ -45,6 +45,7 @@ import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
 import com.eza.hyperglow.root.aod.normalizedProgress
+import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.projection.LyricLayoutGroup
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
@@ -221,13 +222,11 @@ private fun LyricPreviewSurface(
     // 大字号下一行就被裁掉,看起来像被遮挡。这样无论字号多大都完整可见。
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
     val snapshot = live ?: collectDemoSnapshot(scenario)
-    val lyricColor = if (profile.palette.values.any { it == "dimmed" }) {
-        ComposeColor(0xFF9AA0A6)
-    } else {
-        ComposeColor(0xFFFFFFFF)
-    }
-    val secondaryColor = lyricColor.copy(alpha = 0.72f)
-    val metadataColor = lyricColor.copy(alpha = 0.6f)
+    // 颜色与实机同源:统一走 resolveAodPalette(dimmed 预设/自定义字体颜色 hex token 一处解析)
+    val resolvedColors = resolveAodPalette(profile.palette)
+    val lyricColor = ComposeColor(resolvedColors.primaryText)
+    val secondaryColor = ComposeColor(resolvedColors.secondaryText).copy(alpha = 0.72f)
+    val metadataColor = ComposeColor(resolvedColors.metadataText).copy(alpha = 0.6f)
     val textSize = previewTextSizeSp(profile)
     val weight = previewFontWeight(profile)
     val textAlign = previewTextAlign(profile)

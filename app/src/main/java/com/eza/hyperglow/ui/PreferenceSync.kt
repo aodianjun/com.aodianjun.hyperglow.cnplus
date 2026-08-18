@@ -54,6 +54,32 @@ internal fun palettePreset(name: String): Map<String, String> =
 internal fun palettePresetName(palette: Map<String, String>): String =
     if (palette.isNotEmpty() && palette.values.all { it == "dimmed" }) "dimmed" else "default"
 
+/** 字体颜色选项的可选值:"default"(白) + 一组 AOD 场景友好的亮色 token。 */
+internal val FONT_COLOR_CHOICES = listOf(
+    "default",
+    "#FFD9A0",
+    "#A9D9FF",
+    "#B8F0C9",
+    "#FFC9DE",
+    "#FFF3A8",
+    "#D9C9FF"
+)
+
+/** 字体颜色作用于主文字/已唱/未唱/光晕四个语义键;选 default 时清除这些键恢复白。 */
+private val FONT_COLOR_KEYS = listOf("primaryText", "sungText", "unsungText", "glow")
+
+internal fun applyFontColor(palette: Map<String, String>, value: String): Map<String, String> {
+    val keys = FONT_COLOR_KEYS
+    return if (value == "default") {
+        palette.filterKeys { it !in keys }
+    } else {
+        palette + keys.associateWith { value }
+    }
+}
+
+internal fun fontColorPresetName(palette: Map<String, String>): String =
+    palette["primaryText"]?.takeIf { it.startsWith("#") } ?: "default"
+
 private fun applyDocumentToLegacyPreferences(
     context: android.content.Context,
     document: com.eza.hyperglow.customization.CustomizationDocument

@@ -401,6 +401,15 @@ internal fun LyricLayoutScreen(
                             palettePresetName(selectedProfile.palette)
                         ) { value -> updateSelected { it.copy(palette = palettePreset(value)) } }
                     }
+                    AodChoiceRow(AodChoiceKind.FONT_COLOR, fontColorPresetName(selectedProfile.palette)) {
+                        openChoice(
+                            AodChoiceKind.FONT_COLOR,
+                            FONT_COLOR_CHOICES,
+                            fontColorPresetName(selectedProfile.palette)
+                        ) { value ->
+                            updateSelected { it.copy(palette = applyFontColor(it.palette, value)) }
+                        }
+                    }
                     AodChoiceRow(
                         AodChoiceKind.TRANSITION_SPEED,
                         selectedProfile.transition.durationMs.toString()
@@ -685,6 +694,15 @@ private fun choiceDisplayLabel(
     AodChoiceKind.TEXT_BRIGHTNESS -> context.getString(
         if (value == "dimmed") R.string.option_dimmed else R.string.option_default
     )
+    AodChoiceKind.FONT_COLOR -> context.getString(when (value) {
+        "#FFD9A0" -> R.string.option_color_warm_gold
+        "#A9D9FF" -> R.string.option_color_ice_blue
+        "#B8F0C9" -> R.string.option_color_mint_green
+        "#FFC9DE" -> R.string.option_color_sakura_pink
+        "#FFF3A8" -> R.string.option_color_butter_yellow
+        "#D9C9FF" -> R.string.option_color_lavender
+        else -> R.string.option_default
+    })
     AodChoiceKind.LINE_PROGRESS -> context.getString(when (value) {
         "None" -> R.string.option_none
         "Top to bottom" -> R.string.option_top_to_bottom
@@ -750,6 +768,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     GLOW(R.string.choice_glow),
     LINE_PROGRESS(R.string.choice_line_progress_effect),
     TEXT_BRIGHTNESS(R.string.choice_text_brightness),
+    FONT_COLOR(R.string.choice_font_color),
     TRANSITION_SPEED(R.string.choice_scene_transition_speed),
     CARD_COLOR(R.string.choice_card_color)
 }

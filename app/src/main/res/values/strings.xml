@@ -215,6 +215,7 @@
     <string name="choice_glow">Glow</string>
     <string name="choice_line_progress_effect">Line progress effect</string>
     <string name="choice_text_brightness">Text brightness</string>
+    <string name="choice_font_color">Font color</string>
     <string name="choice_scene_transition_speed">Scene transition speed</string>
     <string name="section_lockscreen_card">Lock screen card</string>
     <string name="setting_show_lyric_card">Show lyric card</string>
@@ -256,6 +257,12 @@
     <string name="option_sf_pro_display">SF Pro Display</string>
     <string name="option_default">Default</string>
     <string name="option_dimmed">Dimmed</string>
+    <string name="option_color_warm_gold">Warm gold</string>
+    <string name="option_color_ice_blue">Ice blue</string>
+    <string name="option_color_mint_green">Mint green</string>
+    <string name="option_color_sakura_pink">Sakura pink</string>
+    <string name="option_color_butter_yellow">Butter yellow</string>
+    <string name="option_color_lavender">Lavender</string>
     <string name="option_left_to_right">Left to right</string>
     <string name="option_left_to_right_all">Left to right (all lines)</string>
     <string name="option_fast">Fast</string>

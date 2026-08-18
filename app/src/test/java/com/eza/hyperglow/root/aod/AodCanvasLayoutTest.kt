@@ -1,5 +1,6 @@
 package com.eza.hyperglow.root.aod
 
+import android.graphics.Color
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
@@ -33,6 +34,21 @@ class AodCanvasLayoutTest {
     @Test
     fun sentenceFillSpansWrappedLinesContinuously() {
         assertEquals(listOf(1f, 1f / 3f), splitContinuousFill(0.5f, listOf(100f, 300f)))
+    }
+
+    @Test
+    fun paletteHexTokensResolveToOpaqueColors() {
+        // "#RRGGBB" 自定义字体颜色 → 不透明 ARGB
+        val warm = resolveAodPalette(mapOf("primaryText" to "#FFD9A0", "glow" to "#FFD9A0"))
+        assertEquals(0xFFFFD9A0.toInt(), warm.primaryText)
+        assertEquals(0xFFFFD9A0.toInt(), warm.glow)
+        // "#AARRGGBB" 丢弃 alpha;短格式 "#RGB" 展开;非法 token 回退默认白
+        assertEquals(0xFF00AABB.toInt(), parseOpaqueColorOrNull("#CC00AABB"))
+        assertEquals(0xFF112233.toInt(), parseOpaqueColorOrNull("#123"))
+        assertNull(parseOpaqueColorOrNull("dimmed"))
+        assertNull(parseOpaqueColorOrNull("#GGHHII"))
+        assertNull(parseOpaqueColorOrNull("#12345"))
+        assertEquals(Color.WHITE, resolveAodPalette(mapOf("sungText" to "#12345")).sungText)
     }
 
     @Test
