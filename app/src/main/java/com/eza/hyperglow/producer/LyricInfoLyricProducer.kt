@@ -74,6 +74,8 @@ class LyricInfoLyricProducer(
     @Volatile private var lastPlaybackSpeed: Float = 0f
     @Volatile private var isPlayingState: Boolean = false
     @Volatile private var currentPositionMs: Long = 0L
+    /** True while currentPositionMs is being advanced by extrapolation (stale/frozen ps). */
+    @Volatile private var extrapolating: Boolean = false
 
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
@@ -174,6 +176,8 @@ class LyricInfoLyricProducer(
         val newTitle = payload.songName.orEmpty()
         if (newTitle != title || payload.artist != artist) {
             generation++
+            // 旧歌的外推/容差状态不得带进新歌:换歌后第一条真实位置无条件接受。
+            extrapolating = false
             AppLog.i(
                 "LyricInfoLyricProducer",
                 "song changed: title=$newTitle artist=${payload.artist}"
@@ -203,13 +207,29 @@ class LyricInfoLyricProducer(
         ) {
             currentPositionMs =
                 lastRealPositionMs + ((now - lastRealPositionClockMs) * lastPlaybackSpeed).toLong()
+            extrapolating = true
             return
         }
-        lastRealPositionMs = ps.position
+        // Stale→恢复（抬起手机、切通道回退）时，MediaSession position 可能短暂落后于
+        // 外推值（共享内存/回调延迟）。Lyricon 通道的 monotonicResume 在 1..300ms 容差内
+        // 保持外推值以避免行回退闪烁；本通道此前无条件接受 ps.position，抬起解冻时行
+        // 会回跳几秒。对齐同样的容差保护。
+        val monotonicResume = isMonotonicExtrapolationResume(
+            wasExtrapolating = extrapolating,
+            extrapolatedPositionMs = currentPositionMs,
+            realPositionMs = ps.position
+        )
+        if (monotonicResume) {
+            // 保持单调外推值，把外推时钟重新锚定到它。
+            lastRealPositionMs = currentPositionMs
+        } else {
+            lastRealPositionMs = ps.position
+            currentPositionMs = ps.position
+        }
         lastRealPositionClockMs = now
         lastPlaybackSpeed = ps.playbackSpeed
         isPlayingState = ps.state == PlaybackState.STATE_PLAYING
-        currentPositionMs = ps.position
+        extrapolating = false
     }
 
     private val controllerCallback = object : MediaController.Callback() {
@@ -235,6 +255,7 @@ class LyricInfoLyricProducer(
                     // No fresh playback state: extrapolate from the last real position.
                     currentPositionMs =
                         lastRealPositionMs + ((now - lastRealPositionClockMs) * lastPlaybackSpeed).toLong()
+                    extrapolating = true
                 }
                 emit()
             }
@@ -370,6 +391,19 @@ class LyricInfoLyricProducer(
         )
     }
 }
+
+/**
+ * Stale→恢复（抬起手机、通道回退）时是否保持单调外推值:真实位置仅小幅落后(容差内)
+ * 视为共享内存/回调延迟,保持外推值避免行回退闪烁;大幅落后(seek/换歌/真回退)按真实
+ * 位置处理。与 Lyricon 通道的 monotonicResume 同一容差语义。
+ */
+internal fun isMonotonicExtrapolationResume(
+    wasExtrapolating: Boolean,
+    extrapolatedPositionMs: Long,
+    realPositionMs: Long,
+    toleranceMs: Long = 300L
+): Boolean = wasExtrapolating &&
+    (extrapolatedPositionMs - realPositionMs) in 1..toleranceMs
 
 /** JSON shape written into `MediaMetadata.extras.lyricInfo` by the LyricInfo module. */
 @Serializable

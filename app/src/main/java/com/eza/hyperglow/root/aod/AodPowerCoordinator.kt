@@ -100,6 +100,17 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
             )
         ) {
             startGrace()
+        } else if (shouldHoldGraceAcrossPauseRetention(
+                graceActive = graceActive,
+                playbackActive = snapshot.playbackActive,
+                pauseRetentionEligible = snapshot.pauseRetentionEligible
+            )
+        ) {
+            // 切歌间隙:app 侧 pause confirm 窗口比播放器的 false→true 间隙短,提交的
+            // 暂停驻留边(playbackActive=false)会落在本窗口内。grace 的存在意义正是跨过
+            // 歌曲边界的瞬态(新歌的可见快照到达后恢复 keepalive);真暂停则由 grace 的
+            // 有界定时器(PAUSED_AOD_KEEP_ALIVE_MS)到期释放。间隙中途不得判死刑。
+            guardCause = "song-gap retention grace=$graceActive"
         } else {
             cancelGrace()
             keepAliveRequested = false
@@ -115,7 +126,13 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     override fun onLyricKeepAlive(signal: LyricKeepAliveSignal) {
         guardCause = "keepalive playing=${signal.playbackActive} keepAlive=${signal.keepAlive} " +
             "grace=$graceActive"
-        if (!signal.playbackActive) {
+        if (!signal.playbackActive &&
+            !shouldHoldGraceAcrossPauseRetention(
+                graceActive = graceActive,
+                playbackActive = signal.playbackActive,
+                pauseRetentionEligible = signal.pauseRetentionEligible
+            )
+        ) {
             cancelGrace()
             keepAliveRequested = false
             graceEligible = false
@@ -223,6 +240,20 @@ internal fun shouldStartAodPowerGrace(
     keepAliveRequested: Boolean,
     graceEligible: Boolean
 ): Boolean = aodEnabled && playbackActive && keepAliveRequested && graceEligible
+
+/**
+ * Song-boundary gap: the app-side pause confirmation window (1.5 s) can be shorter than the
+ * player's false→true gap at a track change (observed 0.96 s of false plus lyric load time), so
+ * the committed pause-retention edge (`playbackActive=false`, `pauseRetentionEligible=true`)
+ * lands while grace is still protecting the boundary. Grace must survive that edge: the new
+ * track's visible snapshot re-arms keepalive, and a genuine pause is bounded by the grace timer.
+ * Without this, a sub-second track change kills the guard and the AOD closes mid-playback.
+ */
+internal fun shouldHoldGraceAcrossPauseRetention(
+    graceActive: Boolean,
+    playbackActive: Boolean,
+    pauseRetentionEligible: Boolean
+): Boolean = graceActive && !playbackActive && pauseRetentionEligible
 
 /**
  * A heartbeat cannot turn a hidden transport grace back into an unbounded active session.

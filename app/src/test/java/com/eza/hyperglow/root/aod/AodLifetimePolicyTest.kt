@@ -380,4 +380,43 @@ class AodLifetimePolicyTest {
             )
         )
     }
+
+    @Test
+    fun songGapPauseRetentionEdgeDoesNotKillAnActiveGrace() {
+        // 09:53 切歌故障链:app 侧 pause confirm(1.5s)比播放器 false→true 间隙(0.96s+
+        // 歌词加载)先到期,提交的暂停驻留边(playbackActive=false + pauseRetentionEligible)
+        // 落在 grace 窗口内。grace 必须跨过该瞬态,由新歌可见快照恢复 keepalive;
+        // 真暂停由 grace 的有界定时器到期释放。
+        assertTrue(
+            shouldHoldGraceAcrossPauseRetention(
+                graceActive = true,
+                playbackActive = false,
+                pauseRetentionEligible = true
+            )
+        )
+        // 无 grace 时不适用:直接走终止分支。
+        assertFalse(
+            shouldHoldGraceAcrossPauseRetention(
+                graceActive = false,
+                playbackActive = false,
+                pauseRetentionEligible = true
+            )
+        )
+        // 仍在播放的隐藏边走传输间隙分支,不经此处。
+        assertFalse(
+            shouldHoldGraceAcrossPauseRetention(
+                graceActive = true,
+                playbackActive = true,
+                pauseRetentionEligible = true
+            )
+        )
+        // 非驻留的终止边(如断开/清除)仍立即取消。
+        assertFalse(
+            shouldHoldGraceAcrossPauseRetention(
+                graceActive = true,
+                playbackActive = false,
+                pauseRetentionEligible = false
+            )
+        )
+    }
 }
