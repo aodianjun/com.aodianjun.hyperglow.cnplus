@@ -1,5 +1,6 @@
 package com.eza.hyperglow.root.aod
 
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -29,10 +30,13 @@ internal object AodWakeBroker {
     private var hostRef: java.lang.ref.WeakReference<Any>? = null
     private var fireAodStateMethod: Method? = null
     private var powerManager: PowerManager? = null
+    private var audioManager: AudioManager? = null
     private var lastRequestElapsedMs = Long.MIN_VALUE
     private var unavailableLogged = false
     private var installRetryCount = 0
     private var installRetryAttempted = false
+    private var musicActiveWatchdogScheduled = false
+    private var musicActiveWakeLogged = false
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         val dozeHostClass = runCatching { classLoader.loadClass(DOZE_HOST_CLASS) }.getOrNull()
@@ -139,6 +143,42 @@ internal object AodWakeBroker {
         source = "pickup"
     )
 
+    /**
+     * 独立于歌词投影链路的「系统是否正在播放音乐」兜底唤醒。歌词位置源(Lyricon)息屏后
+     * 可能停更,但音频系统仍在出声——此时投影会 stale 并可能关掉 AOD。这里以 AudioManager
+     * 的 music stream 活跃度作为系统播放态的真值源,只要音乐还在放且屏幕熄灭,就周期性
+     * 重新断言 AOD 显示,避免 MIUI 把 AOD 当成会话结束直接关闭。
+     */
+    fun requestMusicActiveWake(): Boolean = enqueueWake(
+        signal = SystemClock.elapsedRealtime().coerceAtLeast(1L),
+        source = "music-active"
+    )
+
+    private fun startMusicActiveWatchdog() {
+        if (musicActiveWatchdogScheduled) return
+        musicActiveWatchdogScheduled = true
+        HookLogger.i(TAG, "Music-active watchdog started interval=${MUSIC_ACTIVE_POLL_INTERVAL_MS}ms")
+        mainHandler.postDelayed(musicActivePoller, MUSIC_ACTIVE_POLL_INTERVAL_MS)
+    }
+
+    private val musicActivePoller = object : Runnable {
+        override fun run() {
+            mainHandler.postDelayed(this, MUSIC_ACTIVE_POLL_INTERVAL_MS)
+            val activeAudio = audioManager ?: return
+            val activePower = powerManager ?: return
+            if (activePower.isInteractive) return
+            if (!activeAudio.isMusicActive()) {
+                musicActiveWakeLogged = false
+                return
+            }
+            if (!musicActiveWakeLogged) {
+                musicActiveWakeLogged = true
+                HookLogger.i(TAG, "Music active while screen off; forcing AOD wake")
+            }
+            requestMusicActiveWake()
+        }
+    }
+
     private fun enqueueWake(signal: Long, source: String): Boolean {
         if (signal == 0L || !XiaomiCapabilityResolver.hasCapability(
                 XiaomiCapability.AOD_WAKE_BROKER
@@ -203,10 +243,13 @@ internal object AodWakeBroker {
                 val host = hostField.get(owner) ?: return result
                 val context = contextField.get(owner) as? android.content.Context ?: return result
                 val powerManager = context.getSystemService(PowerManager::class.java) ?: return result
+                val audioManager = context.getSystemService(AudioManager::class.java)
                 AodWakeBroker.hostRef = java.lang.ref.WeakReference(host)
                 fireAodStateMethod = fireAodState
                 AodWakeBroker.powerManager = powerManager
+                AodWakeBroker.audioManager = audioManager
                 unavailableLogged = false
+                AodWakeBroker.startMusicActiveWatchdog()
                 HookLogger.i(TAG, "AOD wake host captured class=${host.javaClass.name}")
             } catch (error: Exception) {
                 HookLogger.w(TAG, "AOD wake host capture failed", error)
@@ -225,6 +268,8 @@ internal object AodWakeBroker {
     )
     private const val WAKE_REASON = "reason_keycode_goto"
     private const val MIN_REQUEST_INTERVAL_MS = 750L
+    /** 音乐播放态轮询间隔:略小于投影 15s 的 stale 窗口,确保在 MIUI 关掉 AOD 之前重新断言。 */
+    private const val MUSIC_ACTIVE_POLL_INTERVAL_MS = 10_000L
     private const val MAX_INSTALL_RETRIES = 3
     private const val INSTALL_RETRY_BASE_DELAY_MS = 2_000L
     /** Fallback host field names for MIUI version compatibility. */
