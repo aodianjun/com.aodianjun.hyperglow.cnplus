@@ -15,9 +15,16 @@ import io.github.proify.lyricon.subscriber.ConnectionListener
 import io.github.proify.lyricon.subscriber.LyriconFactory
 import io.github.proify.lyricon.subscriber.LyriconSubscriber
 import io.github.proify.lyricon.subscriber.ProviderInfo
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * [LyricProducer] backed by the lyricon subscriber SDK.
@@ -66,6 +73,16 @@ class LyriconLyricProducer(
     private var subscriber: LyriconSubscriber? = null
     private var contextRef: Context? = null
     private var started = false
+
+    // --- Position-feed watchdog ---
+    // The 12:26 capture: onPositionChanged stopped firing entirely (the arbiter later logged
+    // stale age=519s) while [connection] stayed CONNECTED — the SDK's callback path can die
+    // silently (binder drop / internal poller stall) without any disconnect event. Before this
+    // watchdog the only recovery was an app restart. The watchdog force-rebuilds the active
+    // player subscription, mirroring SuperLyricLyricProducer's FORCE_RE_REGISTER pattern.
+    @Volatile private var lastPositionCallbackElapsedMs: Long = -1L
+    @Volatile private var lastForcedResubscribeElapsedMs: Long = 0L
+    private val watchdogScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // --- Ingress state, updated by playerListener; read by emit(). @Volatile for cross-thread. ---
     @Volatile private var currentSong: Song? = null
@@ -234,6 +251,8 @@ class LyriconLyricProducer(
             // High-frequency (~60 Hz) callback on Dispatchers.Default. This IS the SharedMemory
             // position, delivered by the SDK's internal poller. Compute the active line and emit.
             val now = clock()
+            // Feed heartbeat for the position-silence watchdog (see maybeResubscribeOnSilence).
+            lastPositionCallbackElapsedMs = now
             // Reject residual values from the previous song: after onSongChanged, the shared
             // memory may keep returning the old position until the player writes new progress.
             // The residual matches the previous song's last position exactly (same bytes in memory).
@@ -436,6 +455,8 @@ class LyriconLyricProducer(
         refreshRenderModes()
         sub.register()
         AppLog.i("LyriconLyricProducer", "start: registered with central service")
+        // Position-silence watchdog: recover the callback path if it dies mid-playback.
+        watchdogScope.launch { positionWatchdogLoop() }
     }
 
     override fun stop() {
@@ -445,6 +466,7 @@ class LyriconLyricProducer(
         }
         started = false
         AppLog.i("LyriconLyricProducer", "stop: unregistering")
+        watchdogScope.cancel()
         subscriber?.let { sub ->
             runCatching {
                 sub.unsubscribeActivePlayer(playerListener)
@@ -457,6 +479,50 @@ class LyriconLyricProducer(
         mutableConnection.value = ProducerConnection.DISCONNECTED
         mutableState.value = null
         AppLog.i("LyriconLyricProducer", "stop: done")
+    }
+
+    /**
+     * Watchdog loop: rebuild the active-player subscription when the ~60 Hz position feed goes
+     * silent while playing. See [shouldForceResubscribePositionFeed] for the decision rule and
+     * [maybeResubscribeOnPositionSilence] for the recovery action.
+     */
+    private suspend fun positionWatchdogLoop() {
+        while (watchdogScope.isActive) {
+            delay(POSITION_WATCHDOG_POLL_MS)
+            maybeResubscribeOnPositionSilence()
+        }
+    }
+
+    /**
+     * Recovery action for a silent position feed: unsubscribe + re-subscribe the active player
+     * listener, which re-arms the SDK's internal poller/callback registration. Idempotent-safe
+     * via the cooldown in the decision function; failures are logged and retried after cooldown.
+     */
+    private fun maybeResubscribeOnPositionSilence() {
+        val sub = subscriber ?: return
+        val last = lastPositionCallbackElapsedMs
+        if (last < 0L) return // never saw a position callback: nothing to compare yet
+        val now = clock()
+        val silenceMs = now - last
+        if (!shouldForceResubscribePositionFeed(
+                silenceMs = silenceMs,
+                playing = isPlayingState,
+                sinceLastAttemptMs = now - lastForcedResubscribeElapsedMs
+            )
+        ) {
+            return
+        }
+        lastForcedResubscribeElapsedMs = now
+        // Re-anchor the heartbeat so the same silence doesn't re-trigger before the next poll.
+        lastPositionCallbackElapsedMs = now
+        AppLog.w(
+            "LyriconLyricProducer",
+            "position feed silent for ${silenceMs}ms while playing; rebuilding subscription"
+        )
+        runCatching {
+            sub.unsubscribeActivePlayer(playerListener)
+            sub.subscribeActivePlayer(playerListener)
+        }.onFailure { AppLog.w("LyriconLyricProducer", "forced resubscribe failed", it) }
     }
 
     /**
@@ -661,6 +727,19 @@ class LyriconLyricProducer(
          */
         private const val STALE_POSITION_THRESHOLD_MS = 15_000L
 
+        /** Poll interval for the position-silence watchdog. */
+        private const val POSITION_WATCHDOG_POLL_MS = 5_000L
+
+        /**
+         * No `onPositionChanged` at all for this long while playing → the SDK's callback path is
+         * dead (not merely a frozen shared-memory writer, which still fires callbacks with the
+         * stalled value at ~60 Hz). See [shouldForceResubscribePositionFeed].
+         */
+        internal const val POSITION_SILENCE_RESUBSCRIBE_MS = 20_000L
+
+        /** Minimum gap between two forced resubscribes, so a persistent failure doesn't hammer IPC. */
+        internal const val RESUBSCRIBE_COOLDOWN_MS = 30_000L
+
         /**
          * When the player's position stream resumes after a stall, how far below our extrapolated
          * position it may be before we treat it as a real rewind (seek / wrap-around / pause)
@@ -686,3 +765,21 @@ class LyriconLyricProducer(
         )
     }
 }
+
+/**
+ * Decision rule for the position-silence watchdog. Fires only when ALL hold:
+ * - `playing`: during a real pause the position stream going quiet is expected, not a fault;
+ * - silence beyond [LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS]: the ~60 Hz feed
+ *   stopping entirely (a frozen writer still fires callbacks with the stalled value, so total
+ *   silence means the callback path itself died — the 12:26 capture sat at age=519s);
+ * - the previous attempt is older than [LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS] so a
+ *   persistent failure retries at most once per cooldown window instead of hammering IPC every
+ *   poll.
+ */
+internal fun shouldForceResubscribePositionFeed(
+    silenceMs: Long,
+    playing: Boolean,
+    sinceLastAttemptMs: Long
+): Boolean = playing &&
+    silenceMs > LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS &&
+    sinceLastAttemptMs > LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS

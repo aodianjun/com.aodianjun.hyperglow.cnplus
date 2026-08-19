@@ -8,6 +8,7 @@ import io.github.proify.lyricon.subscriber.ConnectionListener
 import io.github.proify.lyricon.subscriber.LyriconSubscriber
 import io.github.proify.lyricon.subscriber.SubscriberInfo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -621,6 +622,58 @@ class LyriconLyricProducerTest {
         assertEquals(8_000L, state.positionMs) // capped
         assertEquals(-1, state.lineIndex)
         assertEquals("", state.line)
+    }
+
+    // --- Position-silence watchdog (12:26 capture: callback path died, age=519s) ---
+
+    @Test
+    fun watchdog_firesOnTotalSilenceWhilePlaying() {
+        // 12:26 故障链:onPositionChanged 完全停发(冻结的写入器仍会以 ~60Hz 回调旧值,
+        // 所以"完全静默"= 回调路径本身死了),connection 却停在 CONNECTED。播放中静默
+        // 超过阈值必须触发强制重建订阅,而不是等用户重启 app。
+        assertTrue(
+            shouldForceResubscribePositionFeed(
+                silenceMs = 25_000L,
+                playing = true,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun watchdog_ignoresSilenceWhilePaused() {
+        // 真暂停时位置流安静是预期行为,不是故障:不得重建订阅。
+        assertFalse(
+            shouldForceResubscribePositionFeed(
+                silenceMs = 25_000L,
+                playing = false,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun watchdog_toleratesBriefSilenceWhilePlaying() {
+        // 短于阈值的静默(正常的数据突发间隙)不得触发。
+        assertFalse(
+            shouldForceResubscribePositionFeed(
+                silenceMs = LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS,
+                playing = true,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun watchdog_respectsCooldownBetweenAttempts() {
+        // 上次尝试后仍在冷却窗口内:即使静默持续也不得反复轰炸 IPC,每个冷却窗口至多重试一次。
+        assertFalse(
+            shouldForceResubscribePositionFeed(
+                silenceMs = 519_000L,
+                playing = true,
+                sinceLastAttemptMs = LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+            )
+        )
     }
 
     @Test
