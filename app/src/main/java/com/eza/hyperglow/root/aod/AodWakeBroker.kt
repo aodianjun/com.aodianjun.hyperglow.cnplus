@@ -1,6 +1,5 @@
 package com.eza.hyperglow.root.aod
 
-import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -30,15 +29,21 @@ internal object AodWakeBroker {
     private var hostRef: java.lang.ref.WeakReference<Any>? = null
     private var fireAodStateMethod: Method? = null
     private var powerManager: PowerManager? = null
-    private var audioManager: AudioManager? = null
     private var lastRequestElapsedMs = Long.MIN_VALUE
     private var unavailableLogged = false
     private var installRetryCount = 0
     private var installRetryAttempted = false
-    private var musicActiveWatchdogScheduled = false
-    private var musicActiveWakeLogged = false
+    private var lyriconWatchdogScheduled = false
+    private var lyriconWakeLogged = false
+    // 反射读取 SystemUI 内 Lyricon 中心服务(io.github.proify.lyricon.central)的活动播放态,
+    // 替代之前基于 AudioManager 的全局音乐检测:仅当 Lyricon 自身报告正在播放时才兜底唤醒 AOD。
+    private var lyriconActivePlayers: Any? = null
+    private var lyriconActiveIsPlayingField: java.lang.reflect.Field? = null
+    private var lyriconResolveLogged = false
+    private var lyriconResolveFailedLogged = false
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
+        resolveLyriconState(classLoader)
         val dozeHostClass = runCatching { classLoader.loadClass(DOZE_HOST_CLASS) }.getOrNull()
         // The MIUI AOD doze-trigger class has been relocated across ROM versions (e.g. from the
         // `com.miui.aod.doze` package to the AOSP `com.android.systemui.doze` package in HyperOS
@@ -144,39 +149,69 @@ internal object AodWakeBroker {
     )
 
     /**
-     * 独立于歌词投影链路的「系统是否正在播放音乐」兜底唤醒。歌词位置源(Lyricon)息屏后
-     * 可能停更,但音频系统仍在出声——此时投影会 stale 并可能关掉 AOD。这里以 AudioManager
-     * 的 music stream 活跃度作为系统播放态的真值源,只要音乐还在放且屏幕熄灭,就周期性
-     * 重新断言 AOD 显示,避免 MIUI 把 AOD 当成会话结束直接关闭。
+     * 仅针对 Lyricon 歌词源的「息屏仍在播放」兜底唤醒。
+     *
+     * 之前的实现用 `AudioManager.isMusicActive()` 探测全局 music stream,只要任意 App 出声且
+     * 息屏就强制 AOD,语义过宽。这里改为直接反射 SystemUI 内 Lyricon 中心服务
+     * (`io.github.proify.lyricon.central.CentralRuntime`) 的 `ActivePlayerCoordinator`,仅当
+     * Lyricon 自己报告「存在活动播放器且正在播放」时才在息屏时重新断言 AOD 显示,避免把
+     * 非 Lyricon 的音频会话误判成需要保持 AOD 的会话。
      */
-    fun requestMusicActiveWake(): Boolean = enqueueWake(
-        signal = SystemClock.elapsedRealtime().coerceAtLeast(1L),
-        source = "music-active"
-    )
-
-    private fun startMusicActiveWatchdog() {
-        if (musicActiveWatchdogScheduled) return
-        musicActiveWatchdogScheduled = true
-        HookLogger.i(TAG, "Music-active watchdog started interval=${MUSIC_ACTIVE_POLL_INTERVAL_MS}ms")
-        mainHandler.postDelayed(musicActivePoller, MUSIC_ACTIVE_POLL_INTERVAL_MS)
+    private fun resolveLyriconState(classLoader: ClassLoader) {
+        if (lyriconActivePlayers != null && lyriconActiveIsPlayingField != null) return
+        runCatching {
+            val centralClass = classLoader.loadClass(LYRICON_CENTRAL_RUNTIME_CLASS)
+            val instance = centralClass.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
+            val coordinator = centralClass.getDeclaredField("activePlayers").apply { isAccessible = true }.get(instance)
+            val isPlayingField = coordinator.javaClass.getDeclaredField("activeIsPlaying").apply { isAccessible = true }
+            lyriconActivePlayers = coordinator
+            lyriconActiveIsPlayingField = isPlayingField
+            if (!lyriconResolveLogged) {
+                lyriconResolveLogged = true
+                HookLogger.i(TAG, "Lyricon central runtime resolved coordinator=${coordinator.javaClass.name}")
+            }
+        }.onFailure { error ->
+            if (!lyriconResolveFailedLogged) {
+                lyriconResolveFailedLogged = true
+                HookLogger.w(TAG, "Lyricon central runtime not found; Lyricon wake watchdog disabled", error)
+            }
+        }
     }
 
-    private val musicActivePoller = object : Runnable {
+    private fun requestLyriconWake(): Boolean = enqueueWake(
+        signal = SystemClock.elapsedRealtime().coerceAtLeast(1L),
+        source = "lyricon-playback"
+    )
+
+    private fun startLyriconWatchdog() {
+        if (lyriconWatchdogScheduled) return
+        lyriconWatchdogScheduled = true
+        HookLogger.i(TAG, "Lyricon watchdog started interval=${LYRICON_POLL_INTERVAL_MS}ms")
+        mainHandler.postDelayed(lyriconPoller, LYRICON_POLL_INTERVAL_MS)
+    }
+
+    private val lyriconPoller = object : Runnable {
         override fun run() {
-            mainHandler.postDelayed(this, MUSIC_ACTIVE_POLL_INTERVAL_MS)
-            val activeAudio = audioManager ?: return
+            mainHandler.postDelayed(this, LYRICON_POLL_INTERVAL_MS)
             val activePower = powerManager ?: return
             if (activePower.isInteractive) return
-            if (!activeAudio.isMusicActive()) {
-                musicActiveWakeLogged = false
+            if (!isLyriconPlaying()) {
+                lyriconWakeLogged = false
                 return
             }
-            if (!musicActiveWakeLogged) {
-                musicActiveWakeLogged = true
-                HookLogger.i(TAG, "Music active while screen off; forcing AOD wake")
+            if (!lyriconWakeLogged) {
+                lyriconWakeLogged = true
+                HookLogger.i(TAG, "Lyricon active playback while screen off; forcing AOD wake")
             }
-            requestMusicActiveWake()
+            requestLyriconWake()
         }
+    }
+
+    private fun isLyriconPlaying(): Boolean {
+        val coordinator = lyriconActivePlayers ?: return false
+        val isPlayingField = lyriconActiveIsPlayingField ?: return false
+        return runCatching { isPlayingField.get(coordinator) as? Boolean ?: false }
+            .getOrDefault(false)
     }
 
     private fun enqueueWake(signal: Long, source: String): Boolean {
@@ -243,13 +278,11 @@ internal object AodWakeBroker {
                 val host = hostField.get(owner) ?: return result
                 val context = contextField.get(owner) as? android.content.Context ?: return result
                 val powerManager = context.getSystemService(PowerManager::class.java) ?: return result
-                val audioManager = context.getSystemService(AudioManager::class.java)
                 AodWakeBroker.hostRef = java.lang.ref.WeakReference(host)
                 fireAodStateMethod = fireAodState
                 AodWakeBroker.powerManager = powerManager
-                AodWakeBroker.audioManager = audioManager
                 unavailableLogged = false
-                AodWakeBroker.startMusicActiveWatchdog()
+                AodWakeBroker.startLyriconWatchdog()
                 HookLogger.i(TAG, "AOD wake host captured class=${host.javaClass.name}")
             } catch (error: Exception) {
                 HookLogger.w(TAG, "AOD wake host capture failed", error)
@@ -259,6 +292,7 @@ internal object AodWakeBroker {
     }
 
     private const val DOZE_HOST_CLASS = "com.miui.aod.DozeHost"
+    private const val LYRICON_CENTRAL_RUNTIME_CLASS = "io.github.proify.lyricon.central.CentralRuntime"
     // The doze-trigger class has been relocated across ROM versions; AOD wake must match the
     // package actually present in the running SystemUI loader.
     private val TRIGGER_CLASS_CANDIDATES = listOf(
@@ -268,8 +302,8 @@ internal object AodWakeBroker {
     )
     private const val WAKE_REASON = "reason_keycode_goto"
     private const val MIN_REQUEST_INTERVAL_MS = 750L
-    /** 音乐播放态轮询间隔:略小于投影 15s 的 stale 窗口,确保在 MIUI 关掉 AOD 之前重新断言。 */
-    private const val MUSIC_ACTIVE_POLL_INTERVAL_MS = 10_000L
+    /** Lyricon 播放态轮询间隔:略小于投影 15s 的 stale 窗口,确保在 MIUI 关掉 AOD 之前重新断言。 */
+    private const val LYRICON_POLL_INTERVAL_MS = 10_000L
     private const val MAX_INSTALL_RETRIES = 3
     private const val INSTALL_RETRY_BASE_DELAY_MS = 2_000L
     /** Fallback host field names for MIUI version compatibility. */
