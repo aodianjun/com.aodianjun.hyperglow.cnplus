@@ -474,7 +474,7 @@ object AodProjectionEngine {
         ProjectionSessionIdentity.from(current) == pendingSession
 
     fun staticPlaybackPlaceholder(status: String): String? =
-        "♪".takeIf { status == "no_lyrics" }
+        PLAYING_PLACEHOLDER.takeIf { status == "no_lyrics" }
 
     internal fun playbackFallback(status: String, line: String, metadata: String): String? =
         if (status == "loading") metadata.takeIf { it.isNotBlank() }

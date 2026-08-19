@@ -38,7 +38,7 @@ This reference documents the current end-to-end data flow that carries lyrics fr
 ### Key control flows in `AodProjectionEngine`
 
 - Position projection: `projectedPosition(state, now)` = `positionMs + ((now - sampledAtElapsedMs) * speed)`, clamped to `[0, durationMs]` (@app/src/main/java/com/eza/hyperglow/aod/AodProjectionEngine.kt). Playing-only; paused state uses `positionMs` as-is.
-- Active-row selection: `timedDocument.primaryRowAt(position)` (Line/Syllable documents only); falls back to `state.line` when no document is present and status is `ready`; `♪` placeholder for `loading`/`no_lyrics`/interlude.
+- Active-row selection: `timedDocument.primaryRowAt(position)` (Line/Syllable documents only); falls back to `state.line` when no document is present and status is `ready`; `🎶` placeholder for `loading`/`no_lyrics`/interlude.
 - Republish gate: `shouldRepublish` (@app/src/main/java/com/eza/hyperglow/aod/AodStateBridge.kt) suppresses duplicates — republish only when non-position fields change or projected position drifts > 750ms from expected.
 - Pause handling: a non-playing edge is provisional. `schedulePauseConfirmation` keeps playback active for `PAUSE_CONFIRM_MS = 1500ms` to bridge Spotify's ~1s gap before a track change; only a still-non-playing same-session state after the window commits to pause retention (`confirmedPauseSession`).
 - Scheduler loop: when playing and `status == ready`, a 100ms tick loop (`ensureScheduler`) re-projects and republishes; keep-alive to `AodStateBridge.refreshVisibleState()` every `KEEP_ALIVE_INTERVAL_MS = 4000ms`. Loading/no-lyrics fallback uses `startStatusKeepAlive` at `FALLBACK_REFRESH_INTERVAL_MS = 1000ms`.

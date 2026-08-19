@@ -542,7 +542,7 @@ class LyriconLyricProducer(
         // 旧实现用模运算把位置回绕到时长内(pos % duration),但这会让位置在 [0, duration) 间
         // 反复循环累加:每次回绕到 ~0ms 时 findTargetIndex 选不到行、活动行被清空,而投影层
         // 因 sampledAtElapsedMs==now 又把回绕后的低位置判为「回到开头」的有效位置
-        // (extrapolationReliable 判定可信),于是行被反复选中/清空 → AOD '♪' 占位闪烁 +
+        // (extrapolationReliable 判定可信),于是行被反复选中/清空 → AOD '🎶' 占位闪烁 +
         // SystemUI 对相同占位 state 无去重的重建风暴(错误清单 #2/#3/#4)。
         //
         // 正确语义:外推一旦越过歌曲时长,说明当前这首歌已播完,之后不再有更多行。此时应
@@ -568,6 +568,17 @@ class LyriconLyricProducer(
         val idx = nav.findTargetIndex(currentPositionMs)
         if (idx < 0) {
             // Before the first line: no current line yet.
+            if (currentLineIndex != -1) {
+                currentLineIndex = -1
+                cachedWords = null
+            }
+            emit()
+            return
+        }
+        // 最后一句歌词唱完后（position 越过其 end，歌曲进入尾奏/纯器乐段落），清空活动行
+        // 让投影显示 🎶 占位，而不是把最后一句滞留到歌曲结束。TimingNavigator 选择的是
+        // 「最后一条 begin <= pos」的行，不检查 end，所以这里显式兜住结尾。
+        if (idx == nav.source.size - 1 && currentPositionMs >= nav.source[idx].end) {
             if (currentLineIndex != -1) {
                 currentLineIndex = -1
                 cachedWords = null

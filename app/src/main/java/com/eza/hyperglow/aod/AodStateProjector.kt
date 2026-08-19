@@ -9,6 +9,12 @@ import com.eza.hyperglow.producer.LyricRuby
 import com.eza.hyperglow.producer.LyricWord
 
 /**
+ * 播放中无歌词 / 纯音乐 / 间奏时的占位符。用 🎶 明确表示「音乐正在播放」，
+ * 与暂停时冻结的最后快照（或不可见态）区分开，避免播放中看起来像暂停。
+ */
+internal const val PLAYING_PLACEHOLDER = "🎶"
+
+/**
  * 纯函数映射层：把 [LyricProducerState]（生产者边界）映射成 [AodDisplayState]（SystemUI 投递载荷）。
  *
  * 这是 `AodProjectionEngine.project()` 历史映射逻辑的提取，作为 Phase 1 纯重构的一步：
@@ -98,11 +104,11 @@ internal fun projectToDisplay(
     val presentedLineText = state.line.takeIf { hasActiveLine && !showLargeMetadata }
     val original = when {
         showLargeMetadata -> metadata
-        unsynced || noLyrics -> "♪"
+        unsynced || noLyrics -> PLAYING_PLACEHOLDER
         presentedLineText != null -> presentedLineText
-        hasTimedLyrics || state.status == "loading" -> "♪"
+        hasTimedLyrics || state.status == "loading" -> PLAYING_PLACEHOLDER
         fallbackLine != null -> fallbackLine
-        else -> "♪"
+        else -> PLAYING_PLACEHOLDER
     }
     val romanized = if (showLargeMetadata || unsynced || noLyrics) "" else state.romanizedLine
     val translated = if (showLargeMetadata || unsynced || noLyrics) "" else state.translatedLine

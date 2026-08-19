@@ -67,7 +67,7 @@ data class ProducerRenderModes(
  *
  * - [NONE]: no lyrics data at all (no document / no song lyrics). The engine MAY fall back to
  *   the producer's `line` field for an untimed one-liner.
- * - [UNSYNCED]: lyrics data exists but is untimed (plain-text document). Engine renders "♪".
+ * - [UNSYNCED]: lyrics data exists but is untimed (plain-text document). Engine renders "🎶".
  * - [LINE]: timed, line-level lyrics. Active row has no per-word timing.
  * - [SYLLABLE]: timed, word/syllable-level lyrics. Active row carries per-word timing in `words`.
  *

@@ -124,4 +124,25 @@ class ElrcParserTest {
     fun activeLineAt_emptyReturnsNull() {
         assertNull(ElrcParser.activeLineAt(emptyList(), 1_000))
     }
+
+    // --- activeLinePastEndOrNull (结尾歌词尾奏清空) ---
+
+    @Test
+    fun activeLinePastEndOrNull_clearsAfterLastLineEnd() {
+        // 最后一行 end = 10000 + 4000(defaultLineDurationMs) = 14000。
+        val lines = ElrcParser.parse("[00:01.000]One\n[00:05.000]Two\n[00:10.000]Three")
+
+        assertEquals("Three", activeLinePastEndOrNull(lines, 10_000L)?.text)
+        assertEquals("Three", activeLinePastEndOrNull(lines, 13_999L)?.text)
+        assertNull(activeLinePastEndOrNull(lines, 14_000L)) // 越过最后一行 end
+        assertNull(activeLinePastEndOrNull(lines, 99_000L))
+    }
+
+    @Test
+    fun activeLinePastEndOrNull_keepsLineWithinInterlude() {
+        // 中间行之间的间奏（position 超过上一行 end 但未到下一行 begin）仍返回上一句，
+        // 与 activeLineAt 的「最后一条 start <= pos」语义一致，仅兜住真正的结尾。
+        val lines = ElrcParser.parse("[00:01.000]One\n[00:05.000]Two\n[00:10.000]Three")
+        assertEquals("One", activeLinePastEndOrNull(lines, 4_999L)?.text)
+    }
 }

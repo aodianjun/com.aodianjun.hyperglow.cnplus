@@ -205,13 +205,15 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun positionAfterLastLine_clampsToLastLine() {
+    fun positionAfterLastLine_clearsActiveLineInOutro() {
+        // 最后一句歌词唱完后（position 越过其 end，进入尾奏/纯器乐段落），活动行应被清空
+        // 显示 🎶 占位，而不是把最后一句滞留到歌曲结束。
         producer.playerListener.onSongChanged(threeLineSong())
-        producer.playerListener.onPositionChanged(8_500L) // beyond end of last line
+        producer.playerListener.onPositionChanged(8_500L) // beyond end of last line (7000)
 
         val state = producer.state.value!!
-        assertEquals(2, state.lineIndex)
-        assertEquals("third", state.line)
+        assertEquals(-1, state.lineIndex)
+        assertEquals("", state.line)
     }
 
     @Test
@@ -582,19 +584,19 @@ class LyriconLyricProducerTest {
 
     @Test
     fun positionExtrapolation_pastSongEnd_holdsAtEndAndClearsLine() {
-        // 外推越过歌曲时长时,不再回绕到 0(旧逻辑会反复循环选中行、造成 AOD '♪' 闪烁),
+        // 外推越过歌曲时长时,不再回绕到 0(旧逻辑会反复循环选中行、造成 AOD '🎶' 闪烁),
         // 而是钳制在时长处并清空活动行,稳定显示占位,等待真实位置/onSongChanged 校正。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
         producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
         producer.playerListener.onPlaybackStateChanged(true)
-        producer.playerListener.onPositionChanged(7_500L) // near end → line 2
+        producer.playerListener.onPositionChanged(6_000L) // near end → line 2 (still inside [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
         // Stall for a very long time → extrapolation exceeds duration, held at end.
         clockValue = 100_000L
-        producer.playerListener.onPositionChanged(7_500L)
+        producer.playerListener.onPositionChanged(6_000L)
 
         val state = producer.state.value!!
         assertEquals(8_000L, state.positionMs) // capped at duration
@@ -611,15 +613,28 @@ class LyriconLyricProducerTest {
 
         producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
         producer.playerListener.onPlaybackStateChanged(true)
-        producer.playerListener.onPositionChanged(7_500L) // near end → line 2
+        producer.playerListener.onPositionChanged(6_000L) // near end → line 2 (still inside [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
         // Stall past the song boundary → position held at end, line cleared.
         clockValue = 100_000L
-        producer.playerListener.onPositionChanged(7_500L)
+        producer.playerListener.onPositionChanged(6_000L)
 
         val state = producer.state.value!!
         assertEquals(8_000L, state.positionMs) // capped
+        assertEquals(-1, state.lineIndex)
+        assertEquals("", state.line)
+    }
+
+    @Test
+    fun lastLineClearsAfterItsEnd_entersInstrumentalOutro() {
+        // 最后一句歌词唱完后（position 越过其 end 但歌曲仍在尾奏/纯器乐段落），活动行应被
+        // 清空显示 🎶 占位，而不是把最后一句滞留到歌曲结束。
+        producer.playerListener.onSongChanged(threeLineSong()) // duration=8000, last line end=7000
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(7_500L) // > 7000 (last line end), < 8000 (duration)
+
+        val state = producer.state.value!!
         assertEquals(-1, state.lineIndex)
         assertEquals("", state.line)
     }
@@ -684,12 +699,12 @@ class LyriconLyricProducerTest {
 
         producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
         producer.playerListener.onPlaybackStateChanged(true)
-        producer.playerListener.onPositionChanged(7_500L) // line 2
+        producer.playerListener.onPositionChanged(6_000L) // line 2 (within [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
         // 越过时长 → 钳制在时长、清空活动行(不再回绕到 0)。
         clockValue = 100_000L
-        producer.playerListener.onPositionChanged(7_500L)
+        producer.playerListener.onPositionChanged(6_000L)
         assertEquals(-1, producer.state.value!!.lineIndex)
 
         // 真实位置恢复(新歌/重播),重新选中行。

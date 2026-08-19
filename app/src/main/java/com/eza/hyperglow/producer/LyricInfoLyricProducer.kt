@@ -288,7 +288,10 @@ class LyricInfoLyricProducer(
             emitTrack(null)
             return
         }
-        val active = ElrcParser.activeLineAt(timedLines, currentPositionMs)
+        // 最后一句歌词唱完后（position 越过其 end，歌曲进入尾奏/纯器乐段落），清空活动行
+        // 让投影显示 🎶 占位。activeLineAt 返回「最后一条 start <= pos」的行，不检查 end，
+        // 这里显式兜住结尾，避免最后一句在尾奏期间长期滞留。
+        val active = activeLinePastEndOrNull(timedLines, currentPositionMs)
         val translationText = active?.let { a ->
             translationLines.firstOrNull { it.startMs == a.startMs }?.text.orEmpty()
         }.orEmpty()
@@ -420,6 +423,20 @@ class LyricInfoLyricProducer(
 internal fun pickMediaSession(sessions: List<MediaController>): MediaController? =
     sessions.firstOrNull { it.metadata?.getString(LyricInfoLyricProducer.LYRIC_INFO_KEY) != null }
         ?: sessions.firstOrNull()
+
+/**
+ * Select the active line for [positionMs]; returns null once the position has passed the final
+ * line's end (lyrics finished, song is in its instrumental outro) so projection shows the 🎶
+ * placeholder instead of leaving the last line stuck on screen until the song ends.
+ */
+internal fun activeLinePastEndOrNull(
+    lines: List<ElrcParser.TimedLine>,
+    positionMs: Long
+): ElrcParser.TimedLine? {
+    val active = ElrcParser.activeLineAt(lines, positionMs)
+    val last = lines.lastOrNull() ?: return active
+    return active?.takeUnless { positionMs >= last.endMs }
+}
 
 internal fun isMonotonicExtrapolationResume(
     wasExtrapolating: Boolean,

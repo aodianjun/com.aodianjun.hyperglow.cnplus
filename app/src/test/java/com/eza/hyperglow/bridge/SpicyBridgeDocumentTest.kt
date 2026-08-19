@@ -78,7 +78,7 @@ class SpicyBridgeDocumentTest {
         assertEquals(true, AodProjectionEngine.shouldShowPlaybackFallback("no_lyrics", true))
         assertEquals(false, AodProjectionEngine.shouldShowPlaybackFallback("loading", false))
         assertEquals(false, AodProjectionEngine.shouldShowPlaybackFallback("ready", true))
-        assertEquals("♪", AodProjectionEngine.staticPlaybackPlaceholder("no_lyrics"))
+        assertEquals("🎶", AodProjectionEngine.staticPlaybackPlaceholder("no_lyrics"))
         assertEquals(null, AodProjectionEngine.staticPlaybackPlaceholder("loading"))
     }
 
