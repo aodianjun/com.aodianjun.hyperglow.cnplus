@@ -268,6 +268,15 @@ object AodProjectionEngine {
      * lifetime and replays Xiaomi's hide in the middle of a song change. The edge is published as a
      * still-playing transport gap first; only a producer that is still non-playing on the same
      * session after the bounded window becomes real pause retention.
+     *
+     * The window must cover the whole track-change gap: NetEase observed 0.96 s of playing=false
+     * plus lyric-load time before the new track's playing=true (09:53 capture), and the player can
+     * re-emit a late onStop for the old track on top. A 1.5 s window let the OLD session's pause
+     * confirm commit visible=false while the new track was already loading — the systemui guard
+     * died, Xiaomi closed the AOD surface, and every snapshot the module published during the
+     * intro had no surface to draw on. 5 s covers the observed gap; the cost is that a genuine
+     * pause now enters retention (and hides for pauseShowContent=off users) 5 s in, during which
+     * the transport-gap freeze keeps presenting.
      */
     @Synchronized
     private fun schedulePauseConfirmation(session: ProjectionSessionIdentity) {
@@ -507,6 +516,6 @@ object AodProjectionEngine {
     private const val KEEP_ALIVE_INTERVAL_MS = 4_000L
     private const val FALLBACK_REFRESH_INTERVAL_MS = 1_000L
     private const val TRANSITION_GRACE_MS = 1_500L
-    internal const val PAUSE_CONFIRM_MS = 1_500L
+    internal const val PAUSE_CONFIRM_MS = 5_000L
     private const val CUSTOMIZATION_REFRESH_MS = 1_000L
 }

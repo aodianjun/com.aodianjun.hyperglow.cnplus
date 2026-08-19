@@ -103,7 +103,10 @@ class SpicyBridgeDocumentTest {
         val ending = playing.copy(playing = false)
         val pending = ProjectionSessionIdentity.from(ending)
 
-        assertTrue(AodProjectionEngine.pauseConfirmWindowMs() >= 1_500L)
+        // 09:53 切歌故障链:确认窗口必须覆盖网易云 0.96s 间隙 + 歌词加载 + 迟到 onStop。
+        // 1.5s 窗口曾让旧 session 在新歌 loading 期间提交 visible=false,systemui guard
+        // 释放后系统关闭 AOD surface,前奏快照无处可画。
+        assertTrue(AodProjectionEngine.pauseConfirmWindowMs() >= 5_000L)
         assertTrue(
             AodProjectionEngine.shouldCommitPauseRetention(pending, ending, currentActive = true)
         )
