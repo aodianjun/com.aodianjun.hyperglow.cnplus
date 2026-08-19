@@ -419,4 +419,13 @@ class AodLifetimePolicyTest {
             )
         )
     }
+
+    @Test
+    fun projectionStaleRetainsPowerWhenKeepAliveWasRequested() {
+        // issue #5:投影 stale 时不能直接当会话结束清掉 guard,否则前奏/间奏无歌词或
+        // Lyricon 息屏位置源停更会导致 AOD 被关闭且后续 keepalive 无法恢复(aodEnabled
+        // 已被清零)。只有在原本就没有 keepalive 请求时才允许清理。
+        assertTrue(shouldRetainAodPowerOnProjectionStale(keepAliveRequested = true))
+        assertFalse(shouldRetainAodPowerOnProjectionStale(keepAliveRequested = false))
+    }
 }

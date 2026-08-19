@@ -164,7 +164,23 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
 
     override fun onLyricProjectionDisconnected() = clear("projection-disconnected")
 
-    override fun onLyricProjectionStale() = clear("projection-stale")
+    /**
+     * 投影内容 stale:app 侧在播放中但有一段时间没推新快照/心跳。这里不能直接当会话结束
+     * 把 guard 关掉——否则前奏/间奏无歌词、或 Lyricon 息屏后位置源停更时,AOD 会被直接
+     * 关闭且后续 keepalive 无法恢复(因为 keepAliveRequested/aodEnabled 已被清零)。
+     *
+     * 正确行为:当已有 keepAlive 请求时保留 keepAliveRequested/aodEnabled 状态,只更新 cause
+     * 让日志可见;否则按正常会话结束清理。播放确实已结束时 app 侧会通过新的隐藏快照
+     * (playbackActive=false)或 disconnected 事件来关闭 guard;真暂停也有 grace 的有界定时器兜底。
+     */
+    override fun onLyricProjectionStale() {
+        if (shouldRetainAodPowerOnProjectionStale(keepAliveRequested)) {
+            guardCause = "projection-stale-retained"
+            updateLifetimeGuard()
+        } else {
+            clear("projection-stale")
+        }
+    }
 
     private fun clear(cause: String) {
         cancelGrace()
@@ -254,6 +270,19 @@ internal fun shouldHoldGraceAcrossPauseRetention(
     playbackActive: Boolean,
     pauseRetentionEligible: Boolean
 ): Boolean = graceActive && !playbackActive && pauseRetentionEligible
+
+/**
+ * Projection stale while we already have a live keepalive request should NOT be treated as a
+ * session end. Clearing `keepAliveRequested`/`aodEnabled` on stale would close the AOD during
+ * lyric-less intros/interludes or when the Lyricon position source stops updating after screen-off
+ * (issue #5), and subsequent keepalives could no longer resurrect the guard because aodEnabled had
+ * been zeroed.
+ *
+ * If there was no keepalive request in the first place, stale is an honest end-of-session and we
+ * fall back to [clear].
+ */
+internal fun shouldRetainAodPowerOnProjectionStale(keepAliveRequested: Boolean): Boolean =
+    keepAliveRequested
 
 /**
  * A heartbeat cannot turn a hidden transport grace back into an unbounded active session.
