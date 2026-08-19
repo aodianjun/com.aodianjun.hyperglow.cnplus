@@ -779,7 +779,7 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun residualRejection_expiresAfterWindow() {
+    fun residualRejection_persistsPastWindow_untilRealPositionArrives() {
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -787,18 +787,27 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPlaybackStateChanged(true)
         producer.playerListener.onPositionChanged(6_000L)
 
-        // Song change at clock=10000.
+        // 切歌在 clock=10000。
         producer.playerListener.onSongChanged(threeLineSong())
 
-        // After the 60s rejection window expires, the same residual value is accepted again.
-        // (In practice the player will have written new progress by then, but this guards the
-        // window boundary.)
+        // 即使远超旧的时间窗口(60s)，残留的 6000 仍必须被拒绝：否则会用旧歌位置在新歌词表
+        // 定位出错误行。拒绝后从 0 外推。
         clockValue = 10_000L + 60_001L
         producer.playerListener.onPositionChanged(6_000L)
 
-        val state = producer.state.value!!
-        assertEquals(6_000L, state.positionMs)
-        assertEquals(2, state.lineIndex)
+        var state = producer.state.value!!
+        // 外推越过歌曲时长后被钳制到 duration(8000)，并清空活动行；残留旧位置 6000 未被接受。
+        assertEquals(-1, state.lineIndex)
+        assertEquals("", state.line)
+        assertEquals(8_000L, state.positionMs)
+
+        // 真实新歌位置(不同于残留 6000)到达后，恢复接受。
+        clockValue = 10_000L + 61_000L
+        producer.playerListener.onPositionChanged(1_500L) // line 0 [1000,3000]
+        state = producer.state.value!!
+        assertEquals(0, state.lineIndex)
+        assertEquals("first", state.line)
+        assertEquals(1_500L, state.positionMs)
     }
 
     @Test

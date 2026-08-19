@@ -36,6 +36,17 @@ class AodStateBridgeTest {
     }
 
     @Test
+    fun trackGenerationChangeForcesPublish() {
+        val last = state()
+
+        // 切歌后 trackGeneration 变化，即使位置增量很小(本应被"无实质变化"抑制)，也必须强制重发，
+        // 让 SystemUI 立即拿到新歌的 metadata/标题，而不是在位置源静默期间被抑制。
+        val next = last.copy(trackGeneration = 42L, positionMs = 1_100L, sampledAtElapsedMs = 1_100L)
+
+        assertTrue(shouldRepublish(last, next))
+    }
+
+    @Test
     fun adaptiveSectioningDefaultsOnAndChangesRepublishState() {
         val last = state()
 

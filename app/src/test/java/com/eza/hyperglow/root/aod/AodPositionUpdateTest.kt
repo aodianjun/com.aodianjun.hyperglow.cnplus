@@ -485,16 +485,12 @@ class AodPositionUpdateTest {
     }
 
     @Test
-    fun anchorFollowsBurnInDriftDownAfterShortOverlapDebounce() {
+    fun anchorFollowsBurnInDriftDownImmediately() {
         var t = 0L
         var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
-        // A sub-second downward blip (layout glitch) is still filtered by the overlap debounce.
+        // 下行漂移(burn-in 每次唤醒步进)必须立即硬同步，不能等防抖窗口：歌词 surface 位于
+        // anchor 底部之下，时钟下移时若 anchor 滞后，时钟会叠在歌词上。
         t = 1_000L
-        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
-        assertEquals("brief downward blip must not pull the anchor", 1626, anchor.bottom)
-        // Stock burn-in drift moves the clock down in persistent steps; the lyric surface sits
-        // under the anchor, so the anchor must follow quickly instead of overlapping for 40s.
-        t = 3_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
         assertEquals(1700, anchor.bottom)
         assertEquals(546, anchor.top)
@@ -502,9 +498,7 @@ class AodPositionUpdateTest {
 
     @Test
     fun anchorFollowsSubsequentDownwardStepsImmediately() {
-        // After the first downward relocation the clock keeps drifting; each confirmed step is
-        // already an anchor match (reconfirmed), and the next deeper step relocates after the
-        // short overlap debounce rather than the long hold.
+        // 首次下行迁移后时钟继续漂移；每一步更深的下行都立即跟随(而非走长防抖)。
         var t = 0L
         var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
         t = 3_000L

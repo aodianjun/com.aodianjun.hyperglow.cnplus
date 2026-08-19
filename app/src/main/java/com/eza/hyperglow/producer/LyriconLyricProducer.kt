@@ -108,13 +108,14 @@ class LyriconLyricProducer(
     @Volatile private var lastRealPositionUpdateMs: Long = -1L
 
     // --- Residual position rejection (song change) ---
-    // After onSongChanged, the shared memory may still hold the previous song's position for
-    // ~30s until the player writes the new song's progress. Without filtering, the first
+    // After onSongChanged, the shared memory may still hold the previous song's position for a
+    // long time until the player writes the new song's progress. Without filtering, the first
     // onPositionChanged with the stale value overwrites our reset (stale != 0 → "resumed" branch).
-    // We reject any position that exactly matches the previous song's last position, within a
-    // time window after song change. Once a different (real) position arrives, filtering stops.
+    // We reject any position that exactly matches the previous song's last position until a
+    // different (real) position arrives — there is no fixed window, because NetEase's outro +
+    // intro can leave the position source silent past any window, and the first value on resume
+    // is still the old song's position.
     @Volatile private var previousSongLastPositionMs: Long = -1L
-    @Volatile private var songChangeClockMs: Long = 0L
 
     // --- Seek residual position rejection ---
     // After onSeekTo, the shared memory may still return the pre-seek position for a short
@@ -169,7 +170,6 @@ class LyriconLyricProducer(
                 lastRealPositionUpdateMs = -1L
                 extrapolating = false
                 previousSongLastPositionMs = -1L
-                songChangeClockMs = 0L
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
                 mutableState.value = null
@@ -189,7 +189,6 @@ class LyriconLyricProducer(
                 lastRealPositionUpdateMs = -1L
                 extrapolating = false
                 previousSongLastPositionMs = -1L
-                songChangeClockMs = 0L
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
                 mutableState.value = null
@@ -221,7 +220,6 @@ class LyriconLyricProducer(
             // residual value (it will keep arriving at ~60 Hz until the player writes new progress).
             // Enable extrapolation from 0 so lyrics advance during the write gap if playing.
             previousSongLastPositionMs = lastRealPositionMs
-            songChangeClockMs = clock()
             currentPositionMs = 0L
             lastRealPositionMs = 0L
             lastRealPositionClockMs = clock()
@@ -256,8 +254,11 @@ class LyriconLyricProducer(
             // Reject residual values from the previous song: after onSongChanged, the shared
             // memory may keep returning the old position until the player writes new progress.
             // The residual matches the previous song's last position exactly (same bytes in memory).
+            // We keep rejecting it until a different (real) position arrives — not just within a
+            // fixed window — because NetEase's outro + intro can leave the position source silent
+            // for the whole prelude (~60s) and the first value on resume is still the old song's
+            // position. Accepting it would locate an old-song position against the new lyric table.
             val isResidual = previousSongLastPositionMs >= 0L &&
-                (now - songChangeClockMs) < RESIDUAL_REJECTION_WINDOW_MS &&
                 position == previousSongLastPositionMs
             if (isResidual) {
                 // Ignore the stale value; extrapolate from the last real position regardless of
@@ -715,14 +716,6 @@ class LyriconLyricProducer(
 
     companion object {
         private const val PRODUCER_ID = "lyricon"
-
-        /**
-         * Window after [onSongChanged] during which incoming positions that exactly match the
-         * previous song's last position are rejected as residual shared-memory values. Observed
-         * gap on NetEase can reach ~36s, so 60s gives ample margin while ensuring real seeks to
-         * the same position are eventually honored.
-         */
-        private const val RESIDUAL_REJECTION_WINDOW_MS = 60_000L
 
         /**
          * Window after [onSeekTo] during which incoming positions that exactly match the pre-seek

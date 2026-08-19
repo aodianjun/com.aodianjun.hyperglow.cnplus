@@ -77,6 +77,9 @@ data class AodDisplayLayoutGroup(
 
 fun shouldRepublish(lastPublished: AodDisplayState?, next: AodDisplayState): Boolean {
     if (lastPublished == null) return true
+    // 切歌（trackGeneration 变化）时强制重发，让 SystemUI 立即收到新歌的 metadata/标题。
+    // 显式声明这条不变量：无论位置增量多大，generation 变化都必须产生一次快照。
+    if (lastPublished.trackGeneration != next.trackGeneration) return true
     if (lastPublished.copy(positionMs = 0L, sampledAtElapsedMs = 0L) !=
         next.copy(positionMs = 0L, sampledAtElapsedMs = 0L)
     ) return true

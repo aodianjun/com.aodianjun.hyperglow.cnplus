@@ -145,28 +145,21 @@ internal data class AodClockAnchor(
 internal const val AOD_CLOCK_ANCHOR_HOLD_MS = 40_000L
 
 /**
- * Shorter hold for moves that extend the clock *below* the held position. The lyric surface is
- * placed under the anchor's bottom edge, so a clock that drifted downward (stock burn-in moves it
- * in persistent steps) would render on top of the lyrics for the whole hold window; the anchor
- * must follow after only a short debounce. Upward moves keep the long hold — the media-header
- * oscillation squeezes the clock upward and must not relocate the anchor.
- */
-internal const val AOD_CLOCK_ANCHOR_OVERLAP_HOLD_MS = 2_000L
-
-/**
  * Stabilizes the clock bounds used for lyric placement against fast oscillation (e.g. the media
- * header toggling the AOD layout, which squeezes/releases the clock by hundreds of pixels). The
+ * header toggling the AOD layout, which squeezes the clock upward by hundreds of pixels). The
  * anchor holds the last *confirmed* clock position: as long as the raw bounds keep returning to it
- * (oscillation), the anchor stays put so the lyric never jumps. It only relocates when the held
- * position has gone unconfirmed for [holdMs] — a genuinely persistent move — or, when the clock
- * extends below the anchor (overlap risk), after [overlapHoldMs].
+ * (oscillation), the anchor stays put so the lyric never jumps. It only relocates on a genuinely
+ * persistent move that leaves the held position unconfirmed for [holdMs].
+ *
+ * 下行（时钟底部低于 anchor 底部）会立即硬同步，不做防抖：歌词 surface 位于 anchor 底部之下，
+ * 若时钟向下漂移（小米 burn-in 每次唤醒步进 90–160px）却等防抖窗口，时钟会在滞后期间叠在歌词上。
+ * 上行保留长防抖，因为媒体头部振荡会把时钟向上挤压，不能让 anchor 跟着抖动。
  */
 internal fun stabilizeAodClockAnchor(
     previous: AodClockAnchor?,
     raw: AodRenderedClockBounds,
     nowElapsedMs: Long,
-    holdMs: Long = AOD_CLOCK_ANCHOR_HOLD_MS,
-    overlapHoldMs: Long = AOD_CLOCK_ANCHOR_OVERLAP_HOLD_MS
+    holdMs: Long = AOD_CLOCK_ANCHOR_HOLD_MS
 ): AodClockAnchor {
     if (raw.top >= raw.bottom) return previous ?: AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
     if (previous == null) return AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
@@ -174,10 +167,9 @@ internal fun stabilizeAodClockAnchor(
         // Held position reconfirmed: refresh so oscillation never ages it out.
         return previous.copy(sinceElapsedMs = nowElapsedMs)
     }
-    // A clock extending below the held position would overlap the lyric surface placed under
-    // the anchor; follow it after only the short overlap debounce.
-    val effectiveHoldMs = if (raw.bottom > previous.bottom) overlapHoldMs else holdMs
-    return if (nowElapsedMs - previous.sinceElapsedMs >= effectiveHoldMs) {
+    // 下行（时钟侵入歌词区域）立即硬同步，避免 burn-in 漂移时时钟叠在歌词上。
+    if (raw.bottom > previous.bottom) return AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
+    return if (nowElapsedMs - previous.sinceElapsedMs >= holdMs) {
         AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
     } else {
         previous
