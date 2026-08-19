@@ -529,6 +529,55 @@ class LockscreenSurfaceControllerTest {
     }
 
     @Test
+    fun disabledPauseShowContentClearsPausedLyricsImmediately() {
+        // 「暂停时显示歌曲信息、歌词」关闭时,锁屏暂停边按终止态处理:
+        // 不冻结歌曲信息与歌词,与 AOD 侧同一开关语义。
+        val live = com.eza.hyperglow.root.projection.LyricSnapshot(
+            visible = true,
+            playbackActive = true,
+            keepAlive = true,
+            durationMs = 20_000L,
+            positionMs = 4_000L,
+            sampledAtElapsedMs = 1_000L,
+            speed = 1f,
+            original = "line"
+        )
+        val paused = live.copy(
+            visible = false,
+            playbackActive = false,
+            pauseRetentionEligible = true,
+            updatedAtElapsedMs = 3_000L
+        )
+
+        assertEquals(
+            null,
+            retainedLockscreenSnapshotAfterUpdate(
+                paused, live, null, null, 3_000L, 30_000L,
+                pauseRetentionEnabled = false
+            )
+        )
+        // 已经驻留中的快照在开关关闭后同样不再保留。
+        val retained = retainedLockscreenSnapshotAfterUpdate(
+            paused, live, null, null, 3_000L, 30_000L
+        )!!
+        assertEquals(
+            null,
+            retainedLockscreenSnapshotAfterUpdate(
+                paused, live, retained, null, 3_500L, 30_000L,
+                pauseRetentionEnabled = false
+            )
+        )
+        // 传输间隙驻留(仍在播放)不受该开关影响。
+        val gap = live.copy(visible = false, updatedAtElapsedMs = 3_000L)
+        assertTrue(
+            retainedLockscreenSnapshotAfterUpdate(
+                gap, live, null, null, 3_000L, 5_000L,
+                pauseRetentionEnabled = false
+            ) != null
+        )
+    }
+
+    @Test
     fun nonSpotifyAndExpiredPauseSnapshotsDoNotRender() {
         val live = com.eza.hyperglow.root.projection.LyricSnapshot(
             visible = true,

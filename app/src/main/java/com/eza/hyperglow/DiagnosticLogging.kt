@@ -63,7 +63,7 @@ internal object RuntimeCustomization {
             CustomizationRepository.loadCompiled(context),
             DiagnosticLoggingPreferences.read(context),
             pauseLingerMs = preferences.pauseLingerMs,
-            pauseKeepAwake = preferences.keepAwake && preferences.pauseKeepAwake,
+            pauseShowContent = preferences.pauseShowContent,
             lockscreenKeepAwake = preferences.lockscreenKeepAwake,
             raiseToAod = preferences.raiseToAod,
             suppressLockscreenEditorLongPress = preferences.suppressLockscreenEditorLongPress
@@ -74,7 +74,7 @@ internal object RuntimeCustomization {
         document: CustomizationDocument,
         diagnosticLogging: Boolean,
         pauseLingerMs: Long = 5_000L,
-        pauseKeepAwake: Boolean = false,
+        pauseShowContent: Boolean = false,
         lockscreenKeepAwake: Boolean = false,
         raiseToAod: Boolean = false,
         suppressLockscreenEditorLongPress: Boolean = false
@@ -82,7 +82,7 @@ internal object RuntimeCustomization {
         SceneCompiler.compile(document),
         diagnosticLogging,
         pauseLingerMs = pauseLingerMs,
-        pauseKeepAwake = pauseKeepAwake,
+        pauseShowContent = pauseShowContent,
         lockscreenKeepAwake = lockscreenKeepAwake,
         raiseToAod = raiseToAod,
         suppressLockscreenEditorLongPress = suppressLockscreenEditorLongPress
@@ -93,7 +93,7 @@ internal object RuntimeCustomization {
         diagnosticLogging: Boolean,
         available: Boolean = BuildConfig.TRACE_LOGGING_AVAILABLE,
         pauseLingerMs: Long = configuration.pauseLingerMs,
-        pauseKeepAwake: Boolean = configuration.pauseKeepAwake,
+        pauseShowContent: Boolean = configuration.pauseShowContent,
         lockscreenKeepAwake: Boolean = configuration.lockscreenKeepAwake,
         raiseToAod: Boolean = configuration.raiseToAod,
         suppressLockscreenEditorLongPress: Boolean =
@@ -108,7 +108,7 @@ internal object RuntimeCustomization {
                     diagnosticLogging
                 ),
                 pauseLingerMs = com.eza.hyperglow.aod.normalizePauseLingerMs(pauseLingerMs),
-                pauseKeepAwake = pauseKeepAwake,
+                pauseShowContent = pauseShowContent,
                 lockscreenKeepAwake = lockscreenKeepAwake,
                 raiseToAod = raiseToAod,
                 suppressLockscreenEditorLongPress = suppressLockscreenEditorLongPress

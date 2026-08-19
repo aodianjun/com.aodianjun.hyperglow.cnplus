@@ -156,9 +156,9 @@ class AodLifetimePolicyTest {
     }
 
     @Test
-    fun disabledPauseKeepAwakeClearsPausedLyricsImmediately() {
-        // 「暂停时保持息屏活动」关闭时,暂停驻留边不得冻结歌词:
-        // 「保持息屏活动」只覆盖播放中状态,暂停后息屏应立即释放,不显示歌曲信息。
+    fun disabledPauseShowContentClearsPausedLyricsImmediately() {
+        // 「暂停时显示歌曲信息、歌词」关闭时,暂停驻留边不得冻结歌词:
+        // AOD 与锁屏立即清除歌曲信息、歌词,不显示任何暂停驻留内容。
         val live = LyricSnapshot(
             visible = true,
             playbackActive = true,

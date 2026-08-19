@@ -190,7 +190,7 @@ internal fun HomeScreen(
     var keepAwake by remember { mutableStateOf(initialConfig.keepAwake) }
     var keepAwakeUnsynced by remember { mutableStateOf(initialConfig.keepAwakeUnsynced) }
     var keepAwakeDurationMs by remember { mutableStateOf(initialConfig.keepAwakeDurationMs) }
-    var pauseKeepAwake by remember { mutableStateOf(initialConfig.pauseKeepAwake) }
+    var pauseShowContent by remember { mutableStateOf(initialConfig.pauseShowContent) }
     var lockscreenKeepAwake by remember {
         mutableStateOf(initialConfig.lockscreenKeepAwake)
     }
@@ -485,11 +485,26 @@ internal fun HomeScreen(
                     item { SmallTitle(text = stringResource(R.string.section_playback_behavior)) }
                     item {
                         SettingsCard {
+                            SwitchPreference(
+                                pauseShowContent,
+                                { enabled ->
+                                    if (updatePauseShowContent(context, enabled)) {
+                                        pauseShowContent = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_pause_show_content),
+                                summary = stringResource(
+                                    R.string.summary_pause_show_content,
+                                    stringResource(R.string.setting_after_spotify_pauses)
+                                ),
+                                enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                            )
                             ArrowPreference(
                                 title = stringResource(R.string.setting_after_spotify_pauses),
                                 summary = pauseLingerLabel(context, pauseLingerMs),
                                 onClick = { showPauseLingerDialog = true },
-                                enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                                enabled = pauseShowContent &&
+                                    runtimeProfileAvailable && (aodSupported || lockscreenSupported)
                             )
                         }
                     }
@@ -527,20 +542,6 @@ internal fun HomeScreen(
                                     keepAwakeUnsynced = enabled
                                 },
                                 stringResource(R.string.setting_keep_aod_unsynced),
-                                enabled = aodSupported && keepAwake
-                            )
-                            SwitchPreference(
-                                pauseKeepAwake,
-                                { enabled ->
-                                    if (updatePauseKeepAwake(context, enabled)) {
-                                        pauseKeepAwake = enabled
-                                    }
-                                },
-                                stringResource(R.string.setting_pause_keep_awake),
-                                summary = stringResource(
-                                    R.string.summary_pause_keep_awake,
-                                    stringResource(R.string.setting_after_spotify_pauses)
-                                ),
                                 enabled = aodSupported && keepAwake
                             )
                             ArrowPreference(

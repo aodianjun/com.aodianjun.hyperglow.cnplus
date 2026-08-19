@@ -271,10 +271,13 @@ internal fun retainedLockscreenSnapshotAfterUpdate(
     retained: LyricSnapshot?,
     anchor: LyricRetentionAnchor?,
     nowElapsedMs: Long,
-    pauseLingerMs: Long = 5_000L
+    pauseLingerMs: Long = 5_000L,
+    pauseRetentionEnabled: Boolean = true
 ): LyricSnapshot? = if (incoming.visible) {
     null
-} else if (incoming.pauseRetentionEligible) {
+} else if (incoming.pauseRetentionEligible && pauseRetentionEnabled) {
+    // 与 AOD 侧同一开关:「暂停时显示歌曲信息、歌词」关闭时,暂停边按终止态处理,
+    // 锁屏立即清除歌曲信息与歌词,不再无条件驻留。
     val pauseAtElapsedMs = anchor.edgeFor(
         pauseRetentionEligible = true,
         fallbackElapsedMs = incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
@@ -886,7 +889,8 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 retainedMediaSnapshot,
                 retentionAnchor,
                 nowElapsedMs,
-                customization?.pauseLingerMs ?: 5_000L
+                customization?.pauseLingerMs ?: 5_000L,
+                pauseRetentionEnabled = customization?.pauseShowContent ?: false
             )
             if (retainedMediaSnapshot == null && !resolvedSnapshot.playbackActive) {
                 lastVisibleSnapshot = null
@@ -931,6 +935,26 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
 
     override fun onCustomization(configuration: CompiledCustomization) {
         customization = configuration
+        // 「暂停时显示歌曲信息、歌词」关闭(或驻留时长已过)时,丢弃暂停驻留快照并立即隐藏,
+        // 与 AOD 侧同一语义:开关切换立即生效,不等下一条暂停边。
+        val retained = retainedMediaSnapshot?.takeIf { snapshot ->
+            !snapshot.pauseRetentionEligible || configuration.pauseShowContent &&
+                pauseLingerRemainingMs(
+                    snapshot.sampledAtElapsedMs,
+                    configuration.pauseLingerMs,
+                    SystemClock.elapsedRealtime()
+                ) != null
+        }
+        if (retainedMediaSnapshot != null && retained == null) {
+            retainedMediaSnapshot = null
+            retentionAnchor = null
+            lastVisibleSnapshot = null
+            latestSnapshot = null
+            cancelPauseLingerExpiry()
+            cancelFreshnessExpiry()
+            hideSurface()
+            return
+        }
         runtimeProfile = null
         lastRenderedProfile = null
         lastRenderContent = null

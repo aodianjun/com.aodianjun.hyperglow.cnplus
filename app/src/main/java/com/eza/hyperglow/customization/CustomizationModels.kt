@@ -72,8 +72,8 @@ data class CompiledCustomization(
     val linkSurfaces: Boolean,
     val profiles: Map<String, CompiledSurfaceProfile>,
     val pauseLingerMs: Long = 5_000L,
-    /** 暂停时保持息屏活动:App 端运行时开关,随配置下发到 SystemUI,只作用于息屏驻留。 */
-    val pauseKeepAwake: Boolean = false,
+    /** 暂停时显示歌曲信息、歌词:App 端运行时开关,随配置下发到 SystemUI,同时作用于息屏与锁屏驻留。 */
+    val pauseShowContent: Boolean = false,
     val diagnosticLogging: Boolean = false,
     val lockscreenKeepAwake: Boolean = false,
     val raiseToAod: Boolean = false,
