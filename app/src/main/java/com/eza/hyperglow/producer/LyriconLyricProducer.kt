@@ -101,6 +101,14 @@ class LyriconLyricProducer(
     @Volatile private var lastRealPositionClockMs: Long = -1L
     @Volatile private var extrapolating: Boolean = false
 
+    // --- Extrapolation budget / unknown position ---
+    // When the position source goes silent while playing, extrapolation advances the lyric for at
+    // most MAX_EXTRAPOLATION_MS. Past that the writer is treated as dead (not merely screen-off
+    // frozen): position is marked unknown and the active line is cleared so we never extrapolate
+    // all the way to the song end over a long stall (the 19:33 capture extrapolated ~3m39s past
+    // the real paused position and landed on the last line).
+    @Volatile private var positionUnknown: Boolean = false
+
     // --- Stale detection ---
     // If no real position update arrives for STALE_THRESHOLD_MS, the shared-memory writer
     // may be completely dead (not just stalled). Log a warning so the arbiter can consider
@@ -169,6 +177,7 @@ class LyriconLyricProducer(
                 lastRealPositionClockMs = clock()
                 lastRealPositionUpdateMs = -1L
                 extrapolating = false
+                positionUnknown = false
                 previousSongLastPositionMs = -1L
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
@@ -188,6 +197,7 @@ class LyriconLyricProducer(
                 lastRealPositionClockMs = clock()
                 lastRealPositionUpdateMs = -1L
                 extrapolating = false
+                positionUnknown = false
                 previousSongLastPositionMs = -1L
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
@@ -224,6 +234,7 @@ class LyriconLyricProducer(
             lastRealPositionMs = 0L
             lastRealPositionClockMs = clock()
             extrapolating = false
+            positionUnknown = false
             refreshRenderModes()
             emit()
         }
@@ -236,10 +247,20 @@ class LyriconLyricProducer(
         override fun onPlaybackStateChanged(isPlaying: Boolean) {
             AppLog.i("LyriconLyricProducer", "onPlaybackStateChanged: playing=$isPlaying")
             isPlayingState = isPlaying
-            // When resuming playback after a pause, reset the extrapolation clock so we don't
-            // jump forward by the entire pause duration on the next stalled position callback.
-            if (isPlaying && lastRealPositionClockMs >= 0L) {
-                lastRealPositionClockMs = clock()
+            if (isPlaying) {
+                // When resuming playback after a pause, reset the extrapolation clock so we don't
+                // jump forward by the entire pause duration on the next stalled position callback.
+                if (lastRealPositionClockMs >= 0L) {
+                    lastRealPositionClockMs = clock()
+                }
+            } else {
+                // When paused, freeze extrapolation: the real position is frozen, so
+                // currentPositionMs must stop advancing too. Previously a long pause kept
+                // extrapolating the lyric all the way to the song end.
+                if (extrapolating) {
+                    extrapolating = false
+                    AppLog.i("LyriconLyricProducer", "pause: extrapolation frozen")
+                }
             }
             // Re-emit so the engine sees the new playing/speed without waiting for next position.
             emit()
@@ -261,24 +282,11 @@ class LyriconLyricProducer(
             val isResidual = previousSongLastPositionMs >= 0L &&
                 position == previousSongLastPositionMs
             if (isResidual) {
-                // Ignore the stale value; extrapolate from the last real position regardless of
-                // isPlayingState. The playing flag is unreliable (MediaSession jitter between
-                // PLAYING↔BUFFERING can leave it stuck at false), and the real position clock
-                // is the only trustworthy signal. When the player is truly paused the shared
-                // memory position is frozen and the extrapolated position drifts harmlessly
-                // (the line stays the same within a typical pause), corrected on resume.
-                if (lastRealPositionClockMs >= 0L) {
-                    val elapsed = now - lastRealPositionClockMs
-                    currentPositionMs = lastRealPositionMs + elapsed
-                    if (!extrapolating) {
-                        extrapolating = true
-                        AppLog.i(
-                            "LyriconLyricProducer",
-                            "residual position rejected ($position ms matches previous song); " +
-                                "extrapolating from ${lastRealPositionMs}ms -> ${currentPositionMs}ms"
-                        )
-                    }
-                }
+                // Reject the stale value: advance by wall-clock extrapolation from the last real
+                // position (freezing when paused / marking unknown once the budget is exceeded),
+                // instead of advancing regardless of the playing flag — that is what previously
+                // let a long pause extrapolate all the way to the song end.
+                advanceExtrapolation(now, "residual ${position}ms matches previous song")
                 recomputeAndEmit()
                 return
             }
@@ -289,18 +297,7 @@ class LyriconLyricProducer(
                 (now - seekClockMs) < SEEK_RESIDUAL_REJECTION_WINDOW_MS &&
                 position == seekRejectPositionMs
             if (isSeekResidual) {
-                if (lastRealPositionClockMs >= 0L) {
-                    val elapsed = now - lastRealPositionClockMs
-                    currentPositionMs = lastRealPositionMs + elapsed
-                    if (!extrapolating) {
-                        extrapolating = true
-                        AppLog.i(
-                            "LyriconLyricProducer",
-                            "seek residual rejected ($position ms matches pre-seek); " +
-                                "extrapolating from ${lastRealPositionMs}ms -> ${currentPositionMs}ms"
-                        )
-                    }
-                }
+                advanceExtrapolation(now, "seek residual ${position}ms matches pre-seek")
                 recomputeAndEmit()
                 return
             }
@@ -338,6 +335,9 @@ class LyriconLyricProducer(
                 // A real (different) position means the player has written the post-seek value;
                 // stop rejecting the pre-seek position.
                 seekRejectPositionMs = -1L
+                // A real value also means the position source is alive again: clear the
+                // unknown-position marker so recomputeAndEmit re-selects the active line.
+                positionUnknown = false
                 if (wasExtrapolating && !monotonicResume) {
                     extrapolating = false
                     AppLog.i(
@@ -346,52 +346,11 @@ class LyriconLyricProducer(
                     )
                 }
             } else if (lastRealPositionClockMs >= 0L) {
-                // Position stalled (shared-memory writer frozen by MIUI screen-off). Extrapolate
-                // from the last real position using wall-clock elapsed time. This keeps lyrics
-                // advancing during AOD when the player process is frozen.
-                //
-                // Un-gated from isPlayingState: MediaSession jitter between PLAYING↔BUFFERING
-                // can leave the flag stuck at false while the song is actually playing, causing
-                // the lyrics to freeze permanently. The real position clock is the authoritative
-                // signal. When the player is truly paused, the shared memory position is frozen
-                // and the extrapolated drift is corrected on resume.
-                //
-                // Un-capped from duration: when a song loops (single-track repeat), the shared
-                // memory position resets to 0 but our extrapolation would be capped at duration,
-                // freezing the line at the end. Letting it exceed allows the real position to
-                // correct it when the loop restarts.
-                val elapsed = now - lastRealPositionClockMs
-                currentPositionMs = lastRealPositionMs + elapsed
-                val duration = currentSong?.duration ?: 0L
-                // Stale detection: if we haven't seen a real position update for too long, the
-                // shared-memory writer may be completely dead (not just screen-off frozen).
-                // Log a warning so the arbiter can consider falling back to another producer.
-                if (lastRealPositionUpdateMs >= 0L &&
-                    now - lastRealPositionUpdateMs > STALE_POSITION_THRESHOLD_MS
-                ) {
-                    if (lastRealPositionUpdateMs != Long.MAX_VALUE) {
-                        lastRealPositionUpdateMs = Long.MAX_VALUE // one-shot log
-                        val staleSec = (now - lastRealPositionClockMs) / 1000
-                        AppLog.w(
-                            "LyriconLyricProducer",
-                            "position stale for ${staleSec}s (last real=${lastRealPositionMs}ms " +
-                                "extrapolated=${currentPositionMs}ms duration=${duration}ms)" +
-                                if (duration > 0L && currentPositionMs > duration) {
-                                    " — song may have looped"
-                                } else {
-                                    " — shared-memory writer may be dead"
-                                }
-                        )
-                    }
-                }
-                if (!extrapolating) {
-                    extrapolating = true
-                    AppLog.i(
-                        "LyriconLyricProducer",
-                        "position stalled, extrapolating: base=${lastRealPositionMs}ms " +
-                            "elapsed=${elapsed}ms -> ${currentPositionMs}ms"
-                    )
-                }
+                // Position stalled (shared-memory writer frozen by MIUI screen-off). Advance via
+                // wall-clock extrapolation — but freeze when paused and stop (mark position unknown)
+                // once the extrapolation budget is exceeded, so a long stall never drags the line
+                // to the song end.
+                advanceExtrapolation(now, "position stalled")
             }
             recomputeAndEmit()
         }
@@ -409,6 +368,8 @@ class LyriconLyricProducer(
             lastRealPositionUpdateMs = now
             currentPositionMs = position
             extrapolating = false
+            // A seek is a deliberate position change — the position is known again.
+            positionUnknown = false
             // A seek is a deliberate position change — clear residual filtering so the new
             // position is accepted even if it coincidentally matches the previous song's last.
             previousSongLastPositionMs = -1L
@@ -527,6 +488,69 @@ class LyriconLyricProducer(
     }
 
     /**
+     * Advance [currentPositionMs] by wall-clock extrapolation from [lastRealPositionMs], unless the
+     * player is paused (freeze) or the extrapolation budget has been exhausted (mark position
+     * unknown). Called whenever the shared-memory position is still instead of a real update
+     * (residual / seek-residual / stalled).
+     *
+     * - Paused: the real position is frozen, so the lyric position must not advance.
+     * - Over [MAX_EXTRAPOLATION_MS]: the writer is dead (not merely screen-off frozen) — mark
+     *   [positionUnknown] and stop advancing, instead of extrapolating all the way to song end.
+     */
+    private fun advanceExtrapolation(now: Long, reason: String) {
+        if (!isPlayingState) {
+            if (extrapolating) {
+                extrapolating = false
+                AppLog.i("LyriconLyricProducer", "pause: extrapolation frozen ($reason)")
+            }
+            currentPositionMs = lastRealPositionMs
+            return
+        }
+        if (lastRealPositionClockMs < 0L) return
+        val sinceRealMs = now - lastRealPositionClockMs
+        if (sinceRealMs > MAX_EXTRAPOLATION_MS) {
+            if (!positionUnknown) {
+                extrapolating = false
+                positionUnknown = true
+                currentPositionMs = lastRealPositionMs + MAX_EXTRAPOLATION_MS
+                AppLog.w(
+                    "LyriconLyricProducer",
+                    "extrapolation exceeded ${MAX_EXTRAPOLATION_MS}ms ($reason); marking position unknown"
+                )
+            }
+            return
+        }
+        currentPositionMs = lastRealPositionMs + sinceRealMs
+        // Stale one-shot warning (writer may be dead) — observability only, does not gate behavior.
+        if (lastRealPositionUpdateMs >= 0L &&
+            now - lastRealPositionUpdateMs > STALE_POSITION_THRESHOLD_MS &&
+            lastRealPositionUpdateMs != Long.MAX_VALUE
+        ) {
+            lastRealPositionUpdateMs = Long.MAX_VALUE // one-shot log
+            val staleSec = (now - lastRealPositionClockMs) / 1000
+            val duration = currentSong?.duration ?: 0L
+            AppLog.w(
+                "LyriconLyricProducer",
+                "position stale for ${staleSec}s (last real=${lastRealPositionMs}ms " +
+                    "extrapolated=${currentPositionMs}ms duration=${duration}ms)" +
+                    if (duration > 0L && currentPositionMs > duration) {
+                        " — song may have looped"
+                    } else {
+                        " — shared-memory writer may be dead"
+                    }
+            )
+        }
+        if (!extrapolating) {
+            extrapolating = true
+            AppLog.i(
+                "LyriconLyricProducer",
+                "position stalled, extrapolating ($reason): base=${lastRealPositionMs}ms " +
+                    "elapsed=${sinceRealMs}ms -> ${currentPositionMs}ms"
+            )
+        }
+    }
+
+    /**
      * Find the active line for [currentPositionMs] via [TimingNavigator], rebuild the per-word
      * cache only when the line changes, then emit a fresh [LyricProducerState].
      *
@@ -537,6 +561,18 @@ class LyriconLyricProducer(
         val nav = navigator ?: return emit() // no lyrics yet; emit metadata-only state
         val song = currentSong ?: return
         val pos = currentPositionMs
+
+        // 位置未知(外推超过预算且数据源尚未恢复):清空活动行,稳定显示占位,而不是把歌词
+        // 一路推进到歌尾。等真实位置恢复或 onSongChanged / onSeekTo 到来清除 positionUnknown
+        // 后再重新选行。
+        if (positionUnknown) {
+            if (currentLineIndex != -1) {
+                currentLineIndex = -1
+                cachedWords = null
+            }
+            emit()
+            return
+        }
 
         // 歌曲边界处理:息屏后数据源(如网易云)停止写位置,外推会越过歌曲时长继续累加。
         //
@@ -730,6 +766,15 @@ class LyriconLyricProducer(
          * logged so the arbiter can consider falling back to another producer.
          */
         private const val STALE_POSITION_THRESHOLD_MS = 15_000L
+
+        /**
+         * Maximum wall-clock duration for which a silent position source is extrapolated while
+         * playing. Past this the writer is treated as dead and [positionUnknown] is set (the active
+         * line is cleared) instead of extrapolating all the way to the song end over a long stall.
+         * 45s sits within the 30–60s budget: long enough to ride out NetEase's screen-off write
+         * gaps, short enough not to fabricate minutes of lyric progress.
+         */
+        private const val MAX_EXTRAPOLATION_MS = 45_000L
 
         /** Poll interval for the position-silence watchdog. */
         private const val POSITION_WATCHDOG_POLL_MS = 5_000L
