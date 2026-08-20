@@ -144,6 +144,12 @@ internal data class AodClockAnchor(
 /** How long a held clock position may go unconfirmed before it is treated as a genuine move. */
 internal const val AOD_CLOCK_ANCHOR_HOLD_MS = 40_000L
 
+/** Minimum downward clock drift (px) the settle watchdog reacts to. */
+internal const val STOCK_SETTLE_DRIFT_PX = 24
+
+/** Recheck cadence after the initial settle schedule is exhausted. */
+internal const val STOCK_SETTLE_RETRY_MS = 300_000L
+
 /**
  * Stabilizes the clock bounds used for lyric placement against fast oscillation (e.g. the media
  * header toggling the AOD layout, which squeezes the clock upward by hundreds of pixels). The
@@ -395,7 +401,25 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var stockMotionAlphaFrom = 1f
     private var stockMotionAlphaTo = 1f
     private var drawWakeRenewalActive = false
+    // Stock settle drift watchdog: MIUI moves the AOD clock to a burn-in initial
+    // position about 10s after AOD entry (AODUpdatePositionController, translated via
+    // setTranslationY, which never fires OnLayoutChange). The follow-up hook can miss it,
+    // so we re-check the physical clock bounds on a schedule and force a geometry refresh.
+    private var stockSettleCheckScheduled = false
+    private var stockSettleCheckIndex = 0
+    private val stockSettleCheckIntervals = longArrayOf(
+        10_000L, 10_000L, 15_000L, 20_000L, 30_000L,
+        40_000L, 60_000L, 80_000L, 120_000L, 160_000L, 240_000L
+    )
+    private val stockSettleCheck = object : Runnable {
+        override fun run() {
+            stockSettleCheckScheduled = false
+            checkStockSettleDrift()
+        }
+    }
+
     private var renderStallWatchdogScheduled = false
+    private var lastPlacedTrace: String? = null
     private var managedPositionRetryCount = 0
     private var initialRevealPending = true
     private var initialRevealActive = false
@@ -667,6 +691,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 LinkageTransitionCoordinator.registerSurface(this)
                 AodPowerCoordinator.onSurfaceAttached()
                 startRenderStallWatchdog()
+                startStockSettleWatchdog()
                 LinkageTransitionCoordinator.onAodSurfaceMode(AodPositionHook.isLinkageMode())
                 val generation = attachmentGeneration
                 root.post {
@@ -1037,6 +1062,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private fun detachCurrent() {
         attachmentGeneration++
         stopRenderStallWatchdog()
+        stopStockSettleWatchdog()
         mainHandler.removeCallbacks(geometryUpdate)
         mainHandler.removeCallbacks(stockMotionSettleTimeout)
         mainHandler.removeCallbacks(managedBurnInStart)
@@ -1089,6 +1115,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         initialRevealDurationMs = 0L
         transitionFailedHidden = false
         lastLayoutBlockTrace = null
+        lastPlacedTrace = null
         lastSnapshotTrace = null
         lastBrightClockMorphPhase = null
         lastClockGeometryAuthority = null
@@ -1163,6 +1190,58 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (!active) return
         rootRef.get()?.let(::pulseDrawWakeLock)
         mainHandler.postDelayed(drawWakeRenewal, DRAW_WAKE_RENEW_INTERVAL_MS)
+    }
+
+    private fun startStockSettleWatchdog() {
+        stopStockSettleWatchdog()
+        stockSettleCheckIndex = 0
+        scheduleNextStockSettleCheck()
+    }
+
+    private fun stopStockSettleWatchdog() {
+        stockSettleCheckScheduled = false
+        mainHandler.removeCallbacks(stockSettleCheck)
+        stockSettleCheckIndex = 0
+    }
+
+    private fun scheduleNextStockSettleCheck() {
+        if (stockSettleCheckScheduled) return
+        stockSettleCheckScheduled = true
+        val delay = if (stockSettleCheckIndex < stockSettleCheckIntervals.size) {
+            stockSettleCheckIntervals[stockSettleCheckIndex++]
+        } else {
+            STOCK_SETTLE_RETRY_MS
+        }
+        mainHandler.postDelayed(stockSettleCheck, delay)
+    }
+
+    private fun checkStockSettleDrift() {
+        val root = rootRef.get()
+        val directSurface = surface
+        if (root == null || directSurface == null ||
+            directSurface.visibility != View.VISIBLE
+        ) {
+            scheduleNextStockSettleCheck()
+            return
+        }
+        val physical = selectPhysicalAodClockBounds(
+            systemUiClockBounds,
+            aodControllerClockBounds
+        ) ?: AodPositionHook.renderedTargetBoundsInRoot(root)
+        val anchor = clockAnchor
+        if (physical != null && anchor != null &&
+            physical.bottom - anchor.bottom > STOCK_SETTLE_DRIFT_PX
+        ) {
+            HookLogger.i(
+                TAG,
+                "Stock settle drift detected +${physical.bottom - anchor.bottom}px " +
+                    "anchor=${anchor.top}..${anchor.bottom} " +
+                    "physical=${physical.top}..${physical.bottom}; forcing geometry refresh"
+            )
+            clockAnchor = AodClockAnchor(physical.top, physical.bottom, SystemClock.elapsedRealtime())
+            requestGeometryUpdate()
+        }
+        scheduleNextStockSettleCheck()
     }
 
     private fun startRenderStallWatchdog() {
@@ -1477,11 +1556,17 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val placedWidth = placed?.width?.roundToInt() ?: 0
         val maxLeft = (root.width - placedWidth).coerceAtLeast(0)
         val shiftedLeft = ((placed?.left?.roundToInt() ?: 0) + horizontalShift).coerceIn(0, maxLeft)
-        val rect = AodSurfaceRect(
+        val placedRect = AodSurfaceRect(
             shiftedLeft,
             placed?.top?.roundToInt() ?: 0,
             shiftedLeft + placedWidth,
             placed?.bottom?.roundToInt() ?: 0
+        )
+        val rect = avoidStockClockOverlap(
+            placedRect,
+            physicalClockBounds,
+            margin,
+            root.height
         )
         if (rect.width <= 0 || rect.height <= 0) {
             failClosedLayout(
@@ -1503,6 +1588,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             View.MeasureSpec.makeMeasureSpec(rect.height, View.MeasureSpec.EXACTLY)
         )
         directSurface.layout(rect.left, rect.top, rect.right, rect.bottom)
+        val placedTrace = "rect=${rect.left}..${rect.bottom} " +
+            "stock=$effectiveClockTop..$effectiveClockBottom zone=$layoutZone"
+        if (placedTrace != lastPlacedTrace) {
+            lastPlacedTrace = placedTrace
+            HookLogger.i(TAG, "Lyric surface placed $placedTrace")
+        }
         if (stockMotionRevealPending) {
             stockMotionRevealPending = false
             directSurface.alpha = 0f
@@ -1538,6 +1629,33 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         updateLifetimeGuard()
         if (visible) LinkageTransitionCoordinator.onSurfaceReady(LyricSurfaceKind.AOD)
         return true
+    }
+
+    /**
+     * Guards against the stock AOD clock drifting over the lyric surface. MIUI translates the
+     * clock to a rotating burn-in position roughly 10s after AOD entry; when the follow-up
+     * chain misses that move the lyric rect ends up underneath the clock. If the rect overlaps
+     * the physically measured clock bounds, relocate it below the clock when there is room.
+     */
+    private fun avoidStockClockOverlap(
+        rect: AodSurfaceRect,
+        physicalClockBounds: AodRenderedClockBounds?,
+        margin: Int,
+        rootHeight: Int
+    ): AodSurfaceRect {
+        val clock = physicalClockBounds ?: return rect
+        if (clock.height <= 0) return rect
+        val overlaps = rect.top < clock.bottom && rect.bottom > clock.top
+        if (!overlaps) return rect
+        val belowTop = clock.bottom + margin
+        val height = rect.height
+        if (belowTop + height > rootHeight - margin) return rect
+        HookLogger.i(
+            TAG,
+            "Stock clock overlap avoided: clock=${clock.top}..${clock.bottom} " +
+                "lyric=${rect.top}..${rect.bottom} -> below@$belowTop"
+        )
+        return AodSurfaceRect(rect.left, belowTop, rect.right, belowTop + height)
     }
 
     private fun renderedStockClockBounds(
