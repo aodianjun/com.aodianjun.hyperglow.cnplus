@@ -7,6 +7,7 @@ import com.eza.hyperglow.root.aod.AodLifetimeHook
 import com.eza.hyperglow.root.aod.AodPositionHook
 import com.eza.hyperglow.root.aod.AodDisplayStateHook
 import com.eza.hyperglow.root.aod.AodWakeBroker
+import com.eza.hyperglow.root.antifreeze.AntiFreezeHook
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import com.eza.hyperglow.root.capability.missingProbeNames
 import com.eza.hyperglow.root.lockscreen.LockscreenSurfaceHook
@@ -35,6 +36,10 @@ class HookEntry : XposedModule() {
     }
 
     override fun onPackageLoaded(param: PackageLoadedParam) {
+        if (param.packageName == SYSTEM_SERVER_PACKAGE) {
+            installAntiFreeze(param)
+            return
+        }
         if (param.packageName != SYSTEM_UI_PACKAGE) return
         val processName = runCatching { Application.getProcessName() }.getOrDefault("")
         HookLogger.bootstrap(TAG, "systemui_package_loaded process=${processClass(processName)}")
@@ -124,6 +129,14 @@ class HookEntry : XposedModule() {
         }
     }
 
+    private fun installAntiFreeze(param: PackageLoadedParam) {
+        try {
+            AntiFreezeHook.install(this, param.defaultClassLoader)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "AntiFreeze install failed", error)
+        }
+    }
+
     private class ClassLoaderHooker(private val module: XposedModule) : Hooker {
         override fun intercept(chain: Chain): Any? {
             val result = chain.proceed()
@@ -162,6 +175,7 @@ class HookEntry : XposedModule() {
     companion object {
         private const val TAG = "HookEntry"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+        private const val SYSTEM_SERVER_PACKAGE = "android"
         private const val LIBXPOSED_MIN_API = 101
         private const val LIBXPOSED_TARGET_API = 102
 
