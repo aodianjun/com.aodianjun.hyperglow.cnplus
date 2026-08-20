@@ -21,6 +21,7 @@ import io.github.libxposed.api.XposedInterface.Hooker
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
+import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
 
 class HookEntry : XposedModule() {
     override fun onModuleLoaded(param: ModuleLoadedParam) {
@@ -30,9 +31,33 @@ class HookEntry : XposedModule() {
             TAG,
             "module_loaded version=${BuildConfig.VERSION_CODE} " +
                 "minApi=$LIBXPOSED_MIN_API targetApi=$LIBXPOSED_TARGET_API " +
-                "process=${processClass(param.processName)}"
+                "process=${processClass(param.processName)} name=${param.processName}"
         )
-        HookLogger.i(TAG, "Module loaded")
+        val systemServer = try {
+            param.isSystemServer
+        } catch (_: Throwable) {
+            // LSPosed < 2.1.2 的桥未实现 isSystemServer()（libxposed API 101+），
+            // invokeinterface 会抛 AbstractMethodError；回退进程名判断。
+            param.processName == "system"
+        }
+        if (systemServer) {
+            try {
+                AntiFreezeHook.installInSystemServer(this)
+                HookLogger.bootstrap(TAG, "antifreeze_entry_invoked_in_system_server")
+            } catch (error: Exception) {
+                HookLogger.w(TAG, "AntiFreeze entry failed in system_server", error)
+            }
+        }
+        HookLogger.bootstrap(TAG, "module_loaded_complete")
+    }
+
+    override fun onSystemServerStarting(param: SystemServerStartingParam) {
+        try {
+            AntiFreezeHook.install(this, param.classLoader)
+            HookLogger.bootstrap(TAG, "antifreeze_installed_in_system_server")
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "AntiFreeze install failed", error)
+        }
     }
 
     override fun onPackageLoaded(param: PackageLoadedParam) {
