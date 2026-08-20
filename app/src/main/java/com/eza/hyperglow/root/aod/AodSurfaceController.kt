@@ -395,6 +395,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var stockMotionAlphaFrom = 1f
     private var stockMotionAlphaTo = 1f
     private var drawWakeRenewalActive = false
+    private var renderStallWatchdogScheduled = false
     private var managedPositionRetryCount = 0
     private var initialRevealPending = true
     private var initialRevealActive = false
@@ -527,6 +528,19 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             mainHandler.postDelayed(this, DRAW_WAKE_RENEW_INTERVAL_MS)
         }
     }
+    /**
+     * 渲染停摆看门狗(issue #6):切歌 + 锁屏过渡并发窗口里,快照应用链路可能停摆、
+     * Draw wake renewal 被关掉后没有任何事件再把它拉起来,画布节律也随之停止,
+     * AOD 只能等下一次锁屏 attach 重放才恢复。看门狗在「息屏 + 已附着 + 场景激活 +
+     * 快照可渲染 + 仍在播放」时周期自检,发现停摆就强制重放快照并补画布唤醒脉冲。
+     */
+    private val renderStallWatchdog = object : Runnable {
+        override fun run() {
+            if (!renderStallWatchdogScheduled) return
+            mainHandler.postDelayed(this, RENDER_STALL_WATCHDOG_INTERVAL_MS)
+            runCatching { recoverRenderStallIfNeeded() }
+        }
+    }
     private val initialRevealFrame = object : Runnable {
         override fun run() {
             if (!initialRevealActive) return
@@ -652,6 +666,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 )
                 LinkageTransitionCoordinator.registerSurface(this)
                 AodPowerCoordinator.onSurfaceAttached()
+                startRenderStallWatchdog()
                 LinkageTransitionCoordinator.onAodSurfaceMode(AodPositionHook.isLinkageMode())
                 val generation = attachmentGeneration
                 root.post {
@@ -1021,6 +1036,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private fun detachCurrent() {
         attachmentGeneration++
+        stopRenderStallWatchdog()
         mainHandler.removeCallbacks(geometryUpdate)
         mainHandler.removeCallbacks(stockMotionSettleTimeout)
         mainHandler.removeCallbacks(managedBurnInStart)
@@ -1122,6 +1138,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // capability: that symbol is independent of mWakeLock, and gating on it silently
         // freezes AOD updates on versions where the probe fails. pulseDrawWakeLock is
         // guarded by runCatching, so an absent field fails harmlessly.
+        // 播放态额外取 Lyricon 中心服务的真值:切歌 BUFFERING/位置未知窗口里 app 侧快照会
+        // 短暂报 playbackActive=false(issue #6),若只信快照,续期会在缓冲窗口被关掉且
+        // 没有事件再拉起,直到下次锁屏 attach 才恢复。
         val active = shouldRenewAodDraw(
             surfaceKind = surfaceKind,
             attached = rootRef.get() != null,
@@ -1130,7 +1149,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 snapshot != null && canRenderAod(snapshot),
             pendingStockMotion = pendingStockMotionUpdate != null,
             keepAlive = snapshot?.keepAlive == true,
-            playbackActive = snapshot?.playbackActive == true
+            playbackActive = snapshot?.playbackActive == true ||
+                AodWakeBroker.isLyriconPlaybackActive()
         )
         setDrawWakeRenewalActive(active)
     }
@@ -1143,6 +1163,72 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (!active) return
         rootRef.get()?.let(::pulseDrawWakeLock)
         mainHandler.postDelayed(drawWakeRenewal, DRAW_WAKE_RENEW_INTERVAL_MS)
+    }
+
+    private fun startRenderStallWatchdog() {
+        if (renderStallWatchdogScheduled) return
+        renderStallWatchdogScheduled = true
+        mainHandler.postDelayed(renderStallWatchdog, RENDER_STALL_WATCHDOG_INTERVAL_MS)
+    }
+
+    private fun stopRenderStallWatchdog() {
+        renderStallWatchdogScheduled = false
+        mainHandler.removeCallbacks(renderStallWatchdog)
+    }
+
+    private fun recoverRenderStallIfNeeded() {
+        val root = rootRef.get() ?: return
+        val directSurface = surface ?: return
+        if (!isSceneActive() || !directSurface.isAttachedToWindow) return
+        // 亮屏时 AOD 本来就不呈现,不做任何恢复。
+        if (root.display?.state == android.view.Display.STATE_ON) return
+        val snapshot = latestSnapshot ?: return
+        if (!canRenderAod(snapshot)) return
+        val playbackLive = snapshot.playbackActive || snapshot.keepAlive ||
+            AodWakeBroker.isLyriconPlaybackActive()
+        if (!playbackLive) return
+        val now = SystemClock.elapsedRealtime()
+        // 恢复 1:续期掉线。过渡/缓冲窗口把 renewal 关掉后,若期间没有新的快照/心跳
+        // 事件到达,updateLifetimeGuard 不会再被调用——看门狗直接补一次评估和脉冲。
+        if (!drawWakeRenewalActive) {
+            HookLogger.i(
+                TAG,
+                "Render stall watchdog: draw renewal inactive while playing; re-arming rev=${snapshot.revision}"
+            )
+            updateLifetimeGuard()
+            if (!drawWakeRenewalActive) pulseDrawWakeLock(root)
+        }
+        // 恢复 2:行级时间轴内容在播放中本应持续重绘,但画布长时间没有 onDraw——
+        // 强制重放当前快照,走完整 setContent/syncCadence 路径重启画布节律。
+        val lastDrawAt = lyricCanvas?.lastDrawAtElapsedMs() ?: 0L
+        if (lyricCanvas?.isTimingEffectActive() == true && lastDrawAt > 0L &&
+            now - lastDrawAt > RENDER_STALL_THRESHOLD_MS
+        ) {
+            HookLogger.i(
+                TAG,
+                "Render stall watchdog: canvas stalled for ${now - lastDrawAt}ms; " +
+                    "replaying snapshot rev=${snapshot.revision}"
+            )
+            lastRenderContent = null
+            onLyricSnapshot(snapshot)
+            rootRef.get()?.let(::pulseDrawWakeLock)
+            return
+        }
+        // 恢复 3:投影缓存里已有更新的可见快照却没被本 surface 应用(应用链路在过渡窗口
+        // 停摆)——重放投影最新可见快照,不等下一次 attach。
+        val cachedVisible = SystemUiLyricProjectionRuntime.projection.cachedVisibleSnapshot()
+        if (cachedVisible != null && cachedVisible.visible &&
+            cachedVisible.revision > snapshot.revision
+        ) {
+            HookLogger.i(
+                TAG,
+                "Render stall watchdog: projection ahead " +
+                    "rev=${cachedVisible.revision}>${snapshot.revision}; replaying"
+            )
+            lastRenderContent = null
+            onLyricSnapshot(cachedVisible)
+            rootRef.get()?.let(::pulseDrawWakeLock)
+        }
     }
 
     private fun startInitialReveal(directSurface: View, durationMs: Long) {
@@ -1813,6 +1899,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private const val DRAW_WAKE_LOCK_MS = 5_500L
     private const val DRAW_WAKE_RENEW_INTERVAL_MS = DRAW_WAKE_LOCK_MS / 2L
+    /** 渲染停摆看门狗自检周期:足够频繁以在 stale 窗口内恢复,又不会喧宾夺主。 */
+    private const val RENDER_STALL_WATCHDOG_INTERVAL_MS = 5_000L
+    /** 行级时间轴内容播放中超过该时长没有 onDraw 即视为画布停摆。 */
+    private const val RENDER_STALL_THRESHOLD_MS = 8_000L
     private const val AOD_ANIMATION_FRAME_MS = 16L
     private const val SURFACE_MARGIN_DP = 12f
     private const val MIN_LYRIC_HEIGHT_DP = 96f

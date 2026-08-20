@@ -41,6 +41,12 @@ internal object AodWakeBroker {
     private var lyriconActiveIsPlayingField: java.lang.reflect.Field? = null
     private var lyriconResolveLogged = false
     private var lyriconResolveFailedLogged = false
+    private var lyriconClassLoader: ClassLoader? = null
+    private var lastLyriconResolveAttemptAtElapsedMs = Long.MIN_VALUE
+    // isLyriconPlaybackActive() 会在快照/看门狗热路径上被调用,反射读字段本身很便宜,
+    // 但仍做个极短的读缓存,避免高频快照时反复进入反射路径。
+    private var lyriconPlayingCached = false
+    private var lyriconPlayingCachedAtElapsedMs = Long.MIN_VALUE
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         resolveLyriconState(classLoader)
@@ -158,6 +164,8 @@ internal object AodWakeBroker {
      * 非 Lyricon 的音频会话误判成需要保持 AOD 的会话。
      */
     private fun resolveLyriconState(classLoader: ClassLoader) {
+        lyriconClassLoader = classLoader
+        lastLyriconResolveAttemptAtElapsedMs = SystemClock.elapsedRealtime()
         if (lyriconActivePlayers != null && lyriconActiveIsPlayingField != null) return
         runCatching {
             val centralClass = classLoader.loadClass(LYRICON_CENTRAL_RUNTIME_CLASS)
@@ -178,6 +186,39 @@ internal object AodWakeBroker {
         }
     }
 
+    /**
+     * Lyricon 中心服务的播放真值。app 侧快照在切歌 BUFFERING/位置未知窗口会短暂报
+     * playbackActive=false(issue #6),但 Lyricon 自己的 activeIsPlaying 仍是播放中;
+     * 渲染续期与看门狗用它兜底,避免画布唤醒续期在缓冲窗口被关掉后无法自动恢复。
+     */
+    fun isLyriconPlaybackActive(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (lyriconPlayingCachedAtElapsedMs != Long.MIN_VALUE &&
+            now - lyriconPlayingCachedAtElapsedMs < LYRICON_STATE_CACHE_MS
+        ) return lyriconPlayingCached
+        lyriconPlayingCachedAtElapsedMs = now
+        lyriconPlayingCached = readLyriconPlaying()
+        return lyriconPlayingCached
+    }
+
+    private fun readLyriconPlaying(): Boolean {
+        val coordinator = lyriconActivePlayers
+        val isPlayingField = lyriconActiveIsPlayingField
+        if (coordinator == null || isPlayingField == null) {
+            // Lyricon 中心类可能在动态 classloader 中晚于本模块安装才出现,首次解析失败后
+            // 周期性用最近的 loader 重试,而不是永远放弃。
+            val loader = lyriconClassLoader ?: return false
+            val now = SystemClock.elapsedRealtime()
+            if (lastLyriconResolveAttemptAtElapsedMs != Long.MIN_VALUE &&
+                now - lastLyriconResolveAttemptAtElapsedMs < LYRICON_RESOLVE_RETRY_INTERVAL_MS
+            ) return false
+            resolveLyriconState(loader)
+            return false
+        }
+        return runCatching { isPlayingField.get(coordinator) as? Boolean ?: false }
+            .getOrDefault(false)
+    }
+
     private fun requestLyriconWake(): Boolean = enqueueWake(
         signal = SystemClock.elapsedRealtime().coerceAtLeast(1L),
         source = "lyricon-playback"
@@ -195,7 +236,7 @@ internal object AodWakeBroker {
             mainHandler.postDelayed(this, LYRICON_POLL_INTERVAL_MS)
             val activePower = powerManager ?: return
             if (activePower.isInteractive) return
-            if (!isLyriconPlaying()) {
+            if (!isLyriconPlaybackActive()) {
                 lyriconWakeLogged = false
                 return
             }
@@ -205,13 +246,6 @@ internal object AodWakeBroker {
             }
             requestLyriconWake()
         }
-    }
-
-    private fun isLyriconPlaying(): Boolean {
-        val coordinator = lyriconActivePlayers ?: return false
-        val isPlayingField = lyriconActiveIsPlayingField ?: return false
-        return runCatching { isPlayingField.get(coordinator) as? Boolean ?: false }
-            .getOrDefault(false)
     }
 
     private fun enqueueWake(signal: Long, source: String): Boolean {
@@ -304,6 +338,10 @@ internal object AodWakeBroker {
     private const val MIN_REQUEST_INTERVAL_MS = 750L
     /** Lyricon 播放态轮询间隔:略小于投影 15s 的 stale 窗口,确保在 MIUI 关掉 AOD 之前重新断言。 */
     private const val LYRICON_POLL_INTERVAL_MS = 10_000L
+    /** Lyricon 播放真值读缓存时长:快照热路径频繁查询,不必每次都进反射。 */
+    private const val LYRICON_STATE_CACHE_MS = 500L
+    /** Lyricon 中心类解析失败后的重试间隔(晚加载的动态 classloader 场景)。 */
+    private const val LYRICON_RESOLVE_RETRY_INTERVAL_MS = 5_000L
     private const val MAX_INSTALL_RETRIES = 3
     private const val INSTALL_RETRY_BASE_DELAY_MS = 2_000L
     /** Fallback host field names for MIUI version compatibility. */
