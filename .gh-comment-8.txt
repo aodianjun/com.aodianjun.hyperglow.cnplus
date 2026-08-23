@@ -1,0 +1,14 @@
+Hi, thanks for the report and the screenshots. The symptom (lock screen shows nothing + empty logcat) means the module is almost certainly not being injected into SystemUI at all, rather than a lyric rendering bug. Could you please try the following so we can pin it down quickly?
+
+1) Scope check: In the LSPosed manager, open HyperGlow then enable the scope for SystemUI (com.android.systemui) AND for HyperGlow itself. If SystemUI scope is missing, no injection happens at all.
+2) Restart SystemUI: after toggling scope, force-stop SystemUI (Settings - Apps - System UI - Force stop) or reboot, otherwise the hook will not take effect.
+3) Grab a filtered log: on a PC/adb, run:
+   adb logcat -c && adb logcat HyperGlow:V *:S > log.txt
+   then screen off/on with music playing, and stop it.
+   If injection worked you will see a line like:
+   [HyperGlow] [entry] bootstrap=systemui_package_loaded ...
+   - If that line is present, the module loads fine and the issue is downstream; share log.txt and we take it from there.
+   - If it is absent, the module is not being injected into SystemUI on this ROM/device; tell me and we will add an explicit boot marker to confirm.
+4) Also confirm which version you installed (e.g. v98): Settings - About should show versionCode 98 / 0.3.71.
+
+Thanks!
