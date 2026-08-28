@@ -217,7 +217,11 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
         val newSignal = isNewAodWakeSignal(lastWakeSignal, signal)
         if (!allowed || (!newSignal && !forceRetry)) return
         if (forceRetry) lastRetriedSignal = signal
-        val accepted = AodWakeBroker.requestWake(signal)
+        val accepted = if (forceRetry) {
+            AodWakeBroker.requestEmergencyWake(signal)
+        } else {
+            AodWakeBroker.requestWake(signal)
+        }
         if (newSignal && accepted) lastWakeSignal = signal
         HookLogger.i(
             TAG,
