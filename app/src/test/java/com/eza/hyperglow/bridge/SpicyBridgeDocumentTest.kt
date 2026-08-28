@@ -4,6 +4,7 @@ import com.eza.hyperglow.aod.AodProjectionEngine
 import com.eza.hyperglow.aod.ProjectionSessionIdentity
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.ProducerRenderModes
+import com.eza.hyperglow.root.projection.LYRIC_SNAPSHOT_FRESH_MS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -66,10 +67,14 @@ class SpicyBridgeDocumentTest {
     }
 
     @Test
-    fun keepAliveUsesBoundedFourSecondCadence() {
+    fun keepAliveBeatsSeveralTimesInsideTheConsumerFreshnessWindow() {
+        val interval = AodProjectionEngine.keepAliveIntervalMs()
+
         assertEquals(true, AodProjectionEngine.keepAliveDue(0, 1_000))
-        assertEquals(false, AodProjectionEngine.keepAliveDue(10_000, 13_999))
-        assertEquals(true, AodProjectionEngine.keepAliveDue(10_000, 14_000))
+        assertEquals(false, AodProjectionEngine.keepAliveDue(10_000, 10_000 + interval - 1))
+        assertEquals(true, AodProjectionEngine.keepAliveDue(10_000, 10_000 + interval))
+        // 单拍迟到不得让消费端持有的投影过期(上游 cc1f62f)。
+        assertTrue(interval * 3 <= LYRIC_SNAPSHOT_FRESH_MS)
     }
 
     @Test

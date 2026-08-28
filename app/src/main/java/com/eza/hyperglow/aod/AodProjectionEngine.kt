@@ -428,6 +428,8 @@ object AodProjectionEngine {
     fun keepAliveDue(lastAt: Long, now: Long): Boolean =
         lastAt <= 0L || now - lastAt >= KEEP_ALIVE_INTERVAL_MS
 
+    internal fun keepAliveIntervalMs(): Long = KEEP_ALIVE_INTERVAL_MS
+
     internal fun fallbackRefreshSession(state: LyricProducerState) = FallbackRefreshSession(
         state.producerId,
         state.generation,
@@ -513,7 +515,13 @@ object AodProjectionEngine {
     internal fun trackGeneration(state: LyricProducerState): Long =
         com.eza.hyperglow.aod.trackGeneration(state)
 
-    private const val KEEP_ALIVE_INTERVAL_MS = 4_000L
+    /**
+     * 消费端(SystemUiLyricProjection)在 [com.eza.hyperglow.root.projection.LYRIC_SNAPSHOT_FRESH_MS]
+     * (5 秒)收不到任何消息就丢弃投影。4 秒一拍时单次心跳迟到(如 Binder 竞争超过 1 秒)就足以
+     * 丢掉投影,撤回 AOD lifetime guard,歌曲中途掉回 stock clock。1.5 秒一拍让一个 5 秒窗口
+     * 内容纳三拍,单拍迟到由余量吸收(上游 cc1f62f)。
+     */
+    private const val KEEP_ALIVE_INTERVAL_MS = 1_500L
     private const val FALLBACK_REFRESH_INTERVAL_MS = 1_000L
     private const val TRANSITION_GRACE_MS = 1_500L
     internal const val PAUSE_CONFIRM_MS = 5_000L
