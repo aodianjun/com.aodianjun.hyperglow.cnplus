@@ -117,6 +117,8 @@
     <string name="summary_unavailable_systemui_profile">Unavailable on this System UI profile.</string>
     <string name="setting_keep_aod_active_for">Keep AOD active for</string>
     <string name="setting_keep_aod_unsynced">Also keep AOD active without timed lyrics</string>
+    <string name="setting_aod_clock_follow">Follow system clock in real time</string>
+    <string name="summary_aod_clock_follow">When enabled, lyric placement follows the real system clock position directly, avoiding stale/lagging layout and overlap when the clock moves down. When disabled, anchored anti-oscillation is used.</string>
     <string name="setting_aod_clock_image">AOD clock or image</string>
     <string name="summary_aod_placement_unsupported">This System UI version does not support coordinated AOD placement.</string>
     <string name="setting_movement_interval">Movement interval</string>
