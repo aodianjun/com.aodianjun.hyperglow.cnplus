@@ -268,6 +268,47 @@ internal fun splitContinuousFill(progress: Float, lineWidths: List<Float>): List
     }
 }
 
+/**
+ * 是否走共享 LyricGlowRenderer 预览管线:
+ * 行级同步源、无词级时间源、或开启发光 —— 与预览同源渲染;
+ * 仅"逐字时间源 + 关闭发光 + 非行级同步"保留逐字卡拉OK路径。
+ */
+internal fun usesPreviewGlowPipeline(
+    animationMode: String,
+    timed: Boolean,
+    lineLevelSync: Boolean,
+    glowMode: String
+): Boolean = animationMode != "Minimal" && (glowMode != "Off" || lineLevelSync || !timed)
+
+/** 整块扫光总进度:行级时间有效时用行区间;纯逐字源回退到全局首词→末词范围。 */
+internal fun unifiedBlockProgress(
+    positionMs: Long,
+    lineStartMs: Long,
+    lineEndMs: Long,
+    words: List<AodCanvasWord>
+): Float {
+    if (lineEndMs > lineStartMs) return blockProgressNormalized(positionMs, lineStartMs, lineEndMs)
+    var startMs = Long.MAX_VALUE
+    var endMs = Long.MIN_VALUE
+    words.forEach { word ->
+        if (word.startMs >= 0L && word.endMs > word.startMs) {
+            if (word.startMs < startMs) startMs = word.startMs
+            if (word.endMs > endMs) endMs = word.endMs
+        }
+    }
+    if (startMs != Long.MAX_VALUE && endMs > startMs) {
+        return blockProgressNormalized(positionMs, startMs, endMs)
+    }
+    return blockProgressNormalized(positionMs, lineStartMs, lineEndMs)
+}
+
+private fun blockProgressNormalized(positionMs: Long, startMs: Long, endMs: Long): Float =
+    if (endMs <= startMs) {
+        if (positionMs >= endMs) 1f else 0f
+    } else {
+        ((positionMs - startMs).toFloat() / (endMs - startMs)).coerceIn(0f, 1f)
+    }
+
 internal fun continuousFillAt(
     progress: Float,
     totalWidth: Float,
@@ -1676,6 +1717,141 @@ internal class AodLyricCanvasView(
             }
             return
         }
+        // Minimal 模式：静态全亮，无扫光/发光。
+        if (content.animationMode == "Minimal") {
+            var precedingRuby = 0f
+            var lineIndex = 0
+            while (lineIndex < lines.size) {
+                val line = lines[lineIndex]
+                val lineBaseline = originalLineBaseline(
+                    baseline,
+                    lineIndex,
+                    originalLayout.lineHeight,
+                    precedingRuby,
+                    line.rubyHeight,
+                    originalLayout.lineGap
+                )
+                val lineClipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
+                if (line.ruby.isNotEmpty()) {
+                    drawRuby(canvas, line, lineBaseline)
+                }
+                originalPaint.shader = null
+                originalPaint.setShadowLayer(0f, 0f, 0f, 0)
+                setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
+                drawOriginalText(canvas, line, lineBaseline)
+                if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
+                precedingRuby += line.rubyHeight
+                lineIndex++
+            }
+            return
+        }
+        // 逐字卡拉OK路径：仅"逐字时间源 + 关闭发光 + 非行级同步"保留，
+        // 其余全部走共享 LyricGlowRenderer 统一管线（与预览同源，杜绝效果漂移）。
+        if (!usesPreviewGlowPipeline(
+                content.animationMode,
+                originalLayout.timed,
+                content.lineLevelSync,
+                content.glowMode
+            )
+        ) {
+            drawWordKaraoke(canvas, baseline, originalLayout)
+            return
+        }
+        // 统一预览管线：dim 底 + 光晕(发光开启时) + 扫光带。
+        // 整块进度：行级时间优先，纯逐字源回退全局词范围（unifiedBlockProgress）。
+        val blockFill = unifiedBlockProgress(
+            projectedPosition(),
+            content.lineStartMs,
+            content.lineEndMs,
+            content.words
+        )
+        val glowRows = ArrayList<LyricGlowRow>(lines.size)
+        var precedingRuby = 0f
+        var lineIndex = 0
+        // 外层统一裁剪（非 Wrap 溢出模式），替代原先逐行 clip，与预览整块绘制一致。
+        val outerClip = clipOriginalBlock(canvas, baseline, originalLayout)
+        while (lineIndex < lines.size) {
+            val line = lines[lineIndex]
+            val lineBaseline = originalLineBaseline(
+                baseline,
+                lineIndex,
+                originalLayout.lineHeight,
+                precedingRuby,
+                line.rubyHeight,
+                originalLayout.lineGap
+            )
+            if (line.ruby.isNotEmpty()) {
+                drawRuby(canvas, line, lineBaseline)
+            }
+            val capturedBaseline = lineBaseline
+            glowRows += LyricGlowRow(
+                left = line.startX,
+                width = line.width,
+                baseline = capturedBaseline,
+                drawText = { c, p -> drawLineTextForGlow(c, line, capturedBaseline, p) }
+            )
+            precedingRuby += line.rubyHeight
+            lineIndex++
+        }
+        LyricGlowRenderer.draw(
+            canvas = canvas,
+            paint = originalPaint,
+            rows = glowRows,
+            progress = blockFill,
+            sungColor = resolvedPalette.sungText,
+            dimBaseColor = resolvedPalette.unsungText,
+            glowColor = resolvedPalette.glow,
+            glowEnabled = content.glowMode != "Off"
+        )
+        if (outerClip != -1) canvas.restoreToCount(outerClip)
+    }
+
+    /** 统一管线的整块裁剪：非 Wrap 溢出模式时裁剪到内边距区域（含首行 ruby 顶部余量）。 */
+    private fun clipOriginalBlock(canvas: Canvas, baseline: Float, originalLayout: OriginalLayout): Int {
+        if (content.overflowMode == "Wrap") return -1
+        val firstLine = originalLayout.lines.firstOrNull() ?: return -1
+        val firstLineBaseline = originalLineBaseline(
+            baseline,
+            0,
+            originalLayout.lineHeight,
+            0f,
+            firstLine.rubyHeight,
+            originalLayout.lineGap
+        )
+        val save = canvas.save()
+        canvas.clipRect(
+            paddingLeft.toFloat(),
+            max(
+                paddingTop.toFloat(),
+                rubyClipTop(
+                    firstLineBaseline,
+                    originalPaint.fontMetrics.ascent,
+                    firstLine.rubyHeight
+                )
+            ),
+            width - paddingRight.toFloat(),
+            (height - paddingBottom).toFloat()
+        )
+        return save
+    }
+
+    /** 按行布局绘制整行文字（含 ruby 分段），供共享 LyricGlowRenderer 的行回调使用。 */
+    private fun drawLineTextForGlow(canvas: Canvas, line: OriginalLine, baseline: Float, paint: Paint) {
+        if (line.ruby.isEmpty() || line.textRuns.isEmpty()) {
+            canvas.drawText(line.text, line.startX, baseline, paint)
+        } else {
+            var index = 0
+            while (index < line.textRuns.size) {
+                val run = line.textRuns[index]
+                canvas.drawText(line.text, run.start, run.end, line.startX + run.x, baseline, paint)
+                index++
+            }
+        }
+    }
+
+    /** 逐字卡拉OK路径（逐字源+关发光+非行级同步）：词级缩放/位移 + 词内扫光渐变。 */
+    private fun drawWordKaraoke(canvas: Canvas, baseline: Float, originalLayout: OriginalLayout) {
+        val lines = originalLayout.lines
         val position = projectedPosition()
         var precedingRuby = 0f
         var lineIndex = 0
@@ -1703,40 +1879,28 @@ internal class AodLyricCanvasView(
                 val progress = timedWordProgress(position, word.startMs, word.endMs)
                 val active = position >= word.startMs && position < word.endMs
                 val sung = position >= word.endMs
-                val animated = content.animationMode != "Minimal"
-                val scale = if (animated && active) scaleSpline(progress) else if (animated && !sung) 0.95f else 1f
-                val y = if (animated && active) yOffsetSpline(progress) * originalPaint.textSize
-                else if (animated && !sung) 0.01f * originalPaint.textSize else 0f
-                val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
-                    when {
-                        // 已唱词持续发光(对齐预览 pass2 整行发光),避免词间发光消失导致闪烁
-                        sung -> GLOW_LINE_INTENSITY
-                        // 当前演唱词额外增强(对齐预览 pass3 逐字光斑)
-                        active -> GLOW_ACTIVE_PEAK * glowSpline(progress)
-                        else -> 0f
-                    }
-                } else 0f
+                val scale = if (active) scaleSpline(progress) else if (!sung) 0.95f else 1f
+                val y = if (active) yOffsetSpline(progress) * originalPaint.textSize
+                else if (!sung) 0.01f * originalPaint.textSize else 0f
                 canvas.save()
                 val wordBaseline = lineBaseline
-                if (animated) canvas.scale(scale, scale, wordX + width / 2f, wordBaseline)
+                canvas.scale(scale, scale, wordX + width / 2f, wordBaseline)
                 originalPaint.shader = null
                 setTextAlpha(
                     originalPaint,
-                    if (content.animationMode == "Minimal" || sung) 1f else 0.26f,
+                    if (sung) 1f else 0.35f,
                     1f,
                     if (sung) resolvedPalette.sungText else resolvedPalette.unsungText
                 )
-                drawGlowHalo(canvas, word.text, 0, word.text.length, wordX, wordBaseline + y, originalPaint, glow)
                 canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
-                if (active && content.animationMode == "Gradient") {
+                if (active) {
                     setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-                    applySoftSweep(
+                    applyWordSweepShader(
                         originalPaint,
                         resolvedPalette.sungText,
                         origin = wordX,
                         progress = progress,
-                        extent = width,
-                        vertical = false
+                        extent = width
                     )
                     canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
                     originalPaint.shader = null
@@ -1749,6 +1913,31 @@ internal class AodLyricCanvasView(
             precedingRuby += line.rubyHeight
             lineIndex++
         }
+    }
+
+    /**
+     * 逐字卡拉OK路径的词内扫光渐变:
+     * 与共享 LyricGlowRenderer Pass 3 同形状([sung→middle→transparent, CLAMP]),
+     * 每词绝对坐标构建,不复用缓存 shader,调用方负责置空。
+     */
+    private fun applyWordSweepShader(
+        paint: Paint,
+        color: Int,
+        origin: Float,
+        progress: Float,
+        extent: Float
+    ) {
+        val safeExtent = extent.coerceAtLeast(0f)
+        val band = (safeExtent * LyricGlowRenderer.SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+        val start = origin - band + (safeExtent + band) * progress.coerceIn(0f, 1f)
+        val transparent = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
+        val middle = Color.argb(184, Color.red(color), Color.green(color), Color.blue(color))
+        paint.shader = LinearGradient(
+            start, 0f, start + band, 0f,
+            intArrayOf(color, middle, transparent),
+            floatArrayOf(0f, 0.45f, 1f),
+            Shader.TileMode.CLAMP
+        )
     }
 
     private fun drawUntimedTopToBottom(canvas: Canvas, baseline: Float, progress: Float) {
