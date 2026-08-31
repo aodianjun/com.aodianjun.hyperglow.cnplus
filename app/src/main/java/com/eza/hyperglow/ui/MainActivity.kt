@@ -27,6 +27,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -1322,6 +1323,12 @@ private fun LyricLayoutScreen(
     }
 
     val selectedProfile = editorState.document.profiles[editorState.selectedSurface] ?: SurfaceProfile()
+    // 预览走与实机相同的编译管线(归一化/白名单),编辑后立即反映最终生效效果,所见即所得
+    val compiledPreviewProfile = remember(editorState.document) {
+        SceneCompiler.compile(editorState.document)
+            .profiles.getValue(editorState.selectedSurface)
+    }
+    var previewCollapsed by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -1339,12 +1346,29 @@ private fun LyricLayoutScreen(
             )
         }
     ) { innerPadding ->
-        LazyColumn(
-            contentPadding = PaddingValues(
-                top = innerPadding.calculateTopPadding() + 12.dp,
-                bottom = innerPadding.calculateBottomPadding() + 20.dp
-            )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = innerPadding.calculateTopPadding())
         ) {
+            // 顶部常驻悬浮预览:调节下方选项时效果实时可见;点击标题栏可折叠让位给长列表
+            AppearancePreviewHeader(
+                expanded = !previewCollapsed,
+                onToggle = { previewCollapsed = !previewCollapsed }
+            )
+            AnimatedVisibility(visible = !previewCollapsed) {
+                AppearanceLivePreview(
+                    profile = compiledPreviewProfile,
+                    scenario = editorState.selectedSurface
+                )
+            }
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    top = 4.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 20.dp
+                ),
+                modifier = Modifier.weight(1f)
+            ) {
             item { SmallTitle(text = stringResource(R.string.section_placement)) }
             item {
                 SettingsCard {
@@ -1671,6 +1695,7 @@ private fun LyricLayoutScreen(
                         )
                     }
                 }
+            }
             }
         }
     }
@@ -2648,6 +2673,59 @@ private fun homeSurfaceState(
     context.getString(R.string.runtime_unavailable)
 } else {
     context.getString(if (enabled) R.string.runtime_enabled else R.string.runtime_disabled)
+}
+
+/**
+ * 悬浮预览的标题栏:整行可点击切换展开/折叠。折叠后预览让位给设置列表,
+ * 便于长列表快速调整;展开时调节下方选项效果实时可见。
+ */
+@Composable
+private fun AppearancePreviewHeader(
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.title_appearance_preview),
+            fontSize = MiuixTheme.textStyles.headline1.fontSize,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (expanded) "▾" else "▸",
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
+    }
+}
+
+/**
+ * 外观编辑页顶部的常驻悬浮预览:与实机同一编译管线(调用方传入 compile 后的 profile,
+ * 归一化/白名单与真机一致,所见即所得),实时歌词优先,无歌词时循环播放演示动画。
+ */
+@Composable
+private fun AppearanceLivePreview(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    scenario: String,
+    modifier: Modifier = Modifier
+) {
+    val live = collectLiveSnapshot()
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .height(150.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(ComposeColor(0xFF0B0B0F))
+    ) {
+        LyricPreviewSurface(profile = profile, scenario = scenario, live = live)
+    }
 }
 
 /**

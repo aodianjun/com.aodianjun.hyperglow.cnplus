@@ -65,6 +65,13 @@ class HookEntry : XposedModule() {
             installAntiFreeze(param)
             return
         }
+        if (param.packageName == MIUI_AOD_PACKAGE) {
+            // 部分机型的 AOD 逻辑运行在独立 com.miui.aod 进程而非 SystemUI 进程内。
+            // 与 SystemUI 动态 loader 路径共用同一套 AOD hook,全部带符号守卫,
+            // 进程内不存在对应类时各自安全跳过,不会与 SystemUI 侧重复生效。
+            installMiuiAodHooks(param)
+            return
+        }
         if (param.packageName != SYSTEM_UI_PACKAGE) return
         val processName = runCatching { Application.getProcessName() }.getOrDefault("")
         HookLogger.bootstrap(TAG, "systemui_package_loaded process=${processClass(processName)}")
@@ -162,6 +169,37 @@ class HookEntry : XposedModule() {
         }
     }
 
+    private fun installMiuiAodHooks(param: PackageLoadedParam) {
+        HookLogger.bootstrap(TAG, "miui_aod_package_loaded")
+        val loader = param.defaultClassLoader
+        XiaomiCapabilityResolver.observeAodLoader(loader)
+        try {
+            AodSurfaceHook.install(this, loader)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "MiuiAOD surface hook unavailable", error)
+        }
+        try {
+            AodLifetimeHook.install(this, loader)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "MiuiAOD lifetime hook unavailable", error)
+        }
+        try {
+            AodPositionHook.install(this, loader)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "MiuiAOD position hook unavailable", error)
+        }
+        try {
+            AodDisplayStateHook.install(this, loader)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "MiuiAOD display-state hook unavailable", error)
+        }
+        try {
+            AodWakeBroker.install(this, loader)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "MiuiAOD wake broker unavailable", error)
+        }
+    }
+
     private class ClassLoaderHooker(private val module: XposedModule) : Hooker {
         override fun intercept(chain: Chain): Any? {
             val result = chain.proceed()
@@ -201,6 +239,7 @@ class HookEntry : XposedModule() {
         private const val TAG = "HookEntry"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
         private const val SYSTEM_SERVER_PACKAGE = "android"
+        private const val MIUI_AOD_PACKAGE = "com.miui.aod"
         private const val LIBXPOSED_MIN_API = 101
         private const val LIBXPOSED_TARGET_API = 102
 

@@ -19,7 +19,7 @@
 - [x] release tag 格式为 `VersionCode-VersionName`（`85-0.3.68`）
 - [x] `META-INF/xposed/module.prop`（现代 API：minApiVersion / targetApiVersion / staticScope）
 - [x] `META-INF/xposed/java_init.list`（模块入口）
-- [x] `META-INF/xposed/scope.list`（作用域：com.android.systemui）
+- [x] `META-INF/xposed/scope.list`（作用域：com.android.systemui、android、com.miui.aod）
 - [x] `android:label` = HyperGlow CN+（模块显示名）
 - [x] LICENSE（GPL-3.0）与 NOTICE（保留衍生版权声明）
 
