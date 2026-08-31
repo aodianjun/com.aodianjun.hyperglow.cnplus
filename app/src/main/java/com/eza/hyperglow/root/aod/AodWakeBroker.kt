@@ -147,11 +147,16 @@ internal object AodWakeBroker {
         mainHandler.postDelayed({ install(module, classLoader) }, delayMs)
     }
 
-    fun requestWake(signal: Long): Boolean = enqueueWake(signal, "lyrics")
+    fun requestWake(signal: Long): Boolean = enqueueWake(signal, "lyrics", urgent = false)
+
+    /** 紧急路径:仅当 AOD 被系统真正关闭(如 hide race recovery、surface 重挂)需要立刻重新
+     *  拉起时才用。与常规歌词续期的宽去抖隔离,不因每句歌词 goto 冲掉恢复时机。 */
+    fun requestEmergencyWake(signal: Long): Boolean = enqueueWake(signal, "emergency", urgent = true)
 
     fun requestPickupWake(): Boolean = enqueueWake(
         signal = SystemClock.elapsedRealtime().coerceAtLeast(1L),
-        source = "pickup"
+        source = "pickup",
+        urgent = true
     )
 
     /**
@@ -248,7 +253,7 @@ internal object AodWakeBroker {
         }
     }
 
-    private fun enqueueWake(signal: Long, source: String): Boolean {
+    private fun enqueueWake(signal: Long, source: String, urgent: Boolean = false): Boolean {
         if (signal == 0L || !XiaomiCapabilityResolver.hasCapability(
                 XiaomiCapability.AOD_WAKE_BROKER
             )
@@ -270,8 +275,15 @@ internal object AodWakeBroker {
         mainHandler.post {
             val now = SystemClock.elapsedRealtime()
             if (lastRequestElapsedMs != Long.MIN_VALUE &&
-                now - lastRequestElapsedMs < MIN_REQUEST_INTERVAL_MS
-            ) return@post
+                now - lastRequestElapsedMs <
+                (if (urgent) MIN_REQUEST_INTERVAL_MS else REGULAR_WAKE_MIN_INTERVAL_MS)
+            ) {
+                HookLogger.i(
+                    TAG,
+                    "AOD wake debounced source=$source urgent=$urgent signal=$signal"
+                )
+                return@post
+            }
             val wakeHost = hostRef?.get()
             val method = fireAodStateMethod
             val wakePowerManager = powerManager
@@ -336,6 +348,10 @@ internal object AodWakeBroker {
     )
     private const val WAKE_REASON = "reason_keycode_goto"
     private const val MIN_REQUEST_INTERVAL_MS = 750L
+    /** 常规歌词续期唤醒的最小间隔:歌词行 goto 每 2~5s 一次,若每次都 fireAodState 会让
+     *  AOD 反复唤醒、smartHide 被抑制,表现为"时钟/歌词位置乱跳"。常规续期保持 AOD 足以
+     *  用绘制 wake lock(pulseDrawWakeLock)完成,这里仅对必需的唤醒做宽去抖。 */
+    private const val REGULAR_WAKE_MIN_INTERVAL_MS = 8_000L
     /** Lyricon 播放态轮询间隔:略小于投影 15s 的 stale 窗口,确保在 MIUI 关掉 AOD 之前重新断言。 */
     private const val LYRICON_POLL_INTERVAL_MS = 10_000L
     /** Lyricon 播放真值读缓存时长:快照热路径频繁查询,不必每次都进反射。 */
