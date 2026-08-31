@@ -138,7 +138,7 @@ internal object SystemUiCustomizationValidator {
             cardAlpha = normalizeCardAlpha(profile.cardAlpha),
             cardColor = normalizeCardColor(profile.cardColor),
             palette = profile.palette.asSequence()
-                .filter { it.key in SEMANTIC_COLORS && SceneCompiler.isAllowedPaletteValue(it.value) }
+                .filter { it.key in SEMANTIC_COLORS && it.value in PALETTE_VALUES }
                 .take(SEMANTIC_COLORS.size)
                 .associate { it.key to it.value }
         )
@@ -154,13 +154,13 @@ internal object SystemUiCustomizationValidator {
         "primaryText",
         "secondaryText",
         "metadataText",
-        "nextLineText",
         "sungText",
         "unsungText",
         "glow",
         "accent",
         "surfaceScrim"
     )
+    private val PALETTE_VALUES = setOf("default", "clock", "wallpaper", "white", "dimmed")
     private val ANCHORS = setOf(
         "below_stock_clock",
         "screen_center",

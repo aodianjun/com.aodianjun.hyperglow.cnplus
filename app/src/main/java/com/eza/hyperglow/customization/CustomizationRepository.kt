@@ -111,7 +111,10 @@ object CustomizationRepository {
                     enabled = config.lockscreenEnabled,
                     maxHeightFraction = 0.46f
                 ),
-                SceneCompiler.SURFACE_AOD to common.copy(enabled = config.aodEnabled)
+                SceneCompiler.SURFACE_AOD to common.copy(
+                    enabled = config.aodEnabled,
+                    aodClockFollow = config.aodClockFollow
+                )
             )
         )
     }

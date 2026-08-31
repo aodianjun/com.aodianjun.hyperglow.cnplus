@@ -103,57 +103,6 @@ class DiagnosticContractTest {
     }
 
     @Test
-    fun githubIssueWithDataEmbedsTruncatedDiagnosticsWithinBudget() {
-        val report = sampleReport(
-            description = "AOD disappears after a song change.",
-            privateLog = "log-line-1\nlog-line-2\n" + ("padding ".repeat(40))
-        )
-
-        val issue = buildHyperGlowGitHubIssueWithData(report)
-
-        // 摘要元数据仍在
-        assertTrue(issue.body.contains(report.reportId))
-        assertTrue(issue.body.contains("## Description"))
-        assertTrue(issue.body.contains("## Report details"))
-        // 日志与运行时设置已内嵌(折叠块)
-        assertTrue(issue.body.contains("log-line-1"))
-        assertTrue(issue.body.contains("keepAodActive = true"))
-        assertTrue(issue.body.contains("<details>"))
-        assertTrue(issue.body.contains("HyperGlow logs"))
-        assertTrue(issue.body.contains("Runtime settings"))
-        // 完整负载字节在预算内(摘要 ANCHOR:预算限制来自 URL 预填的承受力)
-        assertTrue(issue.body.utf8Size() <= GITHUB_ISSUE_BODY_BYTES_LIMIT)
-        // 附带完整的描述文本不被截断,说明日志被截断但描述保留
-        assertTrue(issue.body.contains("AOD disappears after a song change."))
-    }
-
-    @Test
-    fun githubIssueWithDataHonorsCustomByteBudget() {
-        val report = sampleReport(
-            description = "Short description.",
-            privateLog = "start-event\n" + "x".repeat(2_000)
-        )
-
-        val tiny = buildHyperGlowGitHubIssueWithData(report, bodyBytesLimit = 1_200)
-        val default = buildHyperGlowGitHubIssueWithData(report)
-
-        assertTrue(tiny.body.utf8Size() <= 1_200)
-        assertTrue(default.body.utf8Size() > tiny.body.utf8Size())
-        assertTrue(default.body.contains("start-event"))
-    }
-
-    @Test
-    fun githubIssueWithDataClippedToSummaryWhenBudgetTooSmall() {
-        val report = sampleReport(description = "Keep the summary.")
-        val issue = buildHyperGlowGitHubIssueWithData(report, bodyBytesLimit = 64)
-
-        // 预算小于基础摘要时退回纯摘要(不内嵌日志)
-        assertTrue(issue.body.contains(report.reportId))
-        assertFalse(issue.body.contains("<details>"))
-        assertTrue(issue.body.utf8Size() <= GITHUB_ISSUE_BODY_BYTES_LIMIT)
-    }
-
-    @Test
     fun jsonPreviewIsPrettyPrintedButRoundTrips() {
         val report = sampleReport()
         val preview = DiagnosticReportCodec.encodePretty(report)

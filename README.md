@@ -60,12 +60,6 @@ APK from [Releases](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/
 > Will eat battery.
 > `Raise to show AOD` requires the system **Raise to wake** option enabled.
 
-## Known issues
-
-- Only tested on Redmi K80 Pro; other Xiaomi models or SystemUI versions may behave differently — submit a compatibility report from the app.
-- The LSPosed module repository syncs on release edits; if a new version does not appear, edit the release body (not just the assets) to retrigger the bot.
-- Experimental mode on unsupported SystemUI versions may cause rendering glitches — disable it if lyrics look wrong.
-
 ## Build
 
 JDK 21 and an Android SDK are required. No credentials or accounts are needed — every dependency
@@ -153,12 +147,6 @@ before opening a pull request:
 > 已在 Redmi K80 Pro 上测试。
 > 会比较耗电。
 > `拿起显示 AOD` 需要系统开启 **抬起唤醒** 选项。
-
-## 已知问题
-
-- 仅在 Redmi K80 Pro 上测试过；其他小米机型或 SystemUI 版本可能表现不同 —— 请从应用内提交兼容性报告。
-- LSPosed 模块仓库在编辑 release 时同步；如果新版本未出现，编辑 release 正文（而非仅更新资产）以重新触发 bot。
-- 在不受支持的 SystemUI 版本上开启实验模式可能导致渲染异常 —— 如歌词显示异常请关闭实验模式。
 
 ## 构建
 

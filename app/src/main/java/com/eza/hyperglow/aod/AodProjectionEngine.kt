@@ -268,15 +268,6 @@ object AodProjectionEngine {
      * lifetime and replays Xiaomi's hide in the middle of a song change. The edge is published as a
      * still-playing transport gap first; only a producer that is still non-playing on the same
      * session after the bounded window becomes real pause retention.
-     *
-     * The window must cover the whole track-change gap: NetEase observed 0.96 s of playing=false
-     * plus lyric-load time before the new track's playing=true (09:53 capture), and the player can
-     * re-emit a late onStop for the old track on top. A 1.5 s window let the OLD session's pause
-     * confirm commit visible=false while the new track was already loading — the systemui guard
-     * died, Xiaomi closed the AOD surface, and every snapshot the module published during the
-     * intro had no surface to draw on. 5 s covers the observed gap; the cost is that a genuine
-     * pause now enters retention (and hides for pauseShowContent=off users) 5 s in, during which
-     * the transport-gap freeze keeps presenting.
      */
     @Synchronized
     private fun schedulePauseConfirmation(session: ProjectionSessionIdentity) {
@@ -428,8 +419,6 @@ object AodProjectionEngine {
     fun keepAliveDue(lastAt: Long, now: Long): Boolean =
         lastAt <= 0L || now - lastAt >= KEEP_ALIVE_INTERVAL_MS
 
-    internal fun keepAliveIntervalMs(): Long = KEEP_ALIVE_INTERVAL_MS
-
     internal fun fallbackRefreshSession(state: LyricProducerState) = FallbackRefreshSession(
         state.producerId,
         state.generation,
@@ -476,7 +465,7 @@ object AodProjectionEngine {
         ProjectionSessionIdentity.from(current) == pendingSession
 
     fun staticPlaybackPlaceholder(status: String): String? =
-        PLAYING_PLACEHOLDER.takeIf { status == "no_lyrics" }
+        "♪".takeIf { status == "no_lyrics" }
 
     internal fun playbackFallback(status: String, line: String, metadata: String): String? =
         if (status == "loading") metadata.takeIf { it.isNotBlank() }
@@ -515,15 +504,9 @@ object AodProjectionEngine {
     internal fun trackGeneration(state: LyricProducerState): Long =
         com.eza.hyperglow.aod.trackGeneration(state)
 
-    /**
-     * 消费端(SystemUiLyricProjection)在 [com.eza.hyperglow.root.projection.LYRIC_SNAPSHOT_FRESH_MS]
-     * (5 秒)收不到任何消息就丢弃投影。4 秒一拍时单次心跳迟到(如 Binder 竞争超过 1 秒)就足以
-     * 丢掉投影,撤回 AOD lifetime guard,歌曲中途掉回 stock clock。1.5 秒一拍让一个 5 秒窗口
-     * 内容纳三拍,单拍迟到由余量吸收(上游 cc1f62f)。
-     */
-    private const val KEEP_ALIVE_INTERVAL_MS = 1_500L
+    private const val KEEP_ALIVE_INTERVAL_MS = 4_000L
     private const val FALLBACK_REFRESH_INTERVAL_MS = 1_000L
     private const val TRANSITION_GRACE_MS = 1_500L
-    internal const val PAUSE_CONFIRM_MS = 5_000L
+    internal const val PAUSE_CONFIRM_MS = 1_500L
     private const val CUSTOMIZATION_REFRESH_MS = 1_000L
 }

@@ -207,20 +207,6 @@ class SuperLyricLyricProducer(
     /**
      * Build and emit a [LyricProducerState] from an active [SuperLyricLine] (or null to keep
      * only metadata). The pushed line is the active row; projection renders it directly.
-     *
-     * Next-line: the SDK's `secondary` field IS the next line to display (decompiled
-     * SuperLyricApi-3.4: `getSecondary()` alongside `getLyric()`/`getTranslation()`). The 12:34
-     * capture showed the arbiter falling back to this channel after Lyricon went silent, but
-     * `nextLine` was hard-coded empty → the "next line" render path
-     * (`AodLyricCanvasView: content.nextLine.isNotBlank()`) never drew. When the publisher
-     * doesn't push secondary, `nextLine` stays blank (honest absence), and `nextLineStartMs`
-     * approximates to the active line's end (the next line starts ≈ when this one ends).
-     *
-     * Staleness: unlike Lyricon's ~60 Hz position feed, this channel only pushes ON LINE CHANGE.
-     * Long interludes (instrumental bridges, spaced lyrics) legitimately produce >3 s gaps, which
-     * the arbiter's uniform 3 s staleness misreads as a dead source, flapping the fallback chain
-     * mid-song. A 12 s window tolerates line gaps while still falling back on a genuinely dead
-     * publisher well inside a typical verse.
      */
     private fun emit(line: SuperLyricLine?, data: SuperLyricData?) {
         val now = clock()
@@ -239,7 +225,6 @@ class SuperLyricLyricProducer(
             words != null -> LyricKind.SYLLABLE
             else -> LyricKind.LINE
         }
-        val secondary = data?.takeIf { it.hasSecondary() }?.secondary
         sequence++
         mutableState.value = LyricProducerState(
             producerId = PRODUCER_ID,
@@ -270,9 +255,8 @@ class SuperLyricLyricProducer(
             ruby = emptyList(),
             layoutGroups = emptyList(),
             hasTimedLyrics = line != null,
-            nextLineStartMs = secondary?.startTime ?: line?.endTime?.takeIf { it > 0L },
-            nextLine = secondary?.text.orEmpty(),
-            staleAfterMs = LINE_EVENT_STALE_AFTER_MS
+            nextLineStartMs = null,
+            nextLine = ""
         )
     }
 
@@ -287,12 +271,6 @@ class SuperLyricLyricProducer(
     companion object {
         private const val PRODUCER_ID = "superlyric"
         private const val AVAILABILITY_POLL_MS = 5_000L
-
-        /**
-         * Staleness override for this channel: SuperLyric pushes only on line change, so a
-         * >3 s gap is a normal interlude, not a dead source. See [emit].
-         */
-        internal const val LINE_EVENT_STALE_AFTER_MS = 12_000L
 
         /** No `onLyric` for this long while playing → the callback path is likely dropped. */
         private const val STALL_RECOVERY_MS = 60_000L

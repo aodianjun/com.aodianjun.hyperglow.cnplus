@@ -259,27 +259,12 @@ class SystemUiLyricProjectionTest {
         harness.projection.accept(LyricProjectionMessage.Snapshot(visible))
         harness.projection.accept(
             LyricProjectionMessage.Snapshot(
-                snapshot(2, 20).copy(
-                    visible = false,
-                    pauseRetentionEligible = true,
-                    original = "",
-                    keepAlive = false
-                )
+                snapshot(2, 20).copy(visible = false, original = "", keepAlive = false)
             )
         )
 
         assertFalse(harness.projection.cachedSnapshot()!!.visible)
         assertEquals("retained line", harness.projection.cachedVisibleSnapshot()?.original)
-
-        // 终止隐藏态清空它。晚附着的 surface 会从这个缓存重建自己的 last-visible 槽,
-        // 真正结束的会话不得在这里留下歌词等它捡到。
-        harness.projection.accept(
-            LyricProjectionMessage.Snapshot(
-                snapshot(3, 30).copy(visible = false, original = "", keepAlive = false)
-            )
-        )
-
-        assertNull(harness.projection.cachedVisibleSnapshot())
     }
 
     @Test

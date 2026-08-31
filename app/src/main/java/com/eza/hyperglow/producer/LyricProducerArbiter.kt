@@ -175,11 +175,7 @@ class LyricProducerArbiter(
             val preferredState = preferred.state.value
             val preferredUsable = (preferredConn == ProducerConnection.CONNECTED ||
                 preferredConn == ProducerConnection.RECONNECTED) &&
-                preferredState != null &&
-                (!isStale(preferredState) || !preferredState.playing)
-                // 暂停时位置流天然静默(state.playing=false):冻结状态仍有效,不应判 stale
-                // 后 fallback 到无歌词行源把 AOD 歌词清掉。播放中静默(stale+playing)仍
-                // 走 fallback,交给 LyriconLyricProducer 的 watchdog 重建订阅。
+                preferredState != null && !isStale(preferredState)
             if (preferredUsable) {
                 // 首选源可用。若它只带行级歌词（无词级时间戳），却存在另一个已连接、非 stale
                 // 且带词级时间戳的源（如 SuperLyric 的逐字卡拉OK），优先切到带词级数据的源，

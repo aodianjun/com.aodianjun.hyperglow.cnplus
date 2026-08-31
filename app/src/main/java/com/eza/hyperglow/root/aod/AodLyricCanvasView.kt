@@ -1,16 +1,842 @@
 package com.eza.hyperglow.root.aod
 
 import android.content.Context
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RadialGradient
+import android.graphics.Rect
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.SystemClock
+import android.util.SparseArray
 import android.view.View
+import com.eza.hyperglow.BuildConfig
+import com.eza.hyperglow.root.HookLogger
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+internal data class AodCanvasWord(
+    val text: String,
+    val romanized: String,
+    val startMs: Long,
+    val endMs: Long,
+    val boundaryAfter: Boolean,
+    val sourceStart: Int = -1,
+    val sourceEnd: Int = -1
+)
+
+internal data class AodCanvasRuby(val start: Int, val end: Int, val reading: String)
+
+internal data class OriginalTextRun(val start: Int, val end: Int, val x: Float)
+
+internal fun originalTextRuns(
+    textLength: Int,
+    rubyBaseRuns: List<OriginalTextRun>,
+    widthBefore: (Int) -> Float
+): List<OriginalTextRun> {
+    if (textLength <= 0) return emptyList()
+    if (rubyBaseRuns.isEmpty()) return listOf(OriginalTextRun(0, textLength, 0f))
+    val runs = ArrayList<OriginalTextRun>(rubyBaseRuns.size * 2 + 1)
+    var cursor = 0
+    rubyBaseRuns.forEach { rubyRun ->
+        val start = rubyRun.start.coerceIn(cursor, textLength)
+        val end = rubyRun.end.coerceIn(start, textLength)
+        if (cursor < start) runs += OriginalTextRun(cursor, start, widthBefore(cursor))
+        if (start < end) runs += OriginalTextRun(start, end, rubyRun.x)
+        cursor = end
+    }
+    if (cursor < textLength) runs += OriginalTextRun(cursor, textLength, widthBefore(cursor))
+    return runs
+}
+
+internal fun transportedWordOffset(text: String, word: AodCanvasWord): IntRange? =
+    if (word.sourceStart >= 0 && word.sourceStart < word.sourceEnd && word.sourceEnd <= text.length) {
+        word.sourceStart until word.sourceEnd
+    } else {
+        null
+    }
+
+internal fun aodWordGapAfter(boundaryAfter: Boolean, gap: Float): Float =
+    if (boundaryAfter) gap else 0f
+
+internal fun attachedWordRanges(words: List<AodCanvasWord>): List<IntRange> {
+    if (words.isEmpty()) return emptyList()
+    val ranges = ArrayList<IntRange>()
+    var start = 0
+    words.forEachIndexed { index, word ->
+        if (word.boundaryAfter || index == words.lastIndex) {
+            ranges += start until index + 1
+            start = index + 1
+        }
+    }
+    return ranges
+}
+
+internal fun authoredWordSeparator(
+    text: String,
+    current: AodCanvasWord,
+    next: AodCanvasWord
+): String? {
+    val currentRange = transportedWordOffset(text, current) ?: return null
+    val nextRange = transportedWordOffset(text, next) ?: return null
+    val currentEnd = currentRange.last + 1
+    if (currentEnd > nextRange.first) return null
+    return text.substring(currentEnd, nextRange.first).takeIf { separator ->
+        separator.all(Char::isWhitespace)
+    }
+}
+
+internal fun coalesceRubyWords(
+    text: String,
+    words: List<AodCanvasWord>,
+    ruby: List<AodCanvasRuby>
+): List<AodCanvasWord> {
+    val crossings = ruby.asSequence()
+        .filter { segment -> segment.start >= 0 && segment.start < segment.end && segment.end <= text.length }
+        .mapNotNull { segment ->
+        val covered = words.indices.filter { index ->
+            val range = transportedWordOffset(text, words[index])
+            range != null && segment.start < range.last + 1 && segment.end > range.first
+        }
+        if (covered.size > 1 && (covered.first()..covered.last()).all {
+                transportedWordOffset(text, words[it]) != null
+            }) covered.first()..covered.last() else null
+    }.sortedBy { it.first }
+        .toList()
+    if (crossings.isEmpty()) return words
+
+    val merged = ArrayList<IntRange>()
+    crossings.forEach { range ->
+        if (merged.isEmpty() || range.first > merged.last().last + 1) merged += range
+        else merged[merged.lastIndex] = merged.last().first..maxOf(merged.last().last, range.last)
+    }
+    val output = ArrayList<AodCanvasWord>()
+    var index = 0
+    while (index < words.size) {
+        val range = merged.firstOrNull { it.first == index }
+        if (range == null) {
+            output += words[index++]
+            continue
+        }
+        val first = words[range.first]
+        val last = words[range.last]
+        val start = first.sourceStart
+        val end = last.sourceEnd
+        output += AodCanvasWord(
+            text.substring(start, end),
+            joinedRomanizedWords(words.subList(range.first, range.last + 1).map { it.romanized to it.boundaryAfter }),
+            first.startMs,
+            maxOf(first.startMs + 1L, last.endMs),
+            last.boundaryAfter,
+            start,
+            end
+        )
+        index = range.last + 1
+    }
+    return output
+}
+
+internal data class AodCanvasLayoutGroup(
+    val start: Int,
+    val end: Int,
+    val kind: String,
+    val keepTogether: Boolean,
+    val confidence: Double
+)
+
+internal data class RubySpanGeometry(
+    val spanX: Float,
+    val spanWidth: Float,
+    val baseX: Float,
+    val baseWidth: Float,
+    val extraWidth: Float,
+    val rubyCenterX: Float
+)
+
+internal data class MetadataLayoutBounds(
+    val metadataBaseline: Float,
+    val lyricStart: Float,
+    val lyricEnd: Float
+)
+
+internal enum class SpotlightWordState { SUNG, ACTIVE, UNSUNG }
+
+internal data class AodCanvasContent(
+    val trackGeneration: Long,
+    val metadata: String,
+    val original: String,
+    val romanized: String,
+    val translated: String,
+    val nextLine: String = "",
+    val alignedRight: Boolean,
+    val lineLevelSync: Boolean,
+    val lineStartMs: Long,
+    val lineEndMs: Long,
+    val positionMs: Long,
+    val sampledAtElapsedMs: Long,
+    val speed: Float,
+    val words: List<AodCanvasWord>,
+    val ruby: List<AodCanvasRuby>,
+    val layoutGroups: List<AodCanvasLayoutGroup>,
+    val weight: String,
+    val textSizeMode: String,
+    val textSizeCustom: Int,
+    val secondaryMode: String,
+    val animationMode: String,
+    val glowMode: String,
+    val motionMode: String,
+    val lineSyncFillMode: String,
+    val overflowMode: String,
+    val transitionMode: String,
+    val fontFamily: String,
+    val alignmentMode: String,
+    val metadataVisible: Boolean,
+    val metadataAnchor: String,
+    val metadataSizePercent: Int = 100,
+    val adaptiveSectioning: Boolean,
+    val palette: Map<String, String>,
+    val secondaryTextBright: Boolean = true,
+    val lyricLineLimit: Int = 3,
+    val showNextLine: Boolean = false
+)
+
+internal data class AodCanvasLineIdentity(
+    val trackGeneration: Long,
+    val lineStartMs: Long,
+    val lineEndMs: Long,
+    val original: String
+)
+
+internal fun aodCanvasLineIdentity(content: AodCanvasContent): AodCanvasLineIdentity =
+    AodCanvasLineIdentity(
+        content.trackGeneration,
+        content.lineStartMs,
+        content.lineEndMs,
+        content.original
+    )
+
+internal data class AodResolvedPalette(
+    val primaryText: Int,
+    val secondaryText: Int,
+    val metadataText: Int,
+    val sungText: Int,
+    val unsungText: Int,
+    val glow: Int,
+    val accent: Int
+)
+
+internal fun resolveAodPalette(tokens: Map<String, String>): AodResolvedPalette =
+    AodResolvedPalette(
+        primaryText = resolvePaletteColor(tokens["primaryText"], Color.WHITE),
+        secondaryText = resolvePaletteColor(tokens["secondaryText"], Color.WHITE),
+        metadataText = resolvePaletteColor(tokens["metadataText"], 0xFFB3B3B3.toInt()),
+        sungText = resolvePaletteColor(tokens["sungText"], Color.WHITE),
+        unsungText = resolvePaletteColor(tokens["unsungText"], Color.WHITE),
+        glow = resolvePaletteColor(tokens["glow"], Color.WHITE),
+        accent = resolvePaletteColor(tokens["accent"], Color.WHITE)
+    )
+
+private fun resolvePaletteColor(token: String?, fallback: Int): Int = when (token) {
+    "dimmed" -> opaqueRgb(
+        (((fallback ushr 16) and 0xFF) * 0.72f).roundToInt(),
+        (((fallback ushr 8) and 0xFF) * 0.72f).roundToInt(),
+        ((fallback and 0xFF) * 0.72f).roundToInt()
+    )
+    else -> fallback
+}
+
+private fun opaqueRgb(red: Int, green: Int, blue: Int): Int =
+    (0xFF shl 24) or
+        (red.coerceIn(0, 255) shl 16) or
+        (green.coerceIn(0, 255) shl 8) or
+        blue.coerceIn(0, 255)
+
+internal fun splitContinuousFill(progress: Float, lineWidths: List<Float>): List<Float> {
+    val totalWidth = lineWidths.sumOf { it.coerceAtLeast(0f).toDouble() }.toFloat()
+    if (totalWidth <= 0f) return lineWidths.map { 0f }
+    var precedingWidth = 0f
+    return lineWidths.map { width ->
+        val safeWidth = width.coerceAtLeast(0f)
+        val local = continuousFillAt(progress, totalWidth, precedingWidth, safeWidth)
+        precedingWidth += safeWidth
+        local
+    }
+}
+
+internal fun continuousFillAt(
+    progress: Float,
+    totalWidth: Float,
+    precedingWidth: Float,
+    width: Float
+): Float = if (width <= 0f || totalWidth <= 0f) {
+    0f
+} else {
+    ((progress.coerceIn(0f, 1f) * totalWidth - precedingWidth) / width).coerceIn(0f, 1f)
+}
+
+internal fun rubyLineIndex(start: Int, lineStarts: List<Int>, lineEnds: List<Int>): Int? =
+    lineStarts.indices.firstOrNull { index -> start >= lineStarts[index] && start < lineEnds[index] }
+
+internal fun lexicalGroupIds(
+    wordOffsets: List<IntRange?>,
+    groups: List<AodCanvasLayoutGroup>
+): List<Int?> = wordOffsets.map { offset ->
+    if (offset == null) null else groups.indexOfFirst { group ->
+        group.keepTogether && group.end > offset.first && group.start <= offset.last
+    }.takeIf { it >= 0 }
+}
+
+internal fun coveredLayoutRanges(text: String, groups: List<AodCanvasLayoutGroup>): List<IntRange> {
+    val valid = groups.asSequence()
+        .filter { it.keepTogether && it.start >= 0 && it.end > it.start && it.end <= text.length }
+        .sortedBy { it.start }
+        .toList()
+    val ranges = ArrayList<IntRange>()
+    var cursor = 0
+    var groupIndex = 0
+    while (cursor < text.length) {
+        while (groupIndex < valid.size && valid[groupIndex].end <= cursor) groupIndex++
+        val group = valid.getOrNull(groupIndex)
+        if (group != null && group.start < cursor) {
+            groupIndex++
+            continue
+        }
+        if (group != null && group.start == cursor) {
+            ranges += group.start until group.end
+            cursor = group.end
+            groupIndex++
+            continue
+        }
+        val stop = group?.start?.coerceAtLeast(cursor) ?: text.length
+        while (cursor < stop) {
+            while (cursor < stop && text[cursor].isWhitespace()) cursor++
+            val start = cursor
+            while (cursor < stop && !text[cursor].isWhitespace()) cursor++
+            if (cursor > start) ranges += start until cursor
+        }
+    }
+    return ranges
+}
+
+internal fun balancedChunkRanges(widths: List<Float>, available: Float, maxLines: Int): List<IntRange> {
+    if (widths.isEmpty() || maxLines <= 0) return emptyList()
+    if (widths.size == 1 || available <= 0f) return listOf(widths.indices)
+    val greedy = ArrayList<IntRange>()
+    var start = 0
+    var width = 0f
+    widths.forEachIndexed { index, item ->
+        if (index > start && width + item > available) {
+            greedy += start until index
+            start = index
+            width = 0f
+        }
+        width += item
+    }
+    greedy += start until widths.size
+    val lineCount = greedy.size.coerceAtMost(maxLines)
+    if (lineCount <= 1) return listOf(widths.indices)
+    val cappedGreedy = if (greedy.size <= maxLines) greedy else ArrayList<IntRange>(maxLines).apply {
+        addAll(greedy.take(maxLines - 1))
+        add(greedy[maxLines - 1].first until widths.size)
+    }
+
+    val prefix = FloatArray(widths.size + 1)
+    widths.indices.forEach { index -> prefix[index + 1] = prefix[index] + widths[index] }
+    val target = prefix.last() / lineCount
+    val infinity = Float.POSITIVE_INFINITY
+    val costs = Array(lineCount + 1) { FloatArray(widths.size + 1) { infinity } }
+    val previous = Array(lineCount + 1) { IntArray(widths.size + 1) { -1 } }
+    costs[0][0] = 0f
+    for (line in 1..lineCount) {
+        for (end in line..widths.size) {
+            for (candidate in line - 1 until end) {
+                val lineWidth = prefix[end] - prefix[candidate]
+                val allowOverflow = line == lineCount && end == widths.size && greedy.size > maxLines
+                if (lineWidth > available && !allowOverflow) continue
+                val previousCost = costs[line - 1][candidate]
+                if (!previousCost.isFinite()) continue
+                val delta = lineWidth - target
+                val cost = previousCost + delta * delta
+                if (cost < costs[line][end]) {
+                    costs[line][end] = cost
+                    previous[line][end] = candidate
+                }
+            }
+        }
+    }
+    if (previous[lineCount][widths.size] < 0) return cappedGreedy
+    val result = ArrayList<IntRange>(lineCount)
+    var line = lineCount
+    var end = widths.size
+    while (line > 0) {
+        val candidate = previous[line][end]
+        result += candidate until end
+        end = candidate
+        line--
+    }
+    result.reverse()
+    return result
+}
+
+internal fun legacyWordLineRanges(
+    wordWidths: List<Float>,
+    gapAfters: List<Float>,
+    available: Float,
+    maxLines: Int
+): List<IntRange> {
+    if (wordWidths.isEmpty() || wordWidths.size != gapAfters.size || maxLines <= 0) return emptyList()
+    val lines = ArrayList<IntRange>(maxLines)
+    var start = 0
+    var currentWidth = 0f
+    wordWidths.forEachIndexed { index, wordWidth ->
+        if (index > start && currentWidth + wordWidth > available && lines.size < maxLines - 1) {
+            lines += start until index
+            start = index
+            currentWidth = 0f
+        }
+        currentWidth += wordWidth + gapAfters[index]
+    }
+    lines += start until wordWidths.size
+    return lines
+}
+
+internal fun legacyAttachedWordLineRanges(
+    words: List<AodCanvasWord>,
+    wordWidths: List<Float>,
+    gapAfters: List<Float>,
+    available: Float,
+    maxLines: Int
+): List<IntRange> {
+    if (words.size != wordWidths.size || words.size != gapAfters.size) return emptyList()
+    val chunks = attachedWordRanges(words)
+    if (chunks.isEmpty()) return emptyList()
+    val chunkWidths = chunks.map { range ->
+        range.sumOf { index -> (wordWidths[index] + gapAfters[index]).toDouble() }.toFloat() -
+            gapAfters[range.last]
+    }
+    val chunkGaps = chunks.map { range -> gapAfters[range.last] }
+    return legacyWordLineRanges(chunkWidths, chunkGaps, available, maxLines).map { line ->
+        chunks[line.first].first..chunks[line.last].last
+    }
+}
+
+internal fun secondaryTokens(text: String): List<String> =
+    text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+
+internal data class SecondaryTimedSegment(
+    val text: String,
+    val width: Float,
+    val gapAfter: Float,
+    val startMs: Long,
+    val endMs: Long
+)
+
+internal fun secondaryTimedLineRanges(
+    segments: List<SecondaryTimedSegment>,
+    available: Float,
+    maxLines: Int
+): List<IntRange> = balancedChunkRanges(
+    segments.map { it.width + it.gapAfter },
+    available,
+    maxLines
+)
+
+internal fun secondaryTimedVisualRanges(
+    segments: List<SecondaryTimedSegment>,
+    available: Float,
+    maxLines: Int,
+    wrap: Boolean
+): List<IntRange> = when {
+    segments.isEmpty() || maxLines <= 0 -> emptyList()
+    !wrap -> listOf(segments.indices)
+    else -> secondaryTimedLineRanges(segments, available, maxLines)
+}
+
+internal fun timedRomanizedWordIndexes(words: List<AodCanvasWord>): List<Int> =
+    words.indices.filter { words[it].romanized.isNotBlank() }
+
+internal fun secondaryTimedProgress(positionMs: Long, startMs: Long, endMs: Long): Float =
+    timedWordProgress(positionMs, startMs, endMs)
+
+internal fun timedWordProgress(positionMs: Long, startMs: Long, endMs: Long): Float = when {
+    endMs <= startMs -> if (positionMs >= endMs) 1f else 0f
+    positionMs <= startMs -> 0f
+    positionMs >= endMs -> 1f
+    else -> (positionMs - startMs).toFloat() / (endMs - startMs).toFloat()
+}
+
+internal data class GradientSweepZone(val start: Float, val end: Float)
+
+internal fun gradientSweepZone(
+    progress: Float,
+    extent: Float,
+    bandFraction: Float = 0.4f
+): GradientSweepZone {
+    val safeExtent = extent.coerceAtLeast(0f)
+    val band = (safeExtent * bandFraction.coerceIn(0.1f, 1f)).coerceAtLeast(1f)
+    val start = -band + (safeExtent + band) * progress.coerceIn(0f, 1f)
+    return GradientSweepZone(start, start + band)
+}
+
+internal fun balancedTokenLineTexts(
+    tokens: List<String>,
+    tokenWidths: List<Float>,
+    spaceWidth: Float,
+    available: Float,
+    maxLines: Int
+): List<String> {
+    if (tokens.isEmpty() || tokens.size != tokenWidths.size) return emptyList()
+    val effectiveWidths = tokenWidths.map { it + spaceWidth }
+    return balancedChunkRanges(effectiveWidths, available + spaceWidth, maxLines)
+        .map { range -> range.joinToString(" ") { tokens[it] } }
+}
+
+internal fun joinedRomanizedWords(words: List<Pair<String, Boolean>>): String = buildString {
+    words.forEachIndexed { index, (text, boundaryAfter) ->
+        if (text.isBlank()) return@forEachIndexed
+        append(text)
+        if (boundaryAfter && words.drop(index + 1).any { it.first.isNotBlank() }) append(' ')
+    }
+}
+
+internal fun baseTextSizeSp(text: String): Float = when {
+    text.codePointCount(0, text.length) >= 30 -> 23f
+    text.codePointCount(0, text.length) >= 22 -> 24f
+    text.codePointCount(0, text.length) >= 14 -> 26f
+    else -> 28f
+} * LIVE_CARD_SIZE_MULTIPLIER
+
+internal fun textSizeModeMultiplier(mode: String, custom: Int): Float = when (mode) {
+    "small" -> 0.9f
+    "large" -> 1.2f
+    "xlarge" -> 1.5f
+    "custom" -> (custom / 100f).coerceIn(0f, 5f)
+    else -> 1f
+}
+
+internal fun normalizeAodOverflow(mode: String): String =
+    if (mode == "Clip") "Clip" else "Wrap"
+
+internal fun rubyReservation(baseTextSizePx: Float, rubyAscent: Float): Float =
+    -rubyAscent + baseTextSizePx * 0.12f
+
+internal fun rubySpanGeometry(
+    baseX: Float,
+    baseWidth: Float,
+    rubyWidth: Float
+): RubySpanGeometry {
+    val spanWidth = max(baseWidth, rubyWidth)
+    val spanX = baseX - (spanWidth - baseWidth) / 2f
+    return RubySpanGeometry(
+        spanX = spanX,
+        spanWidth = spanWidth,
+        baseX = baseX,
+        baseWidth = baseWidth,
+        extraWidth = 0f,
+        rubyCenterX = baseX + baseWidth / 2f
+    )
+}
+
+internal fun rubyTopShift(rubyClipTop: Float, paddingTop: Float): Float =
+    max(0f, paddingTop - rubyClipTop)
+
+internal fun metadataLayoutBounds(
+    anchor: String,
+    height: Float,
+    paddingTop: Float,
+    paddingBottom: Float,
+    metadataAscent: Float,
+    metadataDescent: Float,
+    gap: Float
+): MetadataLayoutBounds {
+    val metadataBaseline = if (anchor == "bottom") {
+        height - paddingBottom - metadataDescent
+    } else {
+        paddingTop - metadataAscent
+    }
+    return if (anchor == "bottom") {
+        MetadataLayoutBounds(metadataBaseline, paddingTop, metadataBaseline + metadataAscent - gap)
+    } else {
+        MetadataLayoutBounds(metadataBaseline, metadataBaseline + metadataDescent + gap, height - paddingBottom)
+    }
+}
+
+internal fun metadataTextSizeMultiplier(percent: Int): Float =
+    percent.coerceIn(50, 200) / 100f
+
+internal fun metadataWidgetHeightDp(percent: Int): Float =
+    22f + 14f * metadataTextSizeMultiplier(percent)
+
+internal fun originalLineBaseline(
+    rowBaseline: Float,
+    lineIndex: Int,
+    lineHeight: Float,
+    precedingRuby: Float,
+    rubyHeight: Float,
+    lineGap: Float = 0f
+): Float = rowBaseline + lineIndex * lineHeight + precedingRuby + rubyHeight +
+    lineIndex * lineGap
+
+internal fun originalRowHeight(
+    lineHeight: Float,
+    lineCount: Int,
+    rubyHeight: Float,
+    lineGap: Float = 0f
+): Float = lineHeight * lineCount + rubyHeight + (lineCount - 1).coerceAtLeast(0) * lineGap
+
+internal fun safeSecondaryLineHeight(ascent: Float, descent: Float, bottom: Float): Float =
+    descent - ascent + max(0f, bottom - descent)
+
+internal fun rubyDrawCenterX(lineStartX: Float, rubyCenterX: Float): Float =
+    lineStartX + rubyCenterX
+
+internal fun spotlightBrightness(progress: Float): Float {
+    val eased = kotlin.math.sin(progress.coerceIn(0f, 1f) * Math.PI.toFloat() / 2f)
+    return 0.42f + 0.58f * eased * eased
+}
+
+internal fun spotlightAlpha(progress: Float, state: SpotlightWordState): Float = when (state) {
+    SpotlightWordState.SUNG -> steadyTextAlpha(1f)
+    SpotlightWordState.UNSUNG -> steadyTextAlpha(0.35f)
+    SpotlightWordState.ACTIVE -> max(
+        steadyTextAlpha(0.35f),
+        steadyTextAlpha(1f) * spotlightBrightness(progress)
+    )
+}
+
+internal fun normalizeAodMotion(mode: String): String = "Fluid"
+
+internal fun normalizeAodAnimation(mode: String): String = when (mode) {
+    "Minimal" -> "Minimal"
+    else -> "Gradient"
+}
+
+internal data class EffectiveCadenceInputs(
+    val attached: Boolean,
+    val sceneActive: Boolean,
+    val ownVisible: Boolean,
+    val windowVisible: Boolean,
+    val aggregatedVisible: Boolean,
+    val effectiveAlpha: Float,
+    val timedOrTransitionActive: Boolean,
+    val handoffActive: Boolean = false,
+    val verifiedDozeHost: Boolean = false
+)
+
+internal fun isEffectiveCadenceActive(inputs: EffectiveCadenceInputs): Boolean =
+    isEffectiveCadenceActive(
+        attached = inputs.attached,
+        sceneActive = inputs.sceneActive,
+        ownVisible = inputs.ownVisible,
+        windowVisible = inputs.windowVisible,
+        aggregatedVisible = inputs.aggregatedVisible,
+        effectiveAlpha = inputs.effectiveAlpha,
+        timedOrTransitionActive = inputs.timedOrTransitionActive,
+        handoffActive = inputs.handoffActive,
+        verifiedDozeHost = inputs.verifiedDozeHost
+    )
+
+private fun isEffectiveCadenceActive(
+    attached: Boolean,
+    sceneActive: Boolean,
+    ownVisible: Boolean,
+    windowVisible: Boolean,
+    aggregatedVisible: Boolean,
+    effectiveAlpha: Float,
+    timedOrTransitionActive: Boolean,
+    handoffActive: Boolean,
+    verifiedDozeHost: Boolean
+): Boolean =
+    attached &&
+        sceneActive &&
+        ownVisible &&
+        timedOrTransitionActive &&
+        (verifiedDozeHost ||
+            windowVisible &&
+            aggregatedVisible &&
+            (handoffActive || effectiveAlpha > EFFECTIVE_ALPHA_THRESHOLD))
+
+internal enum class CadenceChange { NONE, START, STOP }
+
+internal class EffectiveCadenceGate {
+    private var active = false
+
+    fun update(nextActive: Boolean): CadenceChange = when {
+        nextActive && !active -> {
+            active = true
+            CadenceChange.START
+        }
+        !nextActive && active -> {
+            active = false
+            CadenceChange.STOP
+        }
+        else -> CadenceChange.NONE
+    }
+}
+
+internal fun frameIntervalForTiming(
+    contentVisible: Boolean,
+    timingActive: Boolean,
+    exitTransitionActive: Boolean = false
+): Long = if (contentVisible && (timingActive || exitTransitionActive)) 16L else 0L
+
+private const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
+private const val SWEEP_BAND_FRACTION = 0.34f
+private const val SETTLED_TEXT_ALPHA = 0.85f
+private const val SWEEP_PEAK_WIDTH = 0.30f
+private const val SWEEP_BAND_ALPHA_PEAK = 255
+// 扫光余晖：行扫完后已唱区亮度在 SWEEP_DECAY_MS 内量化缓降，制造“光痕消散”质感。
+private const val SWEEP_DECAY_MS = 350L
+private const val SWEEP_DECAY_AMOUNT = 0.16f
+private const val SWEEP_DECAY_QUANTIZATION = 4
+
+internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
+    startedAtMs > 0L && nowMs - startedAtMs >= durationMs
+
+internal fun rubyClipTop(baseBaseline: Float, baseAscent: Float, rubyHeight: Float): Float =
+    baseBaseline + baseAscent - rubyHeight
+
+internal fun shouldStartLineTransition(
+    lineChanged: Boolean,
+    transitionMode: String,
+    handoffActive: Boolean,
+    resuming: Boolean = false
+): Boolean = lineChanged && transitionMode != "None" && !handoffActive && !resuming
+
+internal fun isSongChangeMetadataPlaceholder(
+    original: String,
+    metadata: String,
+    lineStartMs: Long,
+    lineEndMs: Long,
+    hasTimedWords: Boolean
+): Boolean = metadata.isNotBlank() && original == metadata &&
+    lineEndMs <= lineStartMs && !hasTimedWords
+
+internal fun shouldMorphSongChangeMetadata(
+    previousOriginal: String,
+    previousMetadata: String,
+    previousLineStartMs: Long,
+    previousLineEndMs: Long,
+    previousHasTimedWords: Boolean,
+    nextMetadata: String,
+    nextMetadataVisible: Boolean
+): Boolean = nextMetadataVisible && previousMetadata == nextMetadata &&
+    isSongChangeMetadataPlaceholder(
+        previousOriginal,
+        previousMetadata,
+        previousLineStartMs,
+        previousLineEndMs,
+        previousHasTimedWords
+    )
+
+internal fun interpolateAodColor(start: Int, end: Int, progress: Float): Int {
+    val value = progress.coerceIn(0f, 1f)
+    fun channel(from: Int, to: Int): Int = (from + (to - from) * value).roundToInt()
+    return Color.argb(
+        channel(Color.alpha(start), Color.alpha(end)),
+        channel(Color.red(start), Color.red(end)),
+        channel(Color.green(start), Color.green(end)),
+        channel(Color.blue(start), Color.blue(end))
+    )
+}
+
+internal data class AodCanvasVerticalBounds(val top: Float, val bottom: Float)
+
+internal fun unionAodCanvasVerticalBounds(
+    first: AodCanvasVerticalBounds?,
+    second: AodCanvasVerticalBounds?
+): AodCanvasVerticalBounds? = when {
+    first == null -> second
+    second == null -> first
+    else -> AodCanvasVerticalBounds(
+        top = minOf(first.top, second.top),
+        bottom = maxOf(first.bottom, second.bottom)
+    )
+}
+
+internal fun edgeSafeAlignedStart(
+    canvasWidth: Float,
+    paddingLeft: Float,
+    paddingRight: Float,
+    visualLeft: Float,
+    visualRight: Float,
+    alignment: String,
+    safetyInset: Float = 0f
+): Float {
+    val leftEdge = paddingLeft + safetyInset
+    val rightEdge = canvasWidth - paddingRight - safetyInset
+    return when (alignment) {
+        "end" -> rightEdge - visualRight
+        "center" -> (leftEdge + rightEdge - visualLeft - visualRight) / 2f
+        else -> leftEdge - visualLeft
+    }
+}
+
+internal fun sharedBlockClipBottom(progress: Float, top: Float, bottom: Float): Float =
+    top + (bottom - top).coerceAtLeast(0f) * progress.coerceIn(0f, 1f)
+
+internal fun shouldUseSharedLineLevelSweep(
+    lineLevelSync: Boolean,
+    hasOriginalLines: Boolean,
+    animationMode: String,
+    lineStartMs: Long,
+    lineEndMs: Long
+): Boolean = lineLevelSync && hasOriginalLines && animationMode != "Minimal" &&
+    lineEndMs > lineStartMs
+
+internal fun hasActiveCanvasTiming(
+    lineLevelSync: Boolean,
+    lineSyncFillMode: String,
+    lineStartMs: Long,
+    lineEndMs: Long,
+    words: List<AodCanvasWord>,
+    speed: Float = 1f
+): Boolean {
+    if (speed <= 0f) return false
+    if (lineLevelSync && resolvedLineSyncFillMode(true, lineSyncFillMode) == "None") return false
+    if (lineEndMs > lineStartMs) return true
+    return words.any { it.endMs > it.startMs }
+}
+
+internal fun resolvedLineSyncFillMode(lineLevelSync: Boolean, configuredMode: String): String =
+    if (!lineLevelSync) configuredMode
+    else when (configuredMode) {
+        // 行级同步时固定水平扫光，与预览（PreviewAnimatedLyric 整行从左到右渐进点亮）一致。
+        // "None"/"Top to bottom" 等对歌词行几乎看不出水平扫光，统一归一到主行水平扫光。
+        "Left to right (whole block)" -> "Left to right (whole block)"
+        else -> "Left to right (main only)"
+    }
+
+internal fun resolvedLyricLayoutLineLimit(
+    configuredLimit: Int,
+    originalLength: Int,
+    wordCount: Int
+): Int = if (configuredLimit in 1..5) {
+    configuredLimit
+} else {
+    maxOf(originalLength, wordCount, 1)
+}
+
+internal enum class AodCanvasVerticalAlignment { TOP, CENTER }
+
+private const val LIVE_CARD_SIZE_MULTIPLIER = 0.68f
+private const val AOD_DIMMING_BOOST = 1.6f // Sanctioned AOD dimming delta; preserves hardware contrast.
+
+private fun steadyTextAlpha(factor: Float): Float = if (factor < 0.5f) {
+    max(0.35f * AOD_DIMMING_BOOST, 0.55f)
+} else {
+    minOf(1f, 0.85f * AOD_DIMMING_BOOST)
+}
+
+internal fun staticSecondaryTextFactor(bright: Boolean): Float = if (bright) 1f else 0.35f
+
+/** Dimmed preview alpha for the upcoming next lyric line. */
+internal fun staticNextLineTextFactor(): Float = 0.35f
 
 /** Bounded Spicy live-card renderer adapted for Xiaomi AOD. */
 internal class AodLyricCanvasView(
@@ -63,10 +889,17 @@ internal class AodLyricCanvasView(
     private var handoffActive = false
     private var suppressNextLineTransition = false
     private var timingEffectEnabled = false
-    private val dozeCadenceTracker = DozeCadenceTracker(useDozeHandlerCadence)
+    private var cadenceWindowStartedAt = 0L
+    private var cadenceCallbackCount = 0
+    private var cadenceDrawCount = 0
+    private var cadenceMaxDrawGapMs = 0L
+    private var cadenceLastDrawAt = 0L
     private var verticalAlignment = AodCanvasVerticalAlignment.TOP
     private val density = resources.displayMetrics.density
     private val scaledDensity = resources.displayMetrics.scaledDensity
+    private val fontContext = runCatching {
+        context.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_IGNORE_SECURITY)
+    }.getOrNull()
     private val metadataPaint = paint(14f, 0xB3FFFFFF.toInt(), Typeface.NORMAL)
     private val originalPaint = paint(27f, Color.WHITE, Typeface.NORMAL)
     private val romanizedPaint = paint(17f, Color.WHITE, Typeface.NORMAL)
@@ -74,18 +907,18 @@ internal class AodLyricCanvasView(
     private val nextLinePaint = paint(15f, 0x59FFFFFF.toInt(), Typeface.NORMAL).apply {
         textAlign = Paint.Align.LEFT
     }
+    private val sweepBandPaint = Paint().apply { isAntiAlias = true }
     private val rubyPaint = paint(11f, 0xB3FFFFFF.toInt(), Typeface.NORMAL).apply {
         textAlign = Paint.Align.CENTER
     }
+    private val horizontalSweepShaders = SparseArray<LinearGradient>(4)
+    private val verticalSweepShaders = SparseArray<LinearGradient>(4)
+    private val sweepMatrix = Matrix()
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
-    private val typefaceResolver = AodTypefaceResolver(context)
+    private val typefaceCache = HashMap<TypefaceKey, Typeface>(3)
     private var sceneActive = false
     private var aggregatedVisible = false
-    // 无条件绘制心跳:DozeCadenceTracker 只在 trace 开启时统计,生产环境也需要知道
-    // 「最后一次真实 onDraw」的时刻,供 AodSurfaceController 的渲染停摆看门狗判断
-    // 行级歌词本该持续重绘却长时间没有画布输出(issue #6)。
-    private var lastDrawAtElapsedMs = 0L
     private val cadenceGate = EffectiveCadenceGate()
     private val frame = object : Runnable {
         override fun run() {
@@ -93,7 +926,7 @@ internal class AodLyricCanvasView(
                 syncCadence()
                 return
             }
-            dozeCadenceTracker.recordDozeCadenceCallback()
+            recordDozeCadenceCallback()
             if (exitSnapshot != null && isExitTransitionExpired(
                     transitionStartedAt,
                     SystemClock.elapsedRealtime(),
@@ -159,10 +992,10 @@ internal class AodLyricCanvasView(
         }
         val sizeScale = textSizeModeMultiplier(nextContent.textSizeMode, nextContent.textSizeCustom)
         val baseSp = baseTextSizeSp(nextContent.original) * sizeScale
-        val typeface = typefaceResolver.resolve(nextContent.fontFamily, nextContent.weight)
+        val typeface = resolveTypeface(nextContent.fontFamily, nextContent.weight)
         originalPaint.typeface = typeface
         if (nextContent.fontFamily != "auto") {
-            val regularTypeface = typefaceResolver.resolve(nextContent.fontFamily, "Regular")
+            val regularTypeface = resolveTypeface(nextContent.fontFamily, "Regular")
             metadataPaint.typeface = regularTypeface
             romanizedPaint.typeface = regularTypeface
             translatedPaint.typeface = Typeface.create(regularTypeface, Typeface.ITALIC)
@@ -211,8 +1044,8 @@ internal class AodLyricCanvasView(
 
     fun visibleContentVerticalBounds(): AodCanvasVerticalBounds? =
         unionAodCanvasVerticalBounds(
-            verticalBounds(layout, height),
-            exitSnapshot?.layout?.let { verticalBounds(it, height) }
+            verticalBounds(layout),
+            exitSnapshot?.layout?.let(::verticalBounds)
         )
 
     fun setHandoffActive(active: Boolean) {
@@ -229,12 +1062,6 @@ internal class AodLyricCanvasView(
         sceneActive = active
         syncCadence()
     }
-
-    /** 渲染停摆看门狗用:最后一次真实 onDraw 的 elapsedRealtime 时刻,0 表示尚未绘制过。 */
-    fun lastDrawAtElapsedMs(): Long = lastDrawAtElapsedMs
-
-    /** 渲染停摆看门狗用:当前内容是否带行级时间轴(播放中本应持续重绘)。 */
-    fun isTimingEffectActive(): Boolean = timingEffectEnabled
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -276,8 +1103,7 @@ internal class AodLyricCanvasView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        lastDrawAtElapsedMs = SystemClock.elapsedRealtime()
-        dozeCadenceTracker.recordDozeDraw()
+        recordDozeDraw()
         syncCadence()
         val snapshot = exitSnapshot
         if (snapshot == null) {
@@ -348,20 +1174,215 @@ internal class AodLyricCanvasView(
             canvas.translate(0f, translateY)
             save
         } else canvas.save()
-        var rowIndex = 0
-        while (rowIndex < drawLayout.rows.size) {
-            val row = drawLayout.rows[rowIndex]
-            when (row.row.kind) {
-                RowKind.METADATA -> Unit
-                RowKind.ORIGINAL -> if (!skipOriginal) drawOriginal(canvas, row.baseline)
-                else -> drawText(canvas, row.row, row.baseline)
+        val sharedLineLevelSweep = shouldUseSharedLineLevelSweep(
+            drawContent.lineLevelSync,
+            drawLayout.original.lines.isNotEmpty(),
+            drawContent.animationMode,
+            drawContent.lineStartMs,
+            drawContent.lineEndMs
+        )
+        if (sharedLineLevelSweep) {
+            drawSharedLineLevelRows(canvas, drawLayout.rows)
+        } else {
+            var rowIndex = 0
+            while (rowIndex < drawLayout.rows.size) {
+                val row = drawLayout.rows[rowIndex]
+                when (row.row.kind) {
+                    RowKind.METADATA -> Unit
+                    RowKind.ORIGINAL -> if (!skipOriginal) drawOriginal(canvas, row.baseline)
+                    else -> drawText(canvas, row.row, row.baseline)
+                }
+                rowIndex++
             }
-            rowIndex++
         }
         canvas.restoreToCount(layer)
         content = savedContent
         layout = savedLayout
         if (renderStyle != null) applyRenderStyle(currentRenderStyle)
+    }
+
+    private fun drawSharedLineLevelRows(canvas: Canvas, rows: List<PositionedRow>) {
+        val original = rows.firstOrNull { it.row.kind == RowKind.ORIGINAL } ?: return
+        val progress = lineProgress()
+        val decayIndex = sweepDecayIndex(projectedPosition(), content.lineEndMs)
+        clearBlockSweepShaders()
+        val mode = resolvedLineSyncFillMode(content.lineLevelSync, content.lineSyncFillMode)
+        if (mode == "Left to right (whole block)") {
+            drawWholeBlockSweepRows(canvas, rows, original.baseline, progress, decayIndex)
+            drawLineLevelWordOverlay(canvas, original.baseline)
+            return
+        }
+        drawSecondaryRowsStatic(canvas, rows, bright = content.secondaryTextBright)
+        drawOriginalRubyRows(canvas, original.baseline, bright = true)
+        when (mode) {
+            "None" -> {
+                drawUntimedLines(canvas, original.baseline, bright = true, progress)
+            }
+            "Left to right (main only)" -> {
+                drawContinuousLineFill(canvas, original.baseline, progress)
+                clearBlockSweepShaders()
+            }
+            else -> {
+                drawUntimedLines(canvas, original.baseline, false, progress)
+                val blockTop = (original.baseline + original.row.paint.fontMetrics.ascent)
+                    .coerceAtLeast(paddingTop.toFloat())
+                val blockBottom = (blockTop + original.row.height)
+                    .coerceAtMost((height - paddingBottom).toFloat())
+                applyBlockSweepShaders(
+                    origin = blockTop,
+                    progress = progress,
+                    extent = blockBottom - blockTop
+                )
+                drawUntimedLines(canvas, original.baseline, true, progress)
+                clearBlockSweepShaders()
+            }
+        }
+        // 整行扫光基础上叠加缩小幅度的逐字高亮：发光保持饱满，同时当前演唱词有轻微放大/光斑。
+        drawLineLevelWordOverlay(canvas, original.baseline)
+    }
+
+    /**
+     * 行级同步(整行扫光)时叠加的逐字高亮：仅对当前演唱词做缩小幅度的放大/光斑，
+     * 兼顾整行扫光的饱满发光与逐字动画的节奏感（幅度弱于逐字路径的 drawOriginal）。
+     */
+    private fun drawLineLevelWordOverlay(canvas: Canvas, baseline: Float) {
+        if (content.animationMode == "Minimal" || content.words.isEmpty()) return
+        val position = projectedPosition()
+        var precedingRuby = 0f
+        var lineIndex = 0
+        while (lineIndex < layout.original.lines.size) {
+            val line = layout.original.lines[lineIndex]
+            if (line.words.isEmpty()) {
+                precedingRuby += line.rubyHeight
+                lineIndex++
+                continue
+            }
+            val lineBaseline = originalLineBaseline(
+                baseline,
+                lineIndex,
+                layout.original.lineHeight,
+                precedingRuby,
+                line.rubyHeight,
+                layout.original.lineGap
+            )
+            var x = 0f
+            var wordIndex = 0
+            while (wordIndex < line.words.size) {
+                val placed = line.words[wordIndex]
+                val word = placed.word
+                val width = placed.width
+                val wordX = line.startX + x
+                val active = position >= word.startMs && position < word.endMs
+                if (active) {
+                    val progress = timedWordProgress(position, word.startMs, word.endMs)
+                    val scale = if (content.animationMode != "Minimal") {
+                        lineLevelWordScale(progress)
+                    } else 1f
+                    val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+                        LINE_LEVEL_GLOW_PEAK * glowSpline(progress)
+                    } else 0f
+                    canvas.save()
+                    canvas.scale(scale, scale, wordX + width / 2f, lineBaseline)
+                    originalPaint.shader = null
+                    setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
+                    drawGlowHalo(canvas, word.text, 0, word.text.length, wordX, lineBaseline, originalPaint, glow)
+                    canvas.drawText(word.text, wordX, lineBaseline, originalPaint)
+                    canvas.restore()
+                }
+                x += width + placed.gapAfter
+                wordIndex++
+            }
+            precedingRuby += line.rubyHeight
+            lineIndex++
+        }
+    }
+
+    private fun lineLevelWordScale(t: Float): Float =
+        if (t <= 0.7f) lerp(0.98f, 1.02f, t / 0.7f) else lerp(1.02f, 1f, (t - 0.7f) / 0.3f)
+
+    private fun drawWholeBlockSweepRows(
+        canvas: Canvas,
+        rows: List<PositionedRow>,
+        baseline: Float,
+        progress: Float,
+        decayIndex: Int
+    ) {
+        drawSecondaryRowsStatic(canvas, rows, bright = false)
+        drawOriginalRubyRows(canvas, baseline, bright = false)
+        drawUntimedLines(canvas, baseline, bright = false, progress)
+        applyWholeBlockHorizontalSweepShaders(progress, decayIndex)
+        drawSecondaryRowsStatic(
+            canvas,
+            rows,
+            bright = content.secondaryTextBright,
+            keepShader = true
+        )
+        drawOriginalRubyRows(canvas, baseline, bright = true)
+        drawUntimedLines(canvas, baseline, bright = true, progress)
+        clearBlockSweepShaders()
+    }
+
+    private fun drawSecondaryRowsStatic(
+        canvas: Canvas,
+        rows: List<PositionedRow>,
+        bright: Boolean,
+        keepShader: Boolean = false
+    ) {
+        var rowIndex = 0
+        while (rowIndex < rows.size) {
+            val positioned = rows[rowIndex]
+            if (positioned.row.kind == RowKind.ORIGINAL ||
+                positioned.row.kind == RowKind.METADATA
+            ) {
+                rowIndex++
+                continue
+            }
+            if (positioned.row.kind == RowKind.NEXT_LINE) {
+                setTextAlpha(
+                    positioned.row.paint,
+                    staticNextLineTextFactor(),
+                    1f,
+                    resolvedPalette.secondaryText
+                )
+            } else {
+                setTextAlpha(
+                    positioned.row.paint,
+                    staticSecondaryTextFactor(bright),
+                    1f,
+                    resolvedPalette.secondaryText
+                )
+            }
+            if (!keepShader) positioned.row.paint.shader = null
+            positioned.row.paint.clearShadowLayer()
+            var lineIndex = 0
+            while (lineIndex < positioned.row.lines.size) {
+                val line = positioned.row.lines[lineIndex]
+                canvas.drawText(
+                    line.text,
+                    line.startX,
+                    positioned.baseline + lineIndex * positioned.row.lineHeight,
+                    positioned.row.paint
+                )
+                lineIndex++
+            }
+            rowIndex++
+        }
+    }
+
+    private fun drawOriginalRubyRows(canvas: Canvas, baseline: Float, bright: Boolean) {
+        var precedingRuby = 0f
+        layout.original.lines.forEachIndexed { lineIndex, line ->
+            val lineBaseline = originalLineBaseline(
+                baseline,
+                lineIndex,
+                layout.original.lineHeight,
+                precedingRuby,
+                line.rubyHeight,
+                layout.original.lineGap
+            )
+            if (line.ruby.isNotEmpty()) drawRuby(canvas, line, lineBaseline, bright)
+            precedingRuby += line.rubyHeight
+        }
     }
 
     private fun captureRenderStyle(): RenderStyleSnapshot = RenderStyleSnapshot(
@@ -454,8 +1475,7 @@ internal class AodLyricCanvasView(
     }
 
     private fun rebuildLayout() {
-        val input = layoutInput()
-        val originalLayout = buildOriginalLayout(input)
+        val originalLayout = buildOriginalLayout()
         val rows = ArrayList<Row>(4)
         val hasTimedWords = content.words.any { it.endMs > it.startMs }
         val metadataPlaceholder = isSongChangeMetadataPlaceholder(
@@ -473,7 +1493,7 @@ internal class AodLyricCanvasView(
                 "placeholder=$metadataPlaceholder"
         )
         if (content.metadataVisible && content.metadata.isNotBlank() && !metadataPlaceholder) {
-            rows += row(input, RowKind.METADATA, content.metadata, metadataPaint, 0f, false)
+            rows += row(RowKind.METADATA, content.metadata, metadataPaint, 0f, false)
         }
         if (content.original.isNotBlank()) {
             val metrics = originalPaint.fontMetrics
@@ -496,8 +1516,8 @@ internal class AodLyricCanvasView(
         val showReading = content.secondaryMode == "Transliteration" || content.secondaryMode == "Both"
         val showTranslation = content.secondaryMode == "Translation" || content.secondaryMode == "Both"
         if (showReading && content.romanized.isNotBlank()) {
-            val lines = transliterationLines(input, originalLayout)
-                ?: wrapSecondaryText(input, content.romanized, romanizedPaint, originalLayout.lineCount)
+            val lines = transliterationLines(originalLayout)
+                ?: wrapSecondaryText(content.romanized, romanizedPaint, originalLayout.lineCount)
             rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, 2f * density, lines)
         }
         if (showTranslation && content.translated.isNotBlank()) {
@@ -506,7 +1526,7 @@ internal class AodLyricCanvasView(
                 content.translated,
                 translatedPaint,
                 2f * density,
-                wrapSecondaryText(input, content.translated, translatedPaint, originalLayout.lineCount)
+                wrapSecondaryText(content.translated, translatedPaint, originalLayout.lineCount)
             )
         }
         if (content.showNextLine && content.nextLine.isNotBlank()) {
@@ -515,149 +1535,154 @@ internal class AodLyricCanvasView(
                 content.nextLine,
                 nextLinePaint,
                 4f * density,
-                wrapSecondaryText(input, content.nextLine, nextLinePaint, 1)
+                wrapSecondaryText(content.nextLine, nextLinePaint, 1)
             )
         }
-        layout = LayoutState(positionRows(input, rows, originalLayout), originalLayout)
+        layout = LayoutState(positionRows(rows, originalLayout), originalLayout)
         contentBoundsChangedListener?.invoke()
     }
 
-    private fun layoutInput() = AodLyricLayoutInput(
-        content = content,
-        originalPaint = originalPaint,
-        romanizedPaint = romanizedPaint,
-        rubyPaint = rubyPaint,
-        alignment = alignment,
-        verticalAlignment = verticalAlignment,
-        width = width,
-        height = height,
-        paddingLeft = paddingLeft,
-        paddingTop = paddingTop,
-        paddingRight = paddingRight,
-        paddingBottom = paddingBottom,
-        density = density
-    )
+    private fun verticalBounds(state: LayoutState): AodCanvasVerticalBounds? {
+        if (state.rows.isEmpty()) return null
+        var top = Float.POSITIVE_INFINITY
+        var bottom = Float.NEGATIVE_INFINITY
+        state.rows.forEach { positioned ->
+            val rowTop = positioned.baseline + positioned.row.paint.fontMetrics.ascent
+            top = minOf(top, rowTop)
+            bottom = maxOf(bottom, rowTop + positioned.row.height)
+        }
+        if (!top.isFinite() || !bottom.isFinite() || bottom <= top) return null
+        return AodCanvasVerticalBounds(
+            top.coerceIn(0f, height.toFloat()),
+            bottom.coerceIn(0f, height.toFloat())
+        )
+    }
+
+    private fun row(kind: RowKind, text: String, paint: Paint, gap: Float, allowWrap: Boolean = true): Row {
+        val lines = if (allowWrap) {
+            wrapSecondaryText(text, paint, MAX_SECONDARY_LINES)
+        } else {
+            listOf(textLine(text, paint.measureText(text), paint, alignmentFor(kind)))
+        }
+        return rowWithLines(kind, text, paint, gap, lines)
+    }
+
+    private fun rowWithLines(
+        kind: RowKind,
+        text: String,
+        paint: Paint,
+        gap: Float,
+        lines: List<TextLine>
+    ): Row {
+        val metrics = paint.fontMetrics
+        val lineHeight = safeSecondaryLineHeight(metrics.ascent, metrics.descent, metrics.bottom)
+        return Row(kind, text, paint, lineHeight * lines.size, gap, lines, lineHeight)
+    }
+
+    private fun positionRows(rows: List<Row>, originalLayout: OriginalLayout): List<PositionedRow> {
+        val positioned = ArrayList<PositionedRow>(rows.size)
+        val metadata = rows.firstOrNull { it.kind == RowKind.METADATA }
+        if (metadata != null) {
+            val anchor = when (content.metadataAnchor) {
+                "bottom" -> "bottom"
+                else -> "top"
+            }
+            val metadataBounds = metadataLayoutBounds(
+                anchor,
+                height.toFloat(),
+                paddingTop.toFloat(),
+                paddingBottom.toFloat(),
+                metadata.paint.fontMetrics.ascent,
+                metadata.paint.fontMetrics.descent,
+                10f * density
+            )
+            val metadataBaseline = metadataBounds.metadataBaseline
+            positioned += PositionedRow(metadata, metadataBaseline, false)
+            val lyricRows = rows.filterNot { it.kind == RowKind.METADATA }
+            val gap = 10f * density
+            if (anchor == "bottom") {
+                var bottom = metadataBounds.lyricEnd
+                lyricRows.asReversed().forEach { row ->
+                    bottom -= row.height
+                    positioned += PositionedRow(row, bottom - row.paint.fontMetrics.ascent, true)
+                    bottom -= row.gapBefore
+                }
+                positioned.sortBy { it.baseline }
+            } else {
+                var top = metadataBounds.lyricStart
+                lyricRows.forEach { row ->
+                    top += row.gapBefore
+                    positioned += PositionedRow(row, top - row.paint.fontMetrics.ascent, true)
+                    top += row.height
+                }
+            }
+        } else {
+            val total = rows.sumOf { (it.height + it.gapBefore).toDouble() }.toFloat()
+            val topPadding = paddingTop.toFloat()
+            val bottomPadding = height - paddingBottom
+            val available = (bottomPadding - topPadding).coerceAtLeast(0f)
+            var top = if (verticalAlignment == AodCanvasVerticalAlignment.TOP) {
+                topPadding
+            } else {
+                topPadding + max(0f, (available - total) / 2f)
+            }
+            rows.forEach { row ->
+                top += row.gapBefore
+                positioned += PositionedRow(row, top - row.paint.fontMetrics.ascent, true)
+                top += row.height
+            }
+        }
+        val original = positioned.firstOrNull { it.row.kind == RowKind.ORIGINAL }
+        val firstLine = originalLayout.lines.firstOrNull()
+        if (original == null || firstLine == null || firstLine.rubyHeight <= 0f) return positioned
+        val firstBaseBaseline = original.baseline + firstLine.rubyHeight
+        val top = rubyClipTop(firstBaseBaseline, originalPaint.fontMetrics.ascent, firstLine.rubyHeight)
+        val shift = rubyTopShift(top, paddingTop.toFloat())
+        return if (shift == 0f) positioned else positioned.map {
+            if (it.row.kind == RowKind.METADATA) it else it.copy(baseline = it.baseline + shift)
+        }
+    }
 
     private fun drawOriginal(canvas: Canvas, baseline: Float) {
         val originalLayout = layout.original
         val lines = originalLayout.lines
-        // Minimal 模式：静态全亮，无扫光/发光。
-        if (content.animationMode == "Minimal") {
-            var precedingRuby = 0f
-            var lineIndex = 0
-            while (lineIndex < lines.size) {
-                val line = lines[lineIndex]
-                val lineBaseline = originalLineBaseline(
-                    baseline,
-                    lineIndex,
-                    originalLayout.lineHeight,
-                    precedingRuby,
-                    line.rubyHeight,
-                    originalLayout.lineGap
-                )
-                val lineClipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
-                if (line.ruby.isNotEmpty()) {
-                    drawRuby(canvas, line, lineBaseline)
+        if (!originalLayout.timed) {
+            val progress = if (content.animationMode == "Minimal") 1f else lineProgress()
+            if (resolvedLineSyncFillMode(content.lineLevelSync, content.lineSyncFillMode) ==
+                "Top to bottom"
+            ) {
+                drawUntimedTopToBottom(canvas, baseline, progress)
+            } else {
+                var precedingRuby = 0f
+                var lineIndex = 0
+                while (lineIndex < lines.size) {
+                    val line = lines[lineIndex]
+                    val lineBaseline = originalLineBaseline(
+                        baseline,
+                        lineIndex,
+                        originalLayout.lineHeight,
+                        precedingRuby,
+                        line.rubyHeight,
+                        originalLayout.lineGap
+                    )
+                    val clipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
+                    if (line.ruby.isNotEmpty()) {
+                        drawRuby(canvas, line, lineBaseline)
+                    }
+                    drawLineFill(
+                        canvas,
+                        line,
+                        lineBaseline,
+                        originalLayout.continuousFill(progress, lineIndex),
+                        false
+                    )
+                    if (clipSave != -1) canvas.restoreToCount(clipSave)
+                    precedingRuby += line.rubyHeight
+                    lineIndex++
                 }
-                originalPaint.shader = null
-                originalPaint.setShadowLayer(0f, 0f, 0f, 0)
-                setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-                drawOriginalText(canvas, line, lineBaseline)
-                if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
-                precedingRuby += line.rubyHeight
-                lineIndex++
             }
             return
         }
-        // 逐字卡拉OK路径：仅"逐字时间源 + 关闭发光 + 非行级同步"保留，
-        // 其余全部走共享 LyricGlowRenderer 统一管线（与预览同源，杜绝效果漂移）。
-        if (!usesPreviewGlowPipeline(
-                content.animationMode,
-                originalLayout.timed,
-                content.lineLevelSync,
-                content.glowMode
-            )
-        ) {
-            drawWordKaraoke(canvas, baseline, originalLayout)
-            return
-        }
-        // 统一预览管线：dim 底 + 光晕(发光开启时) + 扫光带。
-        // 整块进度：行级时间优先，纯逐字源回退全局词范围（unifiedBlockProgress）。
-        val blockFill = unifiedBlockProgress(
-            projectedPosition(),
-            content.lineStartMs,
-            content.lineEndMs,
-            content.words
-        )
-        val glowRows = ArrayList<LyricGlowRow>(lines.size)
-        var precedingRuby = 0f
-        var lineIndex = 0
-        // 外层统一裁剪（非 Wrap 溢出模式），替代原先逐行 clip，与预览整块绘制一致。
-        val outerClip = clipOriginalBlock(canvas, baseline, originalLayout)
-        while (lineIndex < lines.size) {
-            val line = lines[lineIndex]
-            val lineBaseline = originalLineBaseline(
-                baseline,
-                lineIndex,
-                originalLayout.lineHeight,
-                precedingRuby,
-                line.rubyHeight,
-                originalLayout.lineGap
-            )
-            if (line.ruby.isNotEmpty()) {
-                drawRuby(canvas, line, lineBaseline)
-            }
-            val capturedBaseline = lineBaseline
-            glowRows += LyricGlowRow(
-                left = line.startX,
-                width = line.width,
-                baseline = capturedBaseline,
-                drawText = { c, p -> drawLineTextForGlow(c, line, capturedBaseline, p) }
-            )
-            precedingRuby += line.rubyHeight
-            lineIndex++
-        }
-        LyricGlowRenderer.draw(
-            canvas = canvas,
-            paint = originalPaint,
-            rows = glowRows,
-            progress = blockFill,
-            sungColor = resolvedPalette.sungText,
-            dimBaseColor = resolvedPalette.unsungText,
-            glowColor = resolvedPalette.glow,
-            glowEnabled = content.glowMode != "Off"
-        )
-        if (outerClip != -1) canvas.restoreToCount(outerClip)
-    }
-
-    /** 统一管线的整块裁剪：非 Wrap 溢出模式时裁剪到内边距区域（含首行 ruby 顶部余量）。 */
-    private fun clipOriginalBlock(canvas: Canvas, baseline: Float, originalLayout: OriginalLayout): Int {
-        if (content.overflowMode == "Wrap") return -1
-        val firstLine = originalLayout.lines.firstOrNull() ?: return -1
-        val firstLineBaseline = originalLineBaseline(
-            baseline,
-            0,
-            originalLayout.lineHeight,
-            0f,
-            firstLine.rubyHeight,
-            originalLayout.lineGap
-        )
-        val save = canvas.save()
-        canvas.clipRect(
-            paddingLeft.toFloat(),
-            max(
-                paddingTop.toFloat(),
-                rubyClipTop(firstLineBaseline, originalPaint.fontMetrics.ascent, firstLine.rubyHeight)
-            ),
-            width - paddingRight.toFloat(),
-            (height - paddingBottom).toFloat()
-        )
-        return save
-    }
-
-    /** 逐字卡拉OK：逐词缩放/渐变高亮，仅用于"逐字时间源 + 关闭发光 + 非行级同步"。 */
-    private fun drawWordKaraoke(canvas: Canvas, baseline: Float, originalLayout: OriginalLayout) {
-        val lines = originalLayout.lines
         val position = projectedPosition()
         var precedingRuby = 0f
         var lineIndex = 0
@@ -685,28 +1710,40 @@ internal class AodLyricCanvasView(
                 val progress = timedWordProgress(position, word.startMs, word.endMs)
                 val active = position >= word.startMs && position < word.endMs
                 val sung = position >= word.endMs
-                val scale = if (active) scaleSpline(progress) else if (!sung) 0.95f else 1f
-                val y = if (active) yOffsetSpline(progress) * originalPaint.textSize
-                else if (!sung) 0.01f * originalPaint.textSize else 0f
+                val animated = content.animationMode != "Minimal"
+                val scale = if (animated && active) scaleSpline(progress) else if (animated && !sung) 0.95f else 1f
+                val y = if (animated && active) yOffsetSpline(progress) * originalPaint.textSize
+                else if (animated && !sung) 0.01f * originalPaint.textSize else 0f
+                val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
+                    when {
+                        // 已唱词持续发光(对齐预览 pass2 整行发光),避免词间发光消失导致闪烁
+                        sung -> GLOW_LINE_INTENSITY
+                        // 当前演唱词额外增强(对齐预览 pass3 逐字光斑)
+                        active -> GLOW_ACTIVE_PEAK * glowSpline(progress)
+                        else -> 0f
+                    }
+                } else 0f
                 canvas.save()
                 val wordBaseline = lineBaseline
-                canvas.scale(scale, scale, wordX + width / 2f, wordBaseline)
+                if (animated) canvas.scale(scale, scale, wordX + width / 2f, wordBaseline)
                 originalPaint.shader = null
                 setTextAlpha(
                     originalPaint,
-                    if (sung) 1f else 0.35f,
+                    if (content.animationMode == "Minimal" || sung) 1f else 0.26f,
                     1f,
                     if (sung) resolvedPalette.sungText else resolvedPalette.unsungText
                 )
+                drawGlowHalo(canvas, word.text, 0, word.text.length, wordX, wordBaseline + y, originalPaint, glow)
                 canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
-                if (active) {
+                if (active && content.animationMode == "Gradient") {
                     setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-                    applyWordSweepShader(
+                    applySoftSweep(
                         originalPaint,
                         resolvedPalette.sungText,
                         origin = wordX,
                         progress = progress,
-                        extent = width
+                        extent = width,
+                        vertical = false
                     )
                     canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
                     originalPaint.shader = null
@@ -716,6 +1753,103 @@ internal class AodLyricCanvasView(
                 wordIndex++
             }
             if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
+            precedingRuby += line.rubyHeight
+            lineIndex++
+        }
+    }
+
+    private fun drawUntimedTopToBottom(canvas: Canvas, baseline: Float, progress: Float) {
+        val lines = layout.original.lines
+        val firstLine = lines.firstOrNull()
+        val firstLineBaseline = firstLine?.let {
+            originalLineBaseline(
+                baseline,
+                0,
+                layout.original.lineHeight,
+                0f,
+                it.rubyHeight,
+                layout.original.lineGap
+            )
+        } ?: baseline
+        val blockTop = max(
+            paddingTop.toFloat(),
+            rubyClipTop(firstLineBaseline, originalPaint.fontMetrics.ascent, firstLine?.rubyHeight ?: 0f)
+        )
+        val blockHeight = originalRowHeight(
+            layout.original.lineHeight,
+            lines.size,
+            layout.original.rubyHeight,
+            layout.original.lineGap
+        )
+        clearBlockSweepShaders()
+        drawUntimedLines(canvas, baseline, false, progress)
+        drawOriginalRubyRows(canvas, baseline, bright = false)
+        applyBlockSweepShaders(
+            origin = blockTop,
+            progress = progress,
+            extent = blockHeight
+        )
+        drawUntimedLines(canvas, baseline, true, progress)
+        drawOriginalRubyRows(canvas, baseline, bright = true)
+        clearBlockSweepShaders()
+    }
+
+    private fun drawContinuousLineFill(canvas: Canvas, baseline: Float, progress: Float) {
+        val originalLayout = layout.original
+        var precedingRuby = 0f
+        var lineIndex = 0
+        while (lineIndex < originalLayout.lines.size) {
+            val line = originalLayout.lines[lineIndex]
+            val lineBaseline = originalLineBaseline(
+                baseline,
+                lineIndex,
+                originalLayout.lineHeight,
+                precedingRuby,
+                line.rubyHeight,
+                originalLayout.lineGap
+            )
+            val clipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
+            drawLineFill(
+                canvas,
+                line,
+                lineBaseline,
+                originalLayout.continuousFill(progress, lineIndex),
+                false
+            )
+            if (clipSave != -1) canvas.restoreToCount(clipSave)
+            precedingRuby += line.rubyHeight
+            lineIndex++
+        }
+    }
+
+    private fun drawUntimedLines(canvas: Canvas, baseline: Float, bright: Boolean, progress: Float) {
+        var precedingRuby = 0f
+        var lineIndex = 0
+        while (lineIndex < layout.original.lines.size) {
+            val line = layout.original.lines[lineIndex]
+            val lineBaseline = originalLineBaseline(
+                baseline,
+                lineIndex,
+                layout.original.lineHeight,
+                precedingRuby,
+                line.rubyHeight,
+                layout.original.lineGap
+            )
+            val clipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
+            if (!bright && content.animationMode != "Minimal" && content.glowMode != "Off") {
+                drawResidentGlow(canvas, line, lineBaseline)
+            }
+            val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off" && bright) {
+                GLOW_LINE_INTENSITY
+            } else 0f
+            setTextAlpha(
+                originalPaint,
+                if (bright) 1f else 0.26f,
+                1f,
+                if (bright) resolvedPalette.sungText else resolvedPalette.unsungText
+            )
+            drawOriginalText(canvas, line, lineBaseline, glow)
+            if (clipSave != -1) canvas.restoreToCount(clipSave)
             precedingRuby += line.rubyHeight
             lineIndex++
         }
@@ -803,12 +1937,624 @@ internal class AodLyricCanvasView(
         else postOnAnimation(action)
     }
 
+    private fun recordDozeCadenceCallback() {
+        if (!useDozeHandlerCadence || !HookLogger.traceEnabled) return
+        val now = SystemClock.elapsedRealtime()
+        if (cadenceWindowStartedAt == 0L) cadenceWindowStartedAt = now
+        cadenceCallbackCount++
+        if (now - cadenceWindowStartedAt < CADENCE_DIAGNOSTIC_WINDOW_MS) return
+        HookLogger.i(
+            CADENCE_DIAGNOSTIC_TAG,
+            "callbacks=$cadenceCallbackCount draws=$cadenceDrawCount " +
+                "maxDrawGapMs=$cadenceMaxDrawGapMs"
+        )
+        cadenceWindowStartedAt = now
+        cadenceCallbackCount = 0
+        cadenceDrawCount = 0
+        cadenceMaxDrawGapMs = 0L
+    }
+
+    private fun recordDozeDraw() {
+        if (!useDozeHandlerCadence || !HookLogger.traceEnabled) return
+        val now = SystemClock.elapsedRealtime()
+        if (cadenceLastDrawAt > 0L) {
+            cadenceMaxDrawGapMs = maxOf(cadenceMaxDrawGapMs, now - cadenceLastDrawAt)
+        }
+        cadenceLastDrawAt = now
+        cadenceDrawCount++
+    }
+
+    private fun buildOriginalLayout(): OriginalLayout {
+        val words = coalesceRubyWords(
+            content.original,
+            content.words.filter { it.text.isNotBlank() },
+            content.ruby
+        )
+        val lines = if (words.isEmpty()) {
+            if (content.adaptiveSectioning) layoutTextByGroups()
+            else wrapText(content.original, originalPaint)
+        } else {
+            layoutWordLines(words, 8f * density)
+        }
+        val metrics = originalPaint.fontMetrics
+        return OriginalLayout(
+            assignRuby(lines),
+            metrics.descent - metrics.ascent + 2f * density,
+            ORIGINAL_LINE_GAP_DP * density,
+            words.isNotEmpty()
+        )
+    }
+
+    private fun layoutTextByGroups(): List<OriginalLine> {
+        val ranges = coveredLayoutRanges(content.original, content.layoutGroups)
+        if (ranges.isEmpty()) return wrapText(content.original, originalPaint)
+        val synthetic = ranges.mapIndexed { index, range ->
+            val nextStart = ranges.getOrNull(index + 1)?.first ?: range.last + 1
+            val boundaryAfter = index < ranges.lastIndex && content.original
+                .substring(range.last + 1, nextStart).any { it.isWhitespace() }
+            AodCanvasWord(
+                content.original.substring(range.first, range.last + 1),
+                "",
+                0L,
+                0L,
+                boundaryAfter,
+                range.first,
+                range.last + 1
+            )
+        }
+        return layoutWordLines(synthetic, 8f * density)
+    }
+
+    private fun layoutWordLines(words: List<AodCanvasWord>, gap: Float): List<OriginalLine> {
+        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        val maxLines = lyricLayoutLineLimit(words.size)
+        val offsets = wordOffsets(words)
+        val placed = words.mapIndexed { index, word ->
+            val wordWidth = originalPaint.measureText(word.text)
+            val gapAfter = if (index == words.lastIndex) {
+                0f
+            } else {
+                authoredWordSeparator(content.original, word, words[index + 1])
+                    ?.let(originalPaint::measureText)
+                    ?: aodWordGapAfter(word.boundaryAfter, gap)
+            }
+            PlacedWord(word, wordWidth, gapAfter, offsets[index])
+        }
+        if (content.overflowMode != "Wrap") {
+            return listOf(wordLine(placed))
+        }
+        if (!content.adaptiveSectioning) {
+            return legacyAttachedWordLineRanges(
+                words,
+                placed.map(PlacedWord::width),
+                placed.map(PlacedWord::gapAfter),
+                available,
+                maxLines
+            ).map { range ->
+                val lineWords = range.map(placed::get)
+                wordLine(lineWords)
+            }
+        }
+        val groupIds = lexicalGroupIds(offsets, content.layoutGroups)
+        val chunks = ArrayList<List<PlacedWord>>()
+        var index = 0
+        while (index < placed.size) {
+            val groupId = groupIds[index]
+            var end = index + 1
+            if (groupId != null) while (end < placed.size && groupIds[end] == groupId) end++
+            val chunk = placed.subList(index, end)
+            val chunkWidth = chunk.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
+            if (chunkWidth > available && chunk.size > 1) chunk.forEach { chunks += listOf(it) }
+            else chunks += chunk.toList()
+            index = end
+        }
+        val chunkWidths = chunks.map { chunk ->
+            chunk.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
+        }
+        val lines = balancedChunkRanges(chunkWidths, available, maxLines).map { range ->
+            val lineWords = range.flatMap { chunks[it] }
+            wordLine(lineWords)
+        }
+        return lines.ifEmpty { listOf(originalLine("", 0f, null, null)) }
+    }
+
+    private fun wordLine(words: List<PlacedWord>): OriginalLine {
+        val mapped = words.mapNotNull { word -> word.offset?.let { it.first to it.last + 1 } }
+        val offsets = mapped.takeIf { it.size == words.size }
+        val start = offsets?.minOf { it.first }
+        val end = offsets?.maxOf { it.second }
+        val text = if (start != null && end != null && start >= 0 && end <= content.original.length) {
+            content.original.substring(start, end)
+        } else {
+            buildString {
+                words.forEachIndexed { index, placed ->
+                    append(placed.word.text)
+                    if (index < words.lastIndex && placed.gapAfter > 0f) append(' ')
+                }
+            }
+        }
+        val width = words.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat() -
+            (words.lastOrNull()?.gapAfter ?: 0f)
+        return originalLine(
+            text,
+            width,
+            start,
+            end
+        )
+            .copy(words = words)
+    }
+
+    private fun wrapText(text: String, paint: Paint): List<OriginalLine> {
+        if (text.isBlank()) return emptyList()
+        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        if (content.overflowMode != "Wrap") {
+            return listOf(originalLine(text, paint.measureText(text), 0, text.length))
+        }
+        val maxLines = lyricLayoutLineLimit()
+        val lines = ArrayList<OriginalLine>(maxLines)
+        var remaining = text
+        var charStart = 0
+        while (remaining.isNotEmpty() && lines.size < maxLines) {
+            val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
+            val line = remaining.take(count)
+            lines += originalLine(line, paint.measureText(line), charStart, charStart + line.length)
+            remaining = remaining.drop(count)
+            charStart += count
+        }
+        return lines
+    }
+
+    private fun lyricLayoutLineLimit(wordCount: Int = content.words.size): Int =
+        resolvedLyricLayoutLineLimit(
+            content.lyricLineLimit,
+            content.original.length,
+            wordCount
+        )
+
+    private fun transliterationLines(originalLayout: OriginalLayout): List<TextLine>? {
+        if (originalLayout.lines.isEmpty() || originalLayout.lines.any { it.words.isEmpty() }) return null
+        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        val sourceWords = originalLayout.lines.flatMap { it.words }.map { it.word }
+        if (sourceWords.isEmpty()) return null
+        val spaceWidth = romanizedPaint.measureText(" ")
+        val timedIndexes = timedRomanizedWordIndexes(sourceWords)
+        val segments = timedIndexes.mapIndexed { renderedIndex, sourceIndex ->
+            val word = sourceWords[sourceIndex]
+            val text = word.romanized.trim()
+            val nextSourceIndex = timedIndexes.getOrNull(renderedIndex + 1)
+            SecondaryTimedSegment(
+                text = text,
+                width = romanizedPaint.measureText(text),
+                gapAfter = if (nextSourceIndex != null && word.boundaryAfter) spaceWidth else 0f,
+                startMs = word.startMs,
+                endMs = word.endMs
+            )
+        }
+        if (segments.isEmpty()) return null
+        return secondaryTimedVisualRanges(
+            segments,
+            available,
+            MAX_SECONDARY_LINES,
+            wrap = content.adaptiveSectioning && content.overflowMode == "Wrap"
+        ).map { range ->
+            val lineSegments = range.map(segments::get).mapIndexed { index, segment ->
+                if (index == range.count() - 1) segment.copy(gapAfter = 0f) else segment
+            }
+            val text = buildString {
+                lineSegments.forEach { segment ->
+                    append(segment.text)
+                    if (segment.gapAfter > 0f) append(' ')
+                }
+            }
+            val lineWidth = lineSegments.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
+            textLine(text, lineWidth, romanizedPaint).copy(timedSegments = lineSegments)
+        }
+    }
+
+    private fun wrapSecondaryText(text: String, paint: Paint, preferredLines: Int): List<TextLine> {
+        if (!content.adaptiveSectioning || content.overflowMode != "Wrap") {
+            return listOf(textLine(text, paint.measureText(text), paint))
+        }
+        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        val tokens = secondaryTokens(text).flatMap { token ->
+            if (paint.measureText(token) <= available) {
+                listOf(token)
+            } else {
+                val pieces = ArrayList<String>()
+                var remaining = token
+                while (remaining.isNotEmpty()) {
+                    val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
+                    pieces += remaining.take(count)
+                    remaining = remaining.drop(count)
+                }
+                pieces
+            }
+        }
+        if (tokens.isEmpty()) return emptyList()
+        val maxLines = if (paint.measureText(text) > available) {
+            maxOf(preferredLines, MAX_SECONDARY_LINES)
+        } else {
+            preferredLines
+        }.coerceIn(1, MAX_SECONDARY_LINES)
+        return balancedTokenLineTexts(
+            tokens,
+            tokens.map(paint::measureText),
+            paint.measureText(" "),
+            available,
+            maxLines
+        ).map { line -> textLine(line, paint.measureText(line), paint) }
+    }
+
+    private fun textLine(
+        text: String,
+        width: Float,
+        paint: Paint,
+        lineAlignment: Alignment = alignment
+    ): TextLine {
+        val visual = visualExtents(text, paint, width)
+        return TextLine(text, width, alignedStart(width, lineAlignment, visual.first, visual.second))
+    }
+
+    private fun originalLine(text: String, width: Float, charStart: Int?, charEnd: Int?): OriginalLine {
+        val visual = visualExtents(text, originalPaint, width)
+        return OriginalLine(
+            text,
+            emptyList(),
+            width,
+            alignedStart(width, alignment, visual.first, visual.second),
+            charStart,
+            charEnd
+        )
+    }
+
+    private fun wordOffsets(words: List<AodCanvasWord>): List<IntRange?> =
+        words.map { transportedWordOffset(content.original, it) }
+
+    private fun assignRuby(lines: List<OriginalLine>): List<OriginalLine> = lines.map { line ->
+        val lineStart = line.charStart
+        val lineEnd = line.charEnd
+        if (lineStart == null || lineEnd == null) return@map line
+
+        val placements = content.ruby.asSequence()
+            .filter { segment ->
+                segment.start >= 0 && segment.end > segment.start &&
+                    segment.end <= content.original.length &&
+                    segment.start < lineEnd && segment.end > lineStart
+            }
+            .sortedBy { it.start }
+            .mapNotNull { segment ->
+                val baseStart = maxOf(segment.start, lineStart)
+                val baseEnd = minOf(segment.end, lineEnd)
+                val baseRun = measureBaseRun(line, baseStart, baseEnd) ?: return@mapNotNull null
+                val geometry = rubySpanGeometry(
+                    baseRun.x,
+                    baseRun.width,
+                    rubyPaint.measureText(segment.reading)
+                )
+                RubyPlacement(
+                    baseStart = baseStart,
+                    baseEnd = baseEnd,
+                    baseX = geometry.baseX,
+                    baseWidth = geometry.baseWidth,
+                    spanX = geometry.spanX,
+                    spanWidth = geometry.spanWidth,
+                    extraWidth = 0f,
+                    baseOffset = 0f,
+                    rubyCenterX = geometry.rubyCenterX,
+                    reading = segment.reading
+                )
+            }
+            .toList()
+        val rubyHeight = if (placements.isEmpty()) 0f else {
+            rubyReservation(originalPaint.textSize, rubyPaint.fontMetrics.ascent)
+        }
+        val baseVisual = visualExtents(line.text, originalPaint, line.width)
+        val visualLeft = minOf(
+            baseVisual.first,
+            placements.minOfOrNull { it.spanX } ?: baseVisual.first
+        )
+        val visualRight = maxOf(
+            baseVisual.second,
+            placements.maxOfOrNull { it.spanX + it.spanWidth } ?: baseVisual.second
+        )
+        line.copy(
+            startX = alignedStart(line.width, alignment, visualLeft, visualRight),
+            ruby = placements,
+            rubyHeight = rubyHeight,
+            textRuns = originalTextRuns(
+                line.text.length,
+                placements.map { placement ->
+                    OriginalTextRun(
+                        (placement.baseStart - lineStart).coerceIn(0, line.text.length),
+                        (placement.baseEnd - lineStart).coerceIn(0, line.text.length),
+                        placement.baseX
+                    )
+                }
+            ) { end -> originalPaint.measureText(line.text, 0, end) }
+        )
+    }
+
+    private fun measureBaseRun(line: OriginalLine, start: Int, end: Int): BaseRun? {
+        if (start >= end) return null
+        val lineStart = line.charStart ?: return null
+        if (line.words.isEmpty()) {
+            val localStart = (start - lineStart).coerceIn(0, line.text.length)
+            val localEnd = (end - lineStart).coerceIn(localStart, line.text.length)
+            val prefixWidth = originalPaint.measureText(line.text, 0, localStart)
+            return BaseRun(
+                prefixWidth,
+                originalPaint.measureText(line.text, localStart, localEnd)
+            )
+        }
+
+        var x = 0f
+        var firstX: Float? = null
+        var lastX = 0f
+        line.words.forEach { placed ->
+            val offset = placed.offset
+            if (offset != null) {
+                val wordStart = offset.first
+                val wordEnd = offset.last + 1
+                val overlapStart = maxOf(start, wordStart)
+                val overlapEnd = minOf(end, wordEnd)
+                if (overlapStart < overlapEnd) {
+                    val localStart = overlapStart - wordStart
+                    val localEnd = overlapEnd - wordStart
+                    val runStart = x + originalPaint.measureText(placed.word.text, 0, localStart)
+                    val runEnd = x + originalPaint.measureText(placed.word.text, 0, localEnd)
+                    if (firstX == null) firstX = runStart
+                    lastX = runEnd
+                }
+            }
+            x += placed.width + placed.gapAfter
+        }
+        val baseX = firstX ?: return null
+        return BaseRun(baseX, (lastX - baseX).coerceAtLeast(0f))
+    }
+
+    private fun drawLineFill(
+        canvas: Canvas,
+        line: OriginalLine,
+        baseline: Float,
+        progress: Float,
+        clipToPaddedWidth: Boolean
+    ) {
+        val x = line.startX
+        val clipSave = if (clipToPaddedWidth) canvas.save() else -1
+        if (clipToPaddedWidth) canvas.clipRect(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
+        originalPaint.shader = null
+        // 1. 未唱暗底
+        setTextAlpha(originalPaint, 0.26f, 1f, resolvedPalette.unsungText)
+        drawOriginalText(canvas, line, baseline)
+        val glowOn = content.animationMode != "Minimal" && content.glowMode != "Off"
+        // 2. 常驻发光: 文字上方常驻柔和光带, 所有文字都有光
+        if (glowOn) drawResidentGlow(canvas, line, baseline)
+        // 3. 已唱稳定层: 中等亮度常亮, 为扫光带留出亮度层次
+        setTextAlpha(originalPaint, SETTLED_TEXT_ALPHA, 1f, resolvedPalette.sungText)
+        drawOriginalText(canvas, line, baseline, if (glowOn) 0.5f else 0f)
+        // 4. 扫光区域光: 一束光扫过, 在常驻光上更亮
+        if (glowOn) drawSweepBand(canvas, line, baseline, progress)
+        // 5. 文字预照: 光锋前方文字被渐次点亮, 光"扫过"文字而非浮在文字上
+        if (glowOn) {
+            val band2 = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+            val cx2 = sweepPeakX(line, progress)
+            val fm2 = originalPaint.fontMetrics
+            val midY2 = baseline + fm2.ascent * 0.94f
+            // 与光束同 gate 同呼吸: 光与字一体明暗
+            val t2 = System.nanoTime() / 1000000000f
+            val pulse2 = 0.88f + 0.12f * kotlin.math.sin(t2 * 1.1f)
+            val fadeIn2 = ((cx2 - (line.startX - band2 * 0.35f)) / (band2 * 0.55f)).coerceIn(0f, 1f)
+            val fadeOut2 = ((line.startX + line.width + band2 * 0.25f - cx2) / (band2 * 0.55f)).coerceIn(0f, 1f)
+            val peakA = (255 * 1.00f * pulse2 * fadeIn2 * fadeOut2).toInt()
+            // 光锋即光源: 锋面高光 - 光锋处文字纯白过曝, 前方快速暗下, 上亮下暗
+            originalPaint.shader = RadialGradient(
+                cx2, midY2, band2 * 0.42f,
+                intArrayOf(
+                    Color.argb(peakA, 255, 252, 245),
+                    Color.argb((peakA * 0.55f).toInt(), 255, 252, 245),
+                    Color.argb((peakA * 0.18f).toInt(), 255, 252, 245),
+                    Color.argb(0, 255, 252, 245)
+                ),
+                floatArrayOf(0f, 0.10f, 0.30f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            drawOriginalText(canvas, line, baseline)
+            originalPaint.shader = null
+        }
+        originalPaint.shader = null
+        if (clipToPaddedWidth) canvas.restoreToCount(clipSave)
+    }
+
+    // 逐字匹配: 高光位置跟随当前正在唱的词(词级时间戳), 词间平滑滑动
+    // 无词级时间戳时回退到整行平滑扫过
+    private fun catmullRom(p0: Float, p1: Float, p2: Float, p3: Float, t: Float): Float {
+        val t2 = t * t
+        val t3 = t2 * t
+        return 0.5f * ((2f * p1) + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 + (-p0 + 3f * p1 - 3f * p2 + p3) * t3)
+    }
+
+    private fun sweepPeakX(line: OriginalLine, progress: Float): Float {
+        val timed = line.words.filter { it.word.startMs >= 0L && it.word.endMs > it.word.startMs }
+        if (timed.size >= 2 && content.lineEndMs > content.lineStartMs) {
+            val now = projectedPosition()
+            var x = line.startX
+            val centers = ArrayList<Float>(timed.size)
+            val starts = ArrayList<Float>(timed.size)
+            val ends = ArrayList<Float>(timed.size)
+            timed.forEach { pw ->
+                starts.add(pw.word.startMs.toFloat())
+                ends.add(pw.word.endMs.toFloat())
+                centers.add(x + pw.width * 0.5f)
+                x += pw.width + pw.gapAfter
+            }
+            val n = timed.size
+            val us = ArrayList<Float>(n)
+            timed.forEach { pw ->
+                us.add((pw.word.startMs + (pw.word.endMs - pw.word.startMs) * 0.5f).toFloat())
+            }
+            val span = us[n - 1] - us[0]
+            if (span <= 0f) return centers[0]
+            // 全局缓动一次, 整行速度连续; 逐字节奏由时间比例承载
+            val us0 = us[0]
+            val u = easeInOutSine(((now - us0) / span).coerceIn(0f, 1f))
+            for (i in 0 until n) us[i] = (us[i] - us0) / span
+            // 定位到当前字区间
+            var i = 0
+            while (i < n - 1 && u > us[i + 1]) i++
+            val lt = if (n > 1 && us[i + 1] > us[i]) ((u - us[i]) / (us[i + 1] - us[i])).coerceIn(0f, 1f) else 0f
+            val p0 = centers[if (i > 0) i - 1 else 0]
+            val p1 = centers[i]
+            val p2 = centers[if (i + 1 < n) i + 1 else n - 1]
+            val p3 = centers[if (i + 2 < n) i + 2 else n - 1]
+            return catmullRom(p0, p1, p2, p3, lt)
+        }
+        return line.startX + easeInOutSine(progress.coerceIn(0f, 1f)) * line.width
+    }
+
+    // 常驻发光: 整行文字上方一条柔和光带, 静止常亮; 扫光在此基础上叠加变亮
+    private fun drawResidentGlow(canvas: Canvas, line: OriginalLine, baseline: Float) {
+        val band = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+        val fm = originalPaint.fontMetrics
+        val midY = baseline + fm.ascent * 0.94f
+        val lx = line.startX
+        val rx = line.startX + line.width
+        // 平直亮带: 两端收进文字内, 两端亮度虚化, 锥形突出交给扫光
+        val edgeL = lx + band * 0.04f
+        val edgeR = rx - band * 0.04f
+        sweepBandPaint.alpha = 255
+        sweepBandPaint.shader = LinearGradient(
+            edgeL, 0f, edgeR, 0f,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 255, 236, 198),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.78f).toInt(), 255, 236, 198),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 255, 236, 198)
+            ),
+            floatArrayOf(0f, 0.5f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.06f, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawRect(edgeL, midY - band * 0.05f, edgeR, midY + band * 0.05f, sweepBandPaint)
+        sweepBandPaint.maskFilter = null
+        sweepBandPaint.shader = null
+    }
+
+    // 扫光: 光由文字承载 - 上方只留极淡氛围光与柔光团, 文字随光锋亮起
+    private fun drawSweepBand(
+        canvas: Canvas,
+        line: OriginalLine,
+        baseline: Float,
+        progress: Float
+    ) {
+        val band = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+        val cx = sweepPeakX(line, progress)
+        val fm = originalPaint.fontMetrics
+        val midY = baseline + fm.ascent * 0.94f
+        val lx = line.startX
+        val rx = line.startX + line.width
+        val gx0 = lx - band * 0.10f
+        val gx1 = cx + band * 0.32f
+        val cxFrac = ((cx - gx0) / (gx1 - gx0)).coerceIn(0f, 1f)
+        // 呼吸与进出: 与文字亮度波同一套曲线, 光与字同步明暗
+        val t = System.nanoTime() / 1000000000f
+        var pulse = 0.88f + 0.12f * kotlin.math.sin(t * 1.1f)
+        val fadeIn = ((cx - (lx - band * 0.35f)) / (band * 0.55f)).coerceIn(0f, 1f)
+        val fadeOut = ((rx + band * 0.25f - cx) / (band * 0.55f)).coerceIn(0f, 1f)
+        pulse *= fadeIn * fadeOut
+        sweepBandPaint.alpha = (255 * pulse).toInt()
+
+        // 层1: 上方氛围光带 - 极淡, 只暗示光源来自文字上方, 不形成独立图形
+        sweepBandPaint.shader = LinearGradient(
+            gx0, 0f, gx1, 0f,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.28f).toInt(), 255, 240, 210),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.40f).toInt(), 255, 240, 210),
+                Color.argb(0, 255, 240, 210)
+            ),
+            floatArrayOf(0f, cxFrac, 1f),
+            Shader.TileMode.CLAMP
+        )
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.12f, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawRect(gx0, baseline + fm.ascent, gx1, midY, sweepBandPaint)
+        sweepBandPaint.maskFilter = null
+        sweepBandPaint.shader = null
+
+        // 层2: 光束余韵 - 柔和的纺锤形光, 峰值仅0.55, 大模糊, 无硬边
+        sweepBandPaint.shader = LinearGradient(
+            gx0, 0f, gx1, 0f,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.12f).toInt(), 210, 228, 255),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 226, 236, 252),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.52f).toInt(), 248, 240, 220),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.82f).toInt(), 255, 222, 170),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 1.00f).toInt(), 255, 216, 150),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.52f).toInt(), 255, 238, 200),
+                Color.argb(0, 255, 255, 255)
+            ),
+            floatArrayOf(0f, cxFrac * 0.40f, cxFrac * 0.70f, cxFrac * 0.92f, cxFrac, cxFrac + (1f - cxFrac) * 0.18f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        // 扫光锥: 光锋处圆润凸起(小锥+圆顶), 比常驻光带亮约30%
+        val coneTop = midY - band * 0.10f
+        val coneBottom = midY + band * 0.04f
+        val beam = android.graphics.Path()
+        beam.moveTo(gx0, coneBottom)
+        beam.lineTo(gx1, coneBottom)
+        beam.cubicTo(cx + band * 0.26f, coneBottom - band * 0.02f, cx + band * 0.14f, coneTop, cx, coneTop)
+        beam.cubicTo(cx - band * 0.14f, coneTop, cx - band * 0.26f, coneBottom - band * 0.02f, gx0, coneBottom)
+        beam.close()
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.05f, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawPath(beam, sweepBandPaint)
+        // 高光锥: 圆润顶, 垂直渐亮, 光锋处最突出
+        sweepBandPaint.shader = LinearGradient(
+            0f, coneTop, 0f, coneBottom,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 1.00f).toInt(), 255, 250, 232),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.20f).toInt(), 255, 250, 232)
+            ),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.03f, BlurMaskFilter.Blur.NORMAL)
+        val hc = android.graphics.Path()
+        hc.moveTo(cx - band * 0.13f, coneBottom - band * 0.02f)
+        hc.lineTo(cx + band * 0.13f, coneBottom - band * 0.02f)
+        hc.cubicTo(cx + band * 0.10f, coneBottom - band * 0.02f, cx + band * 0.08f, coneTop + band * 0.02f, cx, coneTop + band * 0.02f)
+        hc.cubicTo(cx - band * 0.08f, coneTop + band * 0.02f, cx - band * 0.10f, coneBottom - band * 0.02f, cx - band * 0.13f, coneBottom - band * 0.02f)
+        hc.close()
+        canvas.drawPath(hc, sweepBandPaint)
+        sweepBandPaint.maskFilter = null
+        sweepBandPaint.shader = null
+
+        // 层3: 光锋柔光团 - 极柔和, 从光锋向下融进文字, 与文字亮度波同一光源
+        sweepBandPaint.shader = RadialGradient(
+            cx, midY + band * 0.03f, band * 0.22f,
+            intArrayOf(
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.70f).toInt(), 255, 242, 206),
+                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.28f).toInt(), 255, 242, 206),
+                Color.argb(0, 255, 242, 206)
+            ),
+            floatArrayOf(0f, 0.45f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.06f, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawCircle(cx, midY + band * 0.03f, band * 0.22f, sweepBandPaint)
+        sweepBandPaint.maskFilter = null
+        sweepBandPaint.shader = null
+    }
+
     private fun drawOriginalText(
         canvas: Canvas,
         line: OriginalLine,
-        baseline: Float
+        baseline: Float,
+        glow: Float = 0f
     ) {
-        if (line.ruby.isEmpty() || line.textRuns.isEmpty()) {
+        if (line.ruby.isEmpty()) {
+            drawGlowHalo(canvas, line.text, 0, line.text.length, line.startX, baseline, originalPaint, glow)
+            canvas.drawText(line.text, line.startX, baseline, originalPaint)
+            return
+        }
+        if (line.textRuns.isEmpty()) {
+            drawGlowHalo(canvas, line.text, 0, line.text.length, line.startX, baseline, originalPaint, glow)
             canvas.drawText(line.text, line.startX, baseline, originalPaint)
             return
         }
@@ -816,6 +2562,7 @@ internal class AodLyricCanvasView(
         while (index < line.textRuns.size) {
             val run = line.textRuns[index]
             val runX = line.startX + run.x
+            drawGlowHalo(canvas, line.text, run.start, run.end, runX, baseline, originalPaint, glow)
             canvas.drawText(
                 line.text,
                 run.start,
@@ -849,19 +2596,65 @@ internal class AodLyricCanvasView(
         canvas.restore()
     }
 
+    private fun alignmentFor(kind: RowKind): Alignment = if (kind == RowKind.METADATA) {
+        when (content.alignmentMode) {
+            "start" -> Alignment.START
+            "center" -> Alignment.CENTER
+            "end" -> Alignment.END
+            else -> Alignment.START
+        }
+    } else {
+        alignment
+    }
+
+    private fun alignedStart(
+        textWidth: Float,
+        lineAlignment: Alignment = alignment,
+        visualLeft: Float = 0f,
+        visualRight: Float = textWidth
+    ): Float = edgeSafeAlignedStart(
+        canvasWidth = width.toFloat(),
+        paddingLeft = paddingLeft.toFloat(),
+        paddingRight = paddingRight.toFloat(),
+        visualLeft = visualLeft,
+        visualRight = visualRight,
+        alignment = when (lineAlignment) {
+            Alignment.START -> "start"
+            Alignment.CENTER -> "center"
+            Alignment.END -> "end"
+        },
+        safetyInset = if (lineAlignment == Alignment.END) END_EDGE_SAFETY_DP * density else 0f
+    )
+
+    private fun visualExtents(text: String, paint: Paint, advanceWidth: Float): Pair<Float, Float> {
+        if (text.isEmpty()) return 0f to advanceWidth
+        val bounds = Rect()
+        paint.getTextBounds(text, 0, text.length, bounds)
+        return minOf(0f, bounds.left.toFloat()) to maxOf(advanceWidth, bounds.right.toFloat())
+    }
+
     private fun projectedPosition(): Long {
         val elapsed = (SystemClock.elapsedRealtime() - content.sampledAtElapsedMs).coerceAtLeast(0L)
         return content.positionMs + (elapsed * content.speed).toLong()
     }
 
-    private fun lineProgress(): Float =
-        normalizedProgress(projectedPosition(), content.lineStartMs, content.lineEndMs)
+    private fun lineProgress(): Float = progress(projectedPosition(), content.lineStartMs, content.lineEndMs)
+
+    private fun progress(position: Long, start: Long, end: Long): Float =
+        if (end <= start) if (position >= end) 1f else 0f
+        else ((position - start).toFloat() / (end - start)).coerceIn(0f, 1f)
 
     private fun scaleSpline(t: Float): Float = if (t <= 0.7f) lerp(0.95f, 1.0505f, t / 0.7f)
     else lerp(1.0505f, 1f, (t - 0.7f) / 0.3f)
 
     private fun yOffsetSpline(t: Float): Float = if (t <= 0.9f) lerp(0.01f, -(1f / 60f), t / 0.9f)
     else lerp(-(1f / 60f), 0f, (t - 0.9f) / 0.1f)
+
+    private fun glowSpline(t: Float): Float = when {
+        t <= 0.15f -> lerp(0f, 1f, t / 0.15f)
+        t <= 0.6f -> 1f
+        else -> lerp(1f, 0f, (t - 0.6f) / 0.4f)
+    }
 
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t.coerceIn(0f, 1f)
 
@@ -875,43 +2668,149 @@ internal class AodLyricCanvasView(
         paint.alpha = (255f * (steadyTextAlpha(factor) * brightness).coerceIn(0f, 1f)).toInt()
     }
 
-    /**
-     * 逐字卡拉OK路径的词内扫光渐变(仅"逐字源+关闭发光+非行级同步"使用):
-     * 与共享 LyricGlowRenderer Pass 3 同形状([sung→middle→transparent, CLAMP]),
-     * 每词绝对坐标构建,不复用缓存 shader,调用方负责置空。
-     */
-    private fun applyWordSweepShader(
+    private fun applySoftSweep(
         paint: Paint,
         color: Int,
         origin: Float,
         progress: Float,
-        extent: Float
+        extent: Float,
+        vertical: Boolean,
+        decayIndex: Int = 0
     ) {
+        val shaders = if (vertical) verticalSweepShaders else horizontalSweepShaders
+        // 缓存 key：RGB 低 24 位 + 余晖档位高 8 位，避免 5 色渐变与档位间串缓存。
+        val cacheKey = (color and 0x00FFFFFF) or (decayIndex shl 24)
+        var shader = shaders[cacheKey]
+        if (shader == null) {
+            val transparent = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
+            // 已唱区常亮色：扫完后随余晖档位缓降亮度，制造光痕消散。
+            val settled = Color.argb(
+                (255f * (1f - decayIndex / SWEEP_DECAY_QUANTIZATION.toFloat() * SWEEP_DECAY_AMOUNT))
+                    .roundToInt().coerceIn(0, 255),
+                Color.red(color),
+                Color.green(color),
+                Color.blue(color)
+            )
+            // 峰值高光：主色向白提亮，扫过文字时形成一条高光带（前缘渐亮、后缘长拖尾）。
+            val peak = Color.argb(
+                255,
+                (Color.red(color) + 255 * 7) / 8,
+                (Color.green(color) + 255 * 7) / 8,
+                (Color.blue(color) + 255 * 7) / 8
+            )
+            val dim = Color.argb(120, Color.red(color), Color.green(color), Color.blue(color))
+            shader = if (vertical) {
+                LinearGradient(
+                    0f,
+                    0f,
+                    0f,
+                    1f,
+                    intArrayOf(settled, color, peak, peak, dim, transparent),
+                    floatArrayOf(0f, 0.24f, 0.38f, 0.58f, 0.80f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+            } else {
+                LinearGradient(
+                    0f,
+                    0f,
+                    1f,
+                    0f,
+                    intArrayOf(settled, color, peak, peak, dim, transparent),
+                    floatArrayOf(0f, 0.24f, 0.38f, 0.58f, 0.80f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+            }
+            shaders.put(cacheKey, shader)
+        }
         val safeExtent = extent.coerceAtLeast(0f)
-        val band = (safeExtent * LyricGlowRenderer.SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-        val start = origin - band + (safeExtent + band) * progress.coerceIn(0f, 1f)
-        val transparent = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
-        val middle = Color.argb(184, Color.red(color), Color.green(color), Color.blue(color))
-        paint.shader = LinearGradient(
-            start, 0f, start + band, 0f,
-            intArrayOf(color, middle, transparent),
-            floatArrayOf(0f, 0.45f, 1f),
-            Shader.TileMode.CLAMP
-        )
+        val band = (safeExtent * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+        // 行首/行尾减速、中段匀速（easeInOutCubic），扫光更从容。
+        val eased = easeInOutSine(progress.coerceIn(0f, 1f))
+        val start = origin - band + (safeExtent + band) * eased
+        sweepMatrix.setScale(if (vertical) 1f else band, if (vertical) band else 1f)
+        sweepMatrix.postTranslate(if (vertical) 0f else start, if (vertical) start else 0f)
+        shader.setLocalMatrix(sweepMatrix)
+        paint.shader = shader
     }
 
-    // 辅助：按行布局绘制整行文字（含 ruby 分段），供共享 LyricGlowRenderer 的行回调使用
-    private fun drawLineTextForGlow(canvas: Canvas, line: OriginalLine, baseline: Float, paint: Paint) {
-        if (line.ruby.isEmpty() || line.textRuns.isEmpty()) {
-            canvas.drawText(line.text, line.startX, baseline, paint)
+    // 余晖渐隐：行扫完后已唱区亮度在 SWEEP_DECAY_MS 内量化缓降（共 QUANTIZATION 档），
+    // 结束后保持微降后的稳定发光，不反弹。
+    private fun sweepDecayIndex(position: Long, lineEndMs: Long): Int {
+        if (position <= lineEndMs) return 0
+        val decay = ((position - lineEndMs).toFloat() / SWEEP_DECAY_MS).coerceIn(0f, 1f)
+        return (decay * SWEEP_DECAY_QUANTIZATION).roundToInt().coerceIn(0, SWEEP_DECAY_QUANTIZATION)
+    }
+
+    // 更流畅的扫光缓动: 两端轻微减速、中段接近匀速, 高光不会在行首行尾卡住
+    private fun easeInOutSine(t: Float): Float {
+        val u = t.coerceIn(0f, 1f)
+        return (-(Math.cos(Math.PI * u) - 1.0) / 2.0).toFloat()
+    }
+
+    private fun easeInOutCubic(t: Float): Float {
+        val u = t.coerceIn(0f, 1f)
+        return if (u < 0.5f) {
+            4f * u * u * u
         } else {
-            var index = 0
-            while (index < line.textRuns.size) {
-                val run = line.textRuns[index]
-                canvas.drawText(line.text, run.start, run.end, line.startX + run.x, baseline, paint)
-                index++
-            }
+            val v = -2f * u + 2f
+            1f - v * v * v / 2f
         }
+    }
+
+    private fun applyBlockSweepShaders(origin: Float, progress: Float, extent: Float) {
+        applySoftSweep(originalPaint, resolvedPalette.sungText, origin, progress, extent, vertical = true)
+    }
+
+    private fun applyWholeBlockHorizontalSweepShaders(progress: Float, decayIndex: Int) {
+        val origin = paddingLeft.toFloat()
+        val extent = (width - paddingLeft - paddingRight).coerceAtLeast(0).toFloat()
+        applySoftSweep(originalPaint, resolvedPalette.sungText, origin, progress, extent, false, decayIndex)
+        applySoftSweep(romanizedPaint, resolvedPalette.secondaryText, origin, progress, extent, false, decayIndex)
+        applySoftSweep(translatedPaint, resolvedPalette.secondaryText, origin, progress, extent, false, decayIndex)
+        applySoftSweep(rubyPaint, resolvedPalette.secondaryText, origin, progress, extent, false, decayIndex)
+    }
+
+    private fun clearBlockSweepShaders() {
+        originalPaint.shader = null
+        romanizedPaint.shader = null
+        translatedPaint.shader = null
+        rubyPaint.shader = null
+    }
+
+    private fun drawGlowHalo(
+        canvas: Canvas,
+        text: String,
+        start: Int,
+        end: Int,
+        x: Float,
+        y: Float,
+        paint: Paint,
+        glow: Float
+    ) {
+        // 文字本体不发光: 禁用辉光层
+        return
+        if (glow <= 0.02f || end <= start) return
+        val intensity = glow.coerceIn(0f, 1f)
+        val glowColor = resolvedPalette.glow
+        val savedShader = paint.shader
+        val savedColor = paint.color
+        val savedAlpha = paint.alpha
+        // 柔和光晕：单独绘制一个带模糊阴影的发光层，shader 置空以规避
+        // 硬件加速下 shadow+shader 同置导致发光丢失的问题。
+        paint.shader = null
+        paint.color = glowColor
+        paint.alpha = (GLOW_HALO_ALPHA * intensity).roundToInt().coerceIn(0, 255)
+        paint.setShadowLayer(
+            paint.textSize * GLOW_HALO_RADIUS * intensity,
+            0f,
+            0f,
+            glowColor
+        )
+        canvas.drawText(text, start, end, x, y, paint)
+        paint.setShadowLayer(0f, 0f, 0f, 0)
+        paint.color = savedColor
+        paint.alpha = savedAlpha
+        paint.shader = savedShader
     }
 
     private fun drawSecondaryLine(
@@ -939,7 +2838,7 @@ internal class AodLyricCanvasView(
         x: Float,
         baseline: Float
     ) {
-        paint.color = resolvedPalette.nextLineText
+        paint.color = resolvedPalette.secondaryText
         paint.alpha = (255f * staticNextLineTextFactor()).toInt()
         paint.shader = null
         paint.clearShadowLayer()
@@ -953,6 +2852,78 @@ internal class AodLyricCanvasView(
         isSubpixelText = true
     }
 
+    private fun resolveTypeface(family: String, weight: String): Typeface {
+        val key = TypefaceKey(family, weight)
+        typefaceCache[key]?.let { return it }
+        val asset = if (family == "noto") {
+            "fonts/NotoSans-" + when (weight) {
+                "Bold" -> "Bold"
+                "Medium" -> "Medium"
+                else -> "Regular"
+            } + ".ttf"
+        } else if (family == "apple") {
+            if (weight == "Regular") "fonts/lyrics_medium.ttf" else "fonts/sf-pro-display-bold.ttf"
+        } else if (weight == "Bold") {
+            "fonts/sf-pro-display-bold.ttf"
+        } else {
+            "fonts/spotifymix-medium.ttf"
+        }
+        val typeface = runCatching {
+            Typeface.createFromAsset(fontContext?.assets ?: context.assets, asset)
+        }.getOrElse {
+            val fallback = if (family == "apple") "sans-serif" else "sans-serif-medium"
+            Typeface.create(fallback, if (weight == "Bold") Typeface.BOLD else Typeface.NORMAL)
+        }
+        typefaceCache[key] = typeface
+        return typeface
+    }
+
+    private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE }
+    private data class Row(
+        val kind: RowKind,
+        val text: String,
+        val paint: Paint,
+        val height: Float,
+        val gapBefore: Float,
+        val lines: List<TextLine>,
+        val lineHeight: Float
+    )
+    private data class PlacedWord(
+        val word: AodCanvasWord,
+        val width: Float,
+        val gapAfter: Float,
+        val offset: IntRange?
+    )
+    private data class OriginalLine(
+        val text: String,
+        val words: List<PlacedWord>,
+        val width: Float,
+        val startX: Float,
+        val charStart: Int?,
+        val charEnd: Int?,
+        val ruby: List<RubyPlacement> = emptyList(),
+        val rubyHeight: Float = 0f,
+        val textRuns: List<OriginalTextRun> = emptyList()
+    )
+    private data class TextLine(
+        val text: String,
+        val width: Float,
+        val startX: Float,
+        val timedSegments: List<SecondaryTimedSegment> = emptyList()
+    )
+    private data class BaseRun(val x: Float, val width: Float)
+    private data class RubyPlacement(
+        val baseStart: Int,
+        val baseEnd: Int,
+        val baseX: Float,
+        val baseWidth: Float,
+        val spanX: Float,
+        val spanWidth: Float,
+        val extraWidth: Float,
+        val baseOffset: Float,
+        val rubyCenterX: Float,
+        val reading: String
+    )
     private data class CanvasSnapshot(
         val content: AodCanvasContent,
         val layout: LayoutState,
@@ -967,9 +2938,52 @@ internal class AodLyricCanvasView(
         val palette: AodResolvedPalette,
         val alignment: Alignment
     )
+    private data class PositionedRow(val row: Row, val baseline: Float, val animate: Boolean)
+    private data class OriginalLayout(
+        val lines: List<OriginalLine>,
+        val lineHeight: Float,
+        val lineGap: Float,
+        val timed: Boolean
+    ) {
+        val lineCount: Int
+            get() = lines.size
+        val rubyHeight: Float
+            get() = lines.sumOf { it.rubyHeight.toDouble() }.toFloat()
+        private val totalLineWidth = lines.sumOf { it.width.coerceAtLeast(0f).toDouble() }.toFloat()
+        private val precedingWidths = FloatArray(lines.size).also { values ->
+            var preceding = 0f
+            lines.forEachIndexed { index, line ->
+                values[index] = preceding
+                preceding += line.width.coerceAtLeast(0f)
+            }
+        }
+
+        fun continuousFill(progress: Float, lineIndex: Int): Float {
+            val width = lines[lineIndex].width.coerceAtLeast(0f)
+            if (width == 0f || totalLineWidth <= 0f) return 0f
+            return ((progress.coerceIn(0f, 1f) * totalLineWidth - precedingWidths[lineIndex]) / width)
+                .coerceIn(0f, 1f)
+        }
+    }
+
+    private data class LayoutState(
+        val rows: List<PositionedRow>,
+        val original: OriginalLayout
+    )
+    private data class TypefaceKey(val family: String, val weight: String)
 
     companion object {
+        private const val MAX_SECONDARY_LINES = 2
         private const val ENTER_TRANSITION_MS = 210L
         private const val EXIT_TRANSITION_MS = 130L
+        private const val ORIGINAL_LINE_GAP_DP = 4f
+        private const val END_EDGE_SAFETY_DP = 4f
+        private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
+        private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
+        private const val GLOW_LINE_INTENSITY = 1f
+        private const val GLOW_ACTIVE_PEAK = 1f
+        private const val LINE_LEVEL_GLOW_PEAK = 0.65f
+        private const val GLOW_HALO_ALPHA = 235
+        private const val GLOW_HALO_RADIUS = 0.52f
     }
 }

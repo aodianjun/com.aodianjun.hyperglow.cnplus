@@ -27,15 +27,14 @@ import kotlinx.serialization.json.Json
  * (elrc/lrc format). Any app with notification access can read it. This producer:
  * 1. Registers a [MediaSessionManager.OnActiveSessionsChangedListener] scoped to the app's
  *    [LyricInfoNotificationListener], which is how a third-party app reads other apps' sessions.
- * 2. Picks the active session whose `MediaMetadata` carries a `lyricInfo` extra; if none, falls
- *    back to any active media session so that playback metadata (title/artist/position) is still
- *    available when the lyric injection module is absent or when another producer (Lyricon) dies.
+ * 2. Picks the active session whose `MediaMetadata` carries a `lyricInfo` extra.
  * 3. Parses the elrc/lrc payload via [ElrcParser] and selects the active line by position.
  * 4. Polls [MediaController.playbackState] for position and extrapolates while playing.
  *
- * Requires the user to grant notification access (ACTION_NOTIFICATION_LISTENER_SETTINGS).
- * Until a session is seen, [connection] stays [ProducerConnection.DISCONNECTED] and [state] stays
- * null, so the arbiter falls back automatically.
+ * Requires the user to grant notification access (ACTION_NOTIFICATION_LISTENER_SETTINGS) and
+ * the LyricInfo module to be active in the music app. Until a session with `lyricInfo` is seen,
+ * [connection] stays [ProducerConnection.DISCONNECTED] and [state] stays null, so the arbiter
+ * falls back automatically.
  *
  * Threading: session callbacks arrive on the main thread; the position poll runs on
  * [Dispatchers.Default]. [MutableStateFlow] is thread-safe.
@@ -75,8 +74,6 @@ class LyricInfoLyricProducer(
     @Volatile private var lastPlaybackSpeed: Float = 0f
     @Volatile private var isPlayingState: Boolean = false
     @Volatile private var currentPositionMs: Long = 0L
-    /** True while currentPositionMs is being advanced by extrapolation (stale/frozen ps). */
-    @Volatile private var extrapolating: Boolean = false
 
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
@@ -141,7 +138,7 @@ class LyricInfoLyricProducer(
     }
 
     private fun refreshSessions(sessions: List<MediaController>) {
-        val picked = pickMediaSession(sessions)
+        val picked = sessions.firstOrNull { it.metadata?.getString(LYRIC_INFO_KEY) != null }
         if (picked == null) {
             if (controller != null) {
                 controller?.unregisterCallback(controllerCallback)
@@ -151,22 +148,18 @@ class LyricInfoLyricProducer(
                 mutableState.value = null
             }
             if (mutableConnection.value != ProducerConnection.DISCONNECTED) {
-                AppLog.i("LyricInfoLyricProducer", "no active media session -> DISCONNECTED")
+                AppLog.i("LyricInfoLyricProducer", "no session with lyricInfo -> DISCONNECTED")
                 mutableConnection.value = ProducerConnection.DISCONNECTED
             }
             return
         }
-        val hasLyrics = picked.metadata?.getString(LYRIC_INFO_KEY) != null
         if (controller !== picked) {
             controller?.unregisterCallback(controllerCallback)
             controller = picked
             picked.registerCallback(controllerCallback)
         }
         if (mutableConnection.value != ProducerConnection.CONNECTED) {
-            AppLog.i(
-                "LyricInfoLyricProducer",
-                "active media session -> CONNECTED (lyrics=${hasLyrics})"
-            )
+            AppLog.i("LyricInfoLyricProducer", "session with lyricInfo -> CONNECTED")
             mutableConnection.value = ProducerConnection.CONNECTED
         }
         updateFromController(picked)
@@ -174,35 +167,24 @@ class LyricInfoLyricProducer(
 
     private fun updateFromController(c: MediaController) {
         val meta = c.metadata ?: return
-        val lyricInfo = meta.getString(LYRIC_INFO_KEY)
-        val payload = lyricInfo?.let {
-            runCatching { lyricInfoJson.decodeFromString<LyricInfoPayload>(it) }
-                .onFailure { AppLog.w("LyricInfoLyricProducer", "decode lyricInfo failed", it) }
-                .getOrNull()
-        }
-        // Derive title/artist from lyric payload when available, otherwise read from MediaMetadata
-        // so a session without LyricInfo injection still surfaces track metadata.
-        val newTitle = payload?.songName?.takeIf { it.isNotBlank() }
-            ?: meta.getString(android.media.MediaMetadata.METADATA_KEY_TITLE).orEmpty()
-        val newArtist = payload?.artist?.takeIf { it.isNotBlank() }
-            ?: meta.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST).orEmpty()
-        val newAlbum = payload?.album?.takeIf { it.isNotBlank() }
-            ?: meta.getString(android.media.MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
-        if (newTitle != title || newArtist != artist) {
+        val lyricInfo = meta.getString(LYRIC_INFO_KEY) ?: return
+        val payload = runCatching { lyricInfoJson.decodeFromString<LyricInfoPayload>(lyricInfo) }
+            .onFailure { AppLog.w("LyricInfoLyricProducer", "decode lyricInfo failed", it) }
+            .getOrNull() ?: return
+        val newTitle = payload.songName.orEmpty()
+        if (newTitle != title || payload.artist != artist) {
             generation++
-            // 旧歌的外推/容差状态不得带进新歌:换歌后第一条真实位置无条件接受。
-            extrapolating = false
             AppLog.i(
                 "LyricInfoLyricProducer",
-                "song changed: title=$newTitle artist=$newArtist"
+                "song changed: title=$newTitle artist=${payload.artist}"
             )
         }
         title = newTitle
-        artist = newArtist
-        album = newAlbum
+        artist = payload.artist.orEmpty()
+        album = payload.album.orEmpty()
         durationMs = meta.getLong(MEDIA_METADATA_KEY_DURATION).coerceAtLeast(0L)
-        timedLines = ElrcParser.parse(payload?.lyric.orEmpty())
-        translationLines = ElrcParser.parse(payload?.translation.orEmpty())
+        timedLines = ElrcParser.parse(payload.lyric.orEmpty())
+        translationLines = ElrcParser.parse(payload.translation.orEmpty())
         val ps = c.playbackState
         if (ps != null) {
             applyPlaybackState(ps)
@@ -221,29 +203,13 @@ class LyricInfoLyricProducer(
         ) {
             currentPositionMs =
                 lastRealPositionMs + ((now - lastRealPositionClockMs) * lastPlaybackSpeed).toLong()
-            extrapolating = true
             return
         }
-        // Stale→恢复（抬起手机、切通道回退）时，MediaSession position 可能短暂落后于
-        // 外推值（共享内存/回调延迟）。Lyricon 通道的 monotonicResume 在 1..300ms 容差内
-        // 保持外推值以避免行回退闪烁；本通道此前无条件接受 ps.position，抬起解冻时行
-        // 会回跳几秒。对齐同样的容差保护。
-        val monotonicResume = isMonotonicExtrapolationResume(
-            wasExtrapolating = extrapolating,
-            extrapolatedPositionMs = currentPositionMs,
-            realPositionMs = ps.position
-        )
-        if (monotonicResume) {
-            // 保持单调外推值，把外推时钟重新锚定到它。
-            lastRealPositionMs = currentPositionMs
-        } else {
-            lastRealPositionMs = ps.position
-            currentPositionMs = ps.position
-        }
+        lastRealPositionMs = ps.position
         lastRealPositionClockMs = now
         lastPlaybackSpeed = ps.playbackSpeed
         isPlayingState = ps.state == PlaybackState.STATE_PLAYING
-        extrapolating = false
+        currentPositionMs = ps.position
     }
 
     private val controllerCallback = object : MediaController.Callback() {
@@ -269,7 +235,6 @@ class LyricInfoLyricProducer(
                     // No fresh playback state: extrapolate from the last real position.
                     currentPositionMs =
                         lastRealPositionMs + ((now - lastRealPositionClockMs) * lastPlaybackSpeed).toLong()
-                    extrapolating = true
                 }
                 emit()
             }
@@ -288,10 +253,7 @@ class LyricInfoLyricProducer(
             emitTrack(null)
             return
         }
-        // 最后一句歌词唱完后（position 越过其 end，歌曲进入尾奏/纯器乐段落），清空活动行
-        // 让投影显示 🎶 占位。activeLineAt 返回「最后一条 start <= pos」的行，不检查 end，
-        // 这里显式兜住结尾，避免最后一句在尾奏期间长期滞留。
-        val active = activeLinePastEndOrNull(timedLines, currentPositionMs)
+        val active = ElrcParser.activeLineAt(timedLines, currentPositionMs)
         val translationText = active?.let { a ->
             translationLines.firstOrNull { it.startMs == a.startMs }?.text.orEmpty()
         }.orEmpty()
@@ -385,7 +347,7 @@ class LyricInfoLyricProducer(
 
     companion object {
         private const val PRODUCER_ID = "lyricinfo"
-        internal const val LYRIC_INFO_KEY = "lyricInfo"
+        private const val LYRIC_INFO_KEY = "lyricInfo"
         private const val MEDIA_METADATA_KEY_DURATION = "android.media.metadata.DURATION"
         private const val POSITION_POLL_MS = 250L
         /** PlaybackState position 多久未更新视为 stale（播放器进程被冻结）。 */
@@ -408,43 +370,6 @@ class LyricInfoLyricProducer(
         )
     }
 }
-
-/**
- * Stale→恢复（抬起手机、通道回退）时是否保持单调外推值:真实位置仅小幅落后(容差内)
- * 视为共享内存/回调延迟,保持外推值避免行回退闪烁;大幅落后(seek/换歌/真回退)按真实
- * 位置处理。与 Lyricon 通道的 monotonicResume 同一容差语义。
- */
-/**
- * Select the session this producer should follow. Prefer one that carries the `lyricInfo` extra
- * (injected lyrics); if none exists, fall back to any active media session so playback metadata
- * and MediaSession position are still available when the lyric injection module is absent or when
- * another producer (Lyricon) dies — the recovery path for issue #5.
- */
-internal fun pickMediaSession(sessions: List<MediaController>): MediaController? =
-    sessions.firstOrNull { it.metadata?.getString(LyricInfoLyricProducer.LYRIC_INFO_KEY) != null }
-        ?: sessions.firstOrNull()
-
-/**
- * Select the active line for [positionMs]; returns null once the position has passed the final
- * line's end (lyrics finished, song is in its instrumental outro) so projection shows the 🎶
- * placeholder instead of leaving the last line stuck on screen until the song ends.
- */
-internal fun activeLinePastEndOrNull(
-    lines: List<ElrcParser.TimedLine>,
-    positionMs: Long
-): ElrcParser.TimedLine? {
-    val active = ElrcParser.activeLineAt(lines, positionMs)
-    val last = lines.lastOrNull() ?: return active
-    return active?.takeUnless { positionMs >= last.endMs }
-}
-
-internal fun isMonotonicExtrapolationResume(
-    wasExtrapolating: Boolean,
-    extrapolatedPositionMs: Long,
-    realPositionMs: Long,
-    toleranceMs: Long = 300L
-): Boolean = wasExtrapolating &&
-    (extrapolatedPositionMs - realPositionMs) in 1..toleranceMs
 
 /** JSON shape written into `MediaMetadata.extras.lyricInfo` by the LyricInfo module. */
 @Serializable

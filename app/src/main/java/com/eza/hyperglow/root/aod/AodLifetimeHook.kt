@@ -22,9 +22,6 @@ object AodLifetimeHook {
         val controllerClass = runCatching { classLoader.loadClass(CONTROLLER_CLASS) }.getOrNull()
             ?: return
         if (!hookedClassLoaders.add(classLoader)) return
-        // 观察点 B-1:一次性 dump 方法/字段表。show 侧入口未知,HyperOS 升级后方法名会漂移,
-        // 这份表让下一次抓取日志时能直接对照真实签名,不必反编译 systemui。
-        dumpControllerSurface(controllerClass)
         for (constructor in controllerClass.declaredConstructors) {
             constructor.isAccessible = true
             module.hook(constructor).intercept(ControllerConstructorHooker)
@@ -35,7 +32,6 @@ object AodLifetimeHook {
             module.deoptimize(method)
             module.hook(method).intercept(PolicyHideHooker(method))
         }
-        installWindowActionProbes(module, controllerClass)
         HookLogger.i(
             TAG,
             "AOD lifetime hooks installed constructors=${controllerClass.declaredConstructors.size} " +
@@ -51,81 +47,14 @@ object AodLifetimeHook {
         }
     }
 
-    /**
-     * 观察点 A:policy hide 的放行/抑制全记录。抑制路径已有 AodLifetimeController 日志,
-     * 但放行的 hide 此前完全静默——而放行正是窗口真正关闭的时刻。09:53 故障链里
-     * 09:53:02.8 后 surface 被 detach,却没有任何日志能回答"是谁、以什么参数关掉的"。
-     * 放行时补记参数与调用栈前四帧,直接指认调用方(音乐状态变化?超时?传感器?)。
-     */
     private class PolicyHideHooker(private val method: Method) : Hooker {
         override fun intercept(chain: Chain): Any? {
-            val suppressed = AodLifetimeController.suppressPolicyHide(chain.thisObject, method)
-            if (suppressed) return null
-            val args = chain.args.joinToString(", ") { it.toString() }
-            val caller = Thread.currentThread().stackTrace
-                .drop(3).take(4)
-                .joinToString(" <- ") { it.methodName }
-            HookLogger.i(
-                TAG,
-                "policyHide ${method.name} allowed args=[$args] caller=$caller"
-            )
+            if (AodLifetimeController.suppressPolicyHide(chain.thisObject, method)) return null
             return chain.proceed()
         }
     }
 
-    /**
-     * 观察点 B-2:show/hide 类无参 void 方法的纯观察探针,不改行为。回答"前奏期间系统有
-     * 没有尝试重新拉起窗口"——若 show 侧从未 enter,则复活机制需要主动触发而非等待。
-     * POLICY_HIDE_METHODS 已由 [PolicyHideHooker] 覆盖(带 caller 栈),此处排除避免重复 hook。
-     */
-    private fun installWindowActionProbes(module: XposedModule, controllerClass: Class<*>) {
-        var installed = 0
-        for (method in controllerClass.declaredMethods) {
-            if (method.returnType != Void.TYPE || method.parameterTypes.isNotEmpty()) continue
-            if (method.name !in WINDOW_ACTION_METHODS) continue
-            runCatching {
-                method.isAccessible = true
-                module.deoptimize(method)
-                module.hook(method).intercept(WindowActionProbeHooker(method))
-                installed++
-            }
-        }
-        HookLogger.i(TAG, "window action probes installed=$installed candidates=${WINDOW_ACTION_METHODS.size}")
-    }
-
-    private class WindowActionProbeHooker(private val method: Method) : Hooker {
-        override fun intercept(chain: Chain): Any? {
-            HookLogger.i(TAG, "ctlAction ${method.name} enter")
-            return try {
-                chain.proceed().also { HookLogger.i(TAG, "ctlAction ${method.name} exit") }
-            } catch (error: Throwable) {
-                HookLogger.i(TAG, "ctlAction ${method.name} threw=${error.javaClass.simpleName}")
-                throw error
-            }
-        }
-    }
-
-    private fun dumpControllerSurface(controllerClass: Class<*>) {
-        runCatching {
-            controllerClass.declaredMethods.sortedBy { it.name }.forEach { method ->
-                HookLogger.i(
-                    TAG,
-                    "ctl method ${method.name}(" +
-                        method.parameterTypes.joinToString(", ") { it.simpleName } +
-                        "): ${method.returnType.simpleName}"
-                )
-            }
-            controllerClass.declaredFields.sortedBy { it.name }.forEach { field ->
-                HookLogger.i(TAG, "ctl field ${field.name}: ${field.type.simpleName}")
-            }
-        }.onFailure { HookLogger.w(TAG, "controller surface dump failed", it) }
-    }
-
     private val POLICY_HIDE_METHODS = listOf("smartHide", "hideDoze")
-    private val WINDOW_ACTION_METHODS = setOf(
-        "showDoze", "show", "hide", "updateState", "update",
-        "setVisible", "setShowing", "dismiss", "refresh"
-    )
     private const val TAG = "AodLifetimeHook"
 }
 

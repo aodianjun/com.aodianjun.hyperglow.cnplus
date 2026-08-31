@@ -77,9 +77,6 @@ data class AodDisplayLayoutGroup(
 
 fun shouldRepublish(lastPublished: AodDisplayState?, next: AodDisplayState): Boolean {
     if (lastPublished == null) return true
-    // 切歌（trackGeneration 变化）时强制重发，让 SystemUI 立即收到新歌的 metadata/标题。
-    // 显式声明这条不变量：无论位置增量多大，generation 变化都必须产生一次快照。
-    if (lastPublished.trackGeneration != next.trackGeneration) return true
     if (lastPublished.copy(positionMs = 0L, sampledAtElapsedMs = 0L) !=
         next.copy(positionMs = 0L, sampledAtElapsedMs = 0L)
     ) return true
@@ -104,7 +101,6 @@ object AodStateBridge {
     private var latestConfiguration: Bundle? = null
     private var lastConfigurationHash = ""
     private var lastPublished: AodDisplayState? = null
-    private var lastFullPublishAtElapsedMs = Long.MIN_VALUE
 
     @Synchronized
     fun register(callback: IAodLyricCallback) {
@@ -145,7 +141,6 @@ object AodStateBridge {
         )
         latestMessage = publication.message
         latest = AodStateWireBundleCodec.toBundle(publication.envelope)
-        lastFullPublishAtElapsedMs = publication.message.updatedAtElapsedMs
         broadcast(latest)
     }
 
@@ -177,10 +172,8 @@ object AodStateBridge {
     fun refreshVisibleState() {
         val current = latestMessage as? AodStateWireMessage.Snapshot ?: return
         val updatedAt = SystemClock.elapsedRealtime()
-        val refreshed = refreshAodStateWireSnapshot(current, updatedAt)
-        latestMessage = refreshed
-        val republish = shouldRepublishFullSnapshot(updatedAt, lastFullPublishAtElapsedMs)
-        val message: AodStateWireMessage = if (republish) refreshed else AodStateWireMessage.KeepAlive(
+        latestMessage = refreshAodStateWireSnapshot(current, updatedAt)
+        val keepAlive = AodStateWireMessage.KeepAlive(
             revision = current.revision,
             userId = current.userId,
             updatedAtElapsedMs = updatedAt,
@@ -189,8 +182,7 @@ object AodStateBridge {
             playbackActive = current.playbackActive,
             pauseRetentionEligible = current.pauseRetentionEligible
         )
-        val envelope = AodStateWireCodec.encode(message) ?: return
-        if (republish) lastFullPublishAtElapsedMs = updatedAt
+        val envelope = AodStateWireCodec.encode(keepAlive) ?: return
         broadcast(AodStateWireBundleCodec.toBundle(envelope))
     }
 
@@ -219,24 +211,6 @@ internal data class AodStatePublication(
     val message: AodStateWireMessage,
     val envelope: AodStateWireEnvelope
 )
-
-/**
- * 心跳是否应改为携带完整快照。
- *
- * KeepAlive 只能续期消费端仍持有的投影:已过期的投影没有可匹配的 revision,之后的所有心跳
- * 都会被拒绝(SystemUiLyricProjection 对无快照的心跳直接丢弃),歌词一直黑屏直到恰好切词触发
- * 一次全量发布。按慢节奏定期重发完整快照,把恢复时间收敛到有界窗口内,而不用为每一拍支付
- * 全量 payload(上游 cc1f62f)。
- */
-internal fun shouldRepublishFullSnapshot(
-    nowElapsedMs: Long,
-    lastFullPublishAtElapsedMs: Long,
-    intervalMs: Long = FULL_SNAPSHOT_REPUBLISH_MS
-): Boolean = lastFullPublishAtElapsedMs == Long.MIN_VALUE ||
-    nowElapsedMs - lastFullPublishAtElapsedMs >= intervalMs
-
-/** 相对消费端新鲜度窗口的三拍余量。 */
-internal const val FULL_SNAPSHOT_REPUBLISH_MS = 4_500L
 
 internal fun refreshAodStateWireSnapshot(
     snapshot: AodStateWireMessage.Snapshot,

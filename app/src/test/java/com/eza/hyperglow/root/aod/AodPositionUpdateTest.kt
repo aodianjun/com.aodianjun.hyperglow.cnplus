@@ -485,27 +485,16 @@ class AodPositionUpdateTest {
     }
 
     @Test
-    fun anchorFollowsBurnInDriftDownImmediately() {
+    fun anchorFollowsASustainedBurnInMoveAfterTheHoldWindow() {
         var t = 0L
         var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
-        // 下行漂移(burn-in 每次唤醒步进)必须立即硬同步，不能等防抖窗口：歌词 surface 位于
-        // anchor 底部之下，时钟下移时若 anchor 滞后，时钟会叠在歌词上。
-        t = 1_000L
+        // A slow drift down is suppressed while the old position could still reconfirm.
+        t = 5_000L
+        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
+        assertEquals(1626, anchor.bottom)
+        // Once the drift is sustained past the hold window, the anchor follows.
+        t = 45_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
         assertEquals(1700, anchor.bottom)
-        assertEquals(546, anchor.top)
-    }
-
-    @Test
-    fun anchorFollowsSubsequentDownwardStepsImmediately() {
-        // 首次下行迁移后时钟继续漂移；每一步更深的下行都立即跟随(而非走长防抖)。
-        var t = 0L
-        var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
-        t = 3_000L
-        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
-        assertEquals(1700, anchor.bottom)
-        t = 10_000L
-        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1774), t)
-        assertEquals(1774, anchor.bottom)
     }
 }

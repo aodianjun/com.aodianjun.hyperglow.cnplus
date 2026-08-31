@@ -1,38 +1,159 @@
 package com.eza.hyperglow.ui
 
 import android.content.Intent
+import android.provider.Settings
+import android.app.LocaleManager
+import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Shader
+import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.LocaleList
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.text.TextUtils
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.AppLog
+import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
+import com.eza.hyperglow.DiagnosticLoggingPreferences
+import com.eza.hyperglow.RuntimeCustomization
+import com.eza.hyperglow.setDiagnosticLogging
+import com.eza.hyperglow.root.utils.ShellUtils
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import com.eza.hyperglow.aod.AodLyricBridgeService
+import com.eza.hyperglow.aod.AodRenderPreferences
+import com.eza.hyperglow.aod.AodStateBridge
+import com.eza.hyperglow.aod.XiaomiCapabilityStore
+import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
+import com.eza.hyperglow.customization.CustomizationEditorState
+import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.customization.SurfaceProfile
+import com.eza.hyperglow.producer.LyricProducerState
+import com.eza.hyperglow.producer.LyricProducers
+import com.eza.hyperglow.producer.LyricSource
+import com.eza.hyperglow.producer.ProducerConnection
+import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
+import com.eza.hyperglow.root.capability.XiaomiCapability
+import com.eza.hyperglow.root.capability.XiaomiProfileState
+import com.eza.hyperglow.root.projection.LyricLayoutGroup
+import com.eza.hyperglow.root.projection.LyricRuby
+import com.eza.hyperglow.root.projection.LyricSnapshot
+import com.eza.hyperglow.root.projection.LyricWord
+import com.eza.hyperglow.root.projection.currentProcessUserId
+import com.eza.hyperglow.root.surface.PlacementEngine
+import com.eza.hyperglow.root.surface.PlacementEnvironment
+import com.eza.hyperglow.root.surface.PlacementRect
+import com.eza.hyperglow.root.surface.ResolvedPlacement
+import com.eza.hyperglow.root.surface.WidgetMeasurement
+import kotlin.math.roundToInt
+import kotlinx.serialization.json.*
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Locale
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
+import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Copy
+import top.yukonga.miuix.kmp.icon.extended.Home
+import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.RadioButtonPreference
+import top.yukonga.miuix.kmp.preference.SliderPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
-
-/** 模块入口 Activity:承载 MiuixTheme 主题容器,在首页/外观编辑页/诊断页之间切换。 */
-
-private const val DIAGNOSTICS_DESTINATION = "__diagnostics__"
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,3 +234,3047 @@ class MainActivity : ComponentActivity() {
         ).show()
     }
 }
+
+@Composable
+private fun HomeScreen(
+    showRestartResult: (Boolean) -> Unit,
+    selectedTabName: String,
+    onSelectTab: (String) -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    onOpenLyricLayout: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showRestartDialog by remember { mutableStateOf(false) }
+    var showBurnInPatternDialog by remember { mutableStateOf(false) }
+    var showBurnInIntervalDialog by remember { mutableStateOf(false) }
+    var showPauseLingerDialog by remember { mutableStateOf(false) }
+    var showKeepAwakeDurationDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    var showSourceDialog by remember { mutableStateOf(false) }
+    val selectedTab = SettingsTab.entries.firstOrNull { it.name == selectedTabName }
+        ?: SettingsTab.OVERVIEW
+    val selectedTabIndex = SettingsTab.entries.indexOf(selectedTab)
+    val pagerState = rememberPagerState(initialPage = selectedTabIndex) {
+        SettingsTab.entries.size
+    }
+    LaunchedEffect(pagerState.currentPage) {
+        onSelectTab(SettingsTab.entries[pagerState.currentPage].name)
+    }
+    LaunchedEffect(selectedTabIndex) {
+        if (!pagerState.isScrollInProgress && pagerState.currentPage != selectedTabIndex) {
+            pagerState.animateScrollToPage(selectedTabIndex)
+        }
+    }
+    val prefs = remember { context.getSharedPreferences(AodRenderPreferences.PREFS, 0) }
+    val exportConfigLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val written = runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                it.write(exportAllConfig(context))
+            } ?: error("Config export unavailable")
+        }.isSuccess
+        Toast.makeText(
+            context,
+            context.getString(
+                if (written) R.string.toast_config_exported
+                else R.string.toast_config_export_failed
+            ),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    val importConfigLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val raw = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val bytes = input.readNBytes(MAX_CONFIG_FILE_BYTES + 1)
+                if (bytes.size > MAX_CONFIG_FILE_BYTES) error("Config file too large")
+                bytes.toString(Charsets.UTF_8)
+            } ?: error("Config file unavailable")
+        }.getOrNull()
+        val imported = raw != null && importAllConfig(context, raw)
+        if (imported) {
+            // 写入 SharedPreferences 会自动触发 AodRenderPreferences 缓存失效,
+            // 这里同步把运行时配置推给 SystemUI 生效。
+            publishRuntimeConfiguration(context)
+        }
+        Toast.makeText(
+            context,
+            context.getString(
+                if (imported) R.string.toast_config_imported
+                else R.string.toast_config_import_invalid
+            ),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    var capabilityReport by remember { mutableStateOf(XiaomiCapabilityStore.read(context)) }
+    DisposableEffect(context) {
+        val capabilityPrefs = context.getSharedPreferences(XiaomiCapabilityStore.PREFS, 0)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            capabilityReport = XiaomiCapabilityStore.read(context)
+        }
+        capabilityPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { capabilityPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    val initialConfig = remember { AodRenderPreferences.read(context) }
+    val initialDocument = remember { CustomizationRepository.loadDocument(context) }
+    var experimentalMode by remember { mutableStateOf(initialConfig.experimentalMode) }
+    // App-side overlay: hook 端上报的 report 保持原样,UI 把用户开关叠加到
+    // experimentalModeEnabled 上,据此推导 supportState / has()。开关切换即时生效,
+    // 无需等 hook 重新上报。
+    val effectiveReport = capabilityReport.copy(experimentalModeEnabled = experimentalMode)
+    val supportState = effectiveReport.supportState()
+    val aodSupported = effectiveReport.has(XiaomiCapability.AOD_SURFACE)
+    val lockscreenSupported = effectiveReport.has(XiaomiCapability.LOCKSCREEN_HOST) &&
+        effectiveReport.has(XiaomiCapability.LOCKSCREEN_GEOMETRY)
+    val runtimeProfileAvailable = supportState == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
+        supportState == XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ||
+        supportState == XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
+    val positionFollowingSupported = effectiveReport.has(XiaomiCapability.AOD_POSITION_UPDATES)
+    val raiseToAodSupported = effectiveReport.has(XiaomiCapability.RAISE_TO_AOD)
+    val lockscreenEditorGestureSupported = effectiveReport.has(
+        XiaomiCapability.LOCKSCREEN_EDITOR_GESTURE
+    )
+    val experimentalEligible = effectiveReport.profileState ==
+        XiaomiProfileState.EXPERIMENTAL_ELIGIBLE
+    var aodEnabled by remember {
+        mutableStateOf(
+            initialDocument.profiles[SceneCompiler.SURFACE_AOD]?.enabled
+                ?: initialConfig.aodEnabled
+        )
+    }
+    var lockscreenEnabled by remember {
+        mutableStateOf(
+            initialDocument.profiles[SceneCompiler.SURFACE_LOCKSCREEN]?.enabled
+                ?: initialConfig.lockscreenEnabled
+        )
+    }
+    var keepAwake by remember { mutableStateOf(initialConfig.keepAwake) }
+    var aodClockFollow by remember { mutableStateOf(initialConfig.aodClockFollow) }
+    var keepAwakeUnsynced by remember { mutableStateOf(initialConfig.keepAwakeUnsynced) }
+    var keepAwakeDurationMs by remember { mutableStateOf(initialConfig.keepAwakeDurationMs) }
+    var lockscreenKeepAwake by remember {
+        mutableStateOf(initialConfig.lockscreenKeepAwake)
+    }
+    var raiseToAod by remember { mutableStateOf(initialConfig.raiseToAod) }
+    var suppressLockscreenEditorLongPress by remember {
+        mutableStateOf(initialConfig.suppressLockscreenEditorLongPress)
+    }
+    var positionFollowing by remember {
+        mutableStateOf(initialConfig.experimentalPositionFollowing)
+    }
+    var burnInPattern by remember { mutableStateOf(initialConfig.burnInPattern) }
+    var burnInIntervalMs by remember { mutableStateOf(initialConfig.burnInIntervalMs) }
+    var pauseLingerMs by remember { mutableStateOf(initialConfig.pauseLingerMs) }
+    var diagnosticLogging by remember {
+        mutableStateOf(DiagnosticLoggingPreferences.read(context))
+    }
+    var persistentNotification by remember {
+        mutableStateOf(initialConfig.persistentNotification)
+    }
+    var hideBackgroundCard by remember {
+        mutableStateOf(initialConfig.hideBackgroundCard)
+    }
+    var hideLauncherIcon by remember {
+        mutableStateOf(initialConfig.hideLauncherIcon)
+    }
+    // 监听外观配置变化:在"外观"编辑器里保存后,主页两个歌词预览立即反映最新设置。
+    // 用 State 承载文档,预览 item 读取该 State,配置一变即触发重绘,无需依赖页面重建。
+    var customizationDocument by remember {
+        mutableStateOf(CustomizationRepository.loadDocument(context))
+    }
+    DisposableEffect(context) {
+        val prefs = context.getSharedPreferences(
+            CustomizationRepository.PREFS,
+            android.content.Context.MODE_PRIVATE
+        )
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == CustomizationRepository.KEY_DOCUMENT) {
+                customizationDocument = CustomizationRepository.loadDocument(context)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    // 每次进入应用都按持久化配置重新应用"隐藏后台卡片",避免重启后失效。
+    LaunchedEffect(Unit) {
+        if (initialConfig.hideBackgroundCard) applyHideFromRecents(context, true)
+    }
+
+    Scaffold(
+        topBar = { TopAppBar(title = stringResource(R.string.app_name)) },
+        bottomBar = {
+            FloatingNavigationBar {
+                FloatingNavigationBarItem(
+                    selected = pagerState.currentPage == SettingsTab.OVERVIEW.ordinal,
+                    onClick = {
+                        scope.launch { pagerState.animateScrollToPage(SettingsTab.OVERVIEW.ordinal) }
+                    },
+                    icon = MiuixIcons.Regular.Home,
+                    label = stringResource(R.string.nav_overview)
+                )
+                FloatingNavigationBarItem(
+                    selected = pagerState.currentPage == SettingsTab.CONFIG.ordinal,
+                    onClick = {
+                        scope.launch { pagerState.animateScrollToPage(SettingsTab.CONFIG.ordinal) }
+                    },
+                    icon = MiuixIcons.Regular.Settings,
+                    label = stringResource(R.string.nav_settings)
+                )
+            }
+        }
+    ) { innerPadding ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 1,
+            verticalAlignment = Alignment.Top
+        ) { page ->
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    top = innerPadding.calculateTopPadding() + 12.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 20.dp
+                )
+            ) {
+                when (SettingsTab.entries[page]) {
+                SettingsTab.OVERVIEW -> {
+                    item { SmallTitle(text = stringResource(R.string.section_home_status)) }
+                    item {
+                        HomeOverviewHero(
+                            working = resolveModuleWorking(supportState),
+                            supportLabel = supportStateLabel(context, supportState),
+                            aodEnabled = aodEnabled,
+                            lockscreenEnabled = lockscreenEnabled,
+                            systemUiVersion = capabilityReport.systemUiVersion,
+                            aodVersion = capabilityReport.aodVersion
+                        )
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_live_status)) }
+                    item {
+                        // 读取上面的 customizationDocument State:配置一变化该 item 即重绘,
+                        // 保证两个预览始终跟随当前外观设置(在"外观"编辑器里改完即生效)。
+                        val compiled = SceneCompiler.compile(customizationDocument)
+                        val previewLive = collectLiveSnapshot()
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            LiveStatusSection()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                LyricPreviewCard(
+                                    title = stringResource(R.string.label_lockscreen_preview),
+                                    profile = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
+                                    scenario = "Lockscreen · notifications",
+                                    live = previewLive,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                LyricPreviewCard(
+                                    title = stringResource(R.string.label_aod_preview),
+                                    profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
+                                    scenario = "Full AOD",
+                                    live = previewLive,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_lyric_source)) }
+                    item { LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true }) }
+                    item { SourceSetupHint() }
+                    item { SmallTitle(text = stringResource(R.string.section_runtime_status)) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                diagnosticLogging,
+                                { enabled ->
+                                    if (updateDiagnosticLogging(context, enabled)) {
+                                        diagnosticLogging = enabled
+                                    }
+                                },
+                                stringResource(R.string.label_diagnostic_logging),
+                                summary = if (BuildConfig.TRACE_LOGGING_AVAILABLE) {
+                                    stringResource(R.string.summary_diagnostic_logging_available)
+                                } else {
+                                    stringResource(R.string.summary_diagnostic_logging_unavailable)
+                                },
+                                enabled = BuildConfig.TRACE_LOGGING_AVAILABLE
+                            )
+                            ArrowPreference(
+                                title = if (supportState == XiaomiRuntimeSupportState.NO_SYSTEM_UI_REPORT ||
+                                    supportState == XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE ||
+                                    supportState == XiaomiRuntimeSupportState.EXPERIMENTAL_ELIGIBLE
+                                ) {
+                                    stringResource(R.string.action_send_compatibility_report)
+                                } else {
+                                    stringResource(R.string.action_report_problem)
+                                },
+                                onClick = onOpenDiagnostics
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.action_restart_systemui),
+                                onClick = { showRestartDialog = true }
+                            )
+                            if (experimentalEligible) {
+                                SwitchPreference(
+                                    experimentalMode,
+                                    { enabled ->
+                                        if (updateExperimentalMode(context, enabled)) {
+                                            experimentalMode = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_experimental_mode),
+                                    summary = if (experimentalMode) {
+                                        stringResource(R.string.summary_experimental_mode_on)
+                                    } else {
+                                        stringResource(R.string.summary_experimental_mode)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_permission_status)) }
+                    item {
+                        SettingsCard {
+                            PermissionStatusSection()
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_project)) }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.action_hyperglow_github),
+                                onClick = {
+                                    openExternalUrl(context, GITHUB_URL)
+                                }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.action_hyperglow_cnplus_github),
+                                onClick = {
+                                    openExternalUrl(context, GITHUB_CNPLUS_URL)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                SettingsTab.CONFIG -> {
+                    item { SmallTitle(text = stringResource(R.string.section_language)) }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = englishInterfaceLanguageLabel(context),
+                                summary = uiLanguageLabel(
+                                    context,
+                                    currentUiLanguage(context)
+                                ),
+                                onClick = { showLanguageDialog = true }
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_surfaces)) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                aodEnabled,
+                                { enabled ->
+                                    if (!aodSupported) return@SwitchPreference
+                                    if (updateCustomizationSurfaceEnabled(
+                                            context,
+                                            SceneCompiler.SURFACE_AOD,
+                                            enabled
+                                        )
+                                    ) {
+                                        aodEnabled = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_show_aod),
+                                summary = if (aodSupported) {
+                                    null
+                                } else {
+                                    stringResource(R.string.summary_show_aod_unsupported)
+                                },
+                                enabled = aodSupported
+                            )
+                            SwitchPreference(
+                                lockscreenEnabled,
+                                { enabled ->
+                                    if (!lockscreenSupported) {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.toast_lockscreen_unsupported),
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        return@SwitchPreference
+                                    }
+                                    if (updateCustomizationSurfaceEnabled(
+                                            context,
+                                            SceneCompiler.SURFACE_LOCKSCREEN,
+                                            enabled
+                                        )
+                                    ) {
+                                        lockscreenEnabled = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_show_lockscreen),
+                                summary = if (lockscreenSupported) {
+                                    null
+                                } else {
+                                    stringResource(R.string.summary_unavailable_systemui_version)
+                                },
+                                enabled = lockscreenSupported
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_appearance)) }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.title_aod_appearance),
+                                onClick = { onOpenLyricLayout(SceneCompiler.SURFACE_AOD) }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.title_lockscreen_appearance),
+                                onClick = { onOpenLyricLayout(SceneCompiler.SURFACE_LOCKSCREEN) }
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_playback_behavior)) }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_after_spotify_pauses),
+                                summary = pauseLingerLabel(context, pauseLingerMs),
+                                onClick = { showPauseLingerDialog = true },
+                                enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_aod_behavior)) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                keepAwake,
+                                { enabled ->
+                                    prefs.edit().putBoolean(AodRenderPreferences.KEEP_AWAKE, enabled).apply()
+                                    keepAwake = enabled
+                                },
+                                stringResource(R.string.setting_keep_aod_active),
+                                summary =
+                                    if (aodSupported) {
+                                        stringResource(R.string.summary_keep_aod_active)
+                                    } else {
+                                        stringResource(R.string.summary_unavailable_systemui_profile)
+                                    },
+                                enabled = aodSupported
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_keep_aod_active_for),
+                                summary = keepAwakeDurationLabel(context, keepAwakeDurationMs),
+                                onClick = { showKeepAwakeDurationDialog = true },
+                                enabled = aodSupported && keepAwake
+                            )
+                            SwitchPreference(
+                                keepAwakeUnsynced,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.KEEP_AWAKE_UNSYNCED,
+                                        enabled
+                                    ).apply()
+                                    keepAwakeUnsynced = enabled
+                                },
+                                stringResource(R.string.setting_keep_aod_unsynced),
+                                enabled = aodSupported && keepAwake
+                            )
+                            SwitchPreference(
+                                aodClockFollow,
+                                { enabled ->
+                                    if (updateAodClockFollow(context, enabled)) {
+                                        aodClockFollow = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_aod_clock_follow),
+                                summary = stringResource(R.string.summary_aod_clock_follow),
+                                enabled = aodSupported
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_aod_clock_image),
+                                summary = if (positionFollowingSupported) {
+                                    aodMovementLabel(context, positionFollowing, burnInPattern)
+                                } else {
+                                    stringResource(R.string.summary_aod_placement_unsupported)
+                                },
+                                onClick = {
+                                    if (positionFollowingSupported) {
+                                        showBurnInPatternDialog = true
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.summary_aod_placement_unsupported),
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                },
+                                enabled = aodSupported && positionFollowingSupported
+                            )
+                            if (aodSupported && positionFollowingSupported && positionFollowing &&
+                                !burnInPattern.isStaticClockPlacement()
+                            ) {
+                                ArrowPreference(
+                                    title = stringResource(R.string.setting_movement_interval),
+                                    summary = burnInIntervalLabel(context, burnInIntervalMs),
+                                    onClick = { showBurnInIntervalDialog = true }
+                                )
+                            }
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_lockscreen_behavior)) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                lockscreenKeepAwake,
+                                { enabled ->
+                                    if (updateLockscreenKeepAwake(context, enabled)) {
+                                        lockscreenKeepAwake = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_keep_lockscreen_awake),
+                                summary =
+                                    stringResource(R.string.summary_keep_lockscreen_awake),
+                                enabled = lockscreenSupported && lockscreenEnabled
+                            )
+                            SwitchPreference(
+                                suppressLockscreenEditorLongPress,
+                                { enabled ->
+                                    if (updateLockscreenEditorLongPress(context, enabled)) {
+                                        suppressLockscreenEditorLongPress = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_block_lockscreen_customization),
+                                summary = if (lockscreenEditorGestureSupported) {
+                                    stringResource(R.string.summary_block_lockscreen_customization)
+                                } else {
+                                    stringResource(R.string.summary_unavailable_systemui_version)
+                                },
+                                enabled = lockscreenEditorGestureSupported
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_wake_gestures)) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                raiseToAod,
+                                { enabled ->
+                                    if (updateRaiseToAod(context, enabled)) {
+                                        raiseToAod = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_raise_to_aod),
+                                summary = if (raiseToAodSupported) {
+                                    stringResource(R.string.summary_raise_to_aod)
+                                } else {
+                                    stringResource(R.string.summary_unavailable_systemui_version)
+                                },
+                                enabled = raiseToAodSupported
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_system_integration)) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                persistentNotification,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.PERSISTENT_NOTIFICATION,
+                                        enabled
+                                    ).apply()
+                                    persistentNotification = enabled
+                                    // 重新触发前台服务,让常驻通知按新开关显示/隐藏
+                                    runCatching {
+                                        context.startService(
+                                            Intent(context, AodLyricBridgeService::class.java)
+                                        )
+                                    }
+                                },
+                                stringResource(R.string.setting_foreground_notification),
+                                summary = stringResource(R.string.summary_foreground_notification)
+                            )
+                            SwitchPreference(
+                                hideBackgroundCard,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.HIDE_BACKGROUND_CARD,
+                                        enabled
+                                    ).apply()
+                                    hideBackgroundCard = enabled
+                                    applyHideFromRecents(context, enabled)
+                                },
+                                stringResource(R.string.setting_hide_background_card),
+                                summary = stringResource(R.string.summary_hide_background_card)
+                            )
+                            SwitchPreference(
+                                hideLauncherIcon,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.HIDE_LAUNCHER_ICON,
+                                        enabled
+                                    ).apply()
+                                    hideLauncherIcon = enabled
+                                    applyHideLauncherIcon(context, enabled)
+                                },
+                                stringResource(R.string.setting_hide_launcher_icon),
+                                summary = stringResource(R.string.summary_hide_launcher_icon)
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_config_backup)) }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_export_config),
+                                summary = stringResource(R.string.summary_export_config),
+                                onClick = { exportConfigLauncher.launch("hyperglow-config.json") }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_import_config),
+                                summary = stringResource(R.string.summary_import_config),
+                                onClick = {
+                                    importConfigLauncher.launch(
+                                        arrayOf("application/json", "text/plain", "application/octet-stream")
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+
+                }
+            }
+        }
+    }
+
+    if (showLanguageDialog) {
+        val currentLanguage = currentUiLanguage(context)
+        WindowDialog(
+            title = englishInterfaceLanguageLabel(context),
+            summary = stringResource(R.string.dialog_language_summary),
+            show = true,
+            onDismissRequest = { showLanguageDialog = false }
+        ) {
+            Column {
+                UiLanguage.entries.forEach { language ->
+                    RadioButtonPreference(
+                        uiLanguageLabel(context, language),
+                        currentLanguage == language,
+                        {
+                            showLanguageDialog = false
+                            setUiLanguage(context, language)
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showSourceDialog) {
+        LyricSourcePickerDialog(onDismiss = { showSourceDialog = false })
+    }
+
+    if (showRestartDialog) {
+        WindowDialog(
+            title = stringResource(R.string.dialog_restart_systemui_title),
+            summary =
+                stringResource(R.string.dialog_restart_systemui_summary),
+            show = true,
+            onDismissRequest = { showRestartDialog = false }
+        ) {
+            androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = { showRestartDialog = false }
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_restart),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = {
+                        showRestartDialog = false
+                        scope.launch { showRestartResult(ShellUtils.restartSystemUI()) }
+                    }
+                )
+            }
+        }
+    }
+
+    if (showBurnInPatternDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_aod_clock_image),
+            show = true,
+            onDismissRequest = { showBurnInPatternDialog = false }
+        ) {
+            Column {
+                RadioButtonPreference(
+                    stringResource(R.string.option_follow_xiaomi),
+                    !positionFollowing,
+                    {
+                        prefs.edit().putBoolean(
+                            AodRenderPreferences.EXPERIMENTAL_POSITION_FOLLOWING,
+                            false
+                        ).apply()
+                        positionFollowing = false
+                        showBurnInPatternDialog = false
+                    }
+                )
+                BURN_IN_PATTERNS.forEach { value ->
+                    RadioButtonPreference(
+                        burnInPatternLabel(context, value),
+                        positionFollowing && burnInPattern == value,
+                        {
+                            prefs.edit()
+                                .putBoolean(
+                                    AodRenderPreferences.EXPERIMENTAL_POSITION_FOLLOWING,
+                                    true
+                                )
+                                .putString(AodRenderPreferences.BURN_IN_PATTERN, value)
+                                .apply()
+                            positionFollowing = true
+                            burnInPattern = value
+                            showBurnInPatternDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showPauseLingerDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_after_spotify_pauses),
+            summary = stringResource(R.string.dialog_pause_summary),
+            show = true,
+            onDismissRequest = { showPauseLingerDialog = false }
+        ) {
+            Column {
+                PAUSE_LINGER_OPTIONS.forEach { value ->
+                    RadioButtonPreference(
+                        pauseLingerLabel(context, value),
+                        pauseLingerMs == value,
+                        {
+                            if (updatePauseLinger(context, value)) pauseLingerMs = value
+                            showPauseLingerDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showKeepAwakeDurationDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_keep_aod_active_for),
+            summary = stringResource(R.string.dialog_keep_aod_duration_summary),
+            show = true,
+            onDismissRequest = { showKeepAwakeDurationDialog = false }
+        ) {
+            Column {
+                KEEP_AWAKE_DURATIONS.forEach { value ->
+                    RadioButtonPreference(
+                        keepAwakeDurationLabel(context, value),
+                        keepAwakeDurationMs == value,
+                        {
+                            if (updateKeepAwakeDuration(context, value)) keepAwakeDurationMs = value
+                            showKeepAwakeDurationDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showBurnInIntervalDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_movement_interval),
+            show = true,
+            onDismissRequest = { showBurnInIntervalDialog = false }
+        ) {
+            Column {
+                BURN_IN_INTERVALS.forEach { value ->
+                    RadioButtonPreference(
+                        burnInIntervalLabel(context, value),
+                        burnInIntervalMs == value,
+                        {
+                            prefs.edit().putLong(AodRenderPreferences.BURN_IN_INTERVAL_MS, value).apply()
+                            burnInIntervalMs = value
+                            showBurnInIntervalDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SettingsCard(content: @Composable () -> Unit) {
+    Card(
+        modifier = Modifier
+            .padding(horizontal = 12.dp)
+            .padding(bottom = 8.dp)
+            .fillMaxWidth()
+    ) {
+        Column { content() }
+    }
+}
+
+private fun String.isStaticClockPlacement(): Boolean =
+    this == "static_top" || this == "static_bottom"
+
+private enum class SettingsTab {
+    OVERVIEW,
+    CONFIG
+}
+
+private const val DIAGNOSTICS_DESTINATION = "__diagnostics__"
+private const val GITHUB_URL = "https://github.com/amarinne/hyperglow"
+private const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/hyperglow_CNplus"
+private const val SPICY_EX_GITHUB_URL = "https://github.com/amarinne/spicy-ex/releases"
+
+private fun currentUiLanguage(context: android.content.Context): UiLanguage {
+    val tags = context.getSystemService(LocaleManager::class.java)
+        ?.applicationLocales
+        ?.toLanguageTags()
+        .orEmpty()
+    return resolveUiLanguage(tags)
+}
+
+private fun setUiLanguage(context: android.content.Context, language: UiLanguage) {
+    context.getSystemService(LocaleManager::class.java)?.applicationLocales = when (language) {
+        UiLanguage.SYSTEM -> LocaleList.getEmptyLocaleList()
+        UiLanguage.ENGLISH -> LocaleList.forLanguageTags("en")
+        UiLanguage.SIMPLIFIED_CHINESE -> LocaleList.forLanguageTags("zh-CN")
+    }
+}
+
+private fun uiLanguageLabel(context: android.content.Context, language: UiLanguage): String =
+    context.getString(
+        when (language) {
+            UiLanguage.SYSTEM -> R.string.language_system_default
+            UiLanguage.ENGLISH -> R.string.language_english
+            UiLanguage.SIMPLIFIED_CHINESE -> R.string.language_simplified_chinese
+        }
+    )
+
+private fun englishInterfaceLanguageLabel(context: android.content.Context): String = runCatching {
+    val configuration = Configuration(context.resources.configuration)
+    configuration.setLocales(LocaleList(Locale.ENGLISH))
+    context.createConfigurationContext(configuration)
+        .getString(R.string.setting_interface_language)
+}.getOrElse {
+    context.getString(R.string.setting_interface_language)
+}
+
+private fun openExternalUrl(context: android.content.Context, url: String) {
+    val opened = runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }.isSuccess
+    if (!opened) {
+        Toast.makeText(context, context.getString(R.string.toast_no_link_handler), Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun queryLatestReleaseTag(): String? {
+    var connection: HttpURLConnection? = null
+    return try {
+        val url = URL("https://api.github.com/repos/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest")
+        connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+            val response = connection.inputStream.bufferedReader().readText()
+            val json = Json.parseToJsonElement(response)
+            json.jsonObject["tag_name"]?.jsonPrimitive?.content
+        } else null
+    } catch (e: Exception) {
+        AppLog.e("MainActivity", "queryLatestReleaseTag failed", e)
+        null
+    } finally {
+        connection?.disconnect()
+    }
+}
+
+private fun compareVersions(v1: String, v2: String): Int {
+    val a = v1.trim().split(".").mapNotNull { it.toIntOrNull() }
+    val b = v2.trim().split(".").mapNotNull { it.toIntOrNull() }
+    val n = maxOf(a.size, b.size)
+    for (i in 0 until n) {
+        val x = a.getOrElse(i) { 0 }
+        val y = b.getOrElse(i) { 0 }
+        if (x != y) return if (x > y) 1 else -1
+    }
+    return 0
+}
+
+private fun supportStateLabel(
+    context: android.content.Context,
+    state: XiaomiRuntimeSupportState
+): String = context.getString(
+    when (state) {
+        XiaomiRuntimeSupportState.NO_SYSTEM_UI_REPORT -> R.string.status_no_systemui_report
+        XiaomiRuntimeSupportState.VERIFIED_PROFILE -> R.string.status_verified_profile
+        XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ->
+            R.string.status_verified_profile_missing_symbols
+        XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE -> R.string.status_unsupported_profile
+        XiaomiRuntimeSupportState.EXPERIMENTAL_ELIGIBLE -> R.string.status_experimental_eligible
+        XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE -> R.string.status_experimental_active
+    }
+)
+
+private fun burnInPatternLabel(context: android.content.Context, value: String): String =
+    context.getString(
+        when (value) {
+            "static_top" -> R.string.pattern_keep_top
+            "six_zone" -> R.string.pattern_six_positions
+            "four_corner" -> R.string.pattern_four_corners
+            "vertical_swap" -> R.string.pattern_top_bottom
+            else -> R.string.pattern_keep_bottom
+        }
+    )
+
+private fun aodMovementLabel(
+    context: android.content.Context,
+    positionFollowing: Boolean,
+    pattern: String
+): String = if (positionFollowing) {
+    burnInPatternLabel(context, pattern)
+} else {
+    context.getString(R.string.option_follow_xiaomi)
+}
+
+private fun burnInIntervalLabel(context: android.content.Context, value: Long): String =
+    context.getString(
+        when (value) {
+            30_000L -> R.string.duration_30_seconds
+            120_000L -> R.string.duration_2_minutes
+            300_000L -> R.string.duration_5_minutes
+            else -> R.string.duration_1_minute
+        }
+    )
+
+private fun pauseLingerLabel(context: android.content.Context, value: Long): String =
+    context.getString(
+        when (value) {
+            0L -> R.string.duration_clear_immediately
+            10_000L -> R.string.duration_10_seconds
+            30_000L -> R.string.duration_30_seconds
+            -1L -> R.string.duration_keep_indefinitely
+            else -> R.string.duration_5_seconds
+        }
+    )
+
+private val BURN_IN_PATTERNS = listOf(
+    "static_top",
+    "static_bottom",
+    "six_zone",
+    "four_corner",
+    "vertical_swap"
+)
+
+private fun keepAwakeDurationLabel(context: android.content.Context, value: Long): String =
+    context.getString(
+        when (value) {
+            300_000L -> R.string.duration_5_minutes
+            600_000L -> R.string.duration_10_minutes
+            1_800_000L -> R.string.duration_30_minutes
+            3_600_000L -> R.string.duration_1_hour
+            7_200_000L -> R.string.duration_2_hours
+            else -> R.string.duration_indefinitely
+        }
+    )
+
+private val KEEP_AWAKE_DURATIONS = listOf(
+    300_000L,
+    600_000L,
+    1_800_000L,
+    3_600_000L,
+    7_200_000L,
+    -1L
+)
+
+private val PAUSE_LINGER_OPTIONS = listOf(0L, 5_000L, 10_000L, 30_000L, -1L)
+
+private val BURN_IN_INTERVALS = listOf(30_000L, 60_000L, 120_000L, 300_000L)
+
+@Composable
+private fun LyricLayoutScreen(
+    initialSurface: String,
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    var editorState by remember {
+        mutableStateOf(
+            CustomizationEditorState(
+                CustomizationRepository.loadDocument(context),
+                initialSurface
+            )
+        )
+    }
+    var activeChoice by remember { mutableStateOf<AodChoice?>(null) }
+    var showResetDialog by remember { mutableStateOf(false) }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val raw = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val bytes = input.readNBytes(SceneCompiler.MAX_CONFIG_BYTES + 1)
+                if (bytes.size > SceneCompiler.MAX_CONFIG_BYTES) {
+                    error("Appearance file too large")
+                }
+                bytes.toString(Charsets.UTF_8)
+            } ?: error("Appearance file unavailable")
+        }.getOrNull()
+        val imported = raw != null && CustomizationRepository.importDocument(context, raw)
+        if (imported) {
+            val document = CustomizationRepository.loadDocument(context)
+            syncCustomizationRuntime(context, document)
+            editorState = CustomizationEditorState(document, editorState.selectedSurface)
+        }
+        Toast.makeText(
+            context,
+            if (imported) {
+                context.getString(R.string.toast_appearance_imported)
+            } else {
+                context.getString(R.string.toast_appearance_invalid)
+            },
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val written = runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                it.write(CustomizationRepository.exportDocument(context))
+            } ?: error("Appearance file unavailable")
+        }.isSuccess
+        Toast.makeText(
+            context,
+            context.getString(
+                if (written) R.string.toast_appearance_exported
+                else R.string.toast_appearance_export_failed
+            ),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    BackHandler(enabled = activeChoice == null && !showResetDialog, onBack = onBack)
+
+    fun saveEditor(next: CustomizationEditorState): Boolean {
+        if (!CustomizationRepository.saveDocument(context, next.document)) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.toast_appearance_save_failed),
+                Toast.LENGTH_LONG
+            ).show()
+            return false
+        }
+        val document = CustomizationRepository.loadDocument(context)
+        syncCustomizationRuntime(context, document)
+        editorState = CustomizationEditorState(
+            document,
+            next.selectedSurface
+        )
+        return true
+    }
+
+    fun updateSelected(updateProfile: (SurfaceProfile) -> SurfaceProfile) {
+        saveEditor(editorState.updateSelected(updateProfile))
+    }
+
+    LaunchedEffect(Unit) {
+        if (editorState.document.linkSurfaces) {
+            saveEditor(editorState.setLinkSurfaces(false))
+        }
+    }
+
+    fun openChoice(
+        kind: AodChoiceKind,
+        values: List<String>,
+        current: String,
+        onSelect: (String) -> Unit
+    ) {
+        activeChoice = AodChoice(kind, values, current, onSelect)
+    }
+
+    val selectedProfile = editorState.document.profiles[editorState.selectedSurface] ?: SurfaceProfile()
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = if (editorState.selectedSurface == SceneCompiler.SURFACE_AOD) {
+                    stringResource(R.string.title_aod_appearance)
+                } else {
+                    stringResource(R.string.title_lockscreen_appearance)
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Text("←")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding() + 12.dp,
+                bottom = innerPadding.calculateBottomPadding() + 20.dp
+            )
+        ) {
+            item { SmallTitle(text = stringResource(R.string.section_placement)) }
+            item {
+                SettingsCard {
+                    AodChoiceRow(AodChoiceKind.POSITION, selectedProfile.anchor) {
+                        openChoice(
+                            AodChoiceKind.POSITION,
+                            listOf(
+                                "below_stock_clock",
+                                "screen_center",
+                                "screen_top_safe",
+                                "screen_bottom_safe",
+                                "custom_vertical_bias"
+                            ),
+                            selectedProfile.anchor
+                        ) { value -> updateSelected { it.copy(anchor = value) } }
+                    }
+                    AodChoiceRow(AodChoiceKind.WIDTH, selectedProfile.widthFraction.toString()) {
+                        openChoice(
+                            AodChoiceKind.WIDTH,
+                            listOf("0.7", "0.88", "1.0"),
+                            selectedProfile.widthFraction.toString()
+                        ) { value -> updateSelected { it.copy(widthFraction = value.toFloat()) } }
+                    }
+                    AodChoiceRow(
+                        AodChoiceKind.HEIGHT,
+                        selectedProfile.maxHeightFraction.toString()
+                    ) {
+                        openChoice(
+                            AodChoiceKind.HEIGHT,
+                            heightChoices(editorState.selectedSurface),
+                            selectedProfile.maxHeightFraction.toString()
+                        ) { value -> updateSelected { it.copy(maxHeightFraction = value.toFloat()) } }
+                    }
+                    SliderPreference(
+                        value = selectedProfile.verticalBias * 100f,
+                        onValueChange = { pct ->
+                            updateSelected {
+                                it.copy(
+                                    anchor = "custom_vertical_bias",
+                                    verticalBias = (pct / 100f).coerceIn(0f, 1f)
+                                )
+                            }
+                        },
+                        title = stringResource(R.string.setting_custom_position),
+                        summary = stringResource(R.string.summary_custom_position),
+                        valueText = "${(selectedProfile.verticalBias * 100).roundToInt()}%",
+                        valueRange = 0f..100f,
+                        steps = 20
+                    )
+                    AodChoiceRow(AodChoiceKind.OVERLAP, selectedProfile.collisionPolicy) {
+                        openChoice(
+                            AodChoiceKind.OVERLAP,
+                            listOf("avoid", "behind_system", "hide_optional", "hide_scene"),
+                            selectedProfile.collisionPolicy
+                        ) { value -> updateSelected { it.copy(collisionPolicy = value) } }
+                    }
+                }
+            }
+            item { SmallTitle(text = stringResource(R.string.section_text_language)) }
+            item {
+                SettingsCard {
+                    AodChoiceRow(AodChoiceKind.ALIGNMENT, selectedProfile.alignment) {
+                        openChoice(
+                            AodChoiceKind.ALIGNMENT,
+                            listOf("auto", "start", "center", "end"),
+                            selectedProfile.alignment
+                        ) { value -> updateSelected { it.copy(alignment = value) } }
+                    }
+                    AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
+                        openChoice(
+                            AodChoiceKind.SECONDARY_TEXT,
+                            listOf("Main only", "Transliteration", "Translation", "Both"),
+                            selectedProfile.secondaryMode
+                        ) { value -> updateSelected { it.copy(secondaryMode = value) } }
+                    }
+                    if (selectedProfile.secondaryMode != "Main only") {
+                        SwitchPreference(
+                            selectedProfile.secondaryTextBright,
+                            { bright -> updateSelected { it.copy(secondaryTextBright = bright) } },
+                            stringResource(R.string.setting_bright_secondary_text)
+                        )
+                    }
+                    SwitchPreference(
+                        selectedProfile.rubyVisible,
+                        { visible -> updateSelected { it.copy(rubyVisible = visible) } },
+                        stringResource(R.string.setting_show_furigana)
+                    )
+                    AodChoiceRow(AodChoiceKind.LONG_LINES, selectedProfile.overflow) {
+                        openChoice(
+                            AodChoiceKind.LONG_LINES,
+                            listOf("Wrap", "Clip"),
+                            selectedProfile.overflow
+                        ) { value -> updateSelected { it.copy(overflow = value) } }
+                    }
+                    if (selectedProfile.overflow == "Wrap") {
+                        AodChoiceRow(AodChoiceKind.LYRIC_LINES, selectedProfile.lyricLineLimit.toString()) {
+                            openChoice(
+                                AodChoiceKind.LYRIC_LINES,
+                                listOf("1", "2", "3", "4", "5", "0"),
+                                selectedProfile.lyricLineLimit.toString()
+                            ) { value ->
+                                updateSelected { it.copy(lyricLineLimit = value.toInt()) }
+                            }
+                        }
+                    }
+                    SwitchPreference(
+                        selectedProfile.adaptiveSectioning,
+                        { enabled -> updateSelected { it.copy(adaptiveSectioning = enabled) } },
+                        stringResource(R.string.setting_keep_phrases_together)
+                    )
+                    SwitchPreference(
+                        selectedProfile.showNextLine,
+                        { enabled -> updateSelected { it.copy(showNextLine = enabled) } },
+                        stringResource(R.string.setting_show_next_line)
+                    )
+                    SwitchPreference(
+                        selectedProfile.metadataVisible,
+                        { visible -> updateSelected { withMetadataVisible(it, visible) } },
+                        stringResource(R.string.setting_show_song_info)
+                    )
+                    if (selectedProfile.metadataVisible) {
+                        AodChoiceRow(AodChoiceKind.SONG_INFO_POSITION, selectedProfile.metadataAnchor) {
+                            openChoice(
+                                AodChoiceKind.SONG_INFO_POSITION,
+                                listOf("top", "bottom"),
+                                selectedProfile.metadataAnchor
+                            ) { value -> updateSelected { it.copy(metadataAnchor = value) } }
+                        }
+                        TextSizePreference(
+                            title = stringResource(R.string.setting_song_info_size),
+                            percent = selectedProfile.metadataSizePercent.coerceIn(50, 200),
+                            onDecrease = {
+                                updateSelected {
+                                    it.copy(
+                                        metadataSizePercent =
+                                            (it.metadataSizePercent - 5).coerceIn(50, 200)
+                                    )
+                                }
+                            },
+                            onIncrease = {
+                                updateSelected {
+                                    it.copy(
+                                        metadataSizePercent =
+                                            (it.metadataSizePercent + 5).coerceIn(50, 200)
+                                    )
+                                }
+                            }
+                        )
+                    }
+                    AodChoiceRow(AodChoiceKind.TEXT_WEIGHT, selectedProfile.weight) {
+                        openChoice(
+                            AodChoiceKind.TEXT_WEIGHT,
+                            listOf("Regular", "Medium", "Bold"),
+                            selectedProfile.weight
+                        ) { value -> updateSelected { it.copy(weight = value) } }
+                    }
+                    AodChoiceRow(AodChoiceKind.TEXT_SIZE, selectedProfile.textSize) {
+                        openChoice(
+                            AodChoiceKind.TEXT_SIZE,
+                            listOf("small", "normal", "large", "xlarge", "custom"),
+                            selectedProfile.textSize
+                        ) { value -> updateSelected { it.copy(textSize = value) } }
+                    }
+                    TextSizePreference(
+                        title = stringResource(R.string.setting_lyric_size),
+                        percent = effectiveTextSizePercent(selectedProfile),
+                        onDecrease = {
+                            updateSelected {
+                                it.copy(
+                                    textSize = "custom",
+                                    textSizeCustom = (effectiveTextSizePercent(it) - 5).coerceIn(50, 200)
+                                )
+                            }
+                        },
+                        onIncrease = {
+                            updateSelected {
+                                it.copy(
+                                    textSize = "custom",
+                                    textSizeCustom = (effectiveTextSizePercent(it) + 5).coerceIn(50, 200)
+                                )
+                            }
+                        }
+                    )
+                    AodChoiceRow(AodChoiceKind.FONT, selectedProfile.fontFamily) {
+                        openChoice(
+                            AodChoiceKind.FONT,
+                            listOf("noto", "spotify", "apple"),
+                            selectedProfile.fontFamily
+                        ) { value -> updateSelected { it.copy(fontFamily = value) } }
+                    }
+                }
+            }
+            item { SmallTitle(text = stringResource(R.string.section_effects)) }
+            item {
+                SettingsCard {
+                    AodChoiceRow(AodChoiceKind.WORD_ANIMATION, selectedProfile.animation) {
+                        openChoice(
+                            AodChoiceKind.WORD_ANIMATION,
+                            listOf("Minimal", "Gradient"),
+                            selectedProfile.animation
+                        ) { value -> updateSelected { it.copy(animation = value) } }
+                    }
+                    AodChoiceRow(AodChoiceKind.GLOW, selectedProfile.glow) {
+                        openChoice(AodChoiceKind.GLOW, listOf("Off", "On"), selectedProfile.glow) { value ->
+                            updateSelected { it.copy(glow = value) }
+                        }
+                    }
+                    AodChoiceRow(AodChoiceKind.LINE_PROGRESS, selectedProfile.lineSyncFillMode) {
+                        openChoice(
+                            AodChoiceKind.LINE_PROGRESS,
+                            listOf(
+                                "None",
+                                "Top to bottom",
+                                "Left to right (main only)",
+                                "Left to right (whole block)"
+                            ),
+                            selectedProfile.lineSyncFillMode
+                        ) { value -> updateSelected { it.copy(lineSyncFillMode = value) } }
+                    }
+                    AodChoiceRow(AodChoiceKind.TEXT_BRIGHTNESS, palettePresetName(selectedProfile.palette)) {
+                        openChoice(
+                            AodChoiceKind.TEXT_BRIGHTNESS,
+                            listOf("default", "dimmed"),
+                            palettePresetName(selectedProfile.palette)
+                        ) { value -> updateSelected { it.copy(palette = palettePreset(value)) } }
+                    }
+                    AodChoiceRow(
+                        AodChoiceKind.TRANSITION_SPEED,
+                        selectedProfile.transition.durationMs.toString()
+                    ) {
+                        openChoice(
+                            AodChoiceKind.TRANSITION_SPEED,
+                            listOf("200", "320", "500"),
+                            selectedProfile.transition.durationMs.toString()
+                        ) { value ->
+                            updateSelected {
+                                it.copy(transition = it.transition.copy(durationMs = value.toInt()))
+                            }
+                        }
+                    }
+                }
+            }
+            if (editorState.selectedSurface == SceneCompiler.SURFACE_LOCKSCREEN) {
+                item { SmallTitle(text = stringResource(R.string.section_lockscreen_card)) }
+                item {
+                    SettingsCard {
+                        SwitchPreference(
+                            selectedProfile.backgroundStyle != "none",
+                            { enabled ->
+                                updateSelected {
+                                    it.copy(backgroundStyle = if (enabled) "card" else "none")
+                                }
+                            },
+                            stringResource(R.string.setting_show_lyric_card)
+                        )
+                        if (selectedProfile.backgroundStyle == "card") {
+                            AodChoiceRow(AodChoiceKind.CARD_COLOR, selectedProfile.cardColor) {
+                                openChoice(
+                                    AodChoiceKind.CARD_COLOR,
+                                    com.eza.hyperglow.customization.CARD_COLOR_VALUES.toList(),
+                                    selectedProfile.cardColor
+                                ) { value -> updateSelected { it.copy(cardColor = value) } }
+                            }
+                            SliderPreference(
+                                value = selectedProfile.cardAlpha.toFloat(),
+                                onValueChange = { value ->
+                                    updateSelected {
+                                        it.copy(cardAlpha = value.roundToInt())
+                                    }
+                                },
+                                title = stringResource(R.string.setting_card_transparency),
+                                summary = stringResource(R.string.summary_card_transparency),
+                                valueText = "${selectedProfile.cardAlpha}%",
+                                valueRange = 0f..100f,
+                                steps = 19
+                            )
+                        }
+                        val progressEnabled = selectedProfile.widgets.any { it.type == "media_progress" }
+                        SwitchPreference(
+                            progressEnabled,
+                            { enabled ->
+                                updateSelected { profile ->
+                                    val widgets = profile.widgets.filterNot {
+                                        it.type == "media_progress"
+                                    }.toMutableList()
+                                    if (enabled) {
+                                        widgets += com.eza.hyperglow.customization.WidgetSpec(
+                                            "media_progress",
+                                            optional = true
+                                        )
+                                    }
+                                    profile.copy(widgets = widgets)
+                                }
+                            },
+                            stringResource(R.string.setting_show_playback_progress),
+                            summary = stringResource(R.string.summary_show_playback_progress)
+                        )
+                    }
+                }
+            }
+            item { SmallTitle(text = stringResource(R.string.section_both_surfaces)) }
+            item {
+                Card(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                    Column {
+                        ArrowPreference(
+                            title = stringResource(R.string.action_import_appearance),
+                            onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) }
+                        )
+                        ArrowPreference(
+                            title = stringResource(R.string.action_export_appearance),
+                            onClick = { exportLauncher.launch("hyperglow-profile.json") }
+                        )
+                        ArrowPreference(
+                            title = stringResource(R.string.action_reset_surfaces),
+                            onClick = { showResetDialog = true }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    activeChoice?.let { selected ->
+        WindowDialog(
+            title = stringResource(selected.kind.titleRes),
+            show = true,
+            onDismissRequest = { activeChoice = null }
+        ) {
+            Column {
+                selected.values.forEach { value ->
+                    RadioButtonPreference(
+                        choiceDisplayLabel(context, selected.kind, value),
+                        selected.current == value,
+                        {
+                            selected.onSelect(value)
+                            activeChoice = null
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showResetDialog) {
+        WindowDialog(
+            title = stringResource(R.string.dialog_reset_title),
+            summary =
+                stringResource(R.string.dialog_reset_summary),
+            show = true,
+            onDismissRequest = { showResetDialog = false }
+        ) {
+            androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = { showResetDialog = false }
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_restore),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = {
+                        showResetDialog = false
+                        val reset = CustomizationRepository.reset(context)
+                        if (reset) {
+                            val document = CustomizationRepository.loadDocument(context)
+                            syncCustomizationRuntime(context, document)
+                            editorState = CustomizationEditorState(
+                                document,
+                                editorState.selectedSurface
+                            )
+                        }
+                        Toast.makeText(
+                            context,
+                            context.getString(
+                                if (reset) R.string.toast_settings_restored
+                                else R.string.toast_settings_restore_failed
+                            ),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                )
+            }
+        }
+    }
+}
+
+internal fun resolvePreviewPlacement(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    scenario: String,
+    width: Float,
+    height: Float
+): ResolvedPlacement {
+    val environment = previewEnvironment(scenario, width, height)
+    val metadataHeight = if (profile.metadataVisible &&
+        profile.widgets.any { it.type == "metadata" }
+    ) {
+        height * 0.10f *
+            (metadataWidgetHeightDp(profile.metadataSizePercent) / metadataWidgetHeightDp(100))
+    } else 0f
+    val progressHeight = if (profile.widgets.any { it.type == "media_progress" }) {
+        height * 0.05f
+    } else {
+        0f
+    }
+    val desiredHeight = height * profile.maxHeightFraction
+    val minimumLyricHeight = height * 0.22f
+    val measurements = profile.widgets.mapNotNull { widget ->
+        when (widget.type) {
+            "lyrics" -> WidgetMeasurement(
+                widget,
+                (desiredHeight - metadataHeight - progressHeight)
+                    .coerceAtLeast(minimumLyricHeight)
+            )
+            "metadata" -> WidgetMeasurement(widget, metadataHeight)
+            "media_progress" -> WidgetMeasurement(widget, progressHeight)
+            else -> null
+        }
+    }
+    return PlacementEngine.resolve(profile, environment, measurements, minimumLyricHeight)
+}
+
+internal fun previewEnvironment(
+    scenario: String,
+    width: Float,
+    height: Float
+): PlacementEnvironment = PlacementEnvironment(
+    safeCanvas = PlacementRect(0f, 0f, width, height),
+    stockClockBottom = when (scenario) {
+        "Full AOD" -> height * 0.18f
+        "Normal AOD", "FOD safe region" -> height * 0.34f
+        else -> height * 0.26f
+    },
+    bottomReserveTop = when (scenario) {
+        "FOD safe region" -> height * 0.70f
+        else -> height * 0.90f
+    },
+    notificationTop = if (scenario == "Lockscreen · notifications") height * 0.62f else null
+)
+
+/**
+ * Demo snapshot that cycles through a few sample lines every couple of seconds, so the home
+ * preview visibly updates even when no live lyric source is connected. When a real producer
+ * starts feeding `arbiter.active`, the preview switches to the live snapshot instead.
+ */
+@Composable
+private fun collectDemoSnapshot(scenario: String): LyricSnapshot {
+    var index by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(DEMO_LINE_SWITCH_MS)
+            index = (index + 1) % DEMO_LINES.size
+        }
+    }
+    val line = DEMO_LINES[index]
+    return LyricSnapshot(
+        revision = index.toLong(),
+        trackGeneration = 1,
+        updatedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
+        visible = true,
+        original = line.original,
+        romanized = line.romanized,
+        translated = line.translated,
+        metadata = "蝴蝶 · 洛天依",
+        lineLevelSync = true,
+        lineStartMs = 0,
+        lineEndMs = DEMO_LINE_SWITCH_MS,
+        durationMs = DEMO_LINES.size * DEMO_LINE_SWITCH_MS,
+        positionMs = ((index * DEMO_LINE_SWITCH_MS).toFloat()).toLong(),
+        sampledAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
+        words = emptyList(),
+        ruby = if (scenario == "Long/ruby/translated") {
+            listOf(LyricRuby(0, 3, "kore wa"))
+        } else {
+            emptyList()
+        }
+    )
+}
+
+private class DemoLine(val original: String, val romanized: String, val translated: String)
+
+private val DEMO_LINES = listOf(
+    DemoLine(
+        "你说你来到这世界的那天 神给了每个人快乐入场券",
+        "nǐ shuō nǐ lái dào zhè shìjiè de nà tiān",
+        "You said the day you came to this world, heaven gave everyone a ticket to joy"
+    ),
+    DemoLine(
+        "那一只蝴蝶 拼了命破茧 却没有漂亮的鳞片",
+        "nà yī zhī húdié pīn le mìng pò jiǎn",
+        "That butterfly bursts its cocoon with all its might, yet bears no pretty scales"
+    ),
+    DemoLine(
+        "走吧 就算我们无法让大雨停下",
+        "zǒu ba jiùsuàn wǒmen wúfǎ ràng dàyǔ tíng xià",
+        "Let's go, even if we can't make the heavy rain stop"
+    ),
+    DemoLine(
+        "你我生来时就注定 天真而伟大",
+        "nǐ wǒ shēnglái shí jiù zhùdìng tiānzhēn ér wěidà",
+        "You and I are destined from birth to be innocent and great"
+    )
+)
+
+/** How long each demo line stays on screen before cycling to the next. */
+private const val DEMO_LINE_SWITCH_MS = 2_500L
+
+@Composable
+private fun AodChoiceRow(kind: AodChoiceKind, value: String, onClick: () -> Unit) {
+    val context = LocalContext.current
+    ArrowPreference(
+        title = stringResource(kind.titleRes),
+        summary = choiceDisplayLabel(context, kind, value),
+        onClick = onClick
+    )
+}
+
+@Composable
+private fun TextSizePreference(
+    title: String,
+    percent: Int,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit
+) {
+    BasicComponent(
+        title = title,
+        endActions = {
+            IconButton(
+                onClick = onDecrease,
+                enabled = percent > 50,
+                backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+                cornerRadius = 24.dp,
+                minHeight = 48.dp,
+                minWidth = 48.dp
+            ) {
+                Text("−", fontSize = 24.sp)
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "$percent%",
+                modifier = Modifier
+                    .width(64.dp)
+                    .align(Alignment.CenterVertically),
+                color = MiuixTheme.colorScheme.primary,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.width(12.dp))
+            IconButton(
+                onClick = onIncrease,
+                enabled = percent < 200,
+                backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+                cornerRadius = 24.dp,
+                minHeight = 48.dp,
+                minWidth = 48.dp
+            ) {
+                Text("+", fontSize = 28.sp)
+            }
+        }
+    )
+}
+
+private fun effectiveTextSizePercent(profile: SurfaceProfile): Int = when (profile.textSize) {
+    "small" -> 90
+    "large" -> 120
+    "xlarge" -> 150
+    "custom" -> profile.textSizeCustom.coerceIn(50, 200)
+    else -> 100
+}
+
+/**
+ * Discrete lyric-block height choices (as `maxHeightFraction` fractions). AOD clamps to 0.5,
+ * lockscreen to 0.8 (see [com.eza.hyperglow.customization.SceneCompiler]), so the offered
+ * ranges differ per surface.
+ */
+private fun heightChoices(surface: String): List<String> =
+    if (surface == SceneCompiler.SURFACE_AOD) {
+        listOf("0.3", "0.4", "0.5")
+    } else {
+        listOf("0.4", "0.5", "0.6", "0.7")
+    }
+
+private fun choiceDisplayLabel(
+    context: android.content.Context,
+    kind: AodChoiceKind,
+    value: String
+): String = when (kind) {
+    AodChoiceKind.POSITION -> context.getString(when (value) {
+        "below_stock_clock" -> R.string.option_below_clock
+        "screen_center" -> R.string.option_screen_center
+        "screen_top_safe" -> R.string.option_top_safe_area
+        "screen_bottom_safe" -> R.string.option_bottom_safe_area
+        "custom_vertical_bias" -> R.string.option_custom_vertical_position
+        else -> R.string.option_below_clock
+    })
+    AodChoiceKind.WIDTH ->
+        value.toFloatOrNull()?.let { "${(it * 100).roundToInt()}%" } ?: value
+    AodChoiceKind.HEIGHT ->
+        value.toFloatOrNull()?.let { "${(it * 100).roundToInt()}%" } ?: value
+    AodChoiceKind.OVERLAP -> context.getString(when (value) {
+        "avoid" -> R.string.option_avoid_system_content
+        "behind_system" -> R.string.option_allow_overlap
+        "hide_optional" -> R.string.option_hide_extra_text
+        "hide_scene" -> R.string.option_hide_lyrics_blocked
+        else -> R.string.option_avoid_system_content
+    })
+    AodChoiceKind.ALIGNMENT -> context.getString(when (value) {
+        "auto" -> R.string.option_automatic
+        "start" -> R.string.option_start
+        "center" -> R.string.option_center
+        "end" -> R.string.option_end
+        else -> R.string.option_automatic
+    })
+    AodChoiceKind.SONG_INFO_POSITION -> context.getString(
+        if (value == "bottom") R.string.option_bottom else R.string.option_top
+    )
+    AodChoiceKind.LYRIC_LINES -> if (value == "0") {
+        context.getString(R.string.option_no_limit)
+    } else {
+        value
+    }
+    AodChoiceKind.FONT -> context.getString(when (value) {
+        "noto" -> R.string.option_noto_sans
+        "spotify" -> R.string.option_spotify_mix
+        "apple" -> R.string.option_sf_pro_display
+        else -> R.string.option_noto_sans
+    })
+    AodChoiceKind.TEXT_BRIGHTNESS -> context.getString(
+        if (value == "dimmed") R.string.option_dimmed else R.string.option_default
+    )
+    AodChoiceKind.LINE_PROGRESS -> context.getString(when (value) {
+        "None" -> R.string.option_none
+        "Top to bottom" -> R.string.option_top_to_bottom
+        "Left to right (main only)" -> R.string.option_left_to_right
+        "Left to right (whole block)" -> R.string.option_left_to_right_all
+        else -> R.string.option_none
+    })
+    AodChoiceKind.TRANSITION_SPEED -> context.getString(when (value) {
+        "200" -> R.string.option_fast
+        "500" -> R.string.option_slow
+        else -> R.string.option_normal
+    })
+    AodChoiceKind.SECONDARY_TEXT -> context.getString(when (value) {
+        "Transliteration" -> R.string.option_transliteration
+        "Translation" -> R.string.option_translation
+        "Both" -> R.string.option_both
+        else -> R.string.option_main_only
+    })
+    AodChoiceKind.LONG_LINES -> context.getString(
+        if (value == "Clip") R.string.option_clip else R.string.option_wrap
+    )
+    AodChoiceKind.TEXT_WEIGHT -> context.getString(when (value) {
+        "Regular" -> R.string.option_regular
+        "Bold" -> R.string.option_bold
+        else -> R.string.option_medium
+    })
+    AodChoiceKind.TEXT_SIZE -> context.getString(when (value) {
+        "small" -> R.string.option_small
+        "large" -> R.string.option_large
+        "xlarge" -> R.string.option_xlarge
+        "custom" -> R.string.option_custom
+        else -> R.string.option_normal
+    })
+    AodChoiceKind.WORD_ANIMATION -> context.getString(
+        if (value == "Minimal") R.string.option_minimal else R.string.option_gradient
+    )
+    AodChoiceKind.GLOW -> context.getString(
+        if (value == "On") R.string.option_on else R.string.option_off
+    )
+    AodChoiceKind.CARD_COLOR -> context.getString(when (value) {
+        "white" -> R.string.option_card_color_white
+        "dark_gray" -> R.string.option_card_color_dark_gray
+        "accent" -> R.string.option_card_color_accent
+        "blur" -> R.string.option_card_color_blur
+        else -> R.string.option_card_color_black
+    })
+}
+
+private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
+    POSITION(R.string.choice_position),
+    WIDTH(R.string.choice_width),
+    HEIGHT(R.string.choice_height),
+    OVERLAP(R.string.choice_overlap_handling),
+    ALIGNMENT(R.string.choice_alignment),
+    SECONDARY_TEXT(R.string.choice_secondary_text),
+    LONG_LINES(R.string.choice_long_lines),
+    LYRIC_LINES(R.string.choice_lyric_lines),
+    SONG_INFO_POSITION(R.string.choice_song_info_position),
+    TEXT_WEIGHT(R.string.choice_text_weight),
+    TEXT_SIZE(R.string.choice_text_size),
+    FONT(R.string.choice_font),
+    WORD_ANIMATION(R.string.choice_word_animation),
+    GLOW(R.string.choice_glow),
+    LINE_PROGRESS(R.string.choice_line_progress_effect),
+    TEXT_BRIGHTNESS(R.string.choice_text_brightness),
+    TRANSITION_SPEED(R.string.choice_scene_transition_speed),
+    CARD_COLOR(R.string.choice_card_color)
+}
+
+private data class AodChoice(
+    val kind: AodChoiceKind,
+    val values: List<String>,
+    val current: String,
+    val onSelect: (String) -> Unit
+)
+
+private fun updateCustomizationSurfaceEnabled(
+    context: android.content.Context,
+    surface: String,
+    enabled: Boolean
+): Boolean {
+    val document = CustomizationRepository.loadDocument(context)
+    val profiles = document.profiles.toMutableMap()
+    profiles[surface] = (profiles[surface] ?: SurfaceProfile()).copy(enabled = enabled)
+    if (!CustomizationRepository.saveDocument(context, document.copy(profiles = profiles))) {
+        return false
+    }
+    syncCustomizationRuntime(context, CustomizationRepository.loadDocument(context))
+    return true
+}
+
+internal fun withMetadataVisible(profile: SurfaceProfile, visible: Boolean): SurfaceProfile {
+    val widgets = profile.widgets.filterNot { it.type == "metadata" }.toMutableList()
+    if (visible) {
+        widgets += com.eza.hyperglow.customization.WidgetSpec(
+            "metadata",
+            optional = true
+        )
+    }
+    return profile.copy(metadataVisible = visible, widgets = widgets)
+}
+
+private val SEMANTIC_PALETTE_KEYS = setOf(
+    "primaryText",
+    "secondaryText",
+    "metadataText",
+    "sungText",
+    "unsungText",
+    "glow",
+    "accent",
+    "surfaceScrim"
+)
+
+internal fun palettePreset(name: String): Map<String, String> =
+    if (name == "dimmed") SEMANTIC_PALETTE_KEYS.associateWith { "dimmed" } else emptyMap()
+
+internal fun palettePresetName(palette: Map<String, String>): String =
+    if (palette.isNotEmpty() && palette.values.all { it == "dimmed" }) "dimmed" else "default"
+
+private fun applyDocumentToLegacyPreferences(
+    context: android.content.Context,
+    document: com.eza.hyperglow.customization.CustomizationDocument
+) {
+    val aod = document.profiles[SceneCompiler.SURFACE_AOD] ?: SceneCompiler.safeAodProfile()
+    val lockscreen = document.profiles[SceneCompiler.SURFACE_LOCKSCREEN]
+        ?: SceneCompiler.safeLockscreenProfile()
+    context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.AOD_ENABLED, aod.enabled)
+        .putBoolean(AodRenderPreferences.LOCKSCREEN_ENABLED, lockscreen.enabled)
+        .putString(AodRenderPreferences.ALIGNMENT, aod.alignment)
+        .putString(AodRenderPreferences.SECONDARY, aod.secondaryMode)
+        .putString(AodRenderPreferences.OVERFLOW, aod.overflow)
+        .putString(
+            AodRenderPreferences.METADATA_VISIBLE,
+            if (aod.metadataVisible) "show" else "hide"
+        )
+        .putString(AodRenderPreferences.METADATA_ANCHOR, aod.metadataAnchor)
+        .putString(AodRenderPreferences.WEIGHT, aod.weight)
+        .putString(AodRenderPreferences.TEXT_SIZE, aod.textSize)
+        .putInt(AodRenderPreferences.TEXT_SIZE_CUSTOM, aod.textSizeCustom)
+        .putString(AodRenderPreferences.FONT_FAMILY, aod.fontFamily)
+        .putString(AodRenderPreferences.ANIMATION, aod.animation)
+        .putString(AodRenderPreferences.GLOW, aod.glow)
+        .putBoolean(AodRenderPreferences.ADAPTIVE_SECTIONING, aod.adaptiveSectioning)
+        .putBoolean(AodRenderPreferences.AOD_CLOCK_FOLLOW, aod.aodClockFollow)
+        .commit()
+}
+
+private fun syncCustomizationRuntime(
+    context: android.content.Context,
+    document: com.eza.hyperglow.customization.CustomizationDocument
+) {
+    applyDocumentToLegacyPreferences(context, document)
+    publishRuntimeConfiguration(context)
+}
+
+private fun updateLockscreenKeepAwake(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.LOCKSCREEN_KEEP_AWAKE, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateRaiseToAod(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.RAISE_TO_AOD, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodClockFollow(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.AOD_CLOCK_FOLLOW, enabled)
+        .commit()
+    if (!saved) return false
+    // 重新编译并分发配置,让 hook 端立即采用新的时钟跟随模式。
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateLockscreenEditorLongPress(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateExperimentalMode(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.EXPERIMENTAL_MODE, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun applyHideFromRecents(context: android.content.Context, exclude: Boolean) {
+    // 运行时把本应用的任务从最近任务列表隐藏/恢复,无需重启 Activity。
+    runCatching {
+        context.getSystemService(android.app.ActivityManager::class.java)
+            ?.appTasks
+            ?.forEach { it.setExcludeFromRecents(exclude) }
+    }
+}
+
+private fun applyHideLauncherIcon(context: android.content.Context, hide: Boolean) {
+    // 只禁用/启用 LAUNCHER alias 组件来隐藏/恢复桌面图标。
+    // 关键:不能禁用 MainActivity 本身,否则 LSPosed 管理器将无法再启动本应用
+    // (LSPosed 通过 MainActivity 声明的 MODULE_SETTINGS category 作为模块入口)。
+    runCatching {
+        val component = android.content.ComponentName(
+            context,
+            "com.eza.hyperglow.ui.MainActivityAlias"
+        )
+        context.packageManager.setComponentEnabledSetting(
+            component,
+            if (hide) {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            } else {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            },
+            android.content.pm.PackageManager.DONT_KILL_APP
+        )
+    }
+}
+
+private fun publishRuntimeConfiguration(context: android.content.Context) {
+    AodStateBridge.publishConfiguration(
+        RuntimeCustomization.loadCompiled(context),
+        currentProcessUserId(),
+        experimentalMode = AodRenderPreferences.read(context).experimentalMode
+    )
+}
+
+/** 配置备份文件格式标识与版本。 */
+private const val CONFIG_BACKUP_FORMAT = "hyperglow-config"
+private const val CONFIG_BACKUP_VERSION = 1
+private const val MAX_CONFIG_FILE_BYTES = 512 * 1024
+
+private fun exportAllConfig(context: android.content.Context): String {
+    val prefs = context.getSharedPreferences(AodRenderPreferences.PREFS, 0)
+    return buildJsonObject {
+        put("format", JsonPrimitive(CONFIG_BACKUP_FORMAT))
+        put("version", JsonPrimitive(CONFIG_BACKUP_VERSION))
+        putJsonObject("preferences") {
+            prefs.all.forEach { (key, value) ->
+                when (value) {
+                    is Boolean -> put(key, JsonPrimitive(value))
+                    is Int -> put(key, JsonPrimitive(value))
+                    is Long -> put(key, JsonPrimitive(value))
+                    is Float -> put(key, JsonPrimitive(value))
+                    is String -> put(key, JsonPrimitive(value))
+                    is Set<*> -> putJsonArray(key) {
+                        value.forEach { add(JsonPrimitive(it.toString())) }
+                    }
+                }
+            }
+        }
+    }.toString()
+}
+
+private fun importAllConfig(context: android.content.Context, raw: String): Boolean = runCatching {
+    val root = Json.parseToJsonElement(raw).jsonObject
+    if (root["format"]?.jsonPrimitive?.content != CONFIG_BACKUP_FORMAT) return false
+    val preferences = root["preferences"]?.jsonObject ?: return false
+    val editor = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+    preferences.forEach { (key, element) ->
+        when (element) {
+            is JsonPrimitive -> when {
+                element.booleanOrNull != null -> editor.putBoolean(key, element.boolean)
+                element.intOrNull != null -> editor.putInt(key, element.int)
+                element.longOrNull != null -> editor.putLong(key, element.long)
+                else -> {
+                    val float = element.content.toFloatOrNull()
+                    if (float != null) editor.putFloat(key, float) else editor.putString(key, element.content)
+                }
+            }
+            is JsonArray -> editor.putStringSet(
+                key,
+                element.map { it.jsonPrimitive.content }.toSet()
+            )
+            else -> Unit
+        }
+    }
+    editor.commit()
+}.getOrDefault(false)
+
+private fun updateKeepAwakeDuration(context: android.content.Context, value: Long): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putLong(AodRenderPreferences.KEEP_AWAKE_DURATION_MS, value)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updatePauseLinger(context: android.content.Context, value: Long): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putLong(AodRenderPreferences.PAUSE_LINGER_MS, value)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateDiagnosticLogging(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean = setDiagnosticLogging(context, enabled)
+
+// --- Phase 3 UI: lyric source + live status + Lyricon setup hint ---
+
+/**
+ * Collects the arbiter's [active] state in a Compose-stable way. Returns null before the
+ * arbiter is started (e.g. in previews) — `collectAsState` is still invoked unconditionally
+ * so Compose's remember-slot invariants hold.
+ */
+@Composable
+private fun collectActiveState(): androidx.compose.runtime.State<LyricProducerState?> {
+    val arbiter = LyricProducers.arbiterOrNull()
+    val flow = remember(arbiter) {
+        arbiter?.active
+            ?: kotlinx.coroutines.flow.MutableStateFlow<LyricProducerState?>(null)
+    }
+    return flow.collectAsState()
+}
+
+@Composable
+private fun collectPreference(): androidx.compose.runtime.State<LyricSource> {
+    val arbiter = LyricProducers.arbiterOrNull()
+    val flow = remember(arbiter) {
+        arbiter?.preference
+            ?: kotlinx.coroutines.flow.MutableStateFlow(LyricSource.SPICY)
+    }
+    return flow.collectAsState()
+}
+
+@Composable
+private fun collectActiveSource(): androidx.compose.runtime.State<LyricSource?> {
+    val arbiter = LyricProducers.arbiterOrNull()
+    val flow = remember(arbiter) {
+        arbiter?.activeSource
+            ?: kotlinx.coroutines.flow.MutableStateFlow<LyricSource?>(null)
+    }
+    return flow.collectAsState()
+}
+
+@Composable
+private fun collectConnection(source: LyricSource): androidx.compose.runtime.State<ProducerConnection> {
+    val arbiter = LyricProducers.arbiterOrNull()
+    val flow = remember(arbiter, source) {
+        arbiter?.connection(source)
+            ?: kotlinx.coroutines.flow.MutableStateFlow(ProducerConnection.DISCONNECTED)
+    }
+    return flow.collectAsState()
+}
+
+/**
+ * 实时歌词快照:从进程内 arbiter(可靠地在 app 进程内填充,与 LiveStatusSection 同源)读取
+ * 当前歌词源上报的 [LyricProducerState],映射成预览所需的 [LyricSnapshot]。无实时数据时返回
+ * null,由调用方回退到静态示例快照。
+ *
+ * 注意:不从这里读 SystemUiLyricProjection —— 那是 SystemUI 侧投影,app 进程内并不保证
+ * 被喂入实时快照,会导致预览不更新。
+ */
+@Composable
+private fun collectLiveSnapshot(): LyricSnapshot? {
+    val active by collectActiveState()
+    return active?.toPreviewSnapshot()
+}
+
+private fun LyricProducerState.toPreviewSnapshot(): LyricSnapshot = LyricSnapshot(
+    revision = sequence,
+    trackGeneration = generation.toLong(),
+    updatedAtElapsedMs = sampledAtElapsedMs,
+    visible = true,
+    original = line,
+    romanized = romanizedLine,
+    translated = translatedLine,
+    nextLine = nextLine,
+    metadata = listOfNotNull(
+        title.takeIf { it.isNotBlank() },
+        artist.takeIf { it.isNotBlank() }
+    ).joinToString(" · ").ifBlank { "HyperGlow" },
+    alignedRight = alignedRight,
+    lineLevelSync = words == null,
+    lineStartMs = lineStartMs,
+    lineEndMs = lineEndMs,
+    durationMs = durationMs,
+    positionMs = positionMs,
+    sampledAtElapsedMs = sampledAtElapsedMs,
+    speed = speed,
+    words = (words ?: emptyList()).map {
+        LyricWord(
+            text = it.text,
+            romanized = it.romanized,
+            startMs = it.startMs,
+            endMs = it.endMs,
+            boundaryAfter = it.boundaryAfter,
+            sourceStart = it.sourceStart,
+            sourceEnd = it.sourceEnd
+        )
+    },
+    ruby = ruby.map { LyricRuby(it.start, it.end, it.reading) },
+    layoutGroups = layoutGroups.map {
+        LyricLayoutGroup(it.start, it.end, it.kind, it.keepTogether, it.confidence)
+    }
+)
+
+// 判断模块当前是否处于可用的运行状态(与 runtimeProfileAvailable 一致)。
+private fun resolveModuleWorking(state: XiaomiRuntimeSupportState): Boolean =
+    state == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
+        state == XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ||
+        state == XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
+
+/**
+ * Home hero section (HyperHome 风格):顶部的模块运行状态卡 + 两个 surface 统计卡 + 系统信息卡。
+ * 参照 HyperHome 的主页布局:状态卡用彩色背景 + 大号半透明图标,AOD/锁屏两个统计卡并排,
+ * 下方为系统信息列表。
+ */
+@Composable
+private fun HomeOverviewHero(
+    working: Boolean,
+    supportLabel: String,
+    aodEnabled: Boolean,
+    lockscreenEnabled: Boolean,
+    systemUiVersion: String,
+    aodVersion: String
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateDialogVersion by remember { mutableStateOf<String?>(null) }
+
+    fun startCheckUpdate() {
+        if (checkingUpdate) return
+        checkingUpdate = true
+        scope.launch(Dispatchers.IO) {
+            val tag = queryLatestReleaseTag()
+            val latest = tag?.substringAfterLast('-')
+            withContext(Dispatchers.Main) {
+                checkingUpdate = false
+                when {
+                    latest == null ->
+                        Toast.makeText(context, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+                    compareVersions(latest, BuildConfig.VERSION_NAME) > 0 ->
+                        updateDialogVersion = latest
+                    else ->
+                        Toast.makeText(context, R.string.update_check_up_to_date, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier.padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            HomeStatusCard(
+                working = working,
+                supportLabel = supportLabel,
+                modifier = Modifier.weight(1f).aspectRatio(1f)
+            )
+            Column(
+                Modifier.weight(1f).aspectRatio(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                HomeStatCard(
+                    title = stringResource(R.string.label_aod_lyrics),
+                    value = homeSurfaceState(context, working, aodEnabled),
+                    modifier = Modifier.weight(1f)
+                )
+                HomeStatCard(
+                    title = stringResource(R.string.label_lockscreen_lyrics),
+                    value = homeSurfaceState(context, working, lockscreenEnabled),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        Card {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                HomeInfoRow(stringResource(R.string.label_compatibility), supportLabel)
+                HomeInfoRow(
+                    stringResource(R.string.label_systemui_aod),
+                    "$systemUiVersion / $aodVersion"
+                )
+                HomeInfoRow(
+                    stringResource(R.string.label_app_version),
+                    BuildConfig.VERSION_NAME
+                )
+                HomeUpdateRow(
+                    checking = checkingUpdate,
+                    onClick = { startCheckUpdate() }
+                )
+                HomeInfoRow(
+                    stringResource(R.string.label_android_version),
+                    Build.VERSION.RELEASE
+                )
+                HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL, last = true)
+            }
+        }
+    }
+
+    updateDialogVersion?.let { version ->
+        WindowDialog(
+            title = stringResource(R.string.update_dialog_title),
+            summary = stringResource(R.string.update_dialog_summary, version),
+            show = true,
+            onDismissRequest = { updateDialogVersion = null }
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = { updateDialogVersion = null }
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_download),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = {
+                        updateDialogVersion = null
+                        openExternalUrl(
+                            context,
+                            "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest"
+                        )
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeUpdateRow(checking: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !checking, onClick = onClick)
+            .padding(vertical = 4.dp)
+    ) {
+        Text(
+            stringResource(R.string.action_check_update),
+            fontSize = MiuixTheme.textStyles.headline1.fontSize,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = stringResource(if (checking) R.string.update_checking else R.string.action_check_update_short),
+            fontSize = MiuixTheme.textStyles.body2.fontSize,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.align(Alignment.CenterVertically)
+        )
+    }
+}
+
+@Composable
+private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Modifier) {
+    val statusColor = if (working) ComposeColor(0xFF36D167) else ComposeColor(0xFFFF5A52)
+    val statusBackground = if (working) ComposeColor(0xFFDFFAE4) else ComposeColor(0xFFFFE5E3)
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.defaultColors(color = statusBackground)
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            // 背景大图标:固定在卡片右下角,并裁剪到卡片内,避免超出卡片宽度/高度
+            Box(
+                Modifier.fillMaxSize().clipToBounds(),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.Copy,
+                    contentDescription = null,
+                    tint = statusColor.copy(alpha = 0.78f),
+                    modifier = Modifier.size(120.dp).padding(end = 4.dp, bottom = 4.dp)
+                )
+            }
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Text(
+                    stringResource(if (working) R.string.home_working else R.string.home_not_working),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ComposeColor(0xFF101010),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    supportLabel,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = ComposeColor(0xFF2F3A32).copy(alpha = 0.78f),
+                    modifier = Modifier.padding(top = 2.dp),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeStatCard(title: String, value: String, modifier: Modifier) {
+    Card(modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxSize().padding(14.dp),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Text(
+                value,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 2.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeInfoRow(title: String, content: String, last: Boolean = false) {
+    Text(
+        title,
+        fontSize = MiuixTheme.textStyles.headline1.fontSize,
+        fontWeight = FontWeight.Medium
+    )
+    Text(
+        content,
+        fontSize = MiuixTheme.textStyles.body2.fontSize,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(top = 2.dp, bottom = if (last) 0.dp else 16.dp)
+    )
+}
+
+private fun homeSurfaceState(
+    context: android.content.Context,
+    working: Boolean,
+    enabled: Boolean
+): String = if (!working) {
+    context.getString(R.string.runtime_unavailable)
+} else {
+    context.getString(if (enabled) R.string.runtime_enabled else R.string.runtime_disabled)
+}
+
+/**
+ * Home lyric-widget preview card. Renders a phone-like dark surface sized to the card and draws a
+ * stylized lyric block using the compiled [profile] (text size/weight/alignment, secondary text,
+ * metadata, card background, next line) placed via [resolvePreviewPlacement], so the home page
+ * gives a quick visual sense of how the lockscreen / AOD lyric control looks.
+ */
+@Composable
+private fun LyricPreviewCard(
+    title: String,
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    scenario: String,
+    live: LyricSnapshot?,
+    modifier: Modifier
+) {
+    Card(modifier = modifier) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(
+                title,
+                fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Spacer(Modifier.height(8.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(ComposeColor(0xFF0B0B0F))
+            ) {
+                LyricPreviewSurface(
+                    profile = profile,
+                    scenario = scenario,
+                    live = live
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricPreviewSurface(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    scenario: String,
+    live: LyricSnapshot?
+) {
+    // 预览卡片空间有限,直接在卡片内水平居中、垂直居中渲染歌词块,忽略真实曲面上的
+    // 时钟/通知等占位偏移——否则息屏(AOD)歌词会按真实布局被挤到卡片顶部一小条,
+    // 大字号下一行就被裁掉,看起来像被遮挡。这样无论字号多大都完整可见。
+    // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
+    val snapshot = live ?: collectDemoSnapshot(scenario)
+    val lyricColor = if (profile.palette.values.any { it == "dimmed" }) {
+        ComposeColor(0xFF9AA0A6)
+    } else {
+        ComposeColor(0xFFFFFFFF)
+    }
+    val secondaryColor = lyricColor.copy(alpha = 0.72f)
+    val metadataColor = lyricColor.copy(alpha = 0.6f)
+    val textSize = previewTextSizeSp(profile)
+    val weight = previewFontWeight(profile)
+    val textAlign = previewTextAlign(profile)
+    val showMetadata = profile.metadataVisible
+    val showNext = profile.showNextLine
+    val secondaryLines = previewSecondaryLines(profile, snapshot)
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        // 锁屏卡片背景(息屏强制无卡片背景),按宽度占比居中显示。
+        if (profile.backgroundStyle == "card") {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(4.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(previewCardColor(profile))
+            )
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(profile.widthFraction)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalAlignment = when (textAlign) {
+                TextAlign.Start -> Alignment.Start
+                TextAlign.End -> Alignment.End
+                else -> Alignment.CenterHorizontally
+            },
+            verticalArrangement = Arrangement.Center
+        ) {
+            if (showMetadata && profile.metadataAnchor == "top") {
+                PreviewMetaLine(snapshot.metadata, metadataColor)
+            }
+            PreviewAnimatedLyric(
+                text = snapshot.original,
+                textSize = textSize,
+                weight = weight,
+                color = lyricColor,
+                glowColor = lyricColor,
+                glowEnabled = profile.glow == "On",
+                textAlign = textAlign,
+                maxLines = if (profile.lyricLineLimit > 0) profile.lyricLineLimit else Int.MAX_VALUE,
+                overflow = if (profile.overflow == "Clip") TextOverflow.Clip else TextOverflow.Ellipsis
+            )
+            secondaryLines.forEach { line ->
+                Text(
+                    line,
+                    fontSize = textSize * 0.72f,
+                    fontWeight = FontWeight.Normal,
+                    color = secondaryColor,
+                    textAlign = textAlign,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (showNext && snapshot.nextLine.isNotBlank()) {
+                Text(
+                    snapshot.nextLine,
+                    fontSize = textSize * 0.72f,
+                    fontWeight = FontWeight.Normal,
+                    color = lyricColor.copy(alpha = 0.45f),
+                    textAlign = textAlign,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (showMetadata && profile.metadataAnchor == "bottom") {
+                PreviewMetaLine(snapshot.metadata, metadataColor)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewMetaLine(text: String, color: ComposeColor) {
+    Text(
+        text,
+        fontSize = 10.sp,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+/**
+ * 主页预览的歌词主体渲染:在原生 Canvas 上用 StaticLayout 绘制主歌词,按播放进度模拟
+ * 息屏外观的三种效果 —— 文字发光(glow)、整行进度扫光(line progress sweep)与逐字高亮
+ * (当前演唱词的强调光斑)。这样预览与 AodLyricCanvasView 的息屏渲染保持一致。
+ */
+@Composable
+private fun PreviewAnimatedLyric(
+    text: String,
+    textSize: TextUnit,
+    weight: FontWeight,
+    color: ComposeColor,
+    glowColor: ComposeColor,
+    glowEnabled: Boolean,
+    textAlign: TextAlign,
+    maxLines: Int,
+    overflow: TextOverflow
+) {
+    val density = LocalDensity.current
+    val glowArgb = glowColor.toArgb()
+    val dimArgb = color.copy(alpha = 0.30f).toArgb()
+    val sungArgb = color.copy(alpha = 1f).toArgb()
+    val nativeTypeface = when (weight) {
+        FontWeight.Normal -> Typeface.create("sans-serif", Typeface.NORMAL)
+        FontWeight.Bold -> Typeface.create("sans-serif", Typeface.BOLD)
+        else -> Typeface.create("sans-serif", Typeface.BOLD)
+    }
+    val align = when (textAlign) {
+        TextAlign.Center -> android.text.Layout.Alignment.ALIGN_CENTER
+        TextAlign.End -> android.text.Layout.Alignment.ALIGN_OPPOSITE
+        else -> android.text.Layout.Alignment.ALIGN_NORMAL
+    }
+    val truncate = if (overflow == TextOverflow.Clip) null else TextUtils.TruncateAt.END
+    val maxLinesSafe = maxLines.coerceAtLeast(1)
+
+    // 逐条演示行播放时,进度从 0 扫到 1,驱动扫光与逐字高亮。
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(text) {
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(DEMO_LINE_SWITCH_MS.toInt(), easing = LinearEasing))
+    }
+    // 在组合作用域读取进度,保证每次动画变化都会重绘 Canvas。
+    val progressValue = progress.value
+
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val widthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
+        val fontSizePx = with(density) { textSize.toPx() }
+        val layoutHeight = remember(text, textSize, maxLines, widthPx) {
+            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.textSize = fontSizePx
+                typeface = nativeTypeface
+            }
+            val layout = StaticLayout.Builder
+                .obtain(text, 0, text.length, paint, widthPx)
+                .setAlignment(align)
+                .setMaxLines(maxLinesSafe)
+                .setEllipsize(truncate)
+                .build()
+            with(density) { layout.height.toDp() }
+        }
+        Canvas(Modifier.fillMaxWidth().height(layoutHeight)) {
+            val p = progressValue
+            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.textSize = fontSizePx
+                typeface = nativeTypeface
+            }
+            val layout = StaticLayout.Builder
+                .obtain(text, 0, text.length, paint, size.width.toInt().coerceAtLeast(1))
+                .setAlignment(align)
+                .setMaxLines(maxLinesSafe)
+                .setEllipsize(truncate)
+                .build()
+            val top = (size.height - layout.height) / 2f
+            drawIntoCanvas { canvas ->
+                val nc = canvas.nativeCanvas
+                nc.save()
+                nc.translate(0f, top)
+
+                // Pass 1: 未唱(暗)底色
+                paint.shader = null
+                paint.setShadowLayer(0f, 0f, 0f, 0)
+                paint.color = dimArgb
+                layout.draw(nc)
+
+                // 整行扫光:整行文字从左到右渐进点亮,光带左侧(已唱区)CLAMP 常亮,
+                // 光带内带白色峰值高光带(前缘渐亮、后缘长拖尾),行首/行尾 easeInOut 减速。
+                // 与 AodLyricCanvasView 的 applySoftSweep 一致,已移除逐字缩放/光斑。
+                val sweepProgress = if (p < 0.5f) 4f * p * p * p
+                    else { val v = -2f * p + 2f; 1f - v * v * v / 2f }
+                val band = (size.width * PREVIEW_SWEEP_BAND_FRACTION).coerceAtLeast(1f)
+                val sweepStart = -band + (size.width + band) * sweepProgress
+                val sweepEnd = sweepStart + band
+                if (glowEnabled) {
+                    // 光晕层:在已点亮区域(0..sweepEnd)绘制带模糊阴影的整行文字,模拟扫光发光
+                    nc.save()
+                    nc.clipRect(0f, 0f, sweepEnd, size.height)
+                    paint.shader = null
+                    paint.color = sungArgb
+                    paint.setShadowLayer(fontSizePx * 0.36f, 0f, 0f, glowArgb)
+                    layout.draw(nc)
+                    paint.setShadowLayer(0f, 0f, 0f, 0)
+                    nc.restore()
+                }
+                // 亮部:渐变 [sung -> peak 高光 -> dim -> transparent],band 左侧 CLAMP 常亮,右侧渐隐
+                val sweepTransparent = Color.argb(0, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
+                val sweepDim = Color.argb(150, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
+                val sweepPeak = Color.argb(
+                    255,
+                    (Color.red(sungArgb) + 255 * 3) / 4,
+                    (Color.green(sungArgb) + 255 * 3) / 4,
+                    (Color.blue(sungArgb) + 255 * 3) / 4
+                )
+                paint.shader = LinearGradient(
+                    sweepStart, 0f, sweepEnd, 0f,
+                    intArrayOf(sungArgb, sungArgb, sweepPeak, sweepDim, sweepTransparent),
+                    floatArrayOf(0f, 0.30f, 0.48f, 0.72f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                paint.color = sungArgb
+                layout.draw(nc)
+                paint.shader = null
+                nc.restore()
+            }
+        }
+    }
+}
+
+// 预览整行扫光的光带宽度占比,与 AodLyricCanvasView 的 SWEEP_BAND_FRACTION 保持一致。
+private const val PREVIEW_SWEEP_BAND_FRACTION = 0.28f
+
+private fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): FontWeight =
+    when (profile.weight) {
+        "Regular" -> FontWeight.Normal
+        "Bold" -> FontWeight.Bold
+        else -> FontWeight.Medium
+    }
+
+private fun previewTextAlign(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): TextAlign =
+    // "auto" 与应用渲染一致:在 alignedRight=false 时解析为左对齐(见 AodLyricCanvasView)。
+    when (profile.alignment) {
+        "start" -> TextAlign.Start
+        "center" -> TextAlign.Center
+        "end" -> TextAlign.End
+        else -> TextAlign.Start
+    }
+
+private fun previewTextSizeSp(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): androidx.compose.ui.unit.TextUnit {
+    val percent = when (profile.textSize) {
+        "small" -> 90
+        "large" -> 118
+        "xlarge" -> 140
+        "custom" -> profile.textSizeCustom.coerceIn(50, 200)
+        else -> 100
+    }
+    return (20 * percent / 100).sp
+}
+
+private fun previewSecondaryLines(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    snapshot: LyricSnapshot
+): List<String> = when (profile.secondaryMode) {
+    "Transliteration" -> listOfNotNull(snapshot.romanized.ifBlank { null })
+    "Translation" -> listOfNotNull(snapshot.translated.ifBlank { null })
+    "Both" -> listOfNotNull(
+        snapshot.romanized.ifBlank { null },
+        snapshot.translated.ifBlank { null }
+    )
+    else -> emptyList()
+}
+
+private fun previewCardColor(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): ComposeColor {
+    val base = when (profile.cardColor) {
+        "white" -> ComposeColor(0xFFFFFFFF)
+        "dark_gray" -> ComposeColor(0xFF2A2A2A)
+        "accent" -> ComposeColor(0xFF3A6EA5)
+        "blur" -> ComposeColor(0xFF1A1A1E)
+        else -> ComposeColor(0xFF000000)
+    }
+    return base.copy(alpha = profile.cardAlpha.coerceIn(0, 100) / 100f)
+}
+
+/**
+ * Live status card: surfaces the track the active source is currently reporting, plus the
+ * projection state (showing / paused / idle), so the user can tell at a glance whether
+ * HyperGlow is actively projecting lyrics.
+ */
+@Composable
+private fun LiveStatusSection() {
+    val context = LocalContext.current
+    val activeState by collectActiveState()
+    val activeSource by collectActiveSource()
+    val preference by collectPreference()
+    val active = activeState
+    // 显示"正在播放"时标注实际在用的歌词源:若回退到了其他源,则显示回退到的那个,
+    // 而不是用户当前选中的源。activeSource 为 null 时回退到选中源(理论上不会发生)。
+    val source = activeSource ?: preference
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(R.string.label_now_playing),
+            summary = active?.let { nowPlayingSummary(context, it, source) }
+                ?: context.getString(R.string.summary_no_track)
+        )
+        BasicComponent(
+            title = stringResource(R.string.label_projection_state),
+            summary = projectionStateSummary(context, active)
+        )
+    }
+}
+
+/**
+ * Lyric source card: shows the selected source and its connection state, with a tap target
+ * to switch between Spicy EX and Lyricon.
+ */
+@Composable
+private fun LyricSourceSection(onOpenSourceDialog: () -> Unit) {
+    val context = LocalContext.current
+    val preference by collectPreference()
+    // 按实际选择的源读取其真实连接状态,与 SourceSetupHint 保持一致,避免"上面已连接、
+    // 下面未连接"的矛盾提示。Spicy 也读取 producer 的真实连接(无 Spicy EX/数据过期时为
+    // DISCONNECTED),不再硬编码 CONNECTED。
+    val activeConnection = when (preference) {
+        LyricSource.LYRICON -> collectConnection(LyricSource.LYRICON).value
+        LyricSource.SUPERLYRIC -> collectConnection(LyricSource.SUPERLYRIC).value
+        LyricSource.LYRICINFO -> collectConnection(LyricSource.LYRICINFO).value
+        LyricSource.SPICY -> collectConnection(LyricSource.SPICY).value
+    }
+    SettingsCard {
+        ArrowPreference(
+            title = stringResource(R.string.label_active_source),
+            summary = context.getString(
+                R.string.summary_active_source,
+                lyricSourceLabel(context, preference),
+                connectionLabel(context, activeConnection, preference)
+            ),
+            onClick = onOpenSourceDialog
+        )
+    }
+}
+
+/**
+ * Conditional setup hint for the source-selectable Xposed/music sources (Lyricon, SuperLyric,
+ * LyricInfo): only rendered when the user picked that source but it isn't connected. Hidden once
+ * connected/reconnecting or when Spicy is the active source.
+ */
+@Composable
+private fun SourceSetupHint() {
+    val context = LocalContext.current
+    val preference by collectPreference()
+    // 仅当源实际未连接时才显示"未连接"引导,与上方 LyricSourceSection 的连接状态保持一致,
+    // 避免出现"上面已连接、下面未连接"的矛盾提示。Spicy 也读取真实连接。
+    val connection = when (preference) {
+        LyricSource.LYRICON -> collectConnection(LyricSource.LYRICON).value
+        LyricSource.SUPERLYRIC -> collectConnection(LyricSource.SUPERLYRIC).value
+        LyricSource.LYRICINFO -> collectConnection(LyricSource.LYRICINFO).value
+        LyricSource.SPICY -> collectConnection(LyricSource.SPICY).value
+    }
+    if (connection == ProducerConnection.CONNECTED ||
+        connection == ProducerConnection.RECONNECTED
+    ) {
+        return
+    }
+    when (preference) {
+        LyricSource.LYRICON -> XposedSourceHint(
+            titleRes = R.string.title_lyricon_setup,
+            summaryRes = R.string.summary_lyricon_not_connected,
+            guideActionRes = R.string.action_lyricon_guide,
+            guideUrl = LYRICON_GUIDE_URL
+        )
+
+        LyricSource.SUPERLYRIC -> XposedSourceHint(
+            titleRes = R.string.title_superlyric_setup,
+            summaryRes = R.string.summary_superlyric_not_connected,
+            guideActionRes = R.string.action_superlyric_guide,
+            guideUrl = SUPERLYRIC_GUIDE_URL
+        )
+
+        LyricSource.LYRICINFO -> LyricInfoHint(context)
+
+        LyricSource.SPICY -> SpicyHint(context)
+    }
+}
+
+/**
+ * Setup hint for Spicy EX when it is selected but not publishing lyrics (Spicy EX not installed,
+ * or no active Spotify playback). Points the user to install Spicy EX / open Spotify.
+ */
+@Composable
+private fun SpicyHint(context: android.content.Context) {
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(R.string.title_spicy_setup),
+            summary = stringResource(R.string.summary_spicy_not_connected)
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_download_spicy_ex),
+            onClick = { openExternalUrl(context, SPICY_EX_GITHUB_URL) }
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_open_spotify_for_spicy),
+            onClick = {
+                val launchIntent = context.packageManager
+                    .getLaunchIntentForPackage("com.spotify.music")
+                if (launchIntent != null) {
+                    context.startActivity(launchIntent)
+                } else {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.toast_spotify_not_installed),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Setup hint for Xposed-module-based lyric sources (Lyricon, SuperLyric): shows the module must be
+ * activated in SystemUI, with a direct shortcut to the LSPosed manager plus the setup guide.
+ */
+@Composable
+private fun XposedSourceHint(
+    titleRes: Int,
+    summaryRes: Int,
+    guideActionRes: Int,
+    guideUrl: String
+) {
+    val context = LocalContext.current
+    // 该引导是"如何配置该源"的说明，与连接状态无关，选中即显示。
+    // 注意：SuperLyric/Lyricon 的 connection 在模块服务可达时即为 CONNECTED
+    // （即使未真正配置好），不能据此隐藏引导。
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(titleRes),
+            summary = stringResource(summaryRes)
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_open_lsposed),
+            onClick = { openLsposedManager(context) }
+        )
+        ArrowPreference(
+            title = stringResource(guideActionRes),
+            onClick = { openExternalUrl(context, guideUrl) }
+        )
+    }
+}
+
+private fun openLsposedManager(context: android.content.Context) {
+    // 用 getLaunchIntentForPackage 获取带 LAUNCHER category 的完整启动 Intent。
+    // 直接 Intent(ACTION_MAIN).setPackage(...) 不带任何 category,隐式解析仅匹配声明了
+    // android.intent.category.DEFAULT 的 filter;而 LSPosed 管理器的 MainActivity 只声明了
+    // LAUNCHER、没有 DEFAULT,导致 startActivity 抛 ActivityNotFoundException,被误报为
+    // 「此设备未安装 LSPosed」。getLaunchIntentForPackage 返回带 LAUNCHER 的完整 Intent,
+    // 可正确解析打开。
+    val launchIntent = runCatching {
+        context.packageManager.getLaunchIntentForPackage(LSPOSED_MANAGER_PACKAGE)
+    }.getOrNull()
+    val opened = launchIntent != null && runCatching {
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(launchIntent)
+    }.isSuccess
+    if (!opened) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.toast_lsposed_not_installed),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+}
+
+@Composable
+private fun LyricInfoHint(context: android.content.Context) {
+    val preference by collectPreference()
+    val connection by collectConnection(preference)
+    if (connection == ProducerConnection.CONNECTED ||
+        connection == ProducerConnection.RECONNECTED
+    ) return
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(R.string.title_lyricinfo_setup),
+            summary = stringResource(R.string.summary_lyricinfo_not_connected)
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_lyricinfo_notification_access),
+            onClick = {
+                context.startActivity(
+                    Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                )
+            }
+        )
+        ArrowPreference(
+            title = stringResource(R.string.action_lyricinfo_guide),
+            onClick = { openExternalUrl(context, LYRICINFO_GUIDE_URL) }
+        )
+    }
+}
+
+@Composable
+private fun LyricSourcePickerDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val arbiter = LyricProducers.arbiterOrNull()
+    val current by collectPreference()
+    WindowDialog(
+        title = stringResource(R.string.section_lyric_source),
+        summary = stringResource(R.string.dialog_lyric_source_summary),
+        show = true,
+        onDismissRequest = onDismiss
+    ) {
+        Column {
+            LyricSource.entries.forEach { source ->
+                RadioButtonPreference(
+                    lyricSourceLabel(context, source),
+                    current == source,
+                    {
+                        arbiter?.setPreference(source, context)
+                        onDismiss()
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun lyricSourceLabel(context: android.content.Context, source: LyricSource): String =
+    context.getString(
+        when (source) {
+            LyricSource.SPICY -> R.string.lyric_source_spicy
+            LyricSource.LYRICON -> R.string.lyric_source_lyricon
+            LyricSource.SUPERLYRIC -> R.string.lyric_source_superlyric
+            LyricSource.LYRICINFO -> R.string.lyric_source_lyricinfo
+        }
+    )
+
+private fun connectionLabel(
+    context: android.content.Context,
+    connection: ProducerConnection,
+    source: LyricSource
+): String {
+    // Lyricon needs API >= 27 (O_MR1); below that the producer is a no-op.
+    if (source == LyricSource.LYRICON && Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+        return context.getString(R.string.source_status_unavailable_api)
+    }
+    return context.getString(
+        when (connection) {
+            ProducerConnection.CONNECTED -> R.string.source_status_connected
+            ProducerConnection.RECONNECTED -> R.string.source_status_reconnected
+            ProducerConnection.CONNECT_TIMEOUT -> R.string.source_status_connect_timeout
+            ProducerConnection.DISCONNECTED -> R.string.source_status_disconnected
+        }
+    )
+}
+
+private fun nowPlayingSummary(
+    context: android.content.Context,
+    state: LyricProducerState,
+    source: LyricSource
+): String {
+    val title = state.title.ifBlank { context.getString(R.string.summary_no_track) }
+    val artist = state.artist.trim()
+    return when {
+        artist.isBlank() -> "$title  ·  ${lyricSourceLabel(context, source)}"
+        else -> "$title · $artist  ·  ${lyricSourceLabel(context, source)}"
+    }
+}
+
+private fun projectionStateSummary(
+    context: android.content.Context,
+    active: LyricProducerState?
+): String {
+    if (active == null) return context.getString(R.string.projection_state_idle)
+    return when {
+        !active.playing -> context.getString(R.string.projection_state_paused)
+        active.line.isNotBlank() || active.hasTimedLyrics ->
+            context.getString(R.string.projection_state_active)
+        else -> context.getString(R.string.projection_state_idle)
+    }
+}
+
+private const val LYRICON_GUIDE_URL = "https://github.com/amarinne/hyperglow#lyricon-setup"
+private const val SUPERLYRIC_GUIDE_URL = "https://github.com/HChenX/SuperLyric#readme"
+private const val LYRICINFO_GUIDE_URL = "https://github.com/limczhh/LyricInfo#readme"
+private const val LSPOSED_MANAGER_PACKAGE = "org.lsposed.manager"

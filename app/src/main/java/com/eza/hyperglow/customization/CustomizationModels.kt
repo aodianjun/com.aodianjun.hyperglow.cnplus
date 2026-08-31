@@ -15,6 +15,8 @@ data class CustomizationDocument(
 data class SurfaceProfile(
     val enabled: Boolean = true,
     val anchor: String = "below_stock_clock",
+    /** 时钟跟随模式:true=实时跟随实际时钟位置定位歌词;false=锚定防抖(默认,避免时钟振荡导致歌词跳动)。 */
+    val aodClockFollow: Boolean = false,
     val widthFraction: Float = 0.88f,
     val maxHeightFraction: Float = 0.46f,
     val verticalBias: Float = 0.5f,
@@ -72,8 +74,6 @@ data class CompiledCustomization(
     val linkSurfaces: Boolean,
     val profiles: Map<String, CompiledSurfaceProfile>,
     val pauseLingerMs: Long = 5_000L,
-    /** 暂停时显示歌曲信息、歌词:App 端运行时开关,随配置下发到 SystemUI,同时作用于息屏与锁屏驻留。 */
-    val pauseShowContent: Boolean = false,
     val diagnosticLogging: Boolean = false,
     val lockscreenKeepAwake: Boolean = false,
     val raiseToAod: Boolean = false,
@@ -85,6 +85,8 @@ data class CompiledSurfaceProfile(
     val surface: String,
     val enabled: Boolean,
     val anchor: String,
+    /** 时钟跟随模式:true=实时跟随实际时钟;false=锚定防抖。由 SurfaceProfile.aodClockFollow 编译而来。 */
+    val aodClockFollow: Boolean = false,
     val widthFraction: Float,
     val maxHeightFraction: Float,
     val verticalBias: Float,

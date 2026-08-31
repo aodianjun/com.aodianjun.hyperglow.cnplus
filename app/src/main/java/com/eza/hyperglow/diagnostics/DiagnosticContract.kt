@@ -559,64 +559,6 @@ internal fun buildHyperGlowGitHubIssue(report: DiagnosticReportEnvelope): Diagno
     )
 }
 
-/** 把诊断数据内嵌进 issue 正文的字节预算上限(见 [buildHyperGlowGitHubIssueWithData])。 */
-internal const val GITHUB_ISSUE_BODY_BYTES_LIMIT = 32 * 1024
-
-/**
- * [buildHyperGlowGitHubIssue] 的附数据版本:把截断后的原始日志/崩溃/LSPosed/运行时设置内嵌进
- * 正文(字节预算内,带截断标记),让用户预览正文确认后直接提交。完整负载走 App 内分享/保存。
- */
-internal fun buildHyperGlowGitHubIssueWithData(
-    report: DiagnosticReportEnvelope,
-    bodyBytesLimit: Int = GITHUB_ISSUE_BODY_BYTES_LIMIT
-): DiagnosticGitHubIssue {
-    val summary = buildHyperGlowGitHubIssue(report)
-    val baseBytes = summary.body.utf8Size()
-    if (baseBytes >= bodyBytesLimit) return summary
-    var remainingBytes = bodyBytesLimit - baseBytes
-    val raw = report.rawDiagnostics
-    val out = StringBuilder(summary.body)
-    val sections = listOf(
-        "HyperGlow logs" to raw.diagnosticEventsAndLogs,
-        "LSPosed module lines" to raw.lsposedModuleLines,
-        "Crash excerpt" to raw.crashExcerpt
-    )
-    for ((title, content) in sections) {
-        if (content.isBlank() || remainingBytes <= 0) continue
-        val nextRemaining = appendDiagnosticSection(
-            out, title, content, "text", remainingBytes
-        )
-        if (nextRemaining >= remainingBytes) break
-        remainingBytes = nextRemaining
-    }
-    if (raw.runtimeSettings.isNotEmpty() && remainingBytes > 0) {
-        val settings = raw.runtimeSettings.entries.sortedBy { it.key }
-            .joinToString("\n") { "${it.key} = ${it.value}" }
-        appendDiagnosticSection(
-            out, "Runtime settings", settings, "text", remainingBytes
-        )
-    }
-    return DiagnosticGitHubIssue(summary.title, out.toString())
-}
-
-private fun appendDiagnosticSection(
-    out: StringBuilder,
-    title: String,
-    content: String,
-    fence: String,
-    remainingBytes: Int
-): Int {
-    val opening = "\n<details>\n<summary>$title</summary>\n\n```$fence\n"
-    val closing = "\n```\n</details>\n"
-    val overhead = opening.utf8Size() + closing.utf8Size()
-    val contentBudget = remainingBytes - overhead
-    if (contentBudget <= 0) return remainingBytes
-    val bounded = truncateDiagnosticLines(content, contentBudget)
-    if (bounded.text.isEmpty()) return remainingBytes
-    out.append(opening).append(bounded.text).append(closing)
-    return remainingBytes - opening.utf8Size() - bounded.text.utf8Size() - closing.utf8Size()
-}
-
 private fun markdownText(value: String): String = value
     .replace('`', '\'')
     .replace('\n', ' ')

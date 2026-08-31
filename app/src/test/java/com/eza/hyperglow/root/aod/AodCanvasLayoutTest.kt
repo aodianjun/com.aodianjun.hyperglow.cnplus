@@ -1,6 +1,5 @@
 package com.eza.hyperglow.root.aod
 
-import android.graphics.Color
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
@@ -34,21 +33,6 @@ class AodCanvasLayoutTest {
     @Test
     fun sentenceFillSpansWrappedLinesContinuously() {
         assertEquals(listOf(1f, 1f / 3f), splitContinuousFill(0.5f, listOf(100f, 300f)))
-    }
-
-    @Test
-    fun paletteHexTokensResolveToOpaqueColors() {
-        // "#RRGGBB" 自定义字体颜色 → 不透明 ARGB
-        val warm = resolveAodPalette(mapOf("primaryText" to "#FFD9A0", "glow" to "#FFD9A0"))
-        assertEquals(0xFFFFD9A0.toInt(), warm.primaryText)
-        assertEquals(0xFFFFD9A0.toInt(), warm.glow)
-        // "#AARRGGBB" 丢弃 alpha;短格式 "#RGB" 展开;非法 token 回退默认白
-        assertEquals(0xFF00AABB.toInt(), parseOpaqueColorOrNull("#CC00AABB"))
-        assertEquals(0xFF112233.toInt(), parseOpaqueColorOrNull("#123"))
-        assertNull(parseOpaqueColorOrNull("dimmed"))
-        assertNull(parseOpaqueColorOrNull("#GGHHII"))
-        assertNull(parseOpaqueColorOrNull("#12345"))
-        assertEquals(Color.WHITE, resolveAodPalette(mapOf("sungText" to "#12345")).sungText)
     }
 
     @Test
@@ -112,6 +96,13 @@ class AodCanvasLayoutTest {
         assertEquals(first, AodCanvasLineIdentity(7L, 1_000L, 2_000L, "same"))
         assertNotEquals(first, AodCanvasLineIdentity(7L, 3_000L, 4_000L, "same"))
         assertNotEquals(first, AodCanvasLineIdentity(8L, 1_000L, 2_000L, "same"))
+    }
+
+    @Test
+    fun topToBottomFillUsesOneSharedBlockCoordinate() {
+        assertEquals(100f, sharedBlockClipBottom(0f, 100f, 500f), 0.0001f)
+        assertEquals(300f, sharedBlockClipBottom(0.5f, 100f, 500f), 0.0001f)
+        assertEquals(500f, sharedBlockClipBottom(1f, 100f, 500f), 0.0001f)
     }
 
     @Test
@@ -270,7 +261,7 @@ class AodCanvasLayoutTest {
     }
 
     @Test
-    fun lineLevelRowsWithTransportWordsAlwaysUseSharedGlowPipeline() {
+    fun lineLevelRowsWithTransportWordsStillUseOneSharedCanvasSweep() {
         val content = LyricSnapshot(
             original = "絡み合う迷宮",
             lineLevelSync = true,
@@ -280,84 +271,24 @@ class AodCanvasLayoutTest {
         ).toAodCanvasContent()
 
         assertTrue(content.lineLevelSync)
-        // 发光开启时必须走共享渲染核心(LyricGlowRenderer)的预览管线,
-        // 否则行级同步源渲染旧渐变扫光,AOD 与预览不一致。
         assertTrue(
-            usesPreviewGlowPipeline(
-                animationMode = content.animationMode,
-                timed = true,
+            shouldUseSharedLineLevelSweep(
                 lineLevelSync = content.lineLevelSync,
-                glowMode = "On"
-            )
-        )
-        // 行级同步 + 关闭发光:同样走统一管线(dim 底 + 扫光,无光晕)
-        assertTrue(
-            usesPreviewGlowPipeline(
+                hasOriginalLines = true,
                 animationMode = content.animationMode,
-                timed = true,
-                lineLevelSync = true,
-                glowMode = "Off"
+                lineStartMs = content.lineStartMs,
+                lineEndMs = content.lineEndMs
             )
         )
-        // 逐字时间源 + 关闭发光 + 非行级同步:保留逐字卡拉OK路径
         assertFalse(
-            usesPreviewGlowPipeline(
-                animationMode = content.animationMode,
-                timed = true,
+            shouldUseSharedLineLevelSweep(
                 lineLevelSync = false,
-                glowMode = "Off"
+                hasOriginalLines = true,
+                animationMode = content.animationMode,
+                lineStartMs = content.lineStartMs,
+                lineEndMs = content.lineEndMs
             )
         )
-        // Minimal 模式永远不走扫光管线
-        assertFalse(
-            usesPreviewGlowPipeline(
-                animationMode = "Minimal",
-                timed = true,
-                lineLevelSync = true,
-                glowMode = "On"
-            )
-        )
-    }
-
-    @Test
-    fun unifiedBlockProgressPrefersLineTimingThenWordSpans() {
-        // 行级时间有效:完全对齐预览 previewProjectedProgress 的行区间归一
-        assertEquals(
-            0.5f,
-            unifiedBlockProgress(1_500L, 1_000L, 2_000L, emptyList()),
-            0.0001f
-        )
-        // 行级时间无效 + 词级时间有效:回退全局首词→末词范围 [1000,3000],
-        // 1500 处即 (1500-1000)/(3000-1000) = 0.25
-        assertEquals(
-            0.25f,
-            unifiedBlockProgress(
-                positionMs = 1_500L,
-                lineStartMs = 0L,
-                lineEndMs = 0L,
-                words = listOf(
-                    AodCanvasWord("絡み", "karami", 1_000L, 2_000L, true),
-                    AodCanvasWord("合う", "au", 2_000L, 3_000L, false)
-                )
-            ),
-            0.0001f
-        )
-        // 两者皆无:退化区间语义,已到达即全亮(静态整行,与旧 lineProgress 行为一致)
-        assertEquals(
-            1f,
-            unifiedBlockProgress(positionMs = 0L, lineStartMs = 0L, lineEndMs = 0L, words = emptyList()),
-            0.0001f
-        )
-    }
-
-    @Test
-    fun normalizedProgressMatchesPreviewProjectionSemantics() {
-        assertEquals(0f, normalizedProgress(500L, 1_000L, 2_000L), 0.0001f)
-        assertEquals(0.5f, normalizedProgress(1_500L, 1_000L, 2_000L), 0.0001f)
-        assertEquals(1f, normalizedProgress(2_500L, 1_000L, 2_000L), 0.0001f)
-        // 退化区间(end<=start):到达即完成
-        assertEquals(0f, normalizedProgress(499L, 500L, 500L), 0.0001f)
-        assertEquals(1f, normalizedProgress(500L, 500L, 500L), 0.0001f)
     }
 
     @Test
@@ -891,41 +822,5 @@ class AodCanvasLayoutTest {
         val tokens = secondaryTokens("Tut bez tebya, bez tebya vsyo ne tak, vsyo ne tak")
         val lines = balancedTokenLineTexts(tokens, tokens.map { it.length * 8f }, 4f, 190f, 2)
         assertEquals(tokens, lines.flatMap(::secondaryTokens))
-    }
-
-    @Test
-    fun sweepBandWidthScalesWithRowWidthAndFloorsAtOnePixel() {
-        assertEquals(40f, sweepBandWidth(100f), 0.0001f)
-        // 极窄行宽：width * 0.4 < 1f 时下限 1px 生效
-        assertEquals(1f, sweepBandWidth(2f), 0.0001f)
-        assertEquals(1f, sweepBandWidth(0f), 0.0001f)
-    }
-
-    @Test
-    fun sweepGradientStartCoversRowFromBandOffsetToLeftPlusWidth() {
-        val band = 100f * LyricGlowRenderer.SWEEP_BAND_FRACTION
-
-        // lp=0：光锋起点在 rowLeft-band（band 左外沿）
-        assertEquals(10f - band, sweepGradientStart(10f, 100f, 0f), 0.0001f)
-        // lp=1：起点推进到 rowLeft+rowWidth（行右缘）
-        assertEquals(10f + 100f, sweepGradientStart(10f, 100f, 1f), 0.0001f)
-        // lp=0.5：起点居中
-        assertEquals(10f - band + (100f + band) * 0.5f, sweepGradientStart(10f, 100f, 0.5f), 0.0001f)
-    }
-
-    @Test
-    fun haloClipRectTracksSweptPrefixAndHaloMargins() {
-        val row = LyricGlowRow(left = 10f, width = 100f, baseline = 200f, drawText = { _, _ -> })
-
-        // lp<=0 的跳过语义由调用方负责，函数本身不做特殊处理：lp=0 时右边界收缩到 rowLeft
-        val untouched = haloClipRect(row, 0f, ascent = -20f, descent = 6f, haloRadius = 8f)
-        assertEquals(10f - 40f, untouched.left, 0.0001f)
-        assertEquals(10f, untouched.right, 0.0001f)
-        // lp=1：右边界到 rowLeft+rowWidth+band
-        val full = haloClipRect(row, 1f, ascent = -20f, descent = 6f, haloRadius = 8f)
-        assertEquals(10f + 100f + 40f, full.right, 0.0001f)
-        // 上下边界 = baseline + ascent/descent ± haloRadius
-        assertEquals(200f - 20f - 8f, full.top, 0.0001f)
-        assertEquals(200f + 6f + 8f, full.bottom, 0.0001f)
     }
 }

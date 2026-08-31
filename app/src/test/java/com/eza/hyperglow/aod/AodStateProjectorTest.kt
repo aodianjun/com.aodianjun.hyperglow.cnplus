@@ -20,7 +20,7 @@ import org.junit.Test
  * [projectToDisplay] 单测：Phase 1 纯函数映射层的测试基线。
  *
  * 覆盖原 `AodProjectionEngine.project()` 的全部映射分支，按 [LyricKind] 维度组织：
- * - NONE / UNSYNCED → "🎶"、空罗马音/翻译、transition="None"(NONE)
+ * - NONE / UNSYNCED → "♪"、空罗马音/翻译、transition="None"(NONE)
  * - LINE / SYLLABLE → 活动行原文、per-word、lineLevelSync 语义
  * - 位置投影、渲染模式透传、保活、trackGeneration/wakeSignal 同构性
  *
@@ -183,7 +183,7 @@ class AodStateProjectorTest {
             artist = ""
         )
         val out = project(s)
-        assertEquals("🎶", out.original)
+        assertEquals("♪", out.original)
         assertEquals("", out.romanized)
         assertEquals("", out.translated)
         assertEquals("None", out.transitionMode)
@@ -204,7 +204,7 @@ class AodStateProjectorTest {
             artist = ""
         )
         val out = project(s)
-        assertEquals("🎶", out.original)
+        assertEquals("♪", out.original)
         assertEquals("Crossfade", out.transitionMode) // 来自 renderModes，非 "None"
         assertFalse(out.lineLevelSync)
     }
@@ -312,7 +312,7 @@ class AodStateProjectorTest {
 
     @Test
     fun extrapolationCrossingSongEnd_clearsActiveLineInsteadOfShowingStaleLastLine() {
-        // 息屏时网易云停写位置；外推越过歌曲结尾 → 歌曲已结束/重播。活动行应被清空（显示 🎶），
+        // 息屏时网易云停写位置；外推越过歌曲结尾 → 歌曲已结束/重播。活动行应被清空（显示 ♪），
         // 而不是继续显示被钳制在末行的旧歌词。
         val s = state(
             positionMs = 179_000L,
@@ -328,7 +328,7 @@ class AodStateProjectorTest {
         )
         val out = project(s, now = 5_000L) // 179000 + 5000 = 184000 → 越界
 
-        assertEquals("🎶", out.original)
+        assertEquals("♪", out.original)
         assertEquals(0L, out.lineStartMs)
         assertEquals(0L, out.lineEndMs)
         assertTrue(out.words.isEmpty())
@@ -479,8 +479,8 @@ class AodStateProjectorTest {
         )
         val out = project(s)
         assertNotNull(out)
-        // original 在间奏期且无大元数据时应为 "🎶"
-        assertEquals("🎶", out.original)
+        // original 在间奏期且无大元数据时应为 "♪"
+        assertEquals("♪", out.original)
     }
 
     // --- visible 标志 ---
@@ -491,7 +491,7 @@ class AodStateProjectorTest {
         assertTrue(project(active).visible)
 
         val none = state(lyricKind = LyricKind.NONE, hasTimedLyrics = false, line = "", lineIndex = -1)
-        // "🎶" 非空 → visible=true
+        // "♪" 非空 → visible=true
         assertTrue(project(none).visible)
     }
 

@@ -8,7 +8,6 @@
     <string name="language_system_default">System default</string>
     <string name="language_english">English</string>
     <string name="language_simplified_chinese">简体中文</string>
-    <string name="language_traditional_chinese">繁體中文</string>
     <string name="dialog_language_summary">Changes HyperGlow only.</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_restart">Restart</string>
@@ -16,8 +15,6 @@
     <string name="action_discard">Discard</string>
     <string name="action_copy_id">Copy ID</string>
     <string name="action_open_github_issue">Open GitHub issue</string>
-    <string name="action_open_github_issue_with_data">Open GitHub issue (with diagnostic data)</string>
-    <string name="action_share_diagnostics">Share diagnostic data</string>
 
     <string name="section_runtime_status">Runtime status</string>
     <string name="section_home_status">Module status</string>
@@ -34,8 +31,6 @@
     <string name="update_check_failed">Check failed. Please check your network connection</string>
     <string name="update_dialog_title">Update available</string>
     <string name="update_dialog_summary">A newer version v%1$s is available. Download and install it from the release page.</string>
-    <string name="update_mismatch_dialog_title">Installed version differs from release</string>
-    <string name="update_mismatch_dialog_summary">The installed APK fingerprint does not match the official release. It may be an older or non-official build. Download and install the latest release.</string>
     <string name="action_download">Download</string>
     <string name="label_systemui_aod">System UI / AOD</string>
     <string name="label_aod_lyrics">AOD lyrics</string>
@@ -120,8 +115,8 @@
     <string name="summary_unavailable_systemui_profile">Unavailable on this System UI profile.</string>
     <string name="setting_keep_aod_active_for">Keep AOD active for</string>
     <string name="setting_keep_aod_unsynced">Also keep AOD active without timed lyrics</string>
-    <string name="setting_pause_show_content">Show song info and lyrics while paused</string>
-    <string name="summary_pause_show_content">When off, pausing immediately clears song info and lyrics on the AOD and lock screen. When on, they stay for the duration set in "%1$s".</string>
+    <string name="setting_aod_clock_follow">Follow system clock in real time</string>
+    <string name="summary_aod_clock_follow">When enabled, lyric placement follows the real system clock position directly, avoiding stale/lagging layout and overlap when the clock moves down. When disabled, anchored anti-oscillation is used. Recommended when the clock shifts downward.</string>
     <string name="setting_aod_clock_image">AOD clock or image</string>
     <string name="summary_aod_placement_unsupported">This System UI version does not support coordinated AOD placement.</string>
     <string name="setting_movement_interval">Movement interval</string>
@@ -219,11 +214,7 @@
     <string name="choice_glow">Glow</string>
     <string name="choice_line_progress_effect">Line progress effect</string>
     <string name="choice_text_brightness">Text brightness</string>
-    <string name="choice_font_color">Font color</string>
-    <string name="choice_song_info_color">Song info color</string>
-    <string name="choice_next_line_color">Next line color</string>
     <string name="choice_scene_transition_speed">Scene transition speed</string>
-    <string name="title_appearance_preview">Live preview</string>
     <string name="section_lockscreen_card">Lock screen card</string>
     <string name="setting_show_lyric_card">Show lyric card</string>
     <string name="setting_show_playback_progress">Show playback progress</string>
@@ -264,12 +255,6 @@
     <string name="option_sf_pro_display">SF Pro Display</string>
     <string name="option_default">Default</string>
     <string name="option_dimmed">Dimmed</string>
-    <string name="option_color_warm_gold">Warm gold</string>
-    <string name="option_color_ice_blue">Ice blue</string>
-    <string name="option_color_mint_green">Mint green</string>
-    <string name="option_color_sakura_pink">Sakura pink</string>
-    <string name="option_color_butter_yellow">Butter yellow</string>
-    <string name="option_color_lavender">Lavender</string>
     <string name="option_left_to_right">Left to right</string>
     <string name="option_left_to_right_all">Left to right (all lines)</string>
     <string name="option_fast">Fast</string>
