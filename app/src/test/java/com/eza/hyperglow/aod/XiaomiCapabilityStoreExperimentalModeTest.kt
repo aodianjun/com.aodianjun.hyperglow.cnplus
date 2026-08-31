@@ -80,15 +80,17 @@ class XiaomiCapabilityStoreExperimentalModeTest {
     }
 
     @Test
-    fun toggleDoesNotOverrideUnsupportedProfile() {
-        // profileState=UNSUPPORTED_PROFILE(符号没探到 surface seam),即使开关打开,
-        // supportState 仍为 UNSUPPORTED,has() 仍 fail-closed。
+    fun toggleUnlocksUnsupportedProfileButStaysFailClosedWithoutProbes() {
+        // profileState=UNSUPPORTED_PROFILE(符号没探到 surface seam),开关打开后
+        // supportState 升为 EXPERIMENTAL_ACTIVE(取消版本/符号白名单强制解锁),
+        // 但 rawProbes 全部缺失时 has() 仍 fail-closed:没有可用的 surface seam
+        // 就不放开 capability。
         val report = eligibleReport(
             experimentalModeEnabled = true,
             rawProbes = allProbesPresent().mapValues { false }
         ).copy(profileState = XiaomiProfileState.UNSUPPORTED_PROFILE)
 
-        assertTrue(report.supportState() == XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE)
+        assertTrue(report.supportState() == XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE)
         assertFalse(report.has(XiaomiCapability.AOD_SURFACE))
         assertFalse(report.has(XiaomiCapability.LOCKSCREEN_HOST))
     }

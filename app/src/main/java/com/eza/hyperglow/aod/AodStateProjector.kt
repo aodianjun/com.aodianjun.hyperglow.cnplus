@@ -9,6 +9,12 @@ import com.eza.hyperglow.producer.LyricRuby
 import com.eza.hyperglow.producer.LyricWord
 
 /**
+ * 播放中无歌词 / 纯音乐 / 间奏时的占位符。用 🎶 明确表示「音乐正在播放」，
+ * 与暂停时冻结的最后快照（或不可见态）区分开，避免播放中看起来像暂停。
+ */
+internal const val PLAYING_PLACEHOLDER = "🎶"
+
+/**
  * 纯函数映射层：把 [LyricProducerState]（生产者边界）映射成 [AodDisplayState]（SystemUI 投递载荷）。
  *
  * 这是 `AodProjectionEngine.project()` 历史映射逻辑的提取，作为 Phase 1 纯重构的一步：
@@ -98,11 +104,11 @@ internal fun projectToDisplay(
     val presentedLineText = state.line.takeIf { hasActiveLine && !showLargeMetadata }
     val original = when {
         showLargeMetadata -> metadata
-        unsynced || noLyrics -> "♪"
+        unsynced || noLyrics -> PLAYING_PLACEHOLDER
         presentedLineText != null -> presentedLineText
-        hasTimedLyrics || state.status == "loading" -> "♪"
+        hasTimedLyrics || state.status == "loading" -> PLAYING_PLACEHOLDER
         fallbackLine != null -> fallbackLine
-        else -> "♪"
+        else -> PLAYING_PLACEHOLDER
     }
     val romanized = if (showLargeMetadata || unsynced || noLyrics) "" else state.romanizedLine
     val translated = if (showLargeMetadata || unsynced || noLyrics) "" else state.translatedLine
@@ -141,8 +147,8 @@ internal fun projectToDisplay(
     )
 
     // --- per-word（透传真实词级数据）---
-    // 真实词级时间戳随 words 下发，供画布在整行水平扫光基础上叠加"当前演唱词微光"
-    // （小幅放大/光斑，见 AodLyricCanvasView.drawLineLevelWordOverlay）。
+    // 真实词级时间戳随 words 下发：统一扫光管线以其计算整块进度（无行级时间时），
+    // 逐字卡拉OK路径（逐字源+关闭发光）以逐词时间驱动缩放/渐变。
     val effectiveWords = if (showLargeMetadata || !hasActiveLine) emptyList() else state.words.orEmpty()
 
     // --- 行级同步标志（统一走整行水平扫光）---
