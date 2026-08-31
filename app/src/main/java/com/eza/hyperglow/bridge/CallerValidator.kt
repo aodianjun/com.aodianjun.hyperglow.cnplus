@@ -16,4 +16,10 @@ object CallerValidator {
             .contains(SPOTIFY_PACKAGE)
             .also { verdicts[uid] = it }
     }
+
+    /** Clears the UID verdict cache. For unit tests that need deterministic per-call results. */
+    @Synchronized
+    fun clearCache() {
+        verdicts.clear()
+    }
 }
