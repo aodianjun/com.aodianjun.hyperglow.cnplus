@@ -4,6 +4,7 @@ import com.eza.hyperglow.aod.AodProjectionEngine
 import com.eza.hyperglow.aod.ProjectionSessionIdentity
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.ProducerRenderModes
+import com.eza.hyperglow.root.projection.LYRIC_SNAPSHOT_FRESH_MS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -66,10 +67,14 @@ class SpicyBridgeDocumentTest {
     }
 
     @Test
-    fun keepAliveUsesBoundedFourSecondCadence() {
+    fun keepAliveBeatsSeveralTimesInsideTheConsumerFreshnessWindow() {
+        val interval = AodProjectionEngine.keepAliveIntervalMs()
+
         assertEquals(true, AodProjectionEngine.keepAliveDue(0, 1_000))
-        assertEquals(false, AodProjectionEngine.keepAliveDue(10_000, 13_999))
-        assertEquals(true, AodProjectionEngine.keepAliveDue(10_000, 14_000))
+        assertEquals(false, AodProjectionEngine.keepAliveDue(10_000, 10_000 + interval - 1))
+        assertEquals(true, AodProjectionEngine.keepAliveDue(10_000, 10_000 + interval))
+        // 单拍迟到不得让消费端持有的投影过期(上游 cc1f62f)。
+        assertTrue(interval * 3 <= LYRIC_SNAPSHOT_FRESH_MS)
     }
 
     @Test
@@ -78,7 +83,7 @@ class SpicyBridgeDocumentTest {
         assertEquals(true, AodProjectionEngine.shouldShowPlaybackFallback("no_lyrics", true))
         assertEquals(false, AodProjectionEngine.shouldShowPlaybackFallback("loading", false))
         assertEquals(false, AodProjectionEngine.shouldShowPlaybackFallback("ready", true))
-        assertEquals("♪", AodProjectionEngine.staticPlaybackPlaceholder("no_lyrics"))
+        assertEquals("🎶", AodProjectionEngine.staticPlaybackPlaceholder("no_lyrics"))
         assertEquals(null, AodProjectionEngine.staticPlaybackPlaceholder("loading"))
     }
 
@@ -103,7 +108,10 @@ class SpicyBridgeDocumentTest {
         val ending = playing.copy(playing = false)
         val pending = ProjectionSessionIdentity.from(ending)
 
-        assertTrue(AodProjectionEngine.pauseConfirmWindowMs() >= 1_500L)
+        // 09:53 切歌故障链:确认窗口必须覆盖网易云 0.96s 间隙 + 歌词加载 + 迟到 onStop。
+        // 1.5s 窗口曾让旧 session 在新歌 loading 期间提交 visible=false,systemui guard
+        // 释放后系统关闭 AOD surface,前奏快照无处可画。
+        assertTrue(AodProjectionEngine.pauseConfirmWindowMs() >= 5_000L)
         assertTrue(
             AodProjectionEngine.shouldCommitPauseRetention(pending, ending, currentActive = true)
         )

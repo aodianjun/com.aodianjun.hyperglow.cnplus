@@ -26,27 +26,87 @@ import java.lang.reflect.Method
 object AntiFreezeHook {
     private const val TAG = "AntiFreeze"
 
+    private val hookedKeys = mutableSetOf<String>()
+
     private val classTargets = listOf(
         "com.miui.server.greeze.GreezeManagerStub",
         "com.android.server.am.ProcessList",
         "com.android.server.am.Freezer",
     )
 
+    private val installedClasses = mutableSetOf<String>()
+
+    /**
+     * system_server 专用入口：不依赖桥提供的 classLoader。
+     *
+     * zygote fork 后 ClassLoader.getSystemClassLoader() 仍是 zygote 的静态 loader
+     * （不含 services.jar），所以依次尝试多个候选 loader，并后台重试直到
+     * ActivityThread 就绪后 system_server 主 loader 可用。
+     */
+    fun installInSystemServer(module: XposedModule) {
+        if (installInternal(module, null)) return
+        HookLogger.bootstrap(TAG, "deferred_retry_started_in_system_server")
+        Thread({
+            var attempt = 0
+            while (attempt < 60) {
+                Thread.sleep(1000)
+                attempt++
+                if (installInternal(module, null)) break
+            }
+        }, "anti-freeze-retry").apply { isDaemon = true }.start()
+    }
+
     fun install(module: XposedModule, classLoader: ClassLoader) {
+        installInternal(module, classLoader)
+    }
+
+    /** @return true 当所有目标类都成功（或已安装） */
+    private fun installInternal(module: XposedModule, primary: ClassLoader?): Boolean {
+        var missing = 0
         for (name in classTargets) {
+            if (name in installedClasses) continue
+            val clazz = resolveClass(name, primary)
+            if (clazz == null) {
+                missing++
+                HookLogger.bootstrap(TAG, "resolve_miss class=$name")
+                continue
+            }
             try {
-                val clazz = Class.forName(name, false, classLoader)
                 var count = 0
                 for (method in clazz.declaredMethods) {
                     if (!isFreezeMethod(method)) continue
+                    val key = clazz.name + "#" + method.toGenericString()
+                    if (!hookedKeys.add(key)) continue
                     module.hook(method).intercept(FreezeInterceptor(method))
                     count++
                 }
-                HookLogger.i(TAG, "installed class=$name methods=$count")
+                installedClasses.add(name)
+                HookLogger.bootstrap(TAG, "installed class=$name methods=$count via=${clazz.classLoader}")
             } catch (t: Throwable) {
-                HookLogger.w(TAG, "unavailable class=$name", t)
+                HookLogger.w(TAG, "hook failed class=$name", t)
+                missing++
             }
         }
+        return missing == 0 && installedClasses.size == classTargets.size
+    }
+
+    private fun resolveClass(name: String, primary: ClassLoader?): Class<*>? {
+        val candidates = buildList {
+            primary?.let(::add)
+            runCatching { Thread.currentThread().contextClassLoader }.getOrNull()?.let(::add)
+            runCatching { javaClass.classLoader }.getOrNull()?.let(::add)
+            runCatching { ClassLoader.getSystemClassLoader() }.getOrNull()?.let(::add)
+            runCatching {
+                val at = Class.forName("android.app.ActivityThread", false, javaClass.classLoader)
+                val inst = at.getMethod("currentActivityThread").invoke(null) ?: return@runCatching null
+                val ctx = at.getMethod("getSystemContext").invoke(inst) as? android.content.Context
+                ctx?.classLoader
+            }.getOrNull()?.let(::add)
+        }.filterNotNull().distinct()
+        for (loader in candidates) {
+            runCatching { Class.forName(name, false, loader) }.getOrNull()?.let { return it }
+        }
+        return null
     }
 
     private fun isFreezeMethod(method: Method): Boolean {
@@ -77,6 +137,10 @@ object AntiFreezeHook {
                     return defaultReturn()
                 }
             } catch (t: Throwable) {
+                HookLogger.bootstrap(
+                    TAG,
+                    "intercept_failed error=${t.javaClass.simpleName} msg=${t.message}"
+                )
                 HookLogger.w(TAG, "intercept failed", t)
             }
             return chain.proceed()

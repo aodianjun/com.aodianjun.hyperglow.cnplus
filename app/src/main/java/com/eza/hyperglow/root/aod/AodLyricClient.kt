@@ -26,6 +26,21 @@ import com.eza.hyperglow.root.projection.LyricProjectionClient
 private const val RETRY_DELAY_BASE_MS = 1_000L
 private const val RETRY_DELAY_CAP_MS = 30_000L
 
+/**
+ * 到达的状态消息是否可以替换尚未投递的消息。
+ *
+ * 邮箱只保留最新一条,这对两条快照是正确的:新快照取代旧快照。但 KeepAlive 不是快照的替
+ * 代品——它只续期消费端已持有的快照,携带的 revision 以"快照已送达"为前提。放任它覆盖
+ * 未投递的快照会让投影落后一个 revision,之后所有心跳都被拒绝,5 秒后过期——lifetime
+ * guard 撤回,Xiaomi 的 hide 重放,歌词在歌曲中途掉到屏幕底部(上游 cc1f62f)。
+ */
+internal fun shouldReplacePendingState(
+    pending: AodStateWireMessage?,
+    incoming: AodStateWireMessage
+): Boolean = pending == null ||
+    incoming !is AodStateWireMessage.KeepAlive ||
+    pending is AodStateWireMessage.KeepAlive
+
 internal class GenerationBoundLatest<T> {
     private var generation = -1L
     private var value: T? = null
@@ -36,6 +51,8 @@ internal class GenerationBoundLatest<T> {
         this.value = value
         return true
     }
+
+    fun peek(currentGeneration: Long): T? = value.takeIf { generation == currentGeneration }
 
     fun take(currentGeneration: Long): T? {
         val result = value.takeIf { generation == currentGeneration }
@@ -149,7 +166,16 @@ internal class AodLyricClient(
                 return
             }
             synchronized(this@AodLyricClient) {
-                if (stopped || !pendingState.offer(
+                if (stopped) return
+                val pending = pendingState.peek(bindingGeneration)
+                if (!shouldReplacePendingState(pending, ownedMessage)) {
+                    HookLogger.i(
+                        TAG,
+                        "Keepalive coalesced behind snapshot revision=${ownedMessage.revision}"
+                    )
+                    return
+                }
+                if (!pendingState.offer(
                         generation = generation,
                         currentGeneration = bindingGeneration,
                         value = ownedMessage
