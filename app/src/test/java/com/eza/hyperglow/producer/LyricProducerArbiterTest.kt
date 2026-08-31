@@ -29,19 +29,20 @@ class LyricProducerArbiterTest {
     private fun arbiterMap(vararg producers: FakeProducer): Map<LyricSource, LyricProducer> =
         producers.associateBy { it.id }
 
-    private fun state(producerId: String, receivedAt: Long, generation: Int = 1) =
-        LyricProducerState(
-            producerId = producerId,
-            generation = generation,
-            sequence = 1L,
-            status = "ready",
-            trackUri = "spotify:track:$producerId",
-            title = producerId, artist = "", album = "", imageId = "",
-            line = "lyric-$producerId", romanizedLine = "", translatedLine = "",
-            lineIndex = 0, positionMs = 0L, durationMs = 180_000L,
-            sampledAtElapsedMs = receivedAt, speed = 1f, playing = true,
-            receivedAtElapsedMs = receivedAt, words = null, renderModes = renderModes()
-        )
+    private fun state(
+        producerId: String, receivedAt: Long, generation: Int = 1, playing: Boolean = true
+    ) = LyricProducerState(
+        producerId = producerId,
+        generation = generation,
+        sequence = 1L,
+        status = "ready",
+        trackUri = "spotify:track:$producerId",
+        title = producerId, artist = "", album = "", imageId = "",
+        line = "lyric-$producerId", romanizedLine = "", translatedLine = "",
+        lineIndex = 0, positionMs = 0L, durationMs = 180_000L,
+        sampledAtElapsedMs = receivedAt, speed = 1f, playing = playing,
+        receivedAtElapsedMs = receivedAt, words = null, renderModes = renderModes()
+    )
 
     /** Fake producer with mutable connection + state for test driving. */
     private class FakeProducer(
@@ -500,5 +501,77 @@ class LyricProducerArbiterTest {
         arbiter.setPreference(LyricSource.SUPERLYRIC)
 
         assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    /**
+     * Regression: a paused producer stops receiving position callbacks by design, so its state
+     * goes stale after STALE_AFTER_MS even though the frozen lyric line is still valid. The
+     * arbiter must keep forwarding that frozen state instead of falling back to a source with
+     * no lyric line (which clears the AOD lyric). Preferred is SPICY here to prove the
+     * exemption is source-agnostic.
+     */
+    @Test
+    fun pausedStalePreferred_keepsFrozenState_insteadOfFallback() {
+        val spicy = FakeProducer(
+            LyricSource.SPICY, ProducerConnection.CONNECTED,
+            state("spicy", 0L, playing = false)
+        )
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", 4_500L)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
+
+        // Paused 5s (stale by 2s): frozen state must win, not the fresh lyricon fallback.
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("spicy", active?.producerId)
+        assertEquals("lyric-spicy", active?.line)
+    }
+
+    @Test
+    fun pausedStalePreferred_withoutOtherSource_keepsFrozenState() {
+        // Only source is paused+stale. Old behavior: active=null -> AOD lyric cleared.
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 0L, playing = false)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricon)) { 5_000L }
+        arbiter.setPreference(LyricSource.LYRICON)
+
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("lyricon", active?.producerId)
+        assertEquals("lyric-lyricon", active?.line)
+    }
+
+    @Test
+    fun playingStalePreferred_stillFallsBack() {
+        // Regression guard: while PLAYING, staleness still means the source is dead and the
+        // fallback chain (and the Lyricon watchdog) must keep working unchanged.
+        val spicy = FakeProducer(
+            LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", 0L, playing = true)
+        )
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", 4_500L)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
+
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("lyricon", active?.producerId)
+    }
+
+    @Test
+    fun playingStalePreferred_withoutOtherSource_returnsNull() {
+        // While playing and no fallback available, staleness must still clear active (the
+        // previous behavior) so the watchdog/rebuild path is exercised.
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 0L, playing = true)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricon)) { 5_000L }
+        arbiter.setPreference(LyricSource.LYRICON)
+
+        assertNull(arbiter.computeActiveOnce())
     }
 }
