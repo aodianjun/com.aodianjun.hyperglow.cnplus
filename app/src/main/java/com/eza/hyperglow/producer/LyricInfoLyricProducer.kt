@@ -400,8 +400,6 @@ class LyricInfoLyricProducer(
         /** PlaybackState position 多久未更新视为 stale（播放器进程被冻结）。 */
         private const val STALE_POSITION_MS = 2_000L
 
-        private val lyricInfoJson = Json { ignoreUnknownKeys = true }
-
         /** Default render modes when customization is unavailable; matches the other producers. */
         private fun defaultRenderModes() = ProducerRenderModes(
             weight = "Medium",
@@ -474,12 +472,15 @@ internal data class LyricInfoPayload(
     val transLyric: String? = null
 )
 
+/** lyricInfo JSON 解析器:宽松提取,未知键忽略。 */
+private val lyricInfoJson = Json { ignoreUnknownKeys = true }
+
 /**
  * 宽松解析 lyricInfo JSON:字段缺失/类型不匹配(数字、boolean)一律降级为 null,
  * 绝不因原生变体格式差异丢掉整个 payload(歌词是最关键字段)。
  */
 internal fun parseLyricInfoPayload(raw: String): LyricInfoPayload? = runCatching {
-    val obj = lyricInfoJson.parseToJsonElement(raw).let { it as? JsonObject } ?: return null
+    val obj = lyricInfoJson.parseToJsonElement(raw) as? JsonObject ?: return null
     // 字符串/数字/boolean 原始值都按文本接受(精简版 songId 可能是数字);
     // null 字面量(JsonNull)与对象/数组降级为 null。
     fun text(key: String): String? =
