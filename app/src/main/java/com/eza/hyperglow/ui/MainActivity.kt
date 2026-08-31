@@ -371,6 +371,7 @@ private fun HomeScreen(
     var burnInPattern by remember { mutableStateOf(initialConfig.burnInPattern) }
     var burnInIntervalMs by remember { mutableStateOf(initialConfig.burnInIntervalMs) }
     var pauseLingerMs by remember { mutableStateOf(initialConfig.pauseLingerMs) }
+    var pauseShowContent by remember { mutableStateOf(initialConfig.pauseShowContent) }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
@@ -652,11 +653,26 @@ private fun HomeScreen(
                     item { SmallTitle(text = stringResource(R.string.section_playback_behavior)) }
                     item {
                         SettingsCard {
+                            SwitchPreference(
+                                pauseShowContent,
+                                { enabled ->
+                                    if (updatePauseShowContent(context, enabled)) {
+                                        pauseShowContent = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_pause_show_content),
+                                summary = stringResource(
+                                    R.string.summary_pause_show_content,
+                                    stringResource(R.string.setting_after_spotify_pauses)
+                                ),
+                                enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                            )
                             ArrowPreference(
                                 title = stringResource(R.string.setting_after_spotify_pauses),
                                 summary = pauseLingerLabel(context, pauseLingerMs),
                                 onClick = { showPauseLingerDialog = true },
-                                enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                                enabled = pauseShowContent &&
+                                    runtimeProfileAvailable && (aodSupported || lockscreenSupported)
                             )
                         }
                     }
@@ -1116,18 +1132,6 @@ private fun queryLatestReleaseTag(): String? {
     } finally {
         connection?.disconnect()
     }
-}
-
-private fun compareVersions(v1: String, v2: String): Int {
-    val a = v1.trim().split(".").mapNotNull { it.toIntOrNull() }
-    val b = v2.trim().split(".").mapNotNull { it.toIntOrNull() }
-    val n = maxOf(a.size, b.size)
-    for (i in 0 until n) {
-        val x = a.getOrElse(i) { 0 }
-        val y = b.getOrElse(i) { 0 }
-        if (x != y) return if (x > y) 1 else -1
-    }
-    return 0
 }
 
 private fun supportStateLabel(
@@ -2317,6 +2321,15 @@ private fun updateKeepAwakeDuration(context: android.content.Context, value: Lon
 private fun updatePauseLinger(context: android.content.Context, value: Long): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putLong(AodRenderPreferences.PAUSE_LINGER_MS, value)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updatePauseShowContent(context: android.content.Context, enabled: Boolean): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.PAUSE_SHOW_CONTENT, enabled)
         .commit()
     if (!saved) return false
     publishRuntimeConfiguration(context)

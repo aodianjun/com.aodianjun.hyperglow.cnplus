@@ -145,4 +145,6 @@ dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    // Robolectric: 用于依赖 Android 框架(Binder/PackageManager)的桥接层单测。
+    testImplementation("org.robolectric:robolectric:4.16.1")
 }

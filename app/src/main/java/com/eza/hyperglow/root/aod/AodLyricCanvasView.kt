@@ -930,6 +930,7 @@ internal class AodLyricCanvasView(
     private var handoffActive = false
     private var suppressNextLineTransition = false
     private var timingEffectEnabled = false
+    private var lastDrawAtElapsedMs = 0L
     private var cadenceWindowStartedAt = 0L
     private var cadenceCallbackCount = 0
     private var cadenceDrawCount = 0
@@ -1144,6 +1145,7 @@ internal class AodLyricCanvasView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        lastDrawAtElapsedMs = SystemClock.elapsedRealtime()
         recordDozeDraw()
         syncCadence()
         val snapshot = exitSnapshot
@@ -2091,6 +2093,12 @@ internal class AodLyricCanvasView(
     )
 
     private fun timingEffectActive(): Boolean = timingEffectEnabled
+
+    /** 渲染停摆看门狗用:最后一次真实 onDraw 的 elapsedRealtime 时刻,0 表示尚未绘制过。 */
+    fun lastDrawAtElapsedMs(): Long = lastDrawAtElapsedMs
+
+    /** 渲染停摆看门狗用:当前内容是否带行级时间轴(播放中本应持续重绘)。 */
+    fun isTimingEffectActive(): Boolean = timingEffectEnabled
 
     private fun effectiveAlpha(): Float {
         var value = alpha * transitionAlpha

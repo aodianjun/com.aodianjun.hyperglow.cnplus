@@ -31,6 +31,8 @@ internal data class LyricSnapshot(
     val userId: Int = 0,
     val trackGeneration: Long = 0L,
     val updatedAtElapsedMs: Long = 0L,
+    /** 隐藏但仍在播放的传输间隙首边(投影侧盖章,见 [stampTransportGapEdge]);0 表示非间隙态。 */
+    val transportGapStartedAtElapsedMs: Long = 0L,
     val visible: Boolean = false,
     val playbackActive: Boolean = false,
     val pauseRetentionEligible: Boolean = false,
@@ -186,6 +188,78 @@ internal fun pauseLingerRemainingMs(
     val elapsedMs = (nowElapsedMs - pausedAtElapsedMs).coerceAtLeast(0L)
     return (durationMs - elapsedMs).takeIf { it > 0L }
 }
+
+/**
+ * 驻留回合的隐藏首边,以及它开启的是哪一种驻留(暂停驻留还是传输间隙)。
+ *
+ * 上报的 `updatedAtElapsedMs` 是 producer 发消息的时刻,不是播放停止的时刻,而且 producer
+ * 会在 Spotify 每次修订同一暂停态时重发——一次进度更新、另一个应用接管媒体会话都会触发。
+ * 把冻结快照锚定到每条到达的消息上,会让有限时长的驻留计时被无限重置:一首早已暂停的
+ * 歌词在会话被任何东西"碰一下"时就再驻留一整轮,于是过期歌词盖在了显示另一个播放器的
+ * AOD 上。驻留回合只认第一条隐藏边,直到可见快照或终止隐藏态结束它。
+ */
+internal data class LyricRetentionAnchor(
+    val pauseRetentionEligible: Boolean,
+    val atElapsedMs: Long
+)
+
+internal fun nextLyricRetentionAnchor(
+    incoming: LyricSnapshot,
+    anchor: LyricRetentionAnchor?,
+    nowElapsedMs: Long
+): LyricRetentionAnchor? {
+    if (incoming.visible) return null
+    val eligible = when {
+        incoming.pauseRetentionEligible -> true
+        incoming.playbackActive -> false
+        else -> return null
+    }
+    return anchor?.takeIf { it.pauseRetentionEligible == eligible }
+        ?: LyricRetentionAnchor(
+            eligible,
+            if (eligible) {
+                incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
+            } else {
+                incoming.transportGapStartedAtElapsedMs
+                    .takeIf { it > 0L }
+                    ?.coerceAtMost(nowElapsedMs)
+                    ?: incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
+            }
+        )
+}
+
+/**
+ * 在投影侧为传输间隙盖章:隐藏+仍在播放且非暂停驻留的快照,其首边继承自同曲目同间隙态的
+ * 上一条快照,否则取本条消息的上报时刻。可见/暂停态一律清零。
+ */
+internal fun stampTransportGapEdge(
+    current: LyricSnapshot?,
+    incoming: LyricSnapshot
+): LyricSnapshot {
+    if (incoming.visible || !incoming.playbackActive || incoming.pauseRetentionEligible) {
+        return incoming.copy(transportGapStartedAtElapsedMs = 0L)
+    }
+    val sameGap = current?.takeIf {
+        !it.visible && it.playbackActive && !it.pauseRetentionEligible &&
+            it.trackGeneration == incoming.trackGeneration
+    }
+    val edge = sameGap?.transportGapStartedAtElapsedMs?.takeIf { it > 0L }
+        ?: incoming.updatedAtElapsedMs
+    return incoming.copy(transportGapStartedAtElapsedMs = edge)
+}
+
+internal fun LyricRetentionAnchor?.edgeFor(
+    pauseRetentionEligible: Boolean,
+    fallbackElapsedMs: Long
+): Long = this?.takeIf { it.pauseRetentionEligible == pauseRetentionEligible }?.atElapsedMs
+    ?: fallbackElapsedMs
+
+/**
+ * 既无播放也无暂停驻留的隐藏态。共享快照契约称之为终止态:任何内容都不得由它呈现,
+ * 它原本可以重建出的缓存可见快照也随它一并丢弃。
+ */
+internal fun LyricSnapshot.isTerminalHidden(): Boolean =
+    !visible && !playbackActive && !pauseRetentionEligible
 
 internal fun LyricSnapshot.isAuthorizedForPresentation(): Boolean =
     playbackActive || pauseRetentionEligible && speed == 0f

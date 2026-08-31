@@ -30,6 +30,12 @@ data class AodRenderConfig(
     val burnInPattern: String = "static_bottom",
     val burnInIntervalMs: Long = 60_000L,
     val pauseLingerMs: Long = 5_000L,
+    /**
+     * 暂停时显示歌曲信息、歌词:全局开关,同时作用于息屏(AOD)与锁屏。
+     * 开启后,音乐暂停时按 [pauseLingerMs] 显示冻结的歌曲信息与歌词;
+     * 关闭(默认)时,暂停立即清除两侧内容。
+     */
+    val pauseShowContent: Boolean = false,
     val lockscreenKeepAwake: Boolean = false,
     val raiseToAod: Boolean = false,
     val suppressLockscreenEditorLongPress: Boolean = false,
@@ -161,6 +167,7 @@ object AodRenderPreferences {
     const val BURN_IN_PATTERN = "burn_in_pattern"
     const val BURN_IN_INTERVAL_MS = "burn_in_interval_ms"
     const val PAUSE_LINGER_MS = "pause_linger_ms"
+    const val PAUSE_SHOW_CONTENT = "pause_show_content"
     const val LOCKSCREEN_KEEP_AWAKE = "lockscreen_keep_awake"
     const val RAISE_TO_AOD = "raise_to_aod"
     const val SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS = "suppress_lockscreen_editor_long_press"
@@ -207,6 +214,7 @@ object AodRenderPreferences {
             normalizeAodBurnInPattern(prefs.getString(BURN_IN_PATTERN, "static_bottom")),
             normalizeAodBurnInInterval(prefs.getLong(BURN_IN_INTERVAL_MS, 60_000L)),
             normalizePauseLingerMs(prefs.getLong(PAUSE_LINGER_MS, 5_000L)),
+            prefs.getBoolean(PAUSE_SHOW_CONTENT, false),
             prefs.getBoolean(LOCKSCREEN_KEEP_AWAKE, false),
             prefs.getBoolean(RAISE_TO_AOD, false),
             prefs.getBoolean(SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS, false),
