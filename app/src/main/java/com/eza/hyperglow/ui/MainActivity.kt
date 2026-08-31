@@ -5,10 +5,8 @@ import android.provider.Settings
 import android.app.LocaleManager
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
@@ -112,6 +110,8 @@ import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.LyricSource
 import com.eza.hyperglow.producer.ProducerConnection
+import com.eza.hyperglow.root.aod.LyricGlowRenderer
+import com.eza.hyperglow.root.aod.LyricGlowRow
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.capability.XiaomiCapability
@@ -3010,7 +3010,6 @@ private fun PreviewAnimatedLyric(
 ) {
     val density = LocalDensity.current
     val glowArgb = glowColor.toArgb()
-    val dimArgb = color.copy(alpha = 0.30f).toArgb()
     val sungArgb = color.copy(alpha = 1f).toArgb()
     val nativeTypeface = when (weight) {
         FontWeight.Normal -> Typeface.create("sans-serif", Typeface.NORMAL)
@@ -3068,57 +3067,34 @@ private fun PreviewAnimatedLyric(
                 nc.save()
                 nc.translate(0f, top)
 
-                // Pass 1: 未唱(暗)底色
-                paint.shader = null
-                paint.setShadowLayer(0f, 0f, 0f, 0)
-                paint.color = dimArgb
-                layout.draw(nc)
-
-                // 整行扫光:整行文字从左到右渐进点亮,光带左侧(已唱区)CLAMP 常亮,
-                // 光带内带白色峰值高光带(前缘渐亮、后缘长拖尾),行首/行尾 easeInOut 减速。
-                // 与 AodLyricCanvasView 的 applySoftSweep 一致,已移除逐字缩放/光斑。
-                val sweepProgress = if (p < 0.5f) 4f * p * p * p
-                    else { val v = -2f * p + 2f; 1f - v * v * v / 2f }
-                val band = (size.width * PREVIEW_SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-                val sweepStart = -band + (size.width + band) * sweepProgress
-                val sweepEnd = sweepStart + band
-                if (glowEnabled) {
-                    // 光晕层:在已点亮区域(0..sweepEnd)绘制带模糊阴影的整行文字,模拟扫光发光
-                    nc.save()
-                    nc.clipRect(0f, 0f, sweepEnd, size.height)
-                    paint.shader = null
-                    paint.color = sungArgb
-                    paint.setShadowLayer(fontSizePx * 0.36f, 0f, 0f, glowArgb)
-                    layout.draw(nc)
-                    paint.setShadowLayer(0f, 0f, 0f, 0)
-                    nc.restore()
+                // 委托共享渲染核心 LyricGlowRenderer(实机 AOD/锁屏同源):
+                // dim 底、光晕、扫光带(缓动/光带占比/渐变 stops)全部单点定义,
+                // 预览即实机效果,杜绝两份手工同步的实现漂移。
+                val rows = ArrayList<LyricGlowRow>(layout.lineCount)
+                for (line in 0 until layout.lineCount) {
+                    val start = layout.getLineStart(line)
+                    val end = layout.getLineEnd(line)
+                    val left = layout.getLineLeft(line)
+                    val width = layout.getLineWidth(line)
+                    val lineBaseline = layout.getLineBaseline(line)
+                    rows += LyricGlowRow(left, width, lineBaseline) { c, paintArg ->
+                        if (end > start) c.drawText(text, start, end, left, lineBaseline, paintArg)
+                    }
                 }
-                // 亮部:渐变 [sung -> peak 高光 -> dim -> transparent],band 左侧 CLAMP 常亮,右侧渐隐
-                val sweepTransparent = Color.argb(0, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
-                val sweepDim = Color.argb(150, Color.red(sungArgb), Color.green(sungArgb), Color.blue(sungArgb))
-                val sweepPeak = Color.argb(
-                    255,
-                    (Color.red(sungArgb) + 255 * 3) / 4,
-                    (Color.green(sungArgb) + 255 * 3) / 4,
-                    (Color.blue(sungArgb) + 255 * 3) / 4
+                LyricGlowRenderer.draw(
+                    canvas = nc,
+                    paint = paint,
+                    rows = rows,
+                    progress = p,
+                    sungColor = sungArgb,
+                    glowColor = glowArgb,
+                    glowEnabled = glowEnabled
                 )
-                paint.shader = LinearGradient(
-                    sweepStart, 0f, sweepEnd, 0f,
-                    intArrayOf(sungArgb, sungArgb, sweepPeak, sweepDim, sweepTransparent),
-                    floatArrayOf(0f, 0.30f, 0.48f, 0.72f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-                paint.color = sungArgb
-                layout.draw(nc)
-                paint.shader = null
                 nc.restore()
             }
         }
     }
 }
-
-// 预览整行扫光的光带宽度占比,与 AodLyricCanvasView 的 SWEEP_BAND_FRACTION 保持一致。
-private const val PREVIEW_SWEEP_BAND_FRACTION = 0.28f
 
 private fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): FontWeight =
     when (profile.weight) {

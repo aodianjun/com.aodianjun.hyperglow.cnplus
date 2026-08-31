@@ -1831,7 +1831,6 @@ internal class AodLyricCanvasView(
             rows = glowRows,
             progress = blockFill,
             sungColor = resolvedPalette.sungText,
-            dimBaseColor = resolvedPalette.unsungText,
             glowColor = resolvedPalette.glow,
             glowEnabled = content.glowMode != "Off"
         )

@@ -7,16 +7,17 @@ import android.graphics.Paint
 import android.graphics.Shader
 
 /**
- * 歌词扫光/发光的共享渲染核心。
- * 预览(PreviewAnimatedLyric)与实机 AOD(AodLyricCanvasView.drawOriginal)调用同一实现,
- * 一致性由构造保证:光带占比、光晕半径、dim 底透明度与三层绘制顺序只在此定义一次,
- * 彻底消除此前"两份手工同步的拷贝"造成的预览/实机效果漂移。
+ * 歌词扫光/发光的共享渲染核心 —— 预览(PreviewAnimatedLyric)与实机
+ * (AodLyricCanvasView,同时服务 AOD 与锁屏两个表面)调用同一实现,
+ * 一致性由构造保证:光带占比、缓动曲线、光晕半径、dim 底透明度、渐变 stops
+ * 与三层绘制顺序只在此定义一次,彻底消除"两份手工同步的拷贝"造成的漂移。
  *
  * 三层绘制(整块进度按行宽加权分摊到各行,splitContinuousFill):
- * Pass 1 未唱 dim 底 —— 基色以 30% 不透明度整块绘制;
+ * Pass 1 未唱 dim 底 —— sung 色 30% 不透明度整块绘制;
  * Pass 2 光晕 —— clip 到各行已扫区域,sung 色文字 + glow 色阴影,光从文字背后透出;
- * Pass 3 扫光亮部 —— 每行 LinearGradient[sung→middle→transparent, CLAMP],
- *          band 左侧常亮(已唱),光锋柔和过渡,右侧未唱区保持 dim 底。
+ * Pass 3 扫光亮部 —— 每行 LinearGradient[sung→sung→白色峰值高光→dim 拖尾→transparent,
+ *          CLAMP],band 左侧常亮(已唱),光锋带白色峰值高亮,后缘长拖尾,行首/行尾
+ *          easeInOut 减速。
  */
 internal class LyricGlowRow(
     val left: Float,
@@ -27,16 +28,19 @@ internal class LyricGlowRow(
 
 internal object LyricGlowRenderer {
     /** 扫光带宽度占行宽比例(相对含 band 余量的总推进距离)。 */
-    const val SWEEP_BAND_FRACTION = 0.4f
+    const val SWEEP_BAND_FRACTION = 0.28f
 
     /** 光晕阴影半径占字号比例。 */
     const val HALO_RADIUS_FRACTION = 0.36f
 
-    /** 未唱 dim 底不透明度。 */
-    const val UNSUNG_BASE_ALPHA = (255 * 0.30f).toInt()
+    /** 未唱 dim 底不透明度(sung 色自身 alpha 通道)。 */
+    const val DIM_BASE_ALPHA = (255 * 0.30f).toInt()
 
-    private const val SWEEP_MIDDLE_ALPHA = 184
-    private const val SWEEP_MIDDLE_STOP = 0.45f
+    /** Pass 3 扫光拖尾(渐隐前缘)的过渡不透明度。 */
+    private const val SWEEP_TAIL_ALPHA = 150
+
+    /** 5 段渐变 stop 位置:常亮区→高光峰→拖尾→渐隐。 */
+    private val SWEEP_STOPS = floatArrayOf(0f, 0.30f, 0.48f, 0.72f, 1f)
 
     fun draw(
         canvas: Canvas,
@@ -44,20 +48,28 @@ internal object LyricGlowRenderer {
         rows: List<LyricGlowRow>,
         progress: Float,
         sungColor: Int,
-        dimBaseColor: Int,
         glowColor: Int,
         glowEnabled: Boolean
     ) {
         if (rows.isEmpty()) return
         val fm = paint.fontMetrics
         val haloRadius = paint.textSize * HALO_RADIUS_FRACTION
-        val rowProgress = splitContinuousFill(progress, rows.map { it.width })
+        // 行首/行尾 easeInOut 减速:与预览演示的扫光节奏一致。
+        val rowProgress = splitContinuousFill(
+            easeInOutCubic(progress.coerceIn(0f, 1f)),
+            rows.map { it.width }
+        )
 
-        // Pass 1: 未唱 dim 底 —— 整块绘制
+        // Pass 1: 未唱 dim 底 —— sung 色 30% 不透明度整块绘制(alpha 内嵌于 color)
+        val dimColor = Color.argb(
+            DIM_BASE_ALPHA,
+            Color.red(sungColor),
+            Color.green(sungColor),
+            Color.blue(sungColor)
+        )
         paint.shader = null
         paint.setShadowLayer(0f, 0f, 0f, 0)
-        paint.color = dimBaseColor
-        paint.alpha = UNSUNG_BASE_ALPHA
+        paint.color = dimColor
         rows.forEach { it.drawText(canvas, paint) }
 
         // Pass 2: 光晕层 —— clip 到该行已扫区域,sung 文字 + glow 色阴影
@@ -83,11 +95,13 @@ internal object LyricGlowRenderer {
             }
         }
 
-        // Pass 3: 扫光亮部 —— band 左侧 CLAMP 常亮,右侧渐隐
-        val transparent = Color.argb(0, Color.red(sungColor), Color.green(sungColor), Color.blue(sungColor))
-        val middle = Color.argb(
-            SWEEP_MIDDLE_ALPHA, Color.red(sungColor), Color.green(sungColor), Color.blue(sungColor)
-        )
+        // Pass 3: 扫光亮部 —— band 左侧 CLAMP 常亮,白色峰值高光,后缘长拖尾渐隐
+        val red = Color.red(sungColor)
+        val green = Color.green(sungColor)
+        val blue = Color.blue(sungColor)
+        val transparent = Color.argb(0, red, green, blue)
+        val tail = Color.argb(SWEEP_TAIL_ALPHA, red, green, blue)
+        val peak = Color.argb(255, (red + 255 * 3) / 4, (green + 255 * 3) / 4, (blue + 255 * 3) / 4)
         rows.forEachIndexed { index, row ->
             val lp = rowProgress[index]
             if (lp <= 0f) return@forEachIndexed
@@ -95,8 +109,8 @@ internal object LyricGlowRenderer {
             val sweepEnd = sweepStart + sweepBandWidth(row.width)
             paint.shader = LinearGradient(
                 sweepStart, 0f, sweepEnd, 0f,
-                intArrayOf(sungColor, middle, transparent),
-                floatArrayOf(0f, SWEEP_MIDDLE_STOP, 1f),
+                intArrayOf(sungColor, sungColor, peak, tail, transparent),
+                SWEEP_STOPS,
                 Shader.TileMode.CLAMP
             )
             paint.color = sungColor
@@ -105,6 +119,14 @@ internal object LyricGlowRenderer {
             paint.shader = null
         }
     }
+}
+
+/** easeInOut 三次缓动(与预览演示扫光同曲线):两端减速,中段加速。纯函数,可单测。 */
+internal fun easeInOutCubic(p: Float): Float = if (p < 0.5f) {
+    4f * p * p * p
+} else {
+    val v = -2f * p + 2f
+    1f - v * v * v / 2f
 }
 
 /** 扫光几何纯函数的矩形返回值（四边浮点，避免在纯 JVM 单测中触碰 android.graphics.RectF）。 */

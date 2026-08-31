@@ -942,8 +942,8 @@ class AodCanvasLayoutTest {
 
     @Test
     fun sweepBandWidthScalesWithRowWidthAndFloorsAtOnePixel() {
-        assertEquals(40f, sweepBandWidth(100f), 0.0001f)
-        // 极窄行宽：width * 0.4 < 1f 时下限 1px 生效
+        assertEquals(100f * LyricGlowRenderer.SWEEP_BAND_FRACTION, sweepBandWidth(100f), 0.0001f)
+        // 极窄行宽：width * 占比 < 1f 时下限 1px 生效
         assertEquals(1f, sweepBandWidth(2f), 0.0001f)
         assertEquals(1f, sweepBandWidth(0f), 0.0001f)
     }
@@ -965,14 +965,36 @@ class AodCanvasLayoutTest {
         val row = LyricGlowRow(left = 10f, width = 100f, baseline = 200f, drawText = { _, _ -> })
 
         // lp<=0 的跳过语义由调用方负责，函数本身不做特殊处理：lp=0 时右边界收缩到 rowLeft
+        val band = 100f * LyricGlowRenderer.SWEEP_BAND_FRACTION
         val untouched = haloClipRect(row, 0f, ascent = -20f, descent = 6f, haloRadius = 8f)
-        assertEquals(10f - 40f, untouched.left, 0.0001f)
+        assertEquals(10f - band, untouched.left, 0.0001f)
         assertEquals(10f, untouched.right, 0.0001f)
         // lp=1：右边界到 rowLeft+rowWidth+band
         val full = haloClipRect(row, 1f, ascent = -20f, descent = 6f, haloRadius = 8f)
-        assertEquals(10f + 100f + 40f, full.right, 0.0001f)
+        assertEquals(10f + 100f + band, full.right, 0.0001f)
         // 上下边界 = baseline + ascent/descent ± haloRadius
         assertEquals(200f - 20f - 8f, full.top, 0.0001f)
         assertEquals(200f + 6f + 8f, full.bottom, 0.0001f)
+    }
+
+    @Test
+    fun easeInOutCubicMatchesPreviewSweepCurve() {
+        // 端点固定:0→0, 1→1(整块进度不受缓动影响)
+        assertEquals(0f, easeInOutCubic(0f), 0.0001f)
+        assertEquals(1f, easeInOutCubic(1f), 0.0001f)
+        // 与预览旧实现完全相同的三次曲线:p<0.5 为 4p³,p>=0.5 为 1-(-2p+2)³/2
+        assertEquals(4f * 0.25f * 0.25f * 0.25f, easeInOutCubic(0.25f), 0.0001f)
+        val v = -2f * 0.75f + 2f
+        assertEquals(1f - v * v * v / 2f, easeInOutCubic(0.75f), 0.0001f)
+        // 中点连续且两侧对称
+        assertEquals(0.5f, easeInOutCubic(0.5f), 0.0001f)
+    }
+
+    @Test
+    fun sweepBandFractionIsPreviewValue() {
+        // 预览与实机共享同一光带占比:此前实机 0.4/预览 0.28 的漂移就是不同步的根因之一
+        assertEquals(0.28f, LyricGlowRenderer.SWEEP_BAND_FRACTION, 0.0001f)
+        // dim 底不透明度 30%,与预览 color.copy(alpha = 0.30f) 一致
+        assertEquals((255 * 0.30f).toInt(), LyricGlowRenderer.DIM_BASE_ALPHA)
     }
 }
