@@ -3076,7 +3076,7 @@ private fun PreviewAnimatedLyric(
                     val end = layout.getLineEnd(line)
                     val left = layout.getLineLeft(line)
                     val width = layout.getLineWidth(line)
-                    val lineBaseline = layout.getLineBaseline(line)
+                    val lineBaseline = layout.getLineBaseline(line).toFloat()
                     rows += LyricGlowRow(left, width, lineBaseline) { c, paintArg ->
                         if (end > start) c.drawText(text, start, end, left, lineBaseline, paintArg)
                     }
