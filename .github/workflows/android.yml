@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "trae/agent-**"
+      - "fix/aod-clock-follow"
   workflow_dispatch:
 
 permissions:
