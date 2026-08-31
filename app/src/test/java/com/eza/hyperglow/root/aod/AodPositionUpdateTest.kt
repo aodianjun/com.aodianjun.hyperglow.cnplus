@@ -455,6 +455,7 @@ class AodPositionUpdateTest {
         val deep = AodRenderedClockBounds(546, 1626)
         val squeezed = AodRenderedClockBounds(336, 1416)
         var t = 0L
+        val holdMs = 40_000L
         var anchor = stabilizeAodClockAnchor(null, deep, t, holdMs)
         // Oscillate between the two states every ~10s for well over the hold window.
         repeat(20) {
