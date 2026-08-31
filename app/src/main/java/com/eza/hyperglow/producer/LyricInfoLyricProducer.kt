@@ -180,10 +180,17 @@ class LyricInfoLyricProducer(
         val payload = lyricInfo?.let(::parseLyricInfoPayload)
         // Derive title/artist from lyric payload when available, otherwise read from MediaMetadata
         // so a session without LyricInfo injection still surfaces track metadata.
-        val newTitle = payload?.songName?.takeIf { it.isNotBlank() }
-            ?: meta.getString(android.media.MediaMetadata.METADATA_KEY_TITLE).orEmpty()
-        val newArtist = payload?.artist?.takeIf { it.isNotBlank() }
-            ?: meta.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST).orEmpty()
+        // 精简版(Lite)原生逐行 payload 例外:songName 携带当前歌词行、artist 是
+        // "歌名 - 歌手"复合串(ColorOS 锁屏岛原生协议按行复用字段),不能当曲目元数据——
+        // 否则歌曲信息带上歌词,且 songName 每行都变会误触发 song changed 重置外推状态。
+        // 检测到该格式时改用系统 MediaMetadata 的干净 title/artist。
+        val metaTitle = meta.getString(android.media.MediaMetadata.METADATA_KEY_TITLE).orEmpty()
+        val metaArtist = meta.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST).orEmpty()
+        val nativePerLine = isNativePerLinePayload(payload, metaTitle)
+        val newTitle = if (nativePerLine && metaTitle.isNotBlank()) metaTitle
+            else payload?.songName?.takeIf { it.isNotBlank() } ?: metaTitle
+        val newArtist = if (nativePerLine && metaArtist.isNotBlank()) metaArtist
+            else payload?.artist?.takeIf { it.isNotBlank() } ?: metaArtist
         val newAlbum = payload?.album?.takeIf { it.isNotBlank() }
             ?: meta.getString(android.media.MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
         if (newTitle != title || newArtist != artist) {
@@ -490,3 +497,24 @@ internal fun parseLyricInfoPayload(raw: String): LyricInfoPayload? = runCatching
 }.onFailure {
     AppLog.w("LyricInfoLyricProducer", "decode lyricInfo failed", it)
 }.getOrNull()
+
+/**
+ * 判断是否为精简版(Lite)原生逐行 lyricInfo payload(纯函数,可单测)。
+ *
+ * 原生格式(ColorOS 锁屏岛协议)按行更新 MediaMetadata 并复用字段:songName 携带
+ * 当前歌词行,artist 是"歌名 - 歌手"复合串(实测 logcat 证据)。两个信号任一命中
+ * 即判定,命中后调用方应改用系统 MediaMetadata 的干净 title/artist:
+ * 1. songName 与 lyric 解析出的唯一一行文本一致(songName 即当前歌词行);
+ * 2. artist 包含系统 MediaMetadata 的干净歌名(复合串组成部分)。
+ * 完整版 payload(artist 为纯歌手名、lyric 为整首多行)不会命中任一信号。
+ */
+internal fun isNativePerLinePayload(
+    payload: LyricInfoPayload?,
+    metadataTitle: String
+): Boolean {
+    if (payload == null) return false
+    val lyricLines = ElrcParser.parse(payload.lyric.orEmpty())
+    if (lyricLines.size == 1 && payload.songName == lyricLines[0].text) return true
+    if (metadataTitle.isNotBlank() && payload.artist.orEmpty().contains(metadataTitle)) return true
+    return false
+}

@@ -1,7 +1,9 @@
 package com.eza.hyperglow.producer
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -94,5 +96,49 @@ class LyricInfoPayloadTest {
         assertNull(parseLyricInfoPayload("not json"))
         assertNull(parseLyricInfoPayload("""["array"]"""))
         assertNull(parseLyricInfoPayload("""42"""))
+    }
+
+    // --- isNativePerLinePayload:精简版原生逐行格式判定 ---
+
+    @Test
+    fun nativePerLinePayload_songNameCarryingLyricLine_isDetected() {
+        // 实测 logcat 形态:songName=当前歌词行,artist="歌名 - 歌手",lyric=单行当前歌词
+        val payload = LyricInfoPayload(
+            songName = "この胸の鼓動さえ聞こえてしまいそうなほど",
+            artist = "嘘つきは恋のはじまり (谎言是恋爱的伊始) - 洛天依Official/40mP",
+            lyric = "[00:16.44]この胸の鼓動さえ聞こえてしまいそうなほど"
+        )
+        assertTrue(isNativePerLinePayload(payload, "嘘つきは恋のはじまり"))
+    }
+
+    @Test
+    fun artistCompositeContainingMetadataTitle_isDetected() {
+        // lyric 无时间戳(解析为空)时,靠 artist 复合串信号判定
+        val payload = LyricInfoPayload(
+            songName = "当前歌词行",
+            artist = "歌名 - 歌手",
+            lyric = "当前歌词行"
+        )
+        assertTrue(isNativePerLinePayload(payload, "歌名"))
+    }
+
+    @Test
+    fun fullVersionPayload_isNotNativePerLine() {
+        // 完整版:artist 为纯歌手名,lyric 为整首多行,两个信号都不命中
+        val payload = LyricInfoPayload(
+            songName = "歌名",
+            artist = "歌手",
+            album = "专辑",
+            songId = "12345",
+            lyric = "[00:16.440]<00:16.440>歌<00:16.800>词\n[00:20.000]第二行",
+            format = "elrc",
+            translation = "[00:16.440]翻译"
+        )
+        assertFalse(isNativePerLinePayload(payload, "歌名"))
+    }
+
+    @Test
+    fun nativePerLineDetection_nullPayloadIsNegative() {
+        assertFalse(isNativePerLinePayload(null, "歌名"))
     }
 }
