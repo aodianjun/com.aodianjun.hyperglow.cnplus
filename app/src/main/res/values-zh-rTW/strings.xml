@@ -8,7 +8,6 @@
     <string name="language_system_default">跟隨系統</string>
     <string name="language_english">English</string>
     <string name="language_simplified_chinese">簡體中文</string>
-    <string name="language_traditional_chinese">繁體中文</string>
     <string name="dialog_language_summary">僅更改 HyperGlow 的顯示語言。</string>
     <string name="action_cancel">取消</string>
     <string name="action_restart">重啟</string>
@@ -16,8 +15,6 @@
     <string name="action_discard">丟棄</string>
     <string name="action_copy_id">複製 ID</string>
     <string name="action_open_github_issue">打開 GitHub Issue</string>
-    <string name="action_open_github_issue_with_data">打開 GitHub Issue（附診斷資料）</string>
-    <string name="action_share_diagnostics">分享診斷資料</string>
 
     <string name="section_runtime_status">運行狀態</string>
     <string name="section_home_status">模塊狀態</string>
@@ -34,8 +31,6 @@
     <string name="update_check_failed">檢查失敗，請確認網絡連接</string>
     <string name="update_dialog_title">發現新版本</string>
     <string name="update_dialog_summary">發現新版本 v%1$s，可前往發佈頁下載安裝。</string>
-    <string name="update_mismatch_dialog_title">安裝版本與官方發佈不一致</string>
-    <string name="update_mismatch_dialog_summary">檢測到已安裝 APK 的指紋與官方發佈不一致，可能為舊版或非官方構建。請前往發佈頁下載安裝最新正式版。</string>
     <string name="action_download">前往下載</string>
     <string name="label_systemui_aod">系統界面 / 息屏顯示</string>
     <string name="label_aod_lyrics">息屏歌詞</string>
@@ -221,9 +216,6 @@
     <string name="choice_glow">發光</string>
     <string name="choice_line_progress_effect">整行進度效果</string>
     <string name="choice_text_brightness">文字亮度</string>
-    <string name="choice_font_color">字體顏色</string>
-    <string name="choice_song_info_color">歌曲資訊顏色</string>
-    <string name="choice_next_line_color">下一行歌詞顏色</string>
     <string name="choice_scene_transition_speed">場景過渡速度</string>
     <string name="title_appearance_preview">即時預覽</string>
     <string name="section_lockscreen_card">鎖屏歌詞卡片</string>
@@ -266,12 +258,6 @@
     <string name="option_sf_pro_display">SF Pro Display</string>
     <string name="option_default">默認</string>
     <string name="option_dimmed">較暗</string>
-    <string name="option_color_warm_gold">暖金</string>
-    <string name="option_color_ice_blue">冰藍</string>
-    <string name="option_color_mint_green">薄荷綠</string>
-    <string name="option_color_sakura_pink">櫻花粉</string>
-    <string name="option_color_butter_yellow">鵝黃</string>
-    <string name="option_color_lavender">淡紫</string>
     <string name="option_left_to_right">從左到右</string>
     <string name="option_left_to_right_all">從左到右（所有行）</string>
     <string name="option_fast">快速</string>
