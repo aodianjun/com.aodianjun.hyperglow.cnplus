@@ -1,0 +1,117 @@
+package com.eza.hyperglow.root.antifreeze
+
+import com.eza.hyperglow.root.HookLogger
+import io.github.libxposed.api.XposedInterface.Chain
+import io.github.libxposed.api.XposedInterface.Hooker
+import io.github.libxposed.api.XposedModule
+import java.lang.reflect.Method
+
+/**
+ * MIUI 省电防冻结。
+ *
+ * 在 system_server 里 hook 冻结链的三层入口，当冻结目标属于"当前正在播放媒体"
+ * 的 app 时跳过冻结调用（音乐位置源不断流）。
+ *
+ * 三层防线：
+ *  1. com.miui.server.greeze.GreezeManagerStub —— MIUI 私有 Greezer 主入口（boot classpath）
+ *  2. com.android.server.am.ProcessList.freezeBinderAndPackageCgroup —— MIUI 包级 cgroup 冻结
+ *  3. com.android.server.am.Freezer.freezeBinder —— AOSP binder freeze 底层
+ *
+ * 只拦截"冻结方向"：Boolean 参数为 false（解冻）的调用永远原样放行，
+ * 避免把已冻结的进程卡死在冻结态。
+ *
+ * 安全性：所有反射与 hook 全部 try-catch；类不存在（MIUI 版本差异）时静默降级，
+ * 只影响本功能，不影响模块其他部分。
+ */
+object AntiFreezeHook {
+    private const val TAG = "AntiFreeze"
+
+    private val classTargets = listOf(
+        "com.miui.server.greeze.GreezeManagerStub",
+        "com.android.server.am.ProcessList",
+        "com.android.server.am.Freezer",
+    )
+
+    fun install(module: XposedModule, classLoader: ClassLoader) {
+        for (name in classTargets) {
+            try {
+                val clazz = Class.forName(name, false, classLoader)
+                var count = 0
+                for (method in clazz.declaredMethods) {
+                    if (!isFreezeMethod(method)) continue
+                    module.hook(method).intercept(FreezeInterceptor(method))
+                    count++
+                }
+                HookLogger.i(TAG, "installed class=$name methods=$count")
+            } catch (t: Throwable) {
+                HookLogger.w(TAG, "unavailable class=$name", t)
+            }
+        }
+    }
+
+    private fun isFreezeMethod(method: Method): Boolean {
+        val name = method.name
+        return when {
+            name == "freezeBinder" -> true
+            name == "freezeBinderAndPackageCgroup" -> true
+            method.declaringClass.name.contains("greeze") && name.contains("freeze") -> true
+            else -> false
+        }
+    }
+
+    private class FreezeInterceptor(private val method: Method) : Hooker {
+        override fun intercept(chain: Chain): Any? {
+            try {
+                val args = chain.args
+                // 解冻方向永远放行
+                for (arg in args) {
+                    if (arg is Boolean && !arg) return chain.proceed()
+                }
+                if (matchesPlayingApp(args)) {
+                    HookLogger.i(
+                        TAG,
+                        "freeze skipped playing media " +
+                            "method=${method.declaringClass.simpleName}#${method.name} " +
+                            "args=[${args.joinToString { it?.toString() ?: "null" }}]"
+                    )
+                    return defaultReturn()
+                }
+            } catch (t: Throwable) {
+                HookLogger.w(TAG, "intercept failed", t)
+            }
+            return chain.proceed()
+        }
+
+        private fun matchesPlayingApp(args: List<Any?>): Boolean {
+            for (arg in args) {
+                val value = arg as? Int ?: continue
+                val uidByPid = uidForPid(value)
+                if (uidByPid > 0 && PlayingMediaResolver.isActiveMediaUid(uidByPid)) return true
+                if (PlayingMediaResolver.isActiveMediaUid(value)) return true
+            }
+            return false
+        }
+
+        private fun defaultReturn(): Any? = when {
+            method.returnType == Void.TYPE -> null
+            method.returnType == java.lang.Boolean.TYPE -> false
+            method.returnType.isPrimitive -> 0
+            else -> null
+        }
+    }
+
+    @Volatile
+    private var uidForPidMethod: Method? = null
+
+    private fun uidForPid(pid: Int): Int {
+        if (pid <= 0) return -1
+        return runCatching {
+            var m = uidForPidMethod
+            if (m == null) {
+                m = Class.forName("android.os.Process").getMethod("getUidForPid", Integer.TYPE)
+                uidForPidMethod = m
+            }
+            (m.invoke(null, pid) as? Int) ?: -1
+        }.getOrDefault(-1)
+    }
+}
