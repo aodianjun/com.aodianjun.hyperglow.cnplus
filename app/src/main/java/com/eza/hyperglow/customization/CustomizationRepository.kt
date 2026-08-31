@@ -93,6 +93,7 @@ object CustomizationRepository {
             secondaryMode = config.secondaryMode,
             metadataVisible = config.metadataVisible != "hide",
             metadataAnchor = config.metadataAnchor,
+            metadataSizePercent = config.metadataSizePercent,
             weight = config.weight,
             textSize = config.textSize,
             textSizeCustom = config.textSizeCustom,

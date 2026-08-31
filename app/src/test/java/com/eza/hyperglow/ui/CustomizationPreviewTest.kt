@@ -52,4 +52,14 @@ class CustomizationPreviewTest {
         assertTrue(visible.metadataVisible)
         assertTrue(visible.widgets.any { it.type == "metadata" })
     }
+
+    @Test
+    fun previewMetadataTextSizeScalesWithUserPercent() {
+        assertEquals(10f, previewMetadataTextSizeSp(100).value, 0.0001f)
+        assertEquals(5f, previewMetadataTextSizeSp(50).value, 0.0001f)
+        assertEquals(20f, previewMetadataTextSizeSp(200).value, 0.0001f)
+        // 越界值收敛到 50%~200%。
+        assertEquals(10f, previewMetadataTextSizeSp(1).value, 0.0001f)
+        assertEquals(20f, previewMetadataTextSizeSp(900).value, 0.0001f)
+    }
 }

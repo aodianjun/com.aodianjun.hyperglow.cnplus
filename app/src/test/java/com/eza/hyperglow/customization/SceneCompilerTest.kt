@@ -41,6 +41,7 @@ class SceneCompilerTest {
                 alignment = "end",
                 secondaryMode = "Both",
                 metadataVisible = "hide",
+                metadataSizePercent = 135,
                 weight = "Bold",
                 fontFamily = "spotify"
             )
@@ -53,6 +54,7 @@ class SceneCompilerTest {
         assertEquals("end", aod.alignment)
         assertEquals("Both", aod.secondaryMode)
         assertFalse(aod.metadataVisible)
+        assertEquals(135, aod.metadataSizePercent)
         assertEquals("Bold", aod.weight)
         assertEquals("spotify", aod.fontFamily)
     }
@@ -97,10 +99,35 @@ class SceneCompilerTest {
             )
         ).profiles.getValue(SceneCompiler.SURFACE_AOD)
 
-        assertEquals(0.5f, compiled.maxHeightFraction)
+        assertEquals(0.3f, compiled.maxHeightFraction)
         assertTrue(compiled.widgets.size <= SceneCompiler.MAX_AOD_WIDGETS)
         assertFalse(compiled.widgets.any { it.type == "media_progress" })
         assertEquals(600, compiled.transition.durationMs)
+    }
+
+    @Test
+    fun aodHeightFixedToMinimumRegardlessOfStoredValue() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(maxHeightFraction = 0.5f),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        enabled = true,
+                        maxHeightFraction = 0.9f
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            SceneCompiler.AOD_FIXED_MAX_HEIGHT_FRACTION,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).maxHeightFraction
+        )
+        // 锁屏卡片保留高度档位(仅收敛到上限)。
+        assertEquals(
+            0.8f,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).maxHeightFraction
+        )
     }
 
     @Test

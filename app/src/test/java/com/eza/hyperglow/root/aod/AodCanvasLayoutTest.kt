@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.aod
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
+import com.eza.hyperglow.customization.WidgetSpec
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricWord
@@ -175,6 +176,25 @@ class AodCanvasLayoutTest {
         assertEquals(2f, metadataTextSizeMultiplier(900), 0.0001f)
         assertEquals(36f, metadataWidgetHeightDp(100), 0.0001f)
         assertTrue(metadataWidgetHeightDp(200) > metadataWidgetHeightDp(50))
+    }
+
+    @Test
+    fun canvasContentCarriesProfileMetadataSizePercent() {
+        val profile = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        metadataVisible = true,
+                        metadataSizePercent = 160,
+                        widgets = listOf(WidgetSpec("lyrics"), WidgetSpec("metadata"))
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val snapshot = LyricSnapshot(original = "line", metadata = "Song · Artist")
+
+        assertEquals(160, snapshot.toAodCanvasContent(profile).metadataSizePercent)
+        assertEquals(100, snapshot.toAodCanvasContent(null).metadataSizePercent)
     }
 
     @Test

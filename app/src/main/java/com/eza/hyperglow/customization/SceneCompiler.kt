@@ -132,10 +132,13 @@ object SceneCompiler {
             anchor = profile.anchor.takeIf { it in ANCHORS } ?: "below_stock_clock",
             aodClockFollow = profile.aodClockFollow,
             widthFraction = profile.widthFraction.coerceIn(0.4f, 1f),
-            maxHeightFraction = profile.maxHeightFraction.coerceIn(
-                0.15f,
-                if (aod) 0.5f else 0.8f
-            ),
+            maxHeightFraction = if (aod) {
+                // 息屏不渲染卡片背景,高度档位没有视觉意义,固定到最小档(0.3):
+                // 歌词块尽量贴合内容,摆放只由纵向位置(anchor/verticalBias)控制。
+                AOD_FIXED_MAX_HEIGHT_FRACTION
+            } else {
+                profile.maxHeightFraction.coerceIn(0.15f, 0.8f)
+            },
             verticalBias = profile.verticalBias.coerceIn(0f, 1f),
             collisionPolicy = profile.collisionPolicy.takeIf { it in COLLISION_POLICIES } ?: "avoid",
             widgets = supportedWidgets,
@@ -213,6 +216,8 @@ object SceneCompiler {
     const val TARGET_CONFIG_BYTES = 32 * 1024
     const val MAX_WIDGETS = 8
     const val MAX_AOD_WIDGETS = 4
+    /** 息屏歌词块固定高度档位(此前高度设置的最小可选值)。 */
+    const val AOD_FIXED_MAX_HEIGHT_FRACTION = 0.3f
     const val SURFACE_LOCKSCREEN = "lockscreen"
     const val SURFACE_AOD = "aod"
 

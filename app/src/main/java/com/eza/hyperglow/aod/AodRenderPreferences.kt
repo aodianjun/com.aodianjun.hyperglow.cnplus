@@ -13,6 +13,7 @@ data class AodRenderConfig(
     val overflowMode: String = "Wrap",
     val metadataVisible: String = "hide",
     val metadataAnchor: String = "top",
+    val metadataSizePercent: Int = 100,
     val weight: String = "Medium",
     val textSize: String = "normal",
     val textSizeCustom: Int = 100,
@@ -144,6 +145,7 @@ object AodRenderPreferences {
     const val OVERFLOW = "overflow"
     const val METADATA_VISIBLE = "metadata_visible"
     const val METADATA_ANCHOR = "metadata_anchor"
+    const val METADATA_SIZE = "metadata_size"
     const val WEIGHT = "weight"
     const val TEXT_SIZE = "text_size"
     const val TEXT_SIZE_CUSTOM = "text_size_custom"
@@ -189,6 +191,7 @@ object AodRenderPreferences {
             normalizeAodOverflow(prefs.getString(OVERFLOW, "Wrap")),
             normalizeAodMetadataVisible(prefs.getString(METADATA_VISIBLE, "hide")),
             normalizeAodMetadataAnchor(prefs.getString(METADATA_ANCHOR, "top")),
+            prefs.getInt(METADATA_SIZE, 100).coerceIn(50, 200),
             normalizeAodWeight(prefs.getString(WEIGHT, "Medium")),
             normalizeAodTextSize(prefs.getString(TEXT_SIZE, "normal")),
             prefs.getInt(TEXT_SIZE_CUSTOM, 100).coerceIn(50, 200),

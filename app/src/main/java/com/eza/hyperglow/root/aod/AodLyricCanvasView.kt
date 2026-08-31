@@ -1485,13 +1485,6 @@ internal class AodLyricCanvasView(
             content.lineEndMs,
             hasTimedWords
         )
-        android.util.Log.d(
-            "AODMetadata",
-            "rebuild metadataVisible=${content.metadataVisible} " +
-                "metadata='${content.metadata}' original='${content.original}' " +
-                "line=[${content.lineStartMs}..${content.lineEndMs}] timed=$hasTimedWords " +
-                "placeholder=$metadataPlaceholder"
-        )
         if (content.metadataVisible && content.metadata.isNotBlank() && !metadataPlaceholder) {
             rows += row(RowKind.METADATA, content.metadata, metadataPaint, 0f, false)
         }

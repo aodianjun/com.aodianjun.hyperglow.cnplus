@@ -1280,13 +1280,6 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             )
         }
         val profile = currentAodProfile()
-        android.util.Log.d(
-            "AODMetadata",
-            "layoutSurface compiled.enabled=${profile.enabled} " +
-                "metadataVisible=${profile.metadataVisible} " +
-                "widgets=${profile.widgets.map { it.type }} " +
-                "runtime=${runtimeProfile?.metadataVisible}"
-        )
         val metadataHeight = if (profile.metadataVisible &&
             profile.widgets.any { it.type == "metadata" }
         ) {

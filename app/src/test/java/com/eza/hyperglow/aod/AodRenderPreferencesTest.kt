@@ -76,6 +76,7 @@ class AodRenderPreferencesTest {
         assertEquals("Wrap", config.overflowMode)
         assertEquals("hide", config.metadataVisible)
         assertEquals("top", config.metadataAnchor)
+        assertEquals(100, config.metadataSizePercent)
         assertEquals("Medium", config.weight)
         assertEquals("normal", config.textSize)
         assertEquals("spotify", config.fontFamily)

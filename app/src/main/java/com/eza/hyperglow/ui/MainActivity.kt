@@ -1368,15 +1368,23 @@ private fun LyricLayoutScreen(
                             selectedProfile.widthFraction.toString()
                         ) { value -> updateSelected { it.copy(widthFraction = value.toFloat()) } }
                     }
-                    AodChoiceRow(
-                        AodChoiceKind.HEIGHT,
-                        selectedProfile.maxHeightFraction.toString()
-                    ) {
-                        openChoice(
+                    // 息屏没有卡片背景,高度档位无视觉意义(编译期固定为最小档),
+                    // 不提供高度设置;锁屏卡片保留高度档位。
+                    if (editorState.selectedSurface != SceneCompiler.SURFACE_AOD) {
+                        AodChoiceRow(
                             AodChoiceKind.HEIGHT,
-                            heightChoices(editorState.selectedSurface),
                             selectedProfile.maxHeightFraction.toString()
-                        ) { value -> updateSelected { it.copy(maxHeightFraction = value.toFloat()) } }
+                        ) {
+                            openChoice(
+                                AodChoiceKind.HEIGHT,
+                                listOf("0.4", "0.5", "0.6", "0.7"),
+                                selectedProfile.maxHeightFraction.toString()
+                            ) { value ->
+                                updateSelected {
+                                    it.copy(maxHeightFraction = value.toFloat())
+                                }
+                            }
+                        }
                     }
                     SliderPreference(
                         value = selectedProfile.verticalBias * 100f,
@@ -1915,18 +1923,6 @@ private fun effectiveTextSizePercent(profile: SurfaceProfile): Int = when (profi
     else -> 100
 }
 
-/**
- * Discrete lyric-block height choices (as `maxHeightFraction` fractions). AOD clamps to 0.5,
- * lockscreen to 0.8 (see [com.eza.hyperglow.customization.SceneCompiler]), so the offered
- * ranges differ per surface.
- */
-private fun heightChoices(surface: String): List<String> =
-    if (surface == SceneCompiler.SURFACE_AOD) {
-        listOf("0.3", "0.4", "0.5")
-    } else {
-        listOf("0.4", "0.5", "0.6", "0.7")
-    }
-
 private fun choiceDisplayLabel(
     context: android.content.Context,
     kind: AodChoiceKind,
@@ -2112,6 +2108,7 @@ private fun applyDocumentToLegacyPreferences(
             if (aod.metadataVisible) "show" else "hide"
         )
         .putString(AodRenderPreferences.METADATA_ANCHOR, aod.metadataAnchor)
+        .putInt(AodRenderPreferences.METADATA_SIZE, aod.metadataSizePercent.coerceIn(50, 200))
         .putString(AodRenderPreferences.WEIGHT, aod.weight)
         .putString(AodRenderPreferences.TEXT_SIZE, aod.textSize)
         .putInt(AodRenderPreferences.TEXT_SIZE_CUSTOM, aod.textSizeCustom)
@@ -2744,7 +2741,7 @@ private fun LyricPreviewSurface(
             verticalArrangement = Arrangement.Center
         ) {
             if (showMetadata && profile.metadataAnchor == "top") {
-                PreviewMetaLine(snapshot.metadata, metadataColor)
+                PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent)
             }
             PreviewAnimatedLyric(
                 text = snapshot.original,
@@ -2780,22 +2777,26 @@ private fun LyricPreviewSurface(
                 )
             }
             if (showMetadata && profile.metadataAnchor == "bottom") {
-                PreviewMetaLine(snapshot.metadata, metadataColor)
+                PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent)
             }
         }
     }
 }
 
 @Composable
-private fun PreviewMetaLine(text: String, color: ComposeColor) {
+private fun PreviewMetaLine(text: String, color: ComposeColor, sizePercent: Int) {
     Text(
         text,
-        fontSize = 10.sp,
+        fontSize = previewMetadataTextSizeSp(sizePercent),
         color = color,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis
     )
 }
+
+/** 主页预览的歌曲信息字号:基准 10sp,按用户设置的 metadataSizePercent 缩放(50%~200%)。 */
+internal fun previewMetadataTextSizeSp(sizePercent: Int): androidx.compose.ui.unit.TextUnit =
+    (10 * sizePercent.coerceIn(50, 200) / 100).sp
 
 /**
  * 主页预览的歌词主体渲染:在原生 Canvas 上用 StaticLayout 绘制主歌词,按播放进度模拟
