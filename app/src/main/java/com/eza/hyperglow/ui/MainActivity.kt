@@ -113,6 +113,7 @@ import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.LyricSource
 import com.eza.hyperglow.producer.ProducerConnection
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
+import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiProfileState
 import com.eza.hyperglow.root.projection.LyricLayoutGroup
@@ -1607,6 +1608,47 @@ private fun LyricLayoutScreen(
                             palettePresetName(selectedProfile.palette)
                         ) { value -> updateSelected { it.copy(palette = palettePreset(value)) } }
                     }
+                    AodChoiceRow(AodChoiceKind.FONT_COLOR, fontColorPresetName(selectedProfile.palette)) {
+                        openChoice(
+                            AodChoiceKind.FONT_COLOR,
+                            FONT_COLOR_CHOICES,
+                            fontColorPresetName(selectedProfile.palette)
+                        ) { value ->
+                            updateSelected { it.copy(palette = applyFontColor(it.palette, value)) }
+                        }
+                    }
+                    if (selectedProfile.metadataVisible) {
+                        AodChoiceRow(
+                            AodChoiceKind.SONG_INFO_COLOR,
+                            metadataColorPresetName(selectedProfile.palette)
+                        ) {
+                            openChoice(
+                                AodChoiceKind.SONG_INFO_COLOR,
+                                FONT_COLOR_CHOICES,
+                                metadataColorPresetName(selectedProfile.palette)
+                            ) { value ->
+                                updateSelected {
+                                    it.copy(palette = applyMetadataColor(it.palette, value))
+                                }
+                            }
+                        }
+                    }
+                    if (selectedProfile.showNextLine) {
+                        AodChoiceRow(
+                            AodChoiceKind.NEXT_LINE_COLOR,
+                            nextLineColorPresetName(selectedProfile.palette)
+                        ) {
+                            openChoice(
+                                AodChoiceKind.NEXT_LINE_COLOR,
+                                FONT_COLOR_CHOICES,
+                                nextLineColorPresetName(selectedProfile.palette)
+                            ) { value ->
+                                updateSelected {
+                                    it.copy(palette = applyNextLineColor(it.palette, value))
+                                }
+                            }
+                        }
+                    }
                     AodChoiceRow(
                         AodChoiceKind.TRANSITION_SPEED,
                         selectedProfile.transition.durationMs.toString()
@@ -2000,6 +2042,17 @@ private fun choiceDisplayLabel(
     AodChoiceKind.TEXT_BRIGHTNESS -> context.getString(
         if (value == "dimmed") R.string.option_dimmed else R.string.option_default
     )
+    AodChoiceKind.FONT_COLOR,
+    AodChoiceKind.SONG_INFO_COLOR,
+    AodChoiceKind.NEXT_LINE_COLOR -> context.getString(when (value) {
+        "#FFD9A0" -> R.string.option_color_warm_gold
+        "#A9D9FF" -> R.string.option_color_ice_blue
+        "#B8F0C9" -> R.string.option_color_mint_green
+        "#FFC9DE" -> R.string.option_color_sakura_pink
+        "#FFF3A8" -> R.string.option_color_butter_yellow
+        "#D9C9FF" -> R.string.option_color_lavender
+        else -> R.string.option_default
+    })
     AodChoiceKind.LINE_PROGRESS -> context.getString(when (value) {
         "None" -> R.string.option_none
         "Top to bottom" -> R.string.option_top_to_bottom
@@ -2065,6 +2118,9 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     GLOW(R.string.choice_glow),
     LINE_PROGRESS(R.string.choice_line_progress_effect),
     TEXT_BRIGHTNESS(R.string.choice_text_brightness),
+    FONT_COLOR(R.string.choice_font_color),
+    SONG_INFO_COLOR(R.string.choice_song_info_color),
+    NEXT_LINE_COLOR(R.string.choice_next_line_color),
     TRANSITION_SPEED(R.string.choice_scene_transition_speed),
     CARD_COLOR(R.string.choice_card_color)
 }
@@ -2118,6 +2174,53 @@ internal fun palettePreset(name: String): Map<String, String> =
 
 internal fun palettePresetName(palette: Map<String, String>): String =
     if (palette.isNotEmpty() && palette.values.all { it == "dimmed" }) "dimmed" else "default"
+
+/** 字体颜色选项的可选值:"default"(白) + 一组 AOD 场景友好的亮色 token。 */
+internal val FONT_COLOR_CHOICES = listOf(
+    "default",
+    "#FFD9A0",
+    "#A9D9FF",
+    "#B8F0C9",
+    "#FFC9DE",
+    "#FFF3A8",
+    "#D9C9FF"
+)
+
+/** 字体颜色作用于主文字/已唱/未唱/光晕四个语义键;选 default 时清除这些键恢复白。 */
+private val FONT_COLOR_KEYS = listOf("primaryText", "sungText", "unsungText", "glow")
+
+internal fun applyFontColor(palette: Map<String, String>, value: String): Map<String, String> =
+    applyPaletteColor(palette, FONT_COLOR_KEYS, value)
+
+internal fun fontColorPresetName(palette: Map<String, String>): String =
+    paletteColorPresetName(palette, "primaryText")
+
+/** 歌曲信息颜色只作用于 metadataText 键。 */
+internal fun applyMetadataColor(palette: Map<String, String>, value: String): Map<String, String> =
+    applyPaletteColor(palette, listOf("metadataText"), value)
+
+internal fun metadataColorPresetName(palette: Map<String, String>): String =
+    paletteColorPresetName(palette, "metadataText")
+
+/** 下一行歌词颜色只作用于 nextLineText 键。 */
+internal fun applyNextLineColor(palette: Map<String, String>, value: String): Map<String, String> =
+    applyPaletteColor(palette, listOf("nextLineText"), value)
+
+internal fun nextLineColorPresetName(palette: Map<String, String>): String =
+    paletteColorPresetName(palette, "nextLineText")
+
+private fun applyPaletteColor(
+    palette: Map<String, String>,
+    keys: List<String>,
+    value: String
+): Map<String, String> = if (value == "default") {
+    palette.filterKeys { it !in keys }
+} else {
+    palette + keys.associateWith { value }
+}
+
+private fun paletteColorPresetName(palette: Map<String, String>, key: String): String =
+    palette[key]?.takeIf { it.startsWith("#") } ?: "default"
 
 private fun applyDocumentToLegacyPreferences(
     context: android.content.Context,
@@ -2792,13 +2895,12 @@ private fun LyricPreviewSurface(
     // 大字号下一行就被裁掉,看起来像被遮挡。这样无论字号多大都完整可见。
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
     val snapshot = live ?: collectDemoSnapshot(scenario)
-    val lyricColor = if (profile.palette.values.any { it == "dimmed" }) {
-        ComposeColor(0xFF9AA0A6)
-    } else {
-        ComposeColor(0xFFFFFFFF)
-    }
-    val secondaryColor = lyricColor.copy(alpha = 0.72f)
-    val metadataColor = lyricColor.copy(alpha = 0.6f)
+    // 颜色与实机同源:统一走 resolveAodPalette(dimmed 预设/自定义字体颜色 hex token 一处解析)
+    val resolvedColors = resolveAodPalette(profile.palette)
+    val lyricColor = ComposeColor(resolvedColors.primaryText)
+    val secondaryColor = ComposeColor(resolvedColors.secondaryText).copy(alpha = 0.72f)
+    val metadataColor = ComposeColor(resolvedColors.metadataText).copy(alpha = 0.6f)
+    val nextLineColor = ComposeColor(resolvedColors.nextLineText).copy(alpha = 0.45f)
     val textSize = previewTextSizeSp(profile)
     val weight = previewFontWeight(profile)
     val textAlign = previewTextAlign(profile)
@@ -2861,7 +2963,7 @@ private fun LyricPreviewSurface(
                     snapshot.nextLine,
                     fontSize = textSize * 0.72f,
                     fontWeight = FontWeight.Normal,
-                    color = lyricColor.copy(alpha = 0.45f),
+                    color = nextLineColor,
                     textAlign = textAlign,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

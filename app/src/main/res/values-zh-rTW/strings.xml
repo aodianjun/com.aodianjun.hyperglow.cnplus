@@ -216,6 +216,9 @@
     <string name="choice_glow">發光</string>
     <string name="choice_line_progress_effect">整行進度效果</string>
     <string name="choice_text_brightness">文字亮度</string>
+    <string name="choice_font_color">字體顏色</string>
+    <string name="choice_song_info_color">歌曲資訊顏色</string>
+    <string name="choice_next_line_color">下一行歌詞顏色</string>
     <string name="choice_scene_transition_speed">場景過渡速度</string>
     <string name="title_appearance_preview">即時預覽</string>
     <string name="section_lockscreen_card">鎖屏歌詞卡片</string>
@@ -258,6 +261,12 @@
     <string name="option_sf_pro_display">SF Pro Display</string>
     <string name="option_default">默認</string>
     <string name="option_dimmed">較暗</string>
+    <string name="option_color_warm_gold">暖金</string>
+    <string name="option_color_ice_blue">冰藍</string>
+    <string name="option_color_mint_green">薄荷綠</string>
+    <string name="option_color_sakura_pink">櫻花粉</string>
+    <string name="option_color_butter_yellow">鵝黃</string>
+    <string name="option_color_lavender">淡紫</string>
     <string name="option_left_to_right">從左到右</string>
     <string name="option_left_to_right_all">從左到右（所有行）</string>
     <string name="option_fast">快速</string>

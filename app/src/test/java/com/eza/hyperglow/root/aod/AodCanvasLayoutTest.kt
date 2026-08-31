@@ -37,6 +37,21 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun paletteHexTokensResolveToOpaqueColors() {
+        // "#RRGGBB" 自定义字体颜色 → 不透明 ARGB
+        val warm = resolveAodPalette(mapOf("primaryText" to "#FFD9A0", "glow" to "#FFD9A0"))
+        assertEquals(0xFFFFD9A0.toInt(), warm.primaryText)
+        assertEquals(0xFFFFD9A0.toInt(), warm.glow)
+        // "#AARRGGBB" 丢弃 alpha;短格式 "#RGB" 展开;非法 token 回退默认白
+        assertEquals(0xFF00AABB.toInt(), parseOpaqueColorOrNull("#CC00AABB"))
+        assertEquals(0xFF112233.toInt(), parseOpaqueColorOrNull("#123"))
+        assertNull(parseOpaqueColorOrNull("dimmed"))
+        assertNull(parseOpaqueColorOrNull("#GGHHII"))
+        assertNull(parseOpaqueColorOrNull("#12345"))
+        assertEquals(android.graphics.Color.WHITE, resolveAodPalette(mapOf("sungText" to "#12345")).sungText)
+    }
+
+    @Test
     fun wrappedTimedTransliterationKeepsOneOrderedWordSequence() {
         val segments = listOf(
             SecondaryTimedSegment("ming yun", 80f, 10f, 0L, 100L),
