@@ -21,12 +21,15 @@ import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import com.eza.hyperglow.root.projection.LyricKeepAliveSignal
 import com.eza.hyperglow.root.projection.LyricRenderContent
+import com.eza.hyperglow.root.projection.LyricRetentionAnchor
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
 import com.eza.hyperglow.root.projection.SystemUiLyricProjectionRuntime
 import com.eza.hyperglow.root.projection.SystemUiLyricSubscriber
+import com.eza.hyperglow.root.projection.edgeFor
 import com.eza.hyperglow.root.projection.freezeAt
 import com.eza.hyperglow.root.projection.isAuthorizedForPresentation
+import com.eza.hyperglow.root.projection.nextLyricRetentionAnchor
 import com.eza.hyperglow.root.projection.pauseLingerRemainingMs
 import com.eza.hyperglow.root.projection.shouldRenewAodDraw
 import com.eza.hyperglow.root.projection.shouldRequestAodWake
@@ -138,17 +141,25 @@ internal data class AodClockAnchor(
     val sinceElapsedMs: Long
 )
 
-/** How long a held clock position may go unconfirmed before it is treated as a genuine move.
- *  原先为 40_000L(40秒),过长的锚定会让歌词布局在系统时钟快移时严重滞后错位。
- *  方案A:缩短为 3_000L(3秒),让歌词布局更快跟上时钟的真实移动,同时仍保留防抖以抑制毫秒级振荡。 */
-internal const val AOD_CLOCK_ANCHOR_HOLD_MS = 3_000L
+/** How long a held clock position may go unconfirmed before it is treated as a genuine move. */
+internal const val AOD_CLOCK_ANCHOR_HOLD_MS = 40_000L
+
+/** Minimum downward clock drift (px) the settle watchdog reacts to. */
+internal const val STOCK_SETTLE_DRIFT_PX = 24
+
+/** Recheck cadence after the initial settle schedule is exhausted. */
+internal const val STOCK_SETTLE_RETRY_MS = 300_000L
 
 /**
  * Stabilizes the clock bounds used for lyric placement against fast oscillation (e.g. the media
- * header toggling the AOD layout, which squeezes/releases the clock by hundreds of pixels). The
+ * header toggling the AOD layout, which squeezes the clock upward by hundreds of pixels). The
  * anchor holds the last *confirmed* clock position: as long as the raw bounds keep returning to it
- * (oscillation), the anchor stays put so the lyric never jumps. It only relocates when the held
- * position has gone unconfirmed for [AOD_CLOCK_ANCHOR_HOLD_MS] — a genuinely persistent move.
+ * (oscillation), the anchor stays put so the lyric never jumps. It only relocates on a genuinely
+ * persistent move that leaves the held position unconfirmed for [holdMs].
+ *
+ * 下行（时钟底部低于 anchor 底部）会立即硬同步，不做防抖：歌词 surface 位于 anchor 底部之下，
+ * 若时钟向下漂移（小米 burn-in 每次唤醒步进 90–160px）却等防抖窗口，时钟会在滞后期间叠在歌词上。
+ * 上行保留长防抖，因为媒体头部振荡会把时钟向上挤压，不能让 anchor 跟着抖动。
  */
 internal fun stabilizeAodClockAnchor(
     previous: AodClockAnchor?,
@@ -162,6 +173,8 @@ internal fun stabilizeAodClockAnchor(
         // Held position reconfirmed: refresh so oscillation never ages it out.
         return previous.copy(sinceElapsedMs = nowElapsedMs)
     }
+    // 下行（时钟侵入歌词区域）立即硬同步，避免 burn-in 漂移时时钟叠在歌词上。
+    if (raw.bottom > previous.bottom) return AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
     return if (nowElapsedMs - previous.sinceElapsedMs >= holdMs) {
         AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
     } else {
@@ -250,14 +263,21 @@ internal fun retainedAodSnapshotAfterUpdate(
     incoming: LyricSnapshot,
     lastVisible: LyricSnapshot?,
     retained: LyricSnapshot?,
+    anchor: LyricRetentionAnchor?,
     mediaPlayerPresent: Boolean,
     nowElapsedMs: Long,
-    pauseLingerMs: Long = 5_000L
+    pauseLingerMs: Long = 5_000L,
+    pauseRetentionEnabled: Boolean = true
 ): LyricSnapshot? = when {
     incoming.visible -> null
     !mediaPlayerPresent -> null
-    incoming.pauseRetentionEligible -> {
-        val pauseAtElapsedMs = incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
+    // 「暂停时显示歌曲信息、歌词」关闭时,暂停驻留边按终止态处理:不冻结歌词,
+    // 避免任何设置组合下暂停仍漏出歌曲信息驻留。
+    incoming.pauseRetentionEligible && pauseRetentionEnabled -> {
+        val pauseAtElapsedMs = anchor.edgeFor(
+            pauseRetentionEligible = true,
+            fallbackElapsedMs = incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
+        )
         val candidate = retained?.takeIf { it.pauseRetentionEligible } ?: lastVisible?.freezeAt(
             pauseAtElapsedMs,
             keepAliveWhileFrozen = false
@@ -267,11 +287,18 @@ internal fun retainedAodSnapshotAfterUpdate(
         }
     }
     incoming.playbackActive -> {
+        val gapAtElapsedMs = anchor.edgeFor(
+            pauseRetentionEligible = false,
+            fallbackElapsedMs = nowElapsedMs
+        )
         val candidate = retained?.takeIf { it.playbackActive } ?: lastVisible?.freezeAt(
-            nowElapsedMs,
+            gapAtElapsedMs,
             keepAliveWhileFrozen = lastVisible.keepAlive
         )?.copy(playbackActive = true, pauseRetentionEligible = false)
-        candidate?.let { expirePausedAodKeepAlive(it, nowElapsedMs) }
+        // 仍在播放的隐藏边是传输间隙,间隙自身的界就是电源宽限。没有它,producer 持续重发
+        // 间隙时冻结歌词会活过所有计时器,因为没有任何东西给一条从不停歇的快照计时。
+        candidate?.takeIf { nowElapsedMs - gapAtElapsedMs < PAUSED_AOD_KEEP_ALIVE_MS }
+            ?.let { expirePausedAodKeepAlive(it, nowElapsedMs) }
     }
     else -> null
 }
@@ -307,13 +334,14 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var attachmentGeneration = 0L
     private var environment = SurfaceEnvironment(LyricSurfaceKind.AOD, 0L)
     private var rootRef = WeakReference<ViewGroup>(null)
-    private var burnInContainerRef = WeakReference<FrameLayout>(null)
+    private var burnInContainerRef = WeakReference<ViewGroup>(null)
     private var surface: LinearLayout? = null
     private var lyricCanvas: AodLyricCanvasView? = null
     private var spicyAnimationView: AodSpicyAnimationView? = null
     private var latestSnapshot: LyricSnapshot? = null
     private var lastVisibleSnapshot: LyricSnapshot? = null
     private var retainedMediaSnapshot: LyricSnapshot? = null
+    private var retentionAnchor: LyricRetentionAnchor? = null
     private var stockMediaPlayerPresent = false
     private var customization: CompiledCustomization? = null
     private var runtimeProfile: CompiledSurfaceProfile? = null
@@ -373,6 +401,25 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var stockMotionAlphaFrom = 1f
     private var stockMotionAlphaTo = 1f
     private var drawWakeRenewalActive = false
+    // Stock settle drift watchdog: MIUI moves the AOD clock to a burn-in initial
+    // position about 10s after AOD entry (AODUpdatePositionController, translated via
+    // setTranslationY, which never fires OnLayoutChange). The follow-up hook can miss it,
+    // so we re-check the physical clock bounds on a schedule and force a geometry refresh.
+    private var stockSettleCheckScheduled = false
+    private var stockSettleCheckIndex = 0
+    private val stockSettleCheckIntervals = longArrayOf(
+        10_000L, 10_000L, 15_000L, 20_000L, 30_000L,
+        40_000L, 60_000L, 80_000L, 120_000L, 160_000L, 240_000L
+    )
+    private val stockSettleCheck = object : Runnable {
+        override fun run() {
+            stockSettleCheckScheduled = false
+            checkStockSettleDrift()
+        }
+    }
+
+    private var renderStallWatchdogScheduled = false
+    private var lastPlacedTrace: String? = null
     private var managedPositionRetryCount = 0
     private var initialRevealPending = true
     private var initialRevealActive = false
@@ -400,6 +447,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 return
             }
             retainedMediaSnapshot = null
+            retentionAnchor = null
             lastVisibleSnapshot = null
             latestSnapshot = latestSnapshot?.takeUnless { it === retained }
             setStockWidgetControlActive(false)
@@ -502,6 +550,19 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             }
             pulseDrawWakeLock(root)
             mainHandler.postDelayed(this, DRAW_WAKE_RENEW_INTERVAL_MS)
+        }
+    }
+    /**
+     * 渲染停摆看门狗(issue #6):切歌 + 锁屏过渡并发窗口里,快照应用链路可能停摆、
+     * Draw wake renewal 被关掉后没有任何事件再把它拉起来,画布节律也随之停止,
+     * AOD 只能等下一次锁屏 attach 重放才恢复。看门狗在「息屏 + 已附着 + 场景激活 +
+     * 快照可渲染 + 仍在播放」时周期自检,发现停摆就强制重放快照并补画布唤醒脉冲。
+     */
+    private val renderStallWatchdog = object : Runnable {
+        override fun run() {
+            if (!renderStallWatchdogScheduled) return
+            mainHandler.postDelayed(this, RENDER_STALL_WATCHDOG_INTERVAL_MS)
+            runCatching { recoverRenderStallIfNeeded() }
         }
     }
     private val initialRevealFrame = object : Runnable {
@@ -629,6 +690,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 )
                 LinkageTransitionCoordinator.registerSurface(this)
                 AodPowerCoordinator.onSurfaceAttached()
+                startRenderStallWatchdog()
+                startStockSettleWatchdog()
                 LinkageTransitionCoordinator.onAodSurfaceMode(AodPositionHook.isLinkageMode())
                 val generation = attachmentGeneration
                 root.post {
@@ -744,6 +807,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             cancelPausedKeepAliveExpiry()
             cancelPauseLingerExpiry()
             retainedMediaSnapshot = null
+            retentionAnchor = null
             lastVisibleSnapshot = null
             latestSnapshot = null
             setStockWidgetControlActive(false)
@@ -762,13 +826,17 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         else if (lastVisibleSnapshot == null) {
             lastVisibleSnapshot = SystemUiLyricProjectionRuntime.projection.cachedVisibleSnapshot()
         }
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        retentionAnchor = nextLyricRetentionAnchor(incomingSnapshot, retentionAnchor, nowElapsedMs)
         retainedMediaSnapshot = retainedAodSnapshotAfterUpdate(
             incomingSnapshot,
             lastVisibleSnapshot,
             retainedMediaSnapshot,
+            retentionAnchor,
             stockMediaPlayerPresent,
-            SystemClock.elapsedRealtime(),
-            customization?.pauseLingerMs ?: 5_000L
+            nowElapsedMs,
+            customization?.pauseLingerMs ?: 5_000L,
+            pauseRetentionEnabled = customization?.pauseShowContent ?: false
         )
         schedulePausedKeepAliveExpiry(retainedMediaSnapshot)
         schedulePauseLingerExpiry(retainedMediaSnapshot)
@@ -888,6 +956,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         latestSnapshot = null
         lastVisibleSnapshot = null
         retainedMediaSnapshot = null
+        retentionAnchor = null
         customization = null
         runtimeProfile = null
         setStockWidgetControlActive(false)
@@ -900,6 +969,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         latestSnapshot = null
         lastVisibleSnapshot = null
         retainedMediaSnapshot = null
+        retentionAnchor = null
         setStockWidgetControlActive(false)
         hideSurfaceOnly(pulse = false)
     }
@@ -907,14 +977,16 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     override fun onCustomization(configuration: CompiledCustomization) {
         customization = configuration
         val retained = retainedMediaSnapshot?.takeIf { snapshot ->
-            !snapshot.pauseRetentionEligible || pauseLingerRemainingMs(
-                snapshot.sampledAtElapsedMs,
-                configuration.pauseLingerMs,
-                SystemClock.elapsedRealtime()
-            ) != null
+            !snapshot.pauseRetentionEligible || configuration.pauseShowContent &&
+                pauseLingerRemainingMs(
+                    snapshot.sampledAtElapsedMs,
+                    configuration.pauseLingerMs,
+                    SystemClock.elapsedRealtime()
+                ) != null
         }
         if (retainedMediaSnapshot != null && retained == null) {
             retainedMediaSnapshot = null
+            retentionAnchor = null
             lastVisibleSnapshot = null
             latestSnapshot = null
             cancelPauseLingerExpiry()
@@ -955,6 +1027,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             SystemClock.elapsedRealtime()
         ) ?: run {
             retainedMediaSnapshot = null
+            retentionAnchor = null
             lastVisibleSnapshot = null
             latestSnapshot = latestSnapshot?.takeUnless { it === retained }
             setStockWidgetControlActive(false)
@@ -988,6 +1061,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private fun detachCurrent() {
         attachmentGeneration++
+        stopRenderStallWatchdog()
+        stopStockSettleWatchdog()
         mainHandler.removeCallbacks(geometryUpdate)
         mainHandler.removeCallbacks(stockMotionSettleTimeout)
         mainHandler.removeCallbacks(managedBurnInStart)
@@ -1026,6 +1101,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         latestSnapshot = null
         lastVisibleSnapshot = null
         retainedMediaSnapshot = null
+        retentionAnchor = null
         stockMediaPlayerPresent = false
         customization = null
         runtimeProfile = null
@@ -1039,6 +1115,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         initialRevealDurationMs = 0L
         transitionFailedHidden = false
         lastLayoutBlockTrace = null
+        lastPlacedTrace = null
         lastSnapshotTrace = null
         lastBrightClockMorphPhase = null
         lastClockGeometryAuthority = null
@@ -1088,6 +1165,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // capability: that symbol is independent of mWakeLock, and gating on it silently
         // freezes AOD updates on versions where the probe fails. pulseDrawWakeLock is
         // guarded by runCatching, so an absent field fails harmlessly.
+        // 播放态额外取 Lyricon 中心服务的真值:切歌 BUFFERING/位置未知窗口里 app 侧快照会
+        // 短暂报 playbackActive=false(issue #6),若只信快照,续期会在缓冲窗口被关掉且
+        // 没有事件再拉起,直到下次锁屏 attach 才恢复。
         val active = shouldRenewAodDraw(
             surfaceKind = surfaceKind,
             attached = rootRef.get() != null,
@@ -1096,7 +1176,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 snapshot != null && canRenderAod(snapshot),
             pendingStockMotion = pendingStockMotionUpdate != null,
             keepAlive = snapshot?.keepAlive == true,
-            playbackActive = snapshot?.playbackActive == true
+            playbackActive = snapshot?.playbackActive == true ||
+                AodWakeBroker.isLyriconPlaybackActive()
         )
         setDrawWakeRenewalActive(active)
     }
@@ -1109,6 +1190,124 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (!active) return
         rootRef.get()?.let(::pulseDrawWakeLock)
         mainHandler.postDelayed(drawWakeRenewal, DRAW_WAKE_RENEW_INTERVAL_MS)
+    }
+
+    private fun startStockSettleWatchdog() {
+        stopStockSettleWatchdog()
+        stockSettleCheckIndex = 0
+        scheduleNextStockSettleCheck()
+    }
+
+    private fun stopStockSettleWatchdog() {
+        stockSettleCheckScheduled = false
+        mainHandler.removeCallbacks(stockSettleCheck)
+        stockSettleCheckIndex = 0
+    }
+
+    private fun scheduleNextStockSettleCheck() {
+        if (stockSettleCheckScheduled) return
+        stockSettleCheckScheduled = true
+        val delay = if (stockSettleCheckIndex < stockSettleCheckIntervals.size) {
+            stockSettleCheckIntervals[stockSettleCheckIndex++]
+        } else {
+            STOCK_SETTLE_RETRY_MS
+        }
+        mainHandler.postDelayed(stockSettleCheck, delay)
+    }
+
+    private fun checkStockSettleDrift() {
+        val root = rootRef.get()
+        val directSurface = surface
+        if (root == null || directSurface == null ||
+            directSurface.visibility != View.VISIBLE
+        ) {
+            scheduleNextStockSettleCheck()
+            return
+        }
+        val physical = selectPhysicalAodClockBounds(
+            systemUiClockBounds,
+            aodControllerClockBounds
+        ) ?: AodPositionHook.renderedTargetBoundsInRoot(root)
+        val anchor = clockAnchor
+        if (physical != null && anchor != null &&
+            physical.bottom - anchor.bottom > STOCK_SETTLE_DRIFT_PX
+        ) {
+            HookLogger.i(
+                TAG,
+                "Stock settle drift detected +${physical.bottom - anchor.bottom}px " +
+                    "anchor=${anchor.top}..${anchor.bottom} " +
+                    "physical=${physical.top}..${physical.bottom}; forcing geometry refresh"
+            )
+            clockAnchor = AodClockAnchor(physical.top, physical.bottom, SystemClock.elapsedRealtime())
+            requestGeometryUpdate()
+        }
+        scheduleNextStockSettleCheck()
+    }
+
+    private fun startRenderStallWatchdog() {
+        if (renderStallWatchdogScheduled) return
+        renderStallWatchdogScheduled = true
+        mainHandler.postDelayed(renderStallWatchdog, RENDER_STALL_WATCHDOG_INTERVAL_MS)
+    }
+
+    private fun stopRenderStallWatchdog() {
+        renderStallWatchdogScheduled = false
+        mainHandler.removeCallbacks(renderStallWatchdog)
+    }
+
+    private fun recoverRenderStallIfNeeded() {
+        val root = rootRef.get() ?: return
+        val directSurface = surface ?: return
+        if (!isSceneActive() || !directSurface.isAttachedToWindow) return
+        // 亮屏时 AOD 本来就不呈现,不做任何恢复。
+        if (root.display?.state == android.view.Display.STATE_ON) return
+        val snapshot = latestSnapshot ?: return
+        if (!canRenderAod(snapshot)) return
+        val playbackLive = snapshot.playbackActive || snapshot.keepAlive ||
+            AodWakeBroker.isLyriconPlaybackActive()
+        if (!playbackLive) return
+        val now = SystemClock.elapsedRealtime()
+        // 恢复 1:续期掉线。过渡/缓冲窗口把 renewal 关掉后,若期间没有新的快照/心跳
+        // 事件到达,updateLifetimeGuard 不会再被调用——看门狗直接补一次评估和脉冲。
+        if (!drawWakeRenewalActive) {
+            HookLogger.i(
+                TAG,
+                "Render stall watchdog: draw renewal inactive while playing; re-arming rev=${snapshot.revision}"
+            )
+            updateLifetimeGuard()
+            if (!drawWakeRenewalActive) pulseDrawWakeLock(root)
+        }
+        // 恢复 2:行级时间轴内容在播放中本应持续重绘,但画布长时间没有 onDraw——
+        // 强制重放当前快照,走完整 setContent/syncCadence 路径重启画布节律。
+        val lastDrawAt = lyricCanvas?.lastDrawAtElapsedMs() ?: 0L
+        if (lyricCanvas?.isTimingEffectActive() == true && lastDrawAt > 0L &&
+            now - lastDrawAt > RENDER_STALL_THRESHOLD_MS
+        ) {
+            HookLogger.i(
+                TAG,
+                "Render stall watchdog: canvas stalled for ${now - lastDrawAt}ms; " +
+                    "replaying snapshot rev=${snapshot.revision}"
+            )
+            lastRenderContent = null
+            onLyricSnapshot(snapshot)
+            rootRef.get()?.let(::pulseDrawWakeLock)
+            return
+        }
+        // 恢复 3:投影缓存里已有更新的可见快照却没被本 surface 应用(应用链路在过渡窗口
+        // 停摆)——重放投影最新可见快照,不等下一次 attach。
+        val cachedVisible = SystemUiLyricProjectionRuntime.projection.cachedVisibleSnapshot()
+        if (cachedVisible != null && cachedVisible.visible &&
+            cachedVisible.revision > snapshot.revision
+        ) {
+            HookLogger.i(
+                TAG,
+                "Render stall watchdog: projection ahead " +
+                    "rev=${cachedVisible.revision}>${snapshot.revision}; replaying"
+            )
+            lastRenderContent = null
+            onLyricSnapshot(cachedVisible)
+            rootRef.get()?.let(::pulseDrawWakeLock)
+        }
     }
 
     private fun startInitialReveal(directSurface: View, durationMs: Long) {
@@ -1169,7 +1368,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private fun layoutSurface(
         root: ViewGroup,
-        burnInContainer: FrameLayout,
+        burnInContainer: ViewGroup,
         directSurface: View
     ): Boolean {
         if (!hasUsableAodRootSize(root.width, root.height)) {
@@ -1227,7 +1426,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // clock no longer jumps; it only relocates on a genuinely sustained move.
         //
         // "aodClockFollow" (实时时钟跟随) 开启时,直接采用本次实际测得的时钟位置(rawClockBounds),
-        // 跳过锚定防抖,让歌词布局立即跟上系统时钟的真实移动(不因40秒锚定而滞后错位)。
+        // 跳过锚定防抖,让歌词布局立即跟上系统时钟的真实移动(不因长锚定而滞后错位)。
         val aodClockFollow = currentAodProfile().aodClockFollow
         val effectiveClockBounds = if (aodClockFollow) {
             rawClockBounds
@@ -1358,11 +1557,17 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val placedWidth = placed?.width?.roundToInt() ?: 0
         val maxLeft = (root.width - placedWidth).coerceAtLeast(0)
         val shiftedLeft = ((placed?.left?.roundToInt() ?: 0) + horizontalShift).coerceIn(0, maxLeft)
-        val rect = AodSurfaceRect(
+        val placedRect = AodSurfaceRect(
             shiftedLeft,
             placed?.top?.roundToInt() ?: 0,
             shiftedLeft + placedWidth,
             placed?.bottom?.roundToInt() ?: 0
+        )
+        val rect = avoidStockClockOverlap(
+            placedRect,
+            physicalClockBounds,
+            margin,
+            root.height
         )
         if (rect.width <= 0 || rect.height <= 0) {
             failClosedLayout(
@@ -1384,6 +1589,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             View.MeasureSpec.makeMeasureSpec(rect.height, View.MeasureSpec.EXACTLY)
         )
         directSurface.layout(rect.left, rect.top, rect.right, rect.bottom)
+        val placedTrace = "rect=${rect.left}..${rect.bottom} " +
+            "stock=$effectiveClockTop..$effectiveClockBottom zone=$layoutZone"
+        if (placedTrace != lastPlacedTrace) {
+            lastPlacedTrace = placedTrace
+            HookLogger.i(TAG, "Lyric surface placed $placedTrace")
+        }
         if (stockMotionRevealPending) {
             stockMotionRevealPending = false
             directSurface.alpha = 0f
@@ -1419,6 +1630,33 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         updateLifetimeGuard()
         if (visible) LinkageTransitionCoordinator.onSurfaceReady(LyricSurfaceKind.AOD)
         return true
+    }
+
+    /**
+     * Guards against the stock AOD clock drifting over the lyric surface. MIUI translates the
+     * clock to a rotating burn-in position roughly 10s after AOD entry; when the follow-up
+     * chain misses that move the lyric rect ends up underneath the clock. If the rect overlaps
+     * the physically measured clock bounds, relocate it below the clock when there is room.
+     */
+    private fun avoidStockClockOverlap(
+        rect: AodSurfaceRect,
+        physicalClockBounds: AodRenderedClockBounds?,
+        margin: Int,
+        rootHeight: Int
+    ): AodSurfaceRect {
+        val clock = physicalClockBounds ?: return rect
+        if (clock.height <= 0) return rect
+        val overlaps = rect.top < clock.bottom && rect.bottom > clock.top
+        if (!overlaps) return rect
+        val belowTop = clock.bottom + margin
+        val height = rect.height
+        if (belowTop + height > rootHeight - margin) return rect
+        HookLogger.i(
+            TAG,
+            "Stock clock overlap avoided: clock=${clock.top}..${clock.bottom} " +
+                "lyric=${rect.top}..${rect.bottom} -> below@$belowTop"
+        )
+        return AodSurfaceRect(rect.left, belowTop, rect.right, belowTop + height)
     }
 
     private fun renderedStockClockBounds(
@@ -1672,26 +1910,29 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (shouldSchedule) mainHandler.post(geometryUpdate)
     }
 
-    private fun findBurnInContainer(root: ViewGroup): FrameLayout? {
+    private fun findBurnInContainer(root: ViewGroup): ViewGroup? {
         // Walk the class hierarchy: the field may be declared on AODView or a superclass,
-        // and HyperOS may have renamed it. Try the canonical name first.
+        // and HyperOS may have renamed it. Try the canonical name first. HyperOS 3 declares
+        // the field as plain android.view.View — the runtime instance is still the clock
+        // container, so accept any ViewGroup (the surface attaches to root.overlay; the
+        // container is only measured and observed).
         var klass: Class<*>? = root.javaClass
         while (klass != null && klass != Any::class.java) {
             runCatching {
                 klass!!.getDeclaredField("mTableModeContainer").apply { isAccessible = true }
-                    .get(root) as? FrameLayout
+                    .get(root) as? ViewGroup
             }.getOrNull()?.let { return it }
             klass = klass!!.superclass
         }
-        // Type-based fallback: find the first FrameLayout-typed declared field that holds
+        // Type-based fallback: find the first ViewGroup-typed declared field that holds
         // a non-null value. Catches HyperOS renames where the type is preserved.
         klass = root.javaClass
         while (klass != null && klass != Any::class.java) {
             runCatching {
                 for (field in klass!!.declaredFields) {
-                    if (!FrameLayout::class.java.isAssignableFrom(field.type)) continue
+                    if (!ViewGroup::class.java.isAssignableFrom(field.type)) continue
                     field.isAccessible = true
-                    val value = field.get(root) as? FrameLayout
+                    val value = field.get(root) as? ViewGroup
                     if (value != null) {
                         HookLogger.i(
                             TAG,
@@ -1777,6 +2018,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private const val DRAW_WAKE_LOCK_MS = 5_500L
     private const val DRAW_WAKE_RENEW_INTERVAL_MS = DRAW_WAKE_LOCK_MS / 2L
+    /** 渲染停摆看门狗自检周期:足够频繁以在 stale 窗口内恢复,又不会喧宾夺主。 */
+    private const val RENDER_STALL_WATCHDOG_INTERVAL_MS = 5_000L
+    /** 行级时间轴内容播放中超过该时长没有 onDraw 即视为画布停摆。 */
+    private const val RENDER_STALL_THRESHOLD_MS = 8_000L
     private const val AOD_ANIMATION_FRAME_MS = 16L
     private const val SURFACE_MARGIN_DP = 12f
     private const val MIN_LYRIC_HEIGHT_DP = 96f
