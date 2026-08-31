@@ -17,8 +17,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * [LyricProducer] that reads lyrics injected by the LyricInfo Xposed module.
@@ -175,11 +177,7 @@ class LyricInfoLyricProducer(
     private fun updateFromController(c: MediaController) {
         val meta = c.metadata ?: return
         val lyricInfo = meta.getString(LYRIC_INFO_KEY)
-        val payload = lyricInfo?.let {
-            runCatching { lyricInfoJson.decodeFromString<LyricInfoPayload>(it) }
-                .onFailure { AppLog.w("LyricInfoLyricProducer", "decode lyricInfo failed", it) }
-                .getOrNull()
-        }
+        val payload = lyricInfo?.let(::parseLyricInfoPayload)
         // Derive title/artist from lyric payload when available, otherwise read from MediaMetadata
         // so a session without LyricInfo injection still surfaces track metadata.
         val newTitle = payload?.songName?.takeIf { it.isNotBlank() }
@@ -202,7 +200,11 @@ class LyricInfoLyricProducer(
         album = newAlbum
         durationMs = meta.getLong(MEDIA_METADATA_KEY_DURATION).coerceAtLeast(0L)
         timedLines = ElrcParser.parse(payload?.lyric.orEmpty())
-        translationLines = ElrcParser.parse(payload?.translation.orEmpty())
+        // 完整版翻译在 translation;QQ 音乐精简版原生输出在 transLyric,两者取其一。
+        translationLines = ElrcParser.parse(
+            payload?.translation?.takeIf { it.isNotBlank() }
+                ?: payload?.transLyric.orEmpty()
+        )
         val ps = c.playbackState
         if (ps != null) {
             applyPlaybackState(ps)
@@ -446,8 +448,14 @@ internal fun isMonotonicExtrapolationResume(
 ): Boolean = wasExtrapolating &&
     (extrapolatedPositionMs - realPositionMs) in 1..toleranceMs
 
-/** JSON shape written into `MediaMetadata.extras.lyricInfo` by the LyricInfo module. */
-@Serializable
+/**
+ * JSON shape written into `MediaMetadata.extras.lyricInfo` by the LyricInfo module.
+ *
+ * 完整版字段:songName/artist/album/songId/lyric/format/translation。
+ * 精简版(Lite)是播放器原生输出,字段集随播放器而变(QQ 音乐用 transLyric 携带翻译,
+ * 还有 noLyric/lyricType/txtlyric 等),且 songId 等可能是数字类型——因此不用严格
+ * data-class 反序列化(类型不匹配会让整个 payload 解析失败),改为宽松提取。
+ */
 internal data class LyricInfoPayload(
     val songName: String? = null,
     val artist: String? = null,
@@ -455,5 +463,30 @@ internal data class LyricInfoPayload(
     val songId: String? = null,
     val lyric: String? = null,
     val format: String? = null,
-    val translation: String? = null
+    val translation: String? = null,
+    val transLyric: String? = null
 )
+
+/**
+ * 宽松解析 lyricInfo JSON:字段缺失/类型不匹配(数字、boolean)一律降级为 null,
+ * 绝不因原生变体格式差异丢掉整个 payload(歌词是最关键字段)。
+ */
+internal fun parseLyricInfoPayload(raw: String): LyricInfoPayload? = runCatching {
+    val obj = lyricInfoJson.parseToJsonElement(raw).let { it as? JsonObject } ?: return null
+    // 字符串/数字/boolean 原始值都按文本接受(精简版 songId 可能是数字);
+    // null 字面量(JsonNull)与对象/数组降级为 null。
+    fun text(key: String): String? =
+        (obj[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
+    LyricInfoPayload(
+        songName = text("songName"),
+        artist = text("artist"),
+        album = text("album"),
+        songId = text("songId"),
+        lyric = text("lyric"),
+        format = text("format"),
+        translation = text("translation"),
+        transLyric = text("transLyric")
+    )
+}.onFailure {
+    AppLog.w("LyricInfoLyricProducer", "decode lyricInfo failed", it)
+}.getOrNull()
