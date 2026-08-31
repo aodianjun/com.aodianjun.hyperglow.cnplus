@@ -23,7 +23,7 @@ Package identity:
 - producer Binder: `com.eza.hyperglow.bridge.SpicyLyricBridgeService`
 - provider authority: `com.eza.hyperglow.spicybridge`
 - SystemUI callback service: `com.eza.hyperglow.aod.AodLyricBridgeService`
-- Xposed scope: `com.android.systemui`
+- Xposed scope: `com.android.systemui`, `android` (system_server), `com.miui.aod` (standalone AOD process on some devices)
 
 Lockscreen and AOD use separate physical renderer instances backed by one immutable lyric snapshot.
 Views are never reparented between hosts. Xiaomi retains ownership of parent visibility, keyguard
