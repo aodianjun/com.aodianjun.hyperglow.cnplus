@@ -118,6 +118,8 @@
     <string name="summary_unavailable_systemui_profile">Unavailable on this System UI profile.</string>
     <string name="setting_keep_aod_active_for">Keep AOD active for</string>
     <string name="setting_keep_aod_unsynced">Also keep AOD active without timed lyrics</string>
+    <string name="setting_pause_show_content">Show song info and lyrics while paused</string>
+    <string name="summary_pause_show_content">When off, pausing immediately clears song info and lyrics on the AOD and lock screen. When on, they stay for the duration set in "%1$s".</string>
     <string name="setting_aod_clock_follow">Follow system clock in real time</string>
     <string name="summary_aod_clock_follow">When enabled, lyric placement follows the real system clock position directly, avoiding stale/lagging layout and overlap when the clock moves down. When disabled, anchored anti-oscillation is used.</string>
     <string name="setting_aod_clock_image">AOD clock or image</string>

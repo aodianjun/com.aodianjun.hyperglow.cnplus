@@ -116,6 +116,8 @@
     <string name="summary_unavailable_systemui_profile">此系统界面配置不可用。</string>
     <string name="setting_keep_aod_active_for">保持息屏活动时长</string>
     <string name="setting_keep_aod_unsynced">没有计时歌词时也保持息屏活动</string>
+    <string name="setting_pause_show_content">暂停时显示歌曲信息、歌词</string>
+    <string name="summary_pause_show_content">关闭后，音乐暂停时立即清除息屏与锁屏上的歌曲信息、歌词；开启后，按「%1$s」的时长保留。</string>
     <string name="setting_aod_clock_follow">实时跟随系统时钟</string>
     <string name="summary_aod_clock_follow">开启后歌词位置直接跟随系统时钟的真实移动,避免时钟快移时歌词布局滞后错位与重叠。关闭则保持锚定防抖。建议在时钟下移时开启。</string>
     <string name="setting_aod_clock_image">息屏时钟或图片</string>
