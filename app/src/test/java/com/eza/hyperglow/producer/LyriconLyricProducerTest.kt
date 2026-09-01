@@ -585,8 +585,9 @@ class LyriconLyricProducerTest {
 
     @Test
     fun positionExtrapolation_pastBudget_marksPositionUnknownAndClearsLine() {
-        // 外推超过预算(45s)时,不再一路推进到歌曲时长,而是标记位置未知并清空活动行,稳定显示
-        // 占位。这样长时间的静默(如暂停后的位置源停更)不会把歌词错误地推到歌尾。
+        // 外推超过预算(45s)且已越过歌尾(或时长未知)时,不再一路推进到歌曲时长,而是标记位置
+        // 未知并清空活动行,稳定显示占位。这样长时间的静默(如暂停后的位置源停更)不会把歌词
+        // 错误地推到歌尾。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -604,6 +605,41 @@ class LyriconLyricProducerTest {
         assertEquals("", state.line)
         // Frozen at the extrapolation budget, NOT capped at duration (8000).
         assertEquals(6_000L + 45_000L, state.positionMs)
+    }
+
+    @Test
+    fun positionExtrapolation_pastBudgetWithinSong_keepsAdvancing() {
+        // issue #3(息屏歌词消失太快):Doze 冻结共享内存写入端,但音乐仍在播 —— 写入端可能
+        // 整首歌都不恢复。外推超过 45s 预算但仍在歌曲时长内时必须继续推进,而不是清空
+        // 歌词行,否则每次息屏约 45s 后歌词必然消失。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong().copy(duration = 180_000L))
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(6_000L) // line 2 [5000,7000]
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        // Stall for 60s (past the 45s budget, projected 66s << 180s duration) → keep advancing.
+        clockValue = 10_000L + 60_000L
+        producer.playerListener.onPositionChanged(6_000L)
+
+        var state = producer.state.value!!
+        assertEquals(6_000L + 60_000L, state.positionMs)
+        // 66s is past the last line's end (7000) but before duration → instrumental outro placeholder.
+        assertEquals(-1, state.lineIndex)
+
+        // Stall even longer, still within the song → position keeps advancing, no freeze at budget.
+        clockValue = 10_000L + 100_000L
+        producer.playerListener.onPositionChanged(6_000L)
+        state = producer.state.value!!
+        assertEquals(6_000L + 100_000L, state.positionMs)
+
+        // Real position eventually resumes (screen-on) → extrapolation stops, real value wins.
+        clockValue = 10_000L + 100_500L
+        producer.playerListener.onPositionChanged(3_000L) // line 1 [3500,5000]? no → 3000 is line 0 end/line1 gap
+        state = producer.state.value!!
+        assertEquals(3_000L, state.positionMs)
     }
 
     @Test

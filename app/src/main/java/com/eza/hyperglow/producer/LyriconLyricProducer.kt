@@ -347,9 +347,10 @@ class LyriconLyricProducer(
                 }
             } else if (lastRealPositionClockMs >= 0L) {
                 // Position stalled (shared-memory writer frozen by MIUI screen-off). Advance via
-                // wall-clock extrapolation — but freeze when paused and stop (mark position unknown)
-                // once the extrapolation budget is exceeded, so a long stall never drags the line
-                // to the song end.
+                // wall-clock extrapolation — freeze when paused; past the budget keep advancing
+                // while within the song (Doze writer freeze, playback active), and only declare
+                // the writer dead (mark position unknown) once past the song end or without a
+                // known duration.
                 advanceExtrapolation(now, "position stalled")
             }
             recomputeAndEmit()
@@ -494,8 +495,12 @@ class LyriconLyricProducer(
      * (residual / seek-residual / stalled).
      *
      * - Paused: the real position is frozen, so the lyric position must not advance.
-     * - Over [MAX_EXTRAPOLATION_MS]: the writer is dead (not merely screen-off frozen) — mark
-     *   [positionUnknown] and stop advancing, instead of extrapolating all the way to song end.
+     * - Over [MAX_EXTRAPOLATION_MS] while the extrapolation is still within the song duration:
+     *   the writer is Doze-frozen but playback is still active (the canonical AOD scenario) —
+     *   keep advancing; the song-end branch in [recomputeAndEmit] bounds it.
+     * - Over [MAX_EXTRAPOLATION_MS] with no duration known, or the extrapolation has passed the
+     *   song end: the writer is dead (not merely screen-off frozen) — mark [positionUnknown] and
+     *   stop advancing, instead of extrapolating past the song.
      */
     private fun advanceExtrapolation(now: Long, reason: String) {
         if (!isPlayingState) {
@@ -509,6 +514,25 @@ class LyriconLyricProducer(
         if (lastRealPositionClockMs < 0L) return
         val sinceRealMs = now - lastRealPositionClockMs
         if (sinceRealMs > MAX_EXTRAPOLATION_MS) {
+            val duration = currentSong?.duration ?: 0L
+            val projected = lastRealPositionMs + sinceRealMs
+            // Doze 冻结共享内存写入端(音乐仍在播)是 AOD 最常见场景:写入端可能整首歌都不
+            // 恢复。只要外推仍在歌曲时长内,继续推进而不是 45s 一到就清空歌词行——否则
+            // 每次息屏约 45s 后歌词必然消失(issue #3)。歌尾兜底由 recomputeAndEmit 的
+            // "extrapolation reached song end" 分支负责(清空 + 稳定占位)。
+            if (duration > 0L && projected < duration) {
+                currentPositionMs = projected
+                if (!extrapolating) {
+                    extrapolating = true
+                    AppLog.w(
+                        "LyriconLyricProducer",
+                        "extrapolation past ${MAX_EXTRAPOLATION_MS}ms budget ($reason) but within " +
+                            "song (pos=${projected}ms duration=${duration}ms); continuing — " +
+                            "Doze writer freeze with playback still active"
+                    )
+                }
+                return
+            }
             if (!positionUnknown) {
                 extrapolating = false
                 positionUnknown = true
@@ -768,11 +792,12 @@ class LyriconLyricProducer(
         private const val STALE_POSITION_THRESHOLD_MS = 15_000L
 
         /**
-         * Maximum wall-clock duration for which a silent position source is extrapolated while
-         * playing. Past this the writer is treated as dead and [positionUnknown] is set (the active
-         * line is cleared) instead of extrapolating all the way to the song end over a long stall.
-         * 45s sits within the 30–60s budget: long enough to ride out NetEase's screen-off write
-         * gaps, short enough not to fabricate minutes of lyric progress.
+         * Wall-clock budget after which a silent position source is treated with suspicion while
+         * playing. Past this: extrapolation CONTINUES while it stays within the song duration
+         * (Doze freezes the shared-memory writer for the whole song while playback continues —
+         * the canonical AOD scenario, see issue #3); only once the extrapolation passes the song
+         * end (or the duration is unknown) is the writer declared dead and [positionUnknown] set
+         * (the active line is cleared) instead of fabricating progress past the song.
          */
         private const val MAX_EXTRAPOLATION_MS = 45_000L
 
