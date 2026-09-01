@@ -2401,12 +2401,6 @@ internal class AodLyricCanvasView(
     private fun yOffsetSpline(t: Float): Float = if (t <= 0.9f) lerp(0.01f, -(1f / 60f), t / 0.9f)
     else lerp(-(1f / 60f), 0f, (t - 0.9f) / 0.1f)
 
-    private fun glowSpline(t: Float): Float = when {
-        t <= 0.15f -> lerp(0f, 1f, t / 0.15f)
-        t <= 0.6f -> 1f
-        else -> lerp(1f, 0f, (t - 0.6f) / 0.4f)
-    }
-
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t.coerceIn(0f, 1f)
 
     private fun setTextAlpha(
