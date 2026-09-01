@@ -1,19 +1,14 @@
 package com.eza.hyperglow.root.aod
 
 import android.content.Context
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
-import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.SystemClock
-import android.util.SparseArray
 import android.view.View
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.root.HookLogger
@@ -757,14 +752,6 @@ internal fun frameIntervalForTiming(
 ): Long = if (contentVisible && (timingActive || exitTransitionActive)) 16L else 0L
 
 private const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
-private const val SWEEP_BAND_FRACTION = 0.34f
-private const val SETTLED_TEXT_ALPHA = 0.85f
-private const val SWEEP_PEAK_WIDTH = 0.30f
-private const val SWEEP_BAND_ALPHA_PEAK = 255
-// 扫光余晖：行扫完后已唱区亮度在 SWEEP_DECAY_MS 内量化缓降，制造“光痕消散”质感。
-private const val SWEEP_DECAY_MS = 350L
-private const val SWEEP_DECAY_AMOUNT = 0.16f
-private const val SWEEP_DECAY_QUANTIZATION = 4
 
 internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
     startedAtMs > 0L && nowMs - startedAtMs >= durationMs
@@ -979,13 +966,9 @@ internal class AodLyricCanvasView(
     private val nextLinePaint = paint(15f, 0x59FFFFFF.toInt(), Typeface.NORMAL).apply {
         textAlign = Paint.Align.LEFT
     }
-    private val sweepBandPaint = Paint().apply { isAntiAlias = true }
     private val rubyPaint = paint(11f, 0xB3FFFFFF.toInt(), Typeface.NORMAL).apply {
         textAlign = Paint.Align.CENTER
     }
-    private val horizontalSweepShaders = SparseArray<LinearGradient>(4)
-    private val verticalSweepShaders = SparseArray<LinearGradient>(4)
-    private val sweepMatrix = Matrix()
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
     private val typefaceCache = HashMap<TypefaceKey, Typeface>(3)
@@ -1276,123 +1259,12 @@ internal class AodLyricCanvasView(
 
     private fun drawSharedLineLevelRows(canvas: Canvas, rows: List<PositionedRow>) {
         val original = rows.firstOrNull { it.row.kind == RowKind.ORIGINAL } ?: return
-        val progress = lineProgress()
-        val decayIndex = sweepDecayIndex(projectedPosition(), content.lineEndMs)
-        clearBlockSweepShaders()
-        val mode = resolvedLineSyncFillMode(content.lineLevelSync, content.lineSyncFillMode)
-        if (mode == "Left to right (whole block)") {
-            drawWholeBlockSweepRows(canvas, rows, original.baseline, progress, decayIndex)
-            drawLineLevelWordOverlay(canvas, original.baseline)
-            return
-        }
+        // 副行(音标/翻译/下一行)静态绘制,与预览的静态 Text 行一致,不参与扫光。
         drawSecondaryRowsStatic(canvas, rows, bright = content.secondaryTextBright)
         drawOriginalRubyRows(canvas, original.baseline, bright = true)
-        when (mode) {
-            "None" -> {
-                drawUntimedLines(canvas, original.baseline, bright = true, progress)
-            }
-            "Left to right (main only)" -> {
-                drawContinuousLineFill(canvas, original.baseline, progress)
-                clearBlockSweepShaders()
-            }
-            else -> {
-                drawUntimedLines(canvas, original.baseline, false, progress)
-                val blockTop = (original.baseline + original.row.paint.fontMetrics.ascent)
-                    .coerceAtLeast(paddingTop.toFloat())
-                val blockBottom = (blockTop + original.row.height)
-                    .coerceAtMost((height - paddingBottom).toFloat())
-                applyBlockSweepShaders(
-                    origin = blockTop,
-                    progress = progress,
-                    extent = blockBottom - blockTop
-                )
-                drawUntimedLines(canvas, original.baseline, true, progress)
-                clearBlockSweepShaders()
-            }
-        }
-        // 整行扫光基础上叠加缩小幅度的逐字高亮：发光保持饱满，同时当前演唱词有轻微放大/光斑。
-        drawLineLevelWordOverlay(canvas, original.baseline)
-    }
-
-    /**
-     * 行级同步(整行扫光)时叠加的逐字高亮：仅对当前演唱词做缩小幅度的放大/光斑，
-     * 兼顾整行扫光的饱满发光与逐字动画的节奏感（幅度弱于逐字路径的 drawOriginal）。
-     */
-    private fun drawLineLevelWordOverlay(canvas: Canvas, baseline: Float) {
-        if (content.animationMode == "Minimal" || content.words.isEmpty()) return
-        val position = projectedPosition()
-        var precedingRuby = 0f
-        var lineIndex = 0
-        while (lineIndex < layout.original.lines.size) {
-            val line = layout.original.lines[lineIndex]
-            if (line.words.isEmpty()) {
-                precedingRuby += line.rubyHeight
-                lineIndex++
-                continue
-            }
-            val lineBaseline = originalLineBaseline(
-                baseline,
-                lineIndex,
-                layout.original.lineHeight,
-                precedingRuby,
-                line.rubyHeight,
-                layout.original.lineGap
-            )
-            var x = 0f
-            var wordIndex = 0
-            while (wordIndex < line.words.size) {
-                val placed = line.words[wordIndex]
-                val word = placed.word
-                val width = placed.width
-                val wordX = line.startX + x
-                val active = position >= word.startMs && position < word.endMs
-                if (active) {
-                    val progress = timedWordProgress(position, word.startMs, word.endMs)
-                    val scale = if (content.animationMode != "Minimal") {
-                        lineLevelWordScale(progress)
-                    } else 1f
-                    val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off") {
-                        LINE_LEVEL_GLOW_PEAK * glowSpline(progress)
-                    } else 0f
-                    canvas.save()
-                    canvas.scale(scale, scale, wordX + width / 2f, lineBaseline)
-                    originalPaint.shader = null
-                    setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-                    drawGlowHalo(canvas, word.text, 0, word.text.length, wordX, lineBaseline, originalPaint, glow)
-                    canvas.drawText(word.text, wordX, lineBaseline, originalPaint)
-                    canvas.restore()
-                }
-                x += width + placed.gapAfter
-                wordIndex++
-            }
-            precedingRuby += line.rubyHeight
-            lineIndex++
-        }
-    }
-
-    private fun lineLevelWordScale(t: Float): Float =
-        if (t <= 0.7f) lerp(0.98f, 1.02f, t / 0.7f) else lerp(1.02f, 1f, (t - 0.7f) / 0.3f)
-
-    private fun drawWholeBlockSweepRows(
-        canvas: Canvas,
-        rows: List<PositionedRow>,
-        baseline: Float,
-        progress: Float,
-        decayIndex: Int
-    ) {
-        drawSecondaryRowsStatic(canvas, rows, bright = false)
-        drawOriginalRubyRows(canvas, baseline, bright = false)
-        drawUntimedLines(canvas, baseline, bright = false, progress)
-        applyWholeBlockHorizontalSweepShaders(progress, decayIndex)
-        drawSecondaryRowsStatic(
-            canvas,
-            rows,
-            bright = content.secondaryTextBright,
-            keepShader = true
-        )
-        drawOriginalRubyRows(canvas, baseline, bright = true)
-        drawUntimedLines(canvas, baseline, bright = true, progress)
-        clearBlockSweepShaders()
+        // 主行发光统一委托共享渲染核心 LyricGlowRenderer —— 与预览(PreviewAnimatedLyric)
+        // 同一份配方:dim 底、光晕、easeInOut 扫光带,杜绝行级同步路径另走一套旧实现。
+        drawOriginalGlowBlock(canvas, original.baseline, layout.original, lineProgress())
     }
 
     private fun drawSecondaryRowsStatic(
@@ -1712,44 +1584,7 @@ internal class AodLyricCanvasView(
     private fun drawOriginal(canvas: Canvas, baseline: Float) {
         val originalLayout = layout.original
         val lines = originalLayout.lines
-        if (!originalLayout.timed) {
-            val progress = if (content.animationMode == "Minimal") 1f else lineProgress()
-            if (resolvedLineSyncFillMode(content.lineLevelSync, content.lineSyncFillMode) ==
-                "Top to bottom"
-            ) {
-                drawUntimedTopToBottom(canvas, baseline, progress)
-            } else {
-                var precedingRuby = 0f
-                var lineIndex = 0
-                while (lineIndex < lines.size) {
-                    val line = lines[lineIndex]
-                    val lineBaseline = originalLineBaseline(
-                        baseline,
-                        lineIndex,
-                        originalLayout.lineHeight,
-                        precedingRuby,
-                        line.rubyHeight,
-                        originalLayout.lineGap
-                    )
-                    val clipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
-                    if (line.ruby.isNotEmpty()) {
-                        drawRuby(canvas, line, lineBaseline)
-                    }
-                    drawLineFill(
-                        canvas,
-                        line,
-                        lineBaseline,
-                        originalLayout.continuousFill(progress, lineIndex),
-                        false
-                    )
-                    if (clipSave != -1) canvas.restoreToCount(clipSave)
-                    precedingRuby += line.rubyHeight
-                    lineIndex++
-                }
-            }
-            return
-        }
-        // Minimal 模式：静态全亮，无扫光/发光。
+        // Minimal 模式：静态全亮，无扫光/发光（timed / untimed 通用）。
         if (content.animationMode == "Minimal") {
             var precedingRuby = 0f
             var lineIndex = 0
@@ -1777,6 +1612,11 @@ internal class AodLyricCanvasView(
             }
             return
         }
+        // 行级歌词(无逐字时间戳,LRC):同样统一走共享渲染管线,与预览同源。
+        if (!originalLayout.timed) {
+            drawOriginalGlowBlock(canvas, baseline, originalLayout, lineProgress())
+            return
+        }
         // 逐字卡拉OK路径：仅"逐字时间源 + 关闭发光 + 非行级同步"保留，
         // 其余全部走共享 LyricGlowRenderer 统一管线（与预览同源，杜绝效果漂移）。
         if (!usesPreviewGlowPipeline(
@@ -1791,12 +1631,31 @@ internal class AodLyricCanvasView(
         }
         // 统一预览管线：dim 底 + 光晕(发光开启时) + 扫光带。
         // 整块进度：行级时间优先，纯逐字源回退全局词范围（unifiedBlockProgress）。
-        val blockFill = unifiedBlockProgress(
-            projectedPosition(),
-            content.lineStartMs,
-            content.lineEndMs,
-            content.words
+        drawOriginalGlowBlock(
+            canvas,
+            baseline,
+            originalLayout,
+            unifiedBlockProgress(
+                projectedPosition(),
+                content.lineStartMs,
+                content.lineEndMs,
+                content.words
+            )
         )
+    }
+
+    /**
+     * 共享发光渲染管线入口(与预览 PreviewAnimatedLyric 同源):
+     * 构建整块行集合并委托 LyricGlowRenderer —— dim 底、光晕、easeInOut 扫光带
+     * 的配方只此一份,AOD/锁屏/预览三端由构造保证一致。
+     */
+    private fun drawOriginalGlowBlock(
+        canvas: Canvas,
+        baseline: Float,
+        originalLayout: OriginalLayout,
+        progress: Float
+    ) {
+        val lines = originalLayout.lines
         val glowRows = ArrayList<LyricGlowRow>(lines.size)
         var precedingRuby = 0f
         var lineIndex = 0
@@ -1829,7 +1688,7 @@ internal class AodLyricCanvasView(
             canvas = canvas,
             paint = originalPaint,
             rows = glowRows,
-            progress = blockFill,
+            progress = progress,
             sungColor = resolvedPalette.sungText,
             glowColor = resolvedPalette.glow,
             glowEnabled = content.glowMode != "Off"
@@ -1969,103 +1828,6 @@ internal class AodLyricCanvasView(
             floatArrayOf(0f, 0.45f, 1f),
             Shader.TileMode.CLAMP
         )
-    }
-
-    private fun drawUntimedTopToBottom(canvas: Canvas, baseline: Float, progress: Float) {
-        val lines = layout.original.lines
-        val firstLine = lines.firstOrNull()
-        val firstLineBaseline = firstLine?.let {
-            originalLineBaseline(
-                baseline,
-                0,
-                layout.original.lineHeight,
-                0f,
-                it.rubyHeight,
-                layout.original.lineGap
-            )
-        } ?: baseline
-        val blockTop = max(
-            paddingTop.toFloat(),
-            rubyClipTop(firstLineBaseline, originalPaint.fontMetrics.ascent, firstLine?.rubyHeight ?: 0f)
-        )
-        val blockHeight = originalRowHeight(
-            layout.original.lineHeight,
-            lines.size,
-            layout.original.rubyHeight,
-            layout.original.lineGap
-        )
-        clearBlockSweepShaders()
-        drawUntimedLines(canvas, baseline, false, progress)
-        drawOriginalRubyRows(canvas, baseline, bright = false)
-        applyBlockSweepShaders(
-            origin = blockTop,
-            progress = progress,
-            extent = blockHeight
-        )
-        drawUntimedLines(canvas, baseline, true, progress)
-        drawOriginalRubyRows(canvas, baseline, bright = true)
-        clearBlockSweepShaders()
-    }
-
-    private fun drawContinuousLineFill(canvas: Canvas, baseline: Float, progress: Float) {
-        val originalLayout = layout.original
-        var precedingRuby = 0f
-        var lineIndex = 0
-        while (lineIndex < originalLayout.lines.size) {
-            val line = originalLayout.lines[lineIndex]
-            val lineBaseline = originalLineBaseline(
-                baseline,
-                lineIndex,
-                originalLayout.lineHeight,
-                precedingRuby,
-                line.rubyHeight,
-                originalLayout.lineGap
-            )
-            val clipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
-            drawLineFill(
-                canvas,
-                line,
-                lineBaseline,
-                originalLayout.continuousFill(progress, lineIndex),
-                false
-            )
-            if (clipSave != -1) canvas.restoreToCount(clipSave)
-            precedingRuby += line.rubyHeight
-            lineIndex++
-        }
-    }
-
-    private fun drawUntimedLines(canvas: Canvas, baseline: Float, bright: Boolean, progress: Float) {
-        var precedingRuby = 0f
-        var lineIndex = 0
-        while (lineIndex < layout.original.lines.size) {
-            val line = layout.original.lines[lineIndex]
-            val lineBaseline = originalLineBaseline(
-                baseline,
-                lineIndex,
-                layout.original.lineHeight,
-                precedingRuby,
-                line.rubyHeight,
-                layout.original.lineGap
-            )
-            val clipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
-            if (!bright && content.animationMode != "Minimal" && content.glowMode != "Off") {
-                drawResidentGlow(canvas, line, lineBaseline)
-            }
-            val glow = if (content.animationMode != "Minimal" && content.glowMode != "Off" && bright) {
-                GLOW_LINE_INTENSITY
-            } else 0f
-            setTextAlpha(
-                originalPaint,
-                if (bright) 1f else 0.26f,
-                1f,
-                if (bright) resolvedPalette.sungText else resolvedPalette.unsungText
-            )
-            drawOriginalText(canvas, line, lineBaseline, glow)
-            if (clipSave != -1) canvas.restoreToCount(clipSave)
-            precedingRuby += line.rubyHeight
-            lineIndex++
-        }
     }
 
     private fun drawRuby(
@@ -2531,236 +2293,6 @@ internal class AodLyricCanvasView(
         return BaseRun(baseX, (lastX - baseX).coerceAtLeast(0f))
     }
 
-    private fun drawLineFill(
-        canvas: Canvas,
-        line: OriginalLine,
-        baseline: Float,
-        progress: Float,
-        clipToPaddedWidth: Boolean
-    ) {
-        val x = line.startX
-        val clipSave = if (clipToPaddedWidth) canvas.save() else -1
-        if (clipToPaddedWidth) canvas.clipRect(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
-        originalPaint.shader = null
-        // 1. 未唱暗底
-        setTextAlpha(originalPaint, 0.26f, 1f, resolvedPalette.unsungText)
-        drawOriginalText(canvas, line, baseline)
-        val glowOn = content.animationMode != "Minimal" && content.glowMode != "Off"
-        // 2. 常驻发光: 文字上方常驻柔和光带, 所有文字都有光
-        if (glowOn) drawResidentGlow(canvas, line, baseline)
-        // 3. 已唱稳定层: 中等亮度常亮, 为扫光带留出亮度层次
-        setTextAlpha(originalPaint, SETTLED_TEXT_ALPHA, 1f, resolvedPalette.sungText)
-        drawOriginalText(canvas, line, baseline, if (glowOn) 0.5f else 0f)
-        // 4. 扫光区域光: 一束光扫过, 在常驻光上更亮
-        if (glowOn) drawSweepBand(canvas, line, baseline, progress)
-        // 5. 文字预照: 光锋前方文字被渐次点亮, 光"扫过"文字而非浮在文字上
-        if (glowOn) {
-            val band2 = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-            val cx2 = sweepPeakX(line, progress)
-            val fm2 = originalPaint.fontMetrics
-            val midY2 = baseline + fm2.ascent * 0.94f
-            // 与光束同 gate 同呼吸: 光与字一体明暗
-            val t2 = System.nanoTime() / 1000000000f
-            val pulse2 = 0.88f + 0.12f * kotlin.math.sin(t2 * 1.1f)
-            val fadeIn2 = ((cx2 - (line.startX - band2 * 0.35f)) / (band2 * 0.55f)).coerceIn(0f, 1f)
-            val fadeOut2 = ((line.startX + line.width + band2 * 0.25f - cx2) / (band2 * 0.55f)).coerceIn(0f, 1f)
-            val peakA = (255 * 1.00f * pulse2 * fadeIn2 * fadeOut2).toInt()
-            // 光锋即光源: 锋面高光 - 光锋处文字纯白过曝, 前方快速暗下, 上亮下暗
-            originalPaint.shader = RadialGradient(
-                cx2, midY2, band2 * 0.42f,
-                intArrayOf(
-                    Color.argb(peakA, 255, 252, 245),
-                    Color.argb((peakA * 0.55f).toInt(), 255, 252, 245),
-                    Color.argb((peakA * 0.18f).toInt(), 255, 252, 245),
-                    Color.argb(0, 255, 252, 245)
-                ),
-                floatArrayOf(0f, 0.10f, 0.30f, 1f),
-                Shader.TileMode.CLAMP
-            )
-            drawOriginalText(canvas, line, baseline)
-            originalPaint.shader = null
-        }
-        originalPaint.shader = null
-        if (clipToPaddedWidth) canvas.restoreToCount(clipSave)
-    }
-
-    // 逐字匹配: 高光位置跟随当前正在唱的词(词级时间戳), 词间平滑滑动
-    // 无词级时间戳时回退到整行平滑扫过
-    private fun catmullRom(p0: Float, p1: Float, p2: Float, p3: Float, t: Float): Float {
-        val t2 = t * t
-        val t3 = t2 * t
-        return 0.5f * ((2f * p1) + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 + (-p0 + 3f * p1 - 3f * p2 + p3) * t3)
-    }
-
-    private fun sweepPeakX(line: OriginalLine, progress: Float): Float {
-        val timed = line.words.filter { it.word.startMs >= 0L && it.word.endMs > it.word.startMs }
-        if (timed.size >= 2 && content.lineEndMs > content.lineStartMs) {
-            val now = projectedPosition()
-            var x = line.startX
-            val centers = ArrayList<Float>(timed.size)
-            val starts = ArrayList<Float>(timed.size)
-            val ends = ArrayList<Float>(timed.size)
-            timed.forEach { pw ->
-                starts.add(pw.word.startMs.toFloat())
-                ends.add(pw.word.endMs.toFloat())
-                centers.add(x + pw.width * 0.5f)
-                x += pw.width + pw.gapAfter
-            }
-            val n = timed.size
-            val us = ArrayList<Float>(n)
-            timed.forEach { pw ->
-                us.add((pw.word.startMs + (pw.word.endMs - pw.word.startMs) * 0.5f).toFloat())
-            }
-            val span = us[n - 1] - us[0]
-            if (span <= 0f) return centers[0]
-            // 全局缓动一次, 整行速度连续; 逐字节奏由时间比例承载
-            val us0 = us[0]
-            val u = easeInOutSine(((now - us0) / span).coerceIn(0f, 1f))
-            for (i in 0 until n) us[i] = (us[i] - us0) / span
-            // 定位到当前字区间
-            var i = 0
-            while (i < n - 1 && u > us[i + 1]) i++
-            val lt = if (n > 1 && us[i + 1] > us[i]) ((u - us[i]) / (us[i + 1] - us[i])).coerceIn(0f, 1f) else 0f
-            val p0 = centers[if (i > 0) i - 1 else 0]
-            val p1 = centers[i]
-            val p2 = centers[if (i + 1 < n) i + 1 else n - 1]
-            val p3 = centers[if (i + 2 < n) i + 2 else n - 1]
-            return catmullRom(p0, p1, p2, p3, lt)
-        }
-        return line.startX + easeInOutSine(progress.coerceIn(0f, 1f)) * line.width
-    }
-
-    // 常驻发光: 整行文字上方一条柔和光带, 静止常亮; 扫光在此基础上叠加变亮
-    private fun drawResidentGlow(canvas: Canvas, line: OriginalLine, baseline: Float) {
-        val band = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-        val fm = originalPaint.fontMetrics
-        val midY = baseline + fm.ascent * 0.94f
-        val lx = line.startX
-        val rx = line.startX + line.width
-        // 平直亮带: 两端收进文字内, 两端亮度虚化, 锥形突出交给扫光
-        val edgeL = lx + band * 0.04f
-        val edgeR = rx - band * 0.04f
-        sweepBandPaint.alpha = 255
-        sweepBandPaint.shader = LinearGradient(
-            edgeL, 0f, edgeR, 0f,
-            intArrayOf(
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 255, 236, 198),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.78f).toInt(), 255, 236, 198),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 255, 236, 198)
-            ),
-            floatArrayOf(0f, 0.5f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.06f, BlurMaskFilter.Blur.NORMAL)
-        canvas.drawRect(edgeL, midY - band * 0.05f, edgeR, midY + band * 0.05f, sweepBandPaint)
-        sweepBandPaint.maskFilter = null
-        sweepBandPaint.shader = null
-    }
-
-    // 扫光: 光由文字承载 - 上方只留极淡氛围光与柔光团, 文字随光锋亮起
-    private fun drawSweepBand(
-        canvas: Canvas,
-        line: OriginalLine,
-        baseline: Float,
-        progress: Float
-    ) {
-        val band = (line.width * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-        val cx = sweepPeakX(line, progress)
-        val fm = originalPaint.fontMetrics
-        val midY = baseline + fm.ascent * 0.94f
-        val lx = line.startX
-        val rx = line.startX + line.width
-        val gx0 = lx - band * 0.10f
-        val gx1 = cx + band * 0.32f
-        val cxFrac = ((cx - gx0) / (gx1 - gx0)).coerceIn(0f, 1f)
-        // 呼吸与进出: 与文字亮度波同一套曲线, 光与字同步明暗
-        val t = System.nanoTime() / 1000000000f
-        var pulse = 0.88f + 0.12f * kotlin.math.sin(t * 1.1f)
-        val fadeIn = ((cx - (lx - band * 0.35f)) / (band * 0.55f)).coerceIn(0f, 1f)
-        val fadeOut = ((rx + band * 0.25f - cx) / (band * 0.55f)).coerceIn(0f, 1f)
-        pulse *= fadeIn * fadeOut
-        sweepBandPaint.alpha = (255 * pulse).toInt()
-
-        // 层1: 上方氛围光带 - 极淡, 只暗示光源来自文字上方, 不形成独立图形
-        sweepBandPaint.shader = LinearGradient(
-            gx0, 0f, gx1, 0f,
-            intArrayOf(
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.28f).toInt(), 255, 240, 210),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.40f).toInt(), 255, 240, 210),
-                Color.argb(0, 255, 240, 210)
-            ),
-            floatArrayOf(0f, cxFrac, 1f),
-            Shader.TileMode.CLAMP
-        )
-        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.12f, BlurMaskFilter.Blur.NORMAL)
-        canvas.drawRect(gx0, baseline + fm.ascent, gx1, midY, sweepBandPaint)
-        sweepBandPaint.maskFilter = null
-        sweepBandPaint.shader = null
-
-        // 层2: 光束余韵 - 柔和的纺锤形光, 峰值仅0.55, 大模糊, 无硬边
-        sweepBandPaint.shader = LinearGradient(
-            gx0, 0f, gx1, 0f,
-            intArrayOf(
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.12f).toInt(), 210, 228, 255),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.24f).toInt(), 226, 236, 252),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.52f).toInt(), 248, 240, 220),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.82f).toInt(), 255, 222, 170),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 1.00f).toInt(), 255, 216, 150),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.52f).toInt(), 255, 238, 200),
-                Color.argb(0, 255, 255, 255)
-            ),
-            floatArrayOf(0f, cxFrac * 0.40f, cxFrac * 0.70f, cxFrac * 0.92f, cxFrac, cxFrac + (1f - cxFrac) * 0.18f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        // 扫光锥: 光锋处圆润凸起(小锥+圆顶), 比常驻光带亮约30%
-        val coneTop = midY - band * 0.10f
-        val coneBottom = midY + band * 0.04f
-        val beam = android.graphics.Path()
-        beam.moveTo(gx0, coneBottom)
-        beam.lineTo(gx1, coneBottom)
-        beam.cubicTo(cx + band * 0.26f, coneBottom - band * 0.02f, cx + band * 0.14f, coneTop, cx, coneTop)
-        beam.cubicTo(cx - band * 0.14f, coneTop, cx - band * 0.26f, coneBottom - band * 0.02f, gx0, coneBottom)
-        beam.close()
-        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.05f, BlurMaskFilter.Blur.NORMAL)
-        canvas.drawPath(beam, sweepBandPaint)
-        // 高光锥: 圆润顶, 垂直渐亮, 光锋处最突出
-        sweepBandPaint.shader = LinearGradient(
-            0f, coneTop, 0f, coneBottom,
-            intArrayOf(
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 1.00f).toInt(), 255, 250, 232),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.20f).toInt(), 255, 250, 232)
-            ),
-            floatArrayOf(0f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.03f, BlurMaskFilter.Blur.NORMAL)
-        val hc = android.graphics.Path()
-        hc.moveTo(cx - band * 0.13f, coneBottom - band * 0.02f)
-        hc.lineTo(cx + band * 0.13f, coneBottom - band * 0.02f)
-        hc.cubicTo(cx + band * 0.10f, coneBottom - band * 0.02f, cx + band * 0.08f, coneTop + band * 0.02f, cx, coneTop + band * 0.02f)
-        hc.cubicTo(cx - band * 0.08f, coneTop + band * 0.02f, cx - band * 0.10f, coneBottom - band * 0.02f, cx - band * 0.13f, coneBottom - band * 0.02f)
-        hc.close()
-        canvas.drawPath(hc, sweepBandPaint)
-        sweepBandPaint.maskFilter = null
-        sweepBandPaint.shader = null
-
-        // 层3: 光锋柔光团 - 极柔和, 从光锋向下融进文字, 与文字亮度波同一光源
-        sweepBandPaint.shader = RadialGradient(
-            cx, midY + band * 0.03f, band * 0.22f,
-            intArrayOf(
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.70f).toInt(), 255, 242, 206),
-                Color.argb((SWEEP_BAND_ALPHA_PEAK * 0.28f).toInt(), 255, 242, 206),
-                Color.argb(0, 255, 242, 206)
-            ),
-            floatArrayOf(0f, 0.45f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        sweepBandPaint.maskFilter = BlurMaskFilter(band * 0.06f, BlurMaskFilter.Blur.NORMAL)
-        canvas.drawCircle(cx, midY + band * 0.03f, band * 0.22f, sweepBandPaint)
-        sweepBandPaint.maskFilter = null
-        sweepBandPaint.shader = null
-    }
-
     private fun drawOriginalText(
         canvas: Canvas,
         line: OriginalLine,
@@ -2885,115 +2417,6 @@ internal class AodLyricCanvasView(
     ) {
         paint.color = color
         paint.alpha = (255f * (steadyTextAlpha(factor) * brightness).coerceIn(0f, 1f)).toInt()
-    }
-
-    private fun applySoftSweep(
-        paint: Paint,
-        color: Int,
-        origin: Float,
-        progress: Float,
-        extent: Float,
-        vertical: Boolean,
-        decayIndex: Int = 0
-    ) {
-        val shaders = if (vertical) verticalSweepShaders else horizontalSweepShaders
-        // 缓存 key：RGB 低 24 位 + 余晖档位高 8 位，避免 5 色渐变与档位间串缓存。
-        val cacheKey = (color and 0x00FFFFFF) or (decayIndex shl 24)
-        var shader = shaders[cacheKey]
-        if (shader == null) {
-            val transparent = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
-            // 已唱区常亮色：扫完后随余晖档位缓降亮度，制造光痕消散。
-            val settled = Color.argb(
-                (255f * (1f - decayIndex / SWEEP_DECAY_QUANTIZATION.toFloat() * SWEEP_DECAY_AMOUNT))
-                    .roundToInt().coerceIn(0, 255),
-                Color.red(color),
-                Color.green(color),
-                Color.blue(color)
-            )
-            // 峰值高光：主色向白提亮，扫过文字时形成一条高光带（前缘渐亮、后缘长拖尾）。
-            val peak = Color.argb(
-                255,
-                (Color.red(color) + 255 * 7) / 8,
-                (Color.green(color) + 255 * 7) / 8,
-                (Color.blue(color) + 255 * 7) / 8
-            )
-            val dim = Color.argb(120, Color.red(color), Color.green(color), Color.blue(color))
-            shader = if (vertical) {
-                LinearGradient(
-                    0f,
-                    0f,
-                    0f,
-                    1f,
-                    intArrayOf(settled, color, peak, peak, dim, transparent),
-                    floatArrayOf(0f, 0.24f, 0.38f, 0.58f, 0.80f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-            } else {
-                LinearGradient(
-                    0f,
-                    0f,
-                    1f,
-                    0f,
-                    intArrayOf(settled, color, peak, peak, dim, transparent),
-                    floatArrayOf(0f, 0.24f, 0.38f, 0.58f, 0.80f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-            }
-            shaders.put(cacheKey, shader)
-        }
-        val safeExtent = extent.coerceAtLeast(0f)
-        val band = (safeExtent * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-        // 行首/行尾减速、中段匀速（easeInOutCubic），扫光更从容。
-        val eased = easeInOutSine(progress.coerceIn(0f, 1f))
-        val start = origin - band + (safeExtent + band) * eased
-        sweepMatrix.setScale(if (vertical) 1f else band, if (vertical) band else 1f)
-        sweepMatrix.postTranslate(if (vertical) 0f else start, if (vertical) start else 0f)
-        shader.setLocalMatrix(sweepMatrix)
-        paint.shader = shader
-    }
-
-    // 余晖渐隐：行扫完后已唱区亮度在 SWEEP_DECAY_MS 内量化缓降（共 QUANTIZATION 档），
-    // 结束后保持微降后的稳定发光，不反弹。
-    private fun sweepDecayIndex(position: Long, lineEndMs: Long): Int {
-        if (position <= lineEndMs) return 0
-        val decay = ((position - lineEndMs).toFloat() / SWEEP_DECAY_MS).coerceIn(0f, 1f)
-        return (decay * SWEEP_DECAY_QUANTIZATION).roundToInt().coerceIn(0, SWEEP_DECAY_QUANTIZATION)
-    }
-
-    // 更流畅的扫光缓动: 两端轻微减速、中段接近匀速, 高光不会在行首行尾卡住
-    private fun easeInOutSine(t: Float): Float {
-        val u = t.coerceIn(0f, 1f)
-        return (-(Math.cos(Math.PI * u) - 1.0) / 2.0).toFloat()
-    }
-
-    private fun easeInOutCubic(t: Float): Float {
-        val u = t.coerceIn(0f, 1f)
-        return if (u < 0.5f) {
-            4f * u * u * u
-        } else {
-            val v = -2f * u + 2f
-            1f - v * v * v / 2f
-        }
-    }
-
-    private fun applyBlockSweepShaders(origin: Float, progress: Float, extent: Float) {
-        applySoftSweep(originalPaint, resolvedPalette.sungText, origin, progress, extent, vertical = true)
-    }
-
-    private fun applyWholeBlockHorizontalSweepShaders(progress: Float, decayIndex: Int) {
-        val origin = paddingLeft.toFloat()
-        val extent = (width - paddingLeft - paddingRight).coerceAtLeast(0).toFloat()
-        applySoftSweep(originalPaint, resolvedPalette.sungText, origin, progress, extent, false, decayIndex)
-        applySoftSweep(romanizedPaint, resolvedPalette.secondaryText, origin, progress, extent, false, decayIndex)
-        applySoftSweep(translatedPaint, resolvedPalette.secondaryText, origin, progress, extent, false, decayIndex)
-        applySoftSweep(rubyPaint, resolvedPalette.secondaryText, origin, progress, extent, false, decayIndex)
-    }
-
-    private fun clearBlockSweepShaders() {
-        originalPaint.shader = null
-        romanizedPaint.shader = null
-        translatedPaint.shader = null
-        rubyPaint.shader = null
     }
 
     private fun drawGlowHalo(
@@ -3168,21 +2591,6 @@ internal class AodLyricCanvasView(
             get() = lines.size
         val rubyHeight: Float
             get() = lines.sumOf { it.rubyHeight.toDouble() }.toFloat()
-        private val totalLineWidth = lines.sumOf { it.width.coerceAtLeast(0f).toDouble() }.toFloat()
-        private val precedingWidths = FloatArray(lines.size).also { values ->
-            var preceding = 0f
-            lines.forEachIndexed { index, line ->
-                values[index] = preceding
-                preceding += line.width.coerceAtLeast(0f)
-            }
-        }
-
-        fun continuousFill(progress: Float, lineIndex: Int): Float {
-            val width = lines[lineIndex].width.coerceAtLeast(0f)
-            if (width == 0f || totalLineWidth <= 0f) return 0f
-            return ((progress.coerceIn(0f, 1f) * totalLineWidth - precedingWidths[lineIndex]) / width)
-                .coerceIn(0f, 1f)
-        }
     }
 
     private data class LayoutState(
@@ -3199,9 +2607,6 @@ internal class AodLyricCanvasView(
         private const val END_EDGE_SAFETY_DP = 4f
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
-        private const val GLOW_LINE_INTENSITY = 1f
-        private const val GLOW_ACTIVE_PEAK = 1f
-        private const val LINE_LEVEL_GLOW_PEAK = 0.65f
         private const val GLOW_HALO_ALPHA = 235
         private const val GLOW_HALO_RADIUS = 0.52f
     }
