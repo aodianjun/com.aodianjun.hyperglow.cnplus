@@ -32,6 +32,21 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun nextLineColorResolvesIndependentlyFromSecondaryText() {
+        // 下一行歌词颜色是独立 token:不能回退/混用 secondaryText,
+        // 否则"下一行歌词颜色"设置在行级同步路径完全无效。
+        val palette = resolveAodPalette(
+            mapOf(
+                "nextLineText" to "#FFD9A0",
+                "secondaryText" to "dimmed"
+            )
+        )
+        assertEquals(0xFFFFD9A0.toInt(), palette.nextLineText)
+        assertNotEquals(palette.nextLineText, palette.secondaryText)
+        assertEquals(0.45f, staticNextLineTextFactor(), 0.0001f)
+    }
+
+    @Test
     fun sentenceFillSpansWrappedLinesContinuously() {
         assertEquals(listOf(1f, 1f / 3f), splitContinuousFill(0.5f, listOf(100f, 300f)))
     }

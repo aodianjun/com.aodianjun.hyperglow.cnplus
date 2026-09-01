@@ -893,8 +893,8 @@ private fun steadyTextAlpha(factor: Float): Float = if (factor < 0.5f) {
 
 internal fun staticSecondaryTextFactor(bright: Boolean): Float = if (bright) 1f else 0.35f
 
-/** Dimmed preview alpha for the upcoming next lyric line. */
-internal fun staticNextLineTextFactor(): Float = 0.35f
+/** Dimmed preview alpha for the upcoming next lyric line(与预览 0.45 alpha 对齐). */
+internal fun staticNextLineTextFactor(): Float = 0.45f
 
 /** Bounded Spicy live-card renderer adapted for Xiaomi AOD. */
 internal class AodLyricCanvasView(
@@ -1283,11 +1283,13 @@ internal class AodLyricCanvasView(
                 continue
             }
             if (positioned.row.kind == RowKind.NEXT_LINE) {
+                // 下一行歌词颜色走独立的 nextLineText token(与预览/非行级同步路径一致),
+                // 不能混用 secondaryText,否则"下一行歌词颜色"设置对该路径完全无效。
                 setTextAlpha(
                     positioned.row.paint,
                     staticNextLineTextFactor(),
                     1f,
-                    resolvedPalette.secondaryText
+                    resolvedPalette.nextLineText
                 )
             } else {
                 setTextAlpha(
