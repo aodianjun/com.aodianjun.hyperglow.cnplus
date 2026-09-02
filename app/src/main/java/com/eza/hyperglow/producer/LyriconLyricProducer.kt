@@ -135,6 +135,14 @@ class LyriconLyricProducer(
     @Volatile private var seekRejectPositionMs: Long = -1L
     @Volatile private var seekClockMs: Long = 0L
 
+    // --- Pause-stale residual rejection (issue #10) ---
+    // 播放在位置源已 stalled(AOD Doze 冻结)时暂停:共享内存仍持有暂停前的陈旧值(实测
+    // 陈旧 16665ms,而媒体真实暂停点已达 23435ms)。暂停时我们把基准 re-base 到展示
+    // (外推)位置 —— 即媒体真实暂停点;写入端若仍冻结,会以 ~60Hz 持续回传该陈旧值,
+    // 它 != re-base 后的新基准,会被误当成暂停后的真实更新,把歌词行拉回更早的行。
+    // 因此记录该陈旧值并拒绝,直到出现不同的(真实)位置。
+    @Volatile private var pauseStaleRejectMs: Long = -1L
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
@@ -181,6 +189,7 @@ class LyriconLyricProducer(
                 previousSongLastPositionMs = -1L
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
+                pauseStaleRejectMs = -1L
                 mutableState.value = null
             }
         }
@@ -201,6 +210,7 @@ class LyriconLyricProducer(
                 previousSongLastPositionMs = -1L
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
+                pauseStaleRejectMs = -1L
                 mutableState.value = null
                 return
             }
@@ -235,6 +245,7 @@ class LyriconLyricProducer(
             lastRealPositionClockMs = clock()
             extrapolating = false
             positionUnknown = false
+            pauseStaleRejectMs = -1L
             refreshRenderModes()
             emit()
         }
@@ -258,8 +269,21 @@ class LyriconLyricProducer(
                 // currentPositionMs must stop advancing too. Previously a long pause kept
                 // extrapolating the lyric all the way to the song end.
                 if (extrapolating) {
+                    // 暂停即真实停点(issue #10 追加实测):位置源在 AOD 下可能早已 stalled,
+                    // lastRealPositionMs 停在陈旧值(实测 16665ms),而媒体真实暂停点已推进到
+                    // ~23435ms(≈此刻的外推展示位置)。把展示位置固化为新基准,继续播放后从
+                    // 该点起跑,而不是从陈旧值重新外推导致歌词行跳回更早的行再爬行。
+                    // 记录旧陈旧基准:写入端若仍冻结,会持续回传该值,须在
+                    // onPositionChanged 中拒绝(见 pauseStaleRejectMs)。
+                    pauseStaleRejectMs = lastRealPositionMs
+                    lastRealPositionMs = currentPositionMs
+                    lastRealPositionClockMs = clock()
                     extrapolating = false
-                    AppLog.i("LyriconLyricProducer", "pause: extrapolation frozen")
+                    AppLog.i(
+                        "LyriconLyricProducer",
+                        "pause: extrapolation frozen, re-based to ${lastRealPositionMs}ms " +
+                            "(rejecting stale ${pauseStaleRejectMs}ms)"
+                    )
                 }
             }
             // Re-emit so the engine sees the new playing/speed without waiting for next position.
@@ -301,6 +325,19 @@ class LyriconLyricProducer(
                 recomputeAndEmit()
                 return
             }
+            // Reject the pre-pause stale value (issue #10): after pausing we re-based the position
+            // onto the displayed (extrapolated) pause point, but the shared-memory writer may be
+            // still frozen and keep delivering the *older* stale value at ~60 Hz. That value now
+            // differs from the re-based base and would otherwise be accepted as a real post-pause
+            // update, snapping the lyric back to a stale line. Reject until a different (real)
+            // position arrives.
+            val isPauseStaleResidual = pauseStaleRejectMs >= 0L &&
+                position == pauseStaleRejectMs
+            if (isPauseStaleResidual) {
+                advanceExtrapolation(now, "pause-stale residual ${position}ms")
+                recomputeAndEmit()
+                return
+            }
             if (position != lastRealPositionMs) {
                 // Real position update from shared memory.
                 // Accept wrap-around: when the song loops (single-track repeat), the shared
@@ -335,6 +372,9 @@ class LyriconLyricProducer(
                 // A real (different) position means the player has written the post-seek value;
                 // stop rejecting the pre-seek position.
                 seekRejectPositionMs = -1L
+                // A real (different) position means the writer is alive again: stop rejecting
+                // the pre-pause stale value (issue #10).
+                pauseStaleRejectMs = -1L
                 // A real value also means the position source is alive again: clear the
                 // unknown-position marker so recomputeAndEmit re-selects the active line.
                 positionUnknown = false
@@ -374,6 +414,9 @@ class LyriconLyricProducer(
             // A seek is a deliberate position change — clear residual filtering so the new
             // position is accepted even if it coincidentally matches the previous song's last.
             previousSongLastPositionMs = -1L
+            // A seek also invalidates any pre-pause stale rejection (issue #10): the seek
+            // target is the new authoritative position.
+            pauseStaleRejectMs = -1L
             // Seek invalidates the navigator's sequential cache (playback jumped).
             navigator?.resetCache()
             currentLineIndex = -1
@@ -494,7 +537,10 @@ class LyriconLyricProducer(
      * unknown). Called whenever the shared-memory position is still instead of a real update
      * (residual / seek-residual / stalled).
      *
-     * - Paused: the real position is frozen, so the lyric position must not advance.
+     * - Paused: the real position is frozen, so the lyric position must not advance. The position
+     *   base is re-based onto the displayed (extrapolated) pause point (issue #10: the
+     *   shared-memory writer may have been stale long before the pause; a pause is a real stop
+     *   point, so the resume must continue from there instead of re-crawling from a stale base).
      * - Past the song end (duration known): clamp [currentPositionMs] to the duration and hold —
      *   the song-end branch in [recomputeAndEmit] clears the line and shows a stable placeholder
      *   exactly once (issue #9: previously each stalled callback re-entered extrapolation and
@@ -508,10 +554,22 @@ class LyriconLyricProducer(
     private fun advanceExtrapolation(now: Long, reason: String) {
         if (!isPlayingState) {
             if (extrapolating) {
+                // 暂停即真实停点(issue #10 追加实测):暂停事件可能晚于首个 stalled 回调
+                // 到达,此处与 onPlaybackStateChanged 的暂停分支做同样的 re-base —— 把展示
+                // (外推)位置固化为新基准,并记录旧陈旧基准用于拒绝写入端的残留回传。
+                pauseStaleRejectMs = lastRealPositionMs
+                lastRealPositionMs = currentPositionMs
+                lastRealPositionClockMs = now
                 extrapolating = false
-                AppLog.i("LyriconLyricProducer", "pause: extrapolation frozen ($reason)")
+                AppLog.i(
+                    "LyriconLyricProducer",
+                    "pause: extrapolation frozen ($reason), re-based to ${currentPositionMs}ms " +
+                        "(rejecting stale ${pauseStaleRejectMs}ms)"
+                )
+            } else {
+                // 未在推进:展示位置即暂停点,保持不动(幂等)。
+                currentPositionMs = lastRealPositionMs
             }
-            currentPositionMs = lastRealPositionMs
             return
         }
         if (lastRealPositionClockMs < 0L) return

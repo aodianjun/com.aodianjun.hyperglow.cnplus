@@ -1037,4 +1037,132 @@ class LyriconLyricProducerTest {
             state.positionMs < 3_000L
         )
     }
+
+    // --- Pause-stale residual rejection (issue #10: 暂停→继续后歌词行跳回更早的行再爬行) ---
+
+    @Test
+    fun pauseWhileStalled_rebasesToDisplayedPausePointAndRejectsStaleResidual() {
+        // issue #10 追加实测:息屏 Doze 下位置源早已冻结(停在 4200),外推已把展示位置推进
+        // 到 6200(≈媒体真实暂停点)。暂停 → 继续后,写入端仍以 ~60Hz 回传冻结的 4200:
+        // 若基准未 re-base,外推会从陈旧的 4200 起跑,歌词行跳回更早的行再逐行爬回。
+        // 修复后:暂停瞬间基准 re-base 到展示位置 6200,陈旧 4200 被拒绝,继续后歌词从
+        // 暂停点行起跑,不回跳。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        // Real position 4200 (line 1 [3500,5000]), then the writer freezes at 4200.
+        producer.playerListener.onPositionChanged(4_200L)
+        assertEquals(1, producer.state.value!!.lineIndex)
+
+        // Stalled for 2s while playing → extrapolated 4200+2000=6200 → line 2 [5000,7000].
+        clockValue = 12_000L
+        producer.playerListener.onPositionChanged(4_200L) // stalled
+        assertEquals(2, producer.state.value!!.lineIndex)
+        assertEquals(6_200L, producer.state.value!!.positionMs)
+
+        // Pause → re-base the position base onto the displayed pause point (6200), record the
+        // stale 4200 for rejection.
+        producer.playerListener.onPlaybackStateChanged(false)
+
+        // Resume 10s later; the frozen writer keeps delivering the pre-pause stale 4200.
+        clockValue = 22_000L
+        producer.playerListener.onPlaybackStateChanged(true)
+        clockValue = 22_100L
+        producer.playerListener.onPositionChanged(4_200L) // pause-stale residual
+
+        val state = producer.state.value!!
+        // Re-based: extrapolates from 6200 (pause point), NOT from the stale 4200.
+        assertEquals(2, state.lineIndex)
+        assertEquals("third", state.line)
+        assertEquals(6_300L, state.positionMs) // 6200 + 100ms elapsed
+    }
+
+    @Test
+    fun pauseStaleResidual_rejectionStopsWhenRealPositionArrives() {
+        // 暂停→继续后,一旦出现不同的(真实)位置,拒绝停止,恢复接受共享内存位置。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(4_200L) // line 1, real
+
+        clockValue = 12_000L
+        producer.playerListener.onPositionChanged(4_200L) // stalled → extrapolate to 6200
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        producer.playerListener.onPlaybackStateChanged(false) // re-base to 6200, reject 4200
+
+        // Resume; the frozen writer keeps delivering 4200 → rejected (extrapolate from 6200).
+        clockValue = 22_000L
+        producer.playerListener.onPlaybackStateChanged(true)
+        clockValue = 22_100L
+        producer.playerListener.onPositionChanged(4_200L)
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        // The writer wakes and writes a real (different) position → accepted, rejection stops.
+        clockValue = 22_200L
+        producer.playerListener.onPositionChanged(6_500L) // real, still line 2 [5000,7000]
+        var state = producer.state.value!!
+        assertEquals(2, state.lineIndex)
+        assertEquals(6_500L, state.positionMs)
+
+        // A later genuine seek back into line 1 must be honored (rejection no longer active).
+        producer.playerListener.onSeekTo(4_000L)
+        state = producer.state.value!!
+        assertEquals(1, state.lineIndex)
+        assertEquals("second", state.line)
+    }
+
+    @Test
+    fun pauseWhileStalled_staleResidualWhilePaused_keepsPositionFrozenAtPausePoint() {
+        // 暂停期间写入端持续回传陈旧值:展示位置必须冻结在 re-base 后的暂停点,不回跳
+        // 也不前进。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(4_200L) // line 1, real
+
+        clockValue = 12_000L
+        producer.playerListener.onPositionChanged(4_200L) // stalled → extrapolate to 6200
+        producer.playerListener.onPlaybackStateChanged(false) // re-base to 6200
+
+        // Stale residual keeps arriving while paused → frozen at the pause point.
+        clockValue = 15_000L
+        producer.playerListener.onPositionChanged(4_200L)
+        var state = producer.state.value!!
+        assertEquals(2, state.lineIndex)
+        assertEquals(6_200L, state.positionMs)
+
+        clockValue = 20_000L
+        producer.playerListener.onPositionChanged(4_200L)
+        state = producer.state.value!!
+        assertEquals(2, state.lineIndex)
+        assertEquals(6_200L, state.positionMs)
+    }
+
+    @Test
+    fun pauseWithFreshWriter_noRebaseNeeded_stalledValueFrozenByEquality() {
+        // 写入端活跃时暂停:基准就是新鲜真实值,无需 re-base;暂停期间同一值回传走
+        // stalled 分支(相等),展示位置冻结 —— 既有行为不回归。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(4_200L) // line 1, fresh real
+        assertEquals(1, producer.state.value!!.lineIndex)
+
+        producer.playerListener.onPlaybackStateChanged(false)
+        clockValue = 15_000L
+        producer.playerListener.onPositionChanged(4_200L) // same value → stalled, frozen
+
+        val state = producer.state.value!!
+        assertEquals(1, state.lineIndex)
+        assertEquals(4_200L, state.positionMs)
+    }
 }
