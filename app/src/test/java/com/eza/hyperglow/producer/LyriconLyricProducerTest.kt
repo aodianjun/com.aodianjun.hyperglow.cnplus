@@ -919,10 +919,11 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L)
 
         var state = producer.state.value!!
-        // 外推超过预算(45s)后标记位置未知并清空活动行，位置冻结在预算处；残留旧位置 6000 未被接受。
+        // 外推越过歌尾(0+60s ≥ duration 8s)后钳制到歌尾并清空活动行(issue #9);
+        // 残留旧位置 6000 未被接受。
         assertEquals(-1, state.lineIndex)
         assertEquals("", state.line)
-        assertEquals(0L + 45_000L, state.positionMs)
+        assertEquals(8_000L, state.positionMs)
 
         // 真实新歌位置(不同于残留 6000)到达后，恢复接受。
         clockValue = 10_000L + 61_000L
