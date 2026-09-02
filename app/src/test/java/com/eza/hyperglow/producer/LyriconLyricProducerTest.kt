@@ -458,10 +458,7 @@ class LyriconLyricProducerTest {
     // --- Position extrapolation (screen-off stall recovery) ---
 
     @Test
-    fun positionStall_locksActiveLine_whilePlaying() {
-        // issue #10(位置源冻结时外推超前):位置源 stalled 时真实位置不可知,外推只是猜测,
-        // 绝不能用猜测位置推进歌词行(否则 AOD 歌词超前于真实播放、恢复瞬间又跳回)。
-        // 歌词行索引只由真实位置驱动:stalled 期间行锁定,展示位置最多走完当前行。
+    fun positionStall_extrapolatesUsingWallClockWhilePlaying() {
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -472,16 +469,15 @@ class LyriconLyricProducerTest {
         assertEquals(0, producer.state.value!!.lineIndex)
         assertEquals(2_000L, producer.state.value!!.positionMs)
 
-        // Position stalls (shared-memory writer frozen by screen-off), wall-clock advances 1.5s.
-        // The guessed position (3500) would select line 1 — but the line must stay locked on the
-        // last *real* line (line 0); display position may only advance to the current line's end.
+        // Position stalls (shared-memory writer frozen by screen-off), but wall-clock advances.
+        // After 1500ms, extrapolated position = 2000 + 1500 = 3500 → line 1 [3500,5000].
         clockValue = 11_500L
         producer.playerListener.onPositionChanged(2_000L) // same stalled value
 
         val state = producer.state.value!!
-        assertEquals(0, state.lineIndex)             // locked, NOT advanced by the guess
-        assertEquals("first", state.line)
-        assertEquals(3_000L, state.positionMs)        // clamped to line 0's end, not 3500
+        assertEquals(1, state.lineIndex)
+        assertEquals("second", state.line)
+        assertEquals(3_500L, state.positionMs)
     }
 
     @Test
@@ -507,10 +503,10 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun positionResume_selectsRealLine_andKeepsMonotonicDisplay() {
-        // issue #10:stalled 期间行锁定在最后真实行;真实位置恢复后按真实位置重新选行。
-        // 位置源恢复后首个真实值(即使略低于此前展示位)驱动行选择 —— 行索引不再跟随
-        // 墙钟猜测,因此不会出现"外推超前 → 恢复瞬间跳回"。
+    fun positionResume_slightlyBehindExtrapolation_keepsMonotonicLine() {
+        // NetEase's ~60 Hz feed stalls then resumes with a value slightly *below* the position we
+        // extrapolated to. Snapping backward would rewind the active line and flicker it across a
+        // boundary; within tolerance we must keep the smooth extrapolated value.
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -518,26 +514,27 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPlaybackStateChanged(true)
         producer.playerListener.onPositionChanged(2_000L) // line 0, real
 
-        // Stall for 1.5s: line stays locked on line 0 (real position 2000), display clamped.
+        // Stall → extrapolate to 3500 (line 1).
         clockValue = 11_500L
         producer.playerListener.onPositionChanged(2_000L)
-        assertEquals(0, producer.state.value!!.lineIndex)
+        assertEquals(1, producer.state.value!!.lineIndex)
+        assertEquals(3_500L, producer.state.value!!.positionMs)
 
-        // Resume with a real position inside line 1 [3500,5000] → the line is re-selected from the
-        // real value (no longer held back by extrapolation).
+        // Resume reports 3400 — only 100 ms behind our extrapolated 3500 (within tolerance).
+        // The line must stay on "second" (monotonic), not rewind to "first".
         clockValue = 11_600L
-        producer.playerListener.onPositionChanged(3_600L)
+        producer.playerListener.onPositionChanged(3_400L)
 
         val state = producer.state.value!!
         assertEquals(1, state.lineIndex)
         assertEquals("second", state.line)
-        assertEquals(3_600L, state.positionMs)
+        assertEquals(3_500L, state.positionMs)
     }
 
     @Test
-    fun positionResume_materiallyBehind_isHonoredAsRewind() {
-        // A real position that drops well below the locked line (seek / wrap-around / genuine
-        // pause) must be honored as a rewind and re-select the line from the real value.
+    fun positionResume_materiallyBehindExtrapolation_isHonoredAsRewind() {
+        // A real position that drops well below the extrapolated value (seek / wrap-around /
+        // genuine pause) is beyond the resume tolerance and must be honored as a rewind.
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -545,12 +542,14 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPlaybackStateChanged(true)
         producer.playerListener.onPositionChanged(2_000L) // line 0, real
 
-        // Stall for 1.5s: line stays locked on line 0.
+        // Stall → extrapolate to 3500 (line 1).
         clockValue = 11_500L
         producer.playerListener.onPositionChanged(2_000L)
-        assertEquals(0, producer.state.value!!.lineIndex)
+        assertEquals(1, producer.state.value!!.lineIndex)
 
-        // A genuine rewind into line 0 territory is honored from the real value.
+        // Resume at 2500 — a real value that differs from lastRealPositionMs (2000) yet is
+        // 1000 ms behind the extrapolated 3500 (beyond the 300 ms tolerance), i.e. a genuine seek
+        // back into line 0. It must be honored as a rewind.
         clockValue = 11_600L
         producer.playerListener.onPositionChanged(2_500L)
 
@@ -569,47 +568,50 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPlaybackStateChanged(true)
         producer.playerListener.onPositionChanged(2_000L) // line 0, real
 
-        // Stall for 1.5s: line stays locked on line 0.
+        // Stall → extrapolate to 3500 (line 1).
         clockValue = 11_500L
         producer.playerListener.onPositionChanged(2_000L)
-        assertEquals(0, producer.state.value!!.lineIndex)
+        assertEquals(1, producer.state.value!!.lineIndex)
 
-        // Real position resumes (player process unfrozen) into line 1 → re-selected from real value.
+        // Real position resumes (player process unfrozen). The real value may differ from the
+        // extrapolated one — it must replace the extrapolation.
         clockValue = 11_600L
-        producer.playerListener.onPositionChanged(3_800L) // line 1 [3500,5000]
+        producer.playerListener.onPositionChanged(3_800L) // still line 1, but real value
 
         val state = producer.state.value!!
         assertEquals(1, state.lineIndex)
-        assertEquals("second", state.line)
         assertEquals(3_800L, state.positionMs)
     }
 
     @Test
-    fun positionExtrapolation_pastSongEnd_locksActiveLine() {
-        // issue #10(位置源冻结时外推超前):外推位置只是猜测,不能用来推进/清空歌词行。
-        // 写端长冻结(90s,远超 45s 预算)时,行锁定在最后真实位置所在行,不清空、不占位、
-        // 不推进;展示位置钳制到当前行尾。真实位置恢复后重新选行。
+    fun positionExtrapolation_pastBudgetPastSongEnd_capsAtSongDuration() {
+        // issue #9(AOD 歌词播完后永久卡占位):外推越过歌尾后,位置钳制到歌曲时长并稳定
+        // 占位 —— 不再标记 positionUnknown 冻结在预算值,也不再每帧重走
+        // "越界→清空→占位" 重建循环。等真实位置恢复(亮屏)后重新选中正确行。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
         producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
         producer.playerListener.onPlaybackStateChanged(true)
-        producer.playerListener.onPositionChanged(6_000L) // line 2 [5000,7000]
+        producer.playerListener.onPositionChanged(6_000L) // near end → line 2 (still inside [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Stall for 90s: projected 96s ≥ duration 8s, but the line is held (not cleared).
+        // Stall for 90s (well past the 45s budget, projected 96s ≥ duration 8s) → capped at duration.
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
 
         val state = producer.state.value!!
-        assertEquals(2, state.lineIndex)               // locked on the last real line
-        assertEquals("third", state.line)
-        assertEquals(7_000L, state.positionMs)         // clamped to the locked line's end
+        assertEquals(-1, state.lineIndex)                 // active line cleared
+        assertEquals("", state.line)
+        // Capped at the song duration, NOT frozen at the extrapolation budget (51s).
+        assertEquals(8_000L, state.positionMs)
     }
 
     @Test
-    fun positionExtrapolation_longStallWithinSong_locksLine() {
-        // issue #3 + #10 统一语义:长 stall 不因猜测位置清空/占位,歌词保持显示在最后真实行。
+    fun positionExtrapolation_pastBudgetWithinSong_keepsAdvancing() {
+        // issue #3(息屏歌词消失太快):Doze 冻结共享内存写入端,但音乐仍在播 —— 写入端可能
+        // 整首歌都不恢复。外推超过 45s 预算但仍在歌曲时长内时必须继续推进,而不是清空
+        // 歌词行,否则每次息屏约 45s 后歌词必然消失。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -618,61 +620,60 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // line 2 [5000,7000]
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Stall for 60s (past the 45s budget, projected 66s << 180s) → line stays locked.
+        // Stall for 60s (past the 45s budget, projected 66s << 180s duration) → keep advancing.
         clockValue = 10_000L + 60_000L
         producer.playerListener.onPositionChanged(6_000L)
 
         var state = producer.state.value!!
-        assertEquals(2, state.lineIndex)
-        assertEquals("third", state.line)
-        assertEquals(7_000L, state.positionMs)
+        assertEquals(6_000L + 60_000L, state.positionMs)
+        // 66s is past the last line's end (7000) but before duration → instrumental outro placeholder.
+        assertEquals(-1, state.lineIndex)
 
-        // Stall even longer → still stable, no churn, line never cleared.
+        // Stall even longer, still within the song → position keeps advancing, no freeze at budget.
         clockValue = 10_000L + 100_000L
         producer.playerListener.onPositionChanged(6_000L)
         state = producer.state.value!!
-        assertEquals(2, state.lineIndex)
-        assertEquals(7_000L, state.positionMs)
+        assertEquals(6_000L + 100_000L, state.positionMs)
 
-        // Real position eventually resumes (screen-on) → line re-selected from the real value.
+        // Real position eventually resumes (screen-on) → extrapolation stops, real value wins.
         clockValue = 10_000L + 100_500L
-        producer.playerListener.onPositionChanged(3_000L) // line 0 [1000,3000]
+        producer.playerListener.onPositionChanged(3_000L) // line 1 [3500,5000]? no → 3000 is line 0 end/line1 gap
         state = producer.state.value!!
         assertEquals(3_000L, state.positionMs)
-        assertEquals(0, state.lineIndex)
     }
 
     @Test
-    fun positionExtrapolation_pastSongEnd_holdsStableLockedLine() {
-        // issue #9 + #10:长 stall 越过歌尾后不得死循环清空/占位,行保持锁定且位置稳定,
-        // 避免 60Hz 重复投递与 SystemUI 无去重的重建风暴。
+    fun positionExtrapolation_pastSongEnd_holdsStableCappedPlaceholder() {
+        // issue #9:外推越过歌尾后,后续仍停更的回调不得继续推进位置,行保持清空且位置
+        // 稳定钳在 duration,避免 60Hz 重复投递与 SystemUI 无去重的重建风暴。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
         producer.playerListener.onSongChanged(threeLineSong()) // duration=8000
         producer.playerListener.onPlaybackStateChanged(true)
-        producer.playerListener.onPositionChanged(6_000L) // line 2
+        producer.playerListener.onPositionChanged(6_000L) // near end → line 2
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Stall past the song end → line locked, position stable at the line's end.
+        // Stall past the song end → capped at duration, line cleared.
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
-        assertEquals(2, producer.state.value!!.lineIndex)
+        assertEquals(-1, producer.state.value!!.lineIndex)
 
-        // A much later stalled callback must not churn the state.
+        // A much later stalled callback must not advance the position further.
         clockValue = 200_000L
         producer.playerListener.onPositionChanged(6_000L)
 
         val state = producer.state.value!!
-        assertEquals(2, state.lineIndex)
-        assertEquals("third", state.line)
-        assertEquals(7_000L, state.positionMs) // stable, held at the locked line's end
+        assertEquals(-1, state.lineIndex)
+        assertEquals("", state.line)
+        assertEquals(8_000L, state.positionMs) // stable, still capped at duration
     }
 
     @Test
-    fun positionExtrapolation_stallAcrossSongEnd_holdsLockedLine() {
-        // issue #9 核心死循环回归防护:写入端在歌曲中段冻结、外推越过歌尾。行必须保持锁定,
-        // 不得重置 extrapolating 后每帧重走 "越界→清空→占位"。
+    fun positionExtrapolation_crossingSongEnd_capsAtDurationOnceAndStaysStable() {
+        // issue #9 核心死循环:写入端在歌曲中段冻结,外推越过歌尾。第一次越界清空行并
+        // 钳到 duration;之后每个 stalled 回调必须保持稳定,不得重置 extrapolating 后
+        // 每帧重走 "越界→清空→占位"。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -681,26 +682,26 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // line 2
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Freeze for 3s: projected 9_000 ≥ duration 8_000 → line held, position at line end.
+        // Freeze for 3s: projected 9_000 ≥ duration 8_000 → clamped to duration, line cleared.
         clockValue = 13_000L
         producer.playerListener.onPositionChanged(6_000L)
         var state = producer.state.value!!
-        assertEquals(7_000L, state.positionMs)
-        assertEquals(2, state.lineIndex)
+        assertEquals(8_000L, state.positionMs)
+        assertEquals(-1, state.lineIndex)
 
-        // Later stalled callbacks: fully stable, no per-frame churn.
+        // Later stalled callbacks: position no longer grows, line stays cleared, no per-frame churn.
         clockValue = 14_000L
         producer.playerListener.onPositionChanged(6_000L)
         state = producer.state.value!!
-        assertEquals(7_000L, state.positionMs)
-        assertEquals(2, state.lineIndex)
+        assertEquals(8_000L, state.positionMs)
+        assertEquals(-1, state.lineIndex)
 
-        // Far past the 45s budget → same stable hold.
+        // Far past the 45s budget, still within the hold → same stable cap.
         clockValue = 50_000L
         producer.playerListener.onPositionChanged(6_000L)
         state = producer.state.value!!
-        assertEquals(7_000L, state.positionMs)
-        assertEquals(2, state.lineIndex)
+        assertEquals(8_000L, state.positionMs)
+        assertEquals(-1, state.lineIndex)
     }
 
     @Test
@@ -815,8 +816,7 @@ class LyriconLyricProducerTest {
 
     @Test
     fun positionExtrapolation_afterSongEnd_realPositionRestoresLine() {
-        // 外推期间行锁定在最后真实行(issue #10)后,一旦真实位置恢复(亮屏 writer 恢复),
-        // 应重新选中正确行 —— 而不是从被外推污染的位置选行。
+        // 外推越过歌尾被钳制并清空行后,一旦真实位置恢复(亮屏 writer 恢复),应重新选中正确行。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -825,13 +825,12 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // line 2 (within [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // 长 stall(90s):行保持锁定在最后真实行(line 2),不清空、不占位。
+        // 超过预算且越过歌尾 → 钳制到 duration、清空活动行(issue #9)。
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
-        assertEquals(2, producer.state.value!!.lineIndex)
-        assertEquals("third", producer.state.value!!.line)
+        assertEquals(-1, producer.state.value!!.lineIndex)
 
-        // 真实位置恢复(亮屏),从真实值重新选中正确行。
+        // 真实位置恢复(新歌/重播),重新选中行。
         clockValue = 100_200L
         producer.playerListener.onPositionChanged(4_000L)
 
@@ -920,10 +919,11 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L)
 
         var state = producer.state.value!!
-        // 行锁定且无活动行(新歌起点),展示位置停在真实基准 0 —— 残留旧位置 6000 未被接受。
+        // 外推越过歌尾(0+60s ≥ duration 8s)后钳制到歌尾并清空活动行(issue #9);
+        // 残留旧位置 6000 未被接受。
         assertEquals(-1, state.lineIndex)
         assertEquals("", state.line)
-        assertEquals(0L, state.positionMs)
+        assertEquals(8_000L, state.positionMs)
 
         // 真实新歌位置(不同于残留 6000)到达后，恢复接受。
         clockValue = 10_000L + 61_000L
@@ -1036,49 +1036,5 @@ class LyriconLyricProducerTest {
             "position must be ~2100, not jumped by pause duration",
             state.positionMs < 3_000L
         )
-    }
-
-    @Test
-    fun pauseDuringStall_resumeKeepsCurrentLine_notStaleBase() {
-        // issue #10 追加实测(暂停→继续,网易云《灰色鹦鹉》):位置源在 AOD 下早已 stalled,
-        // Lyricon 的 lastRealPositionMs 滞后于媒体真实位置(~6.7s)。旧实现暂停只冻结外推、
-        // 暂停期间 stalled 回调又把展示位置拉回陈旧的 lastRealPositionMs,继续后从陈旧基准
-        // 重新外推 → 歌词行跳回更早的行再爬行。修复:暂停瞬间把展示位置 re-base 为基准,
-        // 后续 stalled 回调拒绝陈旧基准值,继续后行保持在暂停行。
-        var clockValue = 10_000L
-        val producer = LyriconLyricProducer { clockValue }
-
-        // 模拟 issue 场景:位置源陈旧在 2000(line 0),但外推展示已到 ~3800(line 1)。
-        producer.playerListener.onSongChanged(threeLineSong())
-        producer.playerListener.onPlaybackStateChanged(true)
-        producer.playerListener.onPositionChanged(2_000L) // line 0, real (stale source value)
-        assertEquals(0, producer.state.value!!.lineIndex)
-
-        // Position source stalls while playback continues → extrapolation reaches line 1's range,
-        // but the line index stays locked on the last real line (line 0) per issue #10.
-        clockValue = 11_800L // 1.8s later
-        producer.playerListener.onPositionChanged(2_000L) // still stalled at 2000
-        assertEquals(0, producer.state.value!!.lineIndex)
-        assertEquals("first", producer.state.value!!.line)
-
-        // User pauses (media really is at ~3800 — the displayed extrapolated position).
-        producer.playerListener.onPlaybackStateChanged(false)
-        // The pre-pause base (2000) is now stale; the pause re-based onto the displayed ~3000
-        // (clamped to line 0's end). Stalled callbacks after pause must not yank it back to 2000.
-        clockValue = 12_000L
-        producer.playerListener.onPositionChanged(2_000L) // stale still arriving
-        assertEquals(0, producer.state.value!!.lineIndex)
-        assertEquals("first", producer.state.value!!.line)
-
-        // Resume: extrapolation must continue from the pause point (~3000), NOT crawl back from
-        // the stale 2000 base. A resumed stall keeps the line locked on line 0 without a jump back.
-        clockValue = 13_000L
-        producer.playerListener.onPlaybackStateChanged(true)
-        clockValue = 13_100L
-        producer.playerListener.onPositionChanged(2_000L) // stale still arriving (writer frozen)
-        val state = producer.state.value!!
-        assertEquals(0, state.lineIndex)         // NOT re-crawled to an older line
-        assertTrue("position must be >= 3000 (pause point), not 2000 stale",
-            state.positionMs >= 3_000L)
     }
 }
