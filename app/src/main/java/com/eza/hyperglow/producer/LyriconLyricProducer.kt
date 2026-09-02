@@ -495,12 +495,15 @@ class LyriconLyricProducer(
      * (residual / seek-residual / stalled).
      *
      * - Paused: the real position is frozen, so the lyric position must not advance.
+     * - Past the song end (duration known): clamp [currentPositionMs] to the duration and hold —
+     *   the song-end branch in [recomputeAndEmit] clears the line and shows a stable placeholder
+     *   exactly once (issue #9: previously each stalled callback re-entered extrapolation and
+     *   re-cleared the line every frame at 60 Hz).
      * - Over [MAX_EXTRAPOLATION_MS] while the extrapolation is still within the song duration:
      *   the writer is Doze-frozen but playback is still active (the canonical AOD scenario) —
-     *   keep advancing; the song-end branch in [recomputeAndEmit] bounds it.
-     * - Over [MAX_EXTRAPOLATION_MS] with no duration known, or the extrapolation has passed the
-     *   song end: the writer is dead (not merely screen-off frozen) — mark [positionUnknown] and
-     *   stop advancing, instead of extrapolating past the song.
+     *   keep advancing (issue #3).
+     * - Over [MAX_EXTRAPOLATION_MS] with no duration known: the writer is dead (not merely
+     *   screen-off frozen) — mark [positionUnknown] and stop advancing.
      */
     private fun advanceExtrapolation(now: Long, reason: String) {
         if (!isPlayingState) {
@@ -513,14 +516,23 @@ class LyriconLyricProducer(
         }
         if (lastRealPositionClockMs < 0L) return
         val sinceRealMs = now - lastRealPositionClockMs
+        val duration = currentSong?.duration ?: 0L
+        val projected = lastRealPositionMs + sinceRealMs
+        // 歌尾稳定钳制(issue #9):外推一旦越过歌曲时长,位置直接钳到 duration 并保持,
+        // 不翻转 extrapolating、不清行 —— 清行/日志/占位由 recomputeAndEmit 的歌尾分支
+        // 统一处理且只处理一次。否则每个 stalled 回调都会重走
+        // "越界→清空→占位" 重建循环:60Hz 日志刷屏 + extrapolating 每帧反复翻转。
+        if (duration > 0L && projected >= duration) {
+            currentPositionMs = duration
+            return
+        }
         if (sinceRealMs > MAX_EXTRAPOLATION_MS) {
-            val duration = currentSong?.duration ?: 0L
-            val projected = lastRealPositionMs + sinceRealMs
             // Doze 冻结共享内存写入端(音乐仍在播)是 AOD 最常见场景:写入端可能整首歌都不
             // 恢复。只要外推仍在歌曲时长内,继续推进而不是 45s 一到就清空歌词行——否则
-            // 每次息屏约 45s 后歌词必然消失(issue #3)。歌尾兜底由 recomputeAndEmit 的
-            // "extrapolation reached song end" 分支负责(清空 + 稳定占位)。
-            if (duration > 0L && projected < duration) {
+            // 每次息屏约 45s 后歌词必然消失(issue #3)。到达此处且 duration>0 时必有
+            // projected<duration(上方歌尾钳制已早退);越过歌尾不再标记 positionUnknown,
+            // 而是钳在歌尾稳定占位,等真实位置恢复。
+            if (duration > 0L) {
                 currentPositionMs = projected
                 if (!extrapolating) {
                     extrapolating = true
@@ -533,6 +545,7 @@ class LyriconLyricProducer(
                 }
                 return
             }
+            // 无时长信息(如 LRC 行级源):写入端按死亡处理,位置冻结在预算值。
             if (!positionUnknown) {
                 extrapolating = false
                 positionUnknown = true
@@ -610,18 +623,25 @@ class LyriconLyricProducer(
         // 清空活动行并结束外推,让投影层稳定显示占位;同时保持位置不变以触发状态去重,
         // 避免 60Hz 重复投递。等数据源写回真实位置(重播/切歌)或 onSongChanged 到来时再校正。
         val duration = song.duration
-        if (extrapolating && duration > 0L && pos >= duration) {
+        if (duration > 0L && pos >= duration) {
+            // 真实或外推位置越过歌曲时长(外推路径已在 advanceExtrapolation 钳到 duration;
+            // 真实位置也可能直接上报越界值 —— Doze 下共享内存残留/未回绕的循环基准,
+            // issue #9 日志中 base 远超 duration 的场景)。统一钳制 + 清行 + 稳定占位,
+            // 且只在状态实际变化时记日志,避免 60Hz 每帧 "越界→清空→占位" 重建循环刷屏。
+            val changed = extrapolating || currentLineIndex != -1
             currentPositionMs = duration
             extrapolating = false
             if (currentLineIndex != -1) {
                 currentLineIndex = -1
                 cachedWords = null
             }
-            AppLog.i(
-                "LyriconLyricProducer",
-                "extrapolation reached song end: pos=${pos}ms capped=${duration}ms " +
-                    "(duration=${duration}ms); holding stable placeholder"
-            )
+            if (changed) {
+                AppLog.i(
+                    "LyriconLyricProducer",
+                    "position reached song end: pos=${pos}ms capped=${duration}ms " +
+                        "(duration=${duration}ms); holding stable placeholder"
+                )
+            }
             emit()
             return
         }
