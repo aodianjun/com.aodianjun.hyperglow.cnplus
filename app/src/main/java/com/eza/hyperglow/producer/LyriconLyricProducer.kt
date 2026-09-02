@@ -135,6 +135,16 @@ class LyriconLyricProducer(
     @Volatile private var seekRejectPositionMs: Long = -1L
     @Volatile private var seekClockMs: Long = 0L
 
+    // --- Pause-stale residual rejection (issue #10) ---
+    // When playback pauses while the position source is already stalled (AOD Doze), the shared
+    // memory still holds the *pre-pause stale* value (e.g. 16665ms while actual playback had
+    // reached 23435ms via extrapolation). We re-base the position base onto the displayed
+    // (extrapolated) pause point on pause; the stale value would otherwise keep arriving at 60 Hz
+    // and — now differing from the re-based base — be mistaken for a genuine post-pause "resume"
+    // rewind, snapping the lyric back to an older line. Reject any value matching the pre-pause
+    // stale base until a different (real) position arrives.
+    @Volatile private var pauseStaleRejectMs: Long = -1L
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
@@ -181,6 +191,7 @@ class LyriconLyricProducer(
                 previousSongLastPositionMs = -1L
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
+                pauseStaleRejectMs = -1L
                 mutableState.value = null
             }
         }
@@ -201,6 +212,7 @@ class LyriconLyricProducer(
                 previousSongLastPositionMs = -1L
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
+                pauseStaleRejectMs = -1L
                 mutableState.value = null
                 return
             }
@@ -235,6 +247,9 @@ class LyriconLyricProducer(
             lastRealPositionClockMs = clock()
             extrapolating = false
             positionUnknown = false
+            seekRejectPositionMs = -1L
+            seekClockMs = 0L
+            pauseStaleRejectMs = -1L
             refreshRenderModes()
             emit()
         }
@@ -253,13 +268,31 @@ class LyriconLyricProducer(
                 if (lastRealPositionClockMs >= 0L) {
                     lastRealPositionClockMs = clock()
                 }
+                // issue #10 追加实测(暂停→继续):位置源在 AOD 下可能早已陈旧(stalled),暂停时
+                // 的 lastRealPositionMs 滞后于媒体真实位置(实测差 ~6.7s)。继续播放后若直接
+                // 从陈旧基准重新外推,歌词行会跳回更早的行再爬行。暂停瞬间我们已把基准
+                // re-base 到展示位置(见 advanceExtrapolation),此处把 extrapolating 复位,
+                // 让继续后的首个真实位置回调走"真实更新"路径覆盖基准,而不是被
+                // monotonicResume 容差吞掉继续沿用陈旧外推值。
+                extrapolating = false
             } else {
                 // When paused, freeze extrapolation: the real position is frozen, so
                 // currentPositionMs must stop advancing too. Previously a long pause kept
                 // extrapolating the lyric all the way to the song end.
                 if (extrapolating) {
+                    // 暂停即真实停点(issue #10 追加实测):位置源在 AOD 下可能早已 stalled,媒体
+                    // 真实暂停点≈此刻展示位置(外推位置),而旧 lastRealPositionMs 是陈旧基准。
+                    // 把展示位置固化为新基准;若写端仍冻结,它还会持续发陈旧值,记录该陈旧值
+                    // 以便 onPositionChanged 拒绝,防止暂停/继续瞬间歌词行跳回更早的行。
+                    pauseStaleRejectMs = lastRealPositionMs
+                    lastRealPositionMs = currentPositionMs
+                    lastRealPositionClockMs = clock()
                     extrapolating = false
-                    AppLog.i("LyriconLyricProducer", "pause: extrapolation frozen")
+                    AppLog.i(
+                        "LyriconLyricProducer",
+                        "pause: extrapolation frozen, re-based to ${lastRealPositionMs}ms " +
+                            "(rejecting stale ${pauseStaleRejectMs}ms)"
+                    )
                 }
             }
             // Re-emit so the engine sees the new playing/speed without waiting for next position.
@@ -301,44 +334,43 @@ class LyriconLyricProducer(
                 recomputeAndEmit()
                 return
             }
+            // Reject the pre-pause stale value (issue #10): after a pause we re-base the position
+            // onto the displayed (extrapolated) pause point, but the shared memory may keep
+            // delivering the *older* stale value at 60 Hz while the writer is still frozen. That
+            // value now differs from the re-based base and would otherwise be accepted as a real
+            // post-pause "resume", snapping the lyric back to a stale line. Reject until a
+            // different (real) position arrives.
+            val isPauseStaleResidual = pauseStaleRejectMs >= 0L &&
+                position == pauseStaleRejectMs
+            if (isPauseStaleResidual) {
+                advanceExtrapolation(now, "pause-stale residual ${position}ms")
+                recomputeAndEmit()
+                return
+            }
             if (position != lastRealPositionMs) {
-                // Real position update from shared memory.
-                // Accept wrap-around: when the song loops (single-track repeat), the shared
-                // memory position resets to 0 while our extrapolated position may be at/beyond
-                // duration. Treat a significantly lower position as a wrap-around rather than
-                // rejecting it.
+                // Real position update from shared memory. The line index is driven exclusively by
+                // real positions (issue #10), so on resume we simply re-base onto the real value and
+                // let recomputeAndEmit re-select the line — no tolerance that keeps a guessed
+                // (extrapolated) position in charge, otherwise the resume would re-align onto the
+                // stale/extrapolated base and the lyric would stay off by the stall duration.
                 val wasExtrapolating = extrapolating
-                // When the player's position stream resumes after a stall it can briefly report a
-                // value slightly *below* the position we extrapolated to (shared-memory latency /
-                // stall-to-resume race). NetEase's ~60 Hz feed stalls and resumes constantly, so
-                // snapping backward on every such resume rewinds the active line and makes it
-                // flicker back and forth across a boundary. Within a small tolerance we keep the
-                // monotonic extrapolated value (re-basing the extrapolation clock on it) so the
-                // line advances smoothly; only a materially-lower real position (seek, song
-                // wrap-around, or a genuine pause) is honored as a rewind.
-                val realBehindMs = currentPositionMs - position
-                val monotonicResume = wasExtrapolating &&
-                    realBehindMs in 1..EXTRAPOLATION_RESUME_TOLERANCE_MS
-                if (monotonicResume) {
-                    lastRealPositionMs = currentPositionMs
-                    lastRealPositionClockMs = now
-                    lastRealPositionUpdateMs = now
-                } else {
-                    lastRealPositionMs = position
-                    lastRealPositionClockMs = now
-                    lastRealPositionUpdateMs = now
-                    currentPositionMs = position
-                }
+                lastRealPositionMs = position
+                lastRealPositionClockMs = now
+                lastRealPositionUpdateMs = now
+                currentPositionMs = position
                 // A different value means the player has started writing the new song's progress.
                 // Disable residual filtering — subsequent positions are from the new song.
                 previousSongLastPositionMs = -1L
                 // A real (different) position means the player has written the post-seek value;
                 // stop rejecting the pre-seek position.
                 seekRejectPositionMs = -1L
+                // A real (different) position means the writer is alive again: stop rejecting the
+                // pre-pause stale value (issue #10).
+                pauseStaleRejectMs = -1L
                 // A real value also means the position source is alive again: clear the
                 // unknown-position marker so recomputeAndEmit re-selects the active line.
                 positionUnknown = false
-                if (wasExtrapolating && !monotonicResume) {
+                if (wasExtrapolating) {
                     extrapolating = false
                     AppLog.i(
                         "LyriconLyricProducer",
@@ -374,6 +406,7 @@ class LyriconLyricProducer(
             // A seek is a deliberate position change — clear residual filtering so the new
             // position is accepted even if it coincidentally matches the previous song's last.
             previousSongLastPositionMs = -1L
+            pauseStaleRejectMs = -1L
             // Seek invalidates the navigator's sequential cache (playback jumped).
             navigator?.resetCache()
             currentLineIndex = -1
@@ -489,75 +522,47 @@ class LyriconLyricProducer(
     }
 
     /**
-     * Advance [currentPositionMs] by wall-clock extrapolation from [lastRealPositionMs], unless the
-     * player is paused (freeze) or the extrapolation budget has been exhausted (mark position
-     * unknown). Called whenever the shared-memory position is still instead of a real update
-     * (residual / seek-residual / stalled).
+     * Advance [currentPositionMs] by wall-clock extrapolation from [lastRealPositionMs].
      *
-     * - Paused: the real position is frozen, so the lyric position must not advance.
-     * - Past the song end (duration known): clamp [currentPositionMs] to the duration and hold —
-     *   the song-end branch in [recomputeAndEmit] clears the line and shows a stable placeholder
-     *   exactly once (issue #9: previously each stalled callback re-entered extrapolation and
-     *   re-cleared the line every frame at 60 Hz).
-     * - Over [MAX_EXTRAPOLATION_MS] while the extrapolation is still within the song duration:
-     *   the writer is Doze-frozen but playback is still active (the canonical AOD scenario) —
-     *   keep advancing (issue #3).
-     * - Over [MAX_EXTRAPOLATION_MS] with no duration known: the writer is dead (not merely
-     *   screen-off frozen) — mark [positionUnknown] and stop advancing.
+     * The extrapolated position is a *display hint only* — since issue #10 the lyric line index
+     * is driven exclusively by real positions: while the shared-memory writer is stalled
+     * (extrapolating == true) [recomputeAndEmit] locks the current line and never advances it from
+     * the guessed position. Extrapolation only feeds [currentPositionMs] so the glow/progress can
+     * keep moving; it must never cause the line to jump ahead of actual playback (issue #10) nor
+     * vanish (issue #3).
+     *
+     * - Paused: freeze everything and re-base [lastRealPositionMs] onto the displayed position
+     *   (issue #10: the shared-memory writer can be stale long before the pause event; a pause is
+     *   a real stop point, so the resume must continue from there instead of re-crawling from a
+     *   stale base).
+     * - Playing, duration known: clamp the display position at the song duration (issue #9) and
+     *   keep `extrapolating == true` — the locked line is held until a real position resumes.
+     * - Playing, no duration known (e.g. LRC line-level sources): over the budget the writer is
+     *   treated as dead — mark [positionUnknown] so [recomputeAndEmit] clears the active line.
      */
     private fun advanceExtrapolation(now: Long, reason: String) {
         if (!isPlayingState) {
             if (extrapolating) {
                 extrapolating = false
-                AppLog.i("LyriconLyricProducer", "pause: extrapolation frozen ($reason)")
+                // 暂停即真实停点:把当前展示位置固化为新基准(issue #10 追加实测)。位置源
+                // 在 AOD 下可能早已陈旧(stalled),媒体真实暂停点≈此刻展示的外推位置;若保留
+                // 陈旧的 lastRealPositionMs,暂停/继续瞬间歌词行会跳回更早的行再重新爬行。
+                lastRealPositionMs = currentPositionMs
+                lastRealPositionClockMs = now
+                AppLog.i(
+                    "LyriconLyricProducer",
+                    "pause: extrapolation frozen ($reason), re-based to ${currentPositionMs}ms"
+                )
+            } else {
+                // 未在推进:展示位置即暂停点,保持不动(幂等)。
+                currentPositionMs = lastRealPositionMs
             }
-            currentPositionMs = lastRealPositionMs
             return
         }
         if (lastRealPositionClockMs < 0L) return
         val sinceRealMs = now - lastRealPositionClockMs
         val duration = currentSong?.duration ?: 0L
         val projected = lastRealPositionMs + sinceRealMs
-        // 歌尾稳定钳制(issue #9):外推一旦越过歌曲时长,位置直接钳到 duration 并保持,
-        // 不翻转 extrapolating、不清行 —— 清行/日志/占位由 recomputeAndEmit 的歌尾分支
-        // 统一处理且只处理一次。否则每个 stalled 回调都会重走
-        // "越界→清空→占位" 重建循环:60Hz 日志刷屏 + extrapolating 每帧反复翻转。
-        if (duration > 0L && projected >= duration) {
-            currentPositionMs = duration
-            return
-        }
-        if (sinceRealMs > MAX_EXTRAPOLATION_MS) {
-            // Doze 冻结共享内存写入端(音乐仍在播)是 AOD 最常见场景:写入端可能整首歌都不
-            // 恢复。只要外推仍在歌曲时长内,继续推进而不是 45s 一到就清空歌词行——否则
-            // 每次息屏约 45s 后歌词必然消失(issue #3)。到达此处且 duration>0 时必有
-            // projected<duration(上方歌尾钳制已早退);越过歌尾不再标记 positionUnknown,
-            // 而是钳在歌尾稳定占位,等真实位置恢复。
-            if (duration > 0L) {
-                currentPositionMs = projected
-                if (!extrapolating) {
-                    extrapolating = true
-                    AppLog.w(
-                        "LyriconLyricProducer",
-                        "extrapolation past ${MAX_EXTRAPOLATION_MS}ms budget ($reason) but within " +
-                            "song (pos=${projected}ms duration=${duration}ms); continuing — " +
-                            "Doze writer freeze with playback still active"
-                    )
-                }
-                return
-            }
-            // 无时长信息(如 LRC 行级源):写入端按死亡处理,位置冻结在预算值。
-            if (!positionUnknown) {
-                extrapolating = false
-                positionUnknown = true
-                currentPositionMs = lastRealPositionMs + MAX_EXTRAPOLATION_MS
-                AppLog.w(
-                    "LyriconLyricProducer",
-                    "extrapolation exceeded ${MAX_EXTRAPOLATION_MS}ms ($reason); marking position unknown"
-                )
-            }
-            return
-        }
-        currentPositionMs = lastRealPositionMs + sinceRealMs
         // Stale one-shot warning (writer may be dead) — observability only, does not gate behavior.
         if (lastRealPositionUpdateMs >= 0L &&
             now - lastRealPositionUpdateMs > STALE_POSITION_THRESHOLD_MS &&
@@ -565,12 +570,11 @@ class LyriconLyricProducer(
         ) {
             lastRealPositionUpdateMs = Long.MAX_VALUE // one-shot log
             val staleSec = (now - lastRealPositionClockMs) / 1000
-            val duration = currentSong?.duration ?: 0L
             AppLog.w(
                 "LyriconLyricProducer",
                 "position stale for ${staleSec}s (last real=${lastRealPositionMs}ms " +
                     "extrapolated=${currentPositionMs}ms duration=${duration}ms)" +
-                    if (duration > 0L && currentPositionMs > duration) {
+                    if (duration > 0L && projected > duration) {
                         " — song may have looped"
                     } else {
                         " — shared-memory writer may be dead"
@@ -585,6 +589,29 @@ class LyriconLyricProducer(
                     "elapsed=${sinceRealMs}ms -> ${currentPositionMs}ms"
             )
         }
+        // 歌词行索引只由真实位置驱动(issue #10):stalled 期间行已在 recomputeAndEmit 锁定,
+        // 这里仅推进展示位置 positionMs(供发光/进度平滑),绝不因外推位置推进/清空歌词行。
+        if (duration > 0L) {
+            // 有时长:展示位置外推并钳在歌尾(issue #9),保持 extrapolating=true → 锁行;
+            // 不置 positionUnknown、不清行 —— 歌词停在最后真实位置所在行,恢复后对齐。
+            currentPositionMs = if (projected >= duration) duration else projected
+            return
+        }
+        // 无时长信息(如 LRC 行级源):写端停更超过预算按死亡处理 —— positionUnknown 使
+        // recomputeAndEmit 清空活动行(这类源没有"歌曲时长内继续外推"的语义)。
+        if (sinceRealMs > MAX_EXTRAPOLATION_MS) {
+            if (!positionUnknown) {
+                extrapolating = false
+                positionUnknown = true
+                currentPositionMs = lastRealPositionMs + MAX_EXTRAPOLATION_MS
+                AppLog.w(
+                    "LyriconLyricProducer",
+                    "extrapolation exceeded ${MAX_EXTRAPOLATION_MS}ms ($reason); marking position unknown"
+                )
+            }
+            return
+        }
+        currentPositionMs = projected
     }
 
     /**
@@ -611,26 +638,43 @@ class LyriconLyricProducer(
             return
         }
 
-        // 歌曲边界处理:息屏后数据源(如网易云)停止写位置,外推会越过歌曲时长继续累加。
+        // 位置源 stalled(外推中):歌词行索引只由真实位置驱动(issue #10)。
         //
-        // 旧实现用模运算把位置回绕到时长内(pos % duration),但这会让位置在 [0, duration) 间
-        // 反复循环累加:每次回绕到 ~0ms 时 findTargetIndex 选不到行、活动行被清空,而投影层
-        // 因 sampledAtElapsedMs==now 又把回绕后的低位置判为「回到开头」的有效位置
-        // (extrapolationReliable 判定可信),于是行被反复选中/清空 → AOD '🎶' 占位闪烁 +
-        // SystemUI 对相同占位 state 无去重的重建风暴(错误清单 #2/#3/#4)。
-        //
-        // 正确语义:外推一旦越过歌曲时长,说明当前这首歌已播完,之后不再有更多行。此时应
-        // 清空活动行并结束外推,让投影层稳定显示占位;同时保持位置不变以触发状态去重,
-        // 避免 60Hz 重复投递。等数据源写回真实位置(重播/切歌)或 onSongChanged 到来时再校正。
+        // stalled 时真实播放位置不可知——外推位置只是"墙钟猜测"。用猜测位置推进歌词行会让
+        // AOD 显示超前于真实播放的歌词(真实位置可能根本没动),恢复瞬间又跳回;还会在长冻结
+        // 时误触歌尾清行(#3 的"歌词消失"、#9 的"卡占位")。因此外推期间锁定当前歌词行:
+        // 不清空、不推进、不因外推越过歌尾而占位。展示位置 positionMs 允许在本行内继续
+        // 推进(供行内发光平滑),但被钳制在当前行尾 —— 永不越入下一行/歌尾,保证行文本与
+        // 发光进度自洽。真实位置恢复(position resumed / seek / song change)后重新选行对齐。
+        if (extrapolating) {
+            if (currentLineIndex >= 0) {
+                val lockedLine = navigator?.source?.getOrNull(currentLineIndex)
+                if (lockedLine != null && currentPositionMs > lockedLine.end) {
+                    currentPositionMs = lockedLine.end
+                }
+            } else {
+                // 无活动行(间奏/词前):展示位置停在实际真实位置(可被歌尾钳制),避免外推
+                // 污染 nextLine 预览,也避免真实越界 base 越过歌尾展示(issue #9)。
+                currentPositionMs = if (duration > 0L) {
+                    minOf(lastRealPositionMs, duration)
+                } else {
+                    lastRealPositionMs
+                }
+            }
+            emit()
+            return
+        }
+
+        // 歌曲边界处理:真实位置(非外推)越过歌曲时长——当前这首歌确实已播完/数据源写了
+        // 越界值(Doze 下共享内存残留/未回绕的循环累计 base,issue #9 日志中 base 远超
+        // duration 的场景)。统一钳制 + 清行 + 稳定占位,且只在状态实际变化时记日志,
+        // 避免 60Hz 每帧 "越界→清空→占位" 重建循环刷屏。
+        // (外推路径不会到这里:extrapolating 时已在上方锁行返回,位置由
+        // advanceExtrapolation 钳在 duration。)
         val duration = song.duration
         if (duration > 0L && pos >= duration) {
-            // 真实或外推位置越过歌曲时长(外推路径已在 advanceExtrapolation 钳到 duration;
-            // 真实位置也可能直接上报越界值 —— Doze 下共享内存残留/未回绕的循环基准,
-            // issue #9 日志中 base 远超 duration 的场景)。统一钳制 + 清行 + 稳定占位,
-            // 且只在状态实际变化时记日志,避免 60Hz 每帧 "越界→清空→占位" 重建循环刷屏。
-            val changed = extrapolating || currentLineIndex != -1
             currentPositionMs = duration
-            extrapolating = false
+            val changed = currentLineIndex != -1
             if (currentLineIndex != -1) {
                 currentLineIndex = -1
                 cachedWords = null
@@ -833,16 +877,6 @@ class LyriconLyricProducer(
 
         /** Minimum gap between two forced resubscribes, so a persistent failure doesn't hammer IPC. */
         internal const val RESUBSCRIBE_COOLDOWN_MS = 30_000L
-
-        /**
-         * When the player's position stream resumes after a stall, how far below our extrapolated
-         * position it may be before we treat it as a real rewind (seek / wrap-around / pause)
-         * rather than resume-stage jitter. The Lyricon feed from NetEase is delivered in bursts
-         * (~60 Hz with frequent stall/resume), so a small backward drift is normal and must not
-         * rewind the active line. Any drop beyond this (a genuine seek or the song resetting to
-         * 0 on wrap-around) is honored as a rewind.
-         */
-        private const val EXTRAPOLATION_RESUME_TOLERANCE_MS = 300L
 
         /** Default render modes when customization is unavailable; matches SpicyBridgeState defaults. */
         private fun defaultRenderModes() = ProducerRenderModes(
