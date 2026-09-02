@@ -625,7 +625,6 @@ class LyriconLyricProducer(
         val nav = navigator ?: return emit() // no lyrics yet; emit metadata-only state
         val song = currentSong ?: return
         val pos = currentPositionMs
-        val duration = song.duration
 
         // 位置未知(外推超过预算且数据源尚未恢复):清空活动行,稳定显示占位,而不是把歌词
         // 一路推进到歌尾。等真实位置恢复或 onSongChanged / onSeekTo 到来清除 positionUnknown
@@ -672,6 +671,7 @@ class LyriconLyricProducer(
         // 避免 60Hz 每帧 "越界→清空→占位" 重建循环刷屏。
         // (外推路径不会到这里:extrapolating 时已在上方锁行返回,位置由
         // advanceExtrapolation 钳在 duration。)
+        val duration = song.duration
         if (duration > 0L && pos >= duration) {
             currentPositionMs = duration
             val changed = currentLineIndex != -1
