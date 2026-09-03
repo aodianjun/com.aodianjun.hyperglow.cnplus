@@ -350,21 +350,41 @@ class LyriconLyricProducer(
                 // stall-to-resume race). NetEase's ~60 Hz feed stalls and resumes constantly, so
                 // snapping backward on every such resume rewinds the active line and makes it
                 // flicker back and forth across a boundary. Within a small tolerance we keep the
-                // monotonic extrapolated value (re-basing the extrapolation clock on it) so the
-                // line advances smoothly; only a materially-lower real position (seek, song
+                // monotonic extrapolated display value while re-basing the position base onto
+                // the real value (see below); only a materially-lower real position (seek, song
                 // wrap-around, or a genuine pause) is honored as a rewind.
-                val realBehindMs = currentPositionMs - position
+                // Sanity-bound the real position to the song duration (issue #10 追加实测2/根因2):
+                // the shared-memory writer can deliver a position beyond the song end; accepting
+                // it unconditionally would inflate the position base past the duration.
+                val duration = currentSong?.duration ?: 0L
+                val realPosition = if (duration > 0L && position > duration) {
+                    AppLog.i(
+                        "LyriconLyricProducer",
+                        "position ${position}ms beyond duration ${duration}ms; capping"
+                    )
+                    duration
+                } else {
+                    position
+                }
+                val realBehindMs = currentPositionMs - realPosition
                 val monotonicResume = wasExtrapolating &&
                     realBehindMs in 1..EXTRAPOLATION_RESUME_TOLERANCE_MS
                 if (monotonicResume) {
-                    lastRealPositionMs = currentPositionMs
-                    lastRealPositionClockMs = now
+                    // Keep the monotonic extrapolated display position (anti-flicker), but
+                    // re-base onto the REAL position: shift the extrapolation clock back by the
+                    // lead so extrapolating from the real base reproduces the current display.
+                    // The real value always wins — the base must never be inflated by the
+                    // extrapolated lead, otherwise repeated stall/resume cycles accumulate the
+                    // lead and the base drifts far past the song duration (issue #10 追加实测2:
+                    // lastRealPositionMs 累积到 596840ms,歌长仅 276000ms).
+                    lastRealPositionMs = realPosition
+                    lastRealPositionClockMs = now - realBehindMs
                     lastRealPositionUpdateMs = now
                 } else {
-                    lastRealPositionMs = position
+                    lastRealPositionMs = realPosition
                     lastRealPositionClockMs = now
                     lastRealPositionUpdateMs = now
-                    currentPositionMs = position
+                    currentPositionMs = realPosition
                 }
                 // A different value means the player has started writing the new song's progress.
                 // Disable residual filtering — subsequent positions are from the new song.

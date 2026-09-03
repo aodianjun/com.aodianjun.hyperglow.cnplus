@@ -1165,4 +1165,82 @@ class LyriconLyricProducerTest {
         assertEquals(1, state.lineIndex)
         assertEquals(4_200L, state.positionMs)
     }
+
+    // --- issue #10 追加实测2: monotonicResume 抬升基准导致越位累积 (596840ms > 276000ms 歌长) ---
+
+    @Test
+    fun monotonicResumeThenFrozenWriter_keepsAdvancingFromRealBase() {
+        // 位置源恢复时回传比外推低 100ms 的真实值(容差内,显示保持单调);随后写入端再度冻结,
+        // 持续回传该真实值。修复后基准 re-base 到真实值,冻结值 == 基准走 stalled 分支,
+        // 外推从真实基准继续推进。旧代码把基准覆盖为外推超前值,冻结值 != 基准被反复当成
+        // "真实更新"再走 monotonicResume,基准每轮抬升 ≤300ms 无限累积,且显示永远冻结。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(2_000L) // line 0, real
+
+        // Stall → extrapolate to 3500 (line 1).
+        clockValue = 11_500L
+        producer.playerListener.onPositionChanged(2_000L)
+        assertEquals(1, producer.state.value!!.lineIndex)
+        assertEquals(3_500L, producer.state.value!!.positionMs)
+
+        // Resume reports 3400 — 100ms behind the extrapolated 3500 (within tolerance):
+        // display stays monotonic at 3500, but the base re-bases onto the REAL 3400.
+        clockValue = 11_600L
+        producer.playerListener.onPositionChanged(3_400L)
+        assertEquals(3_500L, producer.state.value!!.positionMs)
+
+        // The writer freezes at the real 3400 and keeps delivering it. Since the base is the
+        // real 3400, these are stalled (equality) and extrapolation advances from 3400:
+        // 3400 + (12000-11500) = 3900.
+        clockValue = 12_000L
+        producer.playerListener.onPositionChanged(3_400L)
+        assertEquals(3_900L, producer.state.value!!.positionMs)
+
+        clockValue = 13_000L
+        producer.playerListener.onPositionChanged(3_400L)
+        assertEquals(4_900L, producer.state.value!!.positionMs) // 3400 + 1500
+
+        // Crossing into line 2 [5000,7000]: 3400 + 1700 = 5100.
+        clockValue = 13_200L
+        producer.playerListener.onPositionChanged(3_400L)
+        val state = producer.state.value!!
+        assertEquals(2, state.lineIndex)
+        assertEquals("third", state.line)
+        assertEquals(5_100L, state.positionMs)
+    }
+
+    @Test
+    fun realPositionBeyondDuration_baseCappedToDuration() {
+        // 写入端回传超过歌长的位置(根因2):接受时必须钳制到 duration,位置基准与切歌残留
+        // 都不得携带越位值。旧代码把 20000 原样写入基准,切歌后残留 20000,新歌若再收到
+        // 20000 会被误判为残留拒绝,歌词卡在 0 附近外推。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong()) // duration 8000
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(2_000L) // line 0, real
+
+        // Writer delivers 20000 — far beyond the 8000ms duration → capped to 8000 (song end).
+        clockValue = 10_100L
+        producer.playerListener.onPositionChanged(20_000L)
+        var state = producer.state.value!!
+        assertEquals(8_000L, state.positionMs)
+        assertEquals(-1, state.lineIndex)
+
+        // Song change: the residual must be the capped 8000, not the raw 20000.
+        producer.playerListener.onSongChanged(threeLineSong())
+        clockValue = 10_200L
+
+        // The writer (still stuck) delivers 20000 again for the new song. It must NOT match
+        // the residual (8000): accepted as a real (capped) position → song end of the new song.
+        producer.playerListener.onPositionChanged(20_000L)
+        state = producer.state.value!!
+        assertEquals(8_000L, state.positionMs)
+        assertEquals(-1, state.lineIndex)
+    }
 }
