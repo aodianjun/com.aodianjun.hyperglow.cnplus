@@ -54,6 +54,24 @@ class XiaomiCapabilityProtocolTest {
     }
 
     @Test
+    fun v2ReportAcceptsAvailableProfileState() {
+        // 上游 6216fdc:hook 端退役版本比对后上报 "available",
+        // 两个旧标志皆为 false,校验应放行而非拒收。
+        val report = XiaomiCapabilityBundleCodec.decodeXiaomiCapabilityPayload(
+            XiaomiCapabilityWirePayload(
+                protocolVersion = 2,
+                profileState = XiaomiProfileState.AVAILABLE.wireValue,
+                verifiedRuntimeProfile = false,
+                experimentalModeActive = false,
+                capabilityNames = listOf(XiaomiCapability.AOD_SURFACE.name)
+            )
+        )
+
+        assertEquals(XiaomiProfileState.AVAILABLE, report?.profileState)
+        assertTrue(report?.capabilities?.contains(XiaomiCapability.AOD_SURFACE) == true)
+    }
+
+    @Test
     fun unknownOrOversizedProtocolFailsClosed() {
         assertNull(
             XiaomiCapabilityBundleCodec.decodeXiaomiCapabilityPayload(

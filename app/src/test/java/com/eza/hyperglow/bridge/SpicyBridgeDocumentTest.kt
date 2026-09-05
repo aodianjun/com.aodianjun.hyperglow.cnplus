@@ -230,8 +230,10 @@ class SpicyBridgeDocumentTest {
 
     @Test
     fun malformedIntervalsFailClosed() {
+        // fillEndMs 越过本行 endMs 但未超歌长是合法数据(上游 8422d78),
+        // 真正畸形的是 fillEndMs 早于行起点。
         assertFalse(isValidSpicyBridgeDocumentTiming(
-            document(listOf(row("LEAD", 1_000, 2_800, "line").copy(fillEndMs = 2_900))),
+            document(listOf(row("LEAD", 1_000, 2_800, "line").copy(fillEndMs = 900))),
             acceptedDurationMs = 3_000
         ))
         assertFalse(isValidSpicyBridgeDocumentTiming(
@@ -240,6 +242,17 @@ class SpicyBridgeDocumentTest {
             ))),
             acceptedDurationMs = 3_000
         ))
+    }
+
+    @Test
+    fun fillEndMayExtendPastRowEndWithinSongDuration() {
+        // 上游 8422d78:数据源把跨行填充算进 fillEndMs 是合法数据,
+        // 渲染端另行钳制行窗口,校验不得因此拒收整份文档。
+        val document = document(listOf(
+            row("LEAD", 1_000, 2_800, "line").copy(fillEndMs = 2_900)
+        ))
+
+        assertTrue(isValidSpicyBridgeDocumentTiming(document, acceptedDurationMs = 3_000))
     }
 
     @Test

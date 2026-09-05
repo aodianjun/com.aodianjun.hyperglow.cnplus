@@ -116,6 +116,7 @@ class AodStateProjectorTest {
         layoutGroups: List<LyricLayoutGroup> = emptyList(),
         hasTimedLyrics: Boolean = true,
         nextLineStartMs: Long? = null,
+        language: String = "",
         positionMs: Long = 0L,
         durationMs: Long = 180_000L,
         sampledAtElapsedMs: Long = 0L,
@@ -156,7 +157,8 @@ class AodStateProjectorTest {
         ruby = ruby,
         layoutGroups = layoutGroups,
         hasTimedLyrics = hasTimedLyrics,
-        nextLineStartMs = nextLineStartMs
+        nextLineStartMs = nextLineStartMs,
+        language = language
     )
 
     private fun project(state: LyricProducerState, now: Long = 0L): AodDisplayState =
@@ -169,6 +171,68 @@ class AodStateProjectorTest {
             powerSessionPolicy = AodPowerSessionPolicy(),
             userId = 0
         )
+
+    // --- 语言不一致的日语假名注音(上游 8422d78)---
+
+    @Test
+    fun chineseLineWithKanaRubyDropsRubyAndRomanization() {
+        val s = state(
+            line = "晴天",
+            lineIndex = 0,
+            words = listOf(LyricWord("晴天", "せいてん", 0L, 2_000L, false)),
+            ruby = listOf(LyricRuby(0, 1, "せい")),
+            language = "zh",
+            romanizedLine = "seiten"
+        )
+        val out = project(s)
+
+        assertEquals("晴天", out.original)
+        assertEquals("", out.romanized)
+        assertTrue(out.ruby.isEmpty())
+        assertTrue(out.words.all { it.romanized.isEmpty() })
+    }
+
+    @Test
+    fun japaneseLineKeepsKanaRuby() {
+        val s = state(
+            line = "晴天",
+            lineIndex = 0,
+            words = listOf(LyricWord("晴天", "せいてん", 0L, 2_000L, false)),
+            ruby = listOf(LyricRuby(0, 1, "せい")),
+            language = "ja",
+            romanizedLine = "seiten"
+        )
+        val out = project(s)
+
+        assertEquals("晴天", out.original)
+        assertEquals("seiten", out.romanized)
+        assertTrue(out.ruby.isNotEmpty())
+        assertTrue(out.words.all { it.romanized.isNotEmpty() })
+    }
+
+    @Test
+    fun chineseLineWithPinyinRubyKeepsRuby() {
+        val s = state(
+            line = "晴天",
+            lineIndex = 0,
+            ruby = listOf(LyricRuby(0, 1, "qíng")),
+            language = "zh-Hant"
+        )
+        val out = project(s)
+
+        assertTrue(out.ruby.isNotEmpty())
+    }
+
+    @Test
+    fun languageInconsistentKanaRubyNormalizesLanguageTags() {
+        assertTrue(hasLanguageInconsistentKanaRuby("zh", listOf("せい")))
+        assertTrue(hasLanguageInconsistentKanaRuby("zh-Hant", listOf("カナ")))
+        assertTrue(hasLanguageInconsistentKanaRuby("zh_CN", listOf("ﾃｽﾄ")))
+        assertFalse(hasLanguageInconsistentKanaRuby("zh", listOf("qíng")))
+        assertFalse(hasLanguageInconsistentKanaRuby("ja", listOf("せい")))
+        assertFalse(hasLanguageInconsistentKanaRuby("", listOf("せい")))
+        assertFalse(hasLanguageInconsistentKanaRuby("zh", emptyList()))
+    }
 
     // --- lyricKind = NONE ---
 
