@@ -1391,12 +1391,14 @@ class LyriconLyricProducerTest {
         state = producer.state.value!!
         assertEquals(2_000L, state.positionMs) // advancing through the new song
 
-        // Real new-song position arrives (screen-on) → accepted, correct line.
+        // Real new-song position arrives (screen-on) → accepted, correct line. (1200, not 1500:
+        // the previous song's last position was 1500 and would be caught by the exact-match
+        // residual rejection — a different value is a real new-song position.)
         clockValue = 12_200L
-        producer.playerListener.onPositionChanged(1_500L) // line 0 [1000,3000]
+        producer.playerListener.onPositionChanged(1_200L) // line 0 [1000,3000]
         state = producer.state.value!!
         assertEquals(0, state.lineIndex)
         assertEquals("first", state.line)
-        assertEquals(1_500L, state.positionMs)
+        assertEquals(1_200L, state.positionMs)
     }
 }
