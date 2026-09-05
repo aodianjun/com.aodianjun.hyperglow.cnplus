@@ -333,7 +333,8 @@ private fun HomeScreen(
     val aodSupported = effectiveReport.has(XiaomiCapability.AOD_SURFACE)
     val lockscreenSupported = effectiveReport.has(XiaomiCapability.LOCKSCREEN_HOST) &&
         effectiveReport.has(XiaomiCapability.LOCKSCREEN_GEOMETRY)
-    val runtimeProfileAvailable = supportState == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
+    val runtimeProfileAvailable = supportState == XiaomiRuntimeSupportState.AVAILABLE ||
+        supportState == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
         supportState == XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ||
         supportState == XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
     val positionFollowingSupported = effectiveReport.has(XiaomiCapability.AOD_POSITION_UPDATES)
@@ -450,7 +451,12 @@ private fun HomeScreen(
                     item {
                         HomeOverviewHero(
                             working = resolveModuleWorking(supportState),
-                            supportLabel = supportStateLabel(context, supportState),
+                            supportLabel = supportStateLabel(
+                                context,
+                                supportState,
+                                effectiveReport.availableCapabilityCount,
+                                effectiveReport.totalCapabilityCount
+                            ),
                             aodEnabled = aodEnabled,
                             lockscreenEnabled = lockscreenEnabled,
                             systemUiVersion = capabilityReport.systemUiVersion,
@@ -515,7 +521,9 @@ private fun HomeScreen(
                             ArrowPreference(
                                 title = if (supportState == XiaomiRuntimeSupportState.NO_SYSTEM_UI_REPORT ||
                                     supportState == XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE ||
-                                    supportState == XiaomiRuntimeSupportState.EXPERIMENTAL_ELIGIBLE
+                                    supportState == XiaomiRuntimeSupportState.EXPERIMENTAL_ELIGIBLE ||
+                                    effectiveReport.availableCapabilityCount <
+                                    effectiveReport.totalCapabilityCount
                                 ) {
                                     stringResource(R.string.action_send_compatibility_report)
                                 } else {
@@ -1137,18 +1145,25 @@ private fun queryLatestReleaseTag(): String? {
 
 private fun supportStateLabel(
     context: android.content.Context,
-    state: XiaomiRuntimeSupportState
-): String = context.getString(
-    when (state) {
-        XiaomiRuntimeSupportState.NO_SYSTEM_UI_REPORT -> R.string.status_no_systemui_report
-        XiaomiRuntimeSupportState.VERIFIED_PROFILE -> R.string.status_verified_profile
-        XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ->
-            R.string.status_verified_profile_missing_symbols
-        XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE -> R.string.status_unsupported_profile
-        XiaomiRuntimeSupportState.EXPERIMENTAL_ELIGIBLE -> R.string.status_experimental_eligible
-        XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE -> R.string.status_experimental_active
-    }
-)
+    state: XiaomiRuntimeSupportState,
+    availableCapabilities: Int,
+    totalCapabilities: Int
+): String = when (state) {
+    // 一个能跑的构建按「解析出多少能力」描述,而不是一个信心词(上游 6216fdc)。
+    XiaomiRuntimeSupportState.AVAILABLE ->
+        context.getString(R.string.status_available, availableCapabilities, totalCapabilities)
+    else -> context.getString(
+        when (state) {
+            XiaomiRuntimeSupportState.NO_SYSTEM_UI_REPORT -> R.string.status_no_systemui_report
+            XiaomiRuntimeSupportState.VERIFIED_PROFILE -> R.string.status_verified_profile
+            XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ->
+                R.string.status_verified_profile_missing_symbols
+            XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE -> R.string.status_unsupported_profile
+            XiaomiRuntimeSupportState.EXPERIMENTAL_ELIGIBLE -> R.string.status_experimental_eligible
+            else -> R.string.status_experimental_active
+        }
+    )
+}
 
 private fun burnInPatternLabel(context: android.content.Context, value: String): String =
     context.getString(
@@ -2545,7 +2560,8 @@ private fun LyricProducerState.toPreviewSnapshot(): LyricSnapshot = LyricSnapsho
 
 // 判断模块当前是否处于可用的运行状态(与 runtimeProfileAvailable 一致)。
 private fun resolveModuleWorking(state: XiaomiRuntimeSupportState): Boolean =
-    state == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
+    state == XiaomiRuntimeSupportState.AVAILABLE ||
+        state == XiaomiRuntimeSupportState.VERIFIED_PROFILE ||
         state == XiaomiRuntimeSupportState.VERIFIED_PROFILE_MISSING_SYMBOLS ||
         state == XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
 

@@ -225,14 +225,17 @@ class SpicyLyricProducer : LyricProducer {
             lyricKind = lyricKind,
             alignedRight = row?.alignedRight == true,
             lineStartMs = row?.startMs ?: 0L,
-            lineEndMs = row?.fillEndMs ?: 0L,
+            // 渲染钳制(上游 8422d78):fillEndMs 可能越过本行 endMs(数据源把跨行的填充
+            // 计算进去),行级扫光的行窗口不得越过行尾。
+            lineEndMs = row?.let { minOf(it.fillEndMs, it.endMs) } ?: 0L,
             ruby = row?.ruby?.map { LyricRuby(it.start, it.end, it.reading) } ?: emptyList(),
             layoutGroups = row?.layoutGroups?.map {
                 LyricLayoutGroup(it.start, it.end, it.kind, it.keepTogether, it.confidence)
             } ?: emptyList(),
             hasTimedLyrics = hasTimedLyrics,
             nextLineStartMs = nextLineStartMs,
-            nextLine = nextLineText
+            nextLine = nextLineText,
+            language = matchedDocument?.language.orEmpty()
         )
     }
 

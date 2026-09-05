@@ -104,7 +104,9 @@ internal fun isValidSpicyBridgeDocumentTiming(
     return document.rows.all { row ->
         row.startMs >= 0L &&
             row.endMs in row.startMs..acceptedDurationMs &&
-            row.fillEndMs in row.startMs..row.endMs &&
+            // fillEndMs 允许越过本行 endMs 但不得越过歌长(上游 8422d78):数据源把
+            // 跨行填充算进 fillEndMs 是合法数据,渲染端另行钳制行窗口。
+            row.fillEndMs in row.startMs..acceptedDurationMs &&
             row.words.all { word ->
                 word.startMs >= 0L && word.endMs in word.startMs..acceptedDurationMs
             }

@@ -149,6 +149,12 @@ data class LyricProducerState(
     val nextLineStartMs: Long? = null,
     /** Text of the lyric line that follows the active line (blank when none). */
     val nextLine: String = "",
+    /**
+     * Document language tag (BCP-47-ish, e.g. "zh-Hant" / "ja"), blank when unknown.
+     * 投影层用其检测「中文歌被错误标注日语假名注音」并拒绝显示 ruby/罗马音
+     * （上游 8422d78）。来源:SpicyBridgeDocument.language;Lyricon 无此概念,保持空。
+     */
+    val language: String = "",
     val staleAfterMs: Long = STALE_AFTER_MS
 ) {
     companion object {

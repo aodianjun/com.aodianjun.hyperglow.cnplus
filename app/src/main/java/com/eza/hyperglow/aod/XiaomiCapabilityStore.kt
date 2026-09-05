@@ -9,9 +9,12 @@ import com.eza.hyperglow.root.capability.XiaomiSymbolProbe
 
 internal enum class XiaomiRuntimeSupportState(val displayName: String) {
     NO_SYSTEM_UI_REPORT("No SystemUI report"),
+    AVAILABLE("Available"),
+    UNSUPPORTED_PROFILE("Unsupported profile"),
+
+    /** Retired with the version pin(上游 6216fdc);旧 hook 进程的报告仍会映射到这些状态。 */
     VERIFIED_PROFILE("Verified profile"),
     VERIFIED_PROFILE_MISSING_SYMBOLS("Verified profile missing symbols"),
-    UNSUPPORTED_PROFILE("Unsupported profile"),
     EXPERIMENTAL_ELIGIBLE("Experimental eligible"),
     EXPERIMENTAL_ACTIVE("Experimental active")
 }
@@ -48,6 +51,7 @@ internal data class StoredXiaomiCapabilityReport(
 
     fun supportState(): XiaomiRuntimeSupportState = when {
         !hasReport -> XiaomiRuntimeSupportState.NO_SYSTEM_UI_REPORT
+        profileState == XiaomiProfileState.AVAILABLE -> XiaomiRuntimeSupportState.AVAILABLE
         profileState == XiaomiProfileState.VERIFIED_PROFILE ->
             XiaomiRuntimeSupportState.VERIFIED_PROFILE
         profileState == XiaomiProfileState.VERIFIED_PROFILE_MISSING_SYMBOLS ->
@@ -62,6 +66,20 @@ internal data class StoredXiaomiCapabilityReport(
         else -> if (experimentalModeEnabled) XiaomiRuntimeSupportState.EXPERIMENTAL_ACTIVE
             else XiaomiRuntimeSupportState.UNSUPPORTED_PROFILE
     }
+
+    /**
+     * How many capabilities resolved, out of the full set. The app shows this instead of a label
+     * (上游 6216fdc)。只统计 hook 端上报的 capability;实验模式本地推导的 capability 不计入,
+     * 因为实验模式下 [supportState] 走 EXPERIMENTAL_ACTIVE 标签而非这个计数。
+     */
+    val availableCapabilityCount: Int
+        get() = if (hasReport) {
+            capabilities.count { name -> XiaomiCapability.entries.any { it.name == name } }
+        } else {
+            0
+        }
+
+    val totalCapabilityCount: Int get() = XiaomiCapability.entries.size
 
     /**
      * 基于 rawProbes 推导实验模式下可用的 capability。镜像 [XiaomiCapabilityResolver]
@@ -260,9 +278,10 @@ internal object XiaomiCapabilityBundleCodec {
             XiaomiSymbolProbe.entries.firstOrNull { it.name == name }
         }.distinct()
         val present = presentProbeNames.toSet()
-        // 未知的 profileState(如新 ROM 上报的 "available" / "verified")不应丢弃整个报告:
+        // 未知的 profileState(未来新版本 hook 上报的新状态)不应丢弃整个报告:
         // 回退为 UNSUPPORTED_PROFILE,让报告仍能解码,UI 至少显示"不支持"而非"无报告"。
         // 仅对已知状态做一致性校验,回退状态不参与校验(否则又会被拒收)。
+        // ("available" 在移植上游 6216fdc 后已是已知状态,不再走此回退。)
         val knownState = XiaomiProfileState.fromWireValue(payload.profileState)
         val profileState = knownState ?: XiaomiProfileState.UNSUPPORTED_PROFILE
         if (knownState != null && !isConsistentProfileState(
@@ -292,11 +311,15 @@ internal object XiaomiCapabilityBundleCodec {
 
     private fun boundedVersion(value: String): String = value.take(MAX_VERSION_CHARS)
 
+    // verified/experimental 标志描述的是已退役的版本比对(上游 6216fdc)。当前 hook 上报的
+    // 报告两者皆为 false;旧状态保持原配对,让旧报告仍能通过校验而非被丢弃。
     private fun isConsistentProfileState(
         state: XiaomiProfileState,
         verifiedRuntimeProfile: Boolean,
         experimentalModeActive: Boolean
     ): Boolean = when (state) {
+        XiaomiProfileState.AVAILABLE ->
+            !verifiedRuntimeProfile && !experimentalModeActive
         XiaomiProfileState.VERIFIED_PROFILE,
         XiaomiProfileState.VERIFIED_PROFILE_MISSING_SYMBOLS ->
             verifiedRuntimeProfile && !experimentalModeActive

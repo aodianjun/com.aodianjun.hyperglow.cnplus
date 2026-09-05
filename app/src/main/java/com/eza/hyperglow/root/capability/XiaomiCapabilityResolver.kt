@@ -40,9 +40,22 @@ internal enum class XiaomiSymbolProbe {
 }
 
 internal enum class XiaomiProfileState(val wireValue: String) {
+    /** A usable surface resolved. How much works is the resolved capability count, not this state. */
+    AVAILABLE("available"),
+
+    /** No usable surface resolved, so nothing can run. */
+    UNSUPPORTED_PROFILE("unsupported_profile"),
+
+    /**
+     * No longer produced by the hook. These described a build by how its SystemUI/AOD version pair
+     * compared against the owner's device; the comparison was retired because it tracked nothing
+     * the symbol probes do not establish directly (上游 6216fdc). Kept so reports persisted by an
+     * older build, or sent by a hook process that has not restarted yet, still decode, and so the
+     * app 端实验模式覆写(UNSUPPORTED/EXPERIMENTAL_ELIGIBLE + 用户开关 → EXPERIMENTAL_ACTIVE)
+     * 继续生效。
+     */
     VERIFIED_PROFILE("verified_profile"),
     VERIFIED_PROFILE_MISSING_SYMBOLS("verified_profile_missing_symbols"),
-    UNSUPPORTED_PROFILE("unsupported_profile"),
     EXPERIMENTAL_ELIGIBLE("experimental_eligible"),
     EXPERIMENTAL_ACTIVE("experimental_active");
 
@@ -141,21 +154,18 @@ internal fun resolveXiaomiCapabilities(
     }
 }
 
+/**
+ * Whether anything can run at all. A build with a usable surface is [XiaomiProfileState.AVAILABLE];
+ * how much of it works is the resolved capability count, which the app reports as a ratio rather
+ * than collapsing into a confidence label.
+ */
 internal fun resolveXiaomiProfileState(
-    verifiedRuntimeProfile: Boolean,
     capabilities: Set<XiaomiCapability>
 ): XiaomiProfileState {
-    if (verifiedRuntimeProfile) {
-        return if (VERIFIED_BASELINE_CAPABILITIES.all(capabilities::contains)) {
-            XiaomiProfileState.VERIFIED_PROFILE
-        } else {
-            XiaomiProfileState.VERIFIED_PROFILE_MISSING_SYMBOLS
-        }
-    }
     val surfaceAvailable = XiaomiCapability.AOD_SURFACE in capabilities ||
         XiaomiCapability.LOCKSCREEN_GEOMETRY in capabilities
     return if (surfaceAvailable) {
-        XiaomiProfileState.EXPERIMENTAL_ACTIVE
+        XiaomiProfileState.AVAILABLE
     } else {
         XiaomiProfileState.UNSUPPORTED_PROFILE
     }
@@ -170,19 +180,6 @@ internal fun missingProbeNames(rawProbes: Map<XiaomiSymbolProbe, Boolean>): Stri
     rawProbes.filterValues { !it }.keys
         .joinToString(",") { it.name }
         .ifEmpty { "none" }
-
-private val VERIFIED_BASELINE_CAPABILITIES = setOf(
-    XiaomiCapability.AOD_SURFACE,
-    XiaomiCapability.AOD_POSITION_UPDATES,
-    XiaomiCapability.AOD_LIFETIME_GUARD,
-    XiaomiCapability.AOD_WAKE_BROKER,
-    XiaomiCapability.LOCKSCREEN_HOST,
-    XiaomiCapability.LOCKSCREEN_GEOMETRY,
-    XiaomiCapability.LINKAGE_DIRECTION,
-    XiaomiCapability.LINKAGE_GEOMETRY,
-    XiaomiCapability.RAISE_TO_AOD,
-    XiaomiCapability.LOCKSCREEN_EDITOR_GESTURE
-)
 
 internal data class XiaomiCapabilityReport(
     val protocolVersion: Int = 2,
@@ -199,8 +196,9 @@ internal data class XiaomiCapabilityReport(
     fun summary(): String = buildString {
         append("systemui=").append(systemUiVersion)
         append(" aod=").append(aodVersion)
-        append(" verified=").append(if (verifiedRuntimeProfile) 1 else 0)
         append(" state=").append(profileState.wireValue)
+        append(" available=").append(capabilities.size)
+            .append('/').append(XiaomiCapability.entries.size)
         append(" capabilities=")
         append(
             XiaomiCapability.entries.joinToString(",") { capability ->
@@ -390,22 +388,20 @@ internal object XiaomiCapabilityResolver {
             fullAod = defaultSymbols.fullAod && aodSymbols.fullAod,
             videoDepth = defaultSymbols.videoDepth
         )
-        val verifiedRuntimeProfile = isVerifiedRuntimeProfile(systemUiVersion, aodVersion)
         val capabilities = resolveXiaomiCapabilities(symbols)
-        val profileState = resolveXiaomiProfileState(
-            verifiedRuntimeProfile = verifiedRuntimeProfile,
-            capabilities = capabilities
-        )
+        val profileState = resolveXiaomiProfileState(capabilities)
         return XiaomiCapabilityReport(
             protocolVersion = 2,
             reportedAtUtcMillis = System.currentTimeMillis(),
             systemUiVersion = systemUiVersion,
             aodVersion = aodVersion,
             symbols = symbols,
-            verifiedRuntimeProfile = verifiedRuntimeProfile,
+            // 两个标志都描述已退役的版本比对(上游 6216fdc)。它们保留在 protocol v2 线上,
+            // 让尚未重启的 hook 进程发出的旧报告仍能解码;现在永远为 false。
+            verifiedRuntimeProfile = false,
             capabilities = capabilities,
             profileState = profileState,
-            experimentalModeActive = profileState == XiaomiProfileState.EXPERIMENTAL_ACTIVE,
+            experimentalModeActive = false,
             rawProbes = symbols.rawProbes()
         )
     }
@@ -549,12 +545,4 @@ internal object XiaomiCapabilityResolver {
     private const val POWER_MANAGER = "android.os.PowerManager"
     private const val FULL_AOD_MANAGER = "com.miui.interfaces.keyguard.IMiuiFullAodManager"
     private const val VIDEO_DEPTH_SURFACE_HOLDER = "com.miui.keyguard.VideoDepthSurfaceHolder"
-    private const val VERIFIED_SYSTEM_UI_VERSION_CODE = 202501210L
-    // 已验证的 AOD versionCode 集合。22327001 是原始验证版本;22313001 经符号探测确认
-    // 结构一致(所有 16 个 probe 全部命中),纳入白名单让 verified profile 解锁。
-    private val VERIFIED_AOD_VERSION_CODES = setOf(22327001L, 22313001L)
-
-    internal fun isVerifiedRuntimeProfile(systemUiVersion: String, aodVersion: String): Boolean =
-        systemUiVersion.endsWith("($VERIFIED_SYSTEM_UI_VERSION_CODE)") &&
-            VERIFIED_AOD_VERSION_CODES.any { code -> aodVersion.endsWith("($code)") }
 }

@@ -102,6 +102,13 @@ internal fun projectToDisplay(
 
     // --- 原文/罗马音/翻译（原 project() 的 original/romanized/translated 分支）---
     val presentedLineText = state.line.takeIf { hasActiveLine && !showLargeMetadata }
+    // 中文歌被错误标注日语假名注音(网易云常见:中文歌词配日语 furigana/罗马音),AOD 上
+    // 显示出来既难看又误导。语言为 zh 且 ruby 注音含假名时,拒绝整行的 ruby/罗马音
+    // (上游 8422d78)。
+    val rejectJapaneseReading = hasActiveLine && hasLanguageInconsistentKanaRuby(
+        state.language,
+        state.ruby.map { it.reading }
+    )
     val original = when {
         showLargeMetadata -> metadata
         unsynced || noLyrics -> PLAYING_PLACEHOLDER
@@ -110,7 +117,11 @@ internal fun projectToDisplay(
         fallbackLine != null -> fallbackLine
         else -> PLAYING_PLACEHOLDER
     }
-    val romanized = if (showLargeMetadata || unsynced || noLyrics) "" else state.romanizedLine
+    val romanized = if (showLargeMetadata || unsynced || noLyrics || rejectJapaneseReading) {
+        ""
+    } else {
+        state.romanizedLine
+    }
     val translated = if (showLargeMetadata || unsynced || noLyrics) "" else state.translatedLine
     val nextLine = if (showLargeMetadata || unsynced || noLyrics) "" else state.nextLine
 
@@ -157,8 +168,20 @@ internal fun projectToDisplay(
     val lineLevelSync = hasActiveLine && !showLargeMetadata
 
     // --- ruby / layoutGroup（原 presentedRow.words/ruby/layoutGroups）---
-    val words = if (showLargeMetadata || !hasActiveLine) emptyList() else effectiveWords.map(::toDisplayWord)
-    val ruby = if (showLargeMetadata || !hasActiveLine) emptyList() else state.ruby.map(::toDisplayRuby)
+    val words = if (showLargeMetadata || !hasActiveLine) {
+        emptyList()
+    } else {
+        effectiveWords.map {
+            toDisplayWord(it).let { word ->
+                if (rejectJapaneseReading) word.copy(romanized = "") else word
+            }
+        }
+    }
+    val ruby = if (showLargeMetadata || !hasActiveLine || rejectJapaneseReading) {
+        emptyList()
+    } else {
+        state.ruby.map(::toDisplayRuby)
+    }
     val layoutGroups = if (showLargeMetadata || !hasActiveLine) emptyList() else state.layoutGroups.map(::toDisplayLayoutGroup)
 
     return AodDisplayState(
@@ -206,6 +229,26 @@ internal fun projectToDisplay(
         adaptiveSectioning = prefs.adaptiveSectioning
     )
 }
+
+/**
+ * 中文歌的 ruby 注音含日语假名 → 语言不一致,拒绝显示 ruby/罗马音(上游 8422d78)。
+ * 数据源(网易云)常给中文歌词错误标注日语 furigana,显示出来既难看又误导。
+ * 只对 zh 语言生效;日语歌的假名注音是正确数据,原样保留。
+ */
+internal fun hasLanguageInconsistentKanaRuby(
+    language: String,
+    rubyReadings: List<String>
+): Boolean {
+    val normalized = language
+        .substringBefore('-')
+        .substringBefore('_')
+    if (!normalized.equals("zh", ignoreCase = true)) return false
+    return rubyReadings.any { reading -> reading.any(::isKana) }
+}
+
+/** 假名块(平假名 U+3040-309F + 片假名 U+30A0-30FF)与半角片假名(U+FF66-FF9F)。 */
+private fun isKana(character: Char): Boolean =
+    character in '\u3040'..'\u30ff' || character in '\uff66'..'\uff9f'
 
 /** [LyricWord] → [AodDisplayWord]（与原 presentedRow.words.map 同构）。 */
 private fun toDisplayWord(word: LyricWord) = AodDisplayWord(
