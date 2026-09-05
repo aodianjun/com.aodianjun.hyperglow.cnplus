@@ -143,6 +143,27 @@ class LyriconLyricProducer(
     // 因此记录该陈旧值并拒绝,直到出现不同的(真实)位置。
     @Volatile private var pauseStaleRejectMs: Long = -1L
 
+    // --- Post-song-change position plausibility gate (issue #11) ---
+    // 切歌后共享内存写入端的 base 元组可能仍是旧歌时间线(Doze 冻结了 base 更新,位置按
+    // "base + 墙钟 × 速度" 公式续算):残留值 ≈ 切歌时旧歌时间线位置(≈旧歌时长),此后与
+    // 真实位置同速推进、恒定偏移。旧歌比新歌长 → 残留越界(实测 487520ms > 188718ms,
+    // 钳到歌尾清行导致整首无歌词);旧歌比新歌短 → 残留落在新歌时长内,被当真实值接受
+    // 会让歌词整段错位。门控:切歌后首个真实位置必须 ≤ 切歌后墙钟 × 观测速率 + 容差
+    // —— 新歌从切歌时刻起播,位置不可能更多;残留因恒定偏移(≈旧歌时长,远大于容差)
+    // 被持续拒绝,期间从基准 0 外推(新歌正确推进,歌尾仍按 issue #9 钳制收尾)。首个
+    // 可信值或 onSeekTo 后开门,恢复正常信任(wrap-around/seek/loop 均走既有逻辑)。
+    @Volatile private var songStartGateOpen = true
+    @Volatile private var songStartClockMs = 0L
+    // 残留的推进速率(累计 Δpos/Δwall):残留与真实位置同速推进,其增量给出真实倍速,
+    // 用于上界防止 1.25x~3x 倍速用户的真实位置在容差耗尽后被 1x 上界误拒。冻结残留
+    // (Δpos=0,暂停型)不更新速率。
+    @Volatile private var gateRateX = 1.0
+    @Volatile private var gateRateAnchorPosMs = -1L
+    @Volatile private var gateRateAnchorClockMs = 0L
+    // 首个被门控拒绝的残留值:冻结型残留会以 ~60Hz 重复回传同一值,即使上界随墙钟
+    // 增长追上该值后也必须继续拒绝(暂停状态跳歌的场景)。
+    @Volatile private var gateFrozenRejectMs = -1L
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
@@ -190,6 +211,10 @@ class LyriconLyricProducer(
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
                 pauseStaleRejectMs = -1L
+                songStartGateOpen = true
+                gateRateAnchorPosMs = -1L
+                gateRateX = 1.0
+                gateFrozenRejectMs = -1L
                 mutableState.value = null
             }
         }
@@ -211,6 +236,10 @@ class LyriconLyricProducer(
                 seekRejectPositionMs = -1L
                 seekClockMs = 0L
                 pauseStaleRejectMs = -1L
+                songStartGateOpen = true
+                gateRateAnchorPosMs = -1L
+                gateRateX = 1.0
+                gateFrozenRejectMs = -1L
                 mutableState.value = null
                 return
             }
@@ -246,6 +275,14 @@ class LyriconLyricProducer(
             extrapolating = false
             positionUnknown = false
             pauseStaleRejectMs = -1L
+            // Close the post-song-change plausibility gate (issue #11): the next real position
+            // must be plausible for a song that starts now, or it is old-timeline residual.
+            songStartGateOpen = false
+            songStartClockMs = lastRealPositionClockMs
+            gateRateAnchorPosMs = -1L
+            gateRateAnchorClockMs = 0L
+            gateRateX = 1.0
+            gateFrozenRejectMs = -1L
             refreshRenderModes()
             emit()
         }
@@ -344,6 +381,61 @@ class LyriconLyricProducer(
                 // memory position resets to 0 while our extrapolated position may be at/beyond
                 // duration. Treat a significantly lower position as a wrap-around rather than
                 // rejecting it.
+
+                // --- Post-song-change plausibility gate (issue #11) ---
+                // 切歌后写入端 base 可能仍是旧歌时间线:残留 ≈ 旧歌时长,与真实位置同速
+                // 推进、恒定偏移。门控要求切歌后首个真实位置 ≤ 切歌后墙钟 × 观测速率 +
+                // 容差 —— 新歌从切歌时刻起播,位置不可能更多;残留因偏移 ≈ 旧歌时长
+                // (远大于容差)被持续拒绝,期间从基准 0 外推(新歌正确推进)。
+                if (!songStartGateOpen) {
+                    val frozenResidual = gateFrozenRejectMs >= 0L && position == gateFrozenRejectMs
+                    val sinceStartMs = (now - songStartClockMs).coerceAtLeast(0L)
+                    val boundMs = (sinceStartMs * gateRateX +
+                        SONG_START_PLAUSIBILITY_TOLERANCE_MS).toLong()
+                    if (frozenResidual || position > boundMs) {
+                        // Track the residual's advance rate: the residual advances at the true
+                        // playback speed, so its cumulative Δpos/Δwall gives the rate for the
+                        // bound — without this, 1.25x~3x 倍速用户的真实位置会在容差耗尽后
+                        // 被 1x 上界误拒。冻结残留(Δpos=0)不更新速率。
+                        if (gateFrozenRejectMs < 0L) gateFrozenRejectMs = position
+                        if (gateRateAnchorPosMs < 0L) {
+                            gateRateAnchorPosMs = position
+                            gateRateAnchorClockMs = now
+                        } else {
+                            val dPosMs = position - gateRateAnchorPosMs
+                            val dWallMs = now - gateRateAnchorClockMs
+                            if (dPosMs > 0L && dWallMs >= GATE_RATE_MIN_DELTA_MS) {
+                                gateRateX = (dPosMs.toDouble() / dWallMs)
+                                    .coerceIn(GATE_RATE_MIN_X, GATE_RATE_MAX_X)
+                            }
+                        }
+                        // Frozen residuals keep repeating the same value even after the growing
+                        // bound passes it (pause-then-skip scenario) — gateFrozenRejectMs above
+                        // keeps rejecting them.
+                        advanceExtrapolation(
+                            now,
+                            "post-song-change residual ${position}ms implausible (bound ${boundMs}ms)"
+                        )
+                        recomputeAndEmit()
+                        return
+                    }
+                    // Plausible for a song that started at song-change time: fall through and
+                    // accept (the gate opens below).
+                }
+
+                // A position beyond the song duration (+ tolerance) is never trustworthy: the
+                // writer is on a stale/unwrapped timeline (issue #11 实测:越界值持续累加,
+                // 487520ms vs 188718ms)。Treat it exactly like a stalled callback — extrapolate
+                // from the last good base so lyrics keep advancing to the projected end and then
+                // hold the stable song-end placeholder (issue #9) — instead of capping straight
+                // to the duration, which cleared the line for the rest of the song (整首无歌词)
+                // and spammed the capping log at ~60 Hz.
+                val duration = currentSong?.duration ?: 0L
+                if (duration > 0L && position > duration + BEYOND_DURATION_TOLERANCE_MS) {
+                    advanceExtrapolation(now, "position ${position}ms beyond duration ${duration}ms")
+                    recomputeAndEmit()
+                    return
+                }
                 val wasExtrapolating = extrapolating
                 // When the player's position stream resumes after a stall it can briefly report a
                 // value slightly *below* the position we extrapolated to (shared-memory latency /
@@ -353,15 +445,15 @@ class LyriconLyricProducer(
                 // monotonic extrapolated display value while re-basing the position base onto
                 // the real value (see below); only a materially-lower real position (seek, song
                 // wrap-around, or a genuine pause) is honored as a rewind.
-                // Sanity-bound the real position to the song duration (issue #10 追加实测2/根因2):
-                // the shared-memory writer can deliver a position beyond the song end; accepting
-                // it unconditionally would inflate the position base past the duration.
-                val duration = currentSong?.duration ?: 0L
+                // Within the overshoot tolerance the song is genuinely at its end (metadata
+                // duration can slightly underestimate the audio) → cap to the duration.
                 val realPosition = if (duration > 0L && position > duration) {
-                    AppLog.i(
-                        "LyriconLyricProducer",
-                        "position ${position}ms beyond duration ${duration}ms; capping"
-                    )
+                    if (lastRealPositionMs != duration) {
+                        AppLog.i(
+                            "LyriconLyricProducer",
+                            "position ${position}ms beyond duration ${duration}ms; capping"
+                        )
+                    }
                     duration
                 } else {
                     position
@@ -395,6 +487,9 @@ class LyriconLyricProducer(
                 // A real (different) position means the writer is alive again: stop rejecting
                 // the pre-pause stale value (issue #10).
                 pauseStaleRejectMs = -1L
+                // A plausible/real position arrived: the writer is on this song's timeline —
+                // open the post-song-change gate (issue #11).
+                songStartGateOpen = true
                 // A real value also means the position source is alive again: clear the
                 // unknown-position marker so recomputeAndEmit re-selects the active line.
                 positionUnknown = false
@@ -437,6 +532,9 @@ class LyriconLyricProducer(
             // A seek also invalidates any pre-pause stale rejection (issue #10): the seek
             // target is the new authoritative position.
             pauseStaleRejectMs = -1L
+            // A seek is a deliberate, authoritative position: open the post-song-change gate
+            // (issue #11) — the seek target defines the timeline from here on.
+            songStartGateOpen = true
             // Seek invalidates the navigator's sequential cache (playback jumped).
             navigator?.resetCache()
             currentLineIndex = -1
@@ -921,6 +1019,29 @@ class LyriconLyricProducer(
          * 0 on wrap-around) is honored as a rewind.
          */
         private const val EXTRAPOLATION_RESUME_TOLERANCE_MS = 300L
+
+        /**
+         * issue #11: tolerance for the post-song-change plausibility bound — covers song-change
+         * detection lag (SDK poll interval) and position base timestamp skew. Must stay well
+         * below the typical old-timeline residual offset (≈ the previous song's duration) so
+         * residuals are rejected, and well above the detection lag so genuine positions pass.
+         */
+        private const val SONG_START_PLAUSIBILITY_TOLERANCE_MS = 10_000L
+
+        /**
+         * issue #11: a real position may slightly exceed the metadata duration near the song's
+         * true end (metadata underestimates the audio); within this tolerance it is capped to
+         * the duration, beyond it the writer is deemed untrustworthy (stale timeline) and the
+         * value is treated as stalled (extrapolate from the last good base).
+         */
+        private const val BEYOND_DURATION_TOLERANCE_MS = 2_000L
+
+        /** issue #11: clamp for the residual-advance rate estimate (NetEase speed range). */
+        private const val GATE_RATE_MIN_X = 0.5
+        private const val GATE_RATE_MAX_X = 3.0
+
+        /** issue #11: minimum wall-time span before a rate sample is trusted (div-noise guard). */
+        private const val GATE_RATE_MIN_DELTA_MS = 500L
 
         /** Default render modes when customization is unavailable; matches SpicyBridgeState defaults. */
         private fun defaultRenderModes() = ProducerRenderModes(
