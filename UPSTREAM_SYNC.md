@@ -7,33 +7,34 @@
 
 ## 当前状态
 
-- **CN+ 版本**：0.3.82 (109)，上游基线截至 `8d89b10`（约 2026-08-06）
+- **CN+ 版本**：0.3.82 (109)，上游基线截至 `f9dfa01`（2026-08-09，已按内容核实）
 - **上游最新**：2026-09-01 `8422d78`，版本 0.3.97 (109)
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
+- 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
+  HierarchyFields.kt 及全 hook 使用、missingProbeNames、miuix 走 Maven Central 公共仓库
 
-## 已同步 / 已包含（基线 `8d89b10` 及之前）
+## 已同步 / 已包含（基线 `f9dfa01` 及之前）
 
 | 上游提交 | 日期 | 内容 | 状态 |
 |---|---|---|---|
-| `8d89b10` | 2026-08-06 | AodStateProjector 引入等大重构 | ✅ 基线（树内已有） |
-| `2608031` | 2026-08-05 | 移除凭据 miuix 仓库 | ⚠️ 未同步（树内 gradle 仍引用 miuix） |
+| `f9dfa01` | 2026-08-09 | SystemUI uid 动态匹配 + HierarchyFields 字段链遍历 + 探针缺失日志 | ✅ 已同步（UpdateChecker 部分除外，CN+ 用自己的 VersionCheck.kt） |
+| `8d89b10` | 2026-08-06 | AodStateProjector 引入等大重构 | ✅ 已同步 |
+| `2608031` | 2026-08-05 | 移除凭据 miuix 仓库（改 Maven Central） | ✅ 已同步 |
+| `6216fdc` | 2026-08-08 | 版本锁定退役 | ❌ **未同步**（见下表，时序在基线内但被跳过） |
 | `bf988be` | 2026-08-03 | bump 0.3.50 | ➖ 版本号不适用（CN+ 独立版本号体系） |
-| `5a64511` / `7f8e1f5` | 2026-08-03 | FAQ / 杂项 | ➖ 未核对（文档为主） |
-| `4e8f7b9` | 2026-08-01 | 诊断数据政策 | ➖ 未核对 |
-| `301fc59` / `f668928` / `da44ba5` / `a704bec` | ≤2026-08-01 | 历史提交 | ➖ 未核对 |
+| 更早提交 | ≤2026-08-03 | FAQ / 诊断政策 / 历史 | ➖ 未逐个核对（基线整体已含） |
 
-## 待同步（上游 `8d89b10` 之后的提交，倒序=最新在前）
+## 待同步（基线之后 + 被跳过的提交）
 
-| 上游提交 | 日期 | 内容 | CN+ 相关性 | 说明 |
+| 上游提交 | 日期 | 内容 | CN+ 相关性 | 建议 |
 |---|---|---|---|---|
-| `8422d78` | 2026-09-01 | 日语假名注音与歌曲语言不一致时拒绝显示 ruby（AodStateProjector + SpicyBridgeDocumentStore） | 中 | 日文歌注音误显场景；CN+ 的 AodStateProjector 已深度修改，需手工比对移植 |
-| `b0254d5` | 2026-09-01 | AodBrightnessPolicy（AOD 亮度策略）等 + 测试 | 中 | |
-| `0424ae9` | 2026-08-22 | 大批次：SettingsSession、ConfigBackupCodec（配置备份）、LauncherEntryPolicy、图标注册表（~3000 行） | 中 | |
-| `cc1f62f` | 2026-08-15 | AodLifetime/GenerationBoundLatest/投影测试扩充 + SpicyBridgeDocument 增强 | 低（多为测试） | |
-| `ced2769` | 2026-08-13 | AodLifetimePolicy 重构 + 诊断规范更新 | 中 | |
-| `c5b1ffa` | 2026-08-11 | 修复诊断报告校验（DiagnosticContract） | 低 | |
-| `f9dfa01` | 2026-08-09 | **动态匹配 SystemUI 的 resolved uid/resolve 字段**（XiaomiCapabilityResolver、SystemUiClockMorphHook）+ 新增 UpdateChecker | **高** | HyperOS 兼容性核心；注意 CN+ 已有自己的 VersionCheck.kt（update/UpdateChecker 功能重叠，移植时跳过或替换） |
-| `6216fdc` | 2026-08-08 | 取消版本锁定，模块正常显示工作状态 | 中 | |
+| `8422d78` | 2026-09-01 | 中文歌出现日语假名注音 ruby 时拒绝显示（`hasLanguageInconsistentKanaRuby` + `isKana`，AodStateProjector + SpicyBridgeDocumentStore.language） | **高** | 强烈建议移植：函数独立可搬；注意 CN+ 的 AodStateProjector 无 fillEndMs，lineEndMs=min(fillEndMs,endMs) 那处需按 CN+ 结构改写 |
+| `6216fdc` | 2026-08-08 | 版本锁定退役：XiaomiProfileState 增加 AVAILABLE、capability 计数展示、移除 verifiedRuntimeProfile 门禁 | **高** | 建议移植：CN+ 的 store 仍是旧状态机，新 HyperOS 设备可能被误导显示"不支持配置文件"；需同步改 resolveXiaomiProfileState |
+| `c5b1ffa` | 2026-08-11 | DiagnosticContract 校验增加 "available" 状态（一行） | 低 | 必须与 6216fdc 一起移植，否则诊断报告被拒 |
+| `b0254d5` | 2026-09-01 | AodBrightnessHook（新文件 231 行，hook SystemUI 亮度适配器）+ AodPowerCoordinator 等 | 中 | 可选：新功能，需评估 CN+ AOD 亮度场景是否需要 |
+| `0424ae9` | 2026-08-22 | 大批次（~3000 行）：ConfigBackupCodec（配置备份/恢复）、SettingsSession、LucideIcons、LauncherEntryPolicy、通知图标 | 中 | 可选：配置备份用户价值高，但牵扯 MainActivity/PreferenceSettingsStore，工程量大 |
+| `ced2769` | 2026-08-13 | AodLifetimePolicy 重构 + 诊断规范 | 低-中 | 暂缓：多为测试与文档 |
+| `cc1f62f` | 2026-08-15 | SpicyBridgeDocumentStore/SpicyLyricBridgeService/AodStateBridge 增强 + 测试 | 低 | 暂缓：主体是测试扩充 |
 
 ## 同步时的操作流程
 
