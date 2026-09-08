@@ -311,11 +311,11 @@
     <string name="diagnostic_description">描述發生的情況</string>
     <string name="diagnostic_byte_count">%1$d/%2$d</string>
     <string name="diagnostic_guided_capture">引導捕獲</string>
-    <string name="diagnostic_capture_active">捕獲正在進行。現在重啟系統界面，復現問題，然後返回並完成捕獲。</string>
+    <string name="diagnostic_capture_active">捕獲正在進行。請重啟系統界面，復現到故障可見，然後立即返回此處完成捕獲。現在完成只能捕獲設置狀態，可能會漏掉故障。</string>
     <string name="diagnostic_finish_capture">完成捕獲</string>
     <string name="diagnostic_finishing">正在完成…</string>
     <string name="diagnostic_section_report">報告</string>
-    <string name="diagnostic_capture_explanation">暫時捕獲篩選後的診斷信息。完成時會檢查 Root。</string>
+    <string name="diagnostic_capture_explanation">暫時捕獲篩選後的診斷信息。請先復現問題再完成，以包含故障證據。立即完成只會捕獲設置狀態。完成時會檢查 Root。</string>
     <string name="diagnostic_start_capture">開始捕獲</string>
     <string name="diagnostic_prepare_report">準備報告</string>
     <string name="diagnostic_section_review">檢查</string>

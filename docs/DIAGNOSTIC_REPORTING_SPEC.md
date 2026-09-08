@@ -92,7 +92,8 @@ expires the capture after 30 minutes; process startup also handles timeout or el
 Finish runs only fixed root commands. User text never enters a command. Each command has a five-second
 timeout:
 
-- the newest bounded HyperGlow-tagged main/system logcat slice (`-t 4000`), maximum 160 KiB;
+- the HyperGlow-tagged main/system logcat slice since capture started (`-T <capture-start>`),
+  maximum 160 KiB;
 - fixed SystemUI/HyperGlow process listing (`USER`, `UID`, `PID`, and bounded process name), merged
   into that bounded log section;
 - crash-buffer blocks whose process is HyperGlow, SystemUI, or Spotify, maximum 64 KiB;

@@ -7,7 +7,7 @@
 
 ## 当前状态
 
-- **CN+ 版本**：0.3.82 (109)，上游基线截至 `f9dfa01` + `8422d78`（按内容手工移植）
+- **CN+ 版本**：0.3.82 (109)，上游基线截至 `b0254d5`（按内容手工移植，2026-09-08）
 - **上游最新**：2026-09-01 `8422d78`，版本 0.3.97 (109)
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
@@ -17,6 +17,7 @@
 
 | 上游提交 | 日期 | 内容 | 状态 |
 |---|---|---|---|
+| `b0254d5` (v0.3.96) | 2026-09-01 | AOD 亮度钳制：AodBrightnessHook（新文件）+ HookEntry 三路径安装 + AodLifetimeHook visibility 遥测/setLyricGuardActive 联动；AodLyricClient keepalive 同 revision 合并（mergePendingKeepAlive）；AodPowerCoordinator wake identity 前移消费；AodSurfaceController alpha 链检测（effectiveSurfaceAlpha/surfaceAlphaChain）；DiagnosticCaptureCollector logcat `-t 4000`→`-T <timestamp>`；诊断引导文案（4 语言+模板）；ARCHITECTURE/DIAGNOSTIC_REPORTING/LOCKSCREEN_AOD_BEHAVIOR 规范同步 | ✅ 已移植（2026-09-08；PAUSE_CONFIRM_MS=5s、通知几何死区、projection stale 保留此前已在 CN+ 基线，仅补齐 docs 与测试） |
 | `8422d78` | 2026-09-01 | 中文歌出现日语假名注音 ruby 时拒绝显示（hasLanguageInconsistentKanaRuby/isKana、language 字段贯通、fillEndMs 越行尾合法化 + lineEndMs 渲染钳制） | ✅ 已移植（2026-09-05，按 CN+ 投影层结构改写） |
 | `6216fdc` | 2026-08-08 | 版本锁定退役：XiaomiProfileState 增加 AVAILABLE、capability 计数展示（availableCapabilityCount/totalCapabilityCount）、移除 verifiedRuntimeProfile 版本 pin、summary 改为 available=n/total、DiagnosticSetupPolicy 可运行状态集 | ✅ 已移植（2026-09-05；保留 CN+ 实验模式本地覆写逻辑） |
 | `c5b1ffa` | 2026-08-11 | DiagnosticContract 校验增加 "available" 状态 | ✅ 已移植（2026-09-05） |
@@ -30,7 +31,6 @@
 
 | 上游提交 | 日期 | 内容 | CN+ 相关性 | 建议 |
 |---|---|---|---|---|
-| `b0254d5` | 2026-09-01 | AodBrightnessHook（新文件 231 行，hook SystemUI 亮度适配器）+ AodPowerCoordinator 等 | 中 | 可选：新功能，需评估 CN+ AOD 亮度场景是否需要 |
 | `0424ae9` | 2026-08-22 | 大批次（~3000 行）：ConfigBackupCodec（配置备份/恢复）、SettingsSession、LucideIcons、LauncherEntryPolicy、通知图标 | 中 | 可选：配置备份用户价值高，但牵扯 MainActivity/PreferenceSettingsStore，工程量大 |
 | `ced2769` | 2026-08-13 | AodLifetimePolicy 重构 + 诊断规范 | 低-中 | 暂缓：多为测试与文档 |
 | `cc1f62f` | 2026-08-15 | SpicyBridgeDocumentStore/SpicyLyricBridgeService/AodStateBridge 增强 + 测试 | 低 | 暂缓：主体是测试扩充 |
