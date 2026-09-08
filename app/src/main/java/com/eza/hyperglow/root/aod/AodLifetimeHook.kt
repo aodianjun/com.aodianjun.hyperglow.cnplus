@@ -36,11 +36,33 @@ object AodLifetimeHook {
             module.hook(method).intercept(PolicyHideHooker(method))
         }
         installWindowActionProbes(module, controllerClass)
+        installVisibilityTelemetry(module, classLoader)
         HookLogger.i(
             TAG,
             "AOD lifetime hooks installed constructors=${controllerClass.declaredConstructors.size} " +
                 "policyMethods=${POLICY_HIDE_METHODS.size}"
         )
+    }
+
+    /**
+     * 观察点 C(上游 b0254d5):DozeHost.setAodVisibility 遥测。当歌词 guard 名义上激活但
+     * 系统仍要求隐藏 AOD 时,把参数与 guard 状态记入日志,用于排查"谁在 guard 激活时
+     * 关掉了 AOD"。纯观察,不改变宿主行为。
+     */
+    private fun installVisibilityTelemetry(module: XposedModule, classLoader: ClassLoader) {
+        val hostClass = runCatching { classLoader.loadClass("com.miui.aod.DozeHost") }.getOrNull()
+            ?: return
+        val methods = hostClass.declaredMethods.filter { it.name == "setAodVisibility" }
+        methods.forEach { method ->
+            runCatching {
+                method.isAccessible = true
+                module.deoptimize(method)
+                module.hook(method).intercept(VisibilityTelemetryHooker(method))
+            }.onFailure { error ->
+                HookLogger.w(TAG, "AOD visibility telemetry hook unavailable method=${method.name}", error)
+            }
+        }
+        HookLogger.i(TAG, "AOD visibility telemetry hooks installed methods=${methods.size}")
     }
 
     private object ControllerConstructorHooker : Hooker {
@@ -105,6 +127,21 @@ object AodLifetimeHook {
         }
     }
 
+    private class VisibilityTelemetryHooker(private val method: Method) : Hooker {
+        override fun intercept(chain: Chain): Any? {
+            val hidden = chain.args.firstOrNull() as? Boolean == false
+            if (hidden) {
+                HookLogger.i(
+                    TAG,
+                    "DozeHost.setAodVisibility hide args=${chain.args.size} " +
+                        "sig=${method.parameterTypes.joinToString(",") { it.simpleName }} " +
+                        "guard=${AodLifetimeController.isLyricActive()}"
+                )
+            }
+            return chain.proceed()
+        }
+    }
+
     private fun dumpControllerSurface(controllerClass: Class<*>) {
         runCatching {
             controllerClass.declaredMethods.sortedBy { it.name }.forEach { method ->
@@ -147,10 +184,14 @@ object AodLifetimeController {
     }
 
     @Synchronized
+    fun isLyricActive(): Boolean = lyricActive
+
+    @Synchronized
     fun setLyricActive(active: Boolean) {
         if (lyricActive == active) return
         lyricActive = active
         HookLogger.i(TAG, "Lyric lifetime guard active=$active cause=$guardCause")
+        AodBrightnessController.setLyricGuardActive(active)
         if (active) {
             clearPendingHideLocked()
             activeController.get()?.let(::cancelPolicyTimeouts)

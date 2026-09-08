@@ -12,6 +12,11 @@ import org.junit.Test
 
 class AodProjectionLifecycleTest {
     @Test
+    fun pauseConfirmationCoversTrackChangeGap() {
+        assertEquals(5_000L, AodProjectionEngine.pauseConfirmWindowMs())
+    }
+
+    @Test
     fun terminalInvalidationRejectsInFlightVisiblePublication() {
         val guard = ProjectionPublicationGuard()
         val state = state()

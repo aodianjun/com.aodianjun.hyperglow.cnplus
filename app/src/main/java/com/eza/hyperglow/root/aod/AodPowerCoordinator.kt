@@ -216,13 +216,17 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     private fun dispatchWake(signal: Long, allowed: Boolean, forceRetry: Boolean = false) {
         val newSignal = isNewAodWakeSignal(lastWakeSignal, signal)
         if (!allowed || (!newSignal && !forceRetry)) return
+        // Consume a content wake identity before calling the broker. A rejected request usually
+        // means Xiaomi has torn down the AOD host; leaving the identity unrecorded turns every
+        // heartbeat into another normal request and creates an attach/wake loop. The bounded
+        // detached retry below remains available once for that same identity.
+        if (newSignal) lastWakeSignal = signal
         if (forceRetry) lastRetriedSignal = signal
         val accepted = if (forceRetry) {
             AodWakeBroker.requestEmergencyWake(signal)
         } else {
             AodWakeBroker.requestWake(signal)
         }
-        if (newSignal && accepted) lastWakeSignal = signal
         HookLogger.i(
             TAG,
             "AOD wake requested signal=$signal attached=$surfaceAttached " +

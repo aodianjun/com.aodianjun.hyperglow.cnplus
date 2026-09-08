@@ -26,6 +26,16 @@ class AodLifetimePolicyTest {
     }
 
     @Test
+    fun rejectedWakeStillConsumesIdentityBeforeOneDetachedRetry() {
+        // The broker result does not define identity. A rejected first request must not become a
+        // fresh normal request on every heartbeat; only the separate detached retry may re-arm it.
+        assertTrue(isNewAodWakeSignal(Long.MIN_VALUE, 9L))
+        assertFalse(isNewAodWakeSignal(9L, 9L))
+        assertTrue(shouldRetryDetachedAodWake(false, true, 9L, Long.MIN_VALUE))
+        assertFalse(shouldRetryDetachedAodWake(false, true, 9L, 9L))
+    }
+
+    @Test
     fun keepAlivePowerSessionSurvivesTransientHiddenEdgeAndRetriesDetachedWake() {
         val timed = LyricSnapshot(
             visible = true,
