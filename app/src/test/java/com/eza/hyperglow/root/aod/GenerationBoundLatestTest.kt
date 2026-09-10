@@ -143,6 +143,7 @@ class GenerationBoundLatestTest {
             original = "line",
             romanized = "",
             translated = "",
+            nextLine = "",
             metadata = "track",
             alignedRight = false,
             lineLevelSync = false,
