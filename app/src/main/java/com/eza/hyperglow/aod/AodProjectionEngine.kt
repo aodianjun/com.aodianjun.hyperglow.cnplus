@@ -7,6 +7,7 @@ import com.eza.hyperglow.bridge.SpicyBridgeDocument
 import com.eza.hyperglow.bridge.SpicyBridgeState
 import com.eza.hyperglow.bridge.SpicyBridgeStore
 import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.root.projection.currentProcessUserId
@@ -378,8 +379,11 @@ object AodProjectionEngine {
         publishCustomizationIfDue(now)
         val prefs = appContext?.let(AodRenderPreferences::read) ?: AodRenderConfig()
         val compiled = appContext?.let(CustomizationRepository::loadCompiled)
+        // 插件富化在投影前同步查表:无插件结果时原样返回同一实例(保持下方
+        // isCurrentActive 的引用相等校验),有结果时仅覆盖内容字段。
+        val effectiveState = PluginPipeline.enrich(state)
         val projectedState = projectToDisplay(
-            state = state,
+            state = effectiveState,
             now = now,
             prefs = prefs,
             compiled = compiled,

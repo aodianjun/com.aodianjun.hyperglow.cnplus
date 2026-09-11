@@ -121,6 +121,9 @@ android {
 }
 
 dependencies {
+    // HyperLyric 插件 API(FQCN 兼容):App 直接实现宿主侧接口,同时插件 dex 经
+    // parent ClassLoader 按同名类链接。必须 implementation(打进宿主 APK)。
+    implementation(project(":plugins:api"))
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-compose:1.12.4")
     val composeBom = platform("androidx.compose:compose-bom:2026.04.01")

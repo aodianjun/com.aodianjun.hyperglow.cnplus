@@ -62,7 +62,12 @@ data class AodRenderConfig(
      * AOD 亮度增强:歌词 guard 激活且处于 DOZE_AOD 时,把小米压低的 doze 亮度
      * 钳制到可读级别(见 AodBrightnessHook)。默认开启,保持既有行为。
      */
-    val aodBrightnessBoost: Boolean = true
+    val aodBrightnessBoost: Boolean = true,
+    /**
+     * 插件处理总开关:开启后 HyperLyric 兼容插件链参与歌词富化(翻译/罗马音/逐字等)。
+     * 默认关闭;关闭或无插件结果时投影链保持透传,行为与未装插件完全一致。
+     */
+    val pluginProcessingEnabled: Boolean = false
 )
 
 internal fun normalizeAodAlignment(value: String?): String = when (value) {
@@ -182,6 +187,7 @@ object AodRenderPreferences {
     const val HIDE_BACKGROUND_CARD = "hide_background_card"
     const val HIDE_LAUNCHER_ICON = "hide_launcher_icon"
     const val AOD_BRIGHTNESS_BOOST = "aod_brightness_boost"
+    const val PLUGIN_PROCESSING_ENABLED = "plugin_processing_enabled"
 
     private var preferences: SharedPreferences? = null
     private var cachedConfig: AodRenderConfig? = null
@@ -228,7 +234,8 @@ object AodRenderPreferences {
             prefs.getBoolean(PERSISTENT_NOTIFICATION, true),
             prefs.getBoolean(HIDE_BACKGROUND_CARD, false),
             prefs.getBoolean(HIDE_LAUNCHER_ICON, false),
-            prefs.getBoolean(AOD_BRIGHTNESS_BOOST, true)
+            prefs.getBoolean(AOD_BRIGHTNESS_BOOST, true),
+            prefs.getBoolean(PLUGIN_PROCESSING_ENABLED, false)
         ).also { cachedConfig = it }
     }
 

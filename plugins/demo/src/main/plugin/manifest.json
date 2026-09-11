@@ -1,0 +1,106 @@
+{
+    "id": "com.example.hyperglow.demo",
+    "name": "HyperGlow Demo Plugin",
+    "nameLocales": {
+        "zh-CN": "HyperGlow 演示插件",
+        "zh-TW": "HyperGlow 演示插件"
+    },
+    "author": "HyperGlow CN+",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "entry": "com.example.hyperglow.demo.DemoPlugin",
+    "activationSettingKey": "demo_enabled",
+    "cacheScopes": [
+        {
+            "id": "demo_song_cache",
+            "title": "Processed songs",
+            "titleLocales": {
+                "zh-CN": "已处理歌曲",
+                "zh-TW": "已處理歌曲"
+            },
+            "summary": "Remembers songs already decorated by the demo processor.",
+            "summaryLocales": {
+                "zh-CN": "记录演示处理器已装饰过的歌曲。",
+                "zh-TW": "記錄演示處理器已裝飾過的歌曲。"
+            }
+        }
+    ],
+    "settings": [
+        {
+            "type": "switch",
+            "key": "demo_enabled",
+            "title": "Enable demo decoration",
+            "titleLocales": {
+                "zh-CN": "启用演示装饰",
+                "zh-TW": "啟用演示裝飾"
+            },
+            "summary": "Decorate every lyric line processed by this plugin.",
+            "summaryLocales": {
+                "zh-CN": "装饰该插件处理的每一行歌词。",
+                "zh-TW": "裝飾該插件處理的每一行歌詞。"
+            },
+            "default": false
+        },
+        {
+            "type": "select",
+            "key": "demo_mode",
+            "title": "Decoration mode",
+            "titleLocales": {
+                "zh-CN": "装饰模式",
+                "zh-TW": "裝飾模式"
+            },
+            "summary": "How each lyric line is decorated.",
+            "summaryLocales": {
+                "zh-CN": "每行歌词的装饰方式。",
+                "zh-TW": "每行歌詞的裝飾方式。"
+            },
+            "default": "prefix",
+            "options": [
+                {
+                    "value": "prefix",
+                    "label": "Prefix",
+                    "labelLocales": {
+                        "zh-CN": "前缀",
+                        "zh-TW": "前綴"
+                    }
+                },
+                {
+                    "value": "uppercase",
+                    "label": "Uppercase",
+                    "labelLocales": {
+                        "zh-CN": "全部大写",
+                        "zh-TW": "全部大寫"
+                    }
+                },
+                {
+                    "value": "both",
+                    "label": "Prefix + uppercase",
+                    "labelLocales": {
+                        "zh-CN": "前缀 + 大写",
+                        "zh-TW": "前綴 + 大寫"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "text",
+            "key": "demo_prefix",
+            "title": "Line prefix",
+            "titleLocales": {
+                "zh-CN": "行前缀",
+                "zh-TW": "行前綴"
+            },
+            "summary": "Text prepended to every line in prefix mode.",
+            "summaryLocales": {
+                "zh-CN": "前缀模式下添加到每行开头的文本。",
+                "zh-TW": "前綴模式下添加到每行開頭的文字。"
+            },
+            "emptyValueSummary": "Defaults to ♪",
+            "emptyValueSummaryLocales": {
+                "zh-CN": "默认为 ♪",
+                "zh-TW": "預設為 ♪"
+            },
+            "default": "♪ "
+        }
+    ]
+}

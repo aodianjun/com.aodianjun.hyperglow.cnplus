@@ -206,6 +206,8 @@ class MainActivity : ComponentActivity() {
                 ) { surface ->
                     if (surface == DIAGNOSTICS_DESTINATION) {
                         DiagnosticsScreen(onBack = { editingSurface = null })
+                    } else if (surface == PLUGIN_DESTINATION) {
+                        PluginManagementScreen(onBack = { editingSurface = null })
                     } else if (surface != null) {
                         LyricLayoutScreen(
                             initialSurface = surface,
@@ -217,7 +219,8 @@ class MainActivity : ComponentActivity() {
                             selectedTabName = selectedTabName,
                             onSelectTab = { selectedTabName = it },
                             onOpenDiagnostics = { editingSurface = DIAGNOSTICS_DESTINATION },
-                            onOpenLyricLayout = { target -> editingSurface = target }
+                            onOpenLyricLayout = { target -> editingSurface = target },
+                            onOpenPlugins = { editingSurface = PLUGIN_DESTINATION }
                         )
                     }
                 }
@@ -243,7 +246,8 @@ private fun HomeScreen(
     selectedTabName: String,
     onSelectTab: (String) -> Unit,
     onOpenDiagnostics: () -> Unit,
-    onOpenLyricLayout: (String) -> Unit
+    onOpenLyricLayout: (String) -> Unit,
+    onOpenPlugins: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -503,6 +507,15 @@ private fun HomeScreen(
                     item { SmallTitle(text = stringResource(R.string.section_lyric_source)) }
                     item { LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true }) }
                     item { SourceSetupHint() }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.plugin_management_title),
+                                summary = stringResource(R.string.plugin_management_summary),
+                                onClick = onOpenPlugins
+                            )
+                        }
+                    }
                     item { SmallTitle(text = stringResource(R.string.section_runtime_status)) }
                     item {
                         SettingsCard {
@@ -1115,6 +1128,7 @@ private enum class SettingsTab {
 }
 
 private const val DIAGNOSTICS_DESTINATION = "__diagnostics__"
+private const val PLUGIN_DESTINATION = "__plugins__"
 private const val GITHUB_URL = "https://github.com/amarinne/hyperglow"
 private const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/hyperglow_CNplus"
 private const val SPICY_EX_GITHUB_URL = "https://github.com/amarinne/spicy-ex/releases"
