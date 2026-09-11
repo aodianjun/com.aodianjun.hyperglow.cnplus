@@ -265,6 +265,48 @@ class SpicyBridgeDocumentTest {
     }
 
     @Test
+    fun timingFaultNamesTheFieldThatDiverged() {
+        val document = document(listOf(row("LEAD", 1_000, 3_000, "line")), durationMs = 3_000)
+
+        assertNull(spicyBridgeDocumentTimingFault(document, acceptedDurationMs = 3_000))
+        assertEquals(
+            "duration document=3000 state=3001",
+            spicyBridgeDocumentTimingFault(document, acceptedDurationMs = 3_001)
+        )
+        assertEquals(
+            "row[0] start=1000 end=3001 duration=3000",
+            spicyBridgeDocumentTimingFault(
+                document(listOf(row("LEAD", 1_000, 3_001, "line")), durationMs = 3_000),
+                acceptedDurationMs = 3_000
+            )
+        )
+        assertEquals(
+            "state-duration=0",
+            spicyBridgeDocumentTimingFault(document, acceptedDurationMs = 0)
+        )
+    }
+
+    @Test
+    fun timingFaultNamesFillEndAndWordOutliers() {
+        assertEquals(
+            "row[0] fillEnd=3001 window=1000..3000",
+            spicyBridgeDocumentTimingFault(
+                document(listOf(row("LEAD", 1_000, 3_000, "line").copy(fillEndMs = 3_001))),
+                acceptedDurationMs = 3_000
+            )
+        )
+        assertEquals(
+            "row[0].word[0] start=2500 end=3001 duration=3000",
+            spicyBridgeDocumentTimingFault(
+                document(listOf(row("LEAD", 1_000, 3_000, "line").copy(
+                    words = listOf(SpicyBridgeWord("word", "", 2_500, 3_001, false))
+                ))),
+                acceptedDurationMs = 3_000
+            )
+        )
+    }
+
+    @Test
     fun transportedRenderModesPreserveCurrentProducerValues() {
         val current = SpicyBridgeRenderModes(
             weight = "Bold",

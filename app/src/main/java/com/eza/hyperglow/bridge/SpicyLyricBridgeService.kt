@@ -12,6 +12,7 @@ class SpicyLyricBridgeService : Service() {
     private val documentExecutor = Executors.newSingleThreadExecutor()
     private var documentArrivalRevision = 0L
     private var lastStateLogKey = ""
+    private var lastDocumentRejection = ""
 
     private val binder = object : ISpicyLyricBridge.Stub() {
         override fun publishState(state: Bundle?) {
@@ -46,7 +47,7 @@ class SpicyLyricBridgeService : Service() {
             try {
                 documentExecutor.execute {
                     try {
-                        val accepted = try {
+                        val rejection = try {
                             SpicyBridgeDocumentStore.accept(
                                 metadata = ownedMetadata,
                                 descriptor = document,
@@ -54,12 +55,12 @@ class SpicyLyricBridgeService : Service() {
                             )
                         } catch (error: Exception) {
                             AppLog.w(TAG, "Rejected malformed document", error)
-                            false
+                            "exception ${error.javaClass.simpleName}"
                         }
-                        if (accepted) {
+                        if (rejection == null) {
                             AppLog.i(TAG, "Accepted document generation=${ownedMetadata.generation}")
                         } else {
-                            AppLog.w(TAG, "Rejected stale or invalid document")
+                            logDocumentRejection(rejection)
                         }
                     } finally {
                         runCatching { document.close() }
@@ -95,6 +96,17 @@ class SpicyLyricBridgeService : Service() {
         if (key == lastStateLogKey) return
         lastStateLogKey = key
         AppLog.i(TAG, "Accepted generation=${state.generation} status=${state.status} playing=${state.playing}")
+    }
+
+    /**
+     * 被拒的文档整首歌不会被重新请求:没有这条日志,"这首歌没歌词"在报告里就是空白。
+     * 原因不变时不重复记录,生产者每次 keepalive 重发同一坏文档不会刷屏。
+     */
+    @Synchronized
+    private fun logDocumentRejection(reason: String) {
+        if (reason == lastDocumentRejection) return
+        lastDocumentRejection = reason
+        AppLog.w(TAG, "Rejected document $reason")
     }
 
     companion object {

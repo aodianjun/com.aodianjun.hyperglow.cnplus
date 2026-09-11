@@ -370,6 +370,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var lastClockGeometryAuthority: String? = null
     private var lastDrawWakePulseResult: AodDrawWakePulseResult? = null
     private var lastDrawWakeRuntimeClass = ""
+    private var postHandoffDiagnosticGeneration = 0L
+    private var postHandoffEarlyGeneration = -1L
+    private var postHandoffLateGeneration = -1L
     private var rememberedPhysicalClockBounds: AodRenderedClockBounds? = null
     private var rememberedPhysicalClockRootHeight = 0
     @Volatile private var stockWidgetControlActive = false
@@ -580,6 +583,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             mainHandler.postDelayed(this, RENDER_STALL_WATCHDOG_INTERVAL_MS)
             runCatching { recoverRenderStallIfNeeded() }
         }
+    }
+    private val postHandoffDiagnosticEarly = Runnable {
+        logPostHandoffSurfaceState("+1s", postHandoffEarlyGeneration)
+    }
+    private val postHandoffDiagnosticLate = Runnable {
+        logPostHandoffSurfaceState("+7s", postHandoffLateGeneration)
     }
     private val initialRevealFrame = object : Runnable {
         override fun run() {
@@ -1085,6 +1094,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         mainHandler.removeCallbacks(stockMotionSettleTimeout)
         mainHandler.removeCallbacks(managedBurnInStart)
         mainHandler.removeCallbacks(managedBurnInAdvance)
+        cancelPostHandoffDiagnostics()
         cancelPausedKeepAliveExpiry()
         cancelPauseLingerExpiry()
         pendingStockMotionUpdate = null
@@ -1812,12 +1822,14 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     }
 
     override fun setHandoffActive(active: Boolean) {
+        val wasActive = handoffActive
         handoffActive = active
         if (active) {
             initialRevealPending = false
             finishInitialReveal()
         }
         lyricCanvas?.setHandoffActive(active)
+        if (wasActive && !active && isSceneActive()) schedulePostHandoffDiagnostics()
     }
 
     override fun animateFrom(
@@ -2087,6 +2099,50 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         else HookLogger.w(TAG, message, error)
     }
 
+    private fun schedulePostHandoffDiagnostics() {
+        postHandoffDiagnosticGeneration++
+        postHandoffEarlyGeneration = postHandoffDiagnosticGeneration
+        postHandoffLateGeneration = postHandoffDiagnosticGeneration
+        mainHandler.removeCallbacks(postHandoffDiagnosticEarly)
+        mainHandler.removeCallbacks(postHandoffDiagnosticLate)
+        mainHandler.postDelayed(postHandoffDiagnosticEarly, POST_HANDOFF_EARLY_MS)
+        mainHandler.postDelayed(postHandoffDiagnosticLate, POST_HANDOFF_LATE_MS)
+    }
+
+    private fun cancelPostHandoffDiagnostics() {
+        postHandoffDiagnosticGeneration++
+        postHandoffEarlyGeneration = -1L
+        postHandoffLateGeneration = -1L
+        mainHandler.removeCallbacks(postHandoffDiagnosticEarly)
+        mainHandler.removeCallbacks(postHandoffDiagnosticLate)
+    }
+
+    /**
+     * handoff(AOD→锁屏联动)结束瞬间是竞态高发点:锁屏侧接管、小米收表面、draw wake
+     * 续期三件事在此交汇。+1s/+7s 两次快照把可见性、alpha 链、几何与 wake 结局一行
+     * 打齐;generation 匹配保证只记录最近一次 handoff 的结论。
+     */
+    private fun logPostHandoffSurfaceState(label: String, generation: Long) {
+        if (!HookLogger.traceEnabled || generation != postHandoffDiagnosticGeneration) return
+        val root = rootRef.get()
+        val directSurface = surface
+        val canvas = lyricCanvas
+        HookLogger.i(
+            TAG,
+            "Post-handoff $label role=$sceneRole handoff=$handoffActive " +
+                "display=${root?.display?.state ?: -1} " +
+                "root=${root?.width}x${root?.height} attached=${directSurface?.isAttachedToWindow} " +
+                "surface=${directSurface?.visibility} alpha=${directSurface?.alpha}/" +
+                "${directSurface?.transitionAlpha} rect=${directSurface?.left},${directSurface?.top}.." +
+                "${directSurface?.right},${directSurface?.bottom} scale=${directSurface?.scaleX}/" +
+                "${directSurface?.scaleY} translation=${directSurface?.translationX}/" +
+                "${directSurface?.translationY} canvas=${canvas?.visibility} " +
+                "effAlpha=${directSurface?.let(::effectiveSurfaceAlpha)} " +
+                "alphaChain=${directSurface?.let(::surfaceAlphaChain)} " +
+                "render=${latestSnapshot?.let(::canRenderAod)} wake=$lastDrawWakePulseResult"
+        )
+    }
+
     private fun wakeAodSurface(root: ViewGroup, directSurface: View) {
         if (!isSceneActive() || surface !== directSurface) return
         directSurface.visibility = View.VISIBLE
@@ -2101,6 +2157,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private const val DRAW_WAKE_RENEW_INTERVAL_MS = DRAW_WAKE_LOCK_MS / 2L
     /** 渲染停摆看门狗自检周期:足够频繁以在 stale 窗口内恢复,又不会喧宾夺主。 */
     private const val RENDER_STALL_WATCHDOG_INTERVAL_MS = 5_000L
+    private const val POST_HANDOFF_EARLY_MS = 1_000L
+    private const val POST_HANDOFF_LATE_MS = 7_000L
     /** 行级时间轴内容播放中超过该时长没有 onDraw 即视为画布停摆。 */
     private const val RENDER_STALL_THRESHOLD_MS = 8_000L
     private const val AOD_ANIMATION_FRAME_MS = 16L
