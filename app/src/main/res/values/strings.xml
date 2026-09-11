@@ -341,13 +341,13 @@
     <string name="diagnostic_check_root">Root access</string>
     <string name="diagnostic_check_systemui">SystemUI hook</string>
     <string name="diagnostic_check_profile">Compatible profile</string>
-    <string name="diagnostic_check_spotify_bridge">Spotify bridge</string>
+    <string name="diagnostic_check_spotify_bridge">Lyrics source bridge</string>
     <string name="diagnostic_check_packages">Required apps</string>
 
     <string name="diagnostic_category_compatibility">Compatibility</string>
     <string name="diagnostic_category_aod">AOD surface</string>
     <string name="diagnostic_category_lockscreen">Lock screen surface</string>
-    <string name="diagnostic_category_spotify_bridge">Spotify bridge</string>
+    <string name="diagnostic_category_spotify_bridge">Playback / lyrics bridge</string>
     <string name="diagnostic_category_systemui">System UI crash or restart</string>
     <string name="diagnostic_category_configuration">Configuration</string>
     <string name="diagnostic_category_other">Other</string>

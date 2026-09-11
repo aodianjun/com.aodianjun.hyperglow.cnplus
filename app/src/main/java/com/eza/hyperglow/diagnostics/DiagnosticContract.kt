@@ -50,7 +50,7 @@ internal enum class HyperGlowReportCategory(
     COMPATIBILITY("compatibility", "Compatibility", false),
     AOD_SURFACE("aod_surface", "AOD surface", true),
     LOCKSCREEN_SURFACE("lockscreen_surface", "Lock screen surface", true),
-    PLAYBACK_BRIDGE("playback_bridge", "Spotify bridge", true),
+    PLAYBACK_BRIDGE("playback_bridge", "Playback / lyrics bridge", true),
     SYSTEM_UI_FAILURE("systemui_failure", "System UI crash or restart", true),
     CONFIGURATION("configuration", "Configuration", true),
     OTHER("other", "Other", true);
@@ -289,7 +289,9 @@ internal object DiagnosticReportCodec {
             translatedLine.utf8Size() > DiagnosticLimits.LYRIC_LINE_BYTES
         ) return false
         return if (present) {
-            trackUri.startsWith("spotify:track:") && title.isNotBlank()
+            // trackUri 格式随歌词源而异（spotify:track:… / lyricon:… / superlyric:… /
+            // lyricinfo:…），只要求非空；source 字段携带具体源名。
+            trackUri.isNotBlank() && title.isNotBlank()
         } else {
             metadata.all(String::isEmpty) && lineIndex == -1 &&
                 originalLine.isEmpty() && romanizedLine.isEmpty() && translatedLine.isEmpty() &&
@@ -318,7 +320,10 @@ internal object DiagnosticReportCodec {
         "systemui_package",
         "xiaomi_aod_package",
         "spotify_package",
-        "spotify_bridge"
+        // spotify_bridge 是旧失败码，保留以便 decode 旧版报告；新码 producer_bridge
+        // 覆盖所有歌词源（Spicy EX / Lyricon / SuperLyric / LyricInfo）。
+        "spotify_bridge",
+        "producer_bridge"
     )
     private val CAPTURE_OUTCOMES = setOf(
         "not_requested",

@@ -60,12 +60,15 @@ All accepted report data is retained indefinitely until a maintainer manually de
 - fixed-allowlist Xiaomi properties;
 - HyperGlow, SystemUI, Xiaomi AOD, and Spotify package versions;
 - capability protocol/age, effective profile state, raw symbol probes, resolved capabilities;
-- configured surface flags, callback presence, and privacy-safe Spotify producer status/age;
+- configured surface flags, callback presence, and privacy-safe active lyric-producer status/age
+  (whichever of Spicy EX, Lyricon, SuperLyric, or LyricInfo is feeding lyrics);
 - capture outcome, root status, command failures, and truncation flags.
-- bounded setup state and failure keys for root, SystemUI hook/report, verified profile, Spotify
-  producer bridge, and required package presence/version metadata.
-- current Spotify track URI, title, artist, album, lyric provider/source, detected language, timing
-  type, current line index, and bounded original/transliterated/translated lyric lines when present;
+- bounded setup state and failure keys for root, SystemUI hook/report, verified profile, lyric
+  producer bridge, and required package presence/version metadata. Spotify is only a required
+  package while no alternate lyric source is connected.
+- current active-source track URI, title, artist, album, lyric provider/source, detected language,
+  timing type, current line index, and bounded original/transliterated/translated lyric lines when
+  present;
 - user description;
 - filtered HyperGlow logs;
 - fixed SystemUI/HyperGlow process snapshot (`USER`, `UID`, `PID`, and bounded process name),
@@ -189,11 +192,13 @@ HyperGlow 可以向共享的诊断 intake 提交一份由用户触发的私密�
 - 固定白名单的 Xiaomi 属性；
 - HyperGlow、SystemUI、Xiaomi AOD 与 Spotify 的软件包版本；
 - capability 协议/时效、生效 profile 状态、原始符号 probe、解析出的 capability；
-- 已配置的 surface 开关、回调存在性以及隐私安全的 Spotify 生产者状态/时效；
+- 已配置的 surface 开关、回调存在性以及隐私安全的活跃歌词生产者状态/时效（Spicy EX、
+  Lyricon、SuperLyric 或 LyricInfo 中当前正在供给歌词的那个源）；
 - 采集结果、root 状态、命令失败与截断标记。
-- 受限的环境状态与失败键，涵盖 root、SystemUI hook/报告、已验证 profile、Spotify 生产者
-  bridge 以及必需软件包的存在性/版本元数据；
-- 当前 Spotify 曲目 URI、标题、艺术家、专辑、歌词提供者/来源、检测到的语言、时序类型、
+- 受限的环境状态与失败键，涵盖 root、SystemUI hook/报告、已验证 profile、歌词生产者
+  bridge 以及必需软件包的存在性/版本元数据。仅当没有任何备用歌词源连接时，Spotify 才是
+  必需软件包；
+- 当前活跃源的曲目 URI、标题、艺术家、专辑、歌词提供者/来源、检测到的语言、时序类型、
   当前行索引，以及存在时受限的原文/音译/翻译歌词行；
 - 用户描述；
 - 过滤后的 HyperGlow 日志；

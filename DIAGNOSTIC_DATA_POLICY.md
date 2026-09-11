@@ -11,8 +11,9 @@ remote configuration, automatic GitHub issues, cookies, or embedded API credenti
 - Your description and chosen category.
 - HyperGlow, System UI, Xiaomi AOD, Spotify, Android, device, build, and locale metadata.
 - HyperGlow capability/symbol results and allowlisted runtime settings.
-- Current song title, artist, album, Spotify track URI, lyric provider/language/timing information,
-  and bounded current original/transliterated/translated lyric lines when available.
+- Current song title, artist, album, track URI of the active lyrics source, lyric
+  provider/language/timing information, and bounded current original/transliterated/translated
+  lyric lines when available.
 - If you explicitly run guided capture: filtered HyperGlow logs (the SystemUI logcat slice plus the
   app-process log mirror), allowed-process crash excerpts, and HyperGlow-only LSPosed lines.
 - If guided capture runs with root: a fixed process snapshot for SystemUI and HyperGlow containing
@@ -68,7 +69,7 @@ HyperGlow 才会发送诊断报告。不存在后台上传、分析统计、远�
 - 您的描述和所选类别。
 - HyperGlow、System UI、Xiaomi AOD、Spotify、Android、设备、构建版本及区域设置的元数据。
 - HyperGlow 的能力/符号检测结果及白名单内的运行时设置。
-- 当前歌曲的标题、艺术家、专辑、Spotify 曲目 URI、歌词提供方/语言/时间轴信息，
+- 当前歌曲的标题、艺术家、专辑、活跃歌词源的曲目 URI、歌词提供方/语言/时间轴信息，
   以及可用时有限的当前原文/音译/翻译歌词行。
 - 如果您明确运行引导式采集：经筛选的 HyperGlow 日志（SystemUI logcat 切片及 App 进程日志
   镜像）、允许进程的崩溃摘录，以及仅涉及 HyperGlow 的 LSPosed 日志行。

@@ -89,13 +89,56 @@ class DiagnosticSetupPolicyTest {
     }
 
     @Test
-    fun absentSpotifyProducerIsWarningNotFalseCompatibilityFailure() {
+    fun absentProducerIsWarningNotFalseCompatibilityFailure() {
         val result = resolveHyperGlowSetupChecks(
-            completeInput().copy(spotifyProducerBridgePresent = false)
+            completeInput().copy(anyProducerBridgePresent = false)
         )
 
         assertEquals("warning", result.setupState)
-        assertEquals(listOf("spotify_bridge"), result.setupFailures)
+        assertEquals(listOf("producer_bridge"), result.setupFailures)
+    }
+
+    @Test
+    fun alternateLyricSourceAloneIsReadyWithoutSpotify() {
+        // Lyricon/SuperLyric/LyricInfo 用户：没装 Spotify，Spicy 桥不存在，
+        // 但非 Spicy 歌词源已连接——setup 应判定就绪而非失败。
+        val result = resolveHyperGlowSetupChecks(
+            completeInput().copy(
+                anyProducerBridgePresent = true,
+                alternateLyricSourceConnected = true,
+                spotifyPackagePresent = false
+            )
+        )
+
+        assertEquals("ready", result.setupState)
+        assertTrue(result.setupFailures.isEmpty())
+        assertTrue(result.requiredPackagesPresent)
+        assertTrue(result.spotifyProducerBridgePresent)
+    }
+
+    @Test
+    fun missingSpotifyPackageWithoutAlternateSourceStillFails() {
+        val result = resolveHyperGlowSetupChecks(
+            completeInput().copy(spotifyPackagePresent = false)
+        )
+
+        assertEquals("failed", result.setupState)
+        assertTrue(result.setupFailures.contains("spotify_package"))
+        assertFalse(result.requiredPackagesPresent)
+    }
+
+    @Test
+    fun alternateSourceConnectedSoftensMissingSpotifyPackage() {
+        val result = resolveHyperGlowSetupChecks(
+            completeInput().copy(
+                alternateLyricSourceConnected = true,
+                spotifyPackagePresent = false
+            )
+        )
+
+        assertEquals("ready", result.setupState)
+        assertFalse(result.setupFailures.contains("spotify_package"))
+        assertTrue(result.requiredPackagesPresent)
     }
 
     private fun completeInput() = HyperGlowSetupInput(
@@ -103,7 +146,8 @@ class DiagnosticSetupPolicyTest {
         capabilityReportPresent = true,
         systemUiCallbackPresent = true,
         profileState = "verified_profile",
-        spotifyProducerBridgePresent = true,
+        anyProducerBridgePresent = true,
+        alternateLyricSourceConnected = false,
         systemUiPackagePresent = true,
         xiaomiAodPackagePresent = true,
         spotifyPackagePresent = true

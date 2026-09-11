@@ -91,6 +91,48 @@ class DiagnosticContractTest {
     }
 
     @Test
+    fun reportCodecAcceptsAlternateLyricSourceMediaEvidence() {
+        // Lyricon/SuperLyric/LyricInfo 的 trackUri 不带 spotify:track: 前缀；
+        // 媒体证据应能通过校验并在编码中保留源名。
+        val report = sampleReport().let {
+            it.copy(
+                productMetadata = it.productMetadata.copy(
+                    setupChecks = HyperGlowSetupChecks(
+                        setupState = "warning",
+                        setupFailures = listOf("producer_bridge"),
+                        rootAccessStatus = "granted",
+                        capabilityReportPresent = true,
+                        systemUiHookActive = true,
+                        profileSupported = true,
+                        spotifyProducerBridgePresent = false
+                    ),
+                    currentMediaEvidence = DiagnosticMediaEvidence(
+                        present = true,
+                        trackUri = "lyricon:test-song",
+                        title = "测试歌曲",
+                        artist = "测试歌手",
+                        album = "测试专辑",
+                        source = "lyricon",
+                        provider = "lyricon",
+                        language = "",
+                        timingType = "syllable",
+                        lineIndex = 2,
+                        originalLine = "当前歌词行",
+                        romanizedLine = "",
+                        translatedLine = "",
+                        stateAgeMs = 30L
+                    )
+                )
+            )
+        }
+
+        assertTrue(DiagnosticReportCodec.isValidReport(report))
+        val encoded = DiagnosticReportCodec.encode(report)
+        assertTrue(encoded.contains("lyricon:test-song"))
+        assertTrue(encoded.contains("producer_bridge"))
+    }
+
+    @Test
     fun githubIssueExcludesPrivateDiagnostics() {
         val report = sampleReport(
             description = "AOD disappears after a song change.",

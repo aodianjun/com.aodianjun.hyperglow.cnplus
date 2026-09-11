@@ -13,6 +13,9 @@ import com.eza.hyperglow.bridge.SpicyBridgeStore
 import com.eza.hyperglow.bridge.SpicyBridgeDocumentStore
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.producer.LyricProducers
+import com.eza.hyperglow.producer.LyricSource
+import com.eza.hyperglow.producer.ProducerConnection
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -84,13 +87,31 @@ internal object DiagnosticReportFactory {
             ?: renderPreferences.aodEnabled
         val lockscreenConfigured = document.profiles[SceneCompiler.SURFACE_LOCKSCREEN]?.enabled
             ?: renderPreferences.lockscreenEnabled
-        val producer = SpicyBridgeStore.state.value?.takeIf { SpicyBridgeStore.isCurrentActive(it) }
+        // 媒体证据取自仲裁者的活跃生产者：CN+ 的歌词可能来自 Spicy EX（Spotify）、
+        // Lyricon、SuperLyric 或 LyricInfo，Spicy 桥只是其中一路。仅读 SpicyBridgeStore
+        // 会让其它源用户的报告里媒体证据永远为空，并把 setup 误判为缺 Spotify。
+        val arbiter = LyricProducers.arbiterOrNull()
+        val producerSource = arbiter?.activeSource?.value
+        val producer = arbiter?.active?.value
         val producerAge = producer?.let {
             (SystemClock.elapsedRealtime() - it.receivedAtElapsedMs).coerceAtLeast(0L)
         }
-        val lyricDocument = SpicyBridgeDocumentStore.state.value?.takeIf { document ->
-            producer != null && document.matches(producer)
+        // provider/timingType 只对 Spicy 源存在独立歌词文档；其余源以源名与
+        // lyricKind（unsynced/line/syllable）表达同样的信息。
+        val spicyState = if (producerSource == LyricSource.SPICY) {
+            SpicyBridgeStore.state.value?.takeIf { SpicyBridgeStore.isCurrentActive(it) }
+        } else {
+            null
         }
+        val lyricDocument = spicyState?.let { spicy ->
+            SpicyBridgeDocumentStore.state.value?.takeIf { it.matches(spicy) }
+        }
+        val alternateLyricSourceConnected = LyricSource.entries
+            .filterNot { it == LyricSource.SPICY }
+            .any { source ->
+                val conn = arbiter?.connection(source)?.value
+                conn == ProducerConnection.CONNECTED || conn == ProducerConnection.RECONNECTED
+            }
         val capabilityAge = capability.reportedAtUtcMillis.takeIf { capability.hasReport && it > 0L }
             ?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) }
         val profileState = if (capability.hasReport) {
@@ -106,7 +127,8 @@ internal object DiagnosticReportFactory {
                 capabilityReportPresent = capability.hasReport,
                 systemUiCallbackPresent = systemUiCallbackPresent,
                 profileState = profileState,
-                spotifyProducerBridgePresent = producer != null,
+                anyProducerBridgePresent = producer != null,
+                alternateLyricSourceConnected = alternateLyricSourceConnected,
                 systemUiPackagePresent = commonMetadata.packageVersions["systemui"]?.present == true,
                 xiaomiAodPackagePresent =
                     commonMetadata.packageVersions["xiaomi_aod"]?.present == true,
@@ -124,6 +146,9 @@ internal object DiagnosticReportFactory {
                 capabilityReportAgeMs = capabilityAge,
                 profileState = profileState,
                 rawSymbolProbes = capability.rawProbes.toSortedMap(),
+                // wire 字段名 spotifyProducer* 是历史遗留（intake allowlist 已映射），
+                // 值的语义是"当前活跃生产者"，不限于 Spicy；真实源名在
+                // currentMediaEvidence.source 中给出。
                 resolvedCapabilities = if (capability.hasReport) {
                     capability.capabilities.sorted()
                 } else {
@@ -141,22 +166,28 @@ internal object DiagnosticReportFactory {
                 diagnosticLoggingAvailable = BuildConfig.TRACE_LOGGING_AVAILABLE,
                 diagnosticLoggingEnabled = DiagnosticLoggingPreferences.read(context),
                 rootAccessStatus = captured.rootAccessStatus,
-                currentMediaEvidence = producer?.takeIf {
-                    it.trackUri.startsWith("spotify:track:") && it.title.isNotBlank()
-                }?.let {
+                currentMediaEvidence = producer?.takeIf { it.title.isNotBlank() }?.let {
+                    val sourceName = producerSource?.name?.lowercase().orEmpty()
                     DiagnosticMediaEvidence(
                         present = true,
                         trackUri = it.trackUri.utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
                         title = it.title.utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
                         artist = it.artist.utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
                         album = it.album.utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
-                        source = "hyperglow_bridge",
-                        provider = lyricDocument?.provider.orEmpty()
+                        source = sourceName,
+                        provider = when (producerSource) {
+                            LyricSource.SPICY -> lyricDocument?.provider.orEmpty()
+                            null -> ""
+                            else -> sourceName
+                        }.utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
+                        language = it.language
                             .utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
-                        language = lyricDocument?.language.orEmpty()
-                            .utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
-                        timingType = lyricDocument?.type.orEmpty()
-                            .utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
+                        timingType = when (producerSource) {
+                            LyricSource.SPICY -> lyricDocument?.type.orEmpty()
+                            null -> ""
+                            // lyricKind 即时间轴类型：unsynced / line / syllable / none。
+                            else -> it.lyricKind.name.lowercase()
+                        }.utf8Prefix(DiagnosticLimits.MEDIA_METADATA_BYTES),
                         lineIndex = it.lineIndex.coerceIn(-1, 5_000),
                         originalLine = it.line.utf8Prefix(DiagnosticLimits.LYRIC_LINE_BYTES),
                         romanizedLine = it.romanizedLine
