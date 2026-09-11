@@ -6,7 +6,19 @@ import java.io.DataOutputStream
 
 /** Root process restart path extracted from HyperLyric. */
 object ShellUtils {
-    suspend fun restartSystemUI(): Boolean = killAppProcess("com.android.systemui")
+    private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+    private const val MIUI_AOD_PACKAGE = "com.miui.aod"
+
+    /**
+     * 重启模块作用域(scope.list)内可安全重启的进程:先杀 MiuiAOD——亮度 hook 装在
+     * 该进程,未运行或杀失败都不算失败;再杀 SystemUI,其结果作为整体成功标志,
+     * 重启后由它重新拉起 AOD。android(system_server)同样在作用域内但只能整机
+     * 重启,不由此入口处理。
+     */
+    suspend fun restartHookedProcesses(): Boolean {
+        killAppProcess(MIUI_AOD_PACKAGE)
+        return killAppProcess(SYSTEM_UI_PACKAGE)
+    }
 
     private suspend fun killAppProcess(packageName: String, signal: Int = 15): Boolean {
         val script = $$"""

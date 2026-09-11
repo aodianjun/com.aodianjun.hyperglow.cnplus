@@ -938,7 +938,7 @@ private fun HomeScreen(
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                     onClick = {
                         showRestartDialog = false
-                        scope.launch { showRestartResult(ShellUtils.restartSystemUI()) }
+                        scope.launch { showRestartResult(ShellUtils.restartHookedProcesses()) }
                     }
                 )
             }
