@@ -100,7 +100,7 @@ class DiagnosticContractTest {
                     setupChecks = HyperGlowSetupChecks(
                         setupState = "warning",
                         setupFailures = listOf("producer_bridge"),
-                        rootAccessStatus = "granted",
+                        rootAccessStatus = "not_checked",
                         capabilityReportPresent = true,
                         systemUiHookActive = true,
                         profileSupported = true,
