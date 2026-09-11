@@ -1,5 +1,58 @@
 # 上游同步状态（amarinne/hyperglow → CN+）
 
+# English / 英文
+
+> Purpose: whenever the user asks to "sync upstream updates", read this file first to learn the
+> current sync baseline, then compare it against the list of new upstream commits to decide what
+> needs to be ported. The two repositories have completely independent git histories (CN+ is a
+> repackaged standalone fork), so a direct merge is impossible — changes can only be selected
+> and ported manually by content.
+
+## Current Status
+
+- **CN+ version**: 0.3.82 (109), upstream baseline as of `8422d78` (v0.3.97; full evaluation completed on 2026-09-11: code either ported or exempted with rationale, see the tables below)
+- **Upstream latest**: 2026-09-01 `8422d78`, version 0.3.97 (109) (identical to the baseline, nothing left unevaluated)
+- **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
+- Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
+  HierarchyFields.kt and its use across all hooks, missingProbeNames, and miuix via the public Maven Central repository
+
+## Synced / Included
+
+| Upstream commit | Date | Content | Status |
+|---|---|---|---|
+| `b0254d5` (v0.3.96) | 2026-09-01 | AOD brightness clamping: AodBrightnessHook (new file) + three-path installation in HookEntry + AodLifetimeHook visibility telemetry / setLyricGuardActive linkage; AodLyricClient keepalive same-revision merge (mergePendingKeepAlive); AodPowerCoordinator wake identity consumption moved earlier; AodSurfaceController alpha chain detection (effectiveSurfaceAlpha/surfaceAlphaChain); DiagnosticCaptureCollector logcat `-t 4000`→`-T <timestamp>`; diagnostic guidance copy (4 languages + template); ARCHITECTURE/DIAGNOSTIC_REPORTING/LOCKSCREEN_AOD_BEHAVIOR spec sync | ✅ Ported (2026-09-08; PAUSE_CONFIRM_MS=5s, notification geometry dead zone, and projection stale were already in the CN+ baseline — this pass only completed docs and tests) |
+| `cc1f62f`+`ced2769`+`0424ae9` (diagnostics part) | 2026-08-13~22 | Three diagnostic capabilities: ① DiagnosticTraceFile — in-app log file mirror (HyperOS drops app-side logcat; AppLog i/w/e written to disk with 512KB rotation); ② SystemUiLyricProjection named rejection logging (the 5 silent rejections in accept() changed to deduplicated rejected(reason) records); ③ AodDrawWakePulseResult — four-way outcome classification of draw wake lock pulses + deduplicated recording | ✅ Ported (2026-09-11; CN+ enhancements: traces filtered by capture start and folded into the report's logs section as `app_trace=`, also carried on the root rejection path, with a dedicated APP_TRACE_BYTES=96KB budget — upstream only persists to disk without including it in reports) |
+| `cc1f62f`+`ced2769` (diagnostics part 2) | 2026-08-13~15 | Two items: ④ named reasons for document rejections — SpicyBridgeDocumentStore.accept/commit return String? (all 14 rejection paths report a literal: no-state/state-mismatch/payload-identity/oversized/malformed/commit-timing/commit-order), spicyBridgeDocumentTimingFault reports the divergent field (duration/row/word/fillEnd), Service-side logDocumentRejection deduplicated logging; ⑤ postHandoff diagnostics — when handoff goes active→inactive while the scenario is still active, two full surface snapshots at +1s/+7s (visibility / alpha chain / rect / scale / render / wake in a single line), canceled by detachCurrent | ✅ Ported (2026-09-11; timingFault keeps the CN+ relaxed fillEndMs semantics (may cross the current line end, must not exceed the song length); the upstream spicyBridgeDocumentMismatch engine-side document clearing path does not exist in CN+ (the producer clears proactively), so that function was not ported) |
+| `8422d78` (v0.3.97) | 2026-09-01 | Reject display of Japanese kana ruby annotations on Chinese songs (hasLanguageInconsistentKanaRuby/isKana, language field threaded through, fillEndMs crossing the line end legalized + lineEndMs render clamping) | ✅ Ported (2026-09-05, rewritten for the CN+ projection layer structure; 2026-09-11 re-reviewed the b0254d5..8422d78 increment and disposed of all of it: ① scalar auxiliary lines come only from documents — evaluated and **not ported**; CN+ keeps the fallback scalar romaji/translation line when no document exists: the trigger surface is limited to untimed / document-not-yet-arrived cases, the kana guard already covers the document main path, the scalar path has no observed harm in practice, and porting would be pure subtraction (cutting AI-translation display for untimed songs); the divergence is recorded in LOCKSCREEN_AOD_BEHAVIOR_SPEC.md; if wrong scalar annotations are ever reported, reverting only needs two lines in SpicyLyricProducer; ② three spec sections (auxiliary line source / kana rejection / fillEnd clamping) completed; ③ the timingFault message window=→duration= is a pure copy difference, skipped; ④ versionCode 0.3.97 not applicable) |
+| `6216fdc` | 2026-08-08 | Version pinning retired: XiaomiProfileState adds AVAILABLE, capability count display (availableCapabilityCount/totalCapabilityCount), removal of the verifiedRuntimeProfile version pin, summary changed to available=n/total, DiagnosticSetupPolicy runnable state set | ✅ Ported (2026-09-05; the CN+ experiment-mode local override logic is kept) |
+| `c5b1ffa` | 2026-08-11 | DiagnosticContract validation adds the "available" status | ✅ Ported (2026-09-05) |
+| `f9dfa01` | 2026-08-09 | SystemUI dynamic uid matching + HierarchyFields field-chain traversal + probe-missing logging | ✅ Synced (except the UpdateChecker part; CN+ uses its own VersionCheck.kt) |
+| `8d89b10` | 2026-08-06 | Major refactor introducing AodStateProjector | ✅ Synced |
+| `2608031` | 2026-08-05 | Remove the credential-based miuix repository (switch to Maven Central) | ✅ Synced |
+| `bf988be` | 2026-08-03 | bump 0.3.50 | ➖ Version number not applicable (CN+ has an independent version numbering scheme) |
+| Earlier commits | ≤2026-08-03 | FAQ / diagnostics policy / history | ➖ Not individually verified (the baseline as a whole already includes them) |
+
+## Evaluated, Deferred Items (within the baseline; not ported for stated reasons)
+
+| Upstream commit | Date | Content | CN+ relevance | Recommendation |
+|---|---|---|---|---|
+| `0424ae9` (remaining part) | 2026-08-22 | ConfigBackupCodec (config backup/restore), SettingsSession, LucideIcons, RTL lyrics rendering (AodTextDirection / physical alignment conversion / drawDirectionalText), hideFromRecents | Medium | Optional: config backup has high user value but entails a MainActivity refactor; RTL is of low value for CN users |
+| `ced2769` (remaining part) | 2026-08-13 | DiagnosticsScreen simplification, AodKeepaliveRegressionTest | Low | Defer: the UI simplification does not apply (CN+ DiagnosticsScreen has a different structure); postHandoff diagnostics already ported |
+| `cc1f62f` (remaining part) | 2026-08-15 | Document transport grace (scheduleDocumentClear/DOCUMENT_TRANSPORT_GRACE_MS), spicyBridgeDocumentMismatch (engine-side held-document clearing path), logKeepAliveEdge/logAodEnabledEdge | Medium | Defer: the transport grace is structurally inapplicable (CN+ documents are cleared proactively by the producer, with no passive clearing path); the mismatch call path does not exist in CN+; recommend re-evaluating logKeepAliveEdge when a corresponding issue appears |
+
+## Operating Procedure When Syncing
+
+1. `git fetch upstream main` (remote `upstream` = https://github.com/amarinne/hyperglow , already configured)
+2. Cross-check the tables above and review each change with `git show <sha>`
+3. Port to CN+ manually by content (note that CN+ has diverged deeply: Lyricon producer stack, version numbering, CN music app adaptation)
+4. Version numbers do not follow upstream (CN+ has an independent scheme); keep only one of UpdateChecker/VersionCheck
+5. After porting, run CI (554+ tests) and push once everything is green
+6. **Update this file**: move ported commits into the Synced table and update the baseline date
+
+---
+
+# 中文 / Chinese
+
 > 用途：每次用户要求“同步上游更新”时，先读本文件了解已同步基线，
 > 再对照上游新提交清单，判断哪些需要移植。
 > 两仓库 git 历史完全独立（CN+ 为重打包独立版），无法直接 merge，

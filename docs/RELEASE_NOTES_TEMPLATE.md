@@ -1,5 +1,77 @@
 # 更新日志模板（Release Body）
 
+# English / 英文
+
+> Copy this template and fill it in whenever the release body is updated for a new release.
+> Category rules and constraints: see [RELEASE_CONVENTIONS.md](RELEASE_CONVENTIONS.md).
+
+## 安装包用途说明
+- **`hyperglow-cnplus-release-v{VN}-{VC}.apk`（正式版）**：正常使用请安装此版本。正式签名、R8 压缩，适合日常安装使用。
+- **`hyperglow-cnplus-debug-v{VN}-{VC}.apk`（调试版）**：提 issue 反馈问题时请安装此版本，可提供详细诊断日志辅助排查。调试签名，仅用于测试与问题排查，请勿作为日常版本长期安装。
+
+---
+
+## 更新日志 · v{VN} (versionCode {VC})
+
+### 修复
+
+- **一句话标题（问题）**：一两句说明现象、根因与解决方式。具体、点明所涉功能/修复。
+
+### 新增功能
+
+- **功能名**：说明新能力与使用场景。
+
+### 优化
+
+- **优化点**：CI、打包、性能或体验改进。
+- **新增回归测试**：列出新增测试覆盖的场景；`全部 {N} 个测试通过`。
+
+---
+
+**Full Changelog**: https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/compare/v{上一版本}...v{当前版本}
+
+---
+
+## Placeholder Reference
+
+| Placeholder | Meaning | Example |
+|---|---|---|
+| `{VN}` | versionName | `0.3.82` |
+| `{VC}` | versionCode | `109` |
+| `{N}` | total number of tests | `564` |
+| `v{上一版本}` | previous release tag | `108-0.3.81` |
+| `v{当前版本}` | current release tag | `109-0.3.82` |
+
+> Note: `Full Changelog` uses **tag names** (`{VC}-{VN}`), not version numbers, e.g. `108-0.3.81...109-0.3.82`.
+
+## Quick Reference
+
+- Written in Chinese; categories are ordered from most to least important: 修复 → 新增功能 → 优化.
+- Keep each bullet concise and concrete; avoid vague statements.
+- Keep the entire "安装包用途说明" block intact; do not delete or modify it.
+- `Full Changelog` goes after the trailing `---` separator.
+- **Pre-release versions**: the very top of the body must carry `> ⚠️ **测试版本请勿下载**`.
+
+## Conforming Example
+
+```markdown
+## 更新日志 · v0.3.82 (versionCode 109)
+
+### 修复
+
+- **AOD 切歌后整首无歌词（issue #11）**：网易云共享内存的位置按"base 元组 + 墙钟 × 速度"续算，
+  Doze 冻结的是 base 更新，切歌后写入端仍停在旧歌时间线上导致位置持续越界。0.3.81 的越界钳制把
+  越界值钳到歌尾并清空歌词行，造成整首歌 AOD 无歌词并伴随 60Hz `capping` 日志刷屏。现改为：切歌后
+  首个位置须满足可信上界门控，超过歌长 +2s 容差一律视为 stalled，从最后可信基准外推到投影歌尾稳定占位。
+  正常播放 / 暂停 / seek / 单曲循环以及 issue #3/#9/#10 的修复不受影响。
+```
+
+The complete example is [release-notes-0.3.82.md](../../release-notes-0.3.82.md) at the repository root (written after being normalized against this template).
+
+---
+
+# 中文 / Chinese
+
 > 每次发版更新 release body 时，复制本模板填写。
 > 分类规则与约束见 [RELEASE_CONVENTIONS.md](RELEASE_CONVENTIONS.md)。
 

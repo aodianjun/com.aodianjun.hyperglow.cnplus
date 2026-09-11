@@ -1,5 +1,7 @@
 # Lockscreen + AOD Behavior Spec
 
+# English / 英文
+
 Status: implementation contract
 
 This document extends `PARITY-SPEC.md`. AOD rendering continues to follow the existing parity
@@ -376,3 +378,181 @@ Matching includes SystemUI/AOD package versions and exact required symbol signat
 missing symbols disable only dependent behavior. Stock UI is never hidden, replaced, reparented,
 remeasured, or restyled. Clock translation control is allowed only by the verified AOD scene policy
 above and must fail back to Xiaomi's original target.
+
+---
+
+# 中文 / Chinese
+
+状态：实现契约
+
+本文档是 `PARITY-SPEC.md` 的扩展。AOD 渲染继续遵循既有的 parity 契约。本规范定义 surface 可见性、隐私、连续性、自定义与 fallback。
+
+## 共享 snapshot
+
+- SystemUI 使用一个经过校验的 Binder 客户端和一个不可变的、surface 中立的歌词 snapshot。Binder 状态在投递到主线程之前，同步解码为自有不可变数据，并遵守共享的数量、UTF-8 与编码体积限制。
+- 锁屏与 AOD 基于相同的内容、行、时间锚点与曲目 generation 渲染各自的视图。
+- 新附加的 surface 会立即收到缓存的最新 snapshot。
+- 过期、Binder 死亡、调用方失败或无效 payload 会隐藏所有订阅方。被显式标记为真实 Spotify 暂停的隐藏状态，可以按照下文的共享有界策略保留最后的有效歌词 snapshot。终态隐藏状态会将其清除。
+- 状态/配置携带应用用户 ID；SystemUI 用户切换时会清除/重新绑定，并拒绝前一用户的缓存 payload。
+- 音译、翻译、带时值的朗读片段与注音（ruby）来自当前匹配的生产者文档（一旦到达）。在该文档存在之前（未带时值的曲目，或文档仍在传输中），标量状态可以保持原歌词行可见，并可以提供其辅助行——这是相对上游 v0.3.97 的一个有意的 CN+ 分歧，上游会完全丢弃标量辅助行。
+- 携带假名注音（kana ruby）的中文文档属于语言不一致的生产者数据。Projection 保留原歌词，并拒绝该行的 ruby、整行罗马音与逐词罗马音；不会重新对歌词进行语言分类，也不会合成替代朗读。
+- 行填充结束点必须保持在曲目时长之内。超出该行生效窗口的生产者填充结束点，在渲染时会被钳制到生效结束点；这一有界失配不会导致本来有效的带时值文档被丢弃，也不会释放 keepalive。
+- AOD keepalive 与锁屏亮屏策略保持相互独立。任一策略都不能仅凭另一 surface 的状态而激活。
+- `playbackActive` 仅来自经过 UID 校验的 Spotify bridge，并被显式传输。其他媒体播放器无法激活歌词 keepalive。
+- 实时歌词要求 `playbackActive=true`。唯一的共享设置 `After Spotify pauses` 同时适用于锁屏和 AOD：立即清除、5 秒、10 秒、30 秒或无限期保留。默认为 5 秒。其他媒体播放器无法启动或延长该计时器。
+
+## 锁屏可见性与隐私
+
+对现有用户而言，锁屏歌词默认关闭。在锁定状态下显示媒体文本需要显式选择加入。
+
+锁屏场景只有在所有条件都通过时才可见：
+
+```text
+feature enabled
+supported package versions and required symbol signatures
+default Xiaomi lockscreen theme
+primary display
+keyguard showing
+not bouncer/auth entry
+fresh visible snapshot
+minimum safe scene area
+```
+
+该视图仅为视觉呈现：不可点击、不可聚焦、不可长按、不拦截触摸、不可被无障碍聚焦。Xiaomi 父视图的 alpha/可见性始终是权威来源。
+
+默认锁屏场景使用 Xiaomi 的 `getClockBottom()` 锚点。可选的内置卡片 scrim 在垂直方向与当前渲染的行紧密贴合，在歌词过渡期间对离场/入场边界取并集，并在可用时跟随可见的媒体卡片宽度。当原生媒体宽度不可用时，使用有界的 92% 宽度与深色卡片不透明度。
+
+通知几何对上次应用的边界采用 8 dp 死区。较小的动画抖动保持当前歌词卡片的位置不变；较大的移动则正常更新碰撞位置。
+
+锁屏卡片生命周期遵循 Xiaomi 原生 Spotify 媒体播放器：
+
+```text
+visible MiuiMediaHeaderView + current valid lyric snapshot -> show live card
+visible MiuiMediaHeaderView + eligible Spotify pause inside configured timeout -> show frozen card
+MiuiMediaHeaderView hidden -> hide lyric card
+MiuiMediaHeaderView removed -> discard frozen card
+projection disconnect/stale/invalid state -> discard frozen card
+```
+
+冻结卡片在收到符合条件的 Spotify 暂停时对播放位置做一次投影，随后使用 `speed=0`。0 秒超时立即清除。有限计时器使用原始暂停沿，不会因重放的隐藏消息或另一个播放器而延长。无限期保留仍会在上述终止条件下清除。
+只有当显式的保持唤醒设置已启用、锁屏歌词场景与原生 Spotify 媒体播放器可见、播放处于活动状态、且不存在 bouncer/认证 UI 时，锁屏才可能抑制自动变暗/休眠。暂停、播放器移除、bouncer 进入、surface 丢失、切换到 AOD 或禁用功能，都会立即释放亮屏请求。手动电源键休眠始终具有最高权威。AOD 单独保留最后可见 snapshot 与位置跟随状态，因此歌词场景和受管时钟不会在暂停时立即回跳。已确认的 Spotify 暂停会释放 AOD keepalive 与策略隐藏抑制；Xiaomi 可以正常休眠，同时冻结的视觉 snapshot 仍然可用。恢复播放或新的可见 snapshot 会正常替换它。
+
+当通知存在时，碰撞几何来自 Xiaomi 的栈内（stack-local）子项布局状态，而不是全屏栈宿主或经父变换的全局矩形。行高度使用 `actualHeight` 加上可用的裁剪量/边界。不可见/alpha 为零的子项仅在 linkage 过渡进行期间保持占位；稳定的过期行会被忽略。`avoid` 将歌词卡片放置在测得的原生通知块下方、剩余的底部安全区域内。原生通知的顶部内边距、位移、动画、测量与滚动从不被修改。可选行先隐藏，歌词收缩到有界最小值，几何不足/未知时按 fail-closed 处理。
+
+## AOD 可见性与生命周期
+
+- 既有的 AOD 显示行为与迁移得到保留。
+- 渲染器使用 AOD 根部内侧 overlay，绝不进入原生时钟测量。
+- 原生 AOD 位置更新触发合并后的歌词几何刷新。受管控制器目标是移动/调度权威。碰撞判定权威优先选择可见的精确 `AnimationHelper` 时钟视图，其次是可见的精确 `AODUpdatePositionController.mTargetView`，再次是受管请求目标。这同时覆盖 SystemUI 的亮屏形变与 AOD 插件在 `DOZE` 之后延迟/交叉淡化的渲染。递归的渲染后代并集仍然被禁止。
+- 自定义图像与不受管的 AOD 场景可以在控制器更新之前使用测得的原生内容几何。原生 linkage 场景在亮屏阶段立即渲染，使用精确的 SystemUI 时钟形变边界或有界的 35% fallback，然后在经验证的暗屏接缝处采用确定性的受管几何。
+- 在精确验证的普通/linkage 位置模式下，实验性场景协调器仅在歌词处于活动状态时，才可能平移 Xiaomi 的原生 AOD 内容容器并接管 burn-in 计时。在普通模式下，该容器同时包含原生时钟样式与自定义图像样式。
+- `AOD clock or image` 设置将既有策略呈现为一个选项。`Follow Xiaomi` 将原生内容平移留给 Xiaomi，HyperGlow 只观察精确目标并保持歌词画布干净。固定与移动选项则让 HyperGlow 成为同一时钟或图像容器的平移权威，并应用所选模式。
+- Xiaomi 的移动回调仍被监听，以便缓存其最新自然目标，但在模块接管期间其平移被抑制。默认的 `static_bottom` 模式将原生时钟或图像容器一次性移动到经验证的底部区域，并在歌词活动期间保持在那里。可选的有界计时器可按 30 秒、1 分钟、2 分钟或 5 分钟的间隔选择六分区、四角或垂直交换位置。
+- Xiaomi linkage 的零号槽位及后续 burn-in 位置都是固定网格坐标，并非随机。模块在 AOD 根附加时注册位置控制器，并在有效布局后推导初始自然目标，而不是等待 Xiaomi 延迟的首次 `updateTranslation()` 回调。
+- 歌词在物理上与权威时钟边界相对的空闲区域内解析。受管动态区域变更是事务性的：歌词淡出 150 毫秒，等待 Xiaomi 精确的 `DozeHost.updatePosition()` 动画完成回调，一次性应用目标几何，然后歌词淡入 180 毫秒。若错过 OEM 回调，有界的 1500 毫秒超时会向前失败（fails forward）。画布不会持续穿越时钟路径。静态受管位置无需该移动事务即可保持可见。
+- 原生 linkage 有两个物理所有权阶段。当显示屏保持 `ON` 时，SystemUI 锁屏渲染器仍是 Xiaomi 形变锁屏时钟旁边的语义源。因为 Xiaomi 可能提前隐藏该源父视图，准备好的 AOD 渲染器会立即可见，位于从 `AnimationHelper.mClockAnima.mAllContainer`（fallback 到 `mClockView`）捕获的精确渲染边界的对侧区域。只有在该精确视图不可用时，位置才会保留保守的顶部 35%。当 `DozeService.setDozeScreenState(DOZE)` 应用暗屏显示状态，或附加的 AOD 根观察到物理显示状态 `DOZE`/`DOZE_SUSPEND` 时，权威直接落定为正常 AOD 几何，而没有第二次模块滑动动画。AOD 根会注册显示监听器，而不是仅依赖 OEM hook。不存在计时器驱动的视觉转移：如果错过 OEM 回调，已可见的亮屏安全布局保持不变，而不是提前移动或消失。在变暗之前唤醒会取消并回到锁屏源。自定义图像 AOD 保留其既有过渡行为。
+- 亮屏时钟碰撞状态是物理呈现状态，而不是语义上的歌词 linkage 状态。当播放暂停且当前 projection 被隐藏、但已授权保留的 AOD snapshot 被恢复时，该状态仍保持活动。`SNAPSHOT_NOT_VISIBLE`、已禁用的锁屏歌词或其他语义交接拒绝，都不能让受管暗屏几何覆盖仍在形变的亮屏时钟。每一次观察到的默认显示状态变更都会合并一次几何刷新，因此进入 `DOZE` 时即使没有语义过渡在进行，也会离开保守的亮屏槽位。
+- 在受管位置之外，自定义图像与不受管的 AOD 场景仍可使用紧凑测量的原生时钟边界。在受管位置期间，禁止渲染/控制器边界并集，因为 Xiaomi 交叉淡化后代与过期采样可能预留无关内容，或在移动中途切换几何权威。精确物理边界采用严格优先级：SystemUI 形变视图、AOD 控制器目标视图、受管目标。当该精确视图或任一祖先变为隐藏/透明时，对应物理边界即被清除。
+- Xiaomi 可能在亮屏 linkage 完成之前隐藏原生媒体行。仅当锁屏渲染器是活动的前向交接源时，才允许在没有原生媒体存在的情况下保留已授权的冻结/最新 snapshot；正常稳定的锁屏隐私策略保持不变。
+- 超级壁纸、翻盖、未知模式、无效几何、缺失符号或非活动歌词，均原样通过 Xiaomi 的原始平移。
+- 禁用功能、原生 Spotify 媒体播放器移除、projection 过期/断开、Binder 失败或 surface 资格校验失败，会释放静态/移动所有权，取消任何模块计时器，并恢复 Xiaomi 上一次未被修改的平移目标。符合条件的 Spotify 暂停仅在共享的配置超时内保留冻结的 AOD 场景与当前受管时钟位置。
+- 播放中的曲目 generation 变更会启动一个 8 秒的呈现租约并发出一次 wake 事件，使已同步与未同步的曲目都能短暂呈现换歌元数据。呈现策略以歌词字号显示标题和艺术家 3 秒，随后（在启用时）形变或交叉淡化到持久的小号曲目信息；否则移除标题/艺术家。正在活动的开场歌词或短于 3 秒的开场间隙，会将一整段 intro 推迟到下一个可用时间不少于 3 秒的 interlude。该状态绑定于 generation，每首歌曲最多消耗一次。它不改变播放、暂停保留、wake 身份、keepalive 或 AOD 生命周期策略。该 generation 的第一个被接受的带时值文档会发出第二个 wake 事件，允许已同步曲目在前一个未同步曲目超时后恢复 AOD。精确验证的 wake broker 仅在设备处于非交互状态时调用 Xiaomi 的 `DozeHost.fireAodState(true, "reason_keycode_goto")`。
+- 默认 keepalive 还额外要求存在包含至少一个正时长行的 `Line` 或 `Syllable` 文档。带时值文档到达会将当前呈现租约升级为持久 keepalive，且不产生虚假间隙。静态、缺失、加载中、无歌词以及退化的零时长文档在租约到期时自然释放。`Also keep AOD active without timed lyrics` 将这些未带时值状态升级为持久 keepalive。主保持唤醒偏好必须开启，租约、带时值与覆盖模式才能生效。
+- `Keep AOD active for` 将连续 Spotify 播放的生命周期会话限定为 5 分钟、10 分钟、30 分钟、1 小时、2 小时或无限期；默认为无限期。有限计时器在 keepalive 首次于连续播放段内变为活动时启动。切歌、文档变更、wake 事件、transport grace 与新鲜度心跳都不会重置它，同一播放段内的呈现租约间隙也不会重新锚定它。到期会释放 Xiaomi 生命周期抑制，播放可以继续；Spotify 暂停/停止仍然立即释放。该非播放沿之后的下一个符合条件的播放会话可以启动新计时器。
+- Xiaomi 生命周期抑制独立于画布可见性、布局与 linkage 所有权。它只要求已附加的 AOD surface、经校验的 keepalive 意图以及精确的生命周期能力。所配置时长的到期会在 projection 处撤回该 keepalive 意图，因此不存在单独的 SystemUI 计时器。该时长仅属于生命周期策略；它不改变 wake 身份、呈现租约、内容能力、暂停保留或渲染器状态。绘制唤醒的续期仍是渲染器侧的独立关注点。
+- 经校验的生命周期守卫还拥有一个窄幅亮度覆盖。在精确的 Xiaomi `DOZE_AOD` 状态下，通过 `MiuiDozeBrightnessTimeoutAdapter` 的较低非零请求会被钳制到 Xiaomi 自身的正 `CommonUtils.BRIGHTNESS_ON` 值。达到或高于该值的请求直接通过。零/关闭请求，以及 `DOZE_AOD_PAUSING`、`DOZE_AOD_PAUSED`、普通 `DOZE`、pulse、finish、未知状态或非活动守卫中的所有请求，均原样通过。这使口袋与接近传感暂停保持权威。守卫激活与释放时会通过原生适配器重新提交 Xiaomi 的上一次原始请求，因此 Xiaomi 保持其原生亮度超时行为，并在歌词 keepalive 结束时按原生适配器的正常延迟重新获得控制。
+- 一个被显式标记为 Spotify 仍在播放的瞬态隐藏沿，会在任何携带经校验 keepalive 意图的 snapshot 之后启动一个有界的 30 秒电源 grace。带时值歌词与由 `Also keep AOD active without timed lyrics` 保持的未带时值会话同样符合条件；歌词时值属于内容能力，绝不作为生命周期策略的门控。下一个可见 snapshot 会取消该 grace 而不重放 Xiaomi 隐藏策略。暂停/非播放状态立即释放。这防止短暂的生产者/状态间隙在歌曲中途中关闭 AOD。Projection 过期会保留已活动的经校验 keepalive 请求；断开连接、显式清除、暂停与 grace 到期仍然会释放它。
+- 换歌期间的非播放 `loading` 沿被投影为该有界的仍在播放 transport 间隙。其他所有非播放沿都是暂定的：Spotify 会在下一个 generation 到达前大约一秒将结束曲目报告为 `ready`/未播放，因此该沿首先被投影为同样的仍在播放 transport 间隙，只有在有界的 5 秒确认窗口之后、生产者仍在同一会话上处于非播放状态时，才成为真正的暂停保留。在该窗口内恢复的生产者或新会话会取消待定暂停，因此切歌永远不会释放 AOD 生命周期或重放 Xiaomi 隐藏策略。该窗口每会话只打开一次；在暂停时仍持续发布的生产者不得重新打开它。
+- ready、loading 与无歌词的可见播放都接收相同的 4 秒新鲜度心跳；未变化的 fallback snapshot 会被刷新，而不是在 5 秒后过期。
+- wake broker 将最近验证的 `DozeHost` 保留为一个有界的恢复引用，跨越 AOD 插件卸载周期。如果持久会话没有附加的 AOD surface，每个有界心跳都可以重试相同的 wake 身份，直到 Xiaomi 重建该 surface。交互式亮屏请求保持被抑制，系统 AOD 总开关设置保持权威。
+- 在 Xiaomi 已经开始隐藏 AOD 时到达的 keepalive 沿无法被抑制：策略隐藏已经执行，其 alarm 已无法取消，动画中途送达的 wake 只会重新武装 Xiaomi 自己的计时器。这一唯一竞态会在"非活动→活动"生命周期沿之后的有界隐藏动画窗口内、第一个 AOD 显示关闭沿上，一次性重新断言当前 wake 身份，且仅当 surface 保持附加时如此。恢复仅在该守卫沿发生时 AOD 仍在呈现的情况下被武装，由第一个关闭沿消耗，并需要新的守卫激活才能重新武装。从未派发过 wake 的会话不携带身份，也不会恢复。
+- 显示电源除此之外归 Xiaomi 所有。传感器或口袋暂停、主动休眠、过期会话与已释放的租约都会到达同一个显示关闭沿，重新唤醒它们会与 Xiaomi 形成自我维持的循环，每隔几秒重新点亮面板。Keepalive 从不把已关闭的 AOD 显示当作持续的唤醒理由，wake broker 的最小请求间隔也不能替代该约束。
+- 已确认的 Spotify 暂停会释放生命周期守卫一次，最迟在该沿之后一个确认窗口内；其冻结卡片仅可在共享的配置超时内、直到 Xiaomi 休眠或直到原生媒体播放器被移除之前保留，以最先结束呈现者为准。
+- 仅锁屏附加或可见本身绝不会抑制 Xiaomi 隐藏策略。
+
+## 锁屏自定义手势
+
+- `Block lock screen customization` 默认关闭，且独立于歌词可见性。
+- 在精确验证的 Xiaomi profile 上，抑制仅限于 `KeyguardEditorHelper.onTouchEvent(MotionEvent)`、最终的 `tryStartEditActivity()` 启动门，以及 `LockScreenMagazineController.handleSingleClickEvent()`。
+- 该设置屏蔽编辑器长按与壁纸轮播单击预览。
+- 不替换任何通用锁屏触摸监听器。滑动、通知、媒体、电源、指纹、生物识别与无障碍路径保持原生。
+- 方法缺失、包版本未知或设置已禁用时，均原样通过。
+
+## 抬起手势重映射
+
+- HyperOS 的 `Raise to wake` 仍是传感器主开关。模块不会强制启用它，也不会注册第二个拾起传感器。
+- 当 `Raise to show AOD` 在精确验证的 profile 上启用时，仅 detail 为 `com.android.systemui:PICK_UP` 的 SystemUI 唤醒调用会被重映射。模块首先通过已验证的 Xiaomi `DozeHost.fireAodState(true, "reason_keycode_goto")` 状态机接缝请求 AOD，然后总是抑制完整唤醒。如果 AOD 已由活动歌词维持，该请求实际上是冗余的，现有 AOD 保持可见。
+- 该重映射对此机主设备是全局的，不依赖 Spotify、歌词、媒体状态或任一歌词 surface 的启用状态。
+- 电源键、指纹、双击、通知、生物识别、相机与应用唤醒原因始终原样通过。
+- 在该设置启用时，唤醒宿主不可用会使设备保持非交互状态，而不是进入锁屏。wake hook 符号缺失、包版本未知、模块设置禁用或 HyperOS `Raise to wake` 禁用时，均保留原生行为。
+
+## 连续性
+
+- Linkage 使用相互独立的锁屏与 AOD 渲染器；不做视图重新父级化（reparenting）。
+- 交接状态是有界的、可逆的，并受单调令牌保护。
+- 行选择最多可冻结 600 毫秒，同时逐字/填充时值仍从同一 elapsed 时间锚点继续。
+- 曲目 generation 变更会立即取消冻结。
+- 源与目标矩形以窗口坐标捕获。几何缺失时退化为仅 alpha 交接；目标缺失时退化为原生附加/分离可见性。
+- 反向交接仅等待一个短的有界目标几何稳定期，然后从较小的正 Y 偏移启动锁屏歌词，并在 Xiaomi 显示父视图的同时向上滑动。目标动画不得在歌词视图仍不可见时完成。
+- 前向交接在几何与 wake 刷新期间保持 AOD 目标 alpha 动画；布局/wake 回调不得在过渡中途将目标重置为 alpha `1`。
+- 正常的行进入/退出动画在交接期间被抑制，并在稳定后恢复。
+- Xiaomi 原生锁屏父视图动画从不被覆盖。
+- 锁屏显示动画将完整卡片容器作为一个整体。文本、自适应背景、描边与媒体进度共享同一 alpha 与向上平移时间线。
+
+## 声明式自定义
+
+- 文档是带版本的数据，而不是插件。
+- 应用进程编译执行迁移、规范化、能力过滤、限制与稳定的 revision 哈希。SystemUI 会再次校验。
+- 配置目标大小低于 32 KiB；硬性上限为 64 KiB。
+- 组件总数目标最多为 8；AOD 可见组件最多为 4。
+- 未知组件会被丢弃。不存在有效歌词组件时，退回到内置安全 profile。
+- 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
+- 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。
+- 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
+- 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
+- 在绑定 generation 的歌曲 intro 期间，匹配的单行标题/艺术家文本会抑制重复的元数据行，并在三秒后形变为持久的元数据位置与大小。不兼容或换行的几何使用有界交叉淡化。两条路径都不改变整个 surface 的 alpha、keepalive 亮度策略或位置权威。
+- 导入的数据不能指定类、资源、方法、路径、URL、命令或外部位图来源。
+- 重置会恢复内置安全 profile。
+
+已启用的固定注册表：
+
+- lyrics；
+- metadata；
+- 仅锁屏的 media_progress。
+
+artwork 强调色、状态文本、占位符（spacer）与分隔线，在各自拥有真实的有限渲染器、放置契约、隐私/功耗分析与设备证据之前，仍然被拒绝。AOD 进度/作品图仍然被清除出去。
+
+无论用户/导入值如何，AOD 策略都可以进一步降低亮度、亮区面积、动画、作品图、组件数量或场景大小。
+
+## 迁移
+
+- 既有的 `aod_render` 值填充默认 AOD profile，不产生可见回归。
+- 初始锁屏 profile 派生自 AOD 样式，但保持禁用。
+- 链接 surface 样式在锁屏启用后默认开启。
+- 无缝过渡仅在两个 surface 都已启用且 linkage 能力通过时默认开启。
+- 迁移版本仅在成功校验/持久化之后写入。
+- 旧版 AOD 偏好在一个回滚周期内保持可用。
+
+## 能力 fallback
+
+应用显示来自最近接受的能力报告的显式支持状态：无报告、已验证、已验证但缺失符号、不支持、实验性符合条件或实验性活动。已配置的 surface 偏好在不受支持的 profile 上仍会存储，但应用必须将其描述为无法运行并禁用依赖运行时的控件。外观编辑器仍可用于预览和未来配置。用户可以创建包含包版本与有限原始符号证据的兼容性报告。
+
+能力报告协议 v2 包含报告时间戳、生效 profile 状态、实验状态、原始探测集与已解析能力集。协议 v1 仅因应用/SystemUI 升级过渡兼容而被继续接受。未知 profile 保持 fail-closed；仅原始探测成功不会安装或启用任何 hook。
+
+各能力相互独立：
+
+```text
+AOD_SURFACE
+AOD_POSITION_UPDATES
+AOD_LIFETIME_GUARD
+AOD_WAKE_BROKER
+LOCKSCREEN_HOST
+LOCKSCREEN_GEOMETRY
+LINKAGE_DIRECTION
+LINKAGE_GEOMETRY
+RAISE_TO_AOD
+FULL_AOD
+VIDEO_DEPTH
+```
+
+匹配包括 SystemUI/AOD 包版本与精确的必需符号签名。未知或缺失的符号仅禁用依赖行为。原生 UI 从不被隐藏、替换、重新父级化、重新测量或重新样式化。时钟平移控制仅允许由上文验证过的 AOD 场景策略执行，且必须能退回到 Xiaomi 的原始目标。

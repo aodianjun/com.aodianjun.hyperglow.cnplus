@@ -1,5 +1,142 @@
 # LSPosed 推送操作手册
 
+# English / 英文
+
+> Purpose: whenever asked to "push LSP" / "publish to LSPosed", read this file first and follow the procedure below.
+> For background on the original submission, see [LSPOSED_SUBMISSION.md](LSPOSED_SUBMISSION.md).
+
+## How It Works (revised after live testing, 2026-09-06)
+
+The LSPosed module repository (modules.lsposed.org) **actually reads the releases of
+the mirror repository `Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus`**,
+whose download links point to `assets.lsposed.org` (the CDN for mirror repository assets).
+
+**The official bot's "edit the source-repository release to auto-sync" mechanism no longer
+works** — the mirror has not auto-synced since 89-0.3.70 (2026-08-18); everything from
+109-0.3.82 onwards was pushed manually. Therefore "pushing LSP" = **manually creating a
+release with the same name in the mirror repository**.
+
+## Key Conventions
+
+| Item | Value |
+|---|---|
+| Source repository (code) | `aodianjun/com.aodianjun.hyperglow.cnplus` (where the CI build artifacts live) |
+| Mirror repository (what LSP actually reads) | `Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus` |
+| Release tag format | `{versionCode}-{versionName}`, e.g. `109-0.3.82` (LSPosed convention) |
+| Version number source | `versionCode` / `versionName` in `app/build.gradle.kts` |
+| Mirror credentials | **Requires a user-provided PAT** (see below) |
+
+## Current Push Status (verified 2026-09-06)
+
+**Update this table** after every "push LSP" run; read it before the next push to see which versions are still missing.
+
+| Source repository release | Mirror status |
+|---|---|
+| `109-0.3.82` | ✅ Pushed (2026-09-06, manual PAT) |
+| `108-0.3.81` | ❌ Not pushed |
+| `107-0.3.80` | ❌ Not pushed |
+| `106-0.3.79` | ❌ Not pushed |
+| `105-0.3.78` | ❌ Not pushed |
+| `98-0.3.71` (Pre-release) / `90-0.3.71` (Pre-release) | ➖ Optional: pre-release test builds, may be skipped |
+| `89-0.3.70` | ✅ Synced in the bot era |
+| `85-0.3.68` | ✅ Synced in the bot era |
+| `87-0.3.69` | ❌ Not pushed (tag format is compliant, can be backfilled) |
+| `v0.3.65` ~ `v0.3.67` | ➖ Tags carry a `v` prefix, which violates the LSPosed convention, and they predate the first submission — do not push |
+
+> Releases 0.3.72~0.3.77 of the source repository no longer exist (cleaned up and deleted
+> after publishing), so there is nothing to backfill. The module page's Latest Release is
+> already 109-0.3.82; the missing historical versions only affect the completeness of the
+> "View all releases" list — missing 0.3.78~0.3.81 does not block user updates. Whether to
+> backfill them is up to the maintainer.
+
+## Authentication: Why a PAT Is Needed
+
+The TRAE sandbox's gh OAuth token is blocked by the Xposed-Modules-Repo organization's
+third-party app access policy
+(`HTTP 403: Resource not accessible by integration`; git push likewise `denied`).
+The user account itself has ADMIN permissions — the organization simply does not trust that token.
+
+**Solution**: ask the user to generate a classic PAT at
+https://github.com/settings/tokens/new?scopes=repo (a 7-day validity is enough)
+and provide it in the session. Afterwards, remind the user to delete it:
+https://github.com/settings/tokens
+
+## Procedure
+
+### 0. Read the "Current Push Status" table
+
+Check whether the target version has already been pushed, and whether historical versions need backfilling (see the table above).
+
+### 1. Confirm the source repository CI is green and the release assets are fresh
+
+```bash
+gh run list --repo aodianjun/com.aodianjun.hyperglow.cnplus --limit 3
+gh release view {VC}-{VN} --repo aodianjun/com.aodianjun.hyperglow.cnplus \
+  --json assets --jq '[.assets[] | {name, size, updatedAt}]'
+```
+
+There should be 2 assets (release + debug variants), and `updatedAt` should be later than the last code commit.
+
+### 2. Download the APKs and export the release body
+
+```bash
+mkdir -p .lsp-push
+gh release download {VC}-{VN} --repo aodianjun/com.aodianjun.hyperglow.cnplus --dir .lsp-push
+gh release view {VC}-{VN} --repo aodianjun/com.aodianjun.hyperglow.cnplus \
+  --json body --jq '.body' > .lsp-push/body.md
+```
+
+(Optional) Review/complete the body content per [RELEASE_CONVENTIONS.md](RELEASE_CONVENTIONS.md).
+
+### 3. Create the release in the mirror repository with the PAT (this is "pushing LSP")
+
+```bash
+export GH_TOKEN={user-provided PAT}
+gh release create {VC}-{VN} \
+  --repo Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus \
+  --title "HyperGlow CN+ {VC}-{VN}" \
+  --notes-file .lsp-push/body.md \
+  .lsp-push/hyperglow-cnplus-release-v{VN}-{VC}.apk \
+  .lsp-push/hyperglow-cnplus-debug-v{VN}-{VC}.apk
+unset GH_TOKEN
+```
+
+If the mirror release already exists but its assets are stale, use `gh release upload --clobber` + `gh release edit` instead.
+
+### 4. Verify
+
+```bash
+export GH_TOKEN={PAT}
+gh release view {VC}-{VN} --repo Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus \
+  --json assets --jq '[.assets[] | {name, size}]'
+unset GH_TOKEN
+```
+
+Asset names and byte sizes must exactly match those of the source repository. The "Latest Release"
+on the module page
+https://modules.lsposed.org/module/com.aodianjun.hyperglow.cnplus
+should then switch to the new tag (CDN/page lag is usually on the order of minutes).
+
+### 5. Cleanup and Bookkeeping
+
+- Delete the `.lsp-push/` temporary directory (the APKs total ~45MB; never commit them).
+- Remind the user to delete the temporary PAT.
+- The PAT must **never be written to any file or git history**; it exists only briefly in the command env.
+- **Update the "Current Push Status" table in this document** (mark the pushed versions), then commit and push to the source repository main.
+
+## FAQ
+
+- **403 Resource not accessible by integration** → use a PAT, see the "Authentication" section.
+- **Source release does not exist** → the version number was not bumped, or the CI release job did not run; fix that first.
+- **CI failure**: commonly `UiStringsContractTest` — a newly added string was not synced into
+  `app/translation/strings-template.xml` (it must be present in all four places:
+  values / values-zh-rCN / values-zh-rTW / template).
+- **Publishing a new version**: bump the version → push main → CI creates the source release → return to step 1 of this procedure.
+
+---
+
+# 中文 / Chinese
+
 > 用途：每次要求"推送 LSP / 发布到 LSPosed"时，先读本文件按流程执行。
 > 前置背景见 [LSPOSED_SUBMISSION.md](LSPOSED_SUBMISSION.md)（首次提交规范）。
 
@@ -9,8 +146,8 @@ LSPosed 模块仓库（modules.lsposed.org）**实际读取的是
 `Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus` 这个镜像仓库的 releases**，
 其下载链接指向 `assets.lsposed.org`（镜像仓库资产的 CDN）。
 
-**官方 bot 的"编辑源仓库 release 自动同步"机制已失效**——镜像在 89-0.3.70
-（2026-08-18）之后就没再自动同步过（109-0.3.82 起为手动推送）。
+**官方 bot 的"编辑源仓库 release 自动同步"机制已失效**——
+镜像在 89-0.3.70（2026-08-18）之后就没再自动同步过（109-0.3.82 起为手动推送）。
 因此"推送 LSP" = **手动在镜像仓库创建同名 release**。
 
 ## 关键约定
