@@ -88,14 +88,15 @@ Screenshots may be attached manually to the separately opened public GitHub issu
 Capture stores wall and elapsed start times plus the previous diagnostic-logging state. It enables
 the existing runtime logging flag and publishes configuration to SystemUI. The active-capture
 instruction tells the user to restart SystemUI inside the capture window so boot markers are
-included. A non-exported alarm
+included, and to reproduce the failure before finishing so failure evidence lands inside the window. A non-exported alarm
 expires the capture after 30 minutes; process startup also handles timeout or elapsed-clock reset.
 
 Finish runs only fixed root commands. User text never enters a command. Each command has a five-second
 timeout:
 
 - the HyperGlow-tagged main/system logcat slice since capture started (`-T <capture-start>`),
-  maximum 160 KiB;
+  maximum 160 KiB, plus the app-process log mirror (maximum 96 KiB) folded into the same logs
+  section;
 - fixed SystemUI/HyperGlow process listing (`USER`, `UID`, `PID`, and bounded process name), merged
   into that bounded log section;
 - crash-buffer blocks whose process is HyperGlow, SystemUI, or Spotify, maximum 64 KiB;
@@ -214,14 +215,14 @@ LSPosed 日志。上述进程/框架凭据是显式固定且在白名单内的�
 
 采集会存储起始的墙上时间与流逝时间，以及之前的诊断日志开关状态。它会启用既有的运行时
 日志开关并向 SystemUI 发布配置。采集进行中的提示会告知用户在采集窗口内重启 SystemUI，
-以包含启动标记。一个未导出的 alarm
+以包含启动标记，并在完成前复现故障，使故障证据落在窗口之内。一个未导出的 alarm
 会在 30 分钟后使采集过期；进程启动时同样会处理超时或流逝时钟重置。
 
 完成操作只运行固定的 root 命令。用户文本永远不会进入命令。每条命令的超时时间为
 5 秒：
 
 - 自采集开始以来带 HyperGlow 标签的 main/system logcat 切片（`-T <capture-start>`），
-  最大 160 KiB；
+  最大 160 KiB，外加 App 进程日志镜像（最大 96 KiB），并入同一受限日志段；
 - 固定的 SystemUI/HyperGlow 进程列表（`USER`、`UID`、`PID` 与受限的进程名），合并进该
   受限的日志段；
 - 进程为 HyperGlow、SystemUI 或 Spotify 的 crash 缓冲区块，最大 64 KiB；

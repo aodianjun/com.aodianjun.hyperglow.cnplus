@@ -13,8 +13,8 @@ remote configuration, automatic GitHub issues, cookies, or embedded API credenti
 - HyperGlow capability/symbol results and allowlisted runtime settings.
 - Current song title, artist, album, Spotify track URI, lyric provider/language/timing information,
   and bounded current original/transliterated/translated lyric lines when available.
-- If you explicitly run guided capture: filtered HyperGlow logs, allowed-process crash excerpts, and
-  HyperGlow-only LSPosed lines.
+- If you explicitly run guided capture: filtered HyperGlow logs (the SystemUI logcat slice plus the
+  app-process log mirror), allowed-process crash excerpts, and HyperGlow-only LSPosed lines.
 - If guided capture runs with root: a fixed process snapshot for SystemUI and HyperGlow containing
   USER, UID, PID, and bounded process name; selected framework evidence under `/data/adb`, including
   presence of the LSPosed log directories, matching module `module.prop` id/name/version/versionCode,
@@ -70,8 +70,8 @@ HyperGlow 才会发送诊断报告。不存在后台上传、分析统计、远�
 - HyperGlow 的能力/符号检测结果及白名单内的运行时设置。
 - 当前歌曲的标题、艺术家、专辑、Spotify 曲目 URI、歌词提供方/语言/时间轴信息，
   以及可用时有限的当前原文/音译/翻译歌词行。
-- 如果您明确运行引导式采集：经筛选的 HyperGlow 日志、允许进程的崩溃摘录，
-  以及仅涉及 HyperGlow 的 LSPosed 日志行。
+- 如果您明确运行引导式采集：经筛选的 HyperGlow 日志（SystemUI logcat 切片及 App 进程日志
+  镜像）、允许进程的崩溃摘录，以及仅涉及 HyperGlow 的 LSPosed 日志行。
 - 如果引导式采集以 root 权限运行：SystemUI 和 HyperGlow 的固定进程 snapshot，包含 USER、UID、PID
   及有限长度的进程名；`/data/adb` 下选取的框架证据，包括 LSPosed 日志目录是否存在、匹配模块的
   `module.prop` id/name/version/versionCode、检测到的 root 方案标识（`ksu`、`ap` 或 `magisk`），

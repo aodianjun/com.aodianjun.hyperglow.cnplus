@@ -4,9 +4,16 @@
 
 ### It does not work on my phone
 
-Submit a compatibility report:
+Submit a report:
 
-**HyperGlow → Report a problem → Compatibility**
+**HyperGlow → Report a problem** (or the **Send compatibility report** entry, when shown)
+
+Pick the category that matches the failure: **Compatibility**, **AOD surface**, **Lock screen
+surface**, **Spotify bridge**, **System UI crash or restart**, **Configuration**, or **Other**.
+
+A healthy-setup Compatibility report uploads current metadata immediately. Every other category
+starts a guided capture: restart System UI, reproduce the failure until it is visible, then return
+to HyperGlow and finish. Review the included data, accept the data policy, and upload once.
 
 Current testing covers one device only:
 
@@ -22,13 +29,14 @@ Submit the report above so support can be evaluated from the exact SystemUI and 
 
 - Xiaomi HyperOS.
 - Rooted LSPosed.
-- Spicy EX active in Spotify.
-- HyperGlow scoped to System UI.
+- A supported lyrics source: Spicy EX in Spotify, or Lyricon / SuperLyric / LyricInfo in the
+  matching Chinese music app.
+- HyperGlow scoped to System UI, Android system, and Xiaomi AOD.
 - System AOD enabled for AOD lyrics.
 
 ### Which LSPosed scope?
 
-System UI only.
+System UI, Android system (`android`), and Xiaomi AOD (`com.miui.aod`) — all three.
 
 Spicy EX uses a separate Spotify-only scope.
 
@@ -36,7 +44,7 @@ Spicy EX uses a separate Spotify-only scope.
 
 1. Launch HyperGlow once.
 2. Verify LSPosed scope.
-3. Reload the hooks or restart SystemUI.
+3. Reload the hooks, or use HyperGlow's restart action (System UI and AOD).
 4. Reopen HyperGlow.
 
 Still missing? Submit a compatibility report.
@@ -45,11 +53,12 @@ Still missing? Submit a compatibility report.
 
 Check:
 
-- Spotify actively playing.
-- Spicy EX enabled.
-- HyperGlow bridge enabled in Spicy EX.
+- The music app is actively playing.
+- The lyrics source module is installed and active (Spicy EX for Spotify; Lyricon / SuperLyric /
+  LyricInfo for their apps).
+- For Spicy EX: the HyperGlow bridge is enabled in Spicy EX.
 - HyperGlow profile supported.
-- Spotify and SystemUI bridge connections present.
+- Bridge connections between the music app and SystemUI are present.
 - Current track has usable lyrics.
 
 ### Does it support non-Xiaomi devices?
@@ -67,7 +76,8 @@ and suitable movement mode.
 
 ### Does HyperGlow download lyrics?
 
-No. Lyrics arrive locally from Spicy EX.
+No. Lyrics arrive locally from the active lyrics source module (Spicy EX, Lyricon, SuperLyric, or
+LyricInfo).
 
 Network access is used only for an explicit diagnostic upload.
 
@@ -81,9 +91,16 @@ No. Any diagnostic report upload requires your manual confirmation.
 
 ### 在我的手机上不起作用
 
-请提交兼容性报告：
+请提交报告：
 
-**HyperGlow → 报告问题（Report a problem）→ 兼容性（Compatibility）**
+**HyperGlow → 报告问题（Report a problem）**（或应用显示的**发送兼容性报告（Send compatibility report）**入口）
+
+选择与故障匹配的分类：**兼容性（Compatibility）**、**AOD 表面（AOD surface）**、**锁屏表面
+（Lock screen surface）**、**Spotify 桥接（Spotify bridge）**、**System UI 崩溃或重启（System UI
+crash or restart）**、**配置（Configuration）**或**其他（Other）**。
+
+环境正常的兼容性报告会立即上传当前元数据；其余所有分类都会启动引导采集：重启系统界面、
+复现故障直到其可见，然后回到 HyperGlow 完成采集。检查包含的数据、接受数据政策后单次上传。
 
 目前的测试仅覆盖一台设备：
 
@@ -99,13 +116,14 @@ No. Any diagnostic report upload requires your manual confirmation.
 
 - Xiaomi HyperOS。
 - 已 root 的 LSPosed。
-- Spicy EX 已在 Spotify 中启用。
-- HyperGlow 作用域已限定为 System UI。
+- 受支持的歌词源：Spotify 使用 Spicy EX，或对应中文音乐 App 使用 Lyricon / SuperLyric /
+  LyricInfo。
+- HyperGlow 作用域已限定为 System UI、Android 系统与 Xiaomi AOD。
 - 已启用系统 AOD 以显示 AOD 歌词。
 
 ### LSPosed 作用域选什么？
 
-仅 System UI。
+System UI、Android 系统（`android`）与 Xiaomi AOD（`com.miui.aod`）——三个都要选。
 
 Spicy EX 使用单独的、仅限 Spotify 的作用域。
 
@@ -113,7 +131,7 @@ Spicy EX 使用单独的、仅限 Spotify 的作用域。
 
 1. 启动一次 HyperGlow。
 2. 检查 LSPosed 作用域。
-3. 重新加载 hook 或重启 SystemUI。
+3. 重新加载 hook，或使用 HyperGlow 内的重启动作（系统界面与 AOD）。
 4. 重新打开 HyperGlow。
 
 仍然没有出现？请提交兼容性报告。
@@ -122,11 +140,12 @@ Spicy EX 使用单独的、仅限 Spotify 的作用域。
 
 请检查：
 
-- Spotify 正在播放。
-- Spicy EX 已启用。
-- Spicy EX 中的 HyperGlow 桥接已启用。
+- 音乐 App 正在播放。
+- 歌词源模块已安装并启用（Spotify 用 Spicy EX；Lyricon / SuperLyric / LyricInfo 用于各自的
+  App）。
+- 若使用 Spicy EX：Spicy EX 中的 HyperGlow 桥接已启用。
 - HyperGlow 配置文件受支持。
-- Spotify 与 SystemUI 的桥接连接已建立。
+- 音乐 App 与 SystemUI 的桥接连接已建立。
 - 当前曲目有可用的歌词。
 
 ### 支持非 Xiaomi 设备吗？
@@ -144,7 +163,7 @@ Spicy EX 使用单独的、仅限 Spotify 的作用域。
 
 ### HyperGlow 会下载歌词吗？
 
-不会。歌词由 Spicy EX 在本地传送。
+不会。歌词由当前启用的歌词源模块（Spicy EX、Lyricon、SuperLyric 或 LyricInfo）在本地传送。
 
 网络访问仅用于您明确发起的诊断上传。
 
