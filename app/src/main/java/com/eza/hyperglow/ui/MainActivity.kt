@@ -248,6 +248,8 @@ private fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showRestartDialog by remember { mutableStateOf(false) }
+    var restartSystemUiTarget by remember { mutableStateOf(true) }
+    var restartAodTarget by remember { mutableStateOf(true) }
     var showBurnInPatternDialog by remember { mutableStateOf(false) }
     var showBurnInIntervalDialog by remember { mutableStateOf(false) }
     var showPauseLingerDialog by remember { mutableStateOf(false) }
@@ -925,22 +927,49 @@ private fun HomeScreen(
             show = true,
             onDismissRequest = { showRestartDialog = false }
         ) {
-            androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
-                TextButton(
-                    text = stringResource(R.string.action_cancel),
-                    modifier = Modifier.weight(1f),
-                    onClick = { showRestartDialog = false }
+            Column {
+                SwitchPreference(
+                    restartSystemUiTarget,
+                    { enabled -> restartSystemUiTarget = enabled },
+                    stringResource(R.string.dialog_restart_target_systemui)
                 )
-                Spacer(Modifier.width(20.dp))
-                TextButton(
-                    text = stringResource(R.string.action_restart),
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                    onClick = {
-                        showRestartDialog = false
-                        scope.launch { showRestartResult(ShellUtils.restartHookedProcesses()) }
-                    }
+                SwitchPreference(
+                    restartAodTarget,
+                    { enabled -> restartAodTarget = enabled },
+                    stringResource(R.string.dialog_restart_target_aod)
                 )
+                androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        text = stringResource(R.string.action_cancel),
+                        modifier = Modifier.weight(1f),
+                        onClick = { showRestartDialog = false }
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    TextButton(
+                        text = stringResource(R.string.action_restart),
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                        onClick = {
+                            if (!restartSystemUiTarget && !restartAodTarget) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.toast_restart_no_target),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                return@TextButton
+                            }
+                            showRestartDialog = false
+                            scope.launch {
+                                showRestartResult(
+                                    ShellUtils.restartHookedProcesses(
+                                        systemUi = restartSystemUiTarget,
+                                        miuiAod = restartAodTarget
+                                    )
+                                )
+                            }
+                        }
+                    )
+                }
             }
         }
     }

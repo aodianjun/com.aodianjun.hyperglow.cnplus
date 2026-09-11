@@ -43,7 +43,7 @@
     <string name="summary_diagnostic_logging_unavailable">This build does not include diagnostic logging.</string>
     <string name="action_send_compatibility_report">Send compatibility report</string>
     <string name="action_report_problem">Report a problem</string>
-    <string name="action_restart_systemui">Restart System UI and AOD</string>
+    <string name="action_restart_systemui">Restart hooked processes</string>
     <string name="setting_experimental_mode">Experimental mode</string>
     <string name="summary_experimental_mode">This System UI version is not verified, but the required symbols were detected. Enable to unlock AOD and lock screen configuration at your own risk — surface hooks may not behave correctly on unverified builds.</string>
     <string name="summary_experimental_mode_on">Unverified profile unlocked via experimental mode. Surface behavior is not guaranteed.</string>
@@ -151,8 +151,11 @@
     <string name="toast_config_imported">Config imported</string>
     <string name="toast_config_import_invalid">Invalid or corrupt config file</string>
 
-    <string name="dialog_restart_systemui_title">Restart System UI and AOD?</string>
-    <string name="dialog_restart_systemui_summary">Restarts both hooked processes (System UI and the AOD process). The screen, status bar, and AOD will briefly disappear. Root access is required.</string>
+    <string name="dialog_restart_systemui_title">Restart hooked processes?</string>
+    <string name="dialog_restart_systemui_summary">Choose which hooked processes to restart. The System UI process also hosts the lock screen and its editor; the android (system_server) process can only be restarted by rebooting the device. The screen, status bar, and AOD may briefly disappear. Root access is required.</string>
+    <string name="dialog_restart_target_systemui">System UI (lock screen included)</string>
+    <string name="dialog_restart_target_aod">AOD process (com.miui.aod)</string>
+    <string name="toast_restart_no_target">Select at least one process</string>
     <string name="option_follow_xiaomi">Follow Xiaomi</string>
     <string name="dialog_pause_summary">Applies to both AOD and lock screen lyrics.</string>
     <string name="dialog_keep_aod_duration_summary">Bounds one continuous playing session. Pausing Spotify starts a new one.</string>
@@ -293,7 +296,7 @@
     <string name="option_none">None</string>
     <string name="option_top_to_bottom">Top to bottom</string>
 
-    <string name="toast_systemui_restarted">System UI and AOD restarted</string>
+    <string name="toast_systemui_restarted">Restart complete. Processes that were not running will pick up changes on next start.</string>
     <string name="toast_systemui_restart_failed">Restart failed. Check root permission.</string>
     <string name="toast_spotify_not_installed">Spotify is not installed</string>
     <string name="toast_lockscreen_unsupported">This System UI version does not support lock screen lyrics.</string>
