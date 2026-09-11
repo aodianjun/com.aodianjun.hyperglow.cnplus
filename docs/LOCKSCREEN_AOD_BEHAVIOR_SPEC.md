@@ -16,6 +16,17 @@ contract. This spec defines surface visibility, privacy, continuity, customizati
   shared bounded policy below. Terminal hidden state clears it.
 - State/configuration carry the app user ID; a SystemUI user switch clears/rebinds and rejects the
   previous user's cached payload.
+- Transliteration, translation, timed reading fragments, and ruby come from the current matching
+  producer document once it arrives. Before that document exists (untimed tracks, or a document
+  still in flight), scalar state may keep the original lyric line visible and may supply its
+  auxiliary lines — a deliberate CN+ divergence from upstream v0.3.97, which drops scalar
+  auxiliary lines entirely.
+- A Chinese document carrying kana ruby is language-inconsistent producer data. Projection keeps
+  the original lyric and rejects that row's ruby, whole-line romanization, and per-word
+  romanization; it does not classify the lyric again or synthesize a replacement reading.
+- A row fill end must remain inside the track duration. A producer fill end past that row's active
+  window is clamped to the active end for rendering; this bounded mismatch does not discard the
+  otherwise valid timed document or release keepalive.
 - AOD keepalive and lockscreen screen-on policy remain independent. Neither can activate from the
   other surface alone.
 - `playbackActive` comes only from the UID-validated Spotify bridge and is transported explicitly.
