@@ -27,8 +27,8 @@ internal data class CapturedDiagnosticData(
 )
 
 internal class DiagnosticCaptureCollector(
-    private val runner: DiagnosticRootCommandRunner,
-    private val appTraceReader: () -> String = { "" }
+    private val appTraceReader: () -> String = { "" },
+    private val runner: DiagnosticRootCommandRunner
 ) {
     fun collect(startedAtUtcMillis: Long): CapturedDiagnosticData {
         val rootAccessStatus = checkDiagnosticRootAccess(runner)

@@ -120,10 +120,12 @@ internal object DiagnosticCaptureManager {
         var restored = false
         val data = try {
             withContext(Dispatchers.IO) {
-                DiagnosticCaptureCollector(DiagnosticRootProcessRunner) {
-                    DiagnosticTraceFile.readForReport(session.startedAtUtcMillis)
-                }
-                    .collect(session.startedAtUtcMillis)
+                DiagnosticCaptureCollector(
+                    appTraceReader = {
+                        DiagnosticTraceFile.readForReport(session.startedAtUtcMillis)
+                    },
+                    runner = DiagnosticRootProcessRunner
+                ).collect(session.startedAtUtcMillis)
             }
         } finally {
             restored = endSession(context, session, DiagnosticCaptureLifecycleEvent.FINISH)
