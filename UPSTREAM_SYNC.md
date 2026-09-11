@@ -18,6 +18,7 @@
 | 上游提交 | 日期 | 内容 | 状态 |
 |---|---|---|---|
 | `b0254d5` (v0.3.96) | 2026-09-01 | AOD 亮度钳制：AodBrightnessHook（新文件）+ HookEntry 三路径安装 + AodLifetimeHook visibility 遥测/setLyricGuardActive 联动；AodLyricClient keepalive 同 revision 合并（mergePendingKeepAlive）；AodPowerCoordinator wake identity 前移消费；AodSurfaceController alpha 链检测（effectiveSurfaceAlpha/surfaceAlphaChain）；DiagnosticCaptureCollector logcat `-t 4000`→`-T <timestamp>`；诊断引导文案（4 语言+模板）；ARCHITECTURE/DIAGNOSTIC_REPORTING/LOCKSCREEN_AOD_BEHAVIOR 规范同步 | ✅ 已移植（2026-09-08；PAUSE_CONFIRM_MS=5s、通知几何死区、projection stale 保留此前已在 CN+ 基线，仅补齐 docs 与测试） |
+| `cc1f62f`+`ced2769`+`0424ae9`（诊断部分） | 2026-08-13~22 | 三项诊断能力：① DiagnosticTraceFile——App 进程日志文件镜像（HyperOS 丢弃 App 侧 logcat，AppLog i/w/e 落盘、512KB 轮转）；② SystemUiLyricProjection 命名拒绝日志（accept() 5 处静默拒绝改为 rejected(reason) 去重记录）；③ AodDrawWakePulseResult——draw wake 锁脉冲四类结局分类 + 去重记录 | ✅ 已移植（2026-09-11；CN+ 增强：trace 按捕获起点过滤并折叠进报告 logs 段 `app_trace=`，root 拒绝路径也携带，APP_TRACE_BYTES=96KB 专属预算，上游仅落盘不进报告） |
 | `8422d78` | 2026-09-01 | 中文歌出现日语假名注音 ruby 时拒绝显示（hasLanguageInconsistentKanaRuby/isKana、language 字段贯通、fillEndMs 越行尾合法化 + lineEndMs 渲染钳制） | ✅ 已移植（2026-09-05，按 CN+ 投影层结构改写） |
 | `6216fdc` | 2026-08-08 | 版本锁定退役：XiaomiProfileState 增加 AVAILABLE、capability 计数展示（availableCapabilityCount/totalCapabilityCount）、移除 verifiedRuntimeProfile 版本 pin、summary 改为 available=n/total、DiagnosticSetupPolicy 可运行状态集 | ✅ 已移植（2026-09-05；保留 CN+ 实验模式本地覆写逻辑） |
 | `c5b1ffa` | 2026-08-11 | DiagnosticContract 校验增加 "available" 状态 | ✅ 已移植（2026-09-05） |
@@ -31,9 +32,9 @@
 
 | 上游提交 | 日期 | 内容 | CN+ 相关性 | 建议 |
 |---|---|---|---|---|
-| `0424ae9` | 2026-08-22 | 大批次（~3000 行）：ConfigBackupCodec（配置备份/恢复）、SettingsSession、LucideIcons、LauncherEntryPolicy、通知图标 | 中 | 可选：配置备份用户价值高，但牵扯 MainActivity/PreferenceSettingsStore，工程量大 |
-| `ced2769` | 2026-08-13 | AodLifetimePolicy 重构 + 诊断规范 | 低-中 | 暂缓：多为测试与文档 |
-| `cc1f62f` | 2026-08-15 | SpicyBridgeDocumentStore/SpicyLyricBridgeService/AodStateBridge 增强 + 测试 | 低 | 暂缓：主体是测试扩充 |
+| `0424ae9`（剩余部分） | 2026-08-22 | ConfigBackupCodec（配置备份/恢复）、SettingsSession、LucideIcons、RTL 歌词渲染（AodTextDirection/物理对齐换算/drawDirectionalText）、hideFromRecents | 中 | 可选：配置备份用户价值高但牵扯 MainActivity 重构；RTL 对 CN 用户价值低 |
+| `ced2769`（剩余部分） | 2026-08-13 | postHandoff 诊断（handoff 结束 +1s/+7s 表面状态快照）、DiagnosticsScreen 简化、AodKeepaliveRegressionTest | 低 | 暂缓：取证价值低于已移植三项；postHandoff 可按需补 |
+| `cc1f62f`（剩余部分） | 2026-08-15 | 文档传输宽限（scheduleDocumentClear/DOCUMENT_TRANSPORT_GRACE_MS）、spicyBridgeDocumentMismatch 命名原因、logKeepAliveEdge/logAodEnabledEdge | 中 | 暂缓：行为修复需按 CN+ 投影引擎结构（已有 pause confirmation）适配，建议出现对应 issue 再移植 |
 
 ## 同步时的操作流程
 

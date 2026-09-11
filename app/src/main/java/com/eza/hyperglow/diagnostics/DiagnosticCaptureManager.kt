@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import com.eza.hyperglow.DiagnosticLoggingPreferences
+import com.eza.hyperglow.DiagnosticTraceFile
 import com.eza.hyperglow.setDiagnosticLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -119,7 +120,9 @@ internal object DiagnosticCaptureManager {
         var restored = false
         val data = try {
             withContext(Dispatchers.IO) {
-                DiagnosticCaptureCollector(DiagnosticRootProcessRunner)
+                DiagnosticCaptureCollector(DiagnosticRootProcessRunner) {
+                    DiagnosticTraceFile.readForReport(session.startedAtUtcMillis)
+                }
                     .collect(session.startedAtUtcMillis)
             }
         } finally {

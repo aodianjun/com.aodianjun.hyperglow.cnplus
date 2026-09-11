@@ -27,15 +27,17 @@ internal data class CapturedDiagnosticData(
 )
 
 internal class DiagnosticCaptureCollector(
-    private val runner: DiagnosticRootCommandRunner
+    private val runner: DiagnosticRootCommandRunner,
+    private val appTraceReader: () -> String = { "" }
 ) {
     fun collect(startedAtUtcMillis: Long): CapturedDiagnosticData {
         val rootAccessStatus = checkDiagnosticRootAccess(runner)
         if (rootAccessStatus != "granted") {
+            // 镜像不依赖 root:拒绝路径也带上 App 侧证据,报告不至于只剩元数据。
             return CapturedDiagnosticData(
                 outcome = "metadata_only_root_denied",
                 rootAccessStatus = rootAccessStatus,
-                logs = "",
+                logs = appTraceSection(),
                 crashExcerpt = "",
                 lsposedLines = "",
                 commandFailures = listOf("root_access"),
@@ -78,6 +80,9 @@ internal class DiagnosticCaptureCollector(
                 append('\n')
             }
             append(sanitizeDiagnosticLines(results.getValue("logs").output))
+            // App 侧镜像放段尾:组合截断保 1/4 前缀 + 3/4 尾部,捕获失败瞬间的 App 侧
+            // 最新日志落在尾部优先保留。
+            append(appTraceSection())
         }
         val rawCrash = filterAllowedCrashBlocks(results.getValue("crash").output)
         val lsposedOutput = results.getValue("lsposed").output
@@ -108,6 +113,26 @@ internal class DiagnosticCaptureCollector(
             commandFailures = failures,
             truncationFlags = flags
         )
+    }
+
+    /**
+     * App 进程日志镜像段。HyperOS 丢弃 App 侧 logcat,这里是报告里唯一的 App 侧决策
+     * 证据;状态行自带 truncated 标记,不占用 TRUNCATION_KEYS 白名单。
+     */
+    private fun appTraceSection(): String {
+        val trace = appTraceReader()
+        if (trace.isBlank()) return "app_trace=empty\n"
+        val bounded = truncateDiagnosticLines(
+            sanitizeDiagnosticLines(trace),
+            DiagnosticLimits.APP_TRACE_BYTES
+        )
+        return buildString {
+            append("app_trace=present")
+            if (bounded.truncated) append(" truncated")
+            append("\nApp process trace:\n")
+            append(bounded.text)
+            append('\n')
+        }
     }
 
     companion object {

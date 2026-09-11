@@ -16,6 +16,8 @@ internal object DiagnosticLimits {
     const val LOGCAT_BYTES = 160 * 1024
     const val CRASH_BYTES = 64 * 1024
     const val LSPOSED_BYTES = 64 * 1024
+    /** App 进程日志镜像在 logs 段内的专属预算;剩余预算留给 SystemUI 侧 logcat。 */
+    const val APP_TRACE_BYTES = 96 * 1024
     const val MEDIA_METADATA_BYTES = 512
     const val LYRIC_LINE_BYTES = 8 * 1024
     const val CAPTURE_TTL_MS = 30L * 60L * 1000L

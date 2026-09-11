@@ -19,7 +19,64 @@ class DiagnosticCaptureCollectorTest {
         assertEquals("metadata_only_root_denied", result.outcome)
         assertEquals("denied", result.rootAccessStatus)
         assertEquals(1, commands)
-        assertTrue(result.logs.isEmpty())
+        // 镜像不依赖 root:拒绝路径仍带 app_trace 段,默认读取器为空时也要声明状态。
+        assertEquals("app_trace=empty\n", result.logs)
+    }
+
+    @Test
+    fun rootDenialStillCarriesTheAppTraceSection() {
+        val collector = DiagnosticCaptureCollector(
+            runner = { _, _ -> DiagnosticRootCommandResult(1, "permission denied") },
+            appTraceReader = { "2026-09-08T10:05:00.000 I [Area] app decision" }
+        )
+
+        val result = collector.collect(0L)
+
+        assertEquals("metadata_only_root_denied", result.outcome)
+        assertTrue(result.logs.contains("app_trace=present"))
+        assertTrue(result.logs.contains("App process trace:"))
+        assertTrue(result.logs.contains("app decision"))
+    }
+
+    @Test
+    fun grantedCaptureAppendsRedactedAppTraceAfterLogcat() {
+        val collector = DiagnosticCaptureCollector(
+            runner = { command, _ ->
+                if (command == "id -u") DiagnosticRootCommandResult(0, "0\n")
+                else DiagnosticRootCommandResult(0, "")
+            },
+            appTraceReader = { "2026-09-08T10:05:00.000 W [Area] track=spotify:track:abc123" }
+        )
+
+        val result = collector.collect(0L)
+
+        assertEquals("captured", result.outcome)
+        assertTrue(result.logs.contains("app_trace=present"))
+        assertTrue(result.logs.contains("App process trace:"))
+        assertTrue(result.logs.contains("spotify:track:<redacted>"))
+        // trace 段位于 logcat 段之后:组合截断保尾时,失败瞬间的 App 侧最新日志优先保留。
+        assertTrue(
+            result.logs.indexOf("app_trace=present") > result.logs.indexOf("systemui_processes=")
+        )
+        assertFalse(result.logs.contains("app_trace=present truncated"))
+    }
+
+    @Test
+    fun oversizedAppTraceIsTruncatedWithAStatusMarker() {
+        val filler = "a".repeat(400)
+        val lines = (1..400).joinToString("\n") { "2026-09-08T10:05:00.000 I [Area] $filler" }
+        val collector = DiagnosticCaptureCollector(
+            runner = { command, _ ->
+                if (command == "id -u") DiagnosticRootCommandResult(0, "0\n")
+                else DiagnosticRootCommandResult(0, "")
+            },
+            appTraceReader = { lines }
+        )
+
+        val result = collector.collect(0L)
+
+        assertTrue(result.logs.contains("app_trace=present truncated"))
+        assertTrue(result.logs.contains("TRUNCATED"))
     }
 
     @Test

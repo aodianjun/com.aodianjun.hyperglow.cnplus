@@ -38,6 +38,7 @@ internal const val LYRIC_SNAPSHOT_FRESH_MS = 5_000L
  */
 internal const val LYRIC_PLAYBACK_FRESH_MS = 15_000L
 private const val MAX_WIRE_FUTURE_SKEW_MS = 1_000L
+private const val TAG = "SystemUiProjection"
 
 internal fun lyricFreshnessWindowMs(playbackActive: Boolean): Long =
     if (playbackActive) LYRIC_PLAYBACK_FRESH_MS else LYRIC_SNAPSHOT_FRESH_MS
@@ -137,6 +138,7 @@ internal class SystemUiLyricProjection(
     private var latestConfiguration: CompiledCustomization? = null
     private var lastRevision = -1L
     private var lastUpdatedAt = -1L
+    private var lastRejection = ""
     private var bindingContext: Context? = null
     private var clientBound = false
     private var bootstrapped = false
@@ -174,10 +176,14 @@ internal class SystemUiLyricProjection(
 
     @Synchronized
     internal fun accept(message: LyricProjectionMessage): Boolean {
-        if (expectedUserId?.let { it != message.userId } == true) return false
-        if (message.revision < lastRevision) return false
+        if (expectedUserId?.let { it != message.userId } == true) {
+            return rejected("user=${message.userId} expected=$expectedUserId")
+        }
+        if (message.revision < lastRevision) {
+            return rejected("revision=${message.revision} held=$lastRevision")
+        }
         if (message.revision == lastRevision && message.updatedAtElapsedMs <= lastUpdatedAt) {
-            return false
+            return rejected("stamp=${message.updatedAtElapsedMs} held=$lastUpdatedAt")
         }
         return when (message) {
             is LyricProjectionMessage.Snapshot -> {
@@ -194,8 +200,10 @@ internal class SystemUiLyricProjection(
                 true
             }
             is LyricProjectionMessage.KeepAlive -> {
-                if (message.revision != lastRevision) return false
-                val current = latestSnapshot ?: return false
+                if (message.revision != lastRevision) {
+                    return rejected("keepalive revision=${message.revision} held=$lastRevision")
+                }
+                val current = latestSnapshot ?: return rejected("keepalive with no snapshot")
                 lastUpdatedAt = message.updatedAtElapsedMs
                 latestSnapshot = current.copy(
                     updatedAtElapsedMs = message.updatedAtElapsedMs,
@@ -210,6 +218,18 @@ internal class SystemUiLyricProjection(
                 true
             }
         }
+    }
+
+    /**
+     * 被投影拒绝的消息与停止发布的生产者在表象上无法区分:两者都以投影几秒后过期、AOD
+     * 生命期 guard 撤收告终。只有把拒绝原因说出来,才分得清是谁掐断了链路。
+     */
+    private fun rejected(reason: String): Boolean {
+        if (reason != lastRejection) {
+            lastRejection = reason
+            HookLogger.i(TAG, "Projection message rejected $reason")
+        }
+        return false
     }
 
     @Synchronized

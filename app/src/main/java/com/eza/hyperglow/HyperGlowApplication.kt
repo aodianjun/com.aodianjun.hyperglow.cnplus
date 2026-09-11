@@ -14,6 +14,12 @@ class HyperGlowApplication : Application() {
         DiagnosticCaptureManager.expireIfNeeded(this)
         DiagnosticDraftStore.load(this)
         DiagnosticLoggingRuntime.setEnabled(DiagnosticLoggingPreferences.read(this))
+        DiagnosticTraceFile.setDirectory(filesDir.takeIf { DiagnosticLoggingRuntime.enabled })
+        // 空镜像和从未打开的镜像无法区分;空闲进程在播放开始前一行都不会写。
+        AppLog.i(
+            "Diagnostics",
+            "trace ready versionCode=${BuildConfig.VERSION_CODE} pid=${android.os.Process.myPid()}"
+        )
         LyricProducers.start(this)
         AodProjectionEngine.start(this)
         // 把 AodLyricBridgeService 提升为前台服务,避免 MIUI GreezeManager 在息屏时

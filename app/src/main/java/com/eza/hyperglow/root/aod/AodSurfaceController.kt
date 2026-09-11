@@ -69,6 +69,20 @@ internal data class AodRenderedClockBounds(
     val height: Int get() = bottom - top
 }
 
+/** draw wake 锁脉冲的可观测结局;AOD 冻结类问题的现场取证就靠它区分失败层次。 */
+internal enum class AodDrawWakePulseResult {
+    SUCCESS,
+    MISSING_WAKE_LOCK,
+    MISSING_METHOD,
+    INVOCATION_FAILED
+}
+
+/** 去重规则:结果不变就不重复记录,保持 renew 循环每 2.75s 一次的静默。 */
+internal fun shouldLogDrawWakePulseResult(
+    previous: AodDrawWakePulseResult?,
+    current: AodDrawWakePulseResult
+): Boolean = previous != current
+
 private const val BRIGHT_LINKAGE_CLOCK_RESERVE_FRACTION = 0.35f
 
 internal fun resolveRenderedAodSceneZone(
@@ -354,6 +368,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var lastSnapshotTrace: String? = null
     private var lastBrightClockMorphPhase: Boolean? = null
     private var lastClockGeometryAuthority: String? = null
+    private var lastDrawWakePulseResult: AodDrawWakePulseResult? = null
+    private var lastDrawWakeRuntimeClass = ""
     private var rememberedPhysicalClockBounds: AodRenderedClockBounds? = null
     private var rememberedPhysicalClockRootHeight = 0
     @Volatile private var stockWidgetControlActive = false
@@ -1121,6 +1137,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         lastSnapshotTrace = null
         lastBrightClockMorphPhase = null
         lastClockGeometryAuthority = null
+        lastDrawWakePulseResult = null
+        lastDrawWakeRuntimeClass = ""
         sceneZone = AodSceneZone.STOCK
         controlledClockTop = null
         controlledClockBottom = null
@@ -2028,13 +2046,45 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     }
 
     private fun pulseDrawWakeLock(root: ViewGroup) {
-        runCatching {
-            val wakeLock = readHierarchyField(root, "mWakeLock") ?: return
+        val wakeLock = readHierarchyField(root, "mWakeLock")
+        if (wakeLock == null) {
+            reportDrawWakePulse(AodDrawWakePulseResult.MISSING_WAKE_LOCK, "")
+            return
+        }
+        val runtimeClass = wakeLock.javaClass.name
+        val setMaximum = runCatching {
             wakeLock.javaClass.getMethod("setMaxAcquireTime", Long::class.javaPrimitiveType)
-                .invoke(wakeLock, DRAW_WAKE_LOCK_MS)
+        }.getOrNull()
+        val acquire = runCatching {
             wakeLock.javaClass.getMethod("acquire", String::class.java)
-                .invoke(wakeLock, "HyperGlowUpdate")
-        }.onFailure { HookLogger.w(TAG, "Draw pulse failed", it) }
+        }.getOrNull()
+        if (setMaximum == null || acquire == null) {
+            reportDrawWakePulse(AodDrawWakePulseResult.MISSING_METHOD, runtimeClass)
+            return
+        }
+        try {
+            setMaximum.invoke(wakeLock, DRAW_WAKE_LOCK_MS)
+            acquire.invoke(wakeLock, "HyperGlowUpdate")
+            reportDrawWakePulse(AodDrawWakePulseResult.SUCCESS, runtimeClass)
+        } catch (error: Exception) {
+            reportDrawWakePulse(AodDrawWakePulseResult.INVOCATION_FAILED, runtimeClass, error)
+        }
+    }
+
+    private fun reportDrawWakePulse(
+        result: AodDrawWakePulseResult,
+        runtimeClass: String,
+        error: Exception? = null
+    ) {
+        if (!shouldLogDrawWakePulseResult(lastDrawWakePulseResult, result) &&
+            runtimeClass == lastDrawWakeRuntimeClass
+        ) return
+        lastDrawWakePulseResult = result
+        lastDrawWakeRuntimeClass = runtimeClass
+        val message = "Draw wake pulse result=${result.name.lowercase()} " +
+            "class=${runtimeClass.ifEmpty { "none" }}"
+        if (result == AodDrawWakePulseResult.SUCCESS) HookLogger.i(TAG, message)
+        else HookLogger.w(TAG, message, error)
     }
 
     private fun wakeAodSurface(root: ViewGroup, directSurface: View) {
