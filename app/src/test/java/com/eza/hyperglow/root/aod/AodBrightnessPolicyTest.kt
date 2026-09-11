@@ -60,4 +60,22 @@ class AodBrightnessPolicyTest {
         assertEquals(1, resolveAodBrightnessRequest(1, 255, true, null))
         assertEquals(255, resolveAodBrightnessRequest(1, 255, true, "DOZE_AOD"))
     }
+
+    @Test
+    fun disabledBoostKeepsXiaomiBrightnessAuthority() {
+        assertEquals(
+            1,
+            resolveAodBrightnessRequest(
+                requestedBrightness = 1,
+                readableBrightness = 255,
+                lyricGuardActive = true,
+                dozeStateName = "DOZE_AOD",
+                boostEnabled = false
+            )
+        )
+        assertEquals(
+            128,
+            resolveAodBrightnessRequest(128, 255, true, "DOZE_AOD", boostEnabled = false)
+        )
+    }
 }

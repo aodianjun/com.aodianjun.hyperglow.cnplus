@@ -79,7 +79,8 @@ internal object RuntimeCustomization {
             pauseShowContent = preferences.pauseShowContent,
             lockscreenKeepAwake = preferences.lockscreenKeepAwake,
             raiseToAod = preferences.raiseToAod,
-            suppressLockscreenEditorLongPress = preferences.suppressLockscreenEditorLongPress
+            suppressLockscreenEditorLongPress = preferences.suppressLockscreenEditorLongPress,
+            aodBrightnessBoost = preferences.aodBrightnessBoost
         )
     }
 
@@ -110,7 +111,8 @@ internal object RuntimeCustomization {
         lockscreenKeepAwake: Boolean = configuration.lockscreenKeepAwake,
         raiseToAod: Boolean = configuration.raiseToAod,
         suppressLockscreenEditorLongPress: Boolean =
-            configuration.suppressLockscreenEditorLongPress
+            configuration.suppressLockscreenEditorLongPress,
+        aodBrightnessBoost: Boolean = configuration.aodBrightnessBoost
     ): CompiledCustomization = requireNotNull(
         SceneCompiler.finalizeCompiled(
             configuration.copy(
@@ -124,7 +126,8 @@ internal object RuntimeCustomization {
                 pauseShowContent = pauseShowContent,
                 lockscreenKeepAwake = lockscreenKeepAwake,
                 raiseToAod = raiseToAod,
-                suppressLockscreenEditorLongPress = suppressLockscreenEditorLongPress
+                suppressLockscreenEditorLongPress = suppressLockscreenEditorLongPress,
+                aodBrightnessBoost = aodBrightnessBoost
             )
         )
     )

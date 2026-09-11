@@ -118,6 +118,7 @@ object AodBrightnessHook {
 object AodBrightnessController {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var guardActive = false
+    private var boostEnabled = true
     private var dozeStateName: String? = null
     private var activeAdapter = WeakReference<Any>(null)
     private var adapterSetBrightness = WeakReference<Method>(null)
@@ -142,6 +143,16 @@ object AodBrightnessController {
         readableBrightness = target
     }
 
+    /** App 端「AOD 亮度增强」开关,随 CompiledCustomization 下发;关闭后原样透传系统亮度。 */
+    @Synchronized
+    fun setBoostEnabled(enabled: Boolean) {
+        if (boostEnabled == enabled) return
+        boostEnabled = enabled
+        HookLogger.i(TAG, "AOD brightness boost enabled=$enabled")
+        // 开关变化后重放最近一次原始请求,让新策略立即对当前 doze 亮度生效。
+        scheduleResubmitLocked(requestedGuardState = guardActive)
+    }
+
     @Synchronized
     fun noteDozeState(stateName: String?) {
         val changed = dozeStateName != stateName
@@ -160,7 +171,8 @@ object AodBrightnessController {
             requestedBrightness = requested,
             readableBrightness = readableBrightness,
             lyricGuardActive = guardActive,
-            dozeStateName = dozeStateName
+            dozeStateName = dozeStateName,
+            boostEnabled = boostEnabled
         )
         if (resolved != requested) {
             HookLogger.i(
@@ -229,9 +241,11 @@ internal fun resolveAodBrightnessRequest(
     requestedBrightness: Int,
     readableBrightness: Int,
     lyricGuardActive: Boolean,
-    dozeStateName: String?
+    dozeStateName: String?,
+    boostEnabled: Boolean = true
 ): Int {
-    val shouldClamp = lyricGuardActive &&
+    val shouldClamp = boostEnabled &&
+        lyricGuardActive &&
         dozeStateName == "DOZE_AOD" &&
         requestedBrightness > 0 &&
         readableBrightness > 0 &&

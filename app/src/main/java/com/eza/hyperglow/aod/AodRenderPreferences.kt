@@ -57,7 +57,12 @@ data class AodRenderConfig(
     /** 是否从最近任务列表(后台卡片)中隐藏本应用。 */
     val hideBackgroundCard: Boolean = false,
     /** 是否从桌面启动器中隐藏应用图标。 */
-    val hideLauncherIcon: Boolean = false
+    val hideLauncherIcon: Boolean = false,
+    /**
+     * AOD 亮度增强:歌词 guard 激活且处于 DOZE_AOD 时,把小米压低的 doze 亮度
+     * 钳制到可读级别(见 AodBrightnessHook)。默认开启,保持既有行为。
+     */
+    val aodBrightnessBoost: Boolean = true
 )
 
 internal fun normalizeAodAlignment(value: String?): String = when (value) {
@@ -176,6 +181,7 @@ object AodRenderPreferences {
     const val PERSISTENT_NOTIFICATION = "persistent_notification"
     const val HIDE_BACKGROUND_CARD = "hide_background_card"
     const val HIDE_LAUNCHER_ICON = "hide_launcher_icon"
+    const val AOD_BRIGHTNESS_BOOST = "aod_brightness_boost"
 
     private var preferences: SharedPreferences? = null
     private var cachedConfig: AodRenderConfig? = null
@@ -221,7 +227,8 @@ object AodRenderPreferences {
             prefs.getBoolean(EXPERIMENTAL_MODE, false),
             prefs.getBoolean(PERSISTENT_NOTIFICATION, true),
             prefs.getBoolean(HIDE_BACKGROUND_CARD, false),
-            prefs.getBoolean(HIDE_LAUNCHER_ICON, false)
+            prefs.getBoolean(HIDE_LAUNCHER_ICON, false),
+            prefs.getBoolean(AOD_BRIGHTNESS_BOOST, true)
         ).also { cachedConfig = it }
     }
 

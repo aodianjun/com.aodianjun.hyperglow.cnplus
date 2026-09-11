@@ -376,6 +376,7 @@ private fun HomeScreen(
     var burnInIntervalMs by remember { mutableStateOf(initialConfig.burnInIntervalMs) }
     var pauseLingerMs by remember { mutableStateOf(initialConfig.pauseLingerMs) }
     var pauseShowContent by remember { mutableStateOf(initialConfig.pauseShowContent) }
+    var aodBrightnessBoost by remember { mutableStateOf(initialConfig.aodBrightnessBoost) }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
@@ -763,6 +764,17 @@ private fun HomeScreen(
                                     onClick = { showBurnInIntervalDialog = true }
                                 )
                             }
+                            SwitchPreference(
+                                aodBrightnessBoost,
+                                { enabled ->
+                                    if (updateAodBrightnessBoost(context, enabled)) {
+                                        aodBrightnessBoost = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_aod_brightness_boost),
+                                summary = stringResource(R.string.summary_aod_brightness_boost),
+                                enabled = aodSupported
+                            )
                         }
                     }
                     item { SmallTitle(text = stringResource(R.string.section_lockscreen_behavior)) }
@@ -2477,6 +2489,15 @@ private fun updatePauseLinger(context: android.content.Context, value: Long): Bo
 private fun updatePauseShowContent(context: android.content.Context, enabled: Boolean): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putBoolean(AodRenderPreferences.PAUSE_SHOW_CONTENT, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodBrightnessBoost(context: android.content.Context, enabled: Boolean): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.AOD_BRIGHTNESS_BOOST, enabled)
         .commit()
     if (!saved) return false
     publishRuntimeConfiguration(context)

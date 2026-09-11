@@ -122,6 +122,8 @@
     <string name="setting_aod_clock_image">息屏時鐘或圖片</string>
     <string name="summary_aod_placement_unsupported">此係統界面版本不支持協調息屏位置。</string>
     <string name="setting_movement_interval">移動間隔</string>
+    <string name="setting_aod_brightness_boost">息屏亮度增強</string>
+    <string name="summary_aod_brightness_boost">歌詞顯示時把過低的息屏亮度提升至可讀級別。關閉後保持系統原本的超低息屏亮度（歌詞可能難以看清）。</string>
 
     <string name="section_lockscreen_behavior">鎖屏行為</string>
     <string name="setting_keep_lockscreen_awake">保持鎖屏喚醒</string>
@@ -157,7 +159,7 @@
     <string name="toast_restart_no_target">請至少選擇一個進程</string>
     <string name="option_follow_xiaomi">跟隨小米</string>
     <string name="dialog_pause_summary">同時應用於息屏和鎖屏歌詞。</string>
-    <string name="dialog_keep_aod_duration_summary">限制一次連續播放會話。暫停 Spotify 後，下次播放會開始新會話。</string>
+    <string name="dialog_keep_aod_duration_summary">限制一次連續播放會話。暫停音樂後，下次播放會開始新會話。</string>
 
     <string name="status_no_systemui_report">沒有系統界面報告</string>
     <string name="status_available">%1$d/%2$d 個掛鉤可用</string>

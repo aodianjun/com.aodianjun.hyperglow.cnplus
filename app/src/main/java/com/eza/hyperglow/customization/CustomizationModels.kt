@@ -79,7 +79,9 @@ data class CompiledCustomization(
     val diagnosticLogging: Boolean = false,
     val lockscreenKeepAwake: Boolean = false,
     val raiseToAod: Boolean = false,
-    val suppressLockscreenEditorLongPress: Boolean = false
+    val suppressLockscreenEditorLongPress: Boolean = false,
+    /** AOD 亮度增强:App 端运行时开关,随配置下发给 AOD 进程的 AodBrightnessController。 */
+    val aodBrightnessBoost: Boolean = true
 )
 
 @Serializable

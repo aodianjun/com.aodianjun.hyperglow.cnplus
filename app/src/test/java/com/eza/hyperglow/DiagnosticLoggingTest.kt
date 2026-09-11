@@ -123,4 +123,27 @@ class DiagnosticLoggingTest {
         assertNotEquals(base.hash, enabled.hash)
         assertEquals(base.profiles, enabled.profiles)
     }
+
+    @Test
+    fun aodBrightnessBoostChangesRuntimeIdentityIndependentlyOfLyrics() {
+        val base = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+        val enabled = RuntimeCustomization.withDiagnosticLogging(
+            base,
+            diagnosticLogging = false,
+            available = true,
+            aodBrightnessBoost = true
+        )
+        val disabled = RuntimeCustomization.withDiagnosticLogging(
+            base,
+            diagnosticLogging = false,
+            available = true,
+            aodBrightnessBoost = false
+        )
+
+        assertTrue(enabled.aodBrightnessBoost)
+        assertFalse(disabled.aodBrightnessBoost)
+        assertNotEquals(enabled.hash, disabled.hash)
+        assertEquals(base.profiles, enabled.profiles)
+        assertEquals(base.profiles, disabled.profiles)
+    }
 }

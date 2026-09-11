@@ -93,5 +93,6 @@ class AodRenderPreferencesTest {
         assertFalse(config.raiseToAod)
         assertFalse(config.suppressLockscreenEditorLongPress)
         assertFalse(config.experimentalMode)
+        assertEquals(true, config.aodBrightnessBoost)
     }
 }

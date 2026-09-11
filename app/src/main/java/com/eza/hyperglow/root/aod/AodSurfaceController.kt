@@ -1003,6 +1003,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     override fun onCustomization(configuration: CompiledCustomization) {
         customization = configuration
+        AodBrightnessController.setBoostEnabled(configuration.aodBrightnessBoost)
         val retained = retainedMediaSnapshot?.takeIf { snapshot ->
             !snapshot.pauseRetentionEligible || configuration.pauseShowContent &&
                 pauseLingerRemainingMs(

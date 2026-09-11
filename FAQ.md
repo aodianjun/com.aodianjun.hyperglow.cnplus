@@ -17,7 +17,7 @@ to HyperGlow and finish. Review the included data, accept the data policy, and u
 
 Current testing covers one device only:
 
-- Xiaomi 14 (`houji`).
+- Redmi K80 Pro (`miro`).
 - Android 16.
 - SystemUI `16.03.251211.r` (`202501210`).
 - Xiaomi AOD `DEV-2327.0.0.1-03022115` (`22327001`).
@@ -104,7 +104,7 @@ crash or restart）**、**配置（Configuration）**或**其他（Other）**。
 
 目前的测试仅覆盖一台设备：
 
-- Xiaomi 14（`houji`）。
+- Redmi K80 Pro（`miro`）。
 - Android 16。
 - SystemUI `16.03.251211.r`（`202501210`）。
 - Xiaomi AOD `DEV-2327.0.0.1-03022115`（`22327001`）。
