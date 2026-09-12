@@ -10,7 +10,7 @@
 
 ## Current Status
 
-- **CN+ version**: 0.3.82 (109), upstream baseline as of `8422d78` (v0.3.97; full evaluation completed on 2026-09-11: code either ported or exempted with rationale, see the tables below)
+- **CN+ version**: 0.3.83 (110), upstream baseline as of `8422d78` (v0.3.97; full evaluation completed on 2026-09-11: code either ported or exempted with rationale, see the tables below)
 - **Upstream latest**: 2026-09-01 `8422d78`, version 0.3.97 (109) (identical to the baseline, nothing left unevaluated)
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
@@ -60,7 +60,7 @@
 
 ## 当前状态
 
-- **CN+ 版本**：0.3.82 (109)，上游基线截至 `8422d78`（v0.3.97，2026-09-11 完成全量评估：代码已移植或按理由豁免，见下表）
+- **CN+ 版本**：0.3.83 (110)，上游基线截至 `8422d78`（v0.3.97，2026-09-11 完成全量评估：代码已移植或按理由豁免，见下表）
 - **上游最新**：2026-09-01 `8422d78`，版本 0.3.97 (109)（与基线一致，无未评估内容）
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、

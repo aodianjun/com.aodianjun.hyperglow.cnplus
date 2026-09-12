@@ -84,6 +84,36 @@
     <string name="source_status_unavailable_api">Unavailable (requires Android 8.1+)</string>
     <string name="dialog_lyric_source_summary">Pick which provider feeds lyrics to AOD and the lock screen. The other source is used as an automatic fallback.</string>
 
+    <string name="action_save">Save</string>
+    <string name="action_uninstall">Uninstall</string>
+    <string name="plugin_management_title">Lyric plugins</string>
+    <string name="plugin_management_summary">Install and manage HyperLyric-compatible plugins</string>
+    <string name="section_plugin_processing">Plugin processing</string>
+    <string name="setting_plugin_processing_enabled">Enable plugin processing</string>
+    <string name="summary_plugin_processing_enabled">Installed plugins may enhance or translate lyrics before they are shown. Changes apply from the next track.</string>
+    <string name="plugin_action_install">Install plugin</string>
+    <string name="summary_plugin_action_install">Install a HyperLyric plugin package (.zip).</string>
+    <string name="plugin_empty_hint">No plugins installed. Install a HyperLyric plugin package (.zip) to enhance lyrics.</string>
+    <string name="section_installed_plugins">Installed plugins</string>
+    <string name="plugin_load_failed">Load failed: %1$s. Restart the app after reinstalling.</string>
+    <string name="plugin_status_inactive">Loaded · inactive</string>
+    <string name="plugin_status_no_processors">Loaded · no lyric processors</string>
+    <string name="plugin_status_processors">Loaded · %1$d lyric processor(s)</string>
+    <string name="plugin_setting_enabled">Enabled</string>
+    <string name="plugin_action_settings">Plugin settings</string>
+    <string name="plugin_action_clear_cache">Clear cache (%1$s)</string>
+    <string name="plugin_action_uninstall">Uninstall</string>
+    <string name="plugin_uninstall_confirm_title">Uninstall plugin</string>
+    <string name="plugin_uninstall_confirm_summary">Remove %1$s and its settings? Restart the app afterwards to fully unload its code.</string>
+    <string name="plugin_toast_installed">Installed %1$s</string>
+    <string name="plugin_toast_install_failed">Install failed: %1$s</string>
+    <string name="plugin_toast_uninstalled">Plugin removed. Restart the app to fully unload it.</string>
+    <string name="plugin_toast_uninstall_failed">Uninstall failed</string>
+    <string name="plugin_toast_cache_cleared">Plugin cache cleared</string>
+    <string name="plugin_toast_invalid_number">Enter a valid number</string>
+    <string name="plugin_setting_empty_value">(not set)</string>
+    <string name="plugin_setting_action_unsupported">Action settings are not supported by this host.</string>
+
     <string name="section_live_status">Live status</string>
     <string name="label_now_playing">Now playing</string>
     <string name="summary_no_track">No track from the active source yet.</string>
