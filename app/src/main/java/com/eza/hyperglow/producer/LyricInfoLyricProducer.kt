@@ -25,14 +25,21 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * [LyricProducer] that reads lyrics injected by the LyricInfo Xposed module.
  *
- * LyricInfo hooks music apps to write a JSON payload into `MediaMetadata.extras.lyricInfo`
- * (elrc/lrc format). Any app with notification access can read it. This producer:
+ * LyricInfo hooks music apps to write a JSON payload into `MediaMetadata.extras.lyricInfo`.
+ * Any app with notification access can read it. Payloads on this key follow one of three
+ * dialects, all read leniently here: limczhh/LyricInfo (elrc/lrc plus optional
+ * rawLyric/translation/roma lanes), the ColorOS Live Lyrics Bridge Provider v5 contract
+ * (line `lyric` + word-level `rawLyric` + canonical `translationLyric` lane, see the
+ * Providers repo PLAYER_INTEGRATION guide), or player-native Lite output
+ * (QQ 音乐按行复用 songName 字段). This producer:
  * 1. Registers a [MediaSessionManager.OnActiveSessionsChangedListener] scoped to the app's
  *    [LyricInfoNotificationListener], which is how a third-party app reads other apps' sessions.
  * 2. Picks the active session whose `MediaMetadata` carries a `lyricInfo` extra; if none, falls
  *    back to any active media session so that playback metadata (title/artist/position) is still
  *    available when the lyric injection module is absent or when another producer (Lyricon) dies.
- * 3. Parses the elrc/lrc payload via [ElrcParser] and selects the active line by position.
+ * 3. Parses the payload lanes via [ElrcParser] and selects the active line by position:
+ *    word-timed `rawLyric` wins over line `lyric`; translation resolves translationLyric →
+ *    translation → transLyric; `roma` feeds the romanized lane.
  * 4. Polls [MediaController.playbackState] for position and extrapolates while playing.
  *
  * Requires the user to grant notification access (ACTION_NOTIFICATION_LISTENER_SETTINGS).
@@ -66,6 +73,7 @@ class LyricInfoLyricProducer(
     @Volatile private var controller: MediaController? = null
     @Volatile private var timedLines: List<ElrcParser.TimedLine> = emptyList()
     @Volatile private var translationLines: List<ElrcParser.TimedLine> = emptyList()
+    @Volatile private var romaLines: List<ElrcParser.TimedLine> = emptyList()
     @Volatile private var title: String = ""
     @Volatile private var artist: String = ""
     @Volatile private var album: String = ""
@@ -150,6 +158,7 @@ class LyricInfoLyricProducer(
                 controller = null
                 timedLines = emptyList()
                 translationLines = emptyList()
+                romaLines = emptyList()
                 mutableState.value = null
             }
             if (mutableConnection.value != ProducerConnection.DISCONNECTED) {
@@ -206,12 +215,10 @@ class LyricInfoLyricProducer(
         artist = newArtist
         album = newAlbum
         durationMs = meta.getLong(MEDIA_METADATA_KEY_DURATION).coerceAtLeast(0L)
-        timedLines = ElrcParser.parse(payload?.lyric.orEmpty())
-        // 完整版翻译在 translation;QQ 音乐精简版原生输出在 transLyric,两者取其一。
-        translationLines = ElrcParser.parse(
-            payload?.translation?.takeIf { it.isNotBlank() }
-                ?: payload?.transLyric.orEmpty()
-        )
+        timedLines = resolveLyricInfoTimedLines(payload)
+        // 翻译 lane 优先级:Bridge 规范 translationLyric → 完整版 translation → 精简版 transLyric。
+        translationLines = resolveLyricInfoTranslationLines(payload)
+        romaLines = ElrcParser.parse(payload?.roma.orEmpty())
         val ps = c.playbackState
         if (ps != null) {
             applyPlaybackState(ps)
@@ -304,6 +311,9 @@ class LyricInfoLyricProducer(
         val translationText = active?.let { a ->
             translationLines.firstOrNull { it.startMs == a.startMs }?.text.orEmpty()
         }.orEmpty()
+        val romanizedText = active?.let { a ->
+            romaLines.firstOrNull { it.startMs == a.startMs }?.text.orEmpty()
+        }.orEmpty()
         val words = active?.words?.takeIf { it.isNotEmpty() }
         val lyricKind = when {
             active == null -> LyricKind.NONE
@@ -332,7 +342,7 @@ class LyricInfoLyricProducer(
             album = album,
             imageId = "",
             line = active?.text.orEmpty(),
-            romanizedLine = "",
+            romanizedLine = romanizedText,
             translatedLine = translationText,
             lineIndex = active?.let { a -> timedLines.indexOf(a) } ?: -1,
             positionMs = currentPositionMs,
@@ -454,12 +464,17 @@ internal fun isMonotonicExtrapolationResume(
     (extrapolatedPositionMs - realPositionMs) in 1..toleranceMs
 
 /**
- * JSON shape written into `MediaMetadata.extras.lyricInfo` by the LyricInfo module.
+ * JSON shape written into `MediaMetadata.extras.lyricInfo`.
  *
- * 完整版字段:songName/artist/album/songId/lyric/format/translation。
- * 精简版(Lite)是播放器原生输出,字段集随播放器而变(QQ 音乐用 transLyric 携带翻译,
- * 还有 noLyric/lyricType/txtlyric 等),且 songId 等可能是数字类型——因此不用严格
- * data-class 反序列化(类型不匹配会让整个 payload 解析失败),改为宽松提取。
+ * 三个来源方言的宽松提取,未知键忽略(rawLyric/roma 为 limczhh/LyricInfo 完整版与
+ * Bridge Provider v5 共有语义:rawLyric 是原文逐字增强,翻译/罗马音是独立 lane):
+ * - limczhh/LyricInfo 完整版:songName/artist/album/songId/lyric/format/translation,
+ *   可选 rawLyric(逐字增强)/roma(罗马音),可选字段仅在有效非空时写入。
+ * - 精简版(Lite)是播放器原生输出,字段集随播放器而变(QQ 音乐用 transLyric 携带翻译,
+ *   还有 noLyric/lyricType/txtlyric 等),且 songId 等可能是数字类型。
+ * - ColorOS Live Lyrics Bridge Provider v5(PLAYER_INTEGRATION 契约):相同 lyric/
+ *   rawLyric 语义之上,规范翻译字段为 translationLyric,另带 trackKey/
+ *   sessionGeneration 等诊断字段;扩展字段只在携带时间标签时发布。
  */
 internal data class LyricInfoPayload(
     val songName: String? = null,
@@ -469,7 +484,10 @@ internal data class LyricInfoPayload(
     val lyric: String? = null,
     val format: String? = null,
     val translation: String? = null,
-    val transLyric: String? = null
+    val transLyric: String? = null,
+    val rawLyric: String? = null,
+    val translationLyric: String? = null,
+    val roma: String? = null
 )
 
 /** lyricInfo JSON 解析器:宽松提取,未知键忽略。 */
@@ -493,7 +511,10 @@ internal fun parseLyricInfoPayload(raw: String): LyricInfoPayload? = runCatching
         lyric = text("lyric"),
         format = text("format"),
         translation = text("translation"),
-        transLyric = text("transLyric")
+        transLyric = text("transLyric"),
+        rawLyric = text("rawLyric"),
+        translationLyric = text("translationLyric"),
+        roma = text("roma")
     )
 }.onFailure {
     AppLog.w("LyricInfoLyricProducer", "decode lyricInfo failed", it)
@@ -519,3 +540,31 @@ internal fun isNativePerLinePayload(
     if (metadataTitle.isNotBlank() && payload.artist.orEmpty().contains(metadataTitle)) return true
     return false
 }
+
+/**
+ * Resolve the lyric lane for a lyricInfo payload (pure function, unit-testable).
+ *
+ * 优先级与 ColorOS Live Lyrics Bridge 的 LyricInfoContract 语义对齐:
+ * - rawLyric 含逐字标签时整体作为歌词源(逐字 lane 由同一歌词模型生成,行时间齐备);
+ * - lyric 有时间轴时用 lyric(完整版与精简版都在这里);
+ * - lyric 不可解析而 rawLyric 可解析(raw-only payload)时回退到 rawLyric,Bridge 同样接受
+ *   该形态(LyricInfoContract.parse 的 display fallback)。
+ */
+internal fun resolveLyricInfoTimedLines(payload: LyricInfoPayload?): List<ElrcParser.TimedLine> {
+    val rawParsed = ElrcParser.parse(payload?.rawLyric.orEmpty())
+    if (rawParsed.any { !it.words.isNullOrEmpty() }) return rawParsed
+    val lineParsed = ElrcParser.parse(payload?.lyric.orEmpty())
+    return if (lineParsed.isEmpty() && rawParsed.isNotEmpty()) rawParsed else lineParsed
+}
+
+/**
+ * 翻译 lane 优先级:Bridge 规范 translationLyric → limczhh 完整版 translation →
+ * QQ 精简版 transLyric。三条 lane 格式同为逐行 LRC,ElrcParser 统一解析。
+ */
+internal fun resolveLyricInfoTranslationLines(
+    payload: LyricInfoPayload?
+): List<ElrcParser.TimedLine> = ElrcParser.parse(
+    payload?.translationLyric?.takeIf { it.isNotBlank() }
+        ?: payload?.translation?.takeIf { it.isNotBlank() }
+        ?: payload?.transLyric.orEmpty()
+)

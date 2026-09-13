@@ -10,9 +10,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Unit tests for [parseLyricInfoPayload] — lyricInfo JSON 解析按 LyricInfo README 的两种
- * 格式固定:完整版(songName/artist/album/songId/lyric/format/translation)与精简版
- * (播放器原生输出,QQ 音乐翻译在 transLyric、songId 可能是数字)。
+ * Unit tests for [parseLyricInfoPayload] — lyricInfo JSON 解析覆盖三种方言:LyricInfo 完整版
+ * (songName/artist/album/songId/lyric/format/translation + 可选 rawLyric/roma)、精简版
+ * (播放器原生输出,QQ 音乐翻译在 transLyric、songId 可能是数字)与 ColorOS Live Lyrics
+ * Bridge Provider v5 契约(在相同 rawLyric 逐字语义上增加规范翻译 translationLyric)。
  *
  * 宽松提取的关键约束:任何字段类型不匹配只降级该字段,绝不让整个 payload 解析失败
  * (否则连歌词一起丢,息屏只剩歌名)。
@@ -140,5 +141,102 @@ class LyricInfoPayloadTest {
     @Test
     fun nativePerLineDetection_nullPayloadIsNegative() {
         assertFalse(isNativePerLinePayload(null, "歌名"))
+    }
+
+    // --- ColorOS Live Lyrics Bridge Provider v5 契约(PLAYER_INTEGRATION)---
+
+    @Test
+    fun parsesBridgeProviderV5PayloadExtensionFields() {
+        // Bridge 协议 §2 示例 payload:rawLyric 逐字 lane、translationLyric 规范翻译 lane、
+        // trackKey/sessionGeneration/noLyric 等诊断字段,宽松提取全部接受。
+        val payload = parseLyricInfoPayload(
+            """
+            {
+              "songName": "示例歌曲",
+              "artist": "示例歌手",
+              "songId": "track-42",
+              "lyricType": 0,
+              "lyric": "[00:10.000]第一句\n[00:14.500]第二句\n",
+              "rawLyric": "[00:10.000]<00:10.000>第一<00:10.700>句<00:12.800>\n",
+              "translationLyric": "[00:10.000]First line\n",
+              "trackKey": "track-42|示例歌曲|示例歌手|180",
+              "sessionGeneration": 12,
+              "noLyric": false
+            }
+            """.trimIndent()
+        )
+        assertEquals("示例歌曲", payload?.songName)
+        assertTrue(payload?.rawLyric?.contains("<00:10.700>") == true)
+        assertTrue(payload?.translationLyric?.contains("First line") == true)
+        assertNull(payload?.roma)
+    }
+
+    @Test
+    fun resolveTimedLines_bridgeWordTimedRawLyricWinsOverLineLyric() {
+        // Bridge 契约:rawLyric 是逐字超集(行时间齐备),携带逐字标签时优先于 lyric。
+        val payload = LyricInfoPayload(
+            lyric = "[00:10.000]第一句\n[00:14.500]第二句",
+            rawLyric = "[00:10.000]<00:10.000>第一<00:10.700>句<00:12.800>\n" +
+                "[00:14.500]<00:14.500>第二<00:15.200>句<00:17.000>"
+        )
+        val lines = resolveLyricInfoTimedLines(payload)
+        assertEquals(2, lines.size)
+        assertTrue(lines.all { !it.words.isNullOrEmpty() })
+    }
+
+    @Test
+    fun resolveTimedLines_plainLyricOnly_staysLineLevel() {
+        val payload = LyricInfoPayload(lyric = "[00:10.000]第一句\n[00:14.500]第二句")
+        val lines = resolveLyricInfoTimedLines(payload)
+        assertEquals(2, lines.size)
+        assertTrue(lines.all { it.words.isNullOrEmpty() })
+    }
+
+    @Test
+    fun resolveTimedLines_rawOnlyPayload_fallsBackToRaw() {
+        // raw-only payload(lyric 缺失):Bridge LyricInfoContract 的 display fallback 同形态。
+        val payload = LyricInfoPayload(
+            rawLyric = "[00:10.000]<00:10.000>第一<00:10.700>句<00:12.800>"
+        )
+        val lines = resolveLyricInfoTimedLines(payload)
+        assertEquals(1, lines.size)
+        assertTrue(!lines[0].words.isNullOrEmpty())
+    }
+
+    @Test
+    fun resolveTimedLines_rawWithoutWordTags_neverShadowsLyric() {
+        // Bridge §4.2:只有逐行时间时应省略 rawLyric;防呆起见,无逐字标签的 rawLyric
+        // 不得抢走更完整的 lyric。
+        val payload = LyricInfoPayload(
+            lyric = "[00:10.000]第一句\n[00:14.500]第二句",
+            rawLyric = "[00:10.000]第一句"
+        )
+        assertEquals(2, resolveLyricInfoTimedLines(payload).size)
+    }
+
+    @Test
+    fun resolveTranslationLines_prefersCanonicalTranslationLyric() {
+        // Bridge 规范字段 translationLyric 优先于两个历史别名。
+        val payload = LyricInfoPayload(
+            translationLyric = "[00:10.000]First line",
+            translation = "[00:10.000]legacy translation",
+            transLyric = "[00:10.000]lite translation"
+        )
+        val lines = resolveLyricInfoTranslationLines(payload)
+        assertEquals(1, lines.size)
+        assertEquals("First line", lines[0].text)
+    }
+
+    @Test
+    fun resolveTranslationLines_fallsBackToLiteTransLyric() {
+        val payload = LyricInfoPayload(transLyric = "[00:16.44]翻译")
+        val lines = resolveLyricInfoTranslationLines(payload)
+        assertEquals("翻译", lines[0].text)
+    }
+
+    @Test
+    fun resolveTimedLines_nullPayloadYieldsEmpty() {
+        assertTrue(resolveLyricInfoTimedLines(null).isEmpty())
+        assertTrue(resolveLyricInfoTranslationLines(null).isEmpty())
     }
 }
