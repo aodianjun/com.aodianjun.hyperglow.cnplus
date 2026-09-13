@@ -18,6 +18,12 @@ class AodLifetimePolicyTest {
     }
 
     @Test
+    fun projectionStaleRetainsOnlyExistingKeepalive() {
+        assertTrue(shouldRetainAodPowerOnProjectionStale(true))
+        assertFalse(shouldRetainAodPowerOnProjectionStale(false))
+    }
+
+    @Test
     fun wakeSignalOnlyFiresForNewContentEvents() {
         assertFalse(isNewAodWakeSignal(9L, 0L))
         assertFalse(isNewAodWakeSignal(9L, 9L))
