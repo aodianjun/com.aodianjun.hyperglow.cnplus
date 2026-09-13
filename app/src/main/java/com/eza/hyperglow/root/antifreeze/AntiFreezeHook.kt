@@ -26,6 +26,12 @@ import java.lang.reflect.Method
 object AntiFreezeHook {
     private const val TAG = "AntiFreeze"
 
+    /** Linux pid_max 上限(4194304);pid 参数超出该范围即视为其他含义的整数值。 */
+    private const val PID_MAX = 4194304
+
+    /** 应用 UID 下限(FIRST_APPLICATION_UID);更低的是系统守护进程,不可能是播放音乐的应用。 */
+    private const val FIRST_APPLICATION_UID = 10000
+
     private val hookedKeys = mutableSetOf<String>()
 
     private val classTargets = listOf(
@@ -149,9 +155,15 @@ object AntiFreezeHook {
         private fun matchesPlayingApp(args: List<Any?>): Boolean {
             for (arg in args) {
                 val value = arg as? Int ?: continue
-                val uidByPid = uidForPid(value)
-                if (uidByPid > 0 && PlayingMediaResolver.isActiveMediaUid(uidByPid)) return true
-                if (PlayingMediaResolver.isActiveMediaUid(value)) return true
+                // 参数可能是 pid 也可能是 uid;按各自合理范围守卫,
+                // 避免把 flags/常量等无关整数值误判成播放进程。
+                if (value in 1..PID_MAX) {
+                    val uidByPid = uidForPid(value)
+                    if (uidByPid > 0 && PlayingMediaResolver.isActiveMediaUid(uidByPid)) return true
+                }
+                if (value >= FIRST_APPLICATION_UID && PlayingMediaResolver.isActiveMediaUid(value)) {
+                    return true
+                }
             }
             return false
         }

@@ -283,7 +283,13 @@ object SpicyBridgeDocumentStore {
                 ParcelFileDescriptor.AutoCloseInputStream(fd),
                 metadata.compressedBytes
             )
-            val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
+            val root = try {
+                Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
+            } catch (error: Exception) {
+                // gzip 体不是合法 JSON 对象(截断/乱码/非对象)时给出命名拒绝,
+                // 而不是让异常逃出 accept() 的命名拒绝体系。
+                return "malformed json ${error.message ?: error.javaClass.simpleName}"
+            }
             val documentVersion = root.requiredInt("version")
             if (documentVersion != metadata.documentVersion ||
                 root.requiredString("producerId") != producerId ||
