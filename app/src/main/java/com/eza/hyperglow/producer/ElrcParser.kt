@@ -86,13 +86,18 @@ object ElrcParser {
     /**
      * Selects the active [TimedLine] for [positionMs] (the last line whose start is <= position,
      * or the first line when before the first timestamp). Returns null when there are no lines.
+     * Uses binary search since lines are sorted by [startMs].
      */
     fun activeLineAt(lines: List<TimedLine>, positionMs: Long): TimedLine? {
         if (lines.isEmpty()) return null
-        var active = lines[0]
-        for (line in lines) {
-            if (line.startMs <= positionMs) active = line else break
+        val index = lines.binarySearch { it.startMs.compareTo(positionMs) }
+        return if (index >= 0) {
+            lines[index]
+        } else {
+            // binarySearch returns -(insertionPoint) - 1; insertionPoint is the first line
+            // whose start > positionMs, so the active line is one before it.
+            val insertionPoint = -(index + 1)
+            lines[(insertionPoint - 1).coerceAtLeast(0)]
         }
-        return active
     }
 }

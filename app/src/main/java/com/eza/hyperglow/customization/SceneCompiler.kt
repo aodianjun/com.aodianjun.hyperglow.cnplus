@@ -271,7 +271,7 @@ object SceneCompiler {
         value in PALETTE_VALUES || isHexColorToken(value)
 
     private fun isHexColorToken(value: String): Boolean {
-        if (value[0] != '#' || value.length !in intArrayOf(4, 7, 9)) return false
+        if (value.isEmpty() || value[0] != '#' || value.length !in intArrayOf(4, 7, 9)) return false
         for (c in value.substring(1)) {
             if (Character.digit(c, 16) < 0) return false
         }

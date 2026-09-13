@@ -24,6 +24,19 @@ import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
 
+/**
+ * Safely installs a single hook, logging failures without aborting subsequent installs.
+ * Extracted to eliminate the repeated try-catch-install pattern across [onPackageLoaded],
+ * [installMiuiAodHooks], and [ClassLoaderHooker].
+ */
+private inline fun safeInstall(tag: String, name: String, block: () -> Unit) {
+    try {
+        block()
+    } catch (error: Exception) {
+        HookLogger.w(tag, "$name hook unavailable", error)
+    }
+}
+
 class HookEntry : XposedModule() {
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         super.onModuleLoaded(param)
@@ -93,68 +106,18 @@ class HookEntry : XposedModule() {
                 "${capabilityReport.rawProbes.size} profile=${capabilityReport.profileState.wireValue} " +
                 "missing=${missingProbeNames(capabilityReport.rawProbes)}"
         )
-        try {
-            SystemUiLifecycleHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "SystemUI lifecycle hooks unavailable", error)
+        val loader = param.defaultClassLoader
+        safeInstall(TAG, "SystemUI lifecycle") { SystemUiLifecycleHook.install(this, loader) }
+        safeInstall(TAG, "Lockscreen") { LockscreenSurfaceHook.install(this, loader) }
+        safeInstall(TAG, "Linkage") { LinkageTransitionHook.install(this, loader) }
+        safeInstall(TAG, "SystemUI clock morph geometry") {
+            SystemUiClockMorphHook.install(this, loader)
         }
-
-        try {
-            LockscreenSurfaceHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Lockscreen hooks unavailable", error)
+        safeInstall(TAG, "Raise-to-AOD") { RaiseToAodHook.install(this, loader) }
+        safeInstall(TAG, "Lockscreen editor gesture") {
+            LockscreenEditorGestureHook.install(this, loader)
         }
-        try {
-            LinkageTransitionHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Linkage hook unavailable", error)
-        }
-        try {
-            SystemUiClockMorphHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "SystemUI clock morph geometry hook unavailable", error)
-        }
-        try {
-            RaiseToAodHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Raise-to-AOD hook unavailable", error)
-        }
-        try {
-            LockscreenEditorGestureHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Lockscreen editor gesture hook unavailable", error)
-        }
-
-        try {
-            AodSurfaceHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD hook unavailable", error)
-        }
-        try {
-            AodLifetimeHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD lifetime hook unavailable", error)
-        }
-        try {
-            AodBrightnessHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD brightness hook unavailable", error)
-        }
-        try {
-            AodPositionHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD position hook unavailable", error)
-        }
-        try {
-            AodDisplayStateHook.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD display-state hook unavailable", error)
-        }
-        try {
-            AodWakeBroker.install(this, param.defaultClassLoader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD wake broker unavailable", error)
-        }
+        installAodHooks(loader)
         try {
             val loaderClass = Class.forName("dalvik.system.BaseDexClassLoader")
             for (constructor in loaderClass.declaredConstructors) {
@@ -179,74 +142,26 @@ class HookEntry : XposedModule() {
         HookLogger.bootstrap(TAG, "miui_aod_package_loaded")
         val loader = param.defaultClassLoader
         XiaomiCapabilityResolver.observeAodLoader(loader)
-        try {
-            AodSurfaceHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD surface hook unavailable", error)
-        }
-        try {
-            AodLifetimeHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD lifetime hook unavailable", error)
-        }
-        try {
-            AodBrightnessHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD brightness hook unavailable", error)
-        }
-        try {
-            AodPositionHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD position hook unavailable", error)
-        }
-        try {
-            AodDisplayStateHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD display-state hook unavailable", error)
-        }
-        try {
-            AodWakeBroker.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD wake broker unavailable", error)
-        }
+        installAodHooks(loader)
     }
 
-    private class ClassLoaderHooker(private val module: XposedModule) : Hooker {
+    /** Shared AOD hook installation used by SystemUI, MIUI AOD, and dynamic ClassLoader paths. */
+    private fun installAodHooks(loader: ClassLoader) {
+        safeInstall(TAG, "AOD surface") { AodSurfaceHook.install(this, loader) }
+        safeInstall(TAG, "AOD lifetime") { AodLifetimeHook.install(this, loader) }
+        safeInstall(TAG, "AOD brightness") { AodBrightnessHook.install(this, loader) }
+        safeInstall(TAG, "AOD position") { AodPositionHook.install(this, loader) }
+        safeInstall(TAG, "AOD display-state") { AodDisplayStateHook.install(this, loader) }
+        safeInstall(TAG, "AOD wake broker") { AodWakeBroker.install(this, loader) }
+    }
+
+    private class ClassLoaderHooker(private val module: HookEntry) : Hooker {
         override fun intercept(chain: Chain): Any? {
             val result = chain.proceed()
             val loader = chain.thisObject as? ClassLoader ?: return result
             XiaomiCapabilityResolver.observeAodLoader(loader)
             SystemUiLyricProjectionRuntime.projection.reportCapabilities()
-            try {
-                AodSurfaceHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD hook failed", error)
-            }
-            try {
-                AodLifetimeHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD lifetime hook failed", error)
-            }
-            try {
-                AodBrightnessHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD brightness hook failed", error)
-            }
-            try {
-                AodPositionHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD position hook failed", error)
-            }
-            try {
-                AodDisplayStateHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD display-state hook failed", error)
-            }
-            try {
-                AodWakeBroker.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD wake broker failed", error)
-            }
+            module.installAodHooks(loader)
             return result
         }
     }

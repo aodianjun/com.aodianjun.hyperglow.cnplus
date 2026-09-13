@@ -248,8 +248,7 @@ internal object DiagnosticReportFactory {
             androidDisplay = Build.DISPLAY.orEmpty().utf8Prefix(256),
             androidIncremental = Build.VERSION.INCREMENTAL.orEmpty().utf8Prefix(256),
             buildFingerprint = Build.FINGERPRINT.orEmpty().utf8Prefix(1_024),
-            xiaomiOsProperties = XIAOMI_PROPERTY_KEYS.associateWith(::readProperty)
-                .filterValues { it.isNotBlank() },
+            xiaomiOsProperties = readProperties(XIAOMI_PROPERTY_KEYS),
             locales = context.resources.configuration.locales.toLanguageTags()
                 .split(',')
                 .filter(String::isNotBlank)
@@ -278,16 +277,23 @@ internal object DiagnosticReportFactory {
             DiagnosticPackageVersion(false, "unavailable", 0L)
         }
 
-    private fun readProperty(key: String): String = try {
-        val process = ProcessBuilder("/system/bin/getprop", key).redirectErrorStream(true).start()
+    /** Reads multiple system properties in a single getprop invocation. */
+    private fun readProperties(keys: List<String>): Map<String, String> = try {
+        val process = ProcessBuilder(
+            listOf("/system/bin/getprop") + keys
+        ).redirectErrorStream(true).start()
         if (!process.waitFor(PROPERTY_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
             process.destroyForcibly()
-            ""
+            emptyMap()
         } else {
-            process.inputStream.bufferedReader().use { it.readLine().orEmpty() }.utf8Prefix(256)
+            val values = process.inputStream.bufferedReader().use { br ->
+                generateSequence { br.readLine() }.toList()
+            }
+            keys.zip(values).associate { (k, v) -> k to v.orEmpty().utf8Prefix(256) }
+                .filterValues { it.isNotBlank() }
         }
     } catch (_: Exception) {
-        ""
+        emptyMap()
     }
 
     private val XIAOMI_PROPERTY_KEYS = listOf(
