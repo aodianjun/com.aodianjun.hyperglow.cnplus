@@ -11,7 +11,7 @@
 ## Current Status
 
 - **CN+ version**: 0.3.83 (110), upstream baseline as of `8422d78` (v0.3.97; full evaluation completed on 2026-09-11: code either ported or exempted with rationale, see the tables below)
-- **Upstream latest**: 2026-09-01 `8422d78`, version 0.3.97 (109) (identical to the baseline, nothing left unevaluated)
+- **Upstream latest**: 2026-09-11 `748912e`, version 0.3.173 (185) — **not yet evaluated**; one large feature commit on top of the baseline (61 files, +7735/−1115): AodOrientationMonitor (new, accelerometer-driven canvas rotation for a full-screen AOD scene), HookRegistry (new, generation-owned hook registry enabling hot reload), AodLyricCanvasView rework (+2377 lines), AodRenderPreferences/AodStateBridge/AodStateWire (+342) protocol growth, HookEntry hot-reload integration (+251), LyricCanvasMapper/LockscreenSurfaceController/LinkageTransitionCoordinator updates, and ~14 new/expanded tests
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
   HierarchyFields.kt and its use across all hooks, missingProbeNames, and miuix via the public Maven Central repository
@@ -61,7 +61,7 @@
 ## 当前状态
 
 - **CN+ 版本**：0.3.83 (110)，上游基线截至 `8422d78`（v0.3.97，2026-09-11 完成全量评估：代码已移植或按理由豁免，见下表）
-- **上游最新**：2026-09-01 `8422d78`，版本 0.3.97 (109)（与基线一致，无未评估内容）
+- **上游最新**：2026-09-11 `748912e`，版本 0.3.173 (185) —— **尚未评估**；基线之上的单个大特性提交（61 文件，+7735/−1115）：AodOrientationMonitor（新文件，加速度计驱动的全屏 AOD 画布旋转）、HookRegistry（新文件，按 generation 管理 hook 句柄、支持热重载）、AodLyricCanvasView 大改（+2377 行）、AodRenderPreferences/AodStateBridge/AodStateWire（+342）协议扩充、HookEntry 热重载集成（+251）、LyricCanvasMapper/LockscreenSurfaceController/LinkageTransitionCoordinator 更新，以及约 14 个新增/扩充的测试
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
   HierarchyFields.kt 及全 hook 使用、missingProbeNames、miuix 走 Maven Central 公共仓库
