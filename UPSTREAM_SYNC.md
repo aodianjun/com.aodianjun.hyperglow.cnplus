@@ -11,10 +11,25 @@
 ## Current Status
 
 - **CN+ version**: 0.3.83 (110), upstream baseline as of `8422d78` (v0.3.97; full evaluation completed on 2026-09-11: code either ported or exempted with rationale, see the tables below)
-- **Upstream latest**: 2026-09-11 `748912e`, version 0.3.173 (185) — **not yet evaluated**; one large feature commit on top of the baseline (61 files, +7735/−1115): AodOrientationMonitor (new, accelerometer-driven canvas rotation for a full-screen AOD scene), HookRegistry (new, generation-owned hook registry enabling hot reload), AodLyricCanvasView rework (+2377 lines), AodRenderPreferences/AodStateBridge/AodStateWire (+342) protocol growth, HookEntry hot-reload integration (+251), LyricCanvasMapper/LockscreenSurfaceController/LinkageTransitionCoordinator updates, and ~14 new/expanded tests
+- **Upstream latest**: 2026-09-11 `748912e`, version 0.3.173 (185) — **evaluated 2026-09-14**, see the `748912e` Evaluation section below. No mandatory port; highest-value item is ConfigBackupCodec/SettingsSession, and `suppressStockAodContent` warrants a verify-first check.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
   HierarchyFields.kt and its use across all hooks, missingProbeNames, and miuix via the public Maven Central repository
+
+## `748912e` Evaluation (v0.3.173 · 2026-09-14)
+
+One large feature commit (61 files, +7735/−1115) on top of the `8422d78` baseline.
+Decomposed into independently-assessable features:
+
+| # | Feature | Key files / size | CN+ relevance | Recommendation |
+|---|---|---|---|---|
+| 1 | AOD canvas rotates with the device (`AodOrientationMonitor` new — accelerometer lifecycle / debounce / framework-rotation rebase; wire v4/v6/v8 adds `aodRotateWithDevice`/`aodRotationMode`/per-orientation anchor·scale·padding; ~+2300 in `AodSurfaceController`+`AodLyricCanvasView`) | AodOrientationMonitor, AodStateWire, AodRenderPreferences, AodSurfaceController, AodLyricCanvasView, HookEntry + AodOrientationMonitorTest / AodCanvasBiasTest / AodCanvasLayoutTest | Medium — only landscape / tilted-AOD users | **Defer (large, risk-heavy)**. CN+ AOD is portrait-first; upstream itself documents a sensor-callback-loss bug needing a fixed workaround. Port only if landscape full-screen AOD is a confirmed need |
+| 2 | `suppressStockAodContent` — hide Xiaomi's stock AOD content while HyperGlow draws its own full-screen canvas | wire field + canvas + preferences | High (core to rendering a replacement AOD) | **Verify-first**: CN+ already has its own stock-content suppression stack; if it already hides stock lyrics, mark covered (note in LOCKSCREEN_AOD_BEHAVIOR_SPEC.md); otherwise extract this one field + render gate |
+| 3 | `HookRegistry` (new) + `HookEntry` hot-reload (`onHotReloading`/`onHotReloaded`, generation retire, `PROTECTIVE` mode, refuse reload while a lyric session is active, hook install split into `installDefaultLoaderHooks`/`installAodHooks`) | HookRegistry, HookEntry + HookRegistryTest | Low–Medium (dev-loop ergonomics, not user-facing) | **Defer**: CN+ hooks are statically installed and work; adopting this is a large entry-point refactor with no end-user gain |
+| 4 | Config backup/restore (`ConfigBackupCodec` +200, `SettingsSession` +91) + Settings UI tab rework (`MainActivity` +1559) | ConfigBackupCodec, SettingsSession, MainActivity, PreferenceSettingsStore + ConfigBackupCodecTest / SettingsSessionTest | High user value | **Port codec + session only** (self-contained, testable, high value — this is the previously-deferred `0424ae9` item now shipped upstream). **Skip** the MainActivity UI tab restructure: CN+ has its own Settings layout |
+| 5 | Misc hardening feeding 1/2 (`AodBrightnessHook` +58, `AodLifetimeHook` +19, `AodStateProjector` +62, `LyricCanvasMapper` +40, `LockscreenSurfaceController` +51, `LinkageTransitionCoordinator` +42, `SpicyBridgeDocumentStore` +68, `DiagnosticLogging` +20, CustomizationModels/Repository, SystemUiCustomization, SceneCompiler) + many test updates | many | Varies per file | **Selective**: most are coupled to features 1–2 and not worth extracting alone; scan `AodStateBridge`/`AodStateProjector`/`DiagnosticLogging`/`SpicyBridgeDocumentStore` for standalone fixes |
+
+**Bottom line**: no mandatory port. Highest-value, lowest-risk item is **#4 ConfigBackupCodec/SettingsSession**; **#2** is worth a verify-first check against CN+'s existing suppression; **#1 and #3** are deferred. After any port, re-run the API-contract fingerprint and full CI (554+ tests), then update this file.
 
 ## Synced / Included
 
@@ -61,10 +76,24 @@
 ## 当前状态
 
 - **CN+ 版本**：0.3.83 (110)，上游基线截至 `8422d78`（v0.3.97，2026-09-11 完成全量评估：代码已移植或按理由豁免，见下表）
-- **上游最新**：2026-09-11 `748912e`，版本 0.3.173 (185) —— **尚未评估**；基线之上的单个大特性提交（61 文件，+7735/−1115）：AodOrientationMonitor（新文件，加速度计驱动的全屏 AOD 画布旋转）、HookRegistry（新文件，按 generation 管理 hook 句柄、支持热重载）、AodLyricCanvasView 大改（+2377 行）、AodRenderPreferences/AodStateBridge/AodStateWire（+342）协议扩充、HookEntry 热重载集成（+251）、LyricCanvasMapper/LockscreenSurfaceController/LinkageTransitionCoordinator 更新，以及约 14 个新增/扩充的测试
+- **上游最新**：2026-09-11 `748912e`，版本 0.3.173 (185) —— **已于 2026-09-14 评估**，见下方「`748912e` 评估」小节。无必须移植项；最高价值是 ConfigBackupCodec/SettingsSession，`suppressStockAodContent` 需先核实再做决定。
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
   HierarchyFields.kt 及全 hook 使用、missingProbeNames、miuix 走 Maven Central 公共仓库
+
+## `748912e` 评估（v0.3.173 · 2026-09-14）
+
+`8422d78` 基线之上的单个大特性提交（61 文件，+7735/−1115）。拆分为可独立评估的特性：
+
+| # | 特性 | 关键文件/体量 | CN+ 相关性 | 建议 |
+|---|---|---|---|---|
+| 1 | AOD 画布随设备旋转（`AodOrientationMonitor` 新文件——加速度计生命周期/防抖/框架旋转 rebase；wire v4/v6/v8 新增 `aodRotateWithDevice`/`aodRotationMode`/各朝向 锚点·缩放·四周距；`AodSurfaceController`+`AodLyricCanvasView` 约 +2300） | AodOrientationMonitor、AodStateWire、AodRenderPreferences、AodSurfaceController、AodLyricCanvasView、HookEntry + AodOrientationMonitorTest / AodCanvasBiasTest / AodCanvasLayoutTest | 中——仅横屏/侧放 AOD 用户 | **暂缓（体量大、风险高）**。CN+ AOD 以竖屏为主；上游自带传感器回调丢失 bug 并给出固化规避。仅当横屏全屏 AOD 为真实需求时再移植 |
+| 2 | `suppressStockAodContent`——HyperGlow 自绘全屏画布时隐藏小米系统 AOD 内容 | wire 字段 + 画布 + 偏好 | 高（替身 AOD 渲染的核心） | **先核实**：CN+ 已有自己的系统内容抑制栈；若已隐藏系统歌词则标注已覆盖（记入 LOCKSCREEN_AOD_BEHAVIOR_SPEC.md）；否则单独抽取该字段 + 渲染开关 |
+| 3 | `HookRegistry`（新文件）+ `HookEntry` 热重载（`onHotReloading`/`onHotReloaded`、generation 退役、`PROTECTIVE` 模式、lyric 会话活跃时拒绝重载、hook 拆分为 `installDefaultLoaderHooks`/`installAodHooks`） | HookRegistry、HookEntry + HookRegistryTest | 低-中（开发迭代便利，非用户功能） | **暂缓**：CN+ hook 静态安装、运行正常；采用此结构是大型入口重构、无终端用户收益 |
+| 4 | 配置备份/恢复（`ConfigBackupCodec` +200、`SettingsSession` +91）+ 设置页 tab 化重构（`MainActivity` +1559） | ConfigBackupCodec、SettingsSession、MainActivity、PreferenceSettingsStore + ConfigBackupCodecTest / SettingsSessionTest | 用户价值高 | **仅移植 codec + session**（自包含、可测、价值高——即此前已暂缓的 `0424ae9` 项现已在上游落地）。**跳过** MainActivity UI tab 重构：CN+ 有自有设置布局 |
+| 5 | 支撑 1/2 的杂项加固（`AodBrightnessHook` +58、`AodLifetimeHook` +19、`AodStateProjector` +62、`LyricCanvasMapper` +40、`LockscreenSurfaceController` +51、`LinkageTransitionCoordinator` +42、`SpicyBridgeDocumentStore` +68、`DiagnosticLogging` +20、CustomizationModels/Repository、SystemUiCustomization、SceneCompiler）+ 大量测试更新 | 多文件 | 因文件而异 | **选择性**：多数与特性 1–2 耦合，不值得单独抽取；用 `AodStateBridge`/`AodStateProjector`/`DiagnosticLogging`/`SpicyBridgeDocumentStore` 排查独立修复 |
+
+**结论**：无必须移植项。最高价值、最低风险是 **#4 ConfigBackupCodec/SettingsSession**；**#2** 值得先对照 CN+ 现有抑制栈核实战后再定；**#1、#3 暂缓**。任何移植后都需重跑插件契约指纹与全量 CI（554+ 测试），并更新本文件。
 
 ## 已同步 / 已包含
 
