@@ -55,7 +55,9 @@ class SpicyLyricBridgeService : Service() {
                             )
                         } catch (error: Exception) {
                             AppLog.w(TAG, "Rejected malformed document", error)
-                            "exception ${error.javaClass.simpleName}"
+                            // 带上 message:requiredXxx 的 "missing $key" 一类信息
+                            // 只有在这里才能进拒绝原因,供诊断报告定位缺的是哪个键。
+                            "exception ${error.javaClass.simpleName}: ${error.message.orEmpty()}"
                         }
                         if (rejection == null) {
                             AppLog.i(TAG, "Accepted document generation=${ownedMetadata.generation}")

@@ -6,6 +6,7 @@ on:
       - main
       - "trae/agent-**"
       - "fix/aod-clock-follow"
+  pull_request:
   workflow_dispatch:
 
 permissions:
