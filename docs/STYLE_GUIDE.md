@@ -5,7 +5,8 @@
 Status: canonical implementation guide
 
 This guide codifies the dominant safe patterns in the module. It is subordinate to
-`docs/ARCHITECTURE.md`, `docs/private/PARITY-SPEC.md`, and `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md`.
+`docs/ARCHITECTURE.md`, `docs/private/PARITY-SPEC.md` (private doc, not in the public tree), and
+`docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md`.
 Those documents define behavior; this document defines how that behavior is implemented and
 reviewed.
 
@@ -381,14 +382,15 @@ and repeated notification geometry callbacks.
   override architecture or behavior contracts.
 - Update `docs/ARCHITECTURE.md` for package/process ownership, Binder flow, trust boundaries,
   capability gates, surface attachment, lifetime policy, or customization schema changes.
-- Update `docs/private/PARITY-SPEC.md` for renderer behavior or sanctioned AOD deltas.
+- Update `docs/private/PARITY-SPEC.md` (private doc, not in the public tree) for renderer behavior or
+  sanctioned AOD deltas.
 - Update `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md` for visibility, privacy, collision, continuity,
   keepalive, fallback, or customization-policy changes.
 - Update the relevant research/diagnostic record for Xiaomi symbol, hook, geometry, or version findings.
   Mark historical diagnostics as superseded rather than presenting them as current architecture.
-- `docs/private/LOCKSCREEN_AOD_IMPLEMENTATION_STATUS.md` records exact host-test count/result, build result,
-  APK SHA-256, install time, device/serial, SystemUI PID/restart reason, capability summary, observed
-  behavior, crash/OOM/safe-mode result, and remaining device gates.
+- `docs/private/LOCKSCREEN_AOD_IMPLEMENTATION_STATUS.md` (private doc, not in the public tree) records exact host-test
+  count/result, build result, APK SHA-256, install time, device/serial, SystemUI PID/restart reason, capability
+  summary, observed behavior, crash/OOM/safe-mode result, and remaining device gates.
 - Use evidence labels precisely:
   - `unit-tested` / `host-verified`: deterministic local tests only;
   - `trace-observed`: supported by runtime logs/trace, not necessarily visually confirmed;
@@ -415,7 +417,7 @@ Prefer the smallest coherent correction with focused tests and honest host/devic
 
 状态：权威实现指南
 
-本指南将模块中占主导地位的安全模式加以成文化。它从属于 `docs/ARCHITECTURE.md`、`docs/private/PARITY-SPEC.md` 与 `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md`。那些文档定义行为；本文档定义这些行为如何被实现与评审。
+本指南将模块中占主导地位的安全模式加以成文化。它从属于 `docs/ARCHITECTURE.md`、`docs/private/PARITY-SPEC.md`（私有文档，未随公开树发布）与 `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md`。那些文档定义行为；本文档定义这些行为如何被实现与评审。
 
 最严格的规则适用于加载进 `com.android.systemui` 的代码：那里的失败可能影响锁屏、AOD、认证流程、内存压力与设备功耗。不要仅为满足某个偏好而批量格式化或重写可正常工作的代码。只有当偏差影响正确性、生命周期安全、信任边界、功耗、可读性或可维护性时才予以纠正。
 
@@ -645,10 +647,10 @@ Prefer the smallest coherent correction with focused tests and honest host/devic
 
 - 在行为变更之前或同时更新相关规范。实现状态不会静默覆盖架构或行为契约。
 - 当包/进程所有权、Binder 流、信任边界、能力门控、surface 附加、生命周期策略或自定义 schema 变更时，更新 `docs/ARCHITECTURE.md`。
-- 渲染器行为或经批准的 AOD 偏差变更时，更新 `docs/private/PARITY-SPEC.md`。
+- 渲染器行为或经批准的 AOD 偏差变更时，更新 `docs/private/PARITY-SPEC.md`（私有文档，未随公开树发布）。
 - 可见性、隐私、碰撞、连续性、keepalive、fallback 或自定义策略变更时，更新 `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md`。
 - 对 Xiaomi 符号、hook、几何或版本的发现，更新相关研究/诊断记录。把历史诊断标记为已取代，而不是当作当前架构呈现。
-- `docs/private/LOCKSCREEN_AOD_IMPLEMENTATION_STATUS.md` 记录精确的宿主测试数量/结果、构建结果、APK SHA-256、安装时间、设备/序列号、SystemUI PID/重启原因、能力摘要、观察到的行为、崩溃/OOM/安全模式结果与剩余设备门禁。
+- `docs/private/LOCKSCREEN_AOD_IMPLEMENTATION_STATUS.md`（私有文档，未随公开树发布）记录精确的宿主测试数量/结果、构建结果、APK SHA-256、安装时间、设备/序列号、SystemUI PID/重启原因、能力摘要、观察到的行为、崩溃/OOM/安全模式结果与剩余设备门禁。
 - 精确使用证据标签：
   - `unit-tested` / `host-verified`：仅确定性本地测试；
   - `trace-observed`：由运行时日志/追踪支持，不一定经过视觉确认；

@@ -4,8 +4,9 @@
 
 Status: implementation contract
 
-This document extends `PARITY-SPEC.md`. AOD rendering continues to follow the existing parity
-contract. This spec defines surface visibility, privacy, continuity, customization, and fallback.
+This document extends `PARITY-SPEC.md` (private doc, not in the public tree). AOD rendering continues
+to follow the existing parity contract. This spec defines surface visibility, privacy, continuity,
+customization, and fallback.
 
 ## Shared snapshot
 
@@ -385,7 +386,7 @@ above and must fail back to Xiaomi's original target.
 
 状态：实现契约
 
-本文档是 `PARITY-SPEC.md` 的扩展。AOD 渲染继续遵循既有的 parity 契约。本规范定义 surface 可见性、隐私、连续性、自定义与 fallback。
+本文档是 `PARITY-SPEC.md`（私有文档，未随公开树发布）的扩展。AOD 渲染继续遵循既有的 parity 契约。本规范定义 surface 可见性、隐私、连续性、自定义与 fallback。
 
 ## 共享 snapshot
 
