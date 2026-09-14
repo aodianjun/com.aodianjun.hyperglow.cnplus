@@ -1217,7 +1217,15 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (drawWakeRenewalActive == active) return
         drawWakeRenewalActive = active
         mainHandler.removeCallbacks(drawWakeRenewal)
-        HookLogger.i(TAG, "Draw wake renewal active=$active")
+        // 续期被关时带上 alpha 链现场:0.3.83 的祖先 alpha 门控回归靠这行定位。
+        val offContext = if (!active) {
+            val directSurface = surface
+            " effAlpha=${directSurface?.let(::effectiveSurfaceAlpha)}" +
+                " alphaChain=${directSurface?.let(::surfaceAlphaChain)}"
+        } else {
+            ""
+        }
+        HookLogger.i(TAG, "Draw wake renewal active=$active$offContext")
         if (!active) return
         rootRef.get()?.let(::pulseDrawWakeLock)
         mainHandler.postDelayed(drawWakeRenewal, DRAW_WAKE_RENEW_INTERVAL_MS)
@@ -2021,7 +2029,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         // Xiaomi can hide the whole AODView by ancestor alpha while our child stays VISIBLE.
         // Keep linkage handoff exception: transition alpha is intentionally zero during morph.
-        return handoffActive || effectiveSurfaceAlpha(directSurface) > EFFECTIVE_ALPHA_THRESHOLD
+        // 只有 alpha 乘积恰为 0 才算隐藏;doze 期间的正常压暗/淡出(0 < a < 1)仍需
+        // draw-wake 脉冲,否则 AodPositionHook 应用的时钟位移不会被合成渲染,
+        // 表现为 AOD 位置固定失效(0.3.83 回归)。
+        return handoffActive || effectiveSurfaceAlpha(directSurface) > 0f
     }
 
     private fun effectiveSurfaceAlpha(view: View): Float {
@@ -2030,7 +2041,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         var depth = 0
         while (ancestor != null && depth++ < MAX_ALPHA_CHAIN_DEPTH) {
             value *= ancestor.alpha * ancestor.transitionAlpha
-            if (value <= EFFECTIVE_ALPHA_THRESHOLD) return value
+            if (value == 0f) return value
             ancestor = ancestor.parent as? View
         }
         return value
@@ -2169,7 +2180,6 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private const val STOCK_MOTION_FADE_OUT_MS = 150L
     private const val STOCK_MOTION_FADE_IN_MS = 180L
     private const val MIN_RENDERED_CLOCK_ALPHA = 0.02f
-    private const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
     private const val MAX_ALPHA_CHAIN_DEPTH = 6
     private const val MANAGED_BURN_IN_RETRY_MS = 1_000L
     private const val MAX_MANAGED_POSITION_RETRIES = 5
