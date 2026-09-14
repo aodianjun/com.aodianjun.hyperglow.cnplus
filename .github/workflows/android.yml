@@ -53,6 +53,11 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      # 防止无意重命名/重排 HyperLyric 插件契约副本(plugins/api/.../PluginApi.kt)。
+      # 该文件必须与上游契约字节级一致,否则预编译插件 ZIP 无法无需重编译加载。
+      - name: Verify HyperLyric plugin API contract fingerprint
+        run: python3 plugins/api/check-api-fingerprint.py
+
       - name: Test and build debug APK
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
