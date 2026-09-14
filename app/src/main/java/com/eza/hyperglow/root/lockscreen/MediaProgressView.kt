@@ -143,7 +143,7 @@ internal class MediaProgressView(context: Context) : View(context) {
         var ancestor = parent as? View
         while (ancestor != null) {
             value *= ancestor.alpha * ancestor.transitionAlpha
-            if (value <= EFFECTIVE_ALPHA_THRESHOLD) return value
+            if (value == 0f) return value
             ancestor = ancestor.parent as? View
         }
         return value
@@ -162,6 +162,5 @@ internal class MediaProgressView(context: Context) : View(context) {
 
     private companion object {
         const val FRAME_INTERVAL_MS = 250L
-        const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
     }
 }

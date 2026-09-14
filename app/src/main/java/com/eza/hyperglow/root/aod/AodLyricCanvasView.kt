@@ -725,7 +725,7 @@ private fun isEffectiveCadenceActive(
         (verifiedDozeHost ||
             windowVisible &&
             aggregatedVisible &&
-            (handoffActive || effectiveAlpha > EFFECTIVE_ALPHA_THRESHOLD))
+            (handoffActive || effectiveAlpha > 0f))
 
 internal enum class CadenceChange { NONE, START, STOP }
 
@@ -750,8 +750,6 @@ internal fun frameIntervalForTiming(
     timingActive: Boolean,
     exitTransitionActive: Boolean = false
 ): Long = if (contentVisible && (timingActive || exitTransitionActive)) 16L else 0L
-
-private const val EFFECTIVE_ALPHA_THRESHOLD = 0.01f
 
 internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
     startedAtMs > 0L && nowMs - startedAtMs >= durationMs
@@ -1898,7 +1896,7 @@ internal class AodLyricCanvasView(
         var ancestor = parent as? View
         while (ancestor != null) {
             value *= ancestor.alpha * ancestor.transitionAlpha
-            if (value <= EFFECTIVE_ALPHA_THRESHOLD) return value
+            if (value == 0f) return value
             ancestor = ancestor.parent as? View
         }
         return value

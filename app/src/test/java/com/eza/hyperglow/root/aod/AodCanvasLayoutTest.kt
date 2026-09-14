@@ -730,7 +730,10 @@ class AodCanvasLayoutTest {
         assertFalse(isEffectiveCadenceActive(active.copy(sceneActive = false)))
         assertFalse(isEffectiveCadenceActive(active.copy(windowVisible = false)))
         assertFalse(isEffectiveCadenceActive(active.copy(aggregatedVisible = false)))
-        assertFalse(isEffectiveCadenceActive(active.copy(effectiveAlpha = 0.01f)))
+        // 精确零语义:只有 alpha 乘积恰为 0 才算隐藏,doze 压暗(0<a<1)仍保持节奏。
+        assertFalse(isEffectiveCadenceActive(active.copy(effectiveAlpha = 0f)))
+        assertTrue(isEffectiveCadenceActive(active.copy(effectiveAlpha = 0.01f)))
+        assertTrue(isEffectiveCadenceActive(active.copy(effectiveAlpha = 0.3f)))
         assertTrue(isEffectiveCadenceActive(active.copy(effectiveAlpha = 0f, handoffActive = true)))
         assertFalse(
             isEffectiveCadenceActive(
