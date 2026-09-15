@@ -158,6 +158,13 @@ internal data class AodClockAnchor(
 /** How long a held clock position may go unconfirmed before it is treated as a genuine move. */
 internal const val AOD_CLOCK_ANCHOR_HOLD_MS = 40_000L
 
+/**
+ * 单次下行重锚阈值(px):下行步长超过它才立即跟随(真实版式迁移);小于等于它参与
+ * holdMs 防抖。取值大于已知防烧屏步进范围(每次唤醒 90-160px),避免连环打断锚定
+ * (issue #23)。
+ */
+internal const val AOD_CLOCK_ANCHOR_DOWN_STEP_PX = 200
+
 /** Minimum downward clock drift (px) the settle watchdog reacts to. */
 internal const val STOCK_SETTLE_DRIFT_PX = 24
 
@@ -171,24 +178,34 @@ internal const val STOCK_SETTLE_RETRY_MS = 300_000L
  * (oscillation), the anchor stays put so the lyric never jumps. It only relocates on a genuinely
  * persistent move that leaves the held position unconfirmed for [holdMs].
  *
- * 下行（时钟底部低于 anchor 底部）会立即硬同步，不做防抖：歌词 surface 位于 anchor 底部之下，
- * 若时钟向下漂移（小米 burn-in 每次唤醒步进 90–160px）却等防抖窗口，时钟会在滞后期间叠在歌词上。
- * 上行保留长防抖，因为媒体头部振荡会把时钟向上挤压，不能让 anchor 跟着抖动。
+ * 下行(clock 底部低于 anchor 底部)同样参与 [holdMs] 防抖(issue #23:原先下行立即重锚,
+ * 防烧屏每次唤醒步进 90-160px 会连环触发重锚 + 几何刷新,锚定形同虚设);仅当单次下行
+ * 超过 [AOD_CLOCK_ANCHOR_DOWN_STEP_PX](大于已知防烧屏步进范围,属真实版式迁移)或
+ * [holdMs] 过期时才重锚。权衡:防抖持有期内时钟可能与歌词顶部短暂重叠(≤一个步进
+ * 高度),与上行防抖对称;[seedSinceElapsedMs] 用于锚定被丢弃后继承防抖记忆
+ * (issue #23 建议三)。
  */
 internal fun stabilizeAodClockAnchor(
     previous: AodClockAnchor?,
     raw: AodRenderedClockBounds,
     nowElapsedMs: Long,
-    holdMs: Long = AOD_CLOCK_ANCHOR_HOLD_MS
+    holdMs: Long = AOD_CLOCK_ANCHOR_HOLD_MS,
+    seedSinceElapsedMs: Long = -1L
 ): AodClockAnchor {
     if (raw.top >= raw.bottom) return previous ?: AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
-    if (previous == null) return AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
+    if (previous == null) {
+        val since = if (seedSinceElapsedMs >= 0L) seedSinceElapsedMs else nowElapsedMs
+        return AodClockAnchor(raw.top, raw.bottom, since)
+    }
     if (raw.top == previous.top && raw.bottom == previous.bottom) {
         // Held position reconfirmed: refresh so oscillation never ages it out.
         return previous.copy(sinceElapsedMs = nowElapsedMs)
     }
-    // 下行（时钟侵入歌词区域）立即硬同步，避免 burn-in 漂移时时钟叠在歌词上。
-    if (raw.bottom > previous.bottom) return AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
+    // 单次下行超过防烧屏步进上限:真实版式迁移,立即跟随(issue #23 建议一选项 B)。
+    if (raw.bottom - previous.bottom > AOD_CLOCK_ANCHOR_DOWN_STEP_PX) {
+        return AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
+    }
+    // 其余方向(上行 + 小步下行)统一走 holdMs 防抖:持定期内保持旧锚,过期才重锚。
     return if (nowElapsedMs - previous.sinceElapsedMs >= holdMs) {
         AodClockAnchor(raw.top, raw.bottom, nowElapsedMs)
     } else {
@@ -386,6 +403,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var aodControllerClockBounds: AodRenderedClockBounds? = null
     private var renderedClockBounds: AodRenderedClockBounds? = null
     private var clockAnchor: AodClockAnchor? = null
+
+    /** 根高度变化丢锚时继承的防抖记忆(旧锚 sinceElapsedMs),消费一次后清空。 */
+    private var droppedAnchorHoldSinceMs: Long? = null
     private val renderedClockRootLocation = IntArray(2)
     private val renderedClockUnion = Rect()
     private val renderedClockScratch = Rect()
@@ -702,8 +722,15 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                             HookLogger.i(TAG, "Anchor seeded from remembered bounds ${b.top}..${b.bottom} (re-attach throttle)")
                         }
                 } else if (rememberedPhysicalClockRootHeight != root.height) {
+                    // 根高度变化丢弃锚时继承防抖记忆(issue #23 建议三):新锚的 hold 窗口
+                    // 从旧锚的确认时刻起算,而不是重新计满 40s。
+                    droppedAnchorHoldSinceMs = clockAnchor?.sinceElapsedMs
                     clockAnchor = null
-                    HookLogger.i(TAG, "Display root height changed; anchor dropped")
+                    HookLogger.i(
+                        TAG,
+                        "Display root height changed; anchor dropped (hold since inherited=" +
+                            "$droppedAnchorHoldSinceMs)"
+                    )
                 }
                 val directSurface = buildSurface(root)
                 surface = directSurface
@@ -1271,13 +1298,15 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (physical != null && anchor != null &&
             physical.bottom - anchor.bottom > STOCK_SETTLE_DRIFT_PX
         ) {
+            // 原厂沉降以 requestGeometryUpdate 对齐,不再强行重锚(issue #23 建议二):
+            // 锚定去留交给 stabilizeAodClockAnchor 的统一防抖/步进规则,
+            // 避免 24px 阈值反复打断防抖窗口。
             HookLogger.i(
                 TAG,
                 "Stock settle drift detected +${physical.bottom - anchor.bottom}px " +
                     "anchor=${anchor.top}..${anchor.bottom} " +
-                    "physical=${physical.top}..${physical.bottom}; forcing geometry refresh"
+                    "physical=${physical.top}..${physical.bottom}; requesting geometry refresh"
             )
-            clockAnchor = AodClockAnchor(physical.top, physical.bottom, SystemClock.elapsedRealtime())
             requestGeometryUpdate()
         }
         scheduleNextStockSettleCheck()
@@ -1473,8 +1502,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             val anchor = stabilizeAodClockAnchor(
                 clockAnchor,
                 rawClockBounds,
-                SystemClock.elapsedRealtime()
+                SystemClock.elapsedRealtime(),
+                seedSinceElapsedMs = droppedAnchorHoldSinceMs ?: -1L
             )
+            droppedAnchorHoldSinceMs = null
             clockAnchor = anchor
             AodRenderedClockBounds(anchor.top, anchor.bottom)
         }
