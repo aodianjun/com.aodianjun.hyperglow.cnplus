@@ -487,17 +487,20 @@ class AodPositionUpdateTest {
     }
 
     @Test
-    fun anchorHoldsSmallBurnInStepWithinHoldWindow() {
-        // issue #23:小步下行(防烧屏单步 90-160px)参与 holdMs 防抖,不再立即重锚。
+    fun anchorFollowsSmallBurnInStepDownwardImmediately() {
+        // issue #23 补充:下行立即硬同步、不做防抖——烧屏把时钟下拖 50px,anchor 应立刻吸附,
+        // 否则歌词停留旧位、时钟移走后长期错位。
         var t = 0L
         var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
         t = 1_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
-        assertEquals(1626, anchor.bottom)
+        assertEquals(1700, anchor.bottom)
+        assertEquals(546, anchor.top)
     }
 
     @Test
-    fun anchorFollowsDownwardRelocationLargerThanABurnInStepImmediately() {
+    fun anchorFollowsDownwardRelocationImmediately() {
+        // 大步下行同样立即跟随(真实版式迁移)。
         var t = 0L
         var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
         t = 1_000L
@@ -507,27 +510,16 @@ class AodPositionUpdateTest {
     }
 
     @Test
-    fun anchorRelocatesAfterHoldExpiryEvenForSmallDownwardSteps() {
+    fun anchorKeepsTrackingEachDownwardBurnInStep() {
+        // 连续多个小步下行:每一步都应立即吸附,而不是被 holdMs 困住。
         var t = 0L
         var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
         t = 1_000L
-        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
-        assertEquals(1626, anchor.bottom)
-        t = 45_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
         assertEquals(1700, anchor.bottom)
-    }
-
-    @Test
-    fun cumulativeSmallStepsFollowOnceTheyExceedTheStepThreshold() {
-        var t = 0L
-        var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
-        t = 1_000L
-        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
-        assertEquals(1626, anchor.bottom)
         t = 2_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1774), t)
-        assertEquals(1626, anchor.bottom)
+        assertEquals(1774, anchor.bottom)
         t = 3_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1848), t)
         assertEquals(1848, anchor.bottom)
