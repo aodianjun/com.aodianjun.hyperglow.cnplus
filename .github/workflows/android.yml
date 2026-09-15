@@ -48,7 +48,19 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        # Runner 镜像(20260907+)预装的 sdkmanager 版本与 android-actions/setup-android@v4
+        # 期望不符:该 action 会去安装早已从 SDK 仓库移除的 "tools" 包并以 exit 1 失败。
+        # Runner 本身已预装完整 SDK(ANDROID_HOME / ANDROID_SDK_ROOT 已指向它),
+        # 因此改为只接受许可、失败不阻塞构建;未预装 SDK 的环境仍可自备。
+        run: |
+          set -uo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER=$(ls -1 "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -n 1 || true)
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          fi
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
@@ -153,7 +165,19 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        # Runner 镜像(20260907+)预装的 sdkmanager 版本与 android-actions/setup-android@v4
+        # 期望不符:该 action 会去安装早已从 SDK 仓库移除的 "tools" 包并以 exit 1 失败。
+        # Runner 本身已预装完整 SDK(ANDROID_HOME / ANDROID_SDK_ROOT 已指向它),
+        # 因此改为只接受许可、失败不阻塞构建;未预装 SDK 的环境仍可自备。
+        run: |
+          set -uo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER=$(ls -1 "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -n 1 || true)
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          fi
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
