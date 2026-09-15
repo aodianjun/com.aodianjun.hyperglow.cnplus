@@ -487,27 +487,60 @@ class AodPositionUpdateTest {
     }
 
     @Test
-    fun anchorFollowsBurnInDriftDownImmediately() {
+    fun anchorHoldsSmallBurnInStepWithinHoldWindow() {
+        // issue #23:小步下行(防烧屏单步 90-160px)参与 holdMs 防抖,不再立即重锚。
         var t = 0L
         var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
-        // 下行漂移(burn-in 每次唤醒步进)必须立即硬同步，不能等防抖窗口：歌词 surface 位于
-        // anchor 底部之下，时钟下移时若 anchor 滞后，时钟会叠在歌词上。
         t = 1_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
-        assertEquals(1700, anchor.bottom)
+        assertEquals(1626, anchor.bottom)
+    }
+
+    @Test
+    fun anchorFollowsDownwardRelocationLargerThanABurnInStepImmediately() {
+        var t = 0L
+        var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
+        t = 1_000L
+        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1900), t)
+        assertEquals(1900, anchor.bottom)
         assertEquals(546, anchor.top)
     }
 
     @Test
-    fun anchorFollowsSubsequentDownwardStepsImmediately() {
-        // 首次下行迁移后时钟继续漂移；每一步更深的下行都立即跟随(而非走长防抖)。
+    fun anchorRelocatesAfterHoldExpiryEvenForSmallDownwardSteps() {
         var t = 0L
         var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
-        t = 3_000L
+        t = 1_000L
+        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
+        assertEquals(1626, anchor.bottom)
+        t = 45_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
         assertEquals(1700, anchor.bottom)
-        t = 10_000L
+    }
+
+    @Test
+    fun cumulativeSmallStepsFollowOnceTheyExceedTheStepThreshold() {
+        var t = 0L
+        var anchor = stabilizeAodClockAnchor(null, AodRenderedClockBounds(546, 1626), t)
+        t = 1_000L
+        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1700), t)
+        assertEquals(1626, anchor.bottom)
+        t = 2_000L
         anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1774), t)
-        assertEquals(1774, anchor.bottom)
+        assertEquals(1626, anchor.bottom)
+        t = 3_000L
+        anchor = stabilizeAodClockAnchor(anchor, AodRenderedClockBounds(546, 1848), t)
+        assertEquals(1848, anchor.bottom)
+    }
+
+    @Test
+    fun seedSinceElapsedMsIsInheritedWhenSeedingAfterADrop() {
+        val anchor = stabilizeAodClockAnchor(
+            previous = null,
+            raw = AodRenderedClockBounds(546, 1626),
+            nowElapsedMs = 90_000L,
+            seedSinceElapsedMs = 30_000L
+        )
+        assertEquals(30_000L, anchor.sinceElapsedMs)
     }
 }
