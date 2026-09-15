@@ -14,6 +14,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.readHierarchyField
+import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
+import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
@@ -386,6 +388,14 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var rememberedPhysicalClockBounds: AodRenderedClockBounds? = null
     private var rememberedPhysicalClockRootHeight = 0
     @Volatile private var stockWidgetControlActive = false
+    @Volatile private var suppressStockAodContent = false
+    @Volatile private var suppressGateActive = false
+    @Volatile private var currentRotationStep = AodOrientationStep.PORTRAIT
+    private var aodRotateWithDevice = false
+    private var aodRotationMode = AOD_ROTATION_MODE_PORTRAIT
+    private var aodRotationSettleMs = 1_000L
+    /** 系统时钟保留区:抑制系统内容前最后一次实测的物理时钟顶部位置。 */
+    private var stockClockReserveTop: Int? = null
     @Volatile private var burnInPattern = "static_bottom"
     private var burnInIntervalMs = 60_000L
     private var sceneZone = AodSceneZone.STOCK
@@ -738,6 +748,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 startRenderStallWatchdog()
                 startStockSettleWatchdog()
                 LinkageTransitionCoordinator.onAodSurfaceMode(AodPositionHook.isLinkageMode())
+                applySuppressionAndRotation(latestSnapshot)
                 val generation = attachmentGeneration
                 root.post {
                     if (generation == attachmentGeneration && rootRef.get() === root) {
@@ -925,6 +936,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 XiaomiCapabilityResolver.hasCapability(XiaomiCapability.AOD_POSITION_UPDATES),
             restartSchedule = burnInScheduleChanged
         )
+        applySuppressionAndRotation(resolvedSnapshot)
         if (!resolvedSnapshot.positionFollowingEnabled && wasFollowingPosition) {
             environment = environment.copy(
                 burnInTranslationX = 0f,
@@ -1123,8 +1135,16 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         cancelStockMotionTransition(resetAlpha = false)
         positionUpdates.clear()
         stockWidgetControlActive = false
+        suppressStockAodContent = false
+        suppressGateActive = false
+        stockClockReserveTop = null
         AodPositionHook.restoreStockTranslation()
         AodPositionHook.abandonManagedSession()
+        AodPositionHook.setSuppressActive(false)
+        AodPositionHook.setHoldStockPosition(false)
+        AodSurfaceHook.clearSuppressedState()
+        AodOrientationMonitor.detach()
+        currentRotationStep = AodOrientationStep.PORTRAIT
         setDrawWakeRenewalActive(false)
         finishInitialReveal()
         AodPowerCoordinator.onSurfaceDetached()
@@ -1206,6 +1226,93 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         AodPositionHook.restartManagedPattern()
         managedPositionRetryCount = 0
         mainHandler.post(managedBurnInStart)
+    }
+
+    /** suppress 空场:保留系统时钟占位区,让后续关闭抑制时布局不塌陷。 */
+    private fun holdStockSuppression(snapshot: LyricSnapshot?) {
+        val root = rootRef.get()
+        val physical = selectPhysicalAodClockBounds(systemUiClockBounds, aodControllerClockBounds)
+            ?: AodPositionHook.renderedTargetBoundsInRoot(root ?: return)
+        stockClockReserveTop = physical?.top
+        if (snapshot != null && snapshot.visible) AodPositionHook.setHoldStockPosition(true)
+    }
+
+    private fun applyStockSuppression(suppress: Boolean, snapshot: LyricSnapshot?) {
+        if (suppressGateActive == suppress) {
+            if (suppress) holdStockSuppression(snapshot)
+            return
+        }
+        suppressGateActive = suppress
+        suppressStockAodContent = suppress
+        AodPositionHook.setSuppressActive(suppress)
+        AodSurfaceHook.setSuppressionGate(suppress)
+        if (suppress) {
+            burnInContainerRef.get()?.let(AodSurfaceHook::registerSuppressedRoot)
+            holdStockSuppression(snapshot)
+        } else {
+            AodSurfaceHook.clearSuppressedState()
+            stockClockReserveTop = null
+            AodPositionHook.setHoldStockPosition(false)
+        }
+        HookLogger.i(TAG, "Stock content suppression active=$suppress")
+    }
+
+    private fun onOrientationStepResolved(step: AodOrientationStep) {
+        if (currentRotationStep == step) return
+        currentRotationStep = step
+        lyricCanvas?.setRotationStep(step)
+        requestGeometryUpdate()
+    }
+
+    /** 从快照应用抑制 + 旋转配置;不足一次渲染时两者均关闭。 */
+    private fun applySuppressionAndRotation(snapshot: LyricSnapshot?) {
+        val renderable = snapshot != null && canRenderAod(snapshot)
+        val suppress = renderable && snapshot!!.suppressStockAodContent
+        applyStockSuppression(suppress, snapshot)
+        applyRotation(snapshot?.takeIf { renderable })
+    }
+
+    private fun applyRotation(snapshot: LyricSnapshot?) {
+        val rotate = snapshot?.aodRotateWithDevice == true
+        val mode = snapshot?.aodRotationMode ?: AOD_ROTATION_MODE_PORTRAIT
+        val settle = snapshot?.aodRotationSettleMs ?: 1_000L
+        val anchorLandscape = snapshot?.aodCanvasAnchorLandscape ?: 0.5f
+        val textScale = snapshot?.aodLandscapeTextScale ?: 1f
+        val padPX = snapshot?.aodCanvasPaddingPortraitXPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
+        val padPY = snapshot?.aodCanvasPaddingPortraitYPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
+        val padLX = snapshot?.aodCanvasPaddingLandscapeXPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
+        val padLY = snapshot?.aodCanvasPaddingLandscapeYPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
+        aodRotateWithDevice = rotate
+        aodRotationMode = mode
+        aodRotationSettleMs = settle
+        lyricCanvas?.updateOrientation(
+            rotate = rotate,
+            mode = mode,
+            landscapeTextScale = textScale,
+            landscapeAnchor = anchorLandscape,
+            paddingPortraitXPercent = padPX,
+            paddingPortraitYPercent = padPY,
+            paddingLandscapeXPercent = padLX,
+            paddingLandscapeYPercent = padLY
+        )
+        if (rotate && !AodOrientationMonitor.isAttached()) {
+            val context = rootRef.get()?.context
+            if (context != null) {
+                AodOrientationMonitor.attach(context, mode, settle) { step ->
+                    mainHandler.post { onOrientationStepResolved(step) }
+                }
+            }
+        } else if (!rotate) {
+            AodOrientationMonitor.detach()
+            onOrientationStepResolved(AodOrientationStep.PORTRAIT)
+        } else {
+            // 旋转已附着:刷新模式与防抖窗口。
+            AodOrientationMonitor.attach(
+                rootRef.get()?.context ?: return,
+                mode,
+                settle
+            ) { step -> mainHandler.post { onOrientationStepResolved(step) } }
+        }
     }
 
     private fun updateLifetimeGuard() {

@@ -67,7 +67,23 @@ data class AodRenderConfig(
      * 插件处理总开关:开启后 HyperLyric 兼容插件链参与歌词富化(翻译/罗马音/逐字等)。
      * 默认关闭;关闭或无插件结果时投影链保持透传,行为与未装插件完全一致。
      */
-    val pluginProcessingEnabled: Boolean = false
+    val pluginProcessingEnabled: Boolean = false,
+    /**
+     * 抑制小米系统 AOD 内容:绘制全屏自绘歌词画布时,通过 View.setVisibility 强制接缝把
+     * 受抑制容器上任何非 GONE 请求改回 GONE,隐藏时钟/天气等系统元素(可独立开关)。
+     */
+    val suppressStockAodContent: Boolean = false,
+    /** AOD 画布随设备旋转(竖屏/横屏/横屏反向/自动)。可独立开关。 */
+    val aodRotateWithDevice: Boolean = false,
+    val aodRotationMode: String = AOD_ROTATION_MODE_PORTRAIT,
+    val aodCanvasAnchor: Float = DEFAULT_CANVAS_ANCHOR,
+    val aodRotationSettleMs: Long = DEFAULT_ROTATION_SETTLE_MS,
+    val aodCanvasAnchorLandscape: Float = DEFAULT_CANVAS_ANCHOR,
+    val aodLandscapeTextScale: Float = DEFAULT_LANDSCAPE_TEXT_SCALE,
+    val aodCanvasPaddingPortraitXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
+    val aodCanvasPaddingPortraitYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
+    val aodCanvasPaddingLandscapeXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
+    val aodCanvasPaddingLandscapeYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT
 )
 
 internal fun normalizeAodAlignment(value: String?): String = when (value) {
@@ -141,6 +157,43 @@ internal fun normalizeAodBurnInInterval(value: Long): Long = when {
     else -> 300_000L
 }
 
+internal fun normalizeAodCanvasAnchor(value: Float): Float =
+    if (value.isFinite() && value in 0f..1f) value else DEFAULT_CANVAS_ANCHOR
+
+internal fun normalizeAodRotationSettleMs(value: Long): Long = when (value) {
+    0L, 500L, 1_000L, 2_000L, 5_000L, 10_000L -> value
+    else -> DEFAULT_ROTATION_SETTLE_MS
+}
+
+internal fun normalizeAodRotationMode(value: String?): String = when (value) {
+    AOD_ROTATION_MODE_LANDSCAPE -> AOD_ROTATION_MODE_LANDSCAPE
+    AOD_ROTATION_MODE_LANDSCAPE_REVERSE -> AOD_ROTATION_MODE_LANDSCAPE_REVERSE
+    AOD_ROTATION_MODE_AUTO -> AOD_ROTATION_MODE_AUTO
+    else -> AOD_ROTATION_MODE_PORTRAIT
+}
+
+internal fun normalizeAodLandscapeTextScale(value: Float): Float =
+    if (value.isFinite()) value.coerceIn(0.5f, 2f) else DEFAULT_LANDSCAPE_TEXT_SCALE
+
+/**
+ * Per-axis canvas padding in percent of the logical frame (0-20%). Percent
+ * keeps insets proportional on the long and short axes, where an absolute dp
+ * value would eat ~2.3x more of the short axis than the long one.
+ */
+internal fun normalizeAodCanvasPaddingPercent(value: Float): Float =
+    if (value.isFinite()) value.coerceIn(0f, MAX_CANVAS_PADDING_PERCENT)
+    else DEFAULT_CANVAS_PADDING_PERCENT
+
+internal const val MAX_CANVAS_PADDING_PERCENT = 20f
+internal const val DEFAULT_CANVAS_PADDING_PERCENT = 2f
+private const val DEFAULT_CANVAS_ANCHOR = 0.5f
+private const val DEFAULT_ROTATION_SETTLE_MS = 1_000L
+private const val DEFAULT_LANDSCAPE_TEXT_SCALE = 1f
+internal const val AOD_ROTATION_MODE_PORTRAIT = "portrait"
+internal const val AOD_ROTATION_MODE_LANDSCAPE = "landscape"
+internal const val AOD_ROTATION_MODE_LANDSCAPE_REVERSE = "landscape_reverse"
+internal const val AOD_ROTATION_MODE_AUTO = "auto"
+
 internal fun normalizeKeepAwakeDurationMs(value: Long): Long = when (value) {
     300_000L, 600_000L, 1_800_000L, 3_600_000L, 7_200_000L -> value
     else -> -1L
@@ -188,6 +241,34 @@ object AodRenderPreferences {
     const val HIDE_LAUNCHER_ICON = "hide_launcher_icon"
     const val AOD_BRIGHTNESS_BOOST = "aod_brightness_boost"
     const val PLUGIN_PROCESSING_ENABLED = "plugin_processing_enabled"
+    const val SUPPRESS_STOCK_AOD_CONTENT = "suppress_stock_aod_content"
+    const val AOD_ROTATE_WITH_DEVICE = "aod_rotate_with_device"
+    const val AOD_ROTATION_MODE = "aod_rotation_mode"
+    const val AOD_CANVAS_ANCHOR = "aod_canvas_anchor"
+    const val AOD_ROTATION_SETTLE_MS = "aod_rotation_settle_ms"
+    const val AOD_CANVAS_ANCHOR_LANDSCAPE = "aod_canvas_anchor_landscape"
+    const val AOD_LANDSCAPE_TEXT_SCALE = "aod_landscape_text_scale"
+    const val AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT = "aod_canvas_padding_portrait_x_percent"
+    const val AOD_CANVAS_PADDING_PORTRAIT_Y_PERCENT = "aod_canvas_padding_portrait_y_percent"
+    const val AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT = "aod_canvas_padding_landscape_x_percent"
+    const val AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT = "aod_canvas_padding_landscape_y_percent"
+
+    // SharedPreferences throws ClassCastException when an older/imported value has the wrong
+    // primitive type. Treat malformed entries as missing so a bad setting cannot crash startup.
+    private fun SharedPreferences.safeBoolean(key: String, default: Boolean): Boolean =
+        runCatching { getBoolean(key, default) }.getOrDefault(default)
+
+    private fun SharedPreferences.safeInt(key: String, default: Int): Int =
+        runCatching { getInt(key, default) }.getOrDefault(default)
+
+    private fun SharedPreferences.safeLong(key: String, default: Long): Long =
+        runCatching { getLong(key, default) }.getOrDefault(default)
+
+    private fun SharedPreferences.safeFloat(key: String, default: Float): Float =
+        runCatching { getFloat(key, default) }.getOrDefault(default)
+
+    private fun SharedPreferences.safeString(key: String, default: String?): String? =
+        runCatching { getString(key, default) }.getOrDefault(default)
 
     private var preferences: SharedPreferences? = null
     private var cachedConfig: AodRenderConfig? = null
@@ -202,40 +283,59 @@ object AodRenderPreferences {
             it.registerOnSharedPreferenceChangeListener(preferenceListener)
         }
         return cachedConfig ?: AodRenderConfig(
-            prefs.getBoolean(AOD_ENABLED, true),
-            prefs.getBoolean(LOCKSCREEN_ENABLED, false),
+            prefs.safeBoolean(AOD_ENABLED, true),
+            prefs.safeBoolean(LOCKSCREEN_ENABLED, false),
             true,
-            normalizeAodAlignment(prefs.getString(ALIGNMENT, "auto")),
-            normalizeAodSecondary(prefs.getString(SECONDARY, "Main only")),
-            normalizeAodOverflow(prefs.getString(OVERFLOW, "Wrap")),
-            normalizeAodMetadataVisible(prefs.getString(METADATA_VISIBLE, "hide")),
-            normalizeAodMetadataAnchor(prefs.getString(METADATA_ANCHOR, "top")),
-            prefs.getInt(METADATA_SIZE, 100).coerceIn(50, 200),
-            normalizeAodWeight(prefs.getString(WEIGHT, "Medium")),
-            normalizeAodTextSize(prefs.getString(TEXT_SIZE, "normal")),
-            prefs.getInt(TEXT_SIZE_CUSTOM, 100).coerceIn(50, 200),
-            normalizeAodFontFamily(prefs.getString(FONT_FAMILY, "spotify")),
-            normalizeAodAnimation(prefs.getString(ANIMATION, "Gradient")),
-            normalizeAodGlow(prefs.getString(GLOW, "Off")),
-            prefs.getBoolean(ADAPTIVE_SECTIONING, true),
-            prefs.getBoolean(KEEP_AWAKE, true),
-            prefs.getBoolean(AOD_CLOCK_FOLLOW, false),
-            prefs.getBoolean(KEEP_AWAKE_UNSYNCED, false),
-            normalizeKeepAwakeDurationMs(prefs.getLong(KEEP_AWAKE_DURATION_MS, -1L)),
-            prefs.getBoolean(EXPERIMENTAL_POSITION_FOLLOWING, false),
-            normalizeAodBurnInPattern(prefs.getString(BURN_IN_PATTERN, "static_bottom")),
-            normalizeAodBurnInInterval(prefs.getLong(BURN_IN_INTERVAL_MS, 60_000L)),
-            normalizePauseLingerMs(prefs.getLong(PAUSE_LINGER_MS, 5_000L)),
-            prefs.getBoolean(PAUSE_SHOW_CONTENT, false),
-            prefs.getBoolean(LOCKSCREEN_KEEP_AWAKE, false),
-            prefs.getBoolean(RAISE_TO_AOD, false),
-            prefs.getBoolean(SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS, false),
-            prefs.getBoolean(EXPERIMENTAL_MODE, false),
-            prefs.getBoolean(PERSISTENT_NOTIFICATION, true),
-            prefs.getBoolean(HIDE_BACKGROUND_CARD, false),
-            prefs.getBoolean(HIDE_LAUNCHER_ICON, false),
-            prefs.getBoolean(AOD_BRIGHTNESS_BOOST, true),
-            prefs.getBoolean(PLUGIN_PROCESSING_ENABLED, false)
+            normalizeAodAlignment(prefs.safeString(ALIGNMENT, "auto")),
+            normalizeAodSecondary(prefs.safeString(SECONDARY, "Main only")),
+            normalizeAodOverflow(prefs.safeString(OVERFLOW, "Wrap")),
+            normalizeAodMetadataVisible(prefs.safeString(METADATA_VISIBLE, "hide")),
+            normalizeAodMetadataAnchor(prefs.safeString(METADATA_ANCHOR, "top")),
+            prefs.safeInt(METADATA_SIZE, 100).coerceIn(50, 200),
+            normalizeAodWeight(prefs.safeString(WEIGHT, "Medium")),
+            normalizeAodTextSize(prefs.safeString(TEXT_SIZE, "normal")),
+            prefs.safeInt(TEXT_SIZE_CUSTOM, 100).coerceIn(50, 200),
+            normalizeAodFontFamily(prefs.safeString(FONT_FAMILY, "spotify")),
+            normalizeAodAnimation(prefs.safeString(ANIMATION, "Gradient")),
+            normalizeAodGlow(prefs.safeString(GLOW, "Off")),
+            prefs.safeBoolean(ADAPTIVE_SECTIONING, true),
+            prefs.safeBoolean(KEEP_AWAKE, true),
+            prefs.safeBoolean(AOD_CLOCK_FOLLOW, false),
+            prefs.safeBoolean(KEEP_AWAKE_UNSYNCED, false),
+            normalizeKeepAwakeDurationMs(prefs.safeLong(KEEP_AWAKE_DURATION_MS, -1L)),
+            prefs.safeBoolean(EXPERIMENTAL_POSITION_FOLLOWING, false),
+            normalizeAodBurnInPattern(prefs.safeString(BURN_IN_PATTERN, "static_bottom")),
+            normalizeAodBurnInInterval(prefs.safeLong(BURN_IN_INTERVAL_MS, 60_000L)),
+            normalizePauseLingerMs(prefs.safeLong(PAUSE_LINGER_MS, 5_000L)),
+            prefs.safeBoolean(PAUSE_SHOW_CONTENT, false),
+            prefs.safeBoolean(LOCKSCREEN_KEEP_AWAKE, false),
+            prefs.safeBoolean(RAISE_TO_AOD, false),
+            prefs.safeBoolean(SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS, false),
+            prefs.safeBoolean(EXPERIMENTAL_MODE, false),
+            prefs.safeBoolean(PERSISTENT_NOTIFICATION, true),
+            prefs.safeBoolean(HIDE_BACKGROUND_CARD, false),
+            prefs.safeBoolean(HIDE_LAUNCHER_ICON, false),
+            prefs.safeBoolean(AOD_BRIGHTNESS_BOOST, true),
+            prefs.safeBoolean(PLUGIN_PROCESSING_ENABLED, false),
+            prefs.safeBoolean(SUPPRESS_STOCK_AOD_CONTENT, false),
+            prefs.safeBoolean(AOD_ROTATE_WITH_DEVICE, false),
+            normalizeAodRotationMode(prefs.safeString(AOD_ROTATION_MODE, AOD_ROTATION_MODE_PORTRAIT)),
+            normalizeAodCanvasAnchor(prefs.safeFloat(AOD_CANVAS_ANCHOR, 0.5f)),
+            normalizeAodRotationSettleMs(prefs.safeLong(AOD_ROTATION_SETTLE_MS, 1_000L)),
+            normalizeAodCanvasAnchor(prefs.safeFloat(AOD_CANVAS_ANCHOR_LANDSCAPE, 0.5f)),
+            normalizeAodLandscapeTextScale(prefs.safeFloat(AOD_LANDSCAPE_TEXT_SCALE, 1f)),
+            normalizeAodCanvasPaddingPercent(
+                prefs.safeFloat(AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT, DEFAULT_CANVAS_PADDING_PERCENT)
+            ),
+            normalizeAodCanvasPaddingPercent(
+                prefs.safeFloat(AOD_CANVAS_PADDING_PORTRAIT_Y_PERCENT, DEFAULT_CANVAS_PADDING_PERCENT)
+            ),
+            normalizeAodCanvasPaddingPercent(
+                prefs.safeFloat(AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT, DEFAULT_CANVAS_PADDING_PERCENT)
+            ),
+            normalizeAodCanvasPaddingPercent(
+                prefs.safeFloat(AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT, DEFAULT_CANVAS_PADDING_PERCENT)
+            )
         ).also { cachedConfig = it }
     }
 

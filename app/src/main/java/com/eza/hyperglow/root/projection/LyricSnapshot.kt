@@ -1,9 +1,16 @@
 package com.eza.hyperglow.root.projection
 
+import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.AodStateWireLimits
 import com.eza.hyperglow.aod.AodStateWireMessage
+import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.normalizeAodBurnInInterval
 import com.eza.hyperglow.aod.normalizeAodBurnInPattern
+import com.eza.hyperglow.aod.normalizeAodCanvasAnchor
+import com.eza.hyperglow.aod.normalizeAodCanvasPaddingPercent
+import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
+import com.eza.hyperglow.aod.normalizeAodRotationMode
+import com.eza.hyperglow.aod.normalizeAodRotationSettleMs
 import com.eza.hyperglow.aod.normalizePauseLingerMs
 
 internal data class LyricWord(
@@ -43,6 +50,17 @@ internal data class LyricSnapshot(
     val positionFollowingEnabled: Boolean = false,
     val burnInPattern: String = "static_bottom",
     val burnInIntervalMs: Long = 60_000L,
+    val suppressStockAodContent: Boolean = false,
+    val aodRotateWithDevice: Boolean = false,
+    val aodRotationMode: String = AOD_ROTATION_MODE_PORTRAIT,
+    val aodCanvasAnchor: Float = 0.5f,
+    val aodRotationSettleMs: Long = 1_000L,
+    val aodCanvasAnchorLandscape: Float = 0.5f,
+    val aodLandscapeTextScale: Float = 1f,
+    val aodCanvasPaddingPortraitXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
+    val aodCanvasPaddingPortraitYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
+    val aodCanvasPaddingLandscapeXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
+    val aodCanvasPaddingLandscapeYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val wakeSignal: Long = 0L,
     val original: String = "",
     val romanized: String = "",
@@ -341,6 +359,23 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
         speed = snapshot.speed.takeIf { it.isFinite() && it >= 0f } ?: 1f,
         burnInPattern = normalizeAodBurnInPattern(snapshot.burnInPattern),
         burnInIntervalMs = normalizeAodBurnInInterval(snapshot.burnInIntervalMs),
+        aodRotationMode = normalizeAodRotationMode(snapshot.aodRotationMode),
+        aodCanvasAnchor = normalizeAodCanvasAnchor(snapshot.aodCanvasAnchor),
+        aodRotationSettleMs = normalizeAodRotationSettleMs(snapshot.aodRotationSettleMs),
+        aodCanvasAnchorLandscape = normalizeAodCanvasAnchor(snapshot.aodCanvasAnchorLandscape),
+        aodLandscapeTextScale = normalizeAodLandscapeTextScale(snapshot.aodLandscapeTextScale),
+        aodCanvasPaddingPortraitXPercent = normalizeAodCanvasPaddingPercent(
+            snapshot.aodCanvasPaddingPortraitXPercent
+        ),
+        aodCanvasPaddingPortraitYPercent = normalizeAodCanvasPaddingPercent(
+            snapshot.aodCanvasPaddingPortraitYPercent
+        ),
+        aodCanvasPaddingLandscapeXPercent = normalizeAodCanvasPaddingPercent(
+            snapshot.aodCanvasPaddingLandscapeXPercent
+        ),
+        aodCanvasPaddingLandscapeYPercent = normalizeAodCanvasPaddingPercent(
+            snapshot.aodCanvasPaddingLandscapeYPercent
+        ),
         words = words,
         ruby = ruby,
         layoutGroups = layoutGroups,
@@ -365,6 +400,17 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             positionFollowingEnabled = value.positionFollowingEnabled,
             burnInPattern = value.burnInPattern,
             burnInIntervalMs = value.burnInIntervalMs,
+            suppressStockAodContent = value.suppressStockAodContent,
+            aodRotateWithDevice = value.aodRotateWithDevice,
+            aodRotationMode = value.aodRotationMode,
+            aodCanvasAnchor = value.aodCanvasAnchor,
+            aodRotationSettleMs = value.aodRotationSettleMs,
+            aodCanvasAnchorLandscape = value.aodCanvasAnchorLandscape,
+            aodLandscapeTextScale = value.aodLandscapeTextScale,
+            aodCanvasPaddingPortraitXPercent = value.aodCanvasPaddingPortraitXPercent,
+            aodCanvasPaddingPortraitYPercent = value.aodCanvasPaddingPortraitYPercent,
+            aodCanvasPaddingLandscapeXPercent = value.aodCanvasPaddingLandscapeXPercent,
+            aodCanvasPaddingLandscapeYPercent = value.aodCanvasPaddingLandscapeYPercent,
             wakeSignal = wakeSignal,
             original = value.original,
             romanized = value.romanized,

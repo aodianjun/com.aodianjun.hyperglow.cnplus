@@ -381,6 +381,8 @@ private fun HomeScreen(
     var pauseLingerMs by remember { mutableStateOf(initialConfig.pauseLingerMs) }
     var pauseShowContent by remember { mutableStateOf(initialConfig.pauseShowContent) }
     var aodBrightnessBoost by remember { mutableStateOf(initialConfig.aodBrightnessBoost) }
+    var aodRotateWithDevice by remember { mutableStateOf(initialConfig.aodRotateWithDevice) }
+    var suppressStockAodContent by remember { mutableStateOf(initialConfig.suppressStockAodContent) }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
@@ -786,6 +788,32 @@ private fun HomeScreen(
                                 },
                                 stringResource(R.string.setting_aod_brightness_boost),
                                 summary = stringResource(R.string.summary_aod_brightness_boost),
+                                enabled = aodSupported
+                            )
+                            SwitchPreference(
+                                suppressStockAodContent,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.SUPPRESS_STOCK_AOD_CONTENT,
+                                        enabled
+                                    ).apply()
+                                    suppressStockAodContent = enabled
+                                },
+                                stringResource(R.string.setting_suppress_stock_aod),
+                                summary = stringResource(R.string.summary_suppress_stock_aod),
+                                enabled = aodSupported
+                            )
+                            SwitchPreference(
+                                aodRotateWithDevice,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.AOD_ROTATE_WITH_DEVICE,
+                                        enabled
+                                    ).apply()
+                                    aodRotateWithDevice = enabled
+                                },
+                                stringResource(R.string.setting_aod_rotate_with_device),
+                                summary = stringResource(R.string.summary_aod_rotate_with_device),
                                 enabled = aodSupported
                             )
                         }

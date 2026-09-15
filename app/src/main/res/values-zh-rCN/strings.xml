@@ -155,6 +155,10 @@
     <string name="setting_movement_interval">移动间隔</string>
     <string name="setting_aod_brightness_boost">息屏亮度增强</string>
     <string name="summary_aod_brightness_boost">歌词显示时把过低的息屏亮度提升至可读级别。关闭后保持系统原本的超低息屏亮度（歌词可能难以看清）。</string>
+    <string name="setting_suppress_stock_aod">隐藏系统息屏内容</string>
+    <string name="summary_suppress_stock_aod">自绘全屏歌词画布显示时,强制隐藏小米系统息屏元素(时钟/天气等)。与下方旋转开关互相独立。</string>
+    <string name="setting_aod_rotate_with_device">息屏画布随设备旋转</string>
+    <string name="summary_aod_rotate_with_device">设备侧放时把歌词画布旋转到横屏。与上方隐藏系统内容开关互相独立。</string>
 
     <string name="section_lockscreen_behavior">锁屏行为</string>
     <string name="setting_keep_lockscreen_awake">保持锁屏唤醒</string>

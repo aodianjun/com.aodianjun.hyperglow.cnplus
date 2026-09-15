@@ -11,6 +11,8 @@ import android.graphics.Typeface
 import android.os.SystemClock
 import android.view.View
 import com.eza.hyperglow.BuildConfig
+import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
+import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.root.HookLogger
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -952,6 +954,21 @@ internal class AodLyricCanvasView(
     private var cadenceMaxDrawGapMs = 0L
     private var cadenceLastDrawAt = 0L
     private var verticalAlignment = AodCanvasVerticalAlignment.TOP
+
+    // ---- AOD 画布随设备旋转(刚性绘制变换)配置 ----
+    @Volatile
+    private var rotationEnabled = false
+    @Volatile
+    private var rotationMode = AOD_ROTATION_MODE_PORTRAIT
+    @Volatile
+    private var rotationStep = AodOrientationStep.PORTRAIT
+    private var landscapeTextScale = 1f
+    private var landscapeAnchor = 0.5f
+    private var paddingPortraitXPercent = DEFAULT_CANVAS_PADDING_PERCENT
+    private var paddingPortraitYPercent = DEFAULT_CANVAS_PADDING_PERCENT
+    private var paddingLandscapeXPercent = DEFAULT_CANVAS_PADDING_PERCENT
+    private var paddingLandscapeYPercent = DEFAULT_CANVAS_PADDING_PERCENT
+
     private val density = resources.displayMetrics.density
     private val scaledDensity = resources.displayMetrics.scaledDensity
     private val fontContext = runCatching {
@@ -1095,6 +1112,64 @@ internal class AodLyricCanvasView(
         invalidate()
     }
 
+    /**
+     * 配置画布的旋转/横屏参数(AodSurfaceController 在快照变化时调用)。
+     * 全部为绘制期参数,不触发布局重测,只在 [onDraw] 内做刚性变换。
+     */
+    fun updateOrientation(
+        rotate: Boolean,
+        mode: String,
+        landscapeTextScale: Float,
+        landscapeAnchor: Float,
+        paddingPortraitXPercent: Float,
+        paddingPortraitYPercent: Float,
+        paddingLandscapeXPercent: Float,
+        paddingLandscapeYPercent: Float
+    ) {
+        val changed = rotationEnabled != rotate ||
+            rotationMode != mode ||
+            this.landscapeTextScale != landscapeTextScale ||
+            this.landscapeAnchor != landscapeAnchor ||
+            this.paddingPortraitXPercent != paddingPortraitXPercent ||
+            this.paddingPortraitYPercent != paddingPortraitYPercent ||
+            this.paddingLandscapeXPercent != paddingLandscapeXPercent ||
+            this.paddingLandscapeYPercent != paddingLandscapeYPercent
+        rotationEnabled = rotate
+        rotationMode = mode
+        this.landscapeTextScale = landscapeTextScale
+        this.landscapeAnchor = landscapeAnchor
+        this.paddingPortraitXPercent = paddingPortraitXPercent
+        this.paddingPortraitYPercent = paddingPortraitYPercent
+        this.paddingLandscapeXPercent = paddingLandscapeXPercent
+        this.paddingLandscapeYPercent = paddingLandscapeYPercent
+        if (!rotate && rotationStep != AodOrientationStep.PORTRAIT) {
+            rotationStep = AodOrientationStep.PORTRAIT
+        }
+        if (changed) {
+            rebuildLayout()
+            invalidate()
+        }
+    }
+
+    /** 由 AodOrientationMonitor 驱动的刚性步进;PORTRAIT 时不做变换。 */
+    fun setRotationStep(step: AodOrientationStep) {
+        if (rotationStep == step) return
+        val previous = rotationStep
+        rotationStep = step
+        HookLogger.i(
+            "AodLyricCanvasView",
+            "rotation step ${previous.name}->${step.name} enabled=$rotationEnabled"
+        )
+        if (!rotationEnabled) {
+            rotationStep = AodOrientationStep.PORTRAIT
+        }
+        rebuildLayout()
+        invalidate()
+    }
+
+    /** 当前的横屏文本缩放等参数是否生效的查询,仅供布局层参考。 */
+    fun currentRotationEnabled(): Boolean = rotationEnabled
+
     fun visibleContentVerticalBounds(): AodCanvasVerticalBounds? =
         unionAodCanvasVerticalBounds(
             verticalBounds(layout),
@@ -1155,6 +1230,41 @@ internal class AodLyricCanvasView(
     }
 
     override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val rotationSave = beginRotationTransform(canvas)
+        try {
+            drawOrientedContent(canvas)
+        } finally {
+            if (rotationSave != NO_ROTATION_SAVE) canvas.restoreToCount(rotationSave)
+        }
+    }
+
+    private val NO_ROTATION_SAVE = -1
+
+    /**
+     * 刚性绘制变换:绕视图中心旋转画布坐标系,把竖屏逻辑框整体转成横屏显示。
+     * 横屏时叠加 [landscapeTextScale] 对内容做整体缩放。PORTRAIT / 未启用时直接直通。
+     */
+    private fun beginRotationTransform(canvas: Canvas): Int {
+        if (!rotationEnabled || rotationStep == AodOrientationStep.PORTRAIT) {
+            return NO_ROTATION_SAVE
+        }
+        val save = canvas.save()
+        val cx = width / 2f
+        val cy = height / 2f
+        when (rotationStep) {
+            AodOrientationStep.LANDSCAPE -> canvas.rotate(90f, cx, cy)
+            AodOrientationStep.REVERSE_LANDSCAPE -> canvas.rotate(-90f, cx, cy)
+            AodOrientationStep.PORTRAIT -> Unit
+        }
+        val scale = landscapeTextScale
+        if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) {
+            canvas.scale(scale, scale, cx, cy)
+        }
+        return save
+    }
+
+    private fun drawOrientedContent(canvas: Canvas) {
         super.onDraw(canvas)
         lastDrawAtElapsedMs = SystemClock.elapsedRealtime()
         recordDozeDraw()

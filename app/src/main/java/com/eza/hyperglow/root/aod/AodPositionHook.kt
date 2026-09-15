@@ -157,6 +157,24 @@ internal object AodPositionHook {
         }
     }
 
+    /** suppressStockAodContent 激活时的直通标记(见 AodSurfaceController / AodSurfaceHook)。 */
+    @Volatile
+    private var suppressActive = false
+    /** 歌词时段冻结系统组件束(不做 managed 位移,也不让系统时钟沉降漂移)。 */
+    @Volatile
+    private var holdStockPosition = false
+
+    fun setSuppressActive(active: Boolean) {
+        suppressActive = active
+        if (active) abandonManagedSession()
+    }
+
+    fun setHoldStockPosition(active: Boolean) {
+        holdStockPosition = active
+    }
+
+    fun isSuppressActive(): Boolean = suppressActive
+
     fun restoreStockTranslation() {
         val restore = synchronized(controllerStates) {
             val controller = lastControllerRef.get() ?: return@synchronized null
@@ -307,6 +325,21 @@ internal object AodPositionHook {
             state.lastStockTranslationX = requestedX
             state.lastStockTranslationY = requestedY
             lastControllerRef = WeakReference(controller)
+            if (suppressActive) {
+                // suppressStockAodContent 直通:系统组件束被抑制为 GONE 后无需再做
+                // managed 位移;hold 时冻结库存挂钩位,防系统时钟沉降把布局继续下拖。
+                state.managedStep = -1
+                state.currentManagedDecision = null
+                state.pendingManagedDecision = null
+                val heldY = if (holdStockPosition) {
+                    state.lastStockTranslationY ?: requestedY
+                } else {
+                    requestedY
+                }
+                return@synchronized PositionResolution(
+                    stockDecision(requestedX, heldY, geometry, zoneChanged = false)
+                )
+            }
             if (AodSurfaceController.isStockWidgetControlActive()) {
                 val current = state.currentManagedDecision
                 if (current != null) {

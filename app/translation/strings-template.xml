@@ -52,6 +52,10 @@
     <string name="setting_experimental_mode">Experimental mode</string>
     <string name="summary_experimental_mode">This System UI version is not verified, but the required symbols were detected. Enable to unlock AOD and lock screen configuration at your own risk — surface hooks may not behave correctly on unverified builds.</string>
     <string name="summary_experimental_mode_on">Unverified profile unlocked via experimental mode. Surface behavior is not guaranteed.</string>
+    <string name="setting_aod_rotate_with_device">Rotate AOD canvas with device</string>
+    <string name="summary_aod_rotate_with_device">Rotate lyrics to landscape when device is tilted</string>
+    <string name="setting_suppress_stock_aod">Hide stock AOD content</string>
+    <string name="summary_suppress_stock_aod">Force-hide Xiaomi\'s stock AOD elements while lyrics are shown</string>
 
     <string name="section_lyric_source">Lyrics source</string>
     <string name="lyric_source_spicy">Spicy EX</string>

@@ -60,6 +60,17 @@ internal data class AodStateWireSnapshot(
     val positionFollowingEnabled: Boolean,
     val burnInPattern: String,
     val burnInIntervalMs: Long,
+    val suppressStockAodContent: Boolean,
+    val aodRotateWithDevice: Boolean,
+    val aodRotationMode: String,
+    val aodCanvasAnchor: Float,
+    val aodRotationSettleMs: Long,
+    val aodCanvasAnchorLandscape: Float,
+    val aodLandscapeTextScale: Float,
+    val aodCanvasPaddingPortraitXPercent: Float,
+    val aodCanvasPaddingPortraitYPercent: Float,
+    val aodCanvasPaddingLandscapeXPercent: Float,
+    val aodCanvasPaddingLandscapeYPercent: Float,
     val original: String,
     val romanized: String,
     val translated: String,
@@ -257,6 +268,17 @@ internal object AodStateWireCodec {
                 output.writeStrictBoolean(snapshot.positionFollowingEnabled)
                 output.writeBoundedString(snapshot.burnInPattern)
                 output.writeLong(snapshot.burnInIntervalMs)
+                output.writeStrictBoolean(snapshot.suppressStockAodContent)
+                output.writeStrictBoolean(snapshot.aodRotateWithDevice)
+                output.writeBoundedString(snapshot.aodRotationMode)
+                output.writeFloat(snapshot.aodCanvasAnchor)
+                output.writeLong(snapshot.aodRotationSettleMs)
+                output.writeFloat(snapshot.aodCanvasAnchorLandscape)
+                output.writeFloat(snapshot.aodLandscapeTextScale)
+                output.writeFloat(snapshot.aodCanvasPaddingPortraitXPercent)
+                output.writeFloat(snapshot.aodCanvasPaddingPortraitYPercent)
+                output.writeFloat(snapshot.aodCanvasPaddingLandscapeXPercent)
+                output.writeFloat(snapshot.aodCanvasPaddingLandscapeYPercent)
                 output.writeBoundedString(snapshot.original)
                 output.writeBoundedString(snapshot.romanized)
                 output.writeBoundedString(snapshot.translated)
@@ -335,6 +357,17 @@ internal object AodStateWireCodec {
                 budget = budget
             ) ?: return null
             val burnInIntervalMs = input.readLong()
+            val suppressStockAodContent = input.readStrictBoolean() ?: return null
+            val aodRotateWithDevice = input.readStrictBoolean() ?: return null
+            val aodRotationMode = input.readStyleString(budget) ?: return null
+            val aodCanvasAnchor = input.readFloat()
+            val aodRotationSettleMs = input.readLong()
+            val aodCanvasAnchorLandscape = input.readFloat()
+            val aodLandscapeTextScale = input.readFloat()
+            val aodCanvasPaddingPortraitXPercent = input.readFloat()
+            val aodCanvasPaddingPortraitYPercent = input.readFloat()
+            val aodCanvasPaddingLandscapeXPercent = input.readFloat()
+            val aodCanvasPaddingLandscapeYPercent = input.readFloat()
             val original = input.readBoundedString(
                 AodStateWireLimits.MAX_LYRIC_CHARS,
                 allowEmpty = false,
@@ -440,6 +473,17 @@ internal object AodStateWireCodec {
                 positionFollowingEnabled = positionFollowingEnabled,
                 burnInPattern = burnInPattern,
                 burnInIntervalMs = burnInIntervalMs,
+                suppressStockAodContent = suppressStockAodContent,
+                aodRotateWithDevice = aodRotateWithDevice,
+                aodRotationMode = aodRotationMode,
+                aodCanvasAnchor = aodCanvasAnchor,
+                aodRotationSettleMs = aodRotationSettleMs,
+                aodCanvasAnchorLandscape = aodCanvasAnchorLandscape,
+                aodLandscapeTextScale = aodLandscapeTextScale,
+                aodCanvasPaddingPortraitXPercent = aodCanvasPaddingPortraitXPercent,
+                aodCanvasPaddingPortraitYPercent = aodCanvasPaddingPortraitYPercent,
+                aodCanvasPaddingLandscapeXPercent = aodCanvasPaddingLandscapeXPercent,
+                aodCanvasPaddingLandscapeYPercent = aodCanvasPaddingLandscapeYPercent,
                 original = original,
                 romanized = romanized,
                 translated = translated,
@@ -493,6 +537,23 @@ internal object AodStateWireCodec {
         ) return false
         if (snapshot.burnInPattern != normalizeAodBurnInPattern(snapshot.burnInPattern) ||
             snapshot.burnInIntervalMs != normalizeAodBurnInInterval(snapshot.burnInIntervalMs) ||
+            snapshot.aodRotationMode != normalizeAodRotationMode(snapshot.aodRotationMode) ||
+            snapshot.aodCanvasAnchor != normalizeAodCanvasAnchor(snapshot.aodCanvasAnchor) ||
+            snapshot.aodRotationSettleMs != normalizeAodRotationSettleMs(snapshot.aodRotationSettleMs) ||
+            snapshot.aodCanvasAnchorLandscape != normalizeAodCanvasAnchor(snapshot.aodCanvasAnchorLandscape) ||
+            snapshot.aodLandscapeTextScale != normalizeAodLandscapeTextScale(snapshot.aodLandscapeTextScale) ||
+            snapshot.aodCanvasPaddingPortraitXPercent != normalizeAodCanvasPaddingPercent(
+                snapshot.aodCanvasPaddingPortraitXPercent
+            ) ||
+            snapshot.aodCanvasPaddingPortraitYPercent != normalizeAodCanvasPaddingPercent(
+                snapshot.aodCanvasPaddingPortraitYPercent
+            ) ||
+            snapshot.aodCanvasPaddingLandscapeXPercent != normalizeAodCanvasPaddingPercent(
+                snapshot.aodCanvasPaddingLandscapeXPercent
+            ) ||
+            snapshot.aodCanvasPaddingLandscapeYPercent != normalizeAodCanvasPaddingPercent(
+                snapshot.aodCanvasPaddingLandscapeYPercent
+            ) ||
             snapshot.original != snapshot.original.trim() ||
             snapshot.romanized != snapshot.romanized.trim() ||
             snapshot.translated != snapshot.translated.trim() ||
@@ -628,7 +689,7 @@ internal object AodStateWireCodec {
     }
 
     private const val BODY_MAGIC = 0x414F4453
-    private const val BODY_VERSION = 1
+    private const val BODY_VERSION = 2
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 
