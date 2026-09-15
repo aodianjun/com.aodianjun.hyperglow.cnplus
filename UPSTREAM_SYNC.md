@@ -10,8 +10,8 @@
 
 ## Current Status
 
-- **CN+ version**: 0.3.83 (110), upstream baseline as of `8422d78` (v0.3.97; full evaluation completed on 2026-09-11: code either ported or exempted with rationale, see the tables below)
-- **Upstream latest**: 2026-09-11 `748912e`, version 0.3.173 (185) — **evaluated 2026-09-14**, see the `748912e` Evaluation section below. No mandatory port; highest-value item is ConfigBackupCodec/SettingsSession, and `suppressStockAodContent` warrants a verify-first check.
+- **CN+ version**: 0.3.86 (113), upstream baseline as of `8422d78` (v0.3.97). Evaluated increments since then: `748912e` (2026-09-14) and `2885511` (2026-09-15) — see the evaluation sections below.
+- **Upstream latest**: 2026-09-15 `2885511`, version 0.3.177 (203) — **evaluated 2026-09-15** (DexKit symbol resolution + metadata multi-line; no mandatory port), see the `2885511` Evaluation section below.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
   HierarchyFields.kt and its use across all hooks, missingProbeNames, and miuix via the public Maven Central repository
@@ -30,6 +30,24 @@ Decomposed into independently-assessable features:
 | 5 | Misc hardening feeding 1/2 (`AodBrightnessHook` +58, `AodLifetimeHook` +19, `AodStateProjector` +62, `LyricCanvasMapper` +40, `LockscreenSurfaceController` +51, `LinkageTransitionCoordinator` +42, `SpicyBridgeDocumentStore` +68, `DiagnosticLogging` +20, CustomizationModels/Repository, SystemUiCustomization, SceneCompiler) + many test updates | many | Varies per file | **Selective**: most are coupled to features 1–2 and not worth extracting alone; scan `AodStateBridge`/`AodStateProjector`/`DiagnosticLogging`/`SpicyBridgeDocumentStore` for standalone fixes |
 
 **Bottom line**: no mandatory port. Highest-value, lowest-risk item is **#4 ConfigBackupCodec/SettingsSession**; **#2** is worth a verify-first check against CN+'s existing suppression; **#1 and #3** are deferred. After any port, re-run the API-contract fingerprint and full CI (554+ tests), then update this file.
+
+## `2885511` Evaluation (v0.3.177 · 2026-09-15)
+
+One large commit (27 files, +1392/−195) on top of the `748912e` baseline. Decomposed:
+
+| # | Feature | Key files / size | CN+ relevance | Recommendation |
+|---|---|---|---|---|
+| 1 | **DexKit dynamic symbol resolution** — new `root/symbols` package: `DexKitRuntime` (+195, `org.luckypray:dexkit:2.2.0` native lib, one bridge per classpath APK, bounded extraction fallback), `SymbolCache` (weak per-loader cache), `SymbolResolver` (+602, central symbol gate: bundled reflection first, DexKit on miss; policy via `debug.hyperglow.symbols`; provenance ledger). ~13 hooks + `XiaomiCapabilityResolver` probes refit to route through it; `frameworkOwned()` keeps boot-classpath reflection-only | DexKitRuntime/SymbolCache/SymbolResolver + ~12 hook files refit; Gradle dep | High — resilience to Xiaomi symbol renames across ROM builds | **Defer (large, risk-heavy)**. Self-contained but refits every install path and adds a native library (ABI packaging / proguard / SystemUI native loading). CN+ hooks work statically today; adopt only if a concrete renamed-symbol hook failure appears. If adopted, reconcile CN+'s `hierarchyField`/probe plumbing and keep the framework fast-path |
+| 2 | **Multi-line metadata** — `AodStateProjector.projectToDisplay` joins title/artist with `\n` (+ `·`→newline) instead of `" · "`; `metadataLineTexts`/`metadataLayoutBounds` extra-line-height in canvas; metadata rows drawn per line | AodStateProjector +3, AodLyricCanvasView ~40, AodStateProjectorTest/AodCanvasLayoutTest | Medium-High, user-visible | **Port candidate (low risk, self-contained)** — CN+ has the same `" · "` join at `AodStateProjector.kt:82` and metadata RowKind; worth putting title/artist on separate lines |
+| 3 | **Canonical punctuation attachment** (`aodPunctuationAttachToPrevious`/`Next`, `attachAodPunctuationGroups`) + chunk packing includes rendered separators | AodLyricCanvasView ~50, AodCanvasLayoutTest | Medium (wrap polish) | **Selective** — low risk; port if standalone CJK/Latin punctuation wrapping looks poor |
+| 4 | **Shared logical clip for all lyric draw paths** (enforces horizontal padding even on indivisible-word/animation overhang; replaces per-`drawText` clip) | AodLyricCanvasView ~10 | Medium | **Port candidate (low risk)** — CN+ should keep everything inside the padded frame |
+| 5 | **Duet-section end → recenter remaining solo** (`shouldRecenterAfterDuet`/`duetEnded`/`wasDuet`) | AodLyricCanvasView ~25 | None today | **Not applicable** — CN+ has no duet section feature (`no DuetSectionId`/duet handling in CN+ canvas). Skip |
+| 6 | Version bump 0.3.173 → 0.3.177 | build.gradle.kts | n/a | ➖ Not applicable (CN+ independent numbering) |
+| 7 | Docs: ARCHITECTURE hook-symbol-resolution, LOCKSCREEN_AOD_BEHAVIOR_SPEC canvas padding + symbol resolution | docs | Low | **Optional** — sync only if #1/#4 are ported |
+
+Also: `strings.xml` got only a comment block (no user-facing text change).
+
+**Bottom line**: no mandatory port. Lowest-risk, high-value selective ports are **#2 (multi-line metadata)** and **#4 (logical clip)**; **#3** is optional wrap polish; **#1 (DexKit)** is the marquee robustness feature but a large entry-point refactor — keep on watchlist and adopt only if a real renamed-symbol failure shows up; **#5 not applicable** (no duet in CN+). After any port, re-run the API-contract fingerprint and full CI, then update this file.
 
 ## Synced / Included
 
@@ -75,8 +93,8 @@ Decomposed into independently-assessable features:
 
 ## 当前状态
 
-- **CN+ 版本**：0.3.83 (110)，上游基线截至 `8422d78`（v0.3.97，2026-09-11 完成全量评估：代码已移植或按理由豁免，见下表）
-- **上游最新**：2026-09-11 `748912e`，版本 0.3.173 (185) —— **已于 2026-09-14 评估**，见下方「`748912e` 评估」小节。无必须移植项；最高价值是 ConfigBackupCodec/SettingsSession，`suppressStockAodContent` 需先核实再做决定。
+- **CN+ 版本**：0.3.86 (113)，上游基线截至 `8422d78`（v0.3.97）。此后的评估增量：`748912e`（2026-09-14）与 `2885511`（2026-09-15）——见下方对应评估小节。
+- **上游最新**：2026-09-15 `2885511`，版本 0.3.177 (203) —— **已于 2026-09-15 评估**（DexKit 符号解析 + 元数据多行化；无必须移植项），见下方「`2885511` 评估」小节。
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
   HierarchyFields.kt 及全 hook 使用、missingProbeNames、miuix 走 Maven Central 公共仓库
@@ -94,6 +112,24 @@ Decomposed into independently-assessable features:
 | 5 | 支撑 1/2 的杂项加固（`AodBrightnessHook` +58、`AodLifetimeHook` +19、`AodStateProjector` +62、`LyricCanvasMapper` +40、`LockscreenSurfaceController` +51、`LinkageTransitionCoordinator` +42、`SpicyBridgeDocumentStore` +68、`DiagnosticLogging` +20、CustomizationModels/Repository、SystemUiCustomization、SceneCompiler）+ 大量测试更新 | 多文件 | 因文件而异 | **选择性**：多数与特性 1–2 耦合，不值得单独抽取；用 `AodStateBridge`/`AodStateProjector`/`DiagnosticLogging`/`SpicyBridgeDocumentStore` 排查独立修复 |
 
 **结论**：无必须移植项。最高价值、最低风险是 **#4 ConfigBackupCodec/SettingsSession**；**#2** 值得先对照 CN+ 现有抑制栈核实战后再定；**#1、#3 暂缓**。任何移植后都需重跑插件契约指纹与全量 CI（554+ 测试），并更新本文件。
+
+## `2885511` 评估（v0.3.177 · 2026-09-15）
+
+`748912e` 基线之上的单个大提交（27 文件，+1392/−195）。拆分为独立评估项：
+
+| # | 特性 | 关键文件/体量 | CN+ 相关性 | 建议 |
+|---|---|---|---|---|
+| 1 | **DexKit 动态符号解析**——新增 `root/symbols` 包：`DexKitRuntime`（+195，引入 `org.luckypray:dexkit:2.2.0` 原生库、按 classpath APK 建桥、受限抽取兜底）、`SymbolCache`（按 loader 弱缓存）、`SymbolResolver`（+602，符号总闸：先用内置反射、miss 才查 DexKit；`debug.hyperglow.symbols` 系统属性切策略；来源台账）；约 13 个 hook + `XiaomiCapabilityResolver` 探针改走此闸；`frameworkOwned()` 保证引导类路径仍纯反射 | DexKitRuntime/SymbolCache/SymbolResolver + 约 12 个 hook 文件改造；Gradle 依赖 | 高——应对不同 ROM 版本的小米符号改名 | **暂缓（体量大、风险高）**。自包含但改写全部安装路径并引入原生库（ABI 打包/proguard/SystemUI 原生加载）。CN+ 目前静态安装即工作；仅当出现确切的改名符号 hook 失效再移植。若移植需对齐 CN+ 的 `hierarchyField`/探针管线并保留框架快速路径 |
+| 2 | **元数据多行化**——`AodStateProjector.projectToDisplay` 将歌名/歌手用 `\n` 拼接（`·`→换行）替代 `" · "`；画布 `metadataLineTexts`/`metadataLayoutBounds` 增加行高、元数据逐行绘制 | AodStateProjector +3，AodLyricCanvasView ~40，AodStateProjectorTest/AodCanvasLayoutTest | 中-高、用户可见 | **可选移植（低风险、自包含）**——CN+ 在 `AodStateProjector.kt:82` 有相同 `" · "` 拼接、已有元数据 RowKind；值得让歌名/歌手分行 |
+| 3 | **书写体系标点归附**（`aodPunctuationAttachToPrevious`/`Next`、`attachAodPunctuationGroups`）+ 词块打包计入渲染分隔符 | AodLyricCanvasView ~50，AodCanvasLayoutTest | 中（换行润色） | **选择性**——低风险；若独立中日文字标点换行观感不佳再移植 |
+| 4 | **所有歌词绘制路径共享逻辑裁剪**（强制水平 padding，即使整词不可分/动画越界也裁；取代逐 `drawText` clip） | AodLyricCanvasView ~10 | 中 | **可选移植（低风险）**——CN+ 应保证内容不越出四周 padding 框 |
+| 5 | **对唱（duet）区块结束 → 剩余独唱回落居中**（`shouldRecenterAfterDuet`/`duetEnded`/`wasDuet`） | AodLyricCanvasView ~25 | 当前无 | **不适用**——CN+ 画布无对唱区块功能（无 `DuetSectionId`/对唱处理）。跳过 |
+| 6 | 版本号 0.3.173 → 0.3.177 | build.gradle.kts | n/a | ➖ 不适用（CN+ 独立版本号体系） |
+| 7 | 文档：ARCHITECTURE hook 符号解析、LOCKSCREEN_AOD_BEHAVIOR_SPEC 画布 padding + 符号解析 | docs | 低 | **可选**——仅当移植 #1/#4 时同步 |
+
+另注：`strings.xml` 只加了一段注释（无用户可见文案变更）。
+
+**结论**：无必须移植项。最低风险、高价值的可选移植是 **#2（元数据多行）+ #4（逻辑裁剪）**；**#3** 为可选换行润色；**#1（DexKit）** 是招牌健壮性特性但属大型入口重构——列入观察，仅当真实出现改名符号失效时再移植；**#5 不适用**（CN+ 无对唱）。任何移植后都需重跑插件契约指纹与全量 CI，并更新本文件。
 
 ## 已同步 / 已包含
 
