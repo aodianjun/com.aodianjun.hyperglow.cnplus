@@ -1032,4 +1032,21 @@ class AodCanvasLayoutTest {
         // dim 底不透明度 30%,与预览 color.copy(alpha = 0.30f) 一致
         assertEquals((255 * 0.30f).toInt(), LyricGlowRenderer.DIM_BASE_ALPHA)
     }
+
+    @Test
+    fun landscapeLogicalFrameSwapsViewportDimensions() {
+        // 旋转 90° 后逻辑宽 = 视口高、逻辑高 = 视口宽:刚性变换恰好铺满竖屏视口。
+        val frame = aodLandscapeLogicalFrame(1440, 3200)
+        assertEquals(3200, frame.ow)
+        assertEquals(1440, frame.oh)
+    }
+
+    @Test
+    fun landscapeLogicalFrameIsInvolutory() {
+        // 对逻辑框再做一次交换应回到视口原始尺寸(横屏↔竖屏互逆)。
+        val frame = aodLandscapeLogicalFrame(1440, 3200)
+        val back = aodLandscapeLogicalFrame(frame.ow, frame.oh)
+        assertEquals(1440, back.ow)
+        assertEquals(3200, back.oh)
+    }
 }

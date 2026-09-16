@@ -753,6 +753,15 @@ internal fun frameIntervalForTiming(
     exitTransitionActive: Boolean = false
 ): Long = if (contentVisible && (timingActive || exitTransitionActive)) 16L else 0L
 
+internal data class AodLandscapeFrame(val ow: Int, val oh: Int)
+
+/**
+ * 逻辑横屏框:旋转 90° 后逻辑宽 = 视口高、逻辑高 = 视口宽,
+ * 刚性变换(rotate + 平移)把逻辑框精确映射回竖屏视口。
+ */
+internal fun aodLandscapeLogicalFrame(viewWidth: Int, viewHeight: Int): AodLandscapeFrame =
+    AodLandscapeFrame(ow = viewHeight, oh = viewWidth)
+
 internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
     startedAtMs > 0L && nowMs - startedAtMs >= durationMs
 
@@ -969,6 +978,41 @@ internal class AodLyricCanvasView(
     private var paddingLandscapeXPercent = DEFAULT_CANVAS_PADDING_PERCENT
     private var paddingLandscapeYPercent = DEFAULT_CANVAS_PADDING_PERCENT
 
+    // ---- 逻辑横屏框:布局/裁剪全部以逻辑宽高与逻辑内边距计算,
+    //      非竖屏步进时交换视口宽高,绘制期由 beginRotationTransform 映射回视口 ----
+    @Volatile
+    private var ow = 0
+    @Volatile
+    private var oh = 0
+    @Volatile
+    private var padLeft = 0
+    @Volatile
+    private var padRight = 0
+    @Volatile
+    private var padTop = 0
+    @Volatile
+    private var padBottom = 0
+
+    private fun recomputeLogicalFrame() {
+        val landscape = rotationEnabled && rotationStep != AodOrientationStep.PORTRAIT
+        if (landscape) {
+            val frame = aodLandscapeLogicalFrame(width, height)
+            ow = frame.ow
+            oh = frame.oh
+            padLeft = Math.round(height * paddingLandscapeXPercent).toInt()
+            padRight = padLeft
+            padTop = Math.round(width * paddingLandscapeYPercent).toInt()
+            padBottom = padTop
+        } else {
+            ow = width
+            oh = height
+            padLeft = paddingLeft
+            padRight = paddingRight
+            padTop = paddingTop
+            padBottom = paddingBottom
+        }
+    }
+
     private val density = resources.displayMetrics.density
     private val scaledDensity = resources.displayMetrics.scaledDensity
     private val fontContext = runCatching {
@@ -1142,6 +1186,7 @@ internal class AodLyricCanvasView(
         this.paddingPortraitYPercent = paddingPortraitYPercent
         this.paddingLandscapeXPercent = paddingLandscapeXPercent
         this.paddingLandscapeYPercent = paddingLandscapeYPercent
+        recomputeLogicalFrame()
         if (!rotate && rotationStep != AodOrientationStep.PORTRAIT) {
             rotationStep = AodOrientationStep.PORTRAIT
         }
@@ -1156,6 +1201,7 @@ internal class AodLyricCanvasView(
         if (rotationStep == step) return
         val previous = rotationStep
         rotationStep = step
+        recomputeLogicalFrame()
         HookLogger.i(
             "AodLyricCanvasView",
             "rotation step ${previous.name}->${step.name} enabled=$rotationEnabled"
@@ -1221,11 +1267,13 @@ internal class AodLyricCanvasView(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        recomputeLogicalFrame()
         rebuildLayout()
     }
 
     override fun setPadding(left: Int, top: Int, right: Int, bottom: Int) {
         super.setPadding(left, top, right, bottom)
+        recomputeLogicalFrame()
         rebuildLayout()
     }
 
@@ -1256,6 +1304,13 @@ internal class AodLyricCanvasView(
             AodOrientationStep.LANDSCAPE -> canvas.rotate(90f, cx, cy)
             AodOrientationStep.REVERSE_LANDSCAPE -> canvas.rotate(-90f, cx, cy)
             AodOrientationStep.PORTRAIT -> Unit
+        }
+        // 刚性平移:交换宽高后的逻辑框经 rotate+平移精确铺满竖屏视口。
+        val d = (width - height) / 2f
+        if (rotationStep == AodOrientationStep.LANDSCAPE) {
+            canvas.translate(d, d)
+        } else if (rotationStep == AodOrientationStep.REVERSE_LANDSCAPE) {
+            canvas.translate(-d, -d)
         }
         val scale = landscapeTextScale
         if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) {
@@ -1334,7 +1389,7 @@ internal class AodLyricCanvasView(
         content = drawContent
         layout = drawLayout
         val layer = if (alpha < 1f || translateY != 0f) {
-            val save = canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (255f * alpha).toInt())
+            val save = canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * alpha).toInt())
             canvas.translate(0f, translateY)
             save
         } else canvas.save()
@@ -1470,7 +1525,7 @@ internal class AodLyricCanvasView(
         val metadata = drawLayout.rows.firstOrNull { it.row.kind == RowKind.METADATA } ?: return
         if (renderStyle != null) applyRenderStyle(renderStyle)
         canvas.save()
-        canvas.clipRect(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
+        canvas.clipRect(padLeft, padTop, ow - padRight, oh - padBottom)
         metadata.row.paint.color = resolvedPalette.metadataText
         metadata.row.paint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
         metadata.row.lines.forEachIndexed { index, line ->
@@ -1530,7 +1585,7 @@ internal class AodLyricCanvasView(
         val x = sourceLine.startX + (destinationLine.startX - sourceLine.startX) * value
         val y = sourceRow.baseline + (destinationRow.baseline - sourceRow.baseline) * value
         canvas.save()
-        canvas.clipRect(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
+        canvas.clipRect(padLeft, padTop, ow - padRight, oh - padBottom)
         canvas.drawText(content.metadata, x, y, paint)
         canvas.restore()
     }
@@ -1613,8 +1668,8 @@ internal class AodLyricCanvasView(
         }
         if (!top.isFinite() || !bottom.isFinite() || bottom <= top) return null
         return AodCanvasVerticalBounds(
-            top.coerceIn(0f, height.toFloat()),
-            bottom.coerceIn(0f, height.toFloat())
+            top.coerceIn(0f, oh.toFloat()),
+            bottom.coerceIn(0f, oh.toFloat())
         )
     }
 
@@ -1640,9 +1695,9 @@ internal class AodLyricCanvasView(
             }
             val metadataBounds = metadataLayoutBounds(
                 anchor,
-                height.toFloat(),
-                paddingTop.toFloat(),
-                paddingBottom.toFloat(),
+                oh.toFloat(),
+                padTop.toFloat(),
+                padBottom.toFloat(),
                 metadata.paint.fontMetrics.ascent,
                 metadata.paint.fontMetrics.descent,
                 10f * density
@@ -1672,8 +1727,8 @@ internal class AodLyricCanvasView(
             }
         } else {
             val total = rows.sumOf { (it.height + it.gapBefore).toDouble() }.toFloat()
-            val topPadding = paddingTop.toFloat()
-            val bottomPadding = height - paddingBottom
+            val topPadding = padTop.toFloat()
+            val bottomPadding = oh - padBottom
             val available = (bottomPadding - topPadding).coerceAtLeast(0f)
             var top = if (verticalAlignment == AodCanvasVerticalAlignment.TOP) {
                 topPadding
@@ -1826,17 +1881,17 @@ internal class AodLyricCanvasView(
         )
         val save = canvas.save()
         canvas.clipRect(
-            paddingLeft.toFloat(),
+            padLeft.toFloat(),
             max(
-                paddingTop.toFloat(),
+                padTop.toFloat(),
                 rubyClipTop(
                     firstLineBaseline,
                     originalPaint.fontMetrics.ascent,
                     firstLine.rubyHeight
                 )
             ),
-            width - paddingRight.toFloat(),
-            (height - paddingBottom).toFloat()
+            ow - padRight.toFloat(),
+            (oh - padBottom).toFloat()
         )
         return save
     }
@@ -1890,7 +1945,7 @@ internal class AodLyricCanvasView(
                 else if (!sung) 0.01f * originalPaint.textSize else 0f
                 canvas.save()
                 val wordBaseline = lineBaseline
-                canvas.scale(scale, scale, wordX + width / 2f, wordBaseline)
+                canvas.scale(scale, scale, wordX + ow / 2f, wordBaseline)
                 originalPaint.shader = null
                 setTextAlpha(
                     originalPaint,
@@ -1974,10 +2029,10 @@ internal class AodLyricCanvasView(
         if (content.overflowMode == "Wrap") return -1
         val save = canvas.save()
         canvas.clipRect(
-            paddingLeft.toFloat(),
-            max(paddingTop.toFloat(), rubyClipTop(baseBaseline, originalPaint.fontMetrics.ascent, rubyHeight)),
-            width - paddingRight.toFloat(),
-            (height - paddingBottom).toFloat()
+            padLeft.toFloat(),
+            max(padTop.toFloat(), rubyClipTop(baseBaseline, originalPaint.fontMetrics.ascent, rubyHeight)),
+            ow - padRight.toFloat(),
+            (oh - padBottom).toFloat()
         )
         return save
     }
@@ -2103,7 +2158,7 @@ internal class AodLyricCanvasView(
     }
 
     private fun layoutWordLines(words: List<AodCanvasWord>, gap: Float): List<OriginalLine> {
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
         val maxLines = lyricLayoutLineLimit(words.size)
         val offsets = wordOffsets(words)
         val placed = words.mapIndexed { index, word ->
@@ -2183,7 +2238,7 @@ internal class AodLyricCanvasView(
 
     private fun wrapText(text: String, paint: Paint): List<OriginalLine> {
         if (text.isBlank()) return emptyList()
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
         if (content.overflowMode != "Wrap") {
             return listOf(originalLine(text, paint.measureText(text), 0, text.length))
         }
@@ -2210,7 +2265,7 @@ internal class AodLyricCanvasView(
 
     private fun transliterationLines(originalLayout: OriginalLayout): List<TextLine>? {
         if (originalLayout.lines.isEmpty() || originalLayout.lines.any { it.words.isEmpty() }) return null
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
         val sourceWords = originalLayout.lines.flatMap { it.words }.map { it.word }
         if (sourceWords.isEmpty()) return null
         val spaceWidth = romanizedPaint.measureText(" ")
@@ -2252,7 +2307,7 @@ internal class AodLyricCanvasView(
         if (!content.adaptiveSectioning || content.overflowMode != "Wrap") {
             return listOf(textLine(text, paint.measureText(text), paint))
         }
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
         val tokens = secondaryTokens(text).flatMap { token ->
             if (paint.measureText(token) <= available) {
                 listOf(token)
@@ -2287,7 +2342,7 @@ internal class AodLyricCanvasView(
      * [MAX_SECONDARY_LINES] 行（不受歌词 sectioning/overflow 偏好门控，与歌词换行解耦）。
      */
     private fun wrapMetadataText(text: String, paint: Paint): List<TextLine> {
-        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
         if (paint.measureText(text) <= available) {
             return listOf(
                 textLine(text, paint.measureText(text), paint, alignmentFor(RowKind.METADATA))
@@ -2481,7 +2536,7 @@ internal class AodLyricCanvasView(
 
     private fun drawText(canvas: Canvas, row: Row, baseline: Float) {
         canvas.save()
-        canvas.clipRect(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
+        canvas.clipRect(padLeft, padTop, ow - padRight, oh - padBottom)
         var lineIndex = 0
         while (lineIndex < row.lines.size) {
             val line = row.lines[lineIndex]
