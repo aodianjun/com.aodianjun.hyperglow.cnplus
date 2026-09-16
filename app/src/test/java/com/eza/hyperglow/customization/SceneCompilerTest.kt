@@ -359,7 +359,7 @@ class SceneCompilerTest {
         )!!.profiles.getValue(SceneCompiler.SURFACE_AOD)
 
         assertEquals(listOf("lyrics"), validated.widgets.map { it.type })
-        assertEquals(0.5f, validated.maxHeightFraction)
+        assertEquals(0.9f, validated.maxHeightFraction)
         assertNotNull(WidgetRendererRegistry.renderer("lyrics"))
         assertNull(WidgetRendererRegistry.renderer("arbitrary_class"))
     }
