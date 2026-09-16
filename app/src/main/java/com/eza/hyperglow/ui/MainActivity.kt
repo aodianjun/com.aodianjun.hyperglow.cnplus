@@ -381,6 +381,8 @@ private fun HomeScreen(
     var pauseLingerMs by remember { mutableStateOf(initialConfig.pauseLingerMs) }
     var pauseShowContent by remember { mutableStateOf(initialConfig.pauseShowContent) }
     var aodBrightnessBoost by remember { mutableStateOf(initialConfig.aodBrightnessBoost) }
+    var aodBrightnessOverride by remember { mutableStateOf(initialConfig.aodBrightnessOverride) }
+    var aodBrightnessLevel by remember { mutableStateOf(initialConfig.aodBrightnessLevel) }
     var aodRotateWithDevice by remember { mutableStateOf(initialConfig.aodRotateWithDevice) }
     var suppressStockAodContent by remember { mutableStateOf(initialConfig.suppressStockAodContent) }
     var diagnosticLogging by remember {
@@ -790,6 +792,40 @@ private fun HomeScreen(
                                 summary = stringResource(R.string.summary_aod_brightness_boost),
                                 enabled = aodSupported
                             )
+                            if (aodBrightnessBoost) {
+                                SwitchPreference(
+                                    aodBrightnessOverride,
+                                    { enabled ->
+                                        if (updateAodBrightnessOverride(context, enabled)) {
+                                            aodBrightnessOverride = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_aod_brightness_custom),
+                                    summary = stringResource(
+                                        if (aodBrightnessOverride) {
+                                            R.string.summary_aod_brightness_custom_on
+                                        } else {
+                                            R.string.summary_aod_brightness_custom_off
+                                        }
+                                    ),
+                                    enabled = aodSupported
+                                )
+                                if (aodBrightnessOverride) {
+                                    SliderPreference(
+                                        value = aodBrightnessLevel.toFloat(),
+                                        onValueChange = { pct ->
+                                            if (updateAodBrightnessLevel(context, pct.toInt())) {
+                                                aodBrightnessLevel = pct.toInt()
+                                            }
+                                        },
+                                        title = stringResource(R.string.setting_aod_brightness_level),
+                                        summary = stringResource(R.string.summary_aod_brightness_level),
+                                        valueText = aodBrightnessLevel.toString(),
+                                        valueRange = 10f..255f,
+                                        steps = 244
+                                    )
+                                }
+                            }
                             SwitchPreference(
                                 suppressStockAodContent,
                                 { enabled ->
@@ -2540,6 +2576,34 @@ private fun updatePauseShowContent(context: android.content.Context, enabled: Bo
 private fun updateAodBrightnessBoost(context: android.content.Context, enabled: Boolean): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putBoolean(AodRenderPreferences.AOD_BRIGHTNESS_BOOST, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodBrightnessOverride(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.AOD_BRIGHTNESS_OVERRIDE, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodBrightnessLevel(
+    context: android.content.Context,
+    level: Int
+): Boolean {
+    val clamped = level.coerceIn(
+        com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS,
+        com.eza.hyperglow.aod.MAX_AOD_BRIGHTNESS
+    )
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putInt(AodRenderPreferences.AOD_BRIGHTNESS_LEVEL, clamped)
         .commit()
     if (!saved) return false
     publishRuntimeConfiguration(context)

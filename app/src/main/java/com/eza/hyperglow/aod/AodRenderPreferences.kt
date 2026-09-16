@@ -83,7 +83,15 @@ data class AodRenderConfig(
     val aodCanvasPaddingPortraitXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val aodCanvasPaddingPortraitYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val aodCanvasPaddingLandscapeXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
-    val aodCanvasPaddingLandscapeYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT
+    val aodCanvasPaddingLandscapeYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
+    /**
+     * AOD 亮度增强模式:仅当 [aodBrightnessBoost] 为 true 时生效。
+     *  - false = 按场景自动化(把小米压低的 doze 亮度钳制到可读级别);
+     *  - true  = 用 [aodBrightnessLevel] 固定的自定义亮度覆盖。
+     */
+    val aodBrightnessOverride: Boolean = false,
+    /** 自定义 AOD 亮度(10-255),仅当 [aodBrightnessOverride] 为 true 时生效。 */
+    val aodBrightnessLevel: Int = DEFAULT_AOD_BRIGHTNESS_LEVEL
 )
 
 internal fun normalizeAodAlignment(value: String?): String = when (value) {
@@ -186,6 +194,10 @@ internal fun normalizeAodCanvasPaddingPercent(value: Float): Float =
 
 internal const val MAX_CANVAS_PADDING_PERCENT = 20f
 internal const val DEFAULT_CANVAS_PADDING_PERCENT = 2f
+/** 自定义 AOD 亮度档位的安全范围。 */
+internal const val MIN_AOD_BRIGHTNESS = 10
+internal const val MAX_AOD_BRIGHTNESS = 255
+internal const val DEFAULT_AOD_BRIGHTNESS_LEVEL = 255
 private const val DEFAULT_CANVAS_ANCHOR = 0.5f
 private const val DEFAULT_ROTATION_SETTLE_MS = 1_000L
 private const val DEFAULT_LANDSCAPE_TEXT_SCALE = 1f
@@ -240,6 +252,8 @@ object AodRenderPreferences {
     const val HIDE_BACKGROUND_CARD = "hide_background_card"
     const val HIDE_LAUNCHER_ICON = "hide_launcher_icon"
     const val AOD_BRIGHTNESS_BOOST = "aod_brightness_boost"
+    const val AOD_BRIGHTNESS_OVERRIDE = "aod_brightness_override"
+    const val AOD_BRIGHTNESS_LEVEL = "aod_brightness_level"
     const val PLUGIN_PROCESSING_ENABLED = "plugin_processing_enabled"
     const val SUPPRESS_STOCK_AOD_CONTENT = "suppress_stock_aod_content"
     const val AOD_ROTATE_WITH_DEVICE = "aod_rotate_with_device"
@@ -335,7 +349,10 @@ object AodRenderPreferences {
             ),
             normalizeAodCanvasPaddingPercent(
                 prefs.safeFloat(AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT, DEFAULT_CANVAS_PADDING_PERCENT)
-            )
+            ),
+            prefs.safeBoolean(AOD_BRIGHTNESS_OVERRIDE, false),
+            prefs.safeInt(AOD_BRIGHTNESS_LEVEL, DEFAULT_AOD_BRIGHTNESS_LEVEL)
+                .coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS)
         ).also { cachedConfig = it }
     }
 

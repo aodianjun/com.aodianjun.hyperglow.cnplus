@@ -80,7 +80,9 @@ internal object RuntimeCustomization {
             lockscreenKeepAwake = preferences.lockscreenKeepAwake,
             raiseToAod = preferences.raiseToAod,
             suppressLockscreenEditorLongPress = preferences.suppressLockscreenEditorLongPress,
-            aodBrightnessBoost = preferences.aodBrightnessBoost
+            aodBrightnessBoost = preferences.aodBrightnessBoost,
+            aodBrightnessOverride = preferences.aodBrightnessOverride,
+            aodBrightnessLevel = preferences.aodBrightnessLevel
         )
     }
 
@@ -112,7 +114,9 @@ internal object RuntimeCustomization {
         raiseToAod: Boolean = configuration.raiseToAod,
         suppressLockscreenEditorLongPress: Boolean =
             configuration.suppressLockscreenEditorLongPress,
-        aodBrightnessBoost: Boolean = configuration.aodBrightnessBoost
+        aodBrightnessBoost: Boolean = configuration.aodBrightnessBoost,
+        aodBrightnessOverride: Boolean = configuration.aodBrightnessOverride,
+        aodBrightnessLevel: Int = configuration.aodBrightnessLevel
     ): CompiledCustomization = requireNotNull(
         SceneCompiler.finalizeCompiled(
             configuration.copy(
@@ -127,7 +131,12 @@ internal object RuntimeCustomization {
                 lockscreenKeepAwake = lockscreenKeepAwake,
                 raiseToAod = raiseToAod,
                 suppressLockscreenEditorLongPress = suppressLockscreenEditorLongPress,
-                aodBrightnessBoost = aodBrightnessBoost
+                aodBrightnessBoost = aodBrightnessBoost,
+                aodBrightnessOverride = aodBrightnessOverride,
+                aodBrightnessLevel = aodBrightnessLevel.coerceIn(
+                    com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS,
+                    com.eza.hyperglow.aod.MAX_AOD_BRIGHTNESS
+                )
             )
         )
     )

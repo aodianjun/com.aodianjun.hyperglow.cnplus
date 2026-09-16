@@ -78,4 +78,46 @@ class AodBrightnessPolicyTest {
             resolveAodBrightnessRequest(128, 255, true, "DOZE_AOD", boostEnabled = false)
         )
     }
+
+    @Test
+    fun brightnessOverrideForcesFixedLevelInExactAodState() {
+        assertEquals(
+            120,
+            resolveAodBrightnessRequest(
+                requestedBrightness = 1,
+                readableBrightness = 255,
+                lyricGuardActive = true,
+                dozeStateName = "DOZE_AOD",
+                brightnessOverrideEnabled = true,
+                brightnessOverrideLevel = 120
+            )
+        )
+    }
+
+    @Test
+    fun brightnessOverrideIsClampedToSafeRange() {
+        // 越界档位收窄到 [10, 255]。
+        assertEquals(
+            10,
+            resolveAodBrightnessRequest(1, 255, true, "DOZE_AOD", true, 3)
+        )
+        assertEquals(
+            255,
+            resolveAodBrightnessRequest(1, 255, true, "DOZE_AOD", true, 999)
+        )
+    }
+
+    @Test
+    fun brightnessOverrideRespectsDozeStateAndGuardGates() {
+        // 非 DOZE_AOD 状态:覆写不应生效。
+        assertEquals(
+            1,
+            resolveAodBrightnessRequest(1, 255, true, "DOZE", true, 120)
+        )
+        // guard 未激活:覆写不生效。
+        assertEquals(
+            1,
+            resolveAodBrightnessRequest(1, 255, false, "DOZE_AOD", true, 120)
+        )
+    }
 }

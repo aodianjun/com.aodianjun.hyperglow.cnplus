@@ -155,6 +155,11 @@
     <string name="setting_movement_interval">Movement interval</string>
     <string name="setting_aod_brightness_boost">AOD brightness boost</string>
     <string name="summary_aod_brightness_boost">Raises the ultra-dim AOD brightness to a readable level while lyrics are shown. Turn off to keep the system\'s dim AOD brightness (lyrics may be hard to read).</string>
+    <string name="setting_aod_brightness_custom">Custom brightness</string>
+    <string name="summary_aod_brightness_custom_off">Off: boost brightness automatically per scene to a readable level.</string>
+    <string name="summary_aod_brightness_custom_on">On: use a fixed custom brightness for AOD lyrics. Adjust with the slider below.</string>
+    <string name="setting_aod_brightness_level">Custom brightness level</string>
+    <string name="summary_aod_brightness_level">Fixed brightness applied while lyrics are shown on AOD (10–255).</string>
     <string name="setting_suppress_stock_aod">Hide stock AOD content</string>
     <string name="summary_suppress_stock_aod">While the full-screen lyric canvas is shown, force-hide Xiaomi\'s stock AOD elements (clock, weather). Independent of the rotation toggle below.</string>
     <string name="setting_aod_rotate_with_device">Rotate AOD canvas with device</string>

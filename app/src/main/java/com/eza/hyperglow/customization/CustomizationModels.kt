@@ -81,7 +81,14 @@ data class CompiledCustomization(
     val raiseToAod: Boolean = false,
     val suppressLockscreenEditorLongPress: Boolean = false,
     /** AOD 亮度增强:App 端运行时开关,随配置下发给 AOD 进程的 AodBrightnessController。 */
-    val aodBrightnessBoost: Boolean = true
+    val aodBrightnessBoost: Boolean = true,
+    /**
+     * AOD 亮度增强模式:false=按场景自动化钳制到可读亮度;true=用 [aodBrightnessLevel]
+     * 固定的自定义亮度覆盖。仅当 [aodBrightnessBoost] 为 true 时生效。
+     */
+    val aodBrightnessOverride: Boolean = false,
+    /** 自定义 AOD 亮度(10-255),仅在 [aodBrightnessOverride] 为 true 时生效。 */
+    val aodBrightnessLevel: Int = 255
 )
 
 @Serializable

@@ -2,6 +2,8 @@ package com.eza.hyperglow.root.aod
 
 import android.os.Handler
 import android.os.Looper
+import com.eza.hyperglow.aod.MAX_AOD_BRIGHTNESS
+import com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS
 import com.eza.hyperglow.root.HookLogger
 import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
@@ -124,6 +126,8 @@ object AodBrightnessController {
     private var adapterSetBrightness = WeakReference<Method>(null)
     private var lastRawBrightness: Int? = null
     private var readableBrightness = DEFAULT_READABLE_BRIGHTNESS
+    private var brightnessOverrideEnabled = false
+    private var brightnessOverrideLevel = DEFAULT_READABLE_BRIGHTNESS
     private var pendingResubmit: Runnable? = null
 
     @Synchronized
@@ -153,6 +157,35 @@ object AodBrightnessController {
         scheduleResubmitLocked(requestedGuardState = guardActive)
     }
 
+    /**
+     * 自定义亮度覆写:enabled=true 时把 doze 亮度钳到 [level];false 时退回按场景自动化。
+     * 仅当 boost(总开关)开启时才有意义,但覆写状态独立记录,便于总开关与模式分别下发。
+     */
+    @Synchronized
+    fun setBrightnessOverride(enabled: Boolean, level: Int) {
+        val normalizedLevel = level.coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS)
+        if (brightnessOverrideEnabled == enabled && brightnessOverrideLevel == normalizedLevel) {
+            return
+        }
+        brightnessOverrideEnabled = enabled
+        brightnessOverrideLevel = normalizedLevel
+        HookLogger.i(
+            TAG,
+            "AOD brightness override enabled=$enabled level=$normalizedLevel"
+        )
+        scheduleResubmitLocked(requestedGuardState = guardActive)
+    }
+
+    /**
+     * 丢弃属于本代 module class loader 的待重放任务,避免热重载退役旧 loader 后任务跳过
+     * 新代码直接触发(上游 HookRegistry hot-reload 配套)。
+     */
+    @Synchronized
+    fun cancelPendingForReload() {
+        pendingResubmit?.let(mainHandler::removeCallbacks)
+        pendingResubmit = null
+    }
+
     @Synchronized
     fun noteDozeState(stateName: String?) {
         val changed = dozeStateName != stateName
@@ -172,7 +205,9 @@ object AodBrightnessController {
             readableBrightness = readableBrightness,
             lyricGuardActive = guardActive,
             dozeStateName = dozeStateName,
-            boostEnabled = boostEnabled
+            boostEnabled = boostEnabled,
+            brightnessOverrideEnabled = brightnessOverrideEnabled,
+            brightnessOverrideLevel = brightnessOverrideLevel
         )
         if (resolved != requested) {
             HookLogger.i(
@@ -242,13 +277,20 @@ internal fun resolveAodBrightnessRequest(
     readableBrightness: Int,
     lyricGuardActive: Boolean,
     dozeStateName: String?,
-    boostEnabled: Boolean = true
+    boostEnabled: Boolean = true,
+    brightnessOverrideEnabled: Boolean = false,
+    brightnessOverrideLevel: Int = MAX_AOD_BRIGHTNESS
 ): Int {
-    val shouldClamp = boostEnabled &&
-        lyricGuardActive &&
+    // 总开关关闭:原样透传系统亮度。
+    if (!boostEnabled) return requestedBrightness
+    val eligible = lyricGuardActive &&
         dozeStateName == "DOZE_AOD" &&
         requestedBrightness > 0 &&
-        readableBrightness > 0 &&
-        requestedBrightness < readableBrightness
-    return if (shouldClamp) readableBrightness else requestedBrightness
+        readableBrightness > 0
+    if (!eligible) return requestedBrightness
+    return if (brightnessOverrideEnabled) {
+        brightnessOverrideLevel.coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS)
+    } else {
+        requestedBrightness.coerceAtLeast(readableBrightness)
+    }
 }
