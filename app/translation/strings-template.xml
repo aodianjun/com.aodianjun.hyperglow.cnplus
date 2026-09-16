@@ -157,6 +157,8 @@
     <string name="setting_aod_clock_follow">Follow system clock in real time</string>
     <string name="summary_aod_clock_follow">When enabled, lyric placement follows the real system clock position directly, avoiding stale/lagging layout and overlap when the clock moves down. When disabled, anchored anti-oscillation is used.</string>
     <string name="setting_aod_clock_image">AOD clock or image</string>
+    <string name="setting_aod_clock_y_offset">Clock vertical offset</string>
+    <string name="summary_aod_clock_y_offset">Moves the pinned system clock vertically when "Follow system clock in real time" is off (negative moves up, positive moves down).</string>
     <string name="summary_aod_placement_unsupported">This System UI version does not support coordinated AOD placement.</string>
     <string name="setting_movement_interval">Movement interval</string>
     <string name="setting_aod_brightness_boost">AOD brightness boost</string>

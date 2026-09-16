@@ -38,6 +38,12 @@ Decomposed (granular, every changed file accounted for):
 
 **Bottom line**: shipped in the 748912e batch (2026-09-16, pre-release 0.3.88) — **#8 (AOD max-height)**, **#9 (brightness override)**, **#4 (ConfigBackupCodec only; SettingsSession deferred)**, **#7 (customization compiled-cache)**, and **#3 (HookRegistry + hot-reload refit)**. Code-verified to **already exist in CN+ from the initial import** (no port needed): **#1 (orientation)**, **#2 (suppressStockAodContent)**, **#6 (interlude == equivalent)**, **#10 (cardColor/cardAlpha)**. Only **#5 (duet)** is not directly portable (CN+ document model has no concurrent rows / `role` field); **#11 (wire v9) is deferred** (wiring rework to carry features 1/2/5/9), and **#12** is largely the refit/wiring carried by #1/#2/#3. After any port, re-run the API-contract fingerprint and full CI (554+ tests), then update this file.
 
+## Local enhancement (2026-09-16): AOD clock pin behavior + vertical offset
+
+Not from upstream — a CN+ user-requested change on top of the anchored-clock feature:
+- **Don't pin the anchored system-clock position while playback is paused or there is no playback** — `AodSurfaceController.applySuppressionAndRotation` now computes `pinClock = renderable && playbackActive && !currentAodProfile().aodClockFollow`, so the clock only gets pinned during active playback in anchor mode; on pause / no playback it returns to its system position and follows burn-in movement normally.
+- **Vertical offset slider when "Follow system clock in real time" is off** — new `aodClockYOffset` pref (px, −480..480, negative up / positive down) threaded through `AodRenderPreferences` / `CompiledCustomization` (`CustomizationModels`) / `RuntimeCustomization` (`DiagnosticLogging`) / `ConfigBackupCodec`; `AodPositionHook.setClockYOffset(px)` adds the offset to the pinned clock Y (via `lastStockTranslationY` anchor, no per-frame accumulation); shown only when the follow toggle is off.
+
 ## `2885511` Evaluation (v0.3.177 · 2026-09-15)
 
 One large commit (27 files, +1392/−195) on top of the `748912e` baseline. Decomposed:
@@ -129,6 +135,12 @@ Also: `strings.xml` got only a comment block (no user-facing text change).
 | 12 | **杂项加固扫尾**——其余 hook（AodBrightness +58、AodLifetime +19、AodDisplayState +5、AodWakeBroker +7、AodSurfaceController 合计 +400、LockscreenSurfaceController +51、LinkageTransitionCoordinator +42、RaiseToAod +14、LinkageTransitionHook +8、SystemUiClockMorphHook +8、LockscreenSurfaceHook +11、LockscreenEditorGestureHook +11、LyricCanvasMapper +40、文案/模板更新、大量测试更新） | 多文件 | 因文件而异 | **选择性**：几乎全部是 HookRegistry 改造（#3）或抑制/旋转接线（#1/#2），单独看无独立用户价值 |
 
 **结论**：748912e 批次内已发布（2026-09-16，随预发行 0.3.88）——**#8（AOD 最大高度）、#9（亮度覆写）、#4（仅 ConfigBackupCodec，SettingsSession 暂缓）、#7（定制编译缓存）、#3（HookRegistry + 热重载改造）**。代码实测确认 **CN+ 初始导入已含（无需移植）**：**#1（旋转）、#2（suppressStockAodContent）、#6（interlude 等效）、#10（cardColor/cardAlpha）**。仅 **#5（对唱）** 不可直接移植（CN+ 文档模型无并发行/`role` 字段）；**#11（wire v9）暂缓**（为承载特性 1/2/5/9 的接线大改），**#12** 基本为 #1/#2/#3 的改造接线附随。任何移植后都需重跑插件契约指纹与全量 CI（554+ 测试），并更新本文件。
+
+## 本地增强（2026-09-16）：AOD 时钟钉住行为 + 垂直偏移
+
+非上游提交——CN+ 用户需求，叠加在“锚定时钟”功能上：
+- **暂停/没有播放时不再钉住锚定的系统时钟位置**——`AodSurfaceController.applySuppressionAndRotation` 现在计算 `pinClock = renderable && playbackActive && !currentAodProfile().aodClockFollow`，仅在锚定模式下且播放活跃时钉住时钟；暂停/无播放时时钟回到系统位置、随防烧屏正常移动。
+- **关闭「实时跟随系统时钟」时显示时钟垂直偏移滑块**——新增 `aodClockYOffset` 偏好（px，−480..480，负值上移/正值下移），贯通 `AodRenderPreferences` / `CompiledCustomization`（`CustomizationModels`）/ `RuntimeCustomization`（`DiagnosticLogging`）/ `ConfigBackupCodec`；`AodPositionHook.setClockYOffset(px)` 把偏移叠加到被钉住的时钟 Y（经 `lastStockTranslationY` 锚点，避免逐帧累积）；仅当跟随开关关闭时显示。
 
 ## `2885511` 评估（v0.3.177 · 2026-09-15）
 

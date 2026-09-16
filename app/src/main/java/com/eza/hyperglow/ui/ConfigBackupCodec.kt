@@ -7,6 +7,7 @@ import com.eza.hyperglow.aod.MAX_AOD_BRIGHTNESS
 import com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS
 import com.eza.hyperglow.aod.normalizeAodCanvasAnchor
 import com.eza.hyperglow.aod.normalizeAodCanvasPaddingPercent
+import com.eza.hyperglow.aod.normalizeAodClockYOffset
 import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
 import com.eza.hyperglow.aod.normalizeAodRotationMode
 import com.eza.hyperglow.aod.normalizeAodRotationSettleMs
@@ -107,7 +108,8 @@ internal object ConfigBackupCodec {
     internal val intFields = listOf(
         BackupIntField(AodRenderPreferences.TEXT_SIZE_CUSTOM) { it.textSizeCustom },
         BackupIntField(AodRenderPreferences.METADATA_SIZE) { it.metadataSizePercent },
-        BackupIntField(AodRenderPreferences.AOD_BRIGHTNESS_LEVEL) { it.aodBrightnessLevel }
+        BackupIntField(AodRenderPreferences.AOD_BRIGHTNESS_LEVEL) { it.aodBrightnessLevel },
+        BackupIntField(AodRenderPreferences.AOD_CLOCK_Y_OFFSET) { it.aodClockYOffset }
     )
 
     internal val floatFields = listOf(
@@ -230,6 +232,8 @@ internal object ConfigBackupCodec {
         keepAwake = stored.boolean(AodRenderPreferences.KEEP_AWAKE) ?: DEFAULTS.keepAwake,
         aodClockFollow = stored.boolean(AodRenderPreferences.AOD_CLOCK_FOLLOW)
             ?: DEFAULTS.aodClockFollow,
+        aodClockYOffset = stored.int(AodRenderPreferences.AOD_CLOCK_Y_OFFSET)
+            ?.let(::normalizeAodClockYOffset) ?: DEFAULTS.aodClockYOffset,
         keepAwakeUnsynced = stored.boolean(AodRenderPreferences.KEEP_AWAKE_UNSYNCED)
             ?: DEFAULTS.keepAwakeUnsynced,
         keepAwakeDurationMs = stored.long(AodRenderPreferences.KEEP_AWAKE_DURATION_MS)

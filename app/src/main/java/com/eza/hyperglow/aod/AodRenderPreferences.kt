@@ -24,6 +24,11 @@ data class AodRenderConfig(
     val keepAwake: Boolean = true,
     /** 时钟跟随模式:true=实时跟随实际时钟位置定位AOD歌词;false=锚定防抖(默认)。 */
     val aodClockFollow: Boolean = false,
+    /**
+     * 自定义系统时钟钉住位置的垂直偏移(px,负值上移、正值下移)。
+     * 仅在关闭「实时跟随系统时钟」且 AOD 正在渲染时,叠加到被钉住的时钟 Y 上。
+     */
+    val aodClockYOffset: Int = 0,
     val keepAwakeUnsynced: Boolean = false,
     val keepAwakeDurationMs: Long = -1L,
     val experimentalPositionFollowing: Boolean = false,
@@ -203,6 +208,9 @@ internal const val DEFAULT_CANVAS_PADDING_PERCENT = 2f
 internal const val MIN_AOD_BRIGHTNESS = 10
 internal const val MAX_AOD_BRIGHTNESS = 255
 internal const val DEFAULT_AOD_BRIGHTNESS_LEVEL = 255
+internal const val MIN_AOD_CLOCK_Y_OFFSET = -480
+internal const val MAX_AOD_CLOCK_Y_OFFSET = 480
+private const val DEFAULT_AOD_CLOCK_Y_OFFSET = 0
 private const val DEFAULT_CANVAS_ANCHOR = 0.5f
 private const val DEFAULT_ROTATION_SETTLE_MS = 1_000L
 private const val DEFAULT_LANDSCAPE_TEXT_SCALE = 1f
@@ -220,6 +228,10 @@ internal fun normalizePauseLingerMs(value: Long): Long = when (value) {
     -1L, 0L, 5_000L, 10_000L, 30_000L -> value
     else -> 5_000L
 }
+
+/** 自定义系统时钟 Y 偏移(px),钳制到安全范围。默认 0(不偏移)。 */
+internal fun normalizeAodClockYOffset(value: Int): Int =
+    value.coerceIn(MIN_AOD_CLOCK_Y_OFFSET, MAX_AOD_CLOCK_Y_OFFSET)
 
 object AodRenderPreferences {
     const val PREFS = "aod_render"
@@ -241,6 +253,7 @@ object AodRenderPreferences {
     const val ADAPTIVE_SECTIONING = "adaptive_sectioning"
     const val KEEP_AWAKE = "keep_awake"
     const val AOD_CLOCK_FOLLOW = "aod_clock_follow"
+    const val AOD_CLOCK_Y_OFFSET = "aod_clock_y_offset"
     const val KEEP_AWAKE_UNSYNCED = "keep_awake_unsynced"
     const val KEEP_AWAKE_DURATION_MS = "keep_awake_duration_ms"
     const val EXPERIMENTAL_POSITION_FOLLOWING = "experimental_position_following"
@@ -320,6 +333,7 @@ object AodRenderPreferences {
             prefs.safeBoolean(ADAPTIVE_SECTIONING, true),
             prefs.safeBoolean(KEEP_AWAKE, true),
             prefs.safeBoolean(AOD_CLOCK_FOLLOW, false),
+            normalizeAodClockYOffset(prefs.safeInt(AOD_CLOCK_Y_OFFSET, DEFAULT_AOD_CLOCK_Y_OFFSET)),
             prefs.safeBoolean(KEEP_AWAKE_UNSYNCED, false),
             normalizeKeepAwakeDurationMs(prefs.safeLong(KEEP_AWAKE_DURATION_MS, -1L)),
             prefs.safeBoolean(EXPERIMENTAL_POSITION_FOLLOWING, false),

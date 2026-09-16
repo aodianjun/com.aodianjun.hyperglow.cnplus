@@ -150,6 +150,8 @@
     <string name="setting_aod_clock_follow">即時跟隨系統時鐘</string>
     <string name="summary_aod_clock_follow">開啟後歌詞位置直接跟隨系統時鐘的真實移動,避免時鐘快移時歌詞佈局滯後錯位與重疊。關閉(錨定)時,系統時鐘位置會被釘住、不隨防燒屏抖動下移,且時鐘保持可見。建議在時鐘下移時開啟。</string>
     <string name="setting_aod_clock_image">息屏時鐘或圖片</string>
+    <string name="setting_aod_clock_y_offset">時鐘垂直偏移</string>
+    <string name="summary_aod_clock_y_offset">在關閉「即時跟隨系統時鐘」時,垂直移動被釘住的系統時鐘(負值上移、正值下移)。</string>
     <string name="summary_aod_placement_unsupported">此係統界面版本不支持協調息屏位置。</string>
     <string name="setting_movement_interval">移動間隔</string>
     <string name="setting_aod_brightness_boost">息屏亮度增強</string>

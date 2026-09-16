@@ -365,6 +365,7 @@ private fun HomeScreen(
     }
     var keepAwake by remember { mutableStateOf(initialConfig.keepAwake) }
     var aodClockFollow by remember { mutableStateOf(initialConfig.aodClockFollow) }
+    var aodClockYOffset by remember { mutableStateOf(initialConfig.aodClockYOffset) }
     var keepAwakeUnsynced by remember { mutableStateOf(initialConfig.keepAwakeUnsynced) }
     var keepAwakeDurationMs by remember { mutableStateOf(initialConfig.keepAwakeDurationMs) }
     var lockscreenKeepAwake by remember {
@@ -753,6 +754,24 @@ private fun HomeScreen(
                                 summary = stringResource(R.string.summary_aod_clock_follow),
                                 enabled = aodSupported
                             )
+                            if (!aodClockFollow) {
+                                SliderPreference(
+                                    value = aodClockYOffset.toFloat(),
+                                    onValueChange = { px ->
+                                        if (updateAodClockYOffset(context, px.toInt())) {
+                                            aodClockYOffset = px.toInt()
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_aod_clock_y_offset),
+                                    summary = stringResource(R.string.summary_aod_clock_y_offset),
+                                    valueText = aodClockYOffset.toString(),
+                                    valueRange = com.eza.hyperglow.aod.MIN_AOD_CLOCK_Y_OFFSET.toFloat()..
+                                        com.eza.hyperglow.aod.MAX_AOD_CLOCK_Y_OFFSET.toFloat(),
+                                    steps =
+                                        com.eza.hyperglow.aod.MAX_AOD_CLOCK_Y_OFFSET -
+                                        com.eza.hyperglow.aod.MIN_AOD_CLOCK_Y_OFFSET
+                                )
+                            }
                             ArrowPreference(
                                 title = stringResource(R.string.setting_aod_clock_image),
                                 summary = if (positionFollowingSupported) {
@@ -2565,6 +2584,19 @@ private fun updateAodBrightnessOverride(
 ): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putBoolean(AodRenderPreferences.AOD_BRIGHTNESS_OVERRIDE, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodClockYOffset(
+    context: android.content.Context,
+    offset: Int
+): Boolean {
+    val clamped = com.eza.hyperglow.aod.normalizeAodClockYOffset(offset)
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putInt(AodRenderPreferences.AOD_CLOCK_Y_OFFSET, clamped)
         .commit()
     if (!saved) return false
     publishRuntimeConfiguration(context)

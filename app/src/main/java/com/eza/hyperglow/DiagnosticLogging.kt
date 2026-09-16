@@ -82,7 +82,8 @@ internal object RuntimeCustomization {
             suppressLockscreenEditorLongPress = preferences.suppressLockscreenEditorLongPress,
             aodBrightnessBoost = preferences.aodBrightnessBoost,
             aodBrightnessOverride = preferences.aodBrightnessOverride,
-            aodBrightnessLevel = preferences.aodBrightnessLevel
+            aodBrightnessLevel = preferences.aodBrightnessLevel,
+            aodClockYOffset = preferences.aodClockYOffset
         )
     }
 
@@ -116,7 +117,8 @@ internal object RuntimeCustomization {
             configuration.suppressLockscreenEditorLongPress,
         aodBrightnessBoost: Boolean = configuration.aodBrightnessBoost,
         aodBrightnessOverride: Boolean = configuration.aodBrightnessOverride,
-        aodBrightnessLevel: Int = configuration.aodBrightnessLevel
+        aodBrightnessLevel: Int = configuration.aodBrightnessLevel,
+        aodClockYOffset: Int = configuration.aodClockYOffset
     ): CompiledCustomization = requireNotNull(
         SceneCompiler.finalizeCompiled(
             configuration.copy(
@@ -136,7 +138,8 @@ internal object RuntimeCustomization {
                 aodBrightnessLevel = aodBrightnessLevel.coerceIn(
                     com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS,
                     com.eza.hyperglow.aod.MAX_AOD_BRIGHTNESS
-                )
+                ),
+                aodClockYOffset = com.eza.hyperglow.aod.normalizeAodClockYOffset(aodClockYOffset)
             )
         )
     )

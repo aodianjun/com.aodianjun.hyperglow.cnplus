@@ -88,7 +88,12 @@ data class CompiledCustomization(
      */
     val aodBrightnessOverride: Boolean = false,
     /** 自定义 AOD 亮度(10-255),仅在 [aodBrightnessOverride] 为 true 时生效。 */
-    val aodBrightnessLevel: Int = 255
+    val aodBrightnessLevel: Int = 255,
+    /**
+     * 自定义系统时钟钉住位置的垂直偏移(px,负值上移、正值下移)。
+     * 仅关闭「实时跟随系统时钟」且 AOD 渲染时生效,叠加到被钉住的系统时钟 Y 上。
+     */
+    val aodClockYOffset: Int = 0
 )
 
 @Serializable

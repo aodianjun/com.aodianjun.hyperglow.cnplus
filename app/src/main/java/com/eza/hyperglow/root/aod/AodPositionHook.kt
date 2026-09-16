@@ -170,6 +170,12 @@ internal object AodPositionHook {
      */
     @Volatile
     private var pinClockVisible = false
+    /**
+     * 自定义系统时钟钉住位置的垂直偏移(px)。仅当关闭「实时跟随系统时钟」且正在渲染
+     * AOD(pinClock 激活)时,叠加到被钉住的时钟 Y 上。默认 0(不偏移)。
+     */
+    @Volatile
+    private var clockYOffsetPx = 0
 
     fun setSuppressActive(active: Boolean) {
         suppressActive = active
@@ -182,6 +188,10 @@ internal object AodPositionHook {
 
     fun setIntegralClockPin(active: Boolean) {
         pinClockVisible = active
+    }
+
+    fun setClockYOffset(px: Int) {
+        clockYOffsetPx = px
     }
 
     fun isSuppressActive(): Boolean = suppressActive
@@ -407,9 +417,12 @@ internal object AodPositionHook {
         freeze: Boolean,
         zoneChanged: Boolean
     ): PositionResolution {
-        val heldY = if (freeze) state.lastStockTranslationY ?: requestedY else requestedY
-        state.lastStockTranslationY = heldY
-        return PositionResolution(stockDecision(requestedX, heldY, geometry, zoneChanged))
+        // 锚定起点取上次锚定值(防烧屏沉降时时钟被钉住);freeze 时把该原始锚定值保留在
+        // lastStockTranslationY,仅对本次应用到时钟的 Y 叠加用户自定义偏移,避免逐帧累积。
+        val anchorY = state.lastStockTranslationY ?: requestedY
+        state.lastStockTranslationY = anchorY
+        val appliedY = if (freeze) anchorY + clockYOffsetPx else requestedY
+        return PositionResolution(stockDecision(requestedX, appliedY, geometry, zoneChanged))
     }
 
     private fun stockDecision(
