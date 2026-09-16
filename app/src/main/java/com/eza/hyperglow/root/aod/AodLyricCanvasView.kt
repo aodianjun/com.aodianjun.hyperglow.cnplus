@@ -1652,8 +1652,8 @@ internal class AodLyricCanvasView(
             val lyricRows = rows.filterNot { it.kind == RowKind.METADATA }
             val gap = 10f * density
             // 元数据被换行成多行时，其实际占高超过单行基线；歌词起点需按多出的高度避让。
-            val metadataExtraHeight = (metadata.row.lines.size - 1).coerceAtLeast(0) *
-                metadata.row.lineHeight
+            val metadataExtraHeight = (metadata.lines.size - 1).coerceAtLeast(0) *
+                metadata.lineHeight
             if (anchor == "bottom") {
                 var bottom = metadataBounds.lyricEnd - metadataExtraHeight
                 lyricRows.asReversed().forEach { row ->
