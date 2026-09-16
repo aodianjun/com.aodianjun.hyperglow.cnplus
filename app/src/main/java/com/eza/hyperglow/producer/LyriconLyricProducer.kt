@@ -675,10 +675,10 @@ class LyriconLyricProducer(
     }
 
     /** True when some active MediaSession is playing and its metadata title matches [title]. */
-    private fun anySessionActiveFor(title: String): Boolean {
+    private fun anySessionActiveFor(title: String?): Boolean {
         val manager = mediaSessionManager ?: return false
         val component = notificationListenerComponent ?: return false
-        if (title.isBlank()) return false
+        if (title.isNullOrBlank()) return false
         return runCatching {
             manager.getActiveSessions(component).any { controller ->
                 classifyActivePlayerPlayback(controller.playbackState?.state) ==
