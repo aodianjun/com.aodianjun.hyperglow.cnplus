@@ -98,6 +98,8 @@ before opening a pull request:
 
 - [amarinne/hyperglow](https://github.com/amarinne/hyperglow) — the upstream project this
   repackaged CN+ fork is based on.
+- [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) — the referenced project HyperGlow
+  adapts code from, which this fork inherits.
 - The lyrics sources that make this possible:
   [Spicy EX](https://github.com/amarinne/spicy-ex), [Lyricon](https://github.com/tomakino/lyricon),
   [SuperLyric](https://github.com/HChenX/SuperLyric), and
@@ -182,6 +184,7 @@ JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ## 致谢
 
 - [amarinne/hyperglow](https://github.com/amarinne/hyperglow) —— 本 CN+ 重打包版所基于的上游项目。
+- [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) —— HyperGlow 改编借鉴其代码的参考项目，本 fork 沿用了该代码。
 - 让这一切成为可能的歌词源：[Spicy EX](https://github.com/amarinne/spicy-ex)、
   [Lyricon](https://github.com/tomakino/lyricon)、[SuperLyric](https://github.com/HChenX/SuperLyric)
   与 [LyricInfo](https://github.com/limczhh/LyricInfo)。
