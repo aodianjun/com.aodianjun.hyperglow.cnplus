@@ -1474,10 +1474,16 @@ internal class AodLyricCanvasView(
         metadata.row.paint.color = resolvedPalette.metadataText
         metadata.row.paint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
         metadata.row.lines.forEachIndexed { index, line ->
+            // 底部锚点时行向上排（末行贴近屏幕底），顶部锚点向下排。
+            val lineBaseline = if (content.metadataAnchor == "bottom") {
+                metadata.baseline - (metadata.row.lines.size - 1 - index) * metadata.row.lineHeight
+            } else {
+                metadata.baseline + index * metadata.row.lineHeight
+            }
             canvas.drawText(
                 line.text,
                 line.startX,
-                metadata.baseline + index * metadata.row.lineHeight,
+                lineBaseline,
                 metadata.row.paint
             )
         }
@@ -1541,7 +1547,13 @@ internal class AodLyricCanvasView(
             hasTimedWords
         )
         if (content.metadataVisible && content.metadata.isNotBlank() && !metadataPlaceholder) {
-            rows += row(RowKind.METADATA, content.metadata, metadataPaint, 0f, false)
+            rows += rowWithLines(
+                RowKind.METADATA,
+                content.metadata,
+                metadataPaint,
+                0f,
+                wrapMetadataText(content.metadata, metadataPaint)
+            )
         }
         if (content.original.isNotBlank()) {
             val metrics = originalPaint.fontMetrics
@@ -1606,15 +1618,6 @@ internal class AodLyricCanvasView(
         )
     }
 
-    private fun row(kind: RowKind, text: String, paint: Paint, gap: Float, allowWrap: Boolean = true): Row {
-        val lines = if (allowWrap) {
-            wrapSecondaryText(text, paint, MAX_SECONDARY_LINES)
-        } else {
-            listOf(textLine(text, paint.measureText(text), paint, alignmentFor(kind)))
-        }
-        return rowWithLines(kind, text, paint, gap, lines)
-    }
-
     private fun rowWithLines(
         kind: RowKind,
         text: String,
@@ -1648,8 +1651,11 @@ internal class AodLyricCanvasView(
             positioned += PositionedRow(metadata, metadataBaseline, false)
             val lyricRows = rows.filterNot { it.kind == RowKind.METADATA }
             val gap = 10f * density
+            // 元数据被换行成多行时，其实际占高超过单行基线；歌词起点需按多出的高度避让。
+            val metadataExtraHeight = (metadata.row.lines.size - 1).coerceAtLeast(0) *
+                metadata.row.lineHeight
             if (anchor == "bottom") {
-                var bottom = metadataBounds.lyricEnd
+                var bottom = metadataBounds.lyricEnd - metadataExtraHeight
                 lyricRows.asReversed().forEach { row ->
                     bottom -= row.height
                     positioned += PositionedRow(row, bottom - row.paint.fontMetrics.ascent, true)
@@ -1657,7 +1663,7 @@ internal class AodLyricCanvasView(
                 }
                 positioned.sortBy { it.baseline }
             } else {
-                var top = metadataBounds.lyricStart
+                var top = metadataBounds.lyricStart + metadataExtraHeight
                 lyricRows.forEach { row ->
                     top += row.gapBefore
                     positioned += PositionedRow(row, top - row.paint.fontMetrics.ascent, true)
@@ -2274,6 +2280,43 @@ internal class AodLyricCanvasView(
             available,
             maxLines
         ).map { line -> textLine(line, paint.measureText(line), paint) }
+    }
+
+    /**
+     * 歌曲信息（歌名/歌手）专用换行：只要单行超出可用宽度就自动换行，最多
+     * [MAX_SECONDARY_LINES] 行（不受歌词 sectioning/overflow 偏好门控，与歌词换行解耦）。
+     */
+    private fun wrapMetadataText(text: String, paint: Paint): List<TextLine> {
+        val available = (width - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        if (paint.measureText(text) <= available) {
+            return listOf(
+                textLine(text, paint.measureText(text), paint, alignmentFor(RowKind.METADATA))
+            )
+        }
+        val tokens = secondaryTokens(text).flatMap { token ->
+            if (paint.measureText(token) <= available) {
+                listOf(token)
+            } else {
+                val pieces = ArrayList<String>()
+                var remaining = token
+                while (remaining.isNotEmpty()) {
+                    val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
+                    pieces += remaining.take(count)
+                    remaining = remaining.drop(count)
+                }
+                pieces
+            }
+        }
+        if (tokens.isEmpty()) return emptyList()
+        return balancedTokenLineTexts(
+            tokens,
+            tokens.map(paint::measureText),
+            paint.measureText(" "),
+            available,
+            MAX_SECONDARY_LINES
+        ).map { line ->
+            textLine(line, paint.measureText(line), paint, alignmentFor(RowKind.METADATA))
+        }
     }
 
     private fun textLine(
