@@ -94,6 +94,16 @@ before opening a pull request:
 - Large or architectural changes are worth discussing in an issue first, so the design can be
   checked against the specs before you build it.
 
+## Acknowledgements
+
+- [amarinne/hyperglow](https://github.com/amarinne/hyperglow) — the upstream project this
+  repackaged CN+ fork is based on.
+- The lyrics sources that make this possible:
+  [Spicy EX](https://github.com/amarinne/spicy-ex), [Lyricon](https://github.com/tomakino/lyricon),
+  [SuperLyric](https://github.com/HChenX/SuperLyric), and
+  [LyricInfo](https://github.com/limczhh/LyricInfo).
+- [LSPosed](https://github.com/LSPosed/LSPosed) and libxposed for the Xposed runtime.
+
 ## License
 
 [GPL-3.0](LICENSE). See [NOTICE](NOTICE).
@@ -168,6 +178,14 @@ JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 - `README.md`、`FAQ.md` 和 `.gitignore` 为自动生成，对它们的修改会被丢弃；请改为在 issue 中提出。
 - 每个被接受的改动在发布前都会在维护者的设备上验证。单元测试通过是必要条件而非充分条件 —— 任何涉及 SystemUI 挂钩、AOD 电源或几何布局的改动都需要无法在 CI 中运行的硬件验证。
 - 大型或架构性改动值得先在 issue 中讨论，以便在动手前对照规范检查设计方案。
+
+## 致谢
+
+- [amarinne/hyperglow](https://github.com/amarinne/hyperglow) —— 本 CN+ 重打包版所基于的上游项目。
+- 让这一切成为可能的歌词源：[Spicy EX](https://github.com/amarinne/spicy-ex)、
+  [Lyricon](https://github.com/tomakino/lyricon)、[SuperLyric](https://github.com/HChenX/SuperLyric)
+  与 [LyricInfo](https://github.com/limczhh/LyricInfo)。
+- [LSPosed](https://github.com/LSPosed/LSPosed) 与 libxposed 提供的 Xposed 运行时。
 
 ## 许可证
 
