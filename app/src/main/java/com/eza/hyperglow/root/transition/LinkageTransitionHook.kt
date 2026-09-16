@@ -2,6 +2,7 @@ package com.eza.hyperglow.root.transition
 
 import android.os.SystemClock
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.HookRegistry
 import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import io.github.libxposed.api.XposedModule
@@ -9,6 +10,7 @@ import java.util.Collections
 import java.util.WeakHashMap
 
 internal object LinkageTransitionHook {
+    private const val FEATURE_ID = "linkage"
     private val directionDebouncer = LinkageDirectionDebouncer()
     private val hookedClassLoaders = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
@@ -30,8 +32,7 @@ internal object LinkageTransitionHook {
         }
         if (primary != null) {
             runCatching {
-                module.deoptimize(primary)
-                module.hook(primary).intercept(PrimaryHooker)
+                HookRegistry.hook(module, FEATURE_ID, primary, PrimaryHooker)
             }.onSuccess {
                 HookLogger.i(TAG, "Primary linkage direction hook installed")
             }.onFailure {
@@ -49,8 +50,7 @@ internal object LinkageTransitionHook {
             )
         }.onSuccess { fallback ->
             runCatching {
-                module.deoptimize(fallback)
-                module.hook(fallback).intercept(FallbackHooker)
+                HookRegistry.hook(module, FEATURE_ID, fallback, FallbackHooker)
             }.onSuccess {
                 HookLogger.i(TAG, "Fallback linkage direction hook installed")
             }.onFailure {

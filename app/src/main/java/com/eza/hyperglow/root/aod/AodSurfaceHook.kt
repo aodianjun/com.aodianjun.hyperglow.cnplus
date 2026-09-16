@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.aod
 import android.view.View
 import android.view.ViewGroup
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.HookRegistry
 import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import io.github.libxposed.api.XposedModule
@@ -11,6 +12,7 @@ import java.util.WeakHashMap
 
 object AodSurfaceHook {
     private const val AOD_VIEW_CLASS = "com.miui.aod.AODView"
+    private const val FEATURE_ID = "aod-surface"
     private val hookedClassLoaders = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
     )
@@ -32,10 +34,8 @@ object AodSurfaceHook {
         if (!hookedClassLoaders.add(classLoader)) return
         val attached = aodViewClass.getDeclaredMethod("onAttachedToWindow")
         val detached = aodViewClass.getDeclaredMethod("onDetachedFromWindow")
-        module.deoptimize(attached)
-        module.deoptimize(detached)
-        module.hook(attached).intercept(AttachedHooker())
-        module.hook(detached).intercept(DetachedHooker())
+        HookRegistry.hook(module, FEATURE_ID, attached, AttachedHooker())
+        HookRegistry.hook(module, FEATURE_ID, detached, DetachedHooker())
         installStockVisibilitySeam(module)
         HookLogger.i(TAG, "Direct AOD hooks installed")
     }
@@ -49,8 +49,7 @@ object AodSurfaceHook {
         val setVisibility = runCatching {
             View::class.java.getMethod("setVisibility", Int::class.javaPrimitiveType)
         }.getOrNull() ?: return
-        module.deoptimize(setVisibility)
-        module.hook(setVisibility).intercept(StockVisibilityHooker)
+        HookRegistry.hook(module, FEATURE_ID, setVisibility, StockVisibilityHooker)
         HookLogger.i(TAG, "Stock visibility enforcement seam installed")
     }
 

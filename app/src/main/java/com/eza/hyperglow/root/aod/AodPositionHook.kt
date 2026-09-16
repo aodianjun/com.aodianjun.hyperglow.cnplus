@@ -6,6 +6,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.HookRegistry
 import com.eza.hyperglow.root.hierarchyField
 import com.eza.hyperglow.root.readHierarchyField
 import io.github.libxposed.api.XposedInterface.Chain
@@ -43,6 +44,7 @@ internal object AodPositionHook {
     )
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private const val FEATURE_ID = "aod-position"
     private val hookedClassLoaders = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
     )
@@ -63,10 +65,8 @@ internal object AodPositionHook {
         val updatePosition = classLoader.loadClass(DOZE_HOST_CLASS)
             .getDeclaredMethod("updatePosition").apply { isAccessible = true }
         if (!hookedClassLoaders.add(classLoader)) return
-        module.deoptimize(update)
-        module.deoptimize(updatePosition)
-        module.hook(update).intercept(PositionHooker)
-        module.hook(updatePosition).intercept(PositionCompletionHooker)
+        HookRegistry.hook(module, FEATURE_ID, update, PositionHooker)
+        HookRegistry.hook(module, FEATURE_ID, updatePosition, PositionCompletionHooker)
         HookLogger.i(TAG, "AOD position hook installed")
     }
 

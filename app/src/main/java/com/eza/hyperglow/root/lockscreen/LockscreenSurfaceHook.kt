@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.lockscreen
 import android.view.View
 import android.view.ViewGroup
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.HookRegistry
 import com.eza.hyperglow.root.readHierarchyField
 import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
@@ -11,6 +12,7 @@ import java.util.Collections
 import java.util.WeakHashMap
 
 internal object LockscreenSurfaceHook {
+    private const val FEATURE_ID = "lockscreen-surface"
     private val hookedClassLoaders = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
     )
@@ -23,10 +25,8 @@ internal object LockscreenSurfaceHook {
         if (!hookedClassLoaders.add(classLoader)) return
         val bindData = sectionClass.getDeclaredMethod("bindData", constraintLayout)
         val removeViews = sectionClass.getDeclaredMethod("removeViews", constraintLayout)
-        module.deoptimize(bindData)
-        module.deoptimize(removeViews)
-        module.hook(bindData).intercept(BindHooker)
-        module.hook(removeViews).intercept(RemoveHooker)
+        HookRegistry.hook(module, FEATURE_ID, bindData, BindHooker)
+        HookRegistry.hook(module, FEATURE_ID, removeViews, RemoveHooker)
         hookOptional(module, controllerClass, "onViewAttachedToWindow", AttachedHooker, View::class.java)
         hookOptional(module, controllerClass, "onViewDetachedFromWindow", DetachedHooker, View::class.java)
         hookOptional(module, controllerClass, "updateKeyguardElementsVisibility", RefreshHooker)
@@ -113,8 +113,7 @@ internal object LockscreenSurfaceHook {
     ) {
         runCatching {
             val method = owner.getDeclaredMethod(name, *parameterTypes)
-            module.deoptimize(method)
-            module.hook(method).intercept(hooker)
+            HookRegistry.hook(module, FEATURE_ID, method, hooker)
         }.onFailure { HookLogger.w(TAG, "Optional lockscreen hook unavailable: $name", it) }
     }
 

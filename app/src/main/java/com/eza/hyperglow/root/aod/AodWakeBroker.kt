@@ -5,6 +5,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.HookRegistry
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import io.github.libxposed.api.XposedInterface.Chain
@@ -33,6 +34,7 @@ internal object AodWakeBroker {
     private var unavailableLogged = false
     private var installRetryCount = 0
     private var installRetryAttempted = false
+    private const val FEATURE_ID = "aod-wake"
     private var lyriconWatchdogScheduled = false
     private var lyriconWakeLogged = false
     // 反射读取 SystemUI 内 Lyricon 中心服务(io.github.proify.lyricon.central)的活动播放态,
@@ -124,7 +126,10 @@ internal object AodWakeBroker {
         installRetryAttempted = false
         for (constructor in triggersClass.declaredConstructors) {
             constructor.isAccessible = true
-            module.hook(constructor).intercept(
+            HookRegistry.hook(
+                module,
+                FEATURE_ID,
+                constructor,
                 DozeTriggersConstructorHooker(hostField, contextField, fireAodState)
             )
         }

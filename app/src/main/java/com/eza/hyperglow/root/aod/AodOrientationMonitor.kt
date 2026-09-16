@@ -174,6 +174,20 @@ internal object AodOrientationMonitor {
         candidateStep = null
     }
 
+    /**
+     * 热重载退役:完整重置传感器与所有派生状态,让新一代从白板开始。
+     * 比 [detach] 更强的清理,避免旧代遗留的回调/滤波值污染重装载机。
+     */
+    @Synchronized
+    fun stop() {
+        detach()
+        filteredX = 0f
+        filteredY = 0f
+        currentStep = null
+        settleMs = DEFAULT_SETTLE_MS
+        stableSamples = 0
+    }
+
     fun isAttached(): Boolean = attached
 
     @Synchronized

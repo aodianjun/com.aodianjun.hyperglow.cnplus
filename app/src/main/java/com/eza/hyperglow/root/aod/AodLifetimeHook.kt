@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.aod
 import android.os.Handler
 import android.os.Looper
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.HookRegistry
 import com.eza.hyperglow.root.readHierarchyField
 import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
@@ -14,6 +15,7 @@ import java.util.WeakHashMap
 
 object AodLifetimeHook {
     private const val CONTROLLER_CLASS = "com.miui.aod.doze.MiuiShowStyleController"
+    private const val FEATURE_ID = "aod-lifetime"
     private val hookedClassLoaders = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
     )
@@ -27,13 +29,12 @@ object AodLifetimeHook {
         dumpControllerSurface(controllerClass)
         for (constructor in controllerClass.declaredConstructors) {
             constructor.isAccessible = true
-            module.hook(constructor).intercept(ControllerConstructorHooker)
+            HookRegistry.hook(module, FEATURE_ID, constructor, ControllerConstructorHooker)
         }
         for (methodName in POLICY_HIDE_METHODS) {
             val method = controllerClass.getDeclaredMethod(methodName)
             method.isAccessible = true
-            module.deoptimize(method)
-            module.hook(method).intercept(PolicyHideHooker(method))
+            HookRegistry.hook(module, FEATURE_ID, method, PolicyHideHooker(method))
         }
         installWindowActionProbes(module, controllerClass)
         installVisibilityTelemetry(module, classLoader)
@@ -56,8 +57,7 @@ object AodLifetimeHook {
         methods.forEach { method ->
             runCatching {
                 method.isAccessible = true
-                module.deoptimize(method)
-                module.hook(method).intercept(VisibilityTelemetryHooker(method))
+                HookRegistry.hook(module, FEATURE_ID, method, VisibilityTelemetryHooker(method))
             }.onFailure { error ->
                 HookLogger.w(TAG, "AOD visibility telemetry hook unavailable method=${method.name}", error)
             }
@@ -107,8 +107,7 @@ object AodLifetimeHook {
             if (method.name !in WINDOW_ACTION_METHODS) continue
             runCatching {
                 method.isAccessible = true
-                module.deoptimize(method)
-                module.hook(method).intercept(WindowActionProbeHooker(method))
+                HookRegistry.hook(module, FEATURE_ID, method, WindowActionProbeHooker(method))
                 installed++
             }
         }
@@ -185,6 +184,15 @@ object AodLifetimeController {
 
     @Synchronized
     fun isLyricActive(): Boolean = lyricActive
+
+    /**
+     * Drops pending delayed work owned by this generation so it cannot fire after the
+     * old module class loader is retired by hot reload.
+     */
+    @Synchronized
+    fun cancelPendingForReload() {
+        clearPendingHideLocked()
+    }
 
     @Synchronized
     fun setLyricActive(active: Boolean) {

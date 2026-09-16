@@ -2,6 +2,7 @@ package com.eza.hyperglow.root.lockscreen
 
 import com.eza.hyperglow.root.aod.AodWakeBroker
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.HookRegistry
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import io.github.libxposed.api.XposedInterface.Chain
@@ -24,6 +25,7 @@ internal object RaiseToAodController {
 }
 
 internal object RaiseToAodHook {
+    private const val FEATURE_ID = "raise-to-aod"
     private var installed = false
 
     @Synchronized
@@ -35,8 +37,7 @@ internal object RaiseToAodHook {
             Long::class.javaPrimitiveType,
             String::class.java
         ).apply { isAccessible = true }
-        module.deoptimize(wakeUp)
-        module.hook(wakeUp).intercept(WakeUpHooker)
+        HookRegistry.hook(module, FEATURE_ID, wakeUp, WakeUpHooker)
         installed = true
         HookLogger.i(TAG, "Pickup wake remap hook installed")
     }

@@ -5,6 +5,7 @@ import android.os.Looper
 import com.eza.hyperglow.aod.MAX_AOD_BRIGHTNESS
 import com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.HookRegistry
 import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import io.github.libxposed.api.XposedModule
@@ -26,6 +27,7 @@ object AodBrightnessHook {
     private val hookedClassLoaders = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
     )
+    private const val FEATURE_ID = "aod-brightness"
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         val adapterClass = runCatching { classLoader.loadClass(ADAPTER_CLASS) }.getOrNull()
@@ -47,14 +49,12 @@ object AodBrightnessHook {
         if (!hookedClassLoaders.add(classLoader)) return
 
         AodBrightnessController.registerTarget(readableBrightness)
-        module.deoptimize(adapterMethod)
-        module.hook(adapterMethod).intercept(BrightnessHooker)
-        module.deoptimize(transitionMethod)
-        module.hook(transitionMethod).intercept(TransitionHooker)
+        HookRegistry.hook(module, FEATURE_ID, adapterMethod, BrightnessHooker)
+        HookRegistry.hook(module, FEATURE_ID, transitionMethod, TransitionHooker)
         val constructorHooker = AdapterConstructorHooker(adapterMethod)
         for (constructor in adapterClass.declaredConstructors) {
             constructor.isAccessible = true
-            module.hook(constructor).intercept(constructorHooker)
+            HookRegistry.hook(module, FEATURE_ID, constructor, constructorHooker)
         }
         HookLogger.i(
             TAG,

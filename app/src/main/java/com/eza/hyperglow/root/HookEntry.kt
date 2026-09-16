@@ -2,11 +2,14 @@ package com.eza.hyperglow.root
 
 import android.app.Application
 import com.eza.hyperglow.BuildConfig
+import com.eza.hyperglow.root.aod.AodBrightnessController
 import com.eza.hyperglow.root.aod.AodBrightnessHook
-import com.eza.hyperglow.root.aod.AodSurfaceHook
-import com.eza.hyperglow.root.aod.AodLifetimeHook
-import com.eza.hyperglow.root.aod.AodPositionHook
 import com.eza.hyperglow.root.aod.AodDisplayStateHook
+import com.eza.hyperglow.root.aod.AodLifetimeController
+import com.eza.hyperglow.root.aod.AodLifetimeHook
+import com.eza.hyperglow.root.aod.AodOrientationMonitor
+import com.eza.hyperglow.root.aod.AodPositionHook
+import com.eza.hyperglow.root.aod.AodSurfaceHook
 import com.eza.hyperglow.root.aod.AodWakeBroker
 import com.eza.hyperglow.root.antifreeze.AntiFreezeHook
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
@@ -20,6 +23,8 @@ import com.eza.hyperglow.root.transition.SystemUiClockMorphHook
 import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import io.github.libxposed.api.XposedModule
+import io.github.libxposed.api.XposedModuleInterface.HotReloadedParam
+import io.github.libxposed.api.XposedModuleInterface.HotReloadingParam
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
@@ -83,6 +88,69 @@ class HookEntry : XposedModule() {
 
         XiaomiCapabilityResolver.observeDefaultLoader(param.defaultClassLoader)
         XiaomiCapabilityResolver.observeAodLoader(param.defaultClassLoader)
+        reportDefaultLoaderProbes()
+        installDefaultLoaderHooks(this, param.defaultClassLoader)
+        installAodHooks(this, param.defaultClassLoader)
+        installClassLoaderHook(this)
+    }
+
+    /**
+     * Rejects reload while a lyric session owns AOD lifetime/power; otherwise retires
+     * this generation's hooks and pending callbacks so the new generation starts clean.
+     * Only primitives cross the reload boundary via [HotReloadingParam.setSavedInstanceState].
+     */
+    override fun onHotReloading(param: HotReloadingParam): Boolean {
+        if (AodLifetimeController.isLyricActive()) {
+            HookLogger.w(TAG, "Hot reload rejected: lyric session active")
+            return false
+        }
+        AodLifetimeController.cancelPendingForReload()
+        AodBrightnessController.cancelPendingForReload()
+        AodOrientationMonitor.stop()
+        val retired = HookRegistry.retireGeneration()
+        param.setSavedInstanceState(BuildConfig.VERSION_CODE)
+        HookLogger.bootstrap(
+            TAG,
+            "hot_reload_accepted retired=$retired generation=${HookRegistry.currentGeneration()}"
+        )
+        return true
+    }
+
+    /**
+     * Package callbacks are not replayed after reload, so the new generation unhooks
+     * previous handles and reinstalls from the live host application. A SystemUI
+     * restart remains the supported path until manual reload passes repeatedly.
+     */
+    override fun onHotReloaded(param: HotReloadedParam) {
+        super.onHotReloaded(param)
+        HookLogger.module = this
+        val unhooked = HookRegistry.unhookPrevious(param.oldHookHandles)
+        val savedVersion = param.savedInstanceState as? Int
+        val application = currentSystemUiApplication()
+        if (application == null) {
+            HookLogger.e(
+                TAG,
+                "Hot reload reinstall unavailable: host application not found, " +
+                    "unhooked=$unhooked restart SystemUI"
+            )
+            return
+        }
+        val classLoader = application.classLoader
+        XiaomiCapabilityResolver.observeDefaultLoader(classLoader)
+        XiaomiCapabilityResolver.observeAodLoader(classLoader)
+        reportDefaultLoaderProbes()
+        installDefaultLoaderHooks(this, classLoader)
+        installAodHooks(this, classLoader)
+        installClassLoaderHook(this)
+        SystemUiLifecycleHook.bootstrap(application)
+        HookLogger.bootstrap(
+            TAG,
+            "hot_reloaded unhooked=$unhooked active=${HookRegistry.activeCount()} " +
+                "savedVersion=$savedVersion"
+        )
+    }
+
+    private fun reportDefaultLoaderProbes() {
         val capabilityReport = XiaomiCapabilityResolver.snapshot()
         val presentProbes = capabilityReport.rawProbes.values.count { it }
         // Default-loader probes only. The AOD dex is not loaded yet, so this is an early lower
@@ -93,73 +161,86 @@ class HookEntry : XposedModule() {
                 "${capabilityReport.rawProbes.size} profile=${capabilityReport.profileState.wireValue} " +
                 "missing=${missingProbeNames(capabilityReport.rawProbes)}"
         )
+    }
+
+    private fun installDefaultLoaderHooks(module: XposedModule, classLoader: ClassLoader) {
         try {
-            SystemUiLifecycleHook.install(this, param.defaultClassLoader)
+            SystemUiLifecycleHook.install(module, classLoader)
         } catch (error: Exception) {
             HookLogger.w(TAG, "SystemUI lifecycle hooks unavailable", error)
         }
-
         try {
-            LockscreenSurfaceHook.install(this, param.defaultClassLoader)
+            LockscreenSurfaceHook.install(module, classLoader)
         } catch (error: Exception) {
             HookLogger.w(TAG, "Lockscreen hooks unavailable", error)
         }
         try {
-            LinkageTransitionHook.install(this, param.defaultClassLoader)
+            LinkageTransitionHook.install(module, classLoader)
         } catch (error: Exception) {
             HookLogger.w(TAG, "Linkage hook unavailable", error)
         }
         try {
-            SystemUiClockMorphHook.install(this, param.defaultClassLoader)
+            SystemUiClockMorphHook.install(module, classLoader)
         } catch (error: Exception) {
             HookLogger.w(TAG, "SystemUI clock morph geometry hook unavailable", error)
         }
         try {
-            RaiseToAodHook.install(this, param.defaultClassLoader)
+            RaiseToAodHook.install(module, classLoader)
         } catch (error: Exception) {
             HookLogger.w(TAG, "Raise-to-AOD hook unavailable", error)
         }
         try {
-            LockscreenEditorGestureHook.install(this, param.defaultClassLoader)
+            LockscreenEditorGestureHook.install(module, classLoader)
         } catch (error: Exception) {
             HookLogger.w(TAG, "Lockscreen editor gesture hook unavailable", error)
         }
+    }
 
+    private fun installAodHooks(module: XposedModule, classLoader: ClassLoader) {
         try {
-            AodSurfaceHook.install(this, param.defaultClassLoader)
+            AodSurfaceHook.install(module, classLoader)
         } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD hook unavailable", error)
+            HookLogger.w(TAG, "AOD surface hook unavailable", error)
         }
         try {
-            AodLifetimeHook.install(this, param.defaultClassLoader)
+            AodLifetimeHook.install(module, classLoader)
         } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD lifetime hook unavailable", error)
+            HookLogger.w(TAG, "AOD lifetime hook unavailable", error)
         }
         try {
-            AodBrightnessHook.install(this, param.defaultClassLoader)
+            AodBrightnessHook.install(module, classLoader)
         } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD brightness hook unavailable", error)
+            HookLogger.w(TAG, "AOD brightness hook unavailable", error)
         }
         try {
-            AodPositionHook.install(this, param.defaultClassLoader)
+            AodPositionHook.install(module, classLoader)
         } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD position hook unavailable", error)
+            HookLogger.w(TAG, "AOD position hook unavailable", error)
         }
         try {
-            AodDisplayStateHook.install(this, param.defaultClassLoader)
+            AodDisplayStateHook.install(module, classLoader)
         } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD display-state hook unavailable", error)
+            HookLogger.w(TAG, "AOD display-state hook unavailable", error)
         }
         try {
-            AodWakeBroker.install(this, param.defaultClassLoader)
+            AodWakeBroker.install(module, classLoader)
         } catch (error: Exception) {
-            HookLogger.w(TAG, "Default-loader AOD wake broker unavailable", error)
+            HookLogger.w(TAG, "AOD wake broker unavailable", error)
         }
+    }
+
+    private fun installClassLoaderHook(module: XposedModule) {
         try {
             val loaderClass = Class.forName("dalvik.system.BaseDexClassLoader")
             for (constructor in loaderClass.declaredConstructors) {
-                deoptimize(constructor)
-                hook(constructor).intercept(ClassLoaderHooker(this))
+                HookRegistry.hook(
+                    module,
+                    CLASS_LOADER_FEATURE_ID,
+                    constructor,
+                    // Captured per install so a reloaded generation never reuses
+                    // the previous generation's module reference.
+                    ClassLoaderHooker(module)
+                )
             }
             HookLogger.i(TAG, "Dynamic class-loader hooks installed")
         } catch (error: Exception) {
@@ -179,77 +260,25 @@ class HookEntry : XposedModule() {
         HookLogger.bootstrap(TAG, "miui_aod_package_loaded")
         val loader = param.defaultClassLoader
         XiaomiCapabilityResolver.observeAodLoader(loader)
-        try {
-            AodSurfaceHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD surface hook unavailable", error)
-        }
-        try {
-            AodLifetimeHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD lifetime hook unavailable", error)
-        }
-        try {
-            AodBrightnessHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD brightness hook unavailable", error)
-        }
-        try {
-            AodPositionHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD position hook unavailable", error)
-        }
-        try {
-            AodDisplayStateHook.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD display-state hook unavailable", error)
-        }
-        try {
-            AodWakeBroker.install(this, loader)
-        } catch (error: Exception) {
-            HookLogger.w(TAG, "MiuiAOD wake broker unavailable", error)
-        }
+        installAodHooks(this, loader)
     }
 
-    private class ClassLoaderHooker(private val module: XposedModule) : Hooker {
+    private inner class ClassLoaderHooker(private val module: XposedModule) : Hooker {
         override fun intercept(chain: Chain): Any? {
             val result = chain.proceed()
             val loader = chain.thisObject as? ClassLoader ?: return result
             XiaomiCapabilityResolver.observeAodLoader(loader)
             SystemUiLyricProjectionRuntime.projection.reportCapabilities()
-            try {
-                AodSurfaceHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD hook failed", error)
-            }
-            try {
-                AodLifetimeHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD lifetime hook failed", error)
-            }
-            try {
-                AodBrightnessHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD brightness hook failed", error)
-            }
-            try {
-                AodPositionHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD position hook failed", error)
-            }
-            try {
-                AodDisplayStateHook.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD display-state hook failed", error)
-            }
-            try {
-                AodWakeBroker.install(module, loader)
-            } catch (error: Exception) {
-                HookLogger.w(TAG, "Dynamic-loader AOD wake broker failed", error)
-            }
+            installAodHooks(module, loader)
             return result
         }
     }
+
+    /** Re-derives the live host application; null fails closed to a SystemUI restart. */
+    private fun currentSystemUiApplication(): Application? = runCatching {
+        val threadClass = Class.forName("android.app.ActivityThread")
+        threadClass.getDeclaredMethod("currentApplication").invoke(null) as? Application
+    }.getOrNull()
 
     companion object {
         private const val TAG = "HookEntry"
@@ -258,6 +287,7 @@ class HookEntry : XposedModule() {
         private const val MIUI_AOD_PACKAGE = "com.miui.aod"
         private const val LIBXPOSED_MIN_API = 101
         private const val LIBXPOSED_TARGET_API = 102
+        private const val CLASS_LOADER_FEATURE_ID = "classloader"
 
         private fun processClass(processName: String): String = when {
             processName.isBlank() -> "unknown"
