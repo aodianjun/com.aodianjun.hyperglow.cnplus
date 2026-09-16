@@ -92,7 +92,12 @@ data class AodRenderConfig(
     val aodBrightnessOverride: Boolean = false,
     /** 自定义 AOD 亮度(10-255),仅当 [aodBrightnessOverride] 为 true 时生效。 */
     val aodBrightnessLevel: Int = DEFAULT_AOD_BRIGHTNESS_LEVEL
-)
+) {
+    companion object {
+        /** 出厂默认配置;备份解码时用于逐字段回退缺失/类型错误的值。 */
+        val DEFAULTS: AodRenderConfig = AodRenderConfig()
+    }
+}
 
 internal fun normalizeAodAlignment(value: String?): String = when (value) {
     "auto" -> "auto"

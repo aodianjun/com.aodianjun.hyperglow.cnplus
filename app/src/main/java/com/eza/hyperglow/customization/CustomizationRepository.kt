@@ -13,6 +13,15 @@ object CustomizationRepository {
     private const val KEY_PREVIOUS_DOCUMENT = "previous_document_json"
     private const val KEY_MIGRATION_VERSION = "migration_version"
 
+    // Projection ticks run at 10 Hz while a song is playing. Keep the compiled scene in memory
+    // and only decode/canonicalize when the persisted inputs change; parsing and compiling the
+    // JSON document on every tick otherwise burns CPU and allocates a full profile graph.
+    private var compiledCacheInitialized = false
+    private var cachedCurrentRaw: String? = null
+    private var cachedPreviousRaw: String? = null
+    private var cachedLegacyConfig: AodRenderConfig? = null
+    private var cachedCompiled: CompiledCustomization? = null
+
     @Synchronized
     fun loadDocument(context: Context): CustomizationDocument {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -47,8 +56,32 @@ object CustomizationRepository {
     }
 
     @Synchronized
-    fun loadCompiled(context: Context): CompiledCustomization =
-        SceneCompiler.compile(loadDocument(context))
+    fun loadCompiled(context: Context): CompiledCustomization {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val currentRaw = prefs.getString(KEY_DOCUMENT, null)
+        val previousRaw = prefs.getString(KEY_PREVIOUS_DOCUMENT, null)
+        // Legacy values matter only while no canonical document exists. AodRenderPreferences is
+        // itself cached, so this comparison is inexpensive and still notices first-run edits.
+        val legacy = if (currentRaw == null && previousRaw == null) {
+            AodRenderPreferences.read(context)
+        } else {
+            null
+        }
+        if (compiledCacheInitialized &&
+            currentRaw == cachedCurrentRaw &&
+            previousRaw == cachedPreviousRaw &&
+            legacy == cachedLegacyConfig
+        ) {
+            return requireNotNull(cachedCompiled)
+        }
+        val compiled = SceneCompiler.compile(loadDocument(context))
+        compiledCacheInitialized = true
+        cachedCurrentRaw = prefs.getString(KEY_DOCUMENT, null)
+        cachedPreviousRaw = prefs.getString(KEY_PREVIOUS_DOCUMENT, null)
+        cachedLegacyConfig = legacy
+        cachedCompiled = compiled
+        return compiled
+    }
 
     @Synchronized
     fun saveDocument(context: Context, document: CustomizationDocument): Boolean {

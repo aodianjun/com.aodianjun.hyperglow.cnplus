@@ -98,6 +98,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import com.eza.hyperglow.aod.AodLyricBridgeService
+import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
@@ -2493,58 +2494,34 @@ private fun publishRuntimeConfiguration(context: android.content.Context) {
     )
 }
 
-/** 配置备份文件格式标识与版本。 */
-private const val CONFIG_BACKUP_FORMAT = "hyperglow-config"
-private const val CONFIG_BACKUP_VERSION = 1
 private const val MAX_CONFIG_FILE_BYTES = 512 * 1024
 
-private fun exportAllConfig(context: android.content.Context): String {
-    val prefs = context.getSharedPreferences(AodRenderPreferences.PREFS, 0)
-    return buildJsonObject {
-        put("format", JsonPrimitive(CONFIG_BACKUP_FORMAT))
-        put("version", JsonPrimitive(CONFIG_BACKUP_VERSION))
-        putJsonObject("preferences") {
-            prefs.all.forEach { (key, value) ->
-                when (value) {
-                    is Boolean -> put(key, JsonPrimitive(value))
-                    is Int -> put(key, JsonPrimitive(value))
-                    is Long -> put(key, JsonPrimitive(value))
-                    is Float -> put(key, JsonPrimitive(value))
-                    is String -> put(key, JsonPrimitive(value))
-                    is Set<*> -> putJsonArray(key) {
-                        value.forEach { add(JsonPrimitive(it.toString())) }
-                    }
-                }
-            }
-        }
-    }.toString()
+private fun exportAllConfig(context: android.content.Context): String =
+    ConfigBackupCodec.encode(
+        AodRenderPreferences.read(context),
+        CustomizationRepository.loadDocument(context)
+    )
+
+private fun importAllConfig(context: android.content.Context, raw: String): Boolean {
+    val result = ConfigBackupCodec.decode(raw.toByteArray())
+    if (result !is ConfigBackupDecodeResult.Success) return false
+    if (!configBackupWritePreferences(context, result.preferences)) return false
+    val document = result.customizationDocument
+    return document == null || CustomizationRepository.saveDocument(context, document)
 }
 
-private fun importAllConfig(context: android.content.Context, raw: String): Boolean = runCatching {
-    val root = Json.parseToJsonElement(raw).jsonObject
-    if (root["format"]?.jsonPrimitive?.content != CONFIG_BACKUP_FORMAT) return false
-    val preferences = root["preferences"]?.jsonObject ?: return false
+private fun configBackupWritePreferences(
+    context: android.content.Context,
+    config: AodRenderConfig
+): Boolean {
     val editor = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
-    preferences.forEach { (key, element) ->
-        when (element) {
-            is JsonPrimitive -> when {
-                element.booleanOrNull != null -> editor.putBoolean(key, element.boolean)
-                element.intOrNull != null -> editor.putInt(key, element.int)
-                element.longOrNull != null -> editor.putLong(key, element.long)
-                else -> {
-                    val float = element.content.toFloatOrNull()
-                    if (float != null) editor.putFloat(key, float) else editor.putString(key, element.content)
-                }
-            }
-            is JsonArray -> editor.putStringSet(
-                key,
-                element.map { it.jsonPrimitive.content }.toSet()
-            )
-            else -> Unit
-        }
-    }
-    editor.commit()
-}.getOrDefault(false)
+    ConfigBackupCodec.booleanFields.forEach { editor.putBoolean(it.key, it.read(config)) }
+    ConfigBackupCodec.intFields.forEach { editor.putInt(it.key, it.read(config)) }
+    ConfigBackupCodec.floatFields.forEach { editor.putFloat(it.key, it.read(config)) }
+    ConfigBackupCodec.longFields.forEach { editor.putLong(it.key, it.read(config)) }
+    ConfigBackupCodec.stringFields.forEach { editor.putString(it.key, it.read(config)) }
+    return editor.commit()
+}
 
 private fun updateKeepAwakeDuration(context: android.content.Context, value: Long): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
