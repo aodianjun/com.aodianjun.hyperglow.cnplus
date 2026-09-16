@@ -1401,4 +1401,34 @@ class LyriconLyricProducerTest {
         assertEquals("first", state.line)
         assertEquals(1_200L, state.positionMs)
     }
+
+    // --- issue #27: MediaSession stop-detection classification ---
+
+    @Test
+    fun classifyPlayback_activelyTransporting_isPlaying() {
+        assertEquals(ActivePlayerPlayback.PLAYING, classifyActivePlayerPlayback(MediaPlayback.PLAYING))
+        assertEquals(ActivePlayerPlayback.PLAYING, classifyActivePlayerPlayback(MediaPlayback.BUFFERING))
+        assertEquals(ActivePlayerPlayback.PLAYING, classifyActivePlayerPlayback(MediaPlayback.CONNECTING))
+        assertEquals(ActivePlayerPlayback.PLAYING, classifyActivePlayerPlayback(MediaPlayback.SKIPPING_TO_NEXT))
+        assertEquals(ActivePlayerPlayback.PLAYING, classifyActivePlayerPlayback(MediaPlayback.FAST_FORWARDING))
+    }
+
+    @Test
+    fun classifyPlayback_paused_isPaused() {
+        assertEquals(ActivePlayerPlayback.PAUSED, classifyActivePlayerPlayback(MediaPlayback.PAUSED))
+    }
+
+    @Test
+    fun classifyPlayback_stoppedNoneOrNull_isStopped() {
+        // NetEase reports state=null (not STATE_STOPPED) when stopped → must classify as stopped.
+        assertEquals(ActivePlayerPlayback.STOPPED, classifyActivePlayerPlayback(MediaPlayback.STOPPED))
+        assertEquals(ActivePlayerPlayback.STOPPED, classifyActivePlayerPlayback(MediaPlayback.NONE))
+        assertEquals(ActivePlayerPlayback.STOPPED, classifyActivePlayerPlayback(null))
+    }
+
+    @Test
+    fun classifyPlayback_errorOrUnexpected_isUnknownAndNeverClears() {
+        assertEquals(ActivePlayerPlayback.UNKNOWN, classifyActivePlayerPlayback(MediaPlayback.ERROR))
+        assertEquals(ActivePlayerPlayback.UNKNOWN, classifyActivePlayerPlayback(99))
+    }
 }

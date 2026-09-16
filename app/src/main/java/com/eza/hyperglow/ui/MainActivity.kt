@@ -3604,6 +3604,10 @@ private fun nowPlayingSummary(
     state: LyricProducerState,
     source: LyricSource
 ): String {
+    // issue #27: 不在播放时不再展示旧曲目。Lyricon 在上游不发 onSongChanged(null) 且会话仍
+    // active 时，currentSong / title / artist 会一直保留，导致停止播放后概览页仍显示上一首。
+    // 这里以 producer 的 playing 为准收敛展示，与下方 Projection 行的 paused 判定保持一致。
+    if (!state.playing) return context.getString(R.string.projection_state_paused)
     val title = state.title.ifBlank { context.getString(R.string.summary_no_track) }
     val artist = state.artist.trim()
     return when {

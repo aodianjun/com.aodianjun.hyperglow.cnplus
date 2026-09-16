@@ -1,6 +1,8 @@
 package com.eza.hyperglow.producer
 
+import android.content.ComponentName
 import android.content.Context
+import android.media.session.MediaSessionManager
 import android.os.Build
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
@@ -83,6 +85,18 @@ class LyriconLyricProducer(
     @Volatile private var lastPositionCallbackElapsedMs: Long = -1L
     @Volatile private var lastForcedResubscribeElapsedMs: Long = 0L
     private val watchdogScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
+    // --- MediaSession stop detection (issue #27) ---
+    // Lyricon 的 `onPlaybackStateChanged(false)` 对「会话仍 active 但已停止」的播放器(如
+    // 网易云:active=true 且保留 metadata,仅 state 变 null)不会触发,导致 producer 一直
+    // 当作在播,AOD / 概览长期显示旧曲目。这里周期性检查活动播放器对应 MediaSession 的真实
+    // 播放状态:STATE_NONE / STATE_STOPPED / null 判定为「已停止」,按 onSongChanged(null)
+    // 清空曲目;STATE_PAUSED 判定为「暂停」保留(现有暂停驻留链路负责后续超时清除)。
+    @Volatile private var activeProviderPackage: String? = null
+    @Volatile private var stopConverged = false
+    @Volatile private var stoppedStreak = 0
+    private var mediaSessionManager: MediaSessionManager? = null
+    private var notificationListenerComponent: ComponentName? = null
 
     // --- Ingress state, updated by playerListener; read by emit(). @Volatile for cross-thread. ---
     @Volatile private var currentSong: Song? = null
@@ -194,55 +208,26 @@ class LyriconLyricProducer(
 
     internal val playerListener = object : ActivePlayerListener {
         override fun onActiveProviderChanged(providerInfo: ProviderInfo?) {
-            AppLog.i("LyriconLyricProducer", "provider=${providerInfo?.providerPackageName}")
+            val pkg = providerInfo?.providerPackageName
+            AppLog.i("LyriconLyricProducer", "provider=$pkg")
+            resetStopDetection()
             if (providerInfo == null) {
+                activeProviderPackage = null
                 // No active player: clear state, let arbiter fall back / go idle.
-                currentSong = null
-                navigator = null
-                currentLineIndex = -1
-                cachedWords = null
-                currentPositionMs = 0L
-                lastRealPositionMs = 0L
-                lastRealPositionClockMs = clock()
-                lastRealPositionUpdateMs = -1L
-                extrapolating = false
-                positionUnknown = false
-                previousSongLastPositionMs = -1L
-                seekRejectPositionMs = -1L
-                seekClockMs = 0L
-                pauseStaleRejectMs = -1L
-                songStartGateOpen = true
-                gateRateAnchorPosMs = -1L
-                gateRateX = 1.0
-                gateFrozenRejectMs = -1L
-                mutableState.value = null
+                resetToIdle("onActiveProviderChanged: null (no active player)")
+            } else {
+                activeProviderPackage = pkg
             }
         }
 
         override fun onSongChanged(song: Song?) {
             if (song == null) {
                 AppLog.i("LyriconLyricProducer", "onSongChanged: null (cleared)")
-                currentSong = null
-                navigator = null
-                currentLineIndex = -1
-                cachedWords = null
-                currentPositionMs = 0L
-                lastRealPositionMs = 0L
-                lastRealPositionClockMs = clock()
-                lastRealPositionUpdateMs = -1L
-                extrapolating = false
-                positionUnknown = false
-                previousSongLastPositionMs = -1L
-                seekRejectPositionMs = -1L
-                seekClockMs = 0L
-                pauseStaleRejectMs = -1L
-                songStartGateOpen = true
-                gateRateAnchorPosMs = -1L
-                gateRateX = 1.0
-                gateFrozenRejectMs = -1L
-                mutableState.value = null
+                resetStopDetection()
+                resetToIdle("onSongChanged: null")
                 return
             }
+            resetStopDetection()
             AppLog.i(
                 "LyriconLyricProducer",
                 "onSongChanged: id=${song.id} name=${song.name} artist=${song.artist} " +
@@ -570,6 +555,11 @@ class LyriconLyricProducer(
             return
         }
 
+        // Issue #27: cross-app MediaSession query needs notification access (granted → the
+        // LyricInfoNotificationListener is bound). Best-effort: without it detection is skipped.
+        mediaSessionManager = contextRef?.getSystemService(MediaSessionManager::class.java)
+        notificationListenerComponent = contextRef?.let { ComponentName(it, LyricInfoNotificationListener::class.java) }
+
         AppLog.i("LyriconLyricProducer", "start: creating subscriber")
         val sub = LyriconFactory.createSubscriber(context.applicationContext)
         subscriber = sub
@@ -581,6 +571,8 @@ class LyriconLyricProducer(
         AppLog.i("LyriconLyricProducer", "start: registered with central service")
         // Position-silence watchdog: recover the callback path if it dies mid-playback.
         watchdogScope.launch { positionWatchdogLoop() }
+        // MediaSession stop detector: clear tracks whose session reports stopped (issue #27).
+        watchdogScope.launch { stopDetectionLoop() }
     }
 
     override fun stop() {
@@ -603,6 +595,114 @@ class LyriconLyricProducer(
         mutableConnection.value = ProducerConnection.DISCONNECTED
         mutableState.value = null
         AppLog.i("LyriconLyricProducer", "stop: done")
+    }
+
+    /** Issue #27: a brand-new provider/song re-arms the stop detector. */
+    private fun resetStopDetection() {
+        stopConverged = false
+        stoppedStreak = 0
+    }
+
+    /**
+     * Clear all song/lyrics/position ingress and emit a null state — the same idempotent teardown
+     * used by `onSongChanged(null)` / `onActiveProviderChanged(null)`. Backs the MediaSession stop
+     * detector (issue #27) so a stale-active-but-stopped player is fully released.
+     */
+    private fun resetToIdle(reason: String) {
+        lastRealPositionClockMs = clock()
+        resetStopDetection()
+        currentSong = null
+        navigator = null
+        currentLineIndex = -1
+        cachedWords = null
+        currentPositionMs = 0L
+        lastRealPositionMs = 0L
+        lastRealPositionUpdateMs = -1L
+        extrapolating = false
+        positionUnknown = false
+        previousSongLastPositionMs = -1L
+        seekRejectPositionMs = -1L
+        seekClockMs = 0L
+        pauseStaleRejectMs = -1L
+        songStartGateOpen = true
+        gateRateAnchorPosMs = -1L
+        gateRateX = 1.0
+        gateFrozenRejectMs = -1L
+        mutableState.value = null
+        AppLog.i("LyriconLyricProducer", "resetToIdle: $reason")
+    }
+
+    /**
+     * Issue #27 watchdog loop: periodically check the active player's real MediaSession playback
+     * state. Lyricon's `onPlaybackStateChanged(false)` never fires for a session that stays
+     * "active" while stopped (NetEase quirk: active=true, metadata retained, state=null), so the
+     * producer would otherwise keep reporting a stale playing track forever. Once the matched
+     * session reports a definitively-stopped state for [STOP_CONFIRMATIONS] consecutive samples,
+     * release the track like `onSongChanged(null)`.
+     */
+    private suspend fun stopDetectionLoop() {
+        while (watchdogScope.isActive) {
+            delay(STOP_DETECT_INTERVAL_MS)
+            maybeClearOnStoppedPlayer()
+        }
+    }
+
+    private fun maybeClearOnStoppedPlayer() {
+        if (stopConverged) return
+        val pkg = activeProviderPackage ?: return
+        val song = currentSong ?: return
+        // Safety: never clear a track that some session is genuinely still playing (e.g. the SDK
+        // delivered a new app's song while `activeProviderPackage` still points at the stopped
+        // old app). If any actively-playing session carries this song's title, it's live.
+        if (anySessionActiveFor(song.name)) {
+            stoppedStreak = 0
+            return
+        }
+        val state = readActivePlayerPlaybackState(pkg) ?: return
+        if (classifyActivePlayerPlayback(state) == ActivePlayerPlayback.STOPPED) {
+            if (++stoppedStreak >= STOP_CONFIRMATIONS) {
+                stopConverged = true
+                AppLog.i(
+                    "LyriconLyricProducer",
+                    "active player $pkg session stopped (state=$state); clearing stale track"
+                )
+                isPlayingState = false
+                resetToIdle("media-session-stopped (pkg=$pkg, state=$state)")
+            }
+        } else {
+            stoppedStreak = 0
+        }
+    }
+
+    /** True when some active MediaSession is playing and its metadata title matches [title]. */
+    private fun anySessionActiveFor(title: String): Boolean {
+        val manager = mediaSessionManager ?: return false
+        val component = notificationListenerComponent ?: return false
+        if (title.isBlank()) return false
+        return runCatching {
+            manager.getActiveSessions(component).any { controller ->
+                classifyActivePlayerPlayback(controller.playbackState?.state) ==
+                    ActivePlayerPlayback.PLAYING &&
+                    controller.metadata?.description?.title == title
+            }
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Read the active player's MediaSession [android.media.session.PlaybackState.getState].
+     * Requires notification access so [MediaSessionManager.getActiveSessions] can see cross-app
+     * sessions; returns null when unavailable (no match / no permission / query error) so the
+     * detector safely no-ops rather than guessing.
+     */
+    private fun readActivePlayerPlaybackState(packageName: String): Int? {
+        val manager = mediaSessionManager ?: return null
+        val component = notificationListenerComponent ?: return null
+        return runCatching {
+            manager.getActiveSessions(component)
+                .firstOrNull { it.packageName == packageName }
+                ?.playbackState
+                ?.state
+        }.getOrNull()
     }
 
     /**
@@ -1001,6 +1101,16 @@ class LyriconLyricProducer(
         private const val POSITION_WATCHDOG_POLL_MS = 5_000L
 
         /**
+         * issue #27: poll interval for the MediaSession stop detector. Multiple matched samples
+         * are required before clearing (see [STOP_CONFIRMATIONS]) so a transient state blink on a
+         * song change (the transport-gap non-playing edge) doesn't wipe the track.
+         */
+        internal const val STOP_DETECT_INTERVAL_MS = 4_000L
+
+        /** issue #27: consecutive stopped samples before the track is cleared as stale. */
+        internal const val STOP_CONFIRMATIONS = 3
+
+        /**
          * No `onPositionChanged` at all for this long while playing → the SDK's callback path is
          * dead (not merely a frozen shared-memory writer, which still fires callbacks with the
          * stalled value at ~60 Hz). See [shouldForceResubscribePositionFeed].
@@ -1076,3 +1186,46 @@ internal fun shouldForceResubscribePositionFeed(
 ): Boolean = playing &&
     silenceMs > LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS &&
     sinceLastAttemptMs > LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+
+/** Mirrors [android.media.session.PlaybackState] state constants for JVM-testable classification. */
+internal object MediaPlayback {
+    const val NONE = 0
+    const val STOPPED = 1
+    const val PAUSED = 2
+    const val PLAYING = 3
+    const val FAST_FORWARDING = 4
+    const val REWINDING = 5
+    const val BUFFERING = 6
+    const val ERROR = 7
+    const val CONNECTING = 8
+    const val SKIPPING_TO_PREVIOUS = 9
+    const val SKIPPING_TO_NEXT = 10
+    const val SKIPPING_TO_QUEUE_ITEM = 11
+}
+
+/** Playback classification used by the issue #27 MediaSession stop detector. */
+internal enum class ActivePlayerPlayback {
+    PLAYING,
+    PAUSED,
+    STOPPED,
+    UNKNOWN
+}
+
+/**
+ * issue #27 classification of a MediaSession playback state:
+ * - [MediaPlayback.PAUSED] → PAUSED: retain (existing pause-retention handles the eventual clear);
+ * - [MediaPlayback.NONE] / [MediaPlayback.STOPPED] / null → STOPPED: the quoted session is
+ *   "active" but not actually playing — release the track (NetEase reports state=null, not
+ *   STATE_STOPPED, when stopped; the SDK never delivers `onPlaybackStateChanged(false)` for it);
+ * - everything actively transporting (playing/buffering/seeking/connecting) → PLAYING: keep.
+ * - [MediaPlayback.ERROR] and anything unexpected → UNKNOWN: never clears on ambiguity.
+ */
+internal fun classifyActivePlayerPlayback(state: Int?): ActivePlayerPlayback = when (state) {
+    MediaPlayback.PLAYING, MediaPlayback.FAST_FORWARDING, MediaPlayback.REWINDING,
+    MediaPlayback.BUFFERING, MediaPlayback.CONNECTING,
+    MediaPlayback.SKIPPING_TO_PREVIOUS, MediaPlayback.SKIPPING_TO_NEXT,
+    MediaPlayback.SKIPPING_TO_QUEUE_ITEM -> ActivePlayerPlayback.PLAYING
+    MediaPlayback.PAUSED -> ActivePlayerPlayback.PAUSED
+    MediaPlayback.NONE, MediaPlayback.STOPPED, null -> ActivePlayerPlayback.STOPPED
+    else -> ActivePlayerPlayback.UNKNOWN
+}
