@@ -390,6 +390,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     @Volatile private var stockWidgetControlActive = false
     @Volatile private var suppressStockAodContent = false
     @Volatile private var suppressGateActive = false
+    @Volatile private var clockPinActive = false
     @Volatile private var currentRotationStep = AodOrientationStep.PORTRAIT
     private var aodRotateWithDevice = false
     private var aodRotationMode = AOD_ROTATION_MODE_PORTRAIT
@@ -1146,6 +1147,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         AodPositionHook.abandonManagedSession()
         AodPositionHook.setSuppressActive(false)
         AodPositionHook.setHoldStockPosition(false)
+        AodPositionHook.setIntegralClockPin(false)
+        clockPinActive = false
         AodSurfaceHook.clearSuppressedState()
         AodOrientationMonitor.detach()
         currentRotationStep = AodOrientationStep.PORTRAIT
@@ -1273,7 +1276,19 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val renderable = snapshot != null && canRenderAod(snapshot)
         val suppress = renderable && snapshot!!.suppressStockAodContent
         applyStockSuppression(suppress, snapshot)
+        // 关闭「实时跟随系统时钟」(锚定模式)且模块在渲染 AOD 时,钉住系统时钟位置
+        // (不随防烧屏沉降下移),但保留时钟显示 —— 与「隐藏系统时钟」解耦(issue #26)。
+        val pinClock = renderable && !currentAodProfile().aodClockFollow
+        applyClockPin(pinClock)
         applyRotation(snapshot?.takeIf { renderable })
+    }
+
+    /** 系统时钟 Y 钉住:仅由 [applySuppressionAndRotation] 驱动,带变化检测避免反复调用。 */
+    private fun applyClockPin(active: Boolean) {
+        if (clockPinActive == active) return
+        clockPinActive = active
+        AodPositionHook.setIntegralClockPin(active)
+        HookLogger.i(TAG, "System clock position pin=$active")
     }
 
     private fun applyRotation(snapshot: LyricSnapshot?) {

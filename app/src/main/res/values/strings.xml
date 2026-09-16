@@ -149,7 +149,7 @@
     <string name="setting_pause_show_content">Show song info and lyrics while paused</string>
     <string name="summary_pause_show_content">When off, pausing immediately clears song info and lyrics on the AOD and lock screen. When on, they stay for the duration set in "%1$s".</string>
     <string name="setting_aod_clock_follow">Follow system clock in real time</string>
-    <string name="summary_aod_clock_follow">When enabled, lyric placement follows the real system clock position directly, avoiding stale/lagging layout and overlap when the clock moves down. When disabled, anchored anti-oscillation is used. Recommended when the clock shifts downward.</string>
+    <string name="summary_aod_clock_follow">When enabled, lyric placement follows the real system clock position directly, avoiding stale/lagging layout and overlap when the clock moves down. When disabled (anchored), the system clock position is pinned so it does not drift down with burn-in jitter \u2014 the clock stays visible. Recommended when the clock shifts downward.</string>
     <string name="setting_aod_clock_image">AOD clock or image</string>
     <string name="summary_aod_placement_unsupported">This System UI version does not support coordinated AOD placement.</string>
     <string name="setting_movement_interval">Movement interval</string>

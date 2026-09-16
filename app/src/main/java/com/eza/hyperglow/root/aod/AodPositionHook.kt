@@ -163,6 +163,13 @@ internal object AodPositionHook {
     /** 歌词时段冻结系统组件束(不做 managed 位移,也不让系统时钟沉降漂移)。 */
     @Volatile
     private var holdStockPosition = false
+    /**
+     * 按住系统时钟可见但钉住其位置:关闭「实时跟随系统时钟」时置位。与 [holdStockPosition]
+     * 不同 —— 此处不停用 managed 位移,也不隐藏时钟,只在原厂透传路径把 Y 固定在上次
+     * 锚定位置,令时钟不随防烧屏沉降下移(见 issue #26)。
+     */
+    @Volatile
+    private var pinClockVisible = false
 
     fun setSuppressActive(active: Boolean) {
         suppressActive = active
@@ -171,6 +178,10 @@ internal object AodPositionHook {
 
     fun setHoldStockPosition(active: Boolean) {
         holdStockPosition = active
+    }
+
+    fun setIntegralClockPin(active: Boolean) {
+        pinClockVisible = active
     }
 
     fun isSuppressActive(): Boolean = suppressActive
@@ -323,7 +334,6 @@ internal object AodPositionHook {
                 return@synchronized PositionResolution(pending)
             }
             state.lastStockTranslationX = requestedX
-            state.lastStockTranslationY = requestedY
             lastControllerRef = WeakReference(controller)
             if (suppressActive) {
                 // suppressStockAodContent 直通:系统组件束被抑制为 GONE 后无需再做
@@ -331,13 +341,9 @@ internal object AodPositionHook {
                 state.managedStep = -1
                 state.currentManagedDecision = null
                 state.pendingManagedDecision = null
-                val heldY = if (holdStockPosition) {
-                    state.lastStockTranslationY ?: requestedY
-                } else {
-                    requestedY
-                }
-                return@synchronized PositionResolution(
-                    stockDecision(requestedX, heldY, geometry, zoneChanged = false)
+                return@synchronized stockResolution(
+                    state, requestedX, requestedY, geometry,
+                    freeze = holdStockPosition, zoneChanged = false
                 )
             }
             if (AodSurfaceController.isStockWidgetControlActive()) {
@@ -375,13 +381,35 @@ internal object AodPositionHook {
                     }?.let(::PositionResolution)
                 }
             } else {
+                // 原厂透传。pinClockVisible 时把 Y 钉在上次锚定位置,令系统时钟在关闭
+                // 「实时跟随系统时钟」时不随防烧屏沉降下移,同时保留时钟显示(issue #26)。
                 val zoneChanged = state.currentManagedDecision != null
                 state.managedStep = -1
                 state.currentManagedDecision = null
                 state.pendingManagedDecision = null
-                PositionResolution(stockDecision(requestedX, requestedY, geometry, zoneChanged))
+                return@synchronized stockResolution(
+                    state, requestedX, requestedY, geometry,
+                    freeze = pinClockVisible, zoneChanged = zoneChanged
+                )
             }
         }
+    }
+
+    /**
+     * 系统时钟库存直通决策。freeze 时把 Y 钉在上次锚定值,令时钟不随请求的防烧屏
+     * drift 下移;首次(尚无锚定值)以本次请求值作为锚定起点。
+     */
+    private fun stockResolution(
+        state: ControllerState,
+        requestedX: Int,
+        requestedY: Float,
+        geometry: AodClockGeometry,
+        freeze: Boolean,
+        zoneChanged: Boolean
+    ): PositionResolution {
+        val heldY = if (freeze) state.lastStockTranslationY ?: requestedY else requestedY
+        state.lastStockTranslationY = heldY
+        return PositionResolution(stockDecision(requestedX, heldY, geometry, zoneChanged))
     }
 
     private fun stockDecision(
