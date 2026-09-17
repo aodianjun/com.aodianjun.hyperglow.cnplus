@@ -885,6 +885,23 @@ private fun HomeScreen(
                                         AodRenderPreferences.AOD_ROTATE_WITH_DEVICE,
                                         enabled
                                     ).apply()
+                                    if (enabled) {
+                                        // issue #29:开启开关时若从未存过有效旋转模式,写入默认
+                                        // auto,避免偏好长期停留在 portrait 导致永不旋转。
+                                        val storedMode =
+                                            prefs.getString(
+                                                AodRenderPreferences.AOD_ROTATION_MODE,
+                                                null
+                                            ).orEmpty()
+                                        if (storedMode.isBlank()) {
+                                            prefs.edit().putString(
+                                                AodRenderPreferences.AOD_ROTATION_MODE,
+                                                com.eza.hyperglow.aod.AOD_ROTATION_MODE_AUTO
+                                            ).apply()
+                                            aodRotationMode =
+                                                com.eza.hyperglow.aod.AOD_ROTATION_MODE_AUTO
+                                        }
+                                    }
                                     aodRotateWithDevice = enabled
                                 },
                                 stringResource(R.string.setting_aod_rotate_with_device),
