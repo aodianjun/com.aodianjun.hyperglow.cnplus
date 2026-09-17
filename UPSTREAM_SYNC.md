@@ -10,7 +10,7 @@
 
 ## Current Status
 
-- **CN+ version**: 0.3.88 (115), upstream baseline as of `8422d78` (v0.3.97). Evaluated increments since then: `748912e` (2026-09-14) and `2885511` (2026-09-15) — see the evaluation sections below.
+- **CN+ version**: 0.3.91 (118), upstream baseline as of `8422d78` (v0.3.97). Evaluated increments since then: `748912e` (2026-09-14) and `2885511` (2026-09-15) — see the evaluation sections below.
 - **Upstream latest**: 2026-09-15 `2885511`, version 0.3.177 (203) — **evaluated 2026-09-15** (DexKit symbol resolution + metadata multi-line; no mandatory port), see the `2885511` Evaluation section below.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
@@ -109,7 +109,7 @@ Also: `strings.xml` got only a comment block (no user-facing text change).
 
 ## 当前状态
 
-- **CN+ 版本**：0.3.88 (115)，上游基线截至 `8422d78`（v0.3.97）。此后的评估增量：`748912e`（2026-09-14）与 `2885511`（2026-09-15）——见下方对应评估小节。
+- **CN+ 版本**：0.3.91 (118)，上游基线截至 `8422d78`（v0.3.97）。此后的评估增量：`748912e`（2026-09-14）与 `2885511`（2026-09-15）——见下方对应评估小节。
 - **上游最新**：2026-09-15 `2885511`，版本 0.3.177 (203) —— **已于 2026-09-15 评估**（DexKit 符号解析 + 元数据多行化；无必须移植项），见下方「`2885511` 评估」小节。
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
