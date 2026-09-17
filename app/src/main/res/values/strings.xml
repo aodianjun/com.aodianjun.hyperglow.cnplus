@@ -166,6 +166,21 @@
     <string name="summary_suppress_stock_aod">While the full-screen lyric canvas is shown, force-hide Xiaomi\'s stock AOD elements (clock, weather). Independent of the rotation toggle below.</string>
     <string name="setting_aod_rotate_with_device">Rotate AOD canvas with device</string>
     <string name="summary_aod_rotate_with_device">Rotates the lyric canvas to landscape when the device is tilted. Independent of the hide-stock-content toggle above.</string>
+    <string name="setting_aod_rotation_mode">Rotation mode</string>
+    <string name="option_aod_rotation_auto">Auto (follow device tilt)</string>
+    <string name="option_aod_rotation_landscape">Landscape</string>
+    <string name="option_aod_rotation_landscape_reverse">Reverse landscape</string>
+    <string name="setting_aod_rotation_settle">Rotation settle time</string>
+    <string name="rotation_settle_ms">%1$d ms</string>
+    <string name="setting_aod_landscape_scale">Landscape text scale</string>
+    <string name="summary_aod_landscape_scale">Scale factor for lyrics while rotated to landscape (50%%–200%%).</string>
+    <string name="setting_aod_landscape_anchor">Landscape vertical anchor</string>
+    <string name="summary_aod_landscape_anchor">Vertical anchor of the lyric block while rotated (0%% top, 100%% bottom).</string>
+    <string name="setting_aod_padding_portrait_x">Portrait horizontal padding</string>
+    <string name="setting_aod_padding_portrait_y">Portrait vertical padding</string>
+    <string name="setting_aod_padding_landscape_x">Landscape horizontal padding</string>
+    <string name="setting_aod_padding_landscape_y">Landscape vertical padding</string>
+    <string name="summary_aod_padding">Inset padding from each edge, as a percentage of the canvas (0–20%%).</string>
 
     <string name="section_lockscreen_behavior">Lock screen behavior</string>
     <string name="setting_keep_lockscreen_awake">Keep lock screen awake</string>

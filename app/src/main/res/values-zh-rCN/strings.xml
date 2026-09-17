@@ -167,6 +167,22 @@
     <string name="setting_aod_rotate_with_device">息屏画布随设备旋转</string>
     <string name="summary_aod_rotate_with_device">设备侧放时把歌词画布旋转到横屏。与上方隐藏系统内容开关互相独立。</string>
 
+    <string name="setting_aod_rotation_mode">旋转模式</string>
+    <string name="option_aod_rotation_auto">自动(随设备倾斜角)</string>
+    <string name="option_aod_rotation_landscape">横屏</string>
+    <string name="option_aod_rotation_landscape_reverse">反向横屏</string>
+    <string name="setting_aod_rotation_settle">旋转稳定时间</string>
+    <string name="rotation_settle_ms">%1$d 毫秒</string>
+    <string name="setting_aod_landscape_scale">横屏歌词缩放</string>
+    <string name="summary_aod_landscape_scale">旋转到横屏时歌词的缩放倍数(50%%-200%%)。</string>
+    <string name="setting_aod_landscape_anchor">横屏垂直锚点</string>
+    <string name="summary_aod_landscape_anchor">旋转时歌词块的垂直锚点(0%%为顶部,100%%为底部)。</string>
+    <string name="setting_aod_padding_portrait_x">竖屏水平内边距</string>
+    <string name="setting_aod_padding_portrait_y">竖屏垂直内边距</string>
+    <string name="setting_aod_padding_landscape_x">横屏水平内边距</string>
+    <string name="setting_aod_padding_landscape_y">横屏垂直内边距</string>
+    <string name="summary_aod_padding">各边缘的内边距,以画布宽高的百分比计算(0%%-20%%)。</string>
+
     <string name="section_lockscreen_behavior">锁屏行为</string>
     <string name="setting_keep_lockscreen_awake">保持锁屏唤醒</string>
     <string name="summary_keep_lockscreen_awake">会增加耗电。</string>

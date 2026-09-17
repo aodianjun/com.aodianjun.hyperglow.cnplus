@@ -101,6 +101,7 @@ import com.eza.hyperglow.aod.AodLyricBridgeService
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
+import com.eza.hyperglow.aod.MAX_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import com.eza.hyperglow.customization.CustomizationEditorState
@@ -257,6 +258,8 @@ private fun HomeScreen(
     var restartAodTarget by remember { mutableStateOf(true) }
     var showBurnInPatternDialog by remember { mutableStateOf(false) }
     var showBurnInIntervalDialog by remember { mutableStateOf(false) }
+    var showRotationModeDialog by remember { mutableStateOf(false) }
+    var showRotationSettleDialog by remember { mutableStateOf(false) }
     var showPauseLingerDialog by remember { mutableStateOf(false) }
     var showKeepAwakeDurationDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
@@ -386,6 +389,22 @@ private fun HomeScreen(
     var aodBrightnessOverride by remember { mutableStateOf(initialConfig.aodBrightnessOverride) }
     var aodBrightnessLevel by remember { mutableStateOf(initialConfig.aodBrightnessLevel) }
     var aodRotateWithDevice by remember { mutableStateOf(initialConfig.aodRotateWithDevice) }
+    var aodRotationMode by remember { mutableStateOf(initialConfig.aodRotationMode) }
+    var aodRotationSettleMs by remember { mutableStateOf(initialConfig.aodRotationSettleMs) }
+    var aodLandscapeTextScale by remember { mutableStateOf(initialConfig.aodLandscapeTextScale) }
+    var aodCanvasAnchorLandscape by remember { mutableStateOf(initialConfig.aodCanvasAnchorLandscape) }
+    var aodCanvasPaddingPortraitXPercent by remember {
+        mutableStateOf(initialConfig.aodCanvasPaddingPortraitXPercent)
+    }
+    var aodCanvasPaddingPortraitYPercent by remember {
+        mutableStateOf(initialConfig.aodCanvasPaddingPortraitYPercent)
+    }
+    var aodCanvasPaddingLandscapeXPercent by remember {
+        mutableStateOf(initialConfig.aodCanvasPaddingLandscapeXPercent)
+    }
+    var aodCanvasPaddingLandscapeYPercent by remember {
+        mutableStateOf(initialConfig.aodCanvasPaddingLandscapeYPercent)
+    }
     var suppressStockAodContent by remember { mutableStateOf(initialConfig.suppressStockAodContent) }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
@@ -872,6 +891,121 @@ private fun HomeScreen(
                                 summary = stringResource(R.string.summary_aod_rotate_with_device),
                                 enabled = aodSupported
                             )
+                            if (aodRotateWithDevice) {
+                                ArrowPreference(
+                                    title = stringResource(R.string.setting_aod_rotation_mode),
+                                    summary = aodRotationModeLabel(context, aodRotationMode),
+                                    onClick = { showRotationModeDialog = true },
+                                    enabled = aodSupported
+                                )
+                                ArrowPreference(
+                                    title = stringResource(R.string.setting_aod_rotation_settle),
+                                    summary = aodRotationSettleLabel(context, aodRotationSettleMs),
+                                    onClick = { showRotationSettleDialog = true },
+                                    enabled = aodSupported
+                                )
+                                SliderPreference(
+                                    value = aodLandscapeTextScale,
+                                    onValueChange = { v ->
+                                        if (updateAodLandscapeTextScale(context, v)) {
+                                            aodLandscapeTextScale = v
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_aod_landscape_scale),
+                                    summary = stringResource(R.string.summary_aod_landscape_scale),
+                                    valueText = (aodLandscapeTextScale * 100).toInt().toString() + "%",
+                                    valueRange = 0.5f..2f,
+                                    steps = 14
+                                )
+                                SliderPreference(
+                                    value = aodCanvasAnchorLandscape,
+                                    onValueChange = { v ->
+                                        if (updateAodCanvasAnchorLandscape(context, v)) {
+                                            aodCanvasAnchorLandscape = v
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_aod_landscape_anchor),
+                                    summary = stringResource(R.string.summary_aod_landscape_anchor),
+                                    valueText =
+                                        (aodCanvasAnchorLandscape * 100).roundToInt().toString() + "%",
+                                    valueRange = 0f..1f,
+                                    steps = 10
+                                )
+                                SliderPreference(
+                                    value = aodCanvasPaddingPortraitXPercent,
+                                    onValueChange = { v ->
+                                        if (updateAodCanvasPaddingPercent(
+                                                context,
+                                                AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT,
+                                                v
+                                            )
+                                        ) {
+                                            aodCanvasPaddingPortraitXPercent = v
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_aod_padding_portrait_x),
+                                    summary = stringResource(R.string.summary_aod_padding),
+                                    valueText = aodCanvasPaddingPortraitXPercent.toInt().toString() + "%",
+                                    valueRange = 0f..MAX_CANVAS_PADDING_PERCENT,
+                                    steps = MAX_CANVAS_PADDING_PERCENT.toInt()
+                                )
+                                SliderPreference(
+                                    value = aodCanvasPaddingPortraitYPercent,
+                                    onValueChange = { v ->
+                                        if (updateAodCanvasPaddingPercent(
+                                                context,
+                                                AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_Y_PERCENT,
+                                                v
+                                            )
+                                        ) {
+                                            aodCanvasPaddingPortraitYPercent = v
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_aod_padding_portrait_y),
+                                    summary = stringResource(R.string.summary_aod_padding),
+                                    valueText = aodCanvasPaddingPortraitYPercent.toInt().toString() + "%",
+                                    valueRange = 0f..MAX_CANVAS_PADDING_PERCENT,
+                                    steps = MAX_CANVAS_PADDING_PERCENT.toInt()
+                                )
+                                SliderPreference(
+                                    value = aodCanvasPaddingLandscapeXPercent,
+                                    onValueChange = { v ->
+                                        if (updateAodCanvasPaddingPercent(
+                                                context,
+                                                AodRenderPreferences.AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT,
+                                                v
+                                            )
+                                        ) {
+                                            aodCanvasPaddingLandscapeXPercent = v
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_aod_padding_landscape_x),
+                                    summary = stringResource(R.string.summary_aod_padding),
+                                    valueText =
+                                        aodCanvasPaddingLandscapeXPercent.toInt().toString() + "%",
+                                    valueRange = 0f..MAX_CANVAS_PADDING_PERCENT,
+                                    steps = MAX_CANVAS_PADDING_PERCENT.toInt()
+                                )
+                                SliderPreference(
+                                    value = aodCanvasPaddingLandscapeYPercent,
+                                    onValueChange = { v ->
+                                        if (updateAodCanvasPaddingPercent(
+                                                context,
+                                                AodRenderPreferences.AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT,
+                                                v
+                                            )
+                                        ) {
+                                            aodCanvasPaddingLandscapeYPercent = v
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_aod_padding_landscape_y),
+                                    summary = stringResource(R.string.summary_aod_padding),
+                                    valueText =
+                                        aodCanvasPaddingLandscapeYPercent.toInt().toString() + "%",
+                                    valueRange = 0f..MAX_CANVAS_PADDING_PERCENT,
+                                    steps = MAX_CANVAS_PADDING_PERCENT.toInt()
+                                )
+                            }
                         }
                     }
                     item { SmallTitle(text = stringResource(R.string.section_lockscreen_behavior)) }
@@ -1124,6 +1258,48 @@ private fun HomeScreen(
         }
     }
 
+    if (showRotationModeDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_aod_rotation_mode),
+            show = true,
+            onDismissRequest = { showRotationModeDialog = false }
+        ) {
+            Column {
+                AOD_ROTATION_MODES.forEach { mode ->
+                    RadioButtonPreference(
+                        aodRotationModeOptionLabel(context, mode),
+                        aodRotationMode == mode,
+                        {
+                            if (updateAodRotationMode(context, mode)) aodRotationMode = mode
+                            showRotationModeDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showRotationSettleDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_aod_rotation_settle),
+            show = true,
+            onDismissRequest = { showRotationSettleDialog = false }
+        ) {
+            Column {
+                AOD_ROTATION_SETTLES.forEach { ms ->
+                    RadioButtonPreference(
+                        aodRotationSettleLabel(context, ms),
+                        aodRotationSettleMs == ms,
+                        {
+                            if (updateAodRotationSettleMs(context, ms)) aodRotationSettleMs = ms
+                            showRotationSettleDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
     if (showPauseLingerDialog) {
         WindowDialog(
             title = stringResource(R.string.setting_after_spotify_pauses),
@@ -1345,6 +1521,33 @@ private fun pauseLingerLabel(context: android.content.Context, value: Long): Str
             else -> R.string.duration_5_seconds
         }
     )
+
+private val AOD_ROTATION_MODES = listOf(
+    com.eza.hyperglow.aod.AOD_ROTATION_MODE_AUTO,
+    com.eza.hyperglow.aod.AOD_ROTATION_MODE_LANDSCAPE,
+    com.eza.hyperglow.aod.AOD_ROTATION_MODE_LANDSCAPE_REVERSE
+)
+
+private val AOD_ROTATION_SETTLES = listOf(0L, 500L, 1_000L, 2_000L, 5_000L, 10_000L)
+
+private fun aodRotationModeLabel(context: android.content.Context, mode: String): String =
+    aodRotationModeOptionLabel(context, mode)
+
+private fun aodRotationModeOptionLabel(
+    context: android.content.Context,
+    mode: String
+): String = context.getString(
+    when (mode) {
+        com.eza.hyperglow.aod.AOD_ROTATION_MODE_LANDSCAPE ->
+            R.string.option_aod_rotation_landscape
+        com.eza.hyperglow.aod.AOD_ROTATION_MODE_LANDSCAPE_REVERSE ->
+            R.string.option_aod_rotation_landscape_reverse
+        else -> R.string.option_aod_rotation_auto
+    }
+)
+
+private fun aodRotationSettleLabel(context: android.content.Context, value: Long): String =
+    context.getString(R.string.rotation_settle_ms, value)
 
 private val BURN_IN_PATTERNS = listOf(
     "static_top",
@@ -2613,6 +2816,71 @@ private fun updateAodBrightnessLevel(
     )
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putInt(AodRenderPreferences.AOD_BRIGHTNESS_LEVEL, clamped)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodRotationMode(
+    context: android.content.Context,
+    mode: String
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putString(AodRenderPreferences.AOD_ROTATION_MODE, mode)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodRotationSettleMs(
+    context: android.content.Context,
+    ms: Long
+): Boolean {
+    val normalized = com.eza.hyperglow.aod.normalizeAodRotationSettleMs(ms)
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putLong(AodRenderPreferences.AOD_ROTATION_SETTLE_MS, normalized)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodLandscapeTextScale(
+    context: android.content.Context,
+    value: Float
+): Boolean {
+    val normalized = com.eza.hyperglow.aod.normalizeAodLandscapeTextScale(value)
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putFloat(AodRenderPreferences.AOD_LANDSCAPE_TEXT_SCALE, normalized)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodCanvasAnchorLandscape(
+    context: android.content.Context,
+    value: Float
+): Boolean {
+    val normalized = com.eza.hyperglow.aod.normalizeAodCanvasAnchor(value)
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putFloat(AodRenderPreferences.AOD_CANVAS_ANCHOR_LANDSCAPE, normalized)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+private fun updateAodCanvasPaddingPercent(
+    context: android.content.Context,
+    key: String,
+    value: Float
+): Boolean {
+    val normalized = com.eza.hyperglow.aod.normalizeAodCanvasPaddingPercent(value)
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putFloat(key, normalized)
         .commit()
     if (!saved) return false
     publishRuntimeConfiguration(context)
