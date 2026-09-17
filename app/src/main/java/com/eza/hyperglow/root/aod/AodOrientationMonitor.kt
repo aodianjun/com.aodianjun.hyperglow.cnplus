@@ -31,8 +31,11 @@ internal enum class AodOrientationStep {
  *
  * `mode` 是被规范化的旋转模式(见 AodRenderPreferences.normalizeAodRotationMode)。
  * 返回 nullable:
- *  - 非 null → 应当转向的刚性 step;
- *  - null → 设备接近竖直,不足以离开竖屏,画布保持当前朝向(避免来回抖动)。
+ *  - 非 null → 明确的刚性 step,含 [AodOrientationStep.PORTRAIT]:设备回正(竖直)时也
+ *    返回 [AodOrientationStep.PORTRAIT],`evaluate` 可经既有防抖路径从横屏回落竖屏
+ *    (issue #30:此前竖直返回 null 被 `evaluate` 视作「无变化」,导致切横屏后无法回落);
+ *  - null → 仅限无效/未知输入(非有限重力、portrait 模式、未知模式),画布保持当前朝向
+ *    (避免因脏读数来回抖动)。
  *
  * 判定约定(传感器坐标,+Y 指向屏幕底、+X 指向屏幕右、设备竖直立起时 gy≈+9.8):
  *  - 竖直: |gy| > |gx|;横躺: |gx| > |gy|;
@@ -48,19 +51,19 @@ internal fun resolveAodRotationStep(
     val absY = abs(gravityY)
     return when (mode) {
         AOD_ROTATION_MODE_LANDSCAPE ->
-            // 横屏:只要长轴接近水平就转 90°,不区分正反。
-            if (absX > absY) AodOrientationStep.LANDSCAPE else null
+            // 横屏:只要长轴接近水平就转 90°,不区分正反;转正(竖直)回落竖屏。
+            if (absX > absY) AodOrientationStep.LANDSCAPE else AodOrientationStep.PORTRAIT
         AOD_ROTATION_MODE_LANDSCAPE_REVERSE ->
-            // 反向横屏:固定旋转 -90°(左侧朝上调头的那一侧)。
-            if (absX > absY) AodOrientationStep.REVERSE_LANDSCAPE else null
+            // 反向横屏:固定旋转 -90°(左侧朝上调头的那一侧);转正(竖直)回落竖屏。
+            if (absX > absY) AodOrientationStep.REVERSE_LANDSCAPE else AodOrientationStep.PORTRAIT
         AOD_ROTATION_MODE_AUTO ->
-            // 自动:跟随重力象限,两侧横屏区分对待。
+            // 自动:跟随重力象限,两侧横屏区分对待;转正(竖直)回落竖屏。
             when {
-                absX <= absY -> null
+                absX <= absY -> AodOrientationStep.PORTRAIT
                 gravityX > 0f -> AodOrientationStep.LANDSCAPE
                 else -> AodOrientationStep.REVERSE_LANDSCAPE
             }
-        else -> null // 竖屏 / 未知模式:永不旋转
+        else -> null // portrait / 未知模式:永不旋转
     }
 }
 

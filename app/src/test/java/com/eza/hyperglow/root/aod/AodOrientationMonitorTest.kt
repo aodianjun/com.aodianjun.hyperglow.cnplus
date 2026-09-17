@@ -22,11 +22,11 @@ class AodOrientationMonitorTest {
     }
 
     @Test
-    fun `portrait orientation gravity resolves to null`() {
-        // 竖直(gY 主导)在任意非 auto 取景下都应保持竖屏。
-        assertNull(resolveAodRotationStep(AOD_ROTATION_MODE_LANDSCAPE, 0.5f, 9.7f))
-        assertNull(resolveAodRotationStep(AOD_ROTATION_MODE_LANDSCAPE_REVERSE, 0.5f, 9.7f))
-        assertNull(resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, 0.5f, 9.7f))
+    fun `portrait orientation gravity resolves to portrait (fallback)`() {
+        // 竖直(gY 主导):明确的 PORTRAIT step,供 evaluate 从横屏回落竖屏(issue #30)。
+        assertEquals(AodOrientationStep.PORTRAIT, resolveAodRotationStep(AOD_ROTATION_MODE_LANDSCAPE, 0.5f, 9.7f))
+        assertEquals(AodOrientationStep.PORTRAIT, resolveAodRotationStep(AOD_ROTATION_MODE_LANDSCAPE_REVERSE, 0.5f, 9.7f))
+        assertEquals(AodOrientationStep.PORTRAIT, resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, 0.5f, 9.7f))
     }
 
     @Test
@@ -54,7 +54,7 @@ class AodOrientationMonitorTest {
     }
 
     @Test
-    fun `auto mode distinguishes landscape sides and keeps portrait when upright`() {
+    fun `auto mode distinguishes landscape sides and falls back to portrait when upright`() {
         assertEquals(
             AodOrientationStep.LANDSCAPE,
             resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, 9.8f, 0.4f)
@@ -63,12 +63,14 @@ class AodOrientationMonitorTest {
             AodOrientationStep.REVERSE_LANDSCAPE,
             resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, -9.8f, 0.4f)
         )
-        assertNull(resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, 0.4f, 9.8f))
+        // 竖直:明确的 PORTRAIT step,支持从横屏回落竖屏(issue #30)。
+        assertEquals(AodOrientationStep.PORTRAIT, resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, 0.4f, 9.8f))
     }
 
     @Test
-    fun `near-zero tie keeps portrait and non-finite input returns null`() {
-        assertNull(resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, 0f, 0f))
+    fun `near-zero tie resolves to portrait and non-finite input returns null`() {
+        // 重力输出过小(平置,|gx|==|gy|≈0)时视为竖屏兜底。
+        assertEquals(AodOrientationStep.PORTRAIT, resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, 0f, 0f))
         assertNull(resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, Float.NaN, 9.8f))
         assertNull(resolveAodRotationStep(AOD_ROTATION_MODE_AUTO, Float.POSITIVE_INFINITY, 0f))
     }
