@@ -190,6 +190,19 @@ internal fun normalizeAodRotationMode(value: String?): String = when (value) {
     else -> AOD_ROTATION_MODE_PORTRAIT
 }
 
+/**
+ * issue #29:设置页只暴露「随设备旋转」总开关,从不写入 AOD_ROTATION_MODE,导致该偏好
+ * 一直停留在 [AOD_ROTATION_MODE_PORTRAIT],最终 [resolveAodRotationStep] 对 portrait 恒返回
+ * null、永不旋转。此处做读取联动:开关已开启但模式仍为 portrait(即从未设置有效模式)时
+ * 视作 [AOD_ROTATION_MODE_AUTO];开关关闭时保持 portrait(不影响任何旋转行为)。
+ */
+internal fun effectiveAodRotationMode(rotateWithDevice: Boolean, normalizedMode: String): String =
+    if (rotateWithDevice && normalizedMode == AOD_ROTATION_MODE_PORTRAIT) {
+        AOD_ROTATION_MODE_AUTO
+    } else {
+        normalizedMode
+    }
+
 internal fun normalizeAodLandscapeTextScale(value: Float): Float =
     if (value.isFinite()) value.coerceIn(0.5f, 2f) else DEFAULT_LANDSCAPE_TEXT_SCALE
 
@@ -314,7 +327,9 @@ object AodRenderPreferences {
             preferences = it
             it.registerOnSharedPreferenceChangeListener(preferenceListener)
         }
-        return cachedConfig ?: AodRenderConfig(
+        cachedConfig?.let { return it }
+        val rotateWithDevice = prefs.safeBoolean(AOD_ROTATE_WITH_DEVICE, false)
+        return AodRenderConfig(
             prefs.safeBoolean(AOD_ENABLED, true),
             prefs.safeBoolean(LOCKSCREEN_ENABLED, false),
             true,
@@ -351,8 +366,13 @@ object AodRenderPreferences {
             prefs.safeBoolean(AOD_BRIGHTNESS_BOOST, true),
             prefs.safeBoolean(PLUGIN_PROCESSING_ENABLED, false),
             prefs.safeBoolean(SUPPRESS_STOCK_AOD_CONTENT, false),
-            prefs.safeBoolean(AOD_ROTATE_WITH_DEVICE, false),
-            normalizeAodRotationMode(prefs.safeString(AOD_ROTATION_MODE, AOD_ROTATION_MODE_PORTRAIT)),
+            rotateWithDevice,
+            effectiveAodRotationMode(
+                rotateWithDevice,
+                normalizeAodRotationMode(
+                    prefs.safeString(AOD_ROTATION_MODE, AOD_ROTATION_MODE_PORTRAIT)
+                )
+            ),
             normalizeAodCanvasAnchor(prefs.safeFloat(AOD_CANVAS_ANCHOR, 0.5f)),
             normalizeAodRotationSettleMs(prefs.safeLong(AOD_ROTATION_SETTLE_MS, 1_000L)),
             normalizeAodCanvasAnchor(prefs.safeFloat(AOD_CANVAS_ANCHOR_LANDSCAPE, 0.5f)),

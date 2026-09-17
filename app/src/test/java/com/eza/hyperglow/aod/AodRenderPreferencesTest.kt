@@ -95,4 +95,31 @@ class AodRenderPreferencesTest {
         assertFalse(config.experimentalMode)
         assertEquals(true, config.aodBrightnessBoost)
     }
+
+    @Test
+    fun effectiveRotationModeTreatsPortraitAsAutoWhenRotationOn() {
+        // issue #29:开关开启而模式仍未设置(portrait)时,读取联动视作 auto,旋转才会生效。
+        assertEquals(
+            AOD_ROTATION_MODE_AUTO,
+            effectiveAodRotationMode(true, AOD_ROTATION_MODE_PORTRAIT)
+        )
+        assertEquals(
+            AOD_ROTATION_MODE_AUTO,
+            effectiveAodRotationMode(true, AOD_ROTATION_MODE_AUTO)
+        )
+        // 开关关闭:无论模式为何都保留(不影响旋转),portrait 保持不变。
+        assertEquals(
+            AOD_ROTATION_MODE_PORTRAIT,
+            effectiveAodRotationMode(false, AOD_ROTATION_MODE_PORTRAIT)
+        )
+        // 用户显式选定的横屏模式不被联动改写。
+        assertEquals(
+            AOD_ROTATION_MODE_LANDSCAPE,
+            effectiveAodRotationMode(true, AOD_ROTATION_MODE_LANDSCAPE)
+        )
+        assertEquals(
+            AOD_ROTATION_MODE_LANDSCAPE_REVERSE,
+            effectiveAodRotationMode(true, AOD_ROTATION_MODE_LANDSCAPE_REVERSE)
+        )
+    }
 }
