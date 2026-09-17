@@ -1049,4 +1049,48 @@ class AodCanvasLayoutTest {
         assertEquals(1440, back.ow)
         assertEquals(3200, back.oh)
     }
+
+    @Test
+    fun landscapeFramePaddingDividesPercentByOneHundred() {
+        // issue #32 根因回归:横屏 padding 是逻辑帧的百分比(默认 2%),
+        // 若未除以 100 会被当成 200% → 裁剪矩形为空 → 横屏歌词整屏空白。
+        // 视口竖屏尺寸 950x2302,横屏逻辑宽 ow=2302、逻辑高 oh=950。
+        val layout = aodLandscapeFrameLayout(
+            viewWidth = 950,
+            viewHeight = 2302,
+            paddingXPercent = 2f,
+            paddingYPercent = 2f
+        )
+        assertEquals(2302, layout.ow)
+        assertEquals(950, layout.oh)
+        // X 轴相对逻辑宽 ow(=视口高):round(2302 * 0.02) = 46
+        assertEquals(46, layout.padLeft)
+        assertEquals(46, layout.padRight)
+        // Y 轴相对逻辑高 oh(=视口宽):round(950 * 0.02) = 19
+        assertEquals(19, layout.padTop)
+        assertEquals(19, layout.padBottom)
+        // 裁剪矩形必须合法(left<right 且 top<bottom),否则整屏裁空。
+        assertTrue(layout.clipRectValid)
+        assertTrue(layout.clipLeft < layout.clipRight)
+        assertTrue(layout.clipTop < layout.clipBottom)
+    }
+
+    @Test
+    fun landscapeFramePaddingAtMaxPercentStillYieldsValidClip() {
+        // 最大允许 20%:左右各 round(2302*0.2)=460、上下各 round(950*0.2)=190,矩形仍合法。
+        val layout = aodLandscapeFrameLayout(950, 2302, paddingXPercent = 20f, paddingYPercent = 20f)
+        assertEquals(460, layout.padLeft)
+        assertEquals(190, layout.padTop)
+        assertTrue(layout.clipRectValid)
+    }
+
+    @Test
+    fun clipRectValidDetectsEmptyOrInvertedPadding() {
+        // 防呆契约:旧 bug(百分比未除 100,2f 被当作 200%)会得到 left>=right 或 top>=bottom 的空矩形,
+        // clipRectValid 必须能识别,绘制层据此退化为"不裁剪"而不是整屏空白。
+        val broken = aodLandscapeFrameLayout(950, 2302, paddingXPercent = 200f, paddingYPercent = 200f)
+        assertFalse(broken.clipRectValid)
+        assertTrue(broken.clipLeft >= broken.clipRight)
+        assertTrue(broken.clipTop >= broken.clipBottom)
+    }
 }

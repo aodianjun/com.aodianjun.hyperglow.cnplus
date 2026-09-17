@@ -762,6 +762,42 @@ internal data class AodLandscapeFrame(val ow: Int, val oh: Int)
 internal fun aodLandscapeLogicalFrame(viewWidth: Int, viewHeight: Int): AodLandscapeFrame =
     AodLandscapeFrame(ow = viewHeight, oh = viewWidth)
 
+internal data class AodCanvasFrameLayout(
+    val ow: Int,
+    val oh: Int,
+    val padLeft: Int,
+    val padRight: Int,
+    val padTop: Int,
+    val padBottom: Int
+) {
+    val clipLeft: Int get() = padLeft
+    val clipTop: Int get() = padTop
+    val clipRight: Int get() = ow - padRight
+    val clipBottom: Int get() = oh - padBottom
+
+    /** 裁剪矩形是否在某条边上为空/反长(left>=right 或 top>=bottom),即会整屏裁空。 */
+    val clipRectValid: Boolean get() = clipLeft < clipRight && clipTop < clipBottom
+}
+
+/**
+ * 横屏逻辑框 + 四周 padding。padding 是逻辑帧的百分比(0-20%),因此必须除以 100
+ * (此前直接把百分比数值当倍数相乘,导致 2% 被当作 200%,裁剪矩形变成空 → 横屏歌词整屏空白)。
+ * X 轴(padLeft/Right)相对逻辑宽 ow(=视口高),Y 轴(padTop/Bottom)相对逻辑高 oh(=视口宽)。
+ */
+internal fun aodLandscapeFrameLayout(
+    viewWidth: Int,
+    viewHeight: Int,
+    paddingXPercent: Float,
+    paddingYPercent: Float
+): AodCanvasFrameLayout {
+    val frame = aodLandscapeLogicalFrame(viewWidth, viewHeight)
+    val padLeft = Math.round(viewHeight * (paddingXPercent / 100f)).toInt()
+    val padRight = padLeft
+    val padTop = Math.round(viewWidth * (paddingYPercent / 100f)).toInt()
+    val padBottom = padTop
+    return AodCanvasFrameLayout(frame.ow, frame.oh, padLeft, padRight, padTop, padBottom)
+}
+
 internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
     startedAtMs > 0L && nowMs - startedAtMs >= durationMs
 
@@ -996,13 +1032,18 @@ internal class AodLyricCanvasView(
     private fun recomputeLogicalFrame() {
         val landscape = rotationEnabled && rotationStep != AodOrientationStep.PORTRAIT
         if (landscape) {
-            val frame = aodLandscapeLogicalFrame(width, height)
-            ow = frame.ow
-            oh = frame.oh
-            padLeft = Math.round(height * paddingLandscapeXPercent).toInt()
-            padRight = padLeft
-            padTop = Math.round(width * paddingLandscapeYPercent).toInt()
-            padBottom = padTop
+            val layout = aodLandscapeFrameLayout(
+                viewWidth = width,
+                viewHeight = height,
+                paddingXPercent = paddingLandscapeXPercent,
+                paddingYPercent = paddingLandscapeYPercent
+            )
+            ow = layout.ow
+            oh = layout.oh
+            padLeft = layout.padLeft
+            padRight = layout.padRight
+            padTop = layout.padTop
+            padBottom = layout.padBottom
         } else {
             ow = width
             oh = height
@@ -1011,6 +1052,25 @@ internal class AodLyricCanvasView(
             padTop = paddingTop
             padBottom = paddingBottom
         }
+    }
+
+    private var invalidClipRectWarned = false
+
+    /**
+     * 裁剪防呆:padding 异常(left>=right 或 top>=bottom)会让 clipRect 变成空矩形,
+     * 直接把该路径整屏裁空且日志完全静默。此处记录一次 warn 并退化为"不裁剪"(全帧),
+     * 避免再次出现静默的整屏空白。
+     */
+    private fun lyricClipBounds(left: Int, top: Int, right: Int, bottom: Int): IntArray {
+        if (left < right && top < bottom) return intArrayOf(left, top, right, bottom)
+        if (!invalidClipRectWarned) {
+            invalidClipRectWarned = true
+            HookLogger.w(
+                "AodLyricCanvasView",
+                "Lyric clip rect invalid (l=$left t=$top r=$right b=$bottom); degrading to full frame"
+            )
+        }
+        return intArrayOf(0, 0, ow, oh)
     }
 
     private val density = resources.displayMetrics.density
@@ -1396,12 +1456,8 @@ internal class AodLyricCanvasView(
         // 所有歌词绘制路径(原文/注音/翻译/逐字扫光/发光块)共享这一处逻辑裁剪:
         // 即使整词不可分或动画越界超出其测量宽度,也强制限制在周围 padding 框内,
         // 取代原先逐 drawText 的 clip,成为唯一统一边界。
-        canvas.clipRect(
-            padLeft,
-            padTop,
-            ow - padRight,
-            oh - padBottom
-        )
+        val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
         val sharedLineLevelSweep = shouldUseSharedLineLevelSweep(
             drawContent.lineLevelSync,
             drawLayout.original.lines.isNotEmpty(),
@@ -1534,7 +1590,8 @@ internal class AodLyricCanvasView(
         val metadata = drawLayout.rows.firstOrNull { it.row.kind == RowKind.METADATA } ?: return
         if (renderStyle != null) applyRenderStyle(renderStyle)
         canvas.save()
-        canvas.clipRect(padLeft, padTop, ow - padRight, oh - padBottom)
+        val metadataClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        canvas.clipRect(metadataClip[0], metadataClip[1], metadataClip[2], metadataClip[3])
         metadata.row.paint.color = resolvedPalette.metadataText
         metadata.row.paint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
         metadata.row.lines.forEachIndexed { index, line ->
@@ -1594,7 +1651,8 @@ internal class AodLyricCanvasView(
         val x = sourceLine.startX + (destinationLine.startX - sourceLine.startX) * value
         val y = sourceRow.baseline + (destinationRow.baseline - sourceRow.baseline) * value
         canvas.save()
-        canvas.clipRect(padLeft, padTop, ow - padRight, oh - padBottom)
+        val morphClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        canvas.clipRect(morphClip[0], morphClip[1], morphClip[2], morphClip[3])
         canvas.drawText(content.metadata, x, y, paint)
         canvas.restore()
     }
@@ -1889,19 +1947,16 @@ internal class AodLyricCanvasView(
             originalLayout.lineGap
         )
         val save = canvas.save()
-        canvas.clipRect(
-            padLeft.toFloat(),
-            max(
-                padTop.toFloat(),
-                rubyClipTop(
-                    firstLineBaseline,
-                    originalPaint.fontMetrics.ascent,
-                    firstLine.rubyHeight
-                )
-            ),
-            ow - padRight.toFloat(),
-            (oh - padBottom).toFloat()
-        )
+        val top = max(
+            padTop.toFloat(),
+            rubyClipTop(
+                firstLineBaseline,
+                originalPaint.fontMetrics.ascent,
+                firstLine.rubyHeight
+            )
+        ).toInt()
+        val clip = lyricClipBounds(padLeft, top, ow - padRight, oh - padBottom)
+        canvas.clipRect(clip[0].toFloat(), clip[1].toFloat(), clip[2].toFloat(), clip[3].toFloat())
         return save
     }
 
@@ -2037,12 +2092,9 @@ internal class AodLyricCanvasView(
     private fun clipOriginalLine(canvas: Canvas, baseBaseline: Float, rubyHeight: Float): Int {
         if (content.overflowMode == "Wrap") return -1
         val save = canvas.save()
-        canvas.clipRect(
-            padLeft.toFloat(),
-            max(padTop.toFloat(), rubyClipTop(baseBaseline, originalPaint.fontMetrics.ascent, rubyHeight)),
-            ow - padRight.toFloat(),
-            (oh - padBottom).toFloat()
-        )
+        val top = max(padTop.toFloat(), rubyClipTop(baseBaseline, originalPaint.fontMetrics.ascent, rubyHeight)).toInt()
+        val clip = lyricClipBounds(padLeft, top, ow - padRight, oh - padBottom)
+        canvas.clipRect(clip[0].toFloat(), clip[1].toFloat(), clip[2].toFloat(), clip[3].toFloat())
         return save
     }
 
