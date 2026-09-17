@@ -98,6 +98,13 @@ internal object AodOrientationMonitor {
     private var filteredX = 0f
     private var filteredY = 0f
 
+    /**
+     * 首个样本是否已写入滤波器。冷启动(false)时首个读数直接采用真实重力,
+     * 避免从 (0,0) 慢收敛把天然的横屏读数误判成竖屏(issue #31)。detach 后重附着
+     * 置 true,保留已知重力以延续朝向判定。
+     */
+    private var filteredInitialized = false
+
     private var currentStep: AodOrientationStep? = null
     private var candidateStep: AodOrientationStep? = null
     private var candidateSinceElapsedMs = 0L
@@ -113,9 +120,16 @@ internal object AodOrientationMonitor {
         override fun onSensorChanged(event: SensorEvent) {
             val x = event.values.getOrNull(0) ?: return
             val y = event.values.getOrNull(1) ?: return
-            // 一阶低通,避免单帧毛刺。
-            filteredX = (1f - FILTER_ALPHA) * filteredX + FILTER_ALPHA * x
-            filteredY = (1f - FILTER_ALPHA) * filteredY + FILTER_ALPHA * y
+            if (filteredInitialized) {
+                // 一阶低通,避免单帧毛刺。
+                filteredX = (1f - FILTER_ALPHA) * filteredX + FILTER_ALPHA * x
+                filteredY = (1f - FILTER_ALPHA) * filteredY + FILTER_ALPHA * y
+            } else {
+                // 首个样本直接采用真实重力,避免从 (0,0) 慢收敛把横屏读数误判成竖屏(issue #31)。
+                filteredX = x
+                filteredY = y
+                filteredInitialized = true
+            }
             evaluate(resolveAodRotationStep(mode, filteredX, filteredY))
         }
 
@@ -145,18 +159,21 @@ internal object AodOrientationMonitor {
         }
         sensorManager = manager
         accelerometer = sensor
-        filteredX = 0f
-        filteredY = 0f
-        currentStep = null
-        candidateStep = null
-        candidateSinceElapsedMs = 0L
-        stableSamples = 0
+        // 不重置 filteredX/filteredY/currentStep/候选窗口:detach 后的重附着应保留已知朝向,
+        // 否则每次 attach 都清空判定状态并归零重力,回落竖屏所需的连续稳定样本永远攒不满
+        // (issue #31)。真正的冷启动归零由 stop() 负责。
         attached = manager.registerListener(
             sensorEventListener,
             sensor,
             SensorManager.SENSOR_DELAY_UI
         )
         if (attached) {
+            // 已保留真实重力读数(detach 后重附着)时,立即按当前向量重新推导并落入防抖窗口,
+            // 让朝向在等待首个新样本期间不致悬空;冷启动(filteredInitialized=false)等首个样本
+            // 直接赋值真实重力,不产生从 (0,0) 慢收敛的伪 PORTRAIT。
+            if (filteredInitialized) {
+                evaluate(resolveAodRotationStep(mode, filteredX, filteredY))
+            }
             HookLogger.i(TAG, "Accelerometer attached mode=$newMode settleMs=$newSettleMs")
         } else {
             HookLogger.w(TAG, "Accelerometer register failed")
@@ -186,6 +203,7 @@ internal object AodOrientationMonitor {
         detach()
         filteredX = 0f
         filteredY = 0f
+        filteredInitialized = false
         currentStep = null
         settleMs = DEFAULT_SETTLE_MS
         stableSamples = 0
