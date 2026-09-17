@@ -164,6 +164,7 @@ Also: `strings.xml` got only a comment block (no user-facing text change).
 
 | 上游提交 | 日期 | 内容 | 状态 |
 |---|---|---|---|
+| `2885511` 项 #4 | 2026-09-08 | **所有歌词绘制路径共享逻辑裁剪**：`AodLyricCanvasView.drawRows` 顶层统一 `clipRect(padLeft, padTop, ow-padRight, oh-padBottom)`，即使整词不可分/动画越界也强制限制在 padding 框内；删除 `drawText` 逐行重复 clip | ✅ 已移植（2026-09-08；水平 padding 边界由顶层共享 clip 统一施加，其余 per-line clip 保留作额外垂直收敛） |
 | `748912e` 项 #8+#9 | 2026-09-16 | 按场景 AOD 亮度覆写（`AodBrightnessController.setBrightnessOverride` + 两模式设置 UI：总开关开启后 → 按场景自动化 vs 自定义 10–255 滑块）与 AOD 最大高度硬上限 `0.5→0.9`（仅 SurfacePolicyResolver；CN+ AOD 内部保持内容贴合） | ✅ 已发布（2026-09-16，随预发行 0.3.88 / `115-0.3.88`；CI 跑绿） |
 | `748912e` 项 #4(codec)+#7 | 2026-09-16 | 类型安全配置备份/恢复编解码（`ConfigBackupCodec` 经 `AodRenderConfig.DEFAULTS` 适配 CN+ 字段集，替换 MainActivity 中猜测类型的 `exportAllConfig`/`importAllConfig`）+ `CustomizationRepository` 编译缓存/失效 | ✅ 已发布（2026-09-16，随预发行 0.3.88 / `115-0.3.88`；CI 跑绿）。`SettingsSession`/`PreferenceSettingsStore` **暂缓**（耦合未移植的 tab 化 UI 重构） |
 | `748912e` 项 #3 | 2026-09-16 | `HookRegistry` 中心注册表 + 热重载改造：所有 hook 经 `HookRegistry.hook(module, FEATURE_ID, …)` 安装且带 `PROTECTIVE` 模式；`onHotReloading`（lyric 会话活跃时拒绝 + `retireGeneration`）/`onHotReloaded`（unhook 旧句柄 + 从重派生宿主应用重装 + `SystemUiLifecycleHook.bootstrap`）；安装拆为 `installDefaultLoaderHooks`/`installAodHooks`；AOD 控制器/监测器重载清理 `cancelPendingForReload`/`stop`；`HookRegistryTest` | ✅ 已发布（2026-09-16；代码+测试已写）。AntiFreezeHook（system_server）按设计保持直装。CI 跑绿 |

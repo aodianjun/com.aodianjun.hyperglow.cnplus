@@ -1393,6 +1393,15 @@ internal class AodLyricCanvasView(
             canvas.translate(0f, translateY)
             save
         } else canvas.save()
+        // 所有歌词绘制路径(原文/注音/翻译/逐字扫光/发光块)共享这一处逻辑裁剪:
+        // 即使整词不可分或动画越界超出其测量宽度,也强制限制在周围 padding 框内,
+        // 取代原先逐 drawText 的 clip,成为唯一统一边界。
+        canvas.clipRect(
+            padLeft,
+            padTop,
+            ow - padRight,
+            oh - padBottom
+        )
         val sharedLineLevelSweep = shouldUseSharedLineLevelSweep(
             drawContent.lineLevelSync,
             drawLayout.original.lines.isNotEmpty(),
@@ -2535,8 +2544,7 @@ internal class AodLyricCanvasView(
     }
 
     private fun drawText(canvas: Canvas, row: Row, baseline: Float) {
-        canvas.save()
-        canvas.clipRect(padLeft, padTop, ow - padRight, oh - padBottom)
+        // 水平 padding 边界已由 drawRows 顶层的共享逻辑裁剪统一施加,无需逐行再次 clip。
         var lineIndex = 0
         while (lineIndex < row.lines.size) {
             val line = row.lines[lineIndex]
@@ -2552,7 +2560,6 @@ internal class AodLyricCanvasView(
             }
             lineIndex++
         }
-        canvas.restore()
     }
 
     private fun alignmentFor(kind: RowKind): Alignment = if (kind == RowKind.METADATA) {
