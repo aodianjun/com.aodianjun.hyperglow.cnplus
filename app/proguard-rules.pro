@@ -13,4 +13,4 @@
 -dontwarn android.os.ServiceManager
 # DexKit — the bridge, query DSL, and matchers are invoked through the module's own code;
 # keep their public surface unobfuscated so signatures match the upstream 2.2.0 artifact.
--keep class org.luckypray.dexkit.** { **; }
+-keep class org.luckypray.dexkit.** { *; }
