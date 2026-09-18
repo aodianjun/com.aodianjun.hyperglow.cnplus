@@ -535,4 +535,61 @@ class AodPositionUpdateTest {
         )
         assertEquals(30_000L, anchor.sinceElapsedMs)
     }
+
+    @Test
+    fun routingPutsPinAboveManagedAndSuppressAboveAll() {
+        // issue #33 建议二:pin 与 managed 互斥,锚定优先;suppress 仍最高。
+        assertTrue(
+            routesToManagedPath(
+                suppressActive = false,
+                stockWidgetControlActive = true,
+                pinClockVisible = false
+            )
+        )
+        assertFalse(
+            routesToManagedPath(
+                suppressActive = false,
+                stockWidgetControlActive = true,
+                pinClockVisible = true
+            )
+        )
+        assertFalse(
+            routesToManagedPath(
+                suppressActive = true,
+                stockWidgetControlActive = true,
+                pinClockVisible = false
+            )
+        )
+        assertFalse(
+            routesToManagedPath(
+                suppressActive = false,
+                stockWidgetControlActive = false,
+                pinClockVisible = false
+            )
+        )
+    }
+
+    @Test
+    fun seededControllerStateInheritsAnchorAcrossControllerReplacement() {
+        // issue #33 建议一:controller 更替重建时继承锚定,而不是回到 null
+        // (null 会让 stockResolution 以已下移的请求值就地重锚)。
+        val seeded = seedControllerState(inheritedX = 390, inheritedY = 1471f)
+        assertEquals(390, seeded.lastStockTranslationX)
+        assertEquals(1471f, seeded.lastStockTranslationY)
+        // 无继承值(跨会话首次):锚定字段留空,由 stockResolution 以请求值锚定。
+        val fresh = seedControllerState(inheritedX = null, inheritedY = null)
+        assertNull(fresh.lastStockTranslationX)
+        assertNull(fresh.lastStockTranslationY)
+    }
+
+    @Test
+    fun pinnedClockAppliedYAddsOffsetOnceWithoutAccumulating() {
+        // 冻结:应用 Y = 锚定值 + 一次性偏移;锚定基准本身不随帧累积
+        // (state.lastStockTranslationY 始终保留原始锚定值)。
+        assertEquals(1501f, pinnedClockAppliedY(1471f, 30, freeze = true, requestedY = 1942f))
+        // 连续多帧:同一锚定 + 同一偏移 = 同一应用值(不逐帧叠加)。
+        assertEquals(1501f, pinnedClockAppliedY(1471f, 30, freeze = true, requestedY = 2000f))
+        // 未冻结:原样透传请求值。
+        assertEquals(1942f, pinnedClockAppliedY(1471f, 30, freeze = false, requestedY = 1942f))
+    }
 }

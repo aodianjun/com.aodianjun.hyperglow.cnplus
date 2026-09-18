@@ -1148,6 +1148,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         AodPositionHook.setSuppressActive(false)
         AodPositionHook.setHoldStockPosition(false)
         AodPositionHook.setIntegralClockPin(false)
+        // 会话结束清空跨 controller 继承的时钟锚定(issue #33):
+        // 下次进入 AOD 重新锚定到当前系统位置。
+        AodPositionHook.resetStockAnchor()
         clockPinActive = false
         AodSurfaceHook.clearSuppressedState()
         AodOrientationMonitor.detach()
@@ -1213,6 +1216,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             return
         }
         stockWidgetControlActive = active
+        // 位置决策路由在此切换(managed ↔ 原厂透传),issue #33 建议三:转换必须可见。
+        HookLogger.i(TAG, "Stock widget control active=$active")
         if (active) {
             startManagedBurnInSchedule()
         } else {
