@@ -79,7 +79,8 @@ internal fun projectToDisplay(
     // --- 元数据 ---
     val metadata = listOf(state.title, state.artist)
         .filter { it.isNotBlank() }
-        .joinToString(" · ")
+        .joinToString("\n")
+        .replace('·', '\n')
 
     // --- 引导大元数据状态（原 project() 的 lyricState 四分支）---
     val lyricState = when {

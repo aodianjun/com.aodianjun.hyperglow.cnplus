@@ -60,12 +60,13 @@ One large commit (27 files, +1392/−195) on top of the `748912e` baseline. Deco
 
 Also: `strings.xml` got only a comment block (no user-facing text change).
 
-**Bottom line**: after the **#1 (DexKit)** port (2026-09-18), the marquee robustness feature is now in CN+. For the batch as a whole, remaining low-risk selective ports are **#2 (multi-line metadata)** and **#4 (logical clip)**; **#3** is optional wrap polish; **#5 not applicable** (no duet in CN+). After any port, re-run the API-contract fingerprint and full CI, then update this file.
+**Bottom line**: after the **#1 (DexKit)** port (2026-09-18), the marquee robustness feature is now in CN+. **#2 (multi-line metadata) ported 2026-09-18** and **#4 (shared logical clip) already present in CN+ baseline (test-covered)**. The only remaining optional item is **#3 (punctuation attachment)** — low-risk wrap polish; **#5 not applicable** (no duet in CN+). After any port, re-run the API-contract fingerprint and full CI, then update this file.
 
 ## Synced / Included
 
 | Upstream commit | Date | Content | Status |
 |---|---|---|---|
+| `2885511` item #2 | 2026-09-15 | Multi-line metadata: `AodStateProjector.projectToDisplay` joins title/artist with `\n` (and `·`→newline) instead of `" · "`; canvas splits metadata rows into per-line lines with reserved extra line height | ✅ Ported (2026-09-18). Projector changed to `joinToString("\n").replace('·','\n')`; CN+ canvas `wrapMetadataText` now splits on `\n`/`·` as hard line breaks (wrapping only overflow segments). Multi-line render + extra-height reservation were already handled in CN+'s `drawText`/`positionRows`/intro-large/morph paths. AodCanvasLayoutTest/AodStateProjectorTest green |
 | `2885511` item #1 (DexKit) | 2026-09-15 | DexKit dynamic symbol resolution: `DexKitRuntime`/`SymbolCache`/`SymbolResolver` (bundled-first / DexKit-fallback, `debug.hyperglow.symbols` policy, provenance ledger), Gradle dep + proguard keep, and refit of ~12 hooks + `XiaomiCapabilityResolver` probes to route through `SymbolResolver`; `HookEntry` installs/observes/clears it | ✅ Ported (2026-09-18). Unit tests for the symbols package pass; `compileDebugKotlin` green. `AodWakeBroker` + `HierarchyFields` intentionally kept on direct reflection (CN+ diverged candidate/fallback logic) |
 | `748912e` items #8+#9 | 2026-09-16 | Per-scene AOD brightness override (`AodBrightnessController.setBrightnessOverride` + two-mode UI: master boost switch → auto scene clamp vs custom 10–255 slider) and AOD max-height ceiling `0.5→0.9` (SurfacePolicyResolver only; CN+ AOD interior stays content-fit) | ✅ Shipped (2026-09-16, in pre-release 0.3.88 / `115-0.3.88`; CI green) |
 | `748912e` items #4(codec)+#7 | 2026-09-16 | Type-safe config backup/restore codec (`ConfigBackupCodec` adapted to CN+'s field set via `AodRenderConfig.DEFAULTS`; replaces MainActivity's type-guessing `exportAllConfig`/`importAllConfig`) + `CustomizationRepository` compiled-cache/invalidation | ✅ Shipped (2026-09-16, in pre-release 0.3.88 / `115-0.3.88`; CI green). `SettingsSession`/`PreferenceSettingsStore` **deferred** (coupled to the unported tab UI restructure) |
@@ -159,12 +160,13 @@ Also: `strings.xml` got only a comment block (no user-facing text change).
 
 另注：`strings.xml` 只加了一段注释（无用户可见文案变更）。
 
-**结论**：无必须移植项。最低风险、高价值的可选移植是 **#2（元数据多行）+ #4（逻辑裁剪）**；**#3** 为可选换行润色；**#1（DexKit）** 是招牌健壮性特性但属大型入口重构——列入观察，仅当真实出现改名符号失效时再移植；**#5 不适用**（CN+ 无对唱）。任何移植后都需重跑插件契约指纹与全量 CI，并更新本文件。
+**结论**：**#1（DexKit）已移植（2026-09-18）**、**#2（元数据多行）已移植（2026-09-18）**、**#4（共享逻辑裁剪）CN+ 基线已含（有测试覆盖）**。剩余唯一可选为 **#3（标点归附）**——低风险换行润色；**#5 不适用**（CN+ 无对唱）。任何移植后都需重跑插件契约指纹与全量 CI，并更新本文件。
 
 ## 已同步 / 已包含
 
 | 上游提交 | 日期 | 内容 | 状态 |
 |---|---|---|---|
+| `2885511` 项 #2 | 2026-09-15 | **元数据多行**：`AodStateProjector.projectToDisplay` 将歌名/歌手用 `\n` 拼接（且 `·`→换行）替代 `" · "`；画布把元数据按行拆成多行并预留额外行高 | ✅ 已移植（2026-09-18）。投影层改为 `joinToString("\n").replace('·','\n')`；CN+ 画布 `wrapMetadataText` 现按 `\n`/`·` 作为硬换行拆行（仅对超宽段做 token 换行）。多行渲染与额外行高预留 CN+ 早已由 `drawText`/`positionRows`/intro-large/morph 处理。AodCanvasLayoutTest/AodStateProjectorTest 跑绿 |
 | `2885511` 项 #4 | 2026-09-08 | **所有歌词绘制路径共享逻辑裁剪**：`AodLyricCanvasView.drawRows` 顶层统一 `clipRect(padLeft, padTop, ow-padRight, oh-padBottom)`，即使整词不可分/动画越界也强制限制在 padding 框内；删除 `drawText` 逐行重复 clip | ✅ 已移植（2026-09-08；水平 padding 边界由顶层共享 clip 统一施加，其余 per-line clip 保留作额外垂直收敛） |
 | `748912e` 项 #8+#9 | 2026-09-16 | 按场景 AOD 亮度覆写（`AodBrightnessController.setBrightnessOverride` + 两模式设置 UI：总开关开启后 → 按场景自动化 vs 自定义 10–255 滑块）与 AOD 最大高度硬上限 `0.5→0.9`（仅 SurfacePolicyResolver；CN+ AOD 内部保持内容贴合） | ✅ 已发布（2026-09-16，随预发行 0.3.88 / `115-0.3.88`；CI 跑绿） |
 | `748912e` 项 #4(codec)+#7 | 2026-09-16 | 类型安全配置备份/恢复编解码（`ConfigBackupCodec` 经 `AodRenderConfig.DEFAULTS` 适配 CN+ 字段集，替换 MainActivity 中猜测类型的 `exportAllConfig`/`importAllConfig`）+ `CustomizationRepository` 编译缓存/失效 | ✅ 已发布（2026-09-16，随预发行 0.3.88 / `115-0.3.88`；CI 跑绿）。`SettingsSession`/`PreferenceSettingsStore` **暂缓**（耦合未移植的 tab 化 UI 重构） |

@@ -2404,35 +2404,44 @@ internal class AodLyricCanvasView(
      */
     private fun wrapMetadataText(text: String, paint: Paint): List<TextLine> {
         val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
-        if (paint.measureText(text) <= available) {
-            return listOf(
-                textLine(text, paint.measureText(text), paint, alignmentFor(RowKind.METADATA))
-            )
-        }
-        val tokens = secondaryTokens(text).flatMap { token ->
-            if (paint.measureText(token) <= available) {
-                listOf(token)
-            } else {
-                val pieces = ArrayList<String>()
-                var remaining = token
-                while (remaining.isNotEmpty()) {
-                    val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-                    pieces += remaining.take(count)
-                    remaining = remaining.drop(count)
+        // 歌名/歌手已由投影层按行拆分:保留这些硬换行作为独立行,仅对其中仍超宽的行做 token 换行。
+        val segments = text.split('\n', '·')
+        val out = ArrayList<TextLine>()
+        for (segment in segments) {
+            val clean = segment.trim()
+            if (clean.isEmpty()) continue
+            if (out.size >= MAX_SECONDARY_LINES) break
+            if (paint.measureText(clean) <= available) {
+                out += textLine(clean, paint.measureText(clean), paint, alignmentFor(RowKind.METADATA))
+                continue
+            }
+            val tokens = secondaryTokens(clean).flatMap { token ->
+                if (paint.measureText(token) <= available) {
+                    listOf(token)
+                } else {
+                    val pieces = ArrayList<String>()
+                    var remaining = token
+                    while (remaining.isNotEmpty()) {
+                        val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
+                        pieces += remaining.take(count)
+                        remaining = remaining.drop(count)
+                    }
+                    pieces
                 }
-                pieces
+            }
+            if (tokens.isEmpty()) continue
+            val wrapped = balancedTokenLineTexts(
+                tokens,
+                tokens.map(paint::measureText),
+                paint.measureText(" "),
+                available,
+                (MAX_SECONDARY_LINES - out.size).coerceAtLeast(1)
+            )
+            out += wrapped.map { line ->
+                textLine(line, paint.measureText(line), paint, alignmentFor(RowKind.METADATA))
             }
         }
-        if (tokens.isEmpty()) return emptyList()
-        return balancedTokenLineTexts(
-            tokens,
-            tokens.map(paint::measureText),
-            paint.measureText(" "),
-            available,
-            MAX_SECONDARY_LINES
-        ).map { line ->
-            textLine(line, paint.measureText(line), paint, alignmentFor(RowKind.METADATA))
-        }
+        return out
     }
 
     private fun textLine(
