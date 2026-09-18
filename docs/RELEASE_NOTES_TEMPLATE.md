@@ -66,7 +66,7 @@
   正常播放 / 暂停 / seek / 单曲循环以及 issue #3/#9/#10 的修复不受影响。
 ```
 
-The complete example is [release-notes-0.3.82.md](../../release-notes-0.3.82.md) at the repository root (written after being normalized against this template).
+Complete examples live on the GitHub Releases page (for example [109-0.3.82](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/tag/109-0.3.82)); each was written against this template.
 
 ---
 
@@ -136,4 +136,4 @@ The complete example is [release-notes-0.3.82.md](../../release-notes-0.3.82.md)
   正常播放 / 暂停 / seek / 单曲循环以及 issue #3/#9/#10 的修复不受影响。
 ```
 
-完整范本见仓库根目录 [release-notes-0.3.82.md](../../release-notes-0.3.82.md)（按本模板规范化后撰写）。
+完整范本见 GitHub Releases 页（如 [109-0.3.82](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/tag/109-0.3.82)），均按本模板规范化后撰写。
