@@ -32,6 +32,8 @@ release with the same name in the mirror repository**.
 
 | Source repository release | Mirror status |
 |---|---|
+| `121-0.3.94` (Pre-release) | ➖ Optional: pre-release test build, may be skipped |
+| `120-0.3.93` (Pre-release) | ➖ Optional: pre-release test build, may be skipped |
 | `110-0.3.83` (Pre-release) | ➖ Optional: pre-release test build, may be skipped |
 | `109-0.3.82` | ✅ Pushed (2026-09-06, manual PAT) |
 | `108-0.3.81` | ❌ Not pushed |
@@ -167,6 +169,8 @@ LSPosed 模块仓库（modules.lsposed.org）**实际读取的是
 
 | 源仓库 release | 镜像状态 |
 |---|---|
+| `121-0.3.94`（Pre-release） | ➖ 可选：预发行测试版，可不推 |
+| `120-0.3.93`（Pre-release） | ➖ 可选：预发行测试版，可不推 |
 | `110-0.3.83`（Pre-release） | ➖ 可选：预发行测试版，可不推 |
 | `109-0.3.82` | ✅ 已推送（2026-09-06，手动 PAT） |
 | `108-0.3.81` | ❌ 未推送 |
