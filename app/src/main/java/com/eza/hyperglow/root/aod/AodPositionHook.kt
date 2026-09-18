@@ -227,8 +227,12 @@ internal object AodPositionHook {
      * 跨 controller 生命周期继承的时钟锚定(issue #33):controllerStates 以弱引用
      * controller 为 key,controller 更替即丢锚,新状态会以"当前(可能已下移)请求值"
      * 就地重锚,防下移从此失效。锚定值镜像保存在本单例中,controller 重建时继承;
-     * AOD surface 分离([resetStockAnchor])后清零 —— 跨会话重新锚定到当前系统
-     * 位置仍是设计行为。
+     * AOD 真正会话结束(显示完全关闭)时清零 —— 跨会话重新锚定到当前系统位置仍
+     * 是设计行为。
+     *
+     * 注意:清零必须绑定"真实会话结束"(AOD 显示 OFF),而非每次 surface attach/detach
+     * 重建(旋转、LinkageTransition 会触发高频重建)。同一 AOD 会话内的重建若清锚,
+     * 锚点会落到已漂移的请求值,防下移失效、旋转回竖屏回不到原位(issue #36)。
      */
     @Volatile
     private var inheritedAnchorX: Int? = null
@@ -237,13 +241,13 @@ internal object AodPositionHook {
     private var lastPinnedLogKey = ""
     private var lastManagedPinSkipLogged = false
 
-    /** AOD surface 分离(会话结束)时清空跨 controller 继承的锚定:下次进入 AOD 重新锚定。 */
-    fun resetStockAnchor() {
+    /** 仅当 AOD 真正退出(显示完全关闭,见 AodPowerCoordinator)时清空跨 controller 锚定。 */
+    fun resetStockAnchor(cause: String) {
         inheritedAnchorX = null
         inheritedAnchorY = null
         lastPinnedLogKey = ""
         lastManagedPinSkipLogged = false
-        HookLogger.i(TAG, "Stock anchor reset (surface detached)")
+        HookLogger.i(TAG, "Stock anchor reset ($cause)")
     }
 
     /**

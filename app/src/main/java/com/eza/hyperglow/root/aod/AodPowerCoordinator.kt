@@ -69,6 +69,14 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
         val off = isAodDisplayOffState(state)
         if (off == aodDisplayOff) return
         aodDisplayOff = off
+        if (off) {
+            // 真正的 AOD 会话结束(显示完全关闭):清空跨 controller 继承的时钟锚定,
+            // 下次进入 AOD 重新锚定到当前系统位置。必须绑在 OFF 边而非每次 surface
+            // detach —— 旋转/LinkageTransition 会高频重建 surface,但 AOD 仍在呈现,
+            // 此时清锚会让锚点落到已漂移的请求值,防下移失效、旋转回竖屏回不到原位
+            // (issue #36)。
+            AodPositionHook.resetStockAnchor("display off")
+        }
         if (!off || lastWakeSignal == Long.MIN_VALUE) return
         if (!shouldRecoverRacedAodHide(
                 surfaceAttached = surfaceAttached,

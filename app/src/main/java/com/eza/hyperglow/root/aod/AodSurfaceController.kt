@@ -1148,9 +1148,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         AodPositionHook.setSuppressActive(false)
         AodPositionHook.setHoldStockPosition(false)
         AodPositionHook.setIntegralClockPin(false)
-        // 会话结束清空跨 controller 继承的时钟锚定(issue #33):
-        // 下次进入 AOD 重新锚定到当前系统位置。
-        AodPositionHook.resetStockAnchor()
+        // 不在每次 detach 时清空跨 controller 锚定(issue #36):旋转/LinkageTransition 会
+        // 导致同一 AOD 会话内 surface 高频重建,清锚会让锚点落到已漂移的请求值,
+        // 防下移失效、旋转回竖屏回不到原位。锚定只在 AOD 显示真正关闭后清空
+        // (见 AodPowerCoordinator.onAodDisplayState)。
         clockPinActive = false
         AodSurfaceHook.clearSuppressedState()
         AodOrientationMonitor.detach()
