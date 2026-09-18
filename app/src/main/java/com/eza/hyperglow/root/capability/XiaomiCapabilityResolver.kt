@@ -3,6 +3,8 @@ package com.eza.hyperglow.root.capability
 import android.content.Context
 import android.os.Build
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.symbols.SymbolRequest
+import com.eza.hyperglow.root.symbols.SymbolResolver
 import java.util.EnumSet
 
 internal enum class XiaomiCapability {
@@ -427,7 +429,7 @@ internal object XiaomiCapabilityResolver {
     }.getOrDefault("missing")
 
     private fun hasClass(classLoader: ClassLoader, className: String): Boolean =
-        runCatching { classLoader.loadClass(className) }.isSuccess
+        SymbolResolver.resolveClass(classLoader, CAPABILITY_FEATURE, className) != null
 
     private fun hasNoArgMethod(
         classLoader: ClassLoader,
@@ -440,22 +442,18 @@ internal object XiaomiCapabilityResolver {
      * on whatever class declares it, and `readHierarchyField` hands out the same walk at the point
      * of use. Stopping at the named class made a field hoisted into a base class by a ROM refactor
      * read as absent, and an absent probe is indistinguishable from a ROM that never had the
-     * feature.
+     * feature. SymbolResolver's bundled field probe performs the same superclass walk.
      */
     internal fun hasField(
         classLoader: ClassLoader,
         className: String,
         fieldName: String,
         expectedTypeName: String? = null
-    ): Boolean {
-        val field = searchHierarchy(classLoader, className) { owner ->
-            runCatching { owner.getDeclaredField(fieldName) }.getOrNull()
-        } ?: return false
-        if (expectedTypeName == null) return true
-        val expectedType = runCatching { classLoader.loadClass(expectedTypeName) }.getOrNull()
-            ?: return false
-        return expectedType.isAssignableFrom(field.type)
-    }
+    ): Boolean = SymbolResolver.resolveField(
+        classLoader,
+        CAPABILITY_FEATURE,
+        SymbolRequest.field(className, fieldName, expectedTypeName)
+    ) != null
 
     /**
      * True when any candidate class declares [fieldName] (optionally assignable to
@@ -476,42 +474,21 @@ internal object XiaomiCapabilityResolver {
      * `AODView.getDeclaredMethod("onAttachedToWindow")` and hooks that Method. Walking would report
      * the probe present via `android.view.View`, where the hook site would then either fail to
      * resolve or — far worse — bind `View.onAttachedToWindow` for every view in SystemUI. The probe
-     * must answer the same question the hook site asks.
+     * must answer the same question the hook site asks. SymbolResolver's bundled method lookup is
+     * also exact-owner (getDeclaredMethod), so the gate mirrors the hook site.
      */
     internal fun hasMethod(
         classLoader: ClassLoader,
         className: String,
         methodName: String,
         vararg parameterTypeNames: String
-    ): Boolean = runCatching {
-        val owner = classLoader.loadClass(className)
-        val parameterTypes = parameterTypeNames.map { typeName ->
-            primitiveClass(typeName) ?: classLoader.loadClass(typeName)
-        }.toTypedArray()
-        owner.getDeclaredMethod(methodName, *parameterTypes)
-    }.isSuccess
+    ): Boolean = SymbolResolver.resolveMethod(
+        classLoader,
+        CAPABILITY_FEATURE,
+        SymbolRequest.method(className, methodName, *parameterTypeNames)
+    ) != null
 
-    private fun <T : Any> searchHierarchy(
-        classLoader: ClassLoader,
-        className: String,
-        select: (Class<*>) -> T?
-    ): T? {
-        var type = runCatching { classLoader.loadClass(className) }.getOrNull()
-        while (type != null) {
-            val current = type
-            select(current)?.let { return it }
-            type = current.superclass
-        }
-        return null
-    }
-
-    private fun primitiveClass(name: String): Class<*>? = when (name) {
-        "boolean" -> Boolean::class.javaPrimitiveType
-        "int" -> Int::class.javaPrimitiveType
-        "float" -> Float::class.javaPrimitiveType
-        "long" -> Long::class.javaPrimitiveType
-        else -> null
-    }
+    private const val CAPABILITY_FEATURE = "capability-probe"
 
     private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     private const val AOD_PACKAGE = "com.miui.aod"

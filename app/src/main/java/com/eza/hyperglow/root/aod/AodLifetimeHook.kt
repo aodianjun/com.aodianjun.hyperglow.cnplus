@@ -5,6 +5,8 @@ import android.os.Looper
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.HookRegistry
 import com.eza.hyperglow.root.readHierarchyField
+import com.eza.hyperglow.root.symbols.SymbolRequest
+import com.eza.hyperglow.root.symbols.SymbolResolver
 import io.github.libxposed.api.XposedInterface.Chain
 import io.github.libxposed.api.XposedInterface.Hooker
 import io.github.libxposed.api.XposedModule
@@ -21,8 +23,9 @@ object AodLifetimeHook {
     )
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
-        val controllerClass = runCatching { classLoader.loadClass(CONTROLLER_CLASS) }.getOrNull()
-            ?: return
+        val controllerClass = SymbolResolver.resolveClass(
+            classLoader, FEATURE_ID, CONTROLLER_CLASS
+        ) ?: return
         if (!hookedClassLoaders.add(classLoader)) return
         // 观察点 B-1:一次性 dump 方法/字段表。show 侧入口未知,HyperOS 升级后方法名会漂移,
         // 这份表让下一次抓取日志时能直接对照真实签名,不必反编译 systemui。
@@ -32,8 +35,9 @@ object AodLifetimeHook {
             HookRegistry.hook(module, FEATURE_ID, constructor, ControllerConstructorHooker)
         }
         for (methodName in POLICY_HIDE_METHODS) {
-            val method = controllerClass.getDeclaredMethod(methodName)
-            method.isAccessible = true
+            val method = SymbolResolver.resolveMethod(
+                classLoader, FEATURE_ID, SymbolRequest.method(CONTROLLER_CLASS, methodName)
+            ) ?: continue
             HookRegistry.hook(module, FEATURE_ID, method, PolicyHideHooker(method))
         }
         installWindowActionProbes(module, controllerClass)
@@ -51,8 +55,9 @@ object AodLifetimeHook {
      * 关掉了 AOD"。纯观察,不改变宿主行为。
      */
     private fun installVisibilityTelemetry(module: XposedModule, classLoader: ClassLoader) {
-        val hostClass = runCatching { classLoader.loadClass("com.miui.aod.DozeHost") }.getOrNull()
-            ?: return
+        val hostClass = SymbolResolver.resolveClass(
+            classLoader, FEATURE_ID, "com.miui.aod.DozeHost"
+        ) ?: return
         val methods = hostClass.declaredMethods.filter { it.name == "setAodVisibility" }
         methods.forEach { method ->
             runCatching {
