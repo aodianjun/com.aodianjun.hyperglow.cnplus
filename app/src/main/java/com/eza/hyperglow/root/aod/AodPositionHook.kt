@@ -16,15 +16,41 @@ import java.lang.ref.WeakReference
 import java.util.Collections
 import java.util.WeakHashMap
 
-internal object AodPositionHook {
-    private data class ControllerState(
-        var lastStockTranslationX: Int? = null,
-        var lastStockTranslationY: Float? = null,
-        var managedStep: Int = -1,
-        var currentManagedDecision: AodClockPlacementDecision? = null,
-        var pendingManagedDecision: AodClockPlacementDecision? = null
-    )
+internal data class ControllerState(
+    var lastStockTranslationX: Int? = null,
+    var lastStockTranslationY: Float? = null,
+    var managedStep: Int = -1,
+    var currentManagedDecision: AodClockPlacementDecision? = null,
+    var pendingManagedDecision: AodClockPlacementDecision? = null
+)
 
+/**
+ * controller 更替重建时的新状态播种:继承跨 controller 生命周期的时钟锚定
+ * (issue #33);无继承值时锚定字段留空,由 stockResolution 以本次请求值锚定。
+ */
+internal fun seedControllerState(inheritedX: Int?, inheritedY: Float?): ControllerState =
+    ControllerState(lastStockTranslationX = inheritedX, lastStockTranslationY = inheritedY)
+
+/**
+ * 位置决策路由(纯函数,锁定优先级契约):suppressStockAodContent > 时钟钉住
+ * (pinClockVisible,issue #26/#33)> managed 防烧屏位移。返回 true 走 managed
+ * 位移;false 走原厂透传(freeze 由调用方按 pin/hold 决定)。
+ */
+internal fun routesToManagedPath(
+    suppressActive: Boolean,
+    stockWidgetControlActive: Boolean,
+    pinClockVisible: Boolean
+): Boolean = !suppressActive && stockWidgetControlActive && !pinClockVisible
+
+/** 冻结时的钉住 Y:锚定值 + 一次性用户偏移(锚定基准不逐帧累积);未冻结原样透传。 */
+internal fun pinnedClockAppliedY(
+    anchorY: Float,
+    offsetPx: Int,
+    freeze: Boolean,
+    requestedY: Float
+): Float = if (freeze) anchorY + offsetPx else requestedY
+
+internal object AodPositionHook {
     private data class PositionResolution(val decision: AodClockPlacementDecision)
 
     private data class ManagedAdvance(
@@ -73,7 +99,7 @@ internal object AodPositionHook {
     fun observeAodRoot(root: Any) {
         val controller = readHierarchyField(root, "mPositionController") ?: return
         synchronized(controllerStates) {
-            controllerStates.getOrPut(controller) { ControllerState() }
+            controllerStateFor(controller)
             lastControllerRef = WeakReference(controller)
         }
         captureTargetView(controller)
@@ -194,6 +220,45 @@ internal object AodPositionHook {
         clockYOffsetPx = px
     }
 
+    /**
+     * 跨 controller 生命周期继承的时钟锚定(issue #33):controllerStates 以弱引用
+     * controller 为 key,controller 更替即丢锚,新状态会以"当前(可能已下移)请求值"
+     * 就地重锚,防下移从此失效。锚定值镜像保存在本单例中,controller 重建时继承;
+     * AOD surface 分离([resetStockAnchor])后清零 —— 跨会话重新锚定到当前系统
+     * 位置仍是设计行为。
+     */
+    @Volatile
+    private var inheritedAnchorX: Int? = null
+    @Volatile
+    private var inheritedAnchorY: Float? = null
+    private var lastPinnedLogKey = ""
+    private var lastManagedPinSkipLogged = false
+
+    /** AOD surface 分离(会话结束)时清空跨 controller 继承的锚定:下次进入 AOD 重新锚定。 */
+    fun resetStockAnchor() {
+        inheritedAnchorX = null
+        inheritedAnchorY = null
+        lastPinnedLogKey = ""
+        lastManagedPinSkipLogged = false
+        HookLogger.i(TAG, "Stock anchor reset (surface detached)")
+    }
+
+    /**
+     * 取 controller 对应状态;controller 首次出现(或被 GC 后重建)时播种继承锚定并
+     * 记录一次,替代裸 getOrPut 的静默重置(issue #33 建议三)。
+     */
+    private fun controllerStateFor(controller: Any): ControllerState {
+        controllerStates[controller]?.let { return it }
+        val seeded = seedControllerState(inheritedAnchorX, inheritedAnchorY)
+        controllerStates[controller] = seeded
+        HookLogger.i(
+            TAG,
+            "Position state rebuilt; anchor " +
+                (if (inheritedAnchorY != null) "inherited y=$inheritedAnchorY" else "seeded from request")
+        )
+        return seeded
+    }
+
     fun isSuppressActive(): Boolean = suppressActive
 
     fun restoreStockTranslation() {
@@ -240,6 +305,16 @@ internal object AodPositionHook {
     }
 
     fun advanceManagedPosition(pattern: String, animated: Boolean = true): Boolean {
+        // 时钟钉住激活时 managed 位移被锚定优先级接管(issue #33 建议二):
+        // 调度器按"managed 不可用"处理,退避后回退到原厂几何。
+        if (pinClockVisible) {
+            if (!lastManagedPinSkipLogged) {
+                lastManagedPinSkipLogged = true
+                HookLogger.i(TAG, "Managed advance skipped: clock pin active")
+            }
+            return false
+        }
+        lastManagedPinSkipLogged = false
         val advance = synchronized(controllerStates) {
             val controller = lastControllerRef.get() ?: return@synchronized null
             val state = controllerStates[controller] ?: return@synchronized null
@@ -252,6 +327,9 @@ internal object AodPositionHook {
             val stockY = state.lastStockTranslationY ?: natural?.y ?: return@synchronized null
             state.lastStockTranslationX = stockX
             state.lastStockTranslationY = stockY
+            // managed 建立决策时同步镜像锚定(issue #33 建议一)。
+            inheritedAnchorX = stockX
+            inheritedAnchorY = stockY
             val previousStep = state.managedStep
             val previousDecision = state.currentManagedDecision
             val nextStep = previousStep + 1
@@ -338,7 +416,7 @@ internal object AodPositionHook {
     ): PositionResolution? {
         val geometry = readClockGeometry(controller) ?: return null
         return synchronized(controllerStates) {
-            val state = controllerStates.getOrPut(controller) { ControllerState() }
+            val state = controllerStateFor(controller)
             state.pendingManagedDecision?.let { pending ->
                 state.pendingManagedDecision = null
                 return@synchronized PositionResolution(pending)
@@ -356,7 +434,12 @@ internal object AodPositionHook {
                     freeze = holdStockPosition, zoneChanged = false
                 )
             }
-            if (AodSurfaceController.isStockWidgetControlActive()) {
+            if (routesToManagedPath(
+                    suppressActive = false,
+                    stockWidgetControlActive = AodSurfaceController.isStockWidgetControlActive(),
+                    pinClockVisible = pinClockVisible
+                )
+            ) {
                 val current = state.currentManagedDecision
                 if (current != null) {
                     val refreshed = managedAodClockDecision(
@@ -391,8 +474,13 @@ internal object AodPositionHook {
                     }?.let(::PositionResolution)
                 }
             } else {
-                // 原厂透传。pinClockVisible 时把 Y 钉在上次锚定位置,令系统时钟在关闭
-                // 「实时跟随系统时钟」时不随防烧屏沉降下移,同时保留时钟显示(issue #26)。
+                // 原厂透传(或 pin 激活时对 managed 的接管)。pinClockVisible 时把 Y 钉在
+                // 上次锚定位置,令系统时钟在关闭「实时跟随系统时钟」时不随防烧屏沉降下移,
+                // 同时保留时钟显示(issue #26);pin 与 managed 位移互斥,锚定优先
+                // (issue #33 建议二),pin 释放后 managed 从 step 0 重排。
+                if (pinClockVisible && state.currentManagedDecision != null) {
+                    HookLogger.i(TAG, "Managed displacement bypassed by clock pin")
+                }
                 val zoneChanged = state.currentManagedDecision != null
                 state.managedStep = -1
                 state.currentManagedDecision = null
@@ -421,7 +509,22 @@ internal object AodPositionHook {
         // lastStockTranslationY,仅对本次应用到时钟的 Y 叠加用户自定义偏移,避免逐帧累积。
         val anchorY = state.lastStockTranslationY ?: requestedY
         state.lastStockTranslationY = anchorY
-        val appliedY = if (freeze) anchorY + clockYOffsetPx else requestedY
+        // 锚定镜像到跨 controller 生命周期持有者(issue #33 建议一)。
+        inheritedAnchorX = state.lastStockTranslationX
+        inheritedAnchorY = anchorY
+        val appliedY = pinnedClockAppliedY(anchorY, clockYOffsetPx, freeze, requestedY)
+        if (freeze && appliedY != requestedY) {
+            // 钉住生效现场,仅变化时记录(建议三):请求 Y 持续漂移而应用 Y 被钉住。
+            val key = "a=" + Math.round(anchorY) + " o=" + clockYOffsetPx
+            if (key != lastPinnedLogKey) {
+                lastPinnedLogKey = key
+                HookLogger.i(
+                    TAG,
+                    "Stock clock pinned anchorY=$anchorY appliedY=$appliedY " +
+                        "requestedY=$requestedY offset=$clockYOffsetPx"
+                )
+            }
+        }
         return PositionResolution(stockDecision(requestedX, appliedY, geometry, zoneChanged))
     }
 
