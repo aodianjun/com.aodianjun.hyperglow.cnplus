@@ -637,4 +637,59 @@ class AodPositionUpdateTest {
         // 未冻结:原样透传请求值。
         assertEquals(1942f, pinnedClockAppliedY(1471f, 30, freeze = false, requestedY = 1942f))
     }
+
+    @Test
+    fun needsClockYWritebackOnlyForPinnedStockClock() {
+        // issue #39:仅 STOCK 时钟被钉住(应用 Y != 请求 Y)时才做渲染层写回。
+        assertTrue(
+            needsClockYWriteback(
+                AodClockPlacementDecision(
+                    requestedTranslationX = 390,
+                    requestedTranslationY = -174f,
+                    appliedTranslationX = 390,
+                    appliedTranslationY = 260f,
+                    clockTop = 771,
+                    clockBottom = 1574,
+                    lyricTopSafe = 771,
+                    zone = AodSceneZone.STOCK,
+                    zoneChanged = false,
+                    overridden = false
+                )
+            )
+        )
+        // 普通透传(applied == requested)不触碰渲染视图。
+        assertFalse(
+            needsClockYWriteback(
+                AodClockPlacementDecision(
+                    requestedTranslationX = 390,
+                    requestedTranslationY = 260f,
+                    appliedTranslationX = 390,
+                    appliedTranslationY = 260f,
+                    clockTop = 771,
+                    clockBottom = 1574,
+                    lyricTopSafe = 771,
+                    zone = AodSceneZone.STOCK,
+                    zoneChanged = false,
+                    overridden = false
+                )
+            )
+        )
+        // managed 位移(CLOCK_TOP/BOTTOM 区域)不做渲染层写回。
+        assertFalse(
+            needsClockYWriteback(
+                AodClockPlacementDecision(
+                    requestedTranslationX = 0,
+                    requestedTranslationY = 120f,
+                    appliedTranslationX = 0,
+                    appliedTranslationY = 520f,
+                    clockTop = 631,
+                    clockBottom = 1434,
+                    lyricTopSafe = 631,
+                    zone = AodSceneZone.CLOCK_TOP,
+                    zoneChanged = true,
+                    overridden = true
+                )
+            )
+        )
+    }
 }

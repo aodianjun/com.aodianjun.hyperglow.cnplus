@@ -52,6 +52,18 @@ internal fun pinnedClockAppliedY(
     requestedY: Float
 ): Float = if (freeze) anchorY + offsetPx else requestedY
 
+/**
+ * 是否需要把实际渲染视图(targetView.translationY)强制钉到决策的应用 Y。
+ *
+ * issue #39:锚定/冻结场景下 `updateTranslation` 的入参替换疑似不被效果层采纳,
+ * 系统时钟仍随防烧屏在往复区间自由移动,导致 appliedY 已算出但渲染位置不跟随。
+ * 仅当 STOCK 时钟被钉住(Y 被改写成非请求值)时才做强制写回——managed 位移与普通
+ * 透传(applied==requested)不触碰,避免干扰已有稳定行为。X 恒透传,无需写回。
+ */
+internal fun needsClockYWriteback(decision: AodClockPlacementDecision): Boolean =
+    decision.zone == AodSceneZone.STOCK &&
+        decision.appliedTranslationY != decision.requestedTranslationY
+
 internal object AodPositionHook {
     private data class PositionResolution(val decision: AodClockPlacementDecision)
 
@@ -158,6 +170,12 @@ internal object AodPositionHook {
             } else {
                 chain.proceed()
             }
+            if (decision != null && needsClockYWriteback(decision)) {
+                // issue #39:updateTranslation 的入参替换疑似不被效果层采纳,时钟仍随
+                // 防烧屏往复移动。这里把实际渲染视图的 translationY 强制钉到应用值,
+                // 使锚定/冻结在渲染层生效。首次钉住时记录一次,便于确认写回已触发。
+                pinRenderedClockY(decision.appliedTranslationY, decision.requestedTranslationY)
+            }
             val translationX = decision?.appliedTranslationX?.toFloat()
                 ?: requestedX?.toFloat()
                 ?: return result
@@ -240,6 +258,7 @@ internal object AodPositionHook {
     private var inheritedAnchorY: Float? = null
     private var lastPinnedLogKey = ""
     private var lastManagedPinSkipLogged = false
+    private var lastRenderedPinKey = ""
 
     /** 仅当 AOD 真正退出(显示完全关闭,见 AodPowerCoordinator)时清空跨 controller 锚定。 */
     fun resetStockAnchor(cause: String) {
@@ -590,6 +609,39 @@ internal object AodPositionHook {
         if (previous === target) return
         targetViewRef = WeakReference(target)
         HookLogger.i(TAG, "AOD position target captured=${target?.javaClass?.name}")
+    }
+
+    /**
+     * 把实际渲染视图(系统时钟 targetView)的 translationY 强制钉到应用值。
+     *
+     * issue #39:`updateTranslation` 的入参替换疑似未被效果层采纳——`appliedY` 已钉住,
+     * 但时钟渲染位置仍随防烧屏在往复区间自由移动。渲染层最终用的是视图的
+     * translationY(`renderedTargetBoundsInRoot` 正是读它实测时钟位置),因此在
+     * `proceed` 之后直接写回视图属性,确保锚定/冻结在效果层生效。仅变化时记录一次,
+     * 避免刷屏;target 尚未捕获时静默跳过,后续 updateTranslation 会再次尝试。
+     * View 属性写回统一在主线程执行,避免跨线程触碰视图树。
+     */
+    private fun pinRenderedClockY(appliedY: Float, requestedY: Float) {
+        val target = targetViewRef.get() ?: return
+        if (target.translationY == appliedY) return
+        val key = "y=" + Math.round(appliedY) + " r=" + Math.round(requestedY)
+        if (key != lastRenderedPinKey) {
+            lastRenderedPinKey = key
+            HookLogger.i(
+                TAG,
+                "Rendered clock pinned translationY=$appliedY (requested=$requestedY)"
+            )
+        }
+        val pin = Runnable {
+            val live = targetViewRef.get() ?: return@Runnable
+            if (live.translationY == appliedY) return@Runnable
+            live.translationY = appliedY
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            pin.run()
+        } else {
+            mainHandler.post(pin)
+        }
     }
 
     private fun effectiveAlpha(view: View): Float {
