@@ -537,6 +537,51 @@ class AodPositionUpdateTest {
     }
 
     @Test
+    fun physicalReadGapKeepsTheStableAnchorInsteadOfEatingAStaleRememberedDownMove() {
+        // issue #38:物理读数缺失是瞬时缺口,不是时钟真的下移。若把一条 stale 的低位 remembered 值
+        // (bottom 更大)喂进锚定器,会被当成"下行"立即硬同步,把歌词压到低位;此后真实位置上行恢复
+        // 又被 40s 防抖压住,歌词锁在低位。修复:无新鲜读数且有稳定锚时,直接沿用锚。
+        val stable = AodRenderedClockBounds(493, 1574)   // 实测稳定的系统时钟
+        var t = 0L
+        val anchor = resolveAnchoredAodClockBounds(
+            hasFreshPhysical = false,
+            previousAnchor = AodClockAnchor(stable.top, stable.bottom, t),
+            rawClockBounds = AodRenderedClockBounds(1160, 2240), // stale remembered,不是新读数
+            nowElapsedMs = t
+        )
+        assertEquals(1574, anchor.bottom)
+        assertEquals(493, anchor.top)
+    }
+
+    @Test
+    fun freshPhysicalDownMoveStillRelocatesTheAnchorImmediately() {
+        // 真实物理读数到位(hasFreshPhysical=true)时仍走原有锚定逻辑:下行立即硬同步。
+        var t = 0L
+        val previous = AodClockAnchor(493, 1574, t)
+        t = 1_000L
+        val anchor = resolveAnchoredAodClockBounds(
+            hasFreshPhysical = true,
+            previousAnchor = previous,
+            rawClockBounds = AodRenderedClockBounds(525, 1606),
+            nowElapsedMs = t
+        )
+        assertEquals(1606, anchor.bottom)
+    }
+
+    @Test
+    fun physicalReadGapWithoutEstablishedAnchorStillStabilizesFromAvailableRaw() {
+        // 尚无稳定锚时(首次布局/面板暗),读数缺失也要从可得来源建立锚,沿用原 stabilize 行为。
+        var t = 0L
+        val anchor = resolveAnchoredAodClockBounds(
+            hasFreshPhysical = false,
+            previousAnchor = null,
+            rawClockBounds = AodRenderedClockBounds(493, 1574),
+            nowElapsedMs = t
+        )
+        assertEquals(1574, anchor.bottom)
+    }
+
+    @Test
     fun routingPutsPinAboveManagedAndSuppressAboveAll() {
         // issue #33 建议二:pin 与 managed 互斥,锚定优先;suppress 仍最高。
         assertTrue(

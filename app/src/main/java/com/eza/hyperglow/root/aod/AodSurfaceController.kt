@@ -160,6 +160,16 @@ internal data class AodClockAnchor(
 /** How long a held clock position may go unconfirmed before it is treated as a genuine move. */
 internal const val AOD_CLOCK_ANCHOR_HOLD_MS = 40_000L
 
+/**
+ * 重挂载时 remembered 物理时钟测量可被当作 fallback 的最长年龄(毫秒)。
+ *
+ * 物理时钟在面板熄灭时无法读取,remembered 缓存只用于覆盖「重挂载→面板点亮」这个短暂暗窗。
+ * 但它只是一个原始采样,没有时效性就是隐患:#38 里一次瞬时错误的探针读数(布局用几何一度出现
+ * `1160..2240`,而实测时钟稳定在 `493..1574`)被缓存后,在物理读取间歇反复回退,把歌词压到低位
+ * 锁死。超过该窗口的旧值不再是可靠的时钟证据,直接弃用。
+ */
+internal const val REMEMBERED_CLOCK_MAX_AGE_MS = 10_000L
+
 /** Minimum downward clock drift (px) the settle watchdog reacts to. */
 internal const val STOCK_SETTLE_DRIFT_PX = 24
 
@@ -206,6 +216,35 @@ internal fun stabilizeAodClockAnchor(
     } else {
         previous
     }
+}
+
+/**
+ * 锚定模式(实时时钟跟随关闭)下决定本帧歌词布局采用的时钟几何锚。
+ *
+ * 物理时钟在面板熄灭等场景会瞬时不可读。**读数缺失不等于时钟真的移动了**:此时若用
+ * (可能是过期的) remembered/managed 值取代上一帧喂进锚定器,一次瞬时错误采样会被当成
+ * "下行"硬同步进锚,把歌词压到低位;而真实位置上行恢复又被 [AOD_CLOCK_ANCHOR_HOLD_MS]
+ * 防抖压住,长期锁死(#38)。因此只要有已建立的稳定锚且本帧无新鲜物理读数,就直接沿用该锚。
+ *
+ * @param hasFreshPhysical 本帧是否拿到了物理时钟读数(而非回退来源)。
+ * @return 本帧应采用的 [AodClockAnchor];调用方负责回写该值。
+ */
+internal fun resolveAnchoredAodClockBounds(
+    hasFreshPhysical: Boolean,
+    previousAnchor: AodClockAnchor?,
+    rawClockBounds: AodRenderedClockBounds,
+    nowElapsedMs: Long,
+    seedSinceElapsedMs: Long = -1L
+): AodClockAnchor {
+    if (!hasFreshPhysical && previousAnchor != null) {
+        return previousAnchor
+    }
+    return stabilizeAodClockAnchor(
+        previousAnchor,
+        rawClockBounds,
+        nowElapsedMs,
+        seedSinceElapsedMs = seedSinceElapsedMs
+    )
 }
 
 internal fun brightLinkageClockBounds(rootHeight: Int): AodRenderedClockBounds =
@@ -387,6 +426,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var postHandoffLateGeneration = -1L
     private var rememberedPhysicalClockBounds: AodRenderedClockBounds? = null
     private var rememberedPhysicalClockRootHeight = 0
+    /** rememberedPhysicalClockBounds 最近一次写入的单调时钟,用于判断缓存是否已过期。 */
+    private var rememberedPhysicalClockBoundsSinceElapsedMs = Long.MIN_VALUE
     @Volatile private var stockWidgetControlActive = false
     @Volatile private var suppressStockAodContent = false
     @Volatile private var suppressGateActive = false
@@ -719,10 +760,15 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 observeDisplayState(root)
                 AodPositionHook.observeAodRoot(root)
                 if (clockAnchor == null) {
+                    val nowSeedingElapsedMs = SystemClock.elapsedRealtime()
                     rememberedPhysicalClockBounds
                         ?.takeIf { rememberedPhysicalClockRootHeight == root.height }
+                        ?.takeIf {
+                            nowSeedingElapsedMs - rememberedPhysicalClockBoundsSinceElapsedMs <=
+                                REMEMBERED_CLOCK_MAX_AGE_MS
+                        }
                         ?.let { b ->
-                            clockAnchor = AodClockAnchor(b.top, b.bottom, SystemClock.elapsedRealtime())
+                            clockAnchor = AodClockAnchor(b.top, b.bottom, nowSeedingElapsedMs)
                             HookLogger.i(TAG, "Anchor seeded from remembered bounds ${b.top}..${b.bottom} (re-attach throttle)")
                         }
                 } else if (rememberedPhysicalClockRootHeight != root.height) {
@@ -1598,14 +1644,21 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             systemUiClockBounds,
             aodControllerClockBounds
         )
+        val nowElapsedMs = SystemClock.elapsedRealtime()
         if (physicalClockBounds != null && root.height > 0) {
             rememberedPhysicalClockBounds = physicalClockBounds
             rememberedPhysicalClockRootHeight = root.height
+            rememberedPhysicalClockBoundsSinceElapsedMs = nowElapsedMs
         }
-        // A remembered measurement only describes this layout. A different root height means a
-        // different display or configuration, and the old bounds say nothing about it.
+        // A remembered measurement only describes this layout and only for a short time. The
+        // physical clock cannot be read while the panel is dark, but a stale raw sample (e.g. from
+        // one transiently wrong probe) must not keep being reused as "fresh" evidence during later
+        // read gaps — that is what locked the lyrics low in #38.
         val rememberedBounds = rememberedPhysicalClockBounds
             ?.takeIf { rememberedPhysicalClockRootHeight == root.height }
+            ?.takeIf {
+                nowElapsedMs - rememberedPhysicalClockBoundsSinceElapsedMs <= REMEMBERED_CLOCK_MAX_AGE_MS
+            }
         val rawClockBounds = if (brightLinkage && physicalClockBounds == null) {
             brightLinkageClockBounds(root.height)
         } else {
@@ -1625,14 +1678,19 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         //
         // "aodClockFollow" (实时时钟跟随) 开启时,直接采用本次实际测得的时钟位置(rawClockBounds),
         // 跳过锚定防抖,让歌词布局立即跟上系统时钟的真实移动(不因长锚定而滞后错位)。
+        //
+        // 锚定模式:物理读数缺失是**瞬时缺口**,不是时钟真的移动了。此时沿用已锚定的稳定位置,
+        // 不再用 (可能是过期的) remembered 值去喂锚定器——否则 stale 的低位值会被当成"下行"硬
+        // 同步进锚、把歌词压到低位,且真实位置上行恢复又被 40s 防抖压住,长期锁死(#38)。
         val aodClockFollow = currentAodProfile().aodClockFollow
         val effectiveClockBounds = if (aodClockFollow) {
             rawClockBounds
         } else {
-            val anchor = stabilizeAodClockAnchor(
-                clockAnchor,
-                rawClockBounds,
-                SystemClock.elapsedRealtime(),
+            val anchor = resolveAnchoredAodClockBounds(
+                hasFreshPhysical = physicalClockBounds != null,
+                previousAnchor = clockAnchor,
+                rawClockBounds = rawClockBounds,
+                nowElapsedMs = nowElapsedMs,
                 seedSinceElapsedMs = droppedAnchorHoldSinceMs ?: -1L
             )
             droppedAnchorHoldSinceMs = null

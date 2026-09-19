@@ -1,9 +1,11 @@
 package com.eza.hyperglow.plugin
 
+import com.eza.hyperglow.AppLog
 import com.lidesheng.hyperlyric.plugin.api.HYPERLYRIC_PLUGIN_API_VERSION
 import com.lidesheng.hyperlyric.plugin.api.PluginSettingInputType
 import com.lidesheng.hyperlyric.plugin.api.PluginSettingType
 import com.lidesheng.hyperlyric.plugin.api.PluginSettingValuePresentation
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -115,6 +117,8 @@ data class PluginCacheScopeData(
 /** manifest 中的单条设置声明；type/valuePresentation/inputType 存 wire 名，惰性映射为 API 枚举。 */
 @Serializable
 data class PluginSettingData(
+    /** JSON 字段名为 wire 名 `type`（HyperLyric manifest 标准）。 */
+    @SerialName("type")
     val typeWire: String,
     val key: String,
     val title: String,
@@ -131,8 +135,12 @@ data class PluginSettingData(
     val min: Double? = null,
     val max: Double? = null,
     val step: Double? = null,
+    /** JSON 字段名为 wire 名 `valuePresentation`。 */
+    @SerialName("valuePresentation")
     val valuePresentationWire: String? = null,
     val previewLineCount: Int = 2,
+    /** JSON 字段名为 wire 名 `inputType`。 */
+    @SerialName("inputType")
     val inputTypeWire: String? = null,
     val conflictsWith: List<String> = emptyList(),
     val backup: Boolean = true,
@@ -217,5 +225,9 @@ object PluginManifestCodec {
 
     fun decode(text: String): PluginManifest? = runCatching {
         json.decodeFromString<PluginManifest>(text)
-    }.getOrNull()
+    }.getOrElse { error ->
+        // 解析失败必须留痕，否则只会得到一句 "unparseable manifest.json"，无法定位字段名/类型问题。
+        AppLog.e("PluginManifest", "decode failed", error)
+        null
+    }
 }
