@@ -117,9 +117,14 @@ data class PluginCacheScopeData(
 /** manifest 中的单条设置声明；type/valuePresentation/inputType 存 wire 名，惰性映射为 API 枚举。 */
 @Serializable
 data class PluginSettingData(
-    /** JSON 字段名为 wire 名 `type`（HyperLyric manifest 标准）。 */
+    /**
+     * JSON 字段名为 wire 名 `type`（HyperLyric manifest 标准）。
+     * 可空 + 默认 null：type 是必填，但个别损坏的插件包可能缺失；为保证整包仍可解析、
+     * 进而让 [PluginManifest.validate] 给出明确的 "unknown setting type" 拒绝信息，
+     * 这里用默认 null 兜底（而非让 decode 抛 MissingFieldException）。非缺失时按 wire 名填充。
+     */
     @SerialName("type")
-    val typeWire: String,
+    val typeWire: String? = null,
     val key: String,
     val title: String,
     val titleLocales: Map<String, String> = emptyMap(),
@@ -146,7 +151,7 @@ data class PluginSettingData(
     val backup: Boolean = true,
     val group: String? = null
 ) {
-    val type: PluginSettingType? get() = PluginSettingType.fromWire(typeWire)
+    val type: PluginSettingType? get() = typeWire?.let(PluginSettingType::fromWire)
     val valuePresentation: PluginSettingValuePresentation?
         get() = valuePresentationWire?.let(PluginSettingValuePresentation::fromWire)
     val inputType: PluginSettingInputType?
