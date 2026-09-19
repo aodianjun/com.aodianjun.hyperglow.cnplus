@@ -47,8 +47,8 @@ android {
         applicationId = "com.aodianjun.hyperglow.cnplus"
         minSdk = 33
         targetSdk = 37
-        versionCode = 123
-        versionName = "0.3.96"
+        versionCode = 124
+        versionName = "0.3.97"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
