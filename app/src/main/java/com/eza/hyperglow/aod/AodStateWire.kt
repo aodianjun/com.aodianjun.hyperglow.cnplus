@@ -67,6 +67,8 @@ internal data class AodStateWireSnapshot(
     val aodRotationSettleMs: Long,
     val aodCanvasAnchorLandscape: Float,
     val aodLandscapeTextScale: Float,
+    val aodLandscapeHideStock: Boolean,
+    val aodLandscapeFullscreen: Boolean,
     val aodCanvasPaddingPortraitXPercent: Float,
     val aodCanvasPaddingPortraitYPercent: Float,
     val aodCanvasPaddingLandscapeXPercent: Float,
@@ -275,6 +277,8 @@ internal object AodStateWireCodec {
                 output.writeLong(snapshot.aodRotationSettleMs)
                 output.writeFloat(snapshot.aodCanvasAnchorLandscape)
                 output.writeFloat(snapshot.aodLandscapeTextScale)
+                output.writeStrictBoolean(snapshot.aodLandscapeHideStock)
+                output.writeStrictBoolean(snapshot.aodLandscapeFullscreen)
                 output.writeFloat(snapshot.aodCanvasPaddingPortraitXPercent)
                 output.writeFloat(snapshot.aodCanvasPaddingPortraitYPercent)
                 output.writeFloat(snapshot.aodCanvasPaddingLandscapeXPercent)
@@ -364,6 +368,8 @@ internal object AodStateWireCodec {
             val aodRotationSettleMs = input.readLong()
             val aodCanvasAnchorLandscape = input.readFloat()
             val aodLandscapeTextScale = input.readFloat()
+            val aodLandscapeHideStock = input.readStrictBoolean() ?: return null
+            val aodLandscapeFullscreen = input.readStrictBoolean() ?: return null
             val aodCanvasPaddingPortraitXPercent = input.readFloat()
             val aodCanvasPaddingPortraitYPercent = input.readFloat()
             val aodCanvasPaddingLandscapeXPercent = input.readFloat()
@@ -480,6 +486,8 @@ internal object AodStateWireCodec {
                 aodRotationSettleMs = aodRotationSettleMs,
                 aodCanvasAnchorLandscape = aodCanvasAnchorLandscape,
                 aodLandscapeTextScale = aodLandscapeTextScale,
+                aodLandscapeHideStock = aodLandscapeHideStock,
+                aodLandscapeFullscreen = aodLandscapeFullscreen,
                 aodCanvasPaddingPortraitXPercent = aodCanvasPaddingPortraitXPercent,
                 aodCanvasPaddingPortraitYPercent = aodCanvasPaddingPortraitYPercent,
                 aodCanvasPaddingLandscapeXPercent = aodCanvasPaddingLandscapeXPercent,

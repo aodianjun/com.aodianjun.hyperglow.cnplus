@@ -147,6 +147,8 @@ class GenerationBoundLatestTest {
             aodRotationSettleMs = 1_000L,
             aodCanvasAnchorLandscape = 0.5f,
             aodLandscapeTextScale = 1f,
+            aodLandscapeHideStock = false,
+            aodLandscapeFullscreen = false,
             aodCanvasPaddingPortraitXPercent = 0f,
             aodCanvasPaddingPortraitYPercent = 0f,
             aodCanvasPaddingLandscapeXPercent = 0f,

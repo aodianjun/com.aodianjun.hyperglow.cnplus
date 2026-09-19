@@ -182,7 +182,10 @@
     <string name="setting_aod_padding_landscape_x">横屏水平内边距</string>
     <string name="setting_aod_padding_landscape_y">横屏垂直内边距</string>
     <string name="summary_aod_padding">各边缘的内边距,以画布宽高的百分比计算(0%%-20%%)。</string>
-
+    <string name="setting_aod_landscape_hide_stock">横屏时隐藏系统息屏内容</string>
+    <string name="summary_aod_landscape_hide_stock">歌词旋转到横屏时,强制隐藏小米系统自带的息屏元素(时钟、天气);切回竖屏后自动恢复显示。</string>
+    <string name="setting_aod_landscape_fullscreen">横屏歌词全屏化</string>
+    <string name="summary_aod_landscape_fullscreen">旋转到横屏时,将歌词块在屏幕居中并自适应放大铺满,不超出屏幕。</string>
     <string name="section_lockscreen_behavior">锁屏行为</string>
     <string name="setting_keep_lockscreen_awake">保持锁屏唤醒</string>
     <string name="summary_keep_lockscreen_awake">会增加耗电。</string>

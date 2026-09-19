@@ -97,6 +97,12 @@ internal object ConfigBackupCodec {
         BackupBooleanField(AodRenderPreferences.SUPPRESS_STOCK_AOD_CONTENT) {
             it.suppressStockAodContent
         },
+        BackupBooleanField(AodRenderPreferences.AOD_LANDSCAPE_HIDE_STOCK) {
+            it.aodLandscapeHideStock
+        },
+        BackupBooleanField(AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN) {
+            it.aodLandscapeFullscreen
+        },
         BackupBooleanField(AodRenderPreferences.AOD_ROTATE_WITH_DEVICE) {
             it.aodRotateWithDevice
         },
@@ -288,6 +294,10 @@ internal object ConfigBackupCodec {
         )?.let(::normalizeAodCanvasAnchor) ?: DEFAULTS.aodCanvasAnchorLandscape,
         aodLandscapeTextScale = stored.float(AodRenderPreferences.AOD_LANDSCAPE_TEXT_SCALE)
             ?.let(::normalizeAodLandscapeTextScale) ?: DEFAULTS.aodLandscapeTextScale,
+        aodLandscapeHideStock = stored.boolean(AodRenderPreferences.AOD_LANDSCAPE_HIDE_STOCK)
+            ?: DEFAULTS.aodLandscapeHideStock,
+        aodLandscapeFullscreen = stored.boolean(AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN)
+            ?: DEFAULTS.aodLandscapeFullscreen,
         aodCanvasPaddingPortraitXPercent = stored.float(
             AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT
         )?.let(::normalizeAodCanvasPaddingPercent) ?: DEFAULTS.aodCanvasPaddingPortraitXPercent,

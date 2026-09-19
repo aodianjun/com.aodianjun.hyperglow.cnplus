@@ -930,6 +930,32 @@ internal enum class AodCanvasVerticalAlignment { TOP, CENTER }
 private const val LIVE_CARD_SIZE_MULTIPLIER = 0.68f
 private const val AOD_DIMMING_BOOST = 1.6f // Sanctioned AOD dimming delta; preserves hardware contrast.
 
+/** 横屏全屏化自适应放缩:期望占据可用高度(0..1)的比例。 */
+private const val FULLSCREEN_FILL_RATIO = 0.85f
+/** 横屏全屏化放缩比下限(不缩小,避免单行歌词被抬得过小)。 */
+private const val FULLSCREEN_MIN_SCALE = 1.0f
+/** 横屏全屏化放缩比上限(避免单行歌词放得过大溢出屏幕/超出可读观感)。 */
+private const val FULLSCREEN_MAX_SCALE = 1.7f
+
+/**
+ * 横屏全屏化的自适应放缩比(纯函数):让内容高度按 [fillRatio] 铺满 [availableHeight],
+ * 但钳制在 [minScale]..[maxScale],不越界、单行时也不放得过小。非法输入返回 [minScale]。
+ */
+internal fun fullscreenAutoScale(
+    contentHeight: Float,
+    availableHeight: Float,
+    fillRatio: Float,
+    minScale: Float,
+    maxScale: Float
+): Float {
+    if (contentHeight <= 0f || availableHeight <= 0f || !fillRatio.isFinite() ||
+        fillRatio <= 0f
+    ) {
+        return minScale
+    }
+    return (availableHeight / contentHeight * fillRatio).coerceIn(minScale, maxScale)
+}
+
 private fun steadyTextAlpha(factor: Float): Float = if (factor < 0.5f) {
     max(0.35f * AOD_DIMMING_BOOST, 0.55f)
 } else {
@@ -1009,6 +1035,7 @@ internal class AodLyricCanvasView(
     private var rotationStep = AodOrientationStep.PORTRAIT
     private var landscapeTextScale = 1f
     private var landscapeAnchor = 0.5f
+    private var landscapeFullscreen = false
     private var paddingPortraitXPercent = DEFAULT_CANVAS_PADDING_PERCENT
     private var paddingPortraitYPercent = DEFAULT_CANVAS_PADDING_PERCENT
     private var paddingLandscapeXPercent = DEFAULT_CANVAS_PADDING_PERCENT
@@ -1225,6 +1252,7 @@ internal class AodLyricCanvasView(
         mode: String,
         landscapeTextScale: Float,
         landscapeAnchor: Float,
+        landscapeFullscreen: Boolean,
         paddingPortraitXPercent: Float,
         paddingPortraitYPercent: Float,
         paddingLandscapeXPercent: Float,
@@ -1234,6 +1262,7 @@ internal class AodLyricCanvasView(
             rotationMode != mode ||
             this.landscapeTextScale != landscapeTextScale ||
             this.landscapeAnchor != landscapeAnchor ||
+            this.landscapeFullscreen != landscapeFullscreen ||
             this.paddingPortraitXPercent != paddingPortraitXPercent ||
             this.paddingPortraitYPercent != paddingPortraitYPercent ||
             this.paddingLandscapeXPercent != paddingLandscapeXPercent ||
@@ -1242,6 +1271,7 @@ internal class AodLyricCanvasView(
         rotationMode = mode
         this.landscapeTextScale = landscapeTextScale
         this.landscapeAnchor = landscapeAnchor
+        this.landscapeFullscreen = landscapeFullscreen
         this.paddingPortraitXPercent = paddingPortraitXPercent
         this.paddingPortraitYPercent = paddingPortraitYPercent
         this.paddingLandscapeXPercent = paddingLandscapeXPercent
@@ -1349,6 +1379,44 @@ internal class AodLyricCanvasView(
 
     private val NO_ROTATION_SAVE = -1
 
+    /** 是否处于「横屏全屏化」激活状态(启用旋转 且 非竖屏 且 开启横屏全屏开关)。 */
+    private fun fullscreenLandscapeActive(): Boolean =
+        rotationEnabled &&
+        rotationStep != AodOrientationStep.PORTRAIT &&
+        landscapeFullscreen
+
+    /**
+     * 绘制期生效的横屏放缩比。
+     *  - 普通横屏:采用用户横向放缩倍数 [landscapeTextScale];
+     *  - 横屏全屏化:改用 [computeFullscreenAutoScale] 自动铺满,不再使用手动倍数。
+     */
+    private fun effectiveLandscapeScale(): Float =
+        if (fullscreenLandscapeActive()) computeFullscreenAutoScale() else landscapeTextScale
+
+    /**
+     * 横屏全屏化的自适应放缩比:按当前内容实际占高([verticalBounds])计算一个尽量铺满
+     * 但又不超过可用高度(不越界)的倍数,避免单行歌词被放得过大溢出。钳制在
+     * [FULLSCREEN_MIN_SCALE]..[FULLSCREEN_MAX_SCALE],内容已铺满时不再缩小。
+     */
+    private fun computeFullscreenAutoScale(): Float {
+        val bounds = verticalBounds(layout) ?: return landscapeTextScale
+        val contentHeight = (bounds.bottom - bounds.top).coerceAtLeast(1f)
+        val availableHeight = ((oh - padTop - padBottom).toFloat()).coerceAtLeast(1f)
+        return fullscreenAutoScale(
+            contentHeight = contentHeight,
+            availableHeight = availableHeight,
+            fillRatio = FULLSCREEN_FILL_RATIO,
+            minScale = FULLSCREEN_MIN_SCALE,
+            maxScale = FULLSCREEN_MAX_SCALE
+        )
+    }
+
+    /**
+     * 绘制期生效的垂直对齐:横屏全屏化时强制居中,否则沿用外部设定的对齐。
+     */
+    private fun effectiveVerticalAlignment(): AodCanvasVerticalAlignment =
+        if (fullscreenLandscapeActive()) AodCanvasVerticalAlignment.CENTER else verticalAlignment
+
     /**
      * 刚性绘制变换:绕视图中心旋转画布坐标系,把竖屏逻辑框整体转成横屏显示。
      * 横屏时叠加 [landscapeTextScale] 对内容做整体缩放。PORTRAIT / 未启用时直接直通。
@@ -1372,7 +1440,7 @@ internal class AodLyricCanvasView(
         } else if (rotationStep == AodOrientationStep.REVERSE_LANDSCAPE) {
             canvas.translate(-d, -d)
         }
-        val scale = landscapeTextScale
+        val scale = effectiveLandscapeScale()
         if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) {
             canvas.scale(scale, scale, cx, cy)
         }
@@ -1797,7 +1865,7 @@ internal class AodLyricCanvasView(
             val topPadding = padTop.toFloat()
             val bottomPadding = oh - padBottom
             val available = (bottomPadding - topPadding).coerceAtLeast(0f)
-            var top = if (verticalAlignment == AodCanvasVerticalAlignment.TOP) {
+            var top = if (effectiveVerticalAlignment() == AodCanvasVerticalAlignment.TOP) {
                 topPadding
             } else {
                 topPadding + max(0f, (available - total) / 2f)

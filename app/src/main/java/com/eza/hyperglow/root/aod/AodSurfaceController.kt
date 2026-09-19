@@ -324,6 +324,21 @@ internal fun shouldRenderAodSnapshot(
 internal fun isNewAodWakeSignal(previous: Long, incoming: Long): Boolean =
     incoming != 0L && incoming != previous
 
+/**
+ * 是否应抑制系统息屏内容的纯函数。
+ *
+ * 两种情况命中即抑制:
+ *  1. [suppressBase] 全局「隐藏系统息屏内容」开启;
+ *  2. [landscapeHideStock] 开启 且 当前处于横屏步进([landscapeStep]) 且 歌词随设备旋转
+ *     ([rotateWithDevice]) —— 用于实现「横屏自动隐藏系统息屏内容,回落竖屏自动恢复」。
+ */
+internal fun shouldHideStockAodContent(
+    suppressBase: Boolean,
+    landscapeStep: Boolean,
+    rotateWithDevice: Boolean,
+    landscapeHideStock: Boolean
+): Boolean = suppressBase || (landscapeStep && rotateWithDevice && landscapeHideStock)
+
 internal fun retainedAodSnapshotAfterUpdate(
     incoming: LyricSnapshot,
     lastVisible: LyricSnapshot?,
@@ -1316,10 +1331,27 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         HookLogger.i(TAG, "Stock content suppression active=$suppress")
     }
 
+    /** 是否应抑制系统息屏内容:全局开关 或 (横屏 && 随设备旋转 && 横屏隐藏开关)。 */
+    private fun shouldSuppressStock(snapshot: LyricSnapshot?, renderable: Boolean): Boolean {
+        if (!renderable || snapshot == null) return false
+        return shouldHideStockAodContent(
+            suppressBase = snapshot.suppressStockAodContent,
+            landscapeStep = currentRotationStep != AodOrientationStep.PORTRAIT,
+            rotateWithDevice = snapshot.aodRotateWithDevice,
+            landscapeHideStock = snapshot.aodLandscapeHideStock
+        )
+    }
+
     private fun onOrientationStepResolved(step: AodOrientationStep) {
         if (currentRotationStep == step) return
         currentRotationStep = step
         lyricCanvas?.setRotationStep(step)
+        // 旋转步进变化会影响「横屏隐藏系统息屏内容」的求值:进横屏时隐藏、回落竖屏时恢复。
+        val latest = latestSnapshot
+        applyStockSuppression(
+            shouldSuppressStock(latest, latest != null && canRenderAod(latest)),
+            latest
+        )
         requestGeometryUpdate()
     }
 
@@ -1327,7 +1359,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private fun applySuppressionAndRotation(snapshot: LyricSnapshot?) {
         val renderable = snapshot != null && canRenderAod(snapshot)
         val playbackActive = snapshot?.playbackActive ?: false
-        val suppress = renderable && snapshot!!.suppressStockAodContent
+        val suppress = shouldSuppressStock(snapshot, renderable)
         applyStockSuppression(suppress, snapshot)
         // 关闭「实时跟随系统时钟」(锚定模式)且模块在渲染 AOD 时,钉住系统时钟位置
         // (不随防烧屏沉降下移),但保留时钟显示 —— 与「隐藏系统时钟」解耦(issue #26)。
@@ -1354,6 +1386,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val settle = snapshot?.aodRotationSettleMs ?: 1_000L
         val anchorLandscape = snapshot?.aodCanvasAnchorLandscape ?: 0.5f
         val textScale = snapshot?.aodLandscapeTextScale ?: 1f
+        val fullscreen = snapshot?.aodLandscapeFullscreen == true
         val padPX = snapshot?.aodCanvasPaddingPortraitXPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
         val padPY = snapshot?.aodCanvasPaddingPortraitYPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
         val padLX = snapshot?.aodCanvasPaddingLandscapeXPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
@@ -1366,6 +1399,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             mode = mode,
             landscapeTextScale = textScale,
             landscapeAnchor = anchorLandscape,
+            landscapeFullscreen = fullscreen,
             paddingPortraitXPercent = padPX,
             paddingPortraitYPercent = padPY,
             paddingLandscapeXPercent = padLX,

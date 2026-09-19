@@ -85,6 +85,13 @@ data class AodRenderConfig(
     val aodRotationSettleMs: Long = DEFAULT_ROTATION_SETTLE_MS,
     val aodCanvasAnchorLandscape: Float = DEFAULT_CANVAS_ANCHOR,
     val aodLandscapeTextScale: Float = DEFAULT_LANDSCAPE_TEXT_SCALE,
+    /**
+     * 横屏且歌词随设备旋转时,自动隐藏系统息屏内容(时钟/天气等);回竖屏从旋转回落时
+     * 自动恢复系统息屏内容。可独立开关(默认关闭,保持横屏也显示系统内容)。
+     */
+    val aodLandscapeHideStock: Boolean = false,
+    /** 横屏全屏化:歌词在横屏时居中并自动放缩铺满(不越界),默认关闭。 */
+    val aodLandscapeFullscreen: Boolean = false,
     val aodCanvasPaddingPortraitXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val aodCanvasPaddingPortraitYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val aodCanvasPaddingLandscapeXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
@@ -293,6 +300,8 @@ object AodRenderPreferences {
     const val AOD_ROTATION_SETTLE_MS = "aod_rotation_settle_ms"
     const val AOD_CANVAS_ANCHOR_LANDSCAPE = "aod_canvas_anchor_landscape"
     const val AOD_LANDSCAPE_TEXT_SCALE = "aod_landscape_text_scale"
+    const val AOD_LANDSCAPE_HIDE_STOCK = "aod_landscape_hide_stock"
+    const val AOD_LANDSCAPE_FULLSCREEN = "aod_landscape_fullscreen"
     const val AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT = "aod_canvas_padding_portrait_x_percent"
     const val AOD_CANVAS_PADDING_PORTRAIT_Y_PERCENT = "aod_canvas_padding_portrait_y_percent"
     const val AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT = "aod_canvas_padding_landscape_x_percent"
@@ -377,6 +386,8 @@ object AodRenderPreferences {
             normalizeAodRotationSettleMs(prefs.safeLong(AOD_ROTATION_SETTLE_MS, 1_000L)),
             normalizeAodCanvasAnchor(prefs.safeFloat(AOD_CANVAS_ANCHOR_LANDSCAPE, 0.5f)),
             normalizeAodLandscapeTextScale(prefs.safeFloat(AOD_LANDSCAPE_TEXT_SCALE, 1f)),
+            prefs.safeBoolean(AOD_LANDSCAPE_HIDE_STOCK, false),
+            prefs.safeBoolean(AOD_LANDSCAPE_FULLSCREEN, false),
             normalizeAodCanvasPaddingPercent(
                 prefs.safeFloat(AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT, DEFAULT_CANVAS_PADDING_PERCENT)
             ),

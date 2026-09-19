@@ -50,6 +50,8 @@ class ConfigBackupCodecTest {
         aodRotationSettleMs = 2_000L,
         aodCanvasAnchorLandscape = 0.75f,
         aodLandscapeTextScale = 1.5f,
+        aodLandscapeHideStock = true,
+        aodLandscapeFullscreen = true,
         aodCanvasPaddingPortraitXPercent = 4.5f,
         aodCanvasPaddingPortraitYPercent = 6f,
         aodCanvasPaddingLandscapeXPercent = 8.25f,

@@ -79,6 +79,8 @@ class SystemUiLyricProjectionTest {
                 aodRotationSettleMs = 5_000L,
                 aodCanvasAnchorLandscape = 0.7f,
                 aodLandscapeTextScale = 0.9f,
+                aodLandscapeHideStock = false,
+                aodLandscapeFullscreen = false,
                 aodCanvasPaddingPortraitXPercent = 5f,
                 aodCanvasPaddingPortraitYPercent = 6f,
                 aodCanvasPaddingLandscapeXPercent = 7f,

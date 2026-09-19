@@ -406,6 +406,8 @@ private fun HomeScreen(
         mutableStateOf(initialConfig.aodCanvasPaddingLandscapeYPercent)
     }
     var suppressStockAodContent by remember { mutableStateOf(initialConfig.suppressStockAodContent) }
+    var aodLandscapeHideStock by remember { mutableStateOf(initialConfig.aodLandscapeHideStock) }
+    var aodLandscapeFullscreen by remember { mutableStateOf(initialConfig.aodLandscapeFullscreen) }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
@@ -1021,6 +1023,34 @@ private fun HomeScreen(
                                         aodCanvasPaddingLandscapeYPercent.toInt().toString() + "%",
                                     valueRange = 0f..MAX_CANVAS_PADDING_PERCENT,
                                     steps = MAX_CANVAS_PADDING_PERCENT.toInt()
+                                )
+                                SwitchPreference(
+                                    aodLandscapeHideStock,
+                                    { enabled ->
+                                        prefs.edit().putBoolean(
+                                            AodRenderPreferences.AOD_LANDSCAPE_HIDE_STOCK,
+                                            enabled
+                                        ).apply()
+                                        aodLandscapeHideStock = enabled
+                                    },
+                                    stringResource(R.string.setting_aod_landscape_hide_stock),
+                                    summary = stringResource(
+                                        R.string.summary_aod_landscape_hide_stock
+                                    )
+                                )
+                                SwitchPreference(
+                                    aodLandscapeFullscreen,
+                                    { enabled ->
+                                        prefs.edit().putBoolean(
+                                            AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN,
+                                            enabled
+                                        ).apply()
+                                        aodLandscapeFullscreen = enabled
+                                    },
+                                    stringResource(R.string.setting_aod_landscape_fullscreen),
+                                    summary = stringResource(
+                                        R.string.summary_aod_landscape_fullscreen
+                                    )
                                 )
                             }
                         }

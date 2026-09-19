@@ -281,6 +281,8 @@ class AodStateWireCodecTest {
         aodRotationSettleMs = 2_000L,
         aodCanvasAnchorLandscape = 0.6f,
         aodLandscapeTextScale = 0.85f,
+        aodLandscapeHideStock = false,
+        aodLandscapeFullscreen = false,
         aodCanvasPaddingPortraitXPercent = 10f,
         aodCanvasPaddingPortraitYPercent = 12f,
         aodCanvasPaddingLandscapeXPercent = 14f,
