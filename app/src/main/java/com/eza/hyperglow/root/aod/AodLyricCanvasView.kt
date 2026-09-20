@@ -1952,6 +1952,7 @@ internal class AodLyricCanvasView(
 
     private fun drawOriginal(canvas: Canvas, baseline: Float) {
         val originalLayout = layout.original
+        val lines = originalLayout.lines
         // Minimal 模式：静态全亮，无扫光/发光（timed / untimed 通用）。
         if (content.animationMode == "Minimal") {
             var precedingRuby = 0f
