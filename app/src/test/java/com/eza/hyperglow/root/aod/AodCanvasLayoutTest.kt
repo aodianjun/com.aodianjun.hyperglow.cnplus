@@ -1093,4 +1093,38 @@ class AodCanvasLayoutTest {
         assertTrue(broken.clipLeft >= broken.clipRight)
         assertTrue(broken.clipTop >= broken.clipBottom)
     }
+
+    @Test
+    fun fullscreenBlockCenterOffsetCentersSmallerBlock() {
+        // issue #41:横屏全屏时整块(元数据+歌词)应在可用高度内居中。
+        // 视口 1080x2400,逻辑 oh=1080,pad=round(1080*0.02)=22,available=1036。
+        // 内容块原本锚在顶部(blockTop=padTop=22),高 300 → 应下移 368 到居中位置。
+        val offset = fullscreenBlockCenterOffset(
+            blockTop = 22f,
+            blockHeight = 300f,
+            availableHeight = 1036f,
+            padTop = 22f
+        )
+        // (1036-300)/2 - (22-22) = 368
+        assertEquals(368f, offset, 0.0001f)
+    }
+
+    @Test
+    fun fullscreenBlockCenterOffsetKeepsTopWhenBlockTooTall() {
+        // 内容块高于可用高度时不缩小也不上移:偏移恒为 padTop - blockTop(此处内容本就在顶部 → 0)。
+        val bigger = fullscreenBlockCenterOffset(
+            blockTop = 100f,
+            blockHeight = 1200f,
+            availableHeight = 1036f,
+            padTop = 22f
+        )
+        // (1036-1200)/2 为负 → max(0,·)→ 0,再减去尚未在顶部的 (100-22)。
+        assertEquals(-78f, bigger, 0.0001f)
+        // 内容块本就贴顶(blockTop==padTop)时越界不产生任何偏移。
+        assertEquals(
+            0f,
+            fullscreenBlockCenterOffset(22f, 1200f, 1036f, 22f),
+            0.0001f
+        )
+    }
 }
