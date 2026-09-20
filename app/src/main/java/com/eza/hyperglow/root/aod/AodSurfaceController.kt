@@ -460,6 +460,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     @Volatile private var clockPinActive = false
     @Volatile private var currentRotationStep = AodOrientationStep.PORTRAIT
     private var aodRotateWithDevice = false
+    private var aodLandscapeFullscreen = false
     private var aodRotationMode = AOD_ROTATION_MODE_PORTRAIT
     private var aodRotationSettleMs = 1_000L
     /** 系统时钟保留区:抑制系统内容前最后一次实测的物理时钟顶部位置。 */
@@ -1404,6 +1405,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val padLX = snapshot?.aodCanvasPaddingLandscapeXPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
         val padLY = snapshot?.aodCanvasPaddingLandscapeYPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
         aodRotateWithDevice = rotate
+        aodLandscapeFullscreen = fullscreen
         aodRotationMode = mode
         aodRotationSettleMs = settle
         lyricCanvas?.updateOrientation(
@@ -1786,14 +1788,30 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             )
         }
         val profile = currentAodProfile()
-        val metadataHeight = if (profile.metadataVisible &&
-            profile.widgets.any { it.type == "metadata" }
+        // 横屏全屏激活时,placement 借用「自定义位置」的整屏自由几何路径并居中,使画布 rect 覆盖
+        // 整屏(不再受 maxHeightFraction 限制),内容在画布内经旋转+自适应缩放铺满(issue #49)。
+        // 仅影响 placement rect;渲染内容继续用用户原始 profile,竖屏/普通横屏行为不变。
+        val fullscreenPlacement =
+            aodRotateWithDevice &&
+            currentRotationStep != AodOrientationStep.PORTRAIT &&
+            aodLandscapeFullscreen
+        val layoutProfile = if (fullscreenPlacement) {
+            profile.copy(
+                maxHeightFraction = 1f,
+                anchor = "custom_vertical_bias",
+                verticalBias = 0.5f
+            )
+        } else {
+            profile
+        }
+        val metadataHeight = if (layoutProfile.metadataVisible &&
+            layoutProfile.widgets.any { it.type == "metadata" }
         ) {
-            metadataWidgetHeightDp(profile.metadataSizePercent) * density
+            metadataWidgetHeightDp(layoutProfile.metadataSizePercent) * density
         } else {
             0f
         }
-        val desiredHeight = root.height * profile.maxHeightFraction
+        val desiredHeight = root.height * layoutProfile.maxHeightFraction
         val measurements = profile.widgets.mapNotNull { widget ->
             when (widget.type) {
                 "lyrics" -> WidgetMeasurement(
@@ -1806,7 +1824,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         // The custom bias anchor is user-controlled and should roam the entire screen Y range,
         // including above the stock clock and mid-screen, so give it a full-screen canvas.
-        val safeCanvas = if (profile.anchor == "custom_vertical_bias") {
+        val safeCanvas = if (layoutProfile.anchor == "custom_vertical_bias") {
             PlacementRect(0f, 0f, root.width.toFloat(), root.height.toFloat())
         } else {
             aodSceneSafeCanvas(
@@ -1819,9 +1837,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             )
         }
         val placement = PlacementEngine.resolve(
-            profile.copy(
+            layoutProfile.copy(
                 maxHeightFraction = aodPlacementMaxHeightFraction(
-                    profile.maxHeightFraction,
+                    layoutProfile.maxHeightFraction,
                     layoutZone
                 )
             ),
@@ -1903,7 +1921,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         )
         directSurface.layout(rect.left, rect.top, rect.right, rect.bottom)
         val placedTrace = "rect=${rect.left}..${rect.bottom} " +
-            "stock=$effectiveClockTop..$effectiveClockBottom zone=$layoutZone"
+            "stock=$effectiveClockTop..$effectiveClockBottom zone=$layoutZone " +
+            "rot=$currentRotationStep fs=$fullscreenPlacement " +
+            "w=${rect.width} h=${rect.height} mhf=${layoutProfile.maxHeightFraction}"
         if (placedTrace != lastPlacedTrace) {
             lastPlacedTrace = placedTrace
             HookLogger.i(TAG, "Lyric surface placed $placedTrace")
