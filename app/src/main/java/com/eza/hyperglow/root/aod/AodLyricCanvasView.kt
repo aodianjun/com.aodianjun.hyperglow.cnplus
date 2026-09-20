@@ -1928,12 +1928,12 @@ internal class AodLyricCanvasView(
             if (bottom > maxBottom) maxBottom = bottom
         }
         if (!minTop.isFinite() || !maxBottom.isFinite() || maxBottom <= minTop) return
-        val available = (oh - padTop - padBottom).coerceAtLeast(0f)
+        val available = (oh - padTop - padBottom).coerceAtLeast(0)
         val blockHeight = maxBottom - minTop
         val offset = fullscreenBlockCenterOffset(
             blockTop = minTop,
             blockHeight = blockHeight,
-            availableHeight = available,
+            availableHeight = available.toFloat(),
             padTop = padTop.toFloat()
         )
         if (offset == 0f) return
