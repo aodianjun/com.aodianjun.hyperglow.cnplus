@@ -1404,12 +1404,22 @@ internal class AodLyricCanvasView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val rotationSave = beginRotationTransform(canvas)
+        val rotationSave = beginRotationTransform(canvas, applyScale = true)
         try {
             drawOrientedContent(canvas)
-            drawDebugCanvasFrame(canvas)
         } finally {
             if (rotationSave != NO_ROTATION_SAVE) canvas.restoreToCount(rotationSave)
+        }
+        // issue #44:调试边框独立于全屏缩放绘制。边框与内容共用 scale 时,scale>1 会把本就
+        // 铺满 view 的逻辑帧边界推出可视区,恰好最需要看边界时反而不可见;这里用不含 scale
+        // 的变换单独描边框,使其始终落在逻辑帧/视口上。
+        if (debugShowCanvasFrame) {
+            val frameSave = beginRotationTransform(canvas, applyScale = false)
+            try {
+                drawDebugCanvasFrame(canvas)
+            } finally {
+                if (frameSave != NO_ROTATION_SAVE) canvas.restoreToCount(frameSave)
+            }
         }
     }
 
@@ -1456,8 +1466,10 @@ internal class AodLyricCanvasView(
     /**
      * 刚性绘制变换:绕视图中心旋转画布坐标系,把竖屏逻辑框整体转成横屏显示。
      * 横屏时叠加 [landscapeTextScale] 对内容做整体缩放。PORTRAIT / 未启用时直接直通。
+     * [applyScale] 为 false 时跳过缩放,只做旋转+平移——用于独立绘制调试边框,
+     * 使其不受全屏缩放影响(issue #44)。
      */
-    private fun beginRotationTransform(canvas: Canvas): Int {
+    private fun beginRotationTransform(canvas: Canvas, applyScale: Boolean): Int {
         if (!rotationEnabled || rotationStep == AodOrientationStep.PORTRAIT) {
             return NO_ROTATION_SAVE
         }
@@ -1476,17 +1488,19 @@ internal class AodLyricCanvasView(
         } else if (rotationStep == AodOrientationStep.REVERSE_LANDSCAPE) {
             canvas.translate(-d, -d)
         }
-        val scale = effectiveLandscapeScale()
-        if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) {
-            canvas.scale(scale, scale, cx, cy)
+        if (applyScale) {
+            val scale = effectiveLandscapeScale()
+            if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) {
+                canvas.scale(scale, scale, cx, cy)
+            }
         }
         return save
     }
 
     /**
      * 调试开关:在画布上描出边界。红色 = 逻辑帧边界(ow×oh),绿色 = 内容裁剪区
-     * (padLeft..clipRight, padTop..clipBottom)。在旋转/缩放变换内绘制,直线始终
-     * 落在画布实际渲染坐标系上,便于核对横屏布局(issue #41 等)。
+     * (padLeft..clipRight, padTop..clipBottom)。用不含 scale 的旋转+平移变换绘制,
+     * 不受全屏缩放影响(issue #44)——缩放时内容放大,边框仍恒定落在逻辑帧/视口上。
      */
     private fun drawDebugCanvasFrame(canvas: Canvas) {
         if (!debugShowCanvasFrame) return
