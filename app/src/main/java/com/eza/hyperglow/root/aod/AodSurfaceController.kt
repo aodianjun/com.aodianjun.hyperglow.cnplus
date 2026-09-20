@@ -1870,12 +1870,18 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             shiftedLeft + placedWidth,
             placed?.bottom?.roundToInt() ?: 0
         )
-        val rect = avoidStockClockOverlap(
-            placedRect,
-            physicalClockBounds,
-            margin,
-            root.height
-        )
+        // 自定义位置由用户通过 verticalBias 主动设定(全屏画布)。此模式下歌词应无视系统时钟的
+        // 下移,固定在用户选择的位置,不做硬避让("自定义位置"即用户已按自身喜好摆放)。
+        val rect = if (profile.anchor == "custom_vertical_bias") {
+            placedRect
+        } else {
+            avoidStockClockOverlap(
+                placedRect,
+                physicalClockBounds,
+                margin,
+                root.height
+            )
+        }
         if (rect.width <= 0 || rect.height <= 0) {
             failClosedLayout(
                 directSurface,
