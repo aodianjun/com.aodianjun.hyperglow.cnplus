@@ -1048,6 +1048,7 @@ internal class AodLyricCanvasView(
     private var landscapeTextScale = 1f
     private var landscapeAnchor = 0.5f
     private var landscapeFullscreen = false
+    private var debugShowCanvasFrame = false
     private var paddingPortraitXPercent = DEFAULT_CANVAS_PADDING_PERCENT
     private var paddingPortraitYPercent = DEFAULT_CANVAS_PADDING_PERCENT
     private var paddingLandscapeXPercent = DEFAULT_CANVAS_PADDING_PERCENT
@@ -1135,6 +1136,16 @@ internal class AodLyricCanvasView(
     }
     private val rubyPaint = paint(11f, 0xB3FFFFFF.toInt(), Typeface.NORMAL).apply {
         textAlign = Paint.Align.CENTER
+    }
+    private val debugFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xAAFF5252.toInt() // 画布边界(逻辑帧 ow×oh)
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
+    }
+    private val debugClipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xAA4CAF50.toInt() // 内容裁剪区
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
     }
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
@@ -1274,6 +1285,7 @@ internal class AodLyricCanvasView(
         landscapeTextScale: Float,
         landscapeAnchor: Float,
         landscapeFullscreen: Boolean,
+        debugShowCanvasFrame: Boolean,
         paddingPortraitXPercent: Float,
         paddingPortraitYPercent: Float,
         paddingLandscapeXPercent: Float,
@@ -1284,6 +1296,7 @@ internal class AodLyricCanvasView(
             this.landscapeTextScale != landscapeTextScale ||
             this.landscapeAnchor != landscapeAnchor ||
             this.landscapeFullscreen != landscapeFullscreen ||
+            this.debugShowCanvasFrame != debugShowCanvasFrame ||
             this.paddingPortraitXPercent != paddingPortraitXPercent ||
             this.paddingPortraitYPercent != paddingPortraitYPercent ||
             this.paddingLandscapeXPercent != paddingLandscapeXPercent ||
@@ -1293,6 +1306,7 @@ internal class AodLyricCanvasView(
         this.landscapeTextScale = landscapeTextScale
         this.landscapeAnchor = landscapeAnchor
         this.landscapeFullscreen = landscapeFullscreen
+        this.debugShowCanvasFrame = debugShowCanvasFrame
         this.paddingPortraitXPercent = paddingPortraitXPercent
         this.paddingPortraitYPercent = paddingPortraitYPercent
         this.paddingLandscapeXPercent = paddingLandscapeXPercent
@@ -1393,6 +1407,7 @@ internal class AodLyricCanvasView(
         val rotationSave = beginRotationTransform(canvas)
         try {
             drawOrientedContent(canvas)
+            drawDebugCanvasFrame(canvas)
         } finally {
             if (rotationSave != NO_ROTATION_SAVE) canvas.restoreToCount(rotationSave)
         }
@@ -1466,6 +1481,23 @@ internal class AodLyricCanvasView(
             canvas.scale(scale, scale, cx, cy)
         }
         return save
+    }
+
+    /**
+     * 调试开关:在画布上描出边界。红色 = 逻辑帧边界(ow×oh),绿色 = 内容裁剪区
+     * (padLeft..clipRight, padTop..clipBottom)。在旋转/缩放变换内绘制,直线始终
+     * 落在画布实际渲染坐标系上,便于核对横屏布局(issue #41 等)。
+     */
+    private fun drawDebugCanvasFrame(canvas: Canvas) {
+        if (!debugShowCanvasFrame) return
+        canvas.drawRect(0f, 0f, ow.toFloat(), oh.toFloat(), debugFramePaint)
+        canvas.drawRect(
+            padLeft.toFloat(),
+            padTop.toFloat(),
+            (ow - padRight).toFloat(),
+            (oh - padBottom).toFloat(),
+            debugClipPaint
+        )
     }
 
     private fun drawOrientedContent(canvas: Canvas) {

@@ -1387,6 +1387,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val anchorLandscape = snapshot?.aodCanvasAnchorLandscape ?: 0.5f
         val textScale = snapshot?.aodLandscapeTextScale ?: 1f
         val fullscreen = snapshot?.aodLandscapeFullscreen == true
+        val debugShowCanvasFrame = snapshot?.aodDebugShowCanvasFrame == true
         val padPX = snapshot?.aodCanvasPaddingPortraitXPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
         val padPY = snapshot?.aodCanvasPaddingPortraitYPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
         val padLX = snapshot?.aodCanvasPaddingLandscapeXPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
@@ -1400,6 +1401,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             landscapeTextScale = textScale,
             landscapeAnchor = anchorLandscape,
             landscapeFullscreen = fullscreen,
+            debugShowCanvasFrame = debugShowCanvasFrame,
             paddingPortraitXPercent = padPX,
             paddingPortraitYPercent = padPY,
             paddingLandscapeXPercent = padLX,

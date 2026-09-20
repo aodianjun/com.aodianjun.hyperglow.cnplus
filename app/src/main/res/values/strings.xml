@@ -186,6 +186,9 @@
     <string name="setting_aod_landscape_fullscreen">Full-screen lyrics in landscape</string>
     <string name="summary_aod_landscape_fullscreen">While rotated to landscape, center the lyric block and automatically scale it up to fill the screen without overflowing.</string>
 
+    <string name="setting_aod_debug_show_canvas_frame">Show AOD canvas frame (debug)</string>
+    <string name="summary_aod_debug_show_canvas_frame">Draw the canvas boundary (red) and content area (green) on the AOD for layout debugging. Turn off after debugging.</string>
+
     <string name="section_lockscreen_behavior">Lock screen behavior</string>
     <string name="setting_keep_lockscreen_awake">Keep lock screen awake</string>
     <string name="summary_keep_lockscreen_awake">Uses more battery.</string>

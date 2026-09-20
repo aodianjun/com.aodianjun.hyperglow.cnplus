@@ -69,6 +69,7 @@ internal data class AodStateWireSnapshot(
     val aodLandscapeTextScale: Float,
     val aodLandscapeHideStock: Boolean,
     val aodLandscapeFullscreen: Boolean,
+    val aodDebugShowCanvasFrame: Boolean = false,
     val aodCanvasPaddingPortraitXPercent: Float,
     val aodCanvasPaddingPortraitYPercent: Float,
     val aodCanvasPaddingLandscapeXPercent: Float,
@@ -279,6 +280,7 @@ internal object AodStateWireCodec {
                 output.writeFloat(snapshot.aodLandscapeTextScale)
                 output.writeStrictBoolean(snapshot.aodLandscapeHideStock)
                 output.writeStrictBoolean(snapshot.aodLandscapeFullscreen)
+                output.writeStrictBoolean(snapshot.aodDebugShowCanvasFrame)
                 output.writeFloat(snapshot.aodCanvasPaddingPortraitXPercent)
                 output.writeFloat(snapshot.aodCanvasPaddingPortraitYPercent)
                 output.writeFloat(snapshot.aodCanvasPaddingLandscapeXPercent)
@@ -370,6 +372,7 @@ internal object AodStateWireCodec {
             val aodLandscapeTextScale = input.readFloat()
             val aodLandscapeHideStock = input.readStrictBoolean() ?: return null
             val aodLandscapeFullscreen = input.readStrictBoolean() ?: return null
+            val aodDebugShowCanvasFrame = input.readStrictBoolean() ?: return null
             val aodCanvasPaddingPortraitXPercent = input.readFloat()
             val aodCanvasPaddingPortraitYPercent = input.readFloat()
             val aodCanvasPaddingLandscapeXPercent = input.readFloat()
@@ -488,6 +491,7 @@ internal object AodStateWireCodec {
                 aodLandscapeTextScale = aodLandscapeTextScale,
                 aodLandscapeHideStock = aodLandscapeHideStock,
                 aodLandscapeFullscreen = aodLandscapeFullscreen,
+                aodDebugShowCanvasFrame = aodDebugShowCanvasFrame,
                 aodCanvasPaddingPortraitXPercent = aodCanvasPaddingPortraitXPercent,
                 aodCanvasPaddingPortraitYPercent = aodCanvasPaddingPortraitYPercent,
                 aodCanvasPaddingLandscapeXPercent = aodCanvasPaddingLandscapeXPercent,
