@@ -87,20 +87,31 @@ internal fun shouldLogDrawWakePulseResult(
 
 private const val BRIGHT_LINKAGE_CLOCK_RESERVE_FRACTION = 0.35f
 
+/**
+ * zone 翻转滞回的相对阈值:CLOCK_TOP↔CLOCK_BOTTOM 的可用空间差须超过该比例,才允许翻转。
+ * 避免系统时钟在自由空间几乎相等的临界点附近微移时,导致画布在全高与"一条"之间反复跳动
+ * (issue #46)。值按根高比例计算,吸收临界抖动,同时允许真实、显著的下移触发切换。
+ */
+private const val AOD_ZONE_FLIP_HYSTERESIS_FRACTION = 0.10f
+
 internal fun resolveRenderedAodSceneZone(
     managedZone: AodSceneZone,
     renderedBounds: AodRenderedClockBounds?,
     rootHeight: Int,
-    margin: Int
+    margin: Int,
+    hysteresis: Int = 0
 ): AodSceneZone {
     if (managedZone == AodSceneZone.STOCK || renderedBounds == null ||
         renderedBounds.height <= 0 || rootHeight <= 0
     ) return managedZone
     val freeAbove = (renderedBounds.top - margin).coerceAtLeast(0)
     val freeBelow = (rootHeight - renderedBounds.bottom - margin).coerceAtLeast(0)
+    // 滞回(hysteresis):在临界点附近,必须让一侧可用空间明显超过另一侧(超过阈值)才翻转 zone。
+    // 没有滞回时,系统时钟在 freeAbove≈freeBelow 处微小移动即可令 CLOCK_TOP↔CLOCK_BOTTOM 反复
+    // 翻转,可用画布在全高与"一条"之间骤变,导致歌词跳变到屏幕另一处(issue #46)。
     return when {
-        freeAbove > freeBelow -> AodSceneZone.CLOCK_BOTTOM
-        freeBelow > freeAbove -> AodSceneZone.CLOCK_TOP
+        freeAbove - freeBelow > hysteresis -> AodSceneZone.CLOCK_BOTTOM
+        freeBelow - freeAbove > hysteresis -> AodSceneZone.CLOCK_TOP
         else -> managedZone
     }
 }
@@ -1758,7 +1769,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 AodSceneZone.CLOCK_TOP,
                 effectiveClockBounds,
                 root.height,
-                margin
+                margin,
+                (root.height * AOD_ZONE_FLIP_HYSTERESIS_FRACTION).toInt()
             )
         } else if (controlledClockTop != null && controlledClockBottom != null &&
             sceneZone != AodSceneZone.STOCK
@@ -1769,7 +1781,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 sceneZone,
                 effectiveClockBounds,
                 root.height,
-                margin
+                margin,
+                (root.height * AOD_ZONE_FLIP_HYSTERESIS_FRACTION).toInt()
             )
         }
         val profile = currentAodProfile()
