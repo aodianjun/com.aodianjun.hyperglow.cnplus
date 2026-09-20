@@ -359,6 +359,59 @@ class AodPositionUpdateTest {
     }
 
     @Test
+    fun zoneUsesHysteresisSoAClockMarginMoveDoesNotFlipTheLayout() {
+        // root=2400, margin=24, hysteresis=240。先用无滞回调用确认严格比较下这些边界判定不变。
+        // 滞回吸收临界点附近的微移,避免 CLOCK_TOP↔CLOCK_BOTTOM 反复翻转、画布在全高与一条
+        // 之间骤变(issue #46)。
+
+        // CLOCK_TOP(时钟偏上、下方空间大):当时钟略微下移使空间差落在滞回带内时,维持不翻转。
+        // 无滞回时该空间差(freeBelow-freeAbove=172)已可触发 CLOCK_TOP;有滞回(需>240)则保持 managed。
+        assertEquals(
+            AodSceneZone.CLOCK_TOP,
+            resolveRenderedAodSceneZone(
+                AodSceneZone.CLOCK_TOP,
+                AodRenderedClockBounds(1024, 1204),
+                rootHeight = 2400,
+                margin = 24,
+                hysteresis = 240
+            )
+        )
+        // 时钟继续显著下移,下方空间被边缘化(freeAbove-freeBelow=424 > 240)=> 翻转到 CLOCK_BOTTOM。
+        assertEquals(
+            AodSceneZone.CLOCK_BOTTOM,
+            resolveRenderedAodSceneZone(
+                AodSceneZone.CLOCK_TOP,
+                AodRenderedClockBounds(1280, 1544),
+                rootHeight = 2400,
+                margin = 24,
+                hysteresis = 240
+            )
+        )
+        // 边界例:freeAbove-freeBelow=24(接近 0)。有滞回(240)时不翻转,保持 managed=CLOCK_TOP;
+        // 默认 hysteresis=0 时则按旧严格比较翻转到 CLOCK_BOTTOM。
+        assertEquals(
+            AodSceneZone.CLOCK_TOP,
+            resolveRenderedAodSceneZone(
+                AodSceneZone.CLOCK_TOP,
+                AodRenderedClockBounds(1200, 1224),
+                rootHeight = 2400,
+                margin = 24,
+                hysteresis = 240
+            )
+        )
+        assertEquals(
+            AodSceneZone.CLOCK_BOTTOM,
+            resolveRenderedAodSceneZone(
+                AodSceneZone.CLOCK_TOP,
+                AodRenderedClockBounds(1200, 1224),
+                rootHeight = 2400,
+                margin = 24,
+                hysteresis = 0
+            )
+        )
+    }
+
+    @Test
     fun renderedClockNeverOverridesManagedTarget() {
         assertEquals(
             AodRenderedClockBounds(120, 420),
