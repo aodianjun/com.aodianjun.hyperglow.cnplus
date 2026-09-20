@@ -956,6 +956,18 @@ internal fun fullscreenAutoScale(
     return (availableHeight / contentHeight * fillRatio).coerceIn(minScale, maxScale)
 }
 
+/**
+ * 横屏全屏的垂直居中偏移:把垂直占 [preOffsetTop, preOffsetTop + blockHeight] 的内容块,
+ * 在可用高度 [padTop, padTop + availableHeight] 内整体居中。返回需叠加到每行 baseline 的偏移;
+ * 内容块高于可用区间时不缩小、也不再上移(保持原顶部,避免裁切)。
+ */
+internal fun fullscreenBlockCenterOffset(
+    blockTop: Float,
+    blockHeight: Float,
+    availableHeight: Float,
+    padTop: Float
+): Float = max(0f, (availableHeight - blockHeight) / 2f) - (blockTop - padTop)
+
 private fun steadyTextAlpha(factor: Float): Float = if (factor < 0.5f) {
     max(0.35f * AOD_DIMMING_BOOST, 0.55f)
 } else {
@@ -1071,6 +1083,13 @@ internal class AodLyricCanvasView(
             padRight = layout.padRight
             padTop = layout.padTop
             padBottom = layout.padBottom
+            // issue #41 诊断:记录横屏逻辑帧参数,便于真机核对宽高交换/padding 是否符合预期。
+            val key = "$width x $height s=$rotationStep f=$landscapeFullscreen " +
+                "ow=$ow oh=$oh pL=$padLeft pT=$padTop pR=$padRight pB=$padBottom"
+            if (key != lastLandscapeFrameKey) {
+                lastLandscapeFrameKey = key
+                HookLogger.i("AodLyricCanvasView", "Landscape frame: $key")
+            }
         } else {
             ow = width
             oh = height
@@ -1082,6 +1101,8 @@ internal class AodLyricCanvasView(
     }
 
     private var invalidClipRectWarned = false
+    private var lastCenteredLogKey = ""
+    private var lastLandscapeFrameKey = ""
 
     /**
      * 裁剪防呆:padding 异常(left>=right 或 top>=bottom)会让 clipRect 变成空矩形,
@@ -1876,6 +1897,9 @@ internal class AodLyricCanvasView(
                 top += row.height
             }
         }
+        // issue #41:横屏全屏时元数据分支走 anchor 排版,会把整块锚到 padTop/padBottom,
+        // 完全不做居中(居中只在无元数据分支生效)。这里对整块(元数据+歌词)统一居中。
+        if (metadata != null) centerFullscreenMetadataBlock(positioned)
         val original = positioned.firstOrNull { it.row.kind == RowKind.ORIGINAL }
         val firstLine = originalLayout.lines.firstOrNull()
         if (original == null || firstLine == null || firstLine.rubyHeight <= 0f) return positioned
@@ -1884,6 +1908,45 @@ internal class AodLyricCanvasView(
         val shift = rubyTopShift(top, paddingTop.toFloat())
         return if (shift == 0f) positioned else positioned.map {
             if (it.row.kind == RowKind.METADATA) it else it.copy(baseline = it.baseline + shift)
+        }
+    }
+
+    /**
+     * issue #41:横屏全屏(rotation+landscape fullscreen)时把整块(元数据+歌词)垂直居中。
+     * 该分支此前只用 metadataAnchor 锚定到 padTop/padBottom,完全不做居中——而无元数据
+     * 分支经 effectiveVerticalAlignment()=CENTER 会居中,导致有元数据时不居中、挤向画布一侧。
+     * 仅在全屏横屏激活时生效(需自适应 scale 也读完预缩放布局),竖屏/普通横屏不受影响。
+     */
+    private fun centerFullscreenMetadataBlock(positioned: MutableList<PositionedRow>) {
+        if (!fullscreenLandscapeActive() || positioned.isEmpty()) return
+        var minTop = Float.POSITIVE_INFINITY
+        var maxBottom = Float.NEGATIVE_INFINITY
+        positioned.forEach { p ->
+            val top = p.baseline + p.row.paint.fontMetrics.ascent
+            val bottom = p.baseline + p.row.height
+            if (top < minTop) minTop = top
+            if (bottom > maxBottom) maxBottom = bottom
+        }
+        if (!minTop.isFinite() || !maxBottom.isFinite() || maxBottom <= minTop) return
+        val available = (oh - padTop - padBottom).coerceAtLeast(0)
+        val blockHeight = maxBottom - minTop
+        val offset = fullscreenBlockCenterOffset(
+            blockTop = minTop,
+            blockHeight = blockHeight,
+            availableHeight = available.toFloat(),
+            padTop = padTop.toFloat()
+        )
+        if (offset == 0f) return
+        val shifted = positioned.map { it.copy(baseline = it.baseline + offset) }
+        positioned.clear()
+        positioned.addAll(shifted)
+        if (lastCenteredLogKey != offset.toString()) {
+            lastCenteredLogKey = offset.toString()
+            HookLogger.i(
+                "AodLyricCanvasView",
+                "Landscape fullscreen metadata block centered minTop=$minTop " +
+                    "blockH=$blockHeight avail=$available offset=$offset"
+            )
         }
     }
 
