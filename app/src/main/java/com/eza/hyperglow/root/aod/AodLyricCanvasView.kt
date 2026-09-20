@@ -1104,6 +1104,9 @@ internal class AodLyricCanvasView(
     private var invalidClipRectWarned = false
     private var lastCenteredLogKey = ""
     private var lastLandscapeFrameKey = ""
+    private var lastAutoScaleLogKey = ""
+    private var lastRowLayoutLogKey = ""
+    private var lastTransformLogKey = ""
 
     /**
      * 裁剪防呆:padding 异常(left>=right 或 top>=bottom)会让 clipRect 变成空矩形,
@@ -1448,13 +1451,22 @@ internal class AodLyricCanvasView(
         val bounds = verticalBounds(layout) ?: return landscapeTextScale
         val contentHeight = (bounds.bottom - bounds.top).coerceAtLeast(1f)
         val availableHeight = ((oh - padTop - padBottom).toFloat()).coerceAtLeast(1f)
-        return fullscreenAutoScale(
+        val scale = fullscreenAutoScale(
             contentHeight = contentHeight,
             availableHeight = availableHeight,
             fillRatio = FULLSCREEN_FILL_RATIO,
             minScale = FULLSCREEN_MIN_SCALE,
             maxScale = FULLSCREEN_MAX_SCALE
         )
+        // issue #41/#44:记录横屏全屏自适应缩放的实际输入输出,便于真机核对
+        // contentHeight 是否过大(导致被钳到下限)、availableHeight 与缩放枢轴是否一致。
+        val key = "rot=$rotationStep c=${contentHeight.roundToInt()} " +
+            "a=${availableHeight.roundToInt()} s=$scale"
+        if (key != lastAutoScaleLogKey) {
+            lastAutoScaleLogKey = key
+            HookLogger.i("AodLyricCanvasView", "Landscape auto-scale: $key")
+        }
+        return scale
     }
 
     /**
@@ -1490,6 +1502,14 @@ internal class AodLyricCanvasView(
         }
         if (applyScale) {
             val scale = effectiveLandscapeScale()
+            // issue #41/#44:记录旋转/平移/缩放参数,便于真机核对「居中基准(oh)」与
+            // 「缩放枢轴(view 中心 cx,cy)」是否一致、平移量 d 的方向量级是否正确。
+            val key = "rot=$rotationStep w=$width h=$height d=$d scale=$scale " +
+                "fs=${fullscreenLandscapeActive()}"
+            if (key != lastTransformLogKey) {
+                lastTransformLogKey = key
+                HookLogger.i("AodLyricCanvasView", "Landscape transform: $key")
+            }
             if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) {
                 canvas.scale(scale, scale, cx, cy)
             }
@@ -1946,6 +1966,26 @@ internal class AodLyricCanvasView(
         // issue #41:横屏全屏时元数据分支走 anchor 排版,会把整块锚到 padTop/padBottom,
         // 完全不做居中(居中只在无元数据分支生效)。这里对整块(元数据+歌词)统一居中。
         if (metadata != null) centerFullscreenMetadataBlock(positioned)
+        // issue #41/#44:记录横屏整块(元数据+歌词)的最终占位范围与对齐方式,便于真机核对
+        // 内容是否被正确居中、是否偏靠一侧/越界被裁。
+        if (fullscreenLandscapeActive()) {
+            var minTop = Float.POSITIVE_INFINITY
+            var maxBottom = Float.NEGATIVE_INFINITY
+            positioned.forEach { p ->
+                val t = p.baseline + p.row.paint.fontMetrics.ascent
+                val b = p.baseline + p.row.height
+                if (t < minTop) minTop = t
+                if (b > maxBottom) maxBottom = b
+            }
+            val key = "rot=$rotationStep ow=$ow oh=$oh" +
+                if (metadata != null) " md=1" else " md=0" +
+                " block=${minTop.roundToInt()}..${maxBottom.roundToInt()} " +
+                "align=${effectiveVerticalAlignment()}"
+            if (key != lastRowLayoutLogKey) {
+                lastRowLayoutLogKey = key
+                HookLogger.i("AodLyricCanvasView", "Landscape row layout: $key")
+            }
+        }
         val original = positioned.firstOrNull { it.row.kind == RowKind.ORIGINAL }
         val firstLine = originalLayout.lines.firstOrNull()
         if (original == null || firstLine == null || firstLine.rubyHeight <= 0f) return positioned
