@@ -103,7 +103,9 @@ data class AodRenderConfig(
      */
     val aodBrightnessOverride: Boolean = false,
     /** 自定义 AOD 亮度(10-255),仅当 [aodBrightnessOverride] 为 true 时生效。 */
-    val aodBrightnessLevel: Int = DEFAULT_AOD_BRIGHTNESS_LEVEL
+    val aodBrightnessLevel: Int = DEFAULT_AOD_BRIGHTNESS_LEVEL,
+    /** 调试开关:在 AOD 画布上描出画布边界(逻辑帧 ow×oh)与内容裁剪区,便于核对布局。 */
+    val aodDebugShowCanvasFrame: Boolean = false
 ) {
     companion object {
         /** 出厂默认配置;备份解码时用于逐字段回退缺失/类型错误的值。 */
@@ -306,6 +308,7 @@ object AodRenderPreferences {
     const val AOD_CANVAS_PADDING_PORTRAIT_Y_PERCENT = "aod_canvas_padding_portrait_y_percent"
     const val AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT = "aod_canvas_padding_landscape_x_percent"
     const val AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT = "aod_canvas_padding_landscape_y_percent"
+    const val AOD_DEBUG_SHOW_CANVAS_FRAME = "aod_debug_show_canvas_frame"
 
     // SharedPreferences throws ClassCastException when an older/imported value has the wrong
     // primitive type. Treat malformed entries as missing so a bad setting cannot crash startup.
@@ -402,7 +405,8 @@ object AodRenderPreferences {
             ),
             prefs.safeBoolean(AOD_BRIGHTNESS_OVERRIDE, false),
             prefs.safeInt(AOD_BRIGHTNESS_LEVEL, DEFAULT_AOD_BRIGHTNESS_LEVEL)
-                .coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS)
+                .coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS),
+            prefs.safeBoolean(AOD_DEBUG_SHOW_CANVAS_FRAME, false)
         ).also { cachedConfig = it }
     }
 

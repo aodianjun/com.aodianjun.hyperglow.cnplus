@@ -408,6 +408,7 @@ private fun HomeScreen(
     var suppressStockAodContent by remember { mutableStateOf(initialConfig.suppressStockAodContent) }
     var aodLandscapeHideStock by remember { mutableStateOf(initialConfig.aodLandscapeHideStock) }
     var aodLandscapeFullscreen by remember { mutableStateOf(initialConfig.aodLandscapeFullscreen) }
+    var aodDebugShowCanvasFrame by remember { mutableStateOf(initialConfig.aodDebugShowCanvasFrame) }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
@@ -1050,6 +1051,20 @@ private fun HomeScreen(
                                     stringResource(R.string.setting_aod_landscape_fullscreen),
                                     summary = stringResource(
                                         R.string.summary_aod_landscape_fullscreen
+                                    )
+                                )
+                                SwitchPreference(
+                                    aodDebugShowCanvasFrame,
+                                    { enabled ->
+                                        prefs.edit().putBoolean(
+                                            AodRenderPreferences.AOD_DEBUG_SHOW_CANVAS_FRAME,
+                                            enabled
+                                        ).apply()
+                                        aodDebugShowCanvasFrame = enabled
+                                    },
+                                    stringResource(R.string.setting_aod_debug_show_canvas_frame),
+                                    summary = stringResource(
+                                        R.string.summary_aod_debug_show_canvas_frame
                                     )
                                 )
                             }
