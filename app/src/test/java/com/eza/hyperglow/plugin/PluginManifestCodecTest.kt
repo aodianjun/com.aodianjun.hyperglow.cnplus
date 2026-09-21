@@ -1,4 +1,4 @@
-package com.eza.hyperglow.plugin
+﻿package com.eza.hyperglow.plugin
 
 import com.lidesheng.hyperlyric.plugin.api.PluginSettingInputType
 import com.lidesheng.hyperlyric.plugin.api.PluginSettingType
@@ -83,4 +83,37 @@ class PluginManifestCodecTest {
         assertNotNull(manifest)
         assertTrue(manifest!!.validate().orEmpty().contains("unknown setting type"))
     }
+
+    @Test
+    fun manifestUsingInternalPropertyNamesIsRejected() {
+        // wire 名才是线上契约："typeWire" 是未知字段被忽略，settings 的 type 缺失，
+        // typeWire 兜底为 null，整包仍可解析、由 validate() 给出明确拒绝信息
+        // （而不是让 decode 静默产出半个 manifest 或直接吞异常返回 null）。
+        val internalNamed = realisticManifest.replace(
+            "\"type\": \"switch\"",
+            "\"typeWire\": \"switch\""
+        )
+
+        val manifest = PluginManifestCodec.decode(internalNamed)
+
+        assertNotNull(manifest)
+        assertNull(manifest!!.settings[0].typeWire)
+        assertEquals("unknown setting type: null", manifest.validate())
+    }
+
+    @Test
+    fun unknownWireTypeValueSurfacesThroughValidate() {
+        // 未知 type 值同样不炸解析：typeWire 原样保留、type 枚举为 null，
+        // validate() 必须把原始值报出来，方便插件作者定位拼写错误。
+        val unknownType = realisticManifest.replace(
+            "\"type\": \"switch\"",
+            "\"type\": \"magicToggle\""
+        )
+
+        val manifest = PluginManifestCodec.decode(unknownType)
+
+        assertNotNull(manifest)
+        assertEquals("unknown setting type: magicToggle", manifest!!.validate())
+    }
 }
+
