@@ -957,6 +957,55 @@ internal fun fullscreenAutoScale(
 }
 
 /**
+ * 横屏全屏化放缩的长轴上限(纯函数):短轴填充驱动的缩放同时作用于长轴,
+ * 内容最长行放大后不得超出可用逻辑宽度,否则行两端被裁出画布(issue #51)。
+ * 内容为空/非法输入时不设限(返回 [maxScale]);行已占满时钳到 [minScale],不缩小。
+ */
+internal fun fullscreenWidthCapScale(
+    maxLineWidth: Float,
+    availableWidth: Float,
+    minScale: Float,
+    maxScale: Float
+): Float {
+    if (maxLineWidth <= 0f || availableWidth <= 0f) return maxScale
+    return (availableWidth / maxLineWidth).coerceIn(minScale, maxScale)
+}
+
+/** 横屏全屏化放缩决议:最终倍数 + 长轴上限 + 溢出轴自检(none/h/w)。 */
+internal data class FullscreenScaleDecision(
+    val scale: Float,
+    val widthCap: Float,
+    val overflowAxes: String
+)
+
+/**
+ * 横屏全屏化自适应放缩(纯函数):短轴按 [fillRatio] 铺满 [availableHeight],再以
+ * [fullscreenWidthCapScale] 限制长轴,保证放大后的内容仍落在画布内(issue #51)。
+ * [FullscreenScaleDecision.overflowAxes] 供日志自检:放大后 contentHeight 超
+ * availableHeight 记 'h',maxLineWidth 超 availableWidth 记 'w',均未越界为 "none"。
+ */
+internal fun resolveFullscreenLandscapeScale(
+    contentHeight: Float,
+    availableHeight: Float,
+    maxLineWidth: Float,
+    availableWidth: Float,
+    fillRatio: Float,
+    minScale: Float,
+    maxScale: Float
+): FullscreenScaleDecision {
+    val heightDriven = fullscreenAutoScale(
+        contentHeight, availableHeight, fillRatio, minScale, maxScale
+    )
+    val widthCap = fullscreenWidthCapScale(maxLineWidth, availableWidth, minScale, maxScale)
+    val scale = minOf(heightDriven, widthCap)
+    val overflow = buildString {
+        if (contentHeight * scale > availableHeight + 1f) append('h')
+        if (maxLineWidth * scale > availableWidth + 1f) append('w')
+    }
+    return FullscreenScaleDecision(scale, widthCap, overflow.ifEmpty { "none" })
+}
+
+/**
  * 横屏全屏的垂直居中偏移:把垂直占 [preOffsetTop, preOffsetTop + blockHeight] 的内容块,
  * 在可用高度 [padTop, padTop + availableHeight] 内整体居中。返回需叠加到每行 baseline 的偏移;
  * 内容块高于可用区间时不缩小、也不再上移(保持原顶部,避免裁切)。
@@ -1444,29 +1493,48 @@ internal class AodLyricCanvasView(
 
     /**
      * 横屏全屏化的自适应放缩比:按当前内容实际占高([verticalBounds])计算一个尽量铺满
-     * 但又不超过可用高度(不越界)的倍数,避免单行歌词被放得过大溢出。钳制在
+     * 但又不超过可用高度(不越界)的倍数,避免单行歌词被放得过大溢出;再以最长行宽限制
+     * 长轴,保证放大后整行仍在画布内(issue #51)。钳制在
      * [FULLSCREEN_MIN_SCALE]..[FULLSCREEN_MAX_SCALE],内容已铺满时不再缩小。
      */
     private fun computeFullscreenAutoScale(): Float {
         val bounds = verticalBounds(layout) ?: return landscapeTextScale
         val contentHeight = (bounds.bottom - bounds.top).coerceAtLeast(1f)
         val availableHeight = ((oh - padTop - padBottom).toFloat()).coerceAtLeast(1f)
-        val scale = fullscreenAutoScale(
+        // 长轴输入:最长行宽与可用逻辑宽。行按 available 换行,故 maxLineWidth <= ow,
+        // widthCap 不会把内容缩小;它只在短轴填充倍数会让长行两端越界时介入。
+        val maxLineWidth = widestContentLineWidth(layout)
+        val availableWidth = ((ow - padLeft - padRight).toFloat()).coerceAtLeast(1f)
+        val decision = resolveFullscreenLandscapeScale(
             contentHeight = contentHeight,
             availableHeight = availableHeight,
+            maxLineWidth = maxLineWidth,
+            availableWidth = availableWidth,
             fillRatio = FULLSCREEN_FILL_RATIO,
             minScale = FULLSCREEN_MIN_SCALE,
             maxScale = FULLSCREEN_MAX_SCALE
         )
-        // issue #41/#44:记录横屏全屏自适应缩放的实际输入输出,便于真机核对
-        // contentHeight 是否过大(导致被钳到下限)、availableHeight 与缩放枢轴是否一致。
+        // issue #41/#44/#51:记录横屏全屏自适应缩放的实际输入输出,便于真机核对
+        // contentHeight 与 maxLineWidth 是否越界(of=none/h/w)、缩放结果是否被长轴上限截断。
         val key = "rot=$rotationStep c=${contentHeight.roundToInt()} " +
-            "a=${availableHeight.roundToInt()} s=$scale"
+            "a=${availableHeight.roundToInt()} s=${decision.scale} " +
+            "lw=${maxLineWidth.roundToInt()} aw=${availableWidth.roundToInt()} " +
+            "cap=${decision.widthCap} of=${decision.overflowAxes}"
         if (key != lastAutoScaleLogKey) {
             lastAutoScaleLogKey = key
             HookLogger.i("AodLyricCanvasView", "Landscape auto-scale: $key")
         }
-        return scale
+        return decision.scale
+    }
+
+    /** 当前布局中最长行的逻辑宽度(原文/副行/元数据取最大),用于全屏放缩的长轴上限。 */
+    private fun widestContentLineWidth(state: LayoutState): Float {
+        var maxWidth = 0f
+        state.original.lines.forEach { line -> maxWidth = maxOf(maxWidth, line.width) }
+        state.rows.forEach { positioned ->
+            positioned.row.lines.forEach { line -> maxWidth = maxOf(maxWidth, line.width) }
+        }
+        return maxWidth
     }
 
     /**
@@ -2857,9 +2925,13 @@ internal class AodLyricCanvasView(
         visualLeft: Float = 0f,
         visualRight: Float = textWidth
     ): Float = edgeSafeAlignedStart(
-        canvasWidth = width.toFloat(),
-        paddingLeft = paddingLeft.toFloat(),
-        paddingRight = paddingRight.toFloat(),
+        // 对齐基准必须是逻辑帧(ow/padLeft/padRight):横屏时 ow=视口高、pad 为逻辑内边距,
+        // startX 落在逻辑坐标系(0..ow)里;若误用视口宽 width,长行居中会得到负坐标,
+        // 经 beginRotationTransform 的 rotate+scale 后整行移出可视区(issue #51:
+        // 横屏全屏歌词不可见)。竖屏时 ow==width、padLeft==paddingLeft,行为不变。
+        canvasWidth = ow.toFloat(),
+        paddingLeft = padLeft.toFloat(),
+        paddingRight = padRight.toFloat(),
         visualLeft = visualLeft,
         visualRight = visualRight,
         alignment = when (lineAlignment) {
