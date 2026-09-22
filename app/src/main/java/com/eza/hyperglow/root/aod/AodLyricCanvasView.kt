@@ -1666,7 +1666,7 @@ internal class AodLyricCanvasView(
         if (rotationStep == AodOrientationStep.LANDSCAPE) m.preTranslate(t, t)
         else if (rotationStep == AodOrientationStep.REVERSE_LANDSCAPE) m.preTranslate(-t, -t)
         m.preScale(scale, scale, cx, cy)
-        val clip = lyricClipBounds(clipLeft, clipTop, clipRight, clipBottom)
+        val clip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
         val pts = floatArrayOf(
             clip[0].toFloat(), clip[1].toFloat(),
             clip[2].toFloat(), clip[1].toFloat(),
