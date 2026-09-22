@@ -196,6 +196,33 @@ class AodLandscapeBehaviorTest {
         assertTrue(wrong < 0f)
     }
 
+    // ---- issue #55 横向平移量缩放补偿 ----
+
+    @Test
+    fun compensateRotationTranslateKeepsDeviceShiftEqualToD() {
+        // issue #55:先 translate 再 scale 时平移量 d 会被放大成 d×scale,
+        // 补偿后视觉平移 = scale * (d/scale) = d(恒等于原始平移量),内容不再被推出画布。
+        val d = -747f // 横屏全屏:视口 906x2400,d=(906-2400)/2
+        val scale = 1.7f
+        val compensated = compensateRotationTranslate(d, scale)
+        assertEquals(-439.4f, compensated, 0.001f)
+        assertEquals(d, scale * compensated, 0.001f)
+    }
+
+    @Test
+    fun compensateRotationTranslateScaleOneIsIdentity() {
+        // scale≈1 时不补偿,行为与旧版完全一致(无回归)。
+        assertEquals(-747f, compensateRotationTranslate(-747f, 1f), 0.001f)
+        assertEquals(93f, compensateRotationTranslate(93f, 1f), 0.001f)
+    }
+
+    @Test
+    fun compensateRotationTranslateNonFiniteScaleFallsBackToD() {
+        // 非有限 scale(NaN/Inf)不得除出 NaN,回退为原始平移量。
+        assertEquals(-747f, compensateRotationTranslate(-747f, Float.NaN), 0.001f)
+        assertEquals(-747f, compensateRotationTranslate(-747f, Float.POSITIVE_INFINITY), 0.001f)
+    }
+
     @Test
     fun landscapeLineStaysOnScreenAfterRotationTransform() {
         // 建模 beginRotationTransform(rotate 90° + translate(d,d) + scale(s, 视口中心)):

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Shader
@@ -798,6 +799,14 @@ internal fun aodLandscapeFrameLayout(
     return AodCanvasFrameLayout(frame.ow, frame.oh, padLeft, padRight, padTop, padBottom)
 }
 
+/**
+ * issue #55:横屏旋转平移量的缩放补偿。Canvas 变换为 pre-concat,后施加的 scale 会作用于前面
+ * 已施加的 translate,把平移量 d 放大成 d×scale 再把逻辑框推出画布。解法:按 scale 预除以
+ * 抵消后续缩放,令最终设备平移恒等于 d;scale≈1 时不补偿,行为与旧版完全一致,无回归。
+ */
+internal fun compensateRotationTranslate(d: Float, scale: Float): Float =
+    if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) d / scale else d
+
 internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
     startedAtMs > 0L && nowMs - startedAtMs >= durationMs
 
@@ -1156,6 +1165,7 @@ internal class AodLyricCanvasView(
     private var lastAutoScaleLogKey = ""
     private var lastRowLayoutLogKey = ""
     private var lastTransformLogKey = ""
+    private var lastRotationBoundsKey = ""
 
     /**
      * 裁剪防呆:padding 异常(left>=right 或 top>=bottom)会让 clipRect 变成空矩形,
@@ -1601,26 +1611,83 @@ internal class AodLyricCanvasView(
         }
         // 刚性平移:交换宽高后的逻辑框经 rotate+平移精确铺满竖屏视口。
         val d = (width - height) / 2f
+        val scale = if (applyScale) effectiveLandscapeScale() else 1f
+        val scaled = scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f
+        // issue #55:Canvas 变换是累积的(pre-concat,后调用的 scale 是最外层、作用于前面所有
+        // 已施加的变换),先 translate 再 scale 时,平移量 d 会被 scale 放大成 d×scale,
+        // 把逻辑框推出画布(横屏全屏 d=-747、scale=1.7 → 视觉平移 -1269,内容整屏不可见)。
+        // 解法:平移量按 scale 预除以抵消后续缩放,令最终设备平移恒等于 d;scale=1 时
+        // d/1=d,行为与旧版完全一致,无回归。
+        val t = compensateRotationTranslate(d, scale)
         if (rotationStep == AodOrientationStep.LANDSCAPE) {
-            canvas.translate(d, d)
+            canvas.translate(t, t)
         } else if (rotationStep == AodOrientationStep.REVERSE_LANDSCAPE) {
-            canvas.translate(-d, -d)
+            canvas.translate(-t, -t)
         }
         if (applyScale) {
-            val scale = effectiveLandscapeScale()
             // issue #41/#44:记录旋转/平移/缩放参数,便于真机核对「居中基准(oh)」与
             // 「缩放枢轴(view 中心 cx,cy)」是否一致、平移量 d 的方向量级是否正确。
-            val key = "rot=$rotationStep w=$width h=$height d=$d scale=$scale " +
+            val key = "rot=$rotationStep w=$width h=$height d=$d d'=$t scale=$scale " +
                 "fs=${fullscreenLandscapeActive()}"
             if (key != lastTransformLogKey) {
                 lastTransformLogKey = key
                 HookLogger.i("AodLyricCanvasView", "Landscape transform: $key")
             }
-            if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) {
+            if (scaled) {
                 canvas.scale(scale, scale, cx, cy)
             }
+            // issue #55:自检——把「内容所在(裁剪区)经本变换后的设备包围盒」算出来并校验
+            // 是否落在画布(0,0)-(width,height)内,任何"整屏零输出/越界"都能被日志直接捕获。
+            logRotationTransformBounds(scale = scale, d = d)
         }
         return save
+    }
+
+    /**
+     * issue #55 自检日志:用与 [beginRotationTransform] 完全相同的 pre-concat 顺序重建矩阵
+     * (rotate → translate(t) → scale),把内容裁剪区四个角映射到设备坐标,输出其包围盒及
+     * 是否落在画布 (0,0)-(width,height) 内。当旋转+平移+缩放把内容推出可视区时,这里会
+     * 直接报越界,无需再靠截图或反推日志判断。
+     */
+    private fun logRotationTransformBounds(scale: Float, d: Float) {
+        val scaled = scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f
+        if (!scaled) return // scale=1 时平移不被放大,旧逻辑已稳定,无需自检
+        val cx = width / 2f
+        val cy = height / 2f
+        val t = d / scale
+        // Canvas.rotate/translate/scale 是 pre-concat(后调用为最外层变换),故设备坐标 =
+        // S(scale)·T(translate)·R(rotate)。用 preX 按同样顺序重建镜像矩阵以精确映射逻辑点→设备点。
+        val m = Matrix()
+        when (rotationStep) {
+            AodOrientationStep.LANDSCAPE -> m.setRotate(90f, cx, cy)
+            AodOrientationStep.REVERSE_LANDSCAPE -> m.setRotate(-90f, cx, cy)
+            else -> return
+        }
+        if (rotationStep == AodOrientationStep.LANDSCAPE) m.preTranslate(t, t)
+        else if (rotationStep == AodOrientationStep.REVERSE_LANDSCAPE) m.preTranslate(-t, -t)
+        m.preScale(scale, scale, cx, cy)
+        val clip = lyricClipBounds(clipLeft, clipTop, clipRight, clipBottom)
+        val pts = floatArrayOf(
+            clip[0].toFloat(), clip[1].toFloat(),
+            clip[2].toFloat(), clip[1].toFloat(),
+            clip[2].toFloat(), clip[3].toFloat(),
+            clip[0].toFloat(), clip[3].toFloat()
+        )
+        m.mapPoints(pts)
+        val minX = pts.filterIndexed { i, _ -> i % 2 == 0 }.minOrNull() ?: 0f
+        val maxX = pts.filterIndexed { i, _ -> i % 2 == 0 }.maxOrNull() ?: 0f
+        val minY = pts.filterIndexed { i, _ -> i % 2 == 1 }.minOrNull() ?: 0f
+        val maxY = pts.filterIndexed { i, _ -> i % 2 == 1 }.maxOrNull() ?: 0f
+        val inside = minX >= 0f && maxX <= width.toFloat() &&
+            minY >= 0f && maxY <= height.toFloat()
+        val key = "clip=(${clip[0]},${clip[1]})-(${clip[2]},${clip[3]}) " +
+            "bounds=(${minX.roundToInt()},${minY.roundToInt()})-(" +
+            "${maxX.roundToInt()},${maxY.roundToInt()}) " +
+            "view=${width}x$height inside=$inside"
+        if (key != lastRotationBoundsKey) {
+            lastRotationBoundsKey = key
+            HookLogger.i("AodLyricCanvasView", "Landscape bounds: $key")
+        }
     }
 
     /**
