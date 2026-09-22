@@ -76,7 +76,7 @@
     <string name="summary_plugin_action_install">安裝 HyperLyric 插件包（.zip）。</string>
     <string name="plugin_empty_hint">尚未安裝插件。安裝 HyperLyric 插件包（.zip）以增強歌詞。</string>
     <string name="section_installed_plugins">已安裝插件</string>
-    <string name="plugin_load_failed">載入失敗：%1$s。重新安裝後請重新啟動應用程式。</string>
+    <string name="plugin_load_failed">載入失敗：%1$s</string>
     <string name="plugin_status_inactive">已載入 · 未啟用</string>
     <string name="plugin_status_no_processors">已載入 · 無歌詞處理器</string>
     <string name="plugin_status_processors">已載入 · %1$d 個歌詞處理器</string>

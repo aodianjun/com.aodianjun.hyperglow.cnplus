@@ -77,7 +77,7 @@
     <string name="summary_plugin_action_install">Install a HyperLyric plugin package (.zip).</string>
     <string name="plugin_empty_hint">No plugins installed. Install a HyperLyric plugin package (.zip) to enhance lyrics.</string>
     <string name="section_installed_plugins">Installed plugins</string>
-    <string name="plugin_load_failed">Load failed: %1$s. Restart the app after reinstalling.</string>
+    <string name="plugin_load_failed">Load failed: %1$s</string>
     <string name="plugin_status_inactive">Loaded · inactive</string>
     <string name="plugin_status_no_processors">Loaded · no lyric processors</string>
     <string name="plugin_status_processors">Loaded · %1$d lyric processor(s)</string>

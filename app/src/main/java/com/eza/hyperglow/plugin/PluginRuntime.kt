@@ -1,6 +1,7 @@
 package com.eza.hyperglow.plugin
 
 import android.content.Context
+import android.os.Build
 import com.eza.hyperglow.AppLog
 import com.lidesheng.hyperlyric.plugin.api.HyperLyricExtension
 import com.lidesheng.hyperlyric.plugin.api.HyperLyricPlugin
@@ -10,11 +11,13 @@ import com.lidesheng.hyperlyric.plugin.api.PluginProcessingContext
 import com.lidesheng.hyperlyric.plugin.api.PluginProcessorStage
 import com.lidesheng.hyperlyric.plugin.api.PluginSong
 import com.lidesheng.hyperlyric.plugin.api.PluginSongResult
+import dalvik.system.InMemoryDexClassLoader
 import dalvik.system.PathClassLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import java.nio.ByteBuffer
 
 /**
  * HyperLyric 兼容插件运行时（宿主 = App 进程）。
@@ -194,10 +197,8 @@ object PluginRuntime {
         if (dexFiles.isEmpty()) {
             return LoadedPlugin(manifest, null, null, "no dex files")
         }
-        return runCatching {
-            val dexPath = dexFiles.joinToString(File.pathSeparator) { it.absolutePath }
-            val loader = PathClassLoader(dexPath, javaClass.classLoader)
-            val entryClass = loader.loadClass(manifest.entry)
+        val result = runCatching {
+            val entryClass = loadEntryClass(dexFiles, manifest)
             val instance = entryClass.getDeclaredConstructor().newInstance() as HyperLyricPlugin
             val hostContext = HostPluginContext(
                 context = context,
@@ -209,6 +210,47 @@ object PluginRuntime {
             AppLog.w(TAG, "load failed for ${manifest.id}: ${error.message}")
             LoadedPlugin(manifest, null, null, error.message ?: "load failed")
         }
+        logLoadDiagnostics(manifest.id, dexFiles, result)
+        return result
+    }
+
+    /**
+     * 构造可加载插件入口类的 ClassLoader。优先级：
+     * 1. 磁盘 dex（安装时已置只读）+ [PathClassLoader] —— 正常路径，保留 odex 缓存；
+     * 2. 若主路径被系统以「可写 dex」拒绝（构造或加载阶段抛出，Android 14+/targetSdk≥34
+     *    的防篡改检查），降级 [InMemoryDexClassLoader] 从字节加载，完全绕开可写路径校验——
+     *    适用于只读设置在某 ROM 上仍不被接受的情形。
+     */
+    private fun loadEntryClass(dexFiles: List<File>, manifest: PluginManifest): Class<*> {
+        val dexPath = dexFiles.joinToString(File.pathSeparator) { it.absolutePath }
+        val pathClass = runCatching {
+            PathClassLoader(dexPath, javaClass.classLoader).loadClass(manifest.entry)
+        }.getOrNull()
+        if (pathClass != null) return pathClass
+        AppLog.w(
+            TAG,
+            "path class-loading rejected for ${manifest.id} (writable dex?) → in-memory fallback"
+        )
+        val memoryClass = try {
+            val buffers = dexFiles.map { ByteBuffer.wrap(it.readBytes()) }.toTypedArray()
+            InMemoryDexClassLoader(buffers, javaClass.classLoader).loadClass(manifest.entry)
+        } catch (fallback: Throwable) {
+            AppLog.w(TAG, "in-memory fallback failed for ${manifest.id}: ${fallback.message}")
+            throw fallback
+        }
+        return memoryClass
+    }
+
+    /** 加载诊断：记录 dex 实际路径可见信息（可写性）、API 级别与结果，便于区分平台限制与真正损坏。 */
+    private fun logLoadDiagnostics(id: String, dexFiles: List<File>, result: LoadedPlugin) {
+        val dex = dexFiles.joinToString(", ") {
+            "${it.name}(${if (it.canWrite()) "rw" else "ro"})"
+        }
+        AppLog.i(
+            TAG,
+            "plugin $id loaded=${result.plugin != null} " +
+                "dex=[$dex] sdk=${Build.VERSION.SDK_INT} error=${result.loadError ?: "-"}"
+        )
     }
 
     private const val TAG = "PluginRuntime"
