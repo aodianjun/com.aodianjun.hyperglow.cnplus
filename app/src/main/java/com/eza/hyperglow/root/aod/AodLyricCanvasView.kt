@@ -1485,11 +1485,49 @@ internal class AodLyricCanvasView(
 
     /**
      * 绘制期生效的横屏放缩比。
-     *  - 普通横屏:采用用户横向放缩倍数 [landscapeTextScale];
-     *  - 横屏全屏化:改用 [computeFullscreenAutoScale] 自动铺满,不再使用手动倍数。
+     *  - 横屏全屏化:改用 [computeFullscreenAutoScale] 自动铺满,不再使用手动倍数;
+     *  - 普通横屏:以用户的横向放缩倍数 [landscapeTextScale] 为上限,但若该倍数会让内容
+     *    越出画布框则钳制到「恰好铺满不越界」——见 [computeLandscapeTextScale]。
      */
-    private fun effectiveLandscapeScale(): Float =
-        if (fullscreenLandscapeActive()) computeFullscreenAutoScale() else landscapeTextScale
+    private fun effectiveLandscapeScale(): Float {
+        val landscape = rotationEnabled && rotationStep != AodOrientationStep.PORTRAIT
+        if (!landscape) return 1f
+        return if (fullscreenLandscapeActive()) {
+            computeFullscreenAutoScale()
+        } else {
+            computeLandscapeTextScale()
+        }
+    }
+
+    /**
+     * 普通横屏(未开启「横屏全屏」)的 fit-to-frame 放缩比。beginRotationTransform 在
+     * scale=1 时已把逻辑帧精确铺满画布;若直接采用用户的 [landscapeTextScale]>1,等于在
+     * 已铺满的基座上再放大,内容必然溢出画布框(issue #54:关闭横屏全屏时歌词落在框外)。
+     * 因此以用户倍数作上限,垂直接堆叠可用高、水平取最长行可用宽,取两者较小者把一个「恰好
+     * 铺满不越界」的系数钳为最终缩放。
+     */
+    private fun computeLandscapeTextScale(): Float {
+        val bounds = verticalBounds(layout) ?: return landscapeTextScale
+        val contentHeight = (bounds.bottom - bounds.top).coerceAtLeast(1f)
+        val availableHeight = ((oh - padTop - padBottom).toFloat()).coerceAtLeast(1f)
+        val maxLineWidth = widestContentLineWidth(layout)
+        val availableWidth = ((ow - padLeft - padRight).toFloat()).coerceAtLeast(1f)
+        val fitScale = minOf(
+            availableHeight / contentHeight,
+            availableWidth / maxLineWidth.coerceAtLeast(1f)
+        )
+        val scale = minOf(landscapeTextScale, fitScale)
+            .coerceIn(FULLSCREEN_MIN_SCALE, FULLSCREEN_MAX_SCALE)
+        // issue #54:记录用户倍数、fit 系数与最终缩放、内容包围盒 vs 可用框,便于直接判定是否越界。
+        val key = "u=$landscapeTextScale fit=$fitScale s=$scale " +
+            "c=${contentHeight.roundToInt()} ah=${availableHeight.roundToInt()} " +
+            "lw=${maxLineWidth.roundToInt()} aw=${availableWidth.roundToInt()}"
+        if (key != lastAutoScaleLogKey) {
+            lastAutoScaleLogKey = key
+            HookLogger.i("AodLyricCanvasView", "Landscape text-scale: $key")
+        }
+        return scale
+    }
 
     /**
      * 横屏全屏化的自适应放缩比:按当前内容实际占高([verticalBounds])计算一个尽量铺满
