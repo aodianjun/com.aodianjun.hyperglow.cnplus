@@ -205,7 +205,7 @@ class AodLandscapeBehaviorTest {
         val d = -747f // 横屏全屏:视口 906x2400,d=(906-2400)/2
         val scale = 1.7f
         val compensated = compensateRotationTranslate(d, scale)
-        assertEquals(-439.4f, compensated, 0.001f)
+        assertEquals(-747f / scale, compensated, 0.0001f)
         assertEquals(d, scale * compensated, 0.001f)
     }
 
