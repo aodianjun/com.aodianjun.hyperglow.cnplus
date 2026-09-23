@@ -65,6 +65,37 @@ internal fun needsClockYWriteback(decision: AodClockPlacementDecision): Boolean 
     decision.zone == AodSceneZone.STOCK &&
         decision.appliedTranslationY != decision.requestedTranslationY
 
+/**
+ * 系统时钟 STOCK 直通决策(纯函数,锁定 issue #39 契约)。
+ *
+ * [requestedY] 是本帧系统请求的防烧屏漂移值,[appliedY] 是经 [pinnedClockAppliedY]
+ * 钉住后实际下发的值,二者必须分别落到 decision 的 requested/applied 字段。此前把
+ * appliedY 同时写进两个字段,使 [needsClockYWriteback] 恒为 false,冻结时渲染层写回
+ * (`pinRenderedClockY`)永不触发——appliedY 虽已算出,效果层仍随防烧屏自由移动(issue #39)。
+ * 未冻结时 appliedY == requestedY,行为不变。
+ */
+internal fun stockClockDecision(
+    requestedX: Int,
+    requestedY: Float,
+    appliedY: Float,
+    geometry: AodClockGeometry,
+    zoneChanged: Boolean
+): AodClockPlacementDecision {
+    val top = (appliedY + geometry.viewTop).toInt()
+    return AodClockPlacementDecision(
+        requestedTranslationX = requestedX,
+        requestedTranslationY = requestedY,
+        appliedTranslationX = requestedX,
+        appliedTranslationY = appliedY,
+        clockTop = top,
+        clockBottom = top + geometry.viewHeight,
+        lyricTopSafe = top.coerceAtLeast(0),
+        zone = AodSceneZone.STOCK,
+        zoneChanged = zoneChanged,
+        overridden = false
+    )
+}
+
 internal object AodPositionHook {
     private data class PositionResolution(val decision: AodClockPlacementDecision)
 
@@ -175,6 +206,7 @@ internal object AodPositionHook {
                 // issue #39:updateTranslation 的入参替换疑似不被效果层采纳,时钟仍随
                 // 防烧屏往复移动。这里把实际渲染视图的 translationY 强制钉到应用值,
                 // 使锚定/冻结在渲染层生效。首次钉住时记录一次,便于确认写回已触发。
+                if (controller != null) logStockClockReadback(controller, decision)
                 pinRenderedClockY(decision.appliedTranslationY, decision.requestedTranslationY)
             }
             val translationX = decision?.appliedTranslationX?.toFloat()
@@ -260,6 +292,7 @@ internal object AodPositionHook {
     private var lastPinnedLogKey = ""
     private var lastManagedPinSkipLogged = false
     private var lastRenderedPinKey = ""
+    private var lastStockReadbackKey = ""
 
     private var lastAnchorResetElapsedMs = Long.MIN_VALUE
 
@@ -269,6 +302,8 @@ internal object AodPositionHook {
         inheritedAnchorY = null
         lastPinnedLogKey = ""
         lastManagedPinSkipLogged = false
+        lastRenderedPinKey = ""
+        lastStockReadbackKey = ""
         // issue #62:记录距上次清锚的间隔,脉冲抖动触发的高频清锚可直接从间隔暴露。
         val now = SystemClock.elapsedRealtime()
         val interval = if (lastAnchorResetElapsedMs == Long.MIN_VALUE) {
@@ -490,7 +525,13 @@ internal object AodPositionHook {
                         state.managedStep = -1
                         state.currentManagedDecision = null
                         PositionResolution(
-                            stockDecision(requestedX, requestedY, geometry, zoneChanged = true)
+                            stockClockDecision(
+                                requestedX,
+                                requestedY,
+                                requestedY,
+                                geometry,
+                                zoneChanged = true
+                            )
                         )
                     } else {
                         val placementChanged = managedAodPlacementChanged(current, refreshed)
@@ -562,27 +603,8 @@ internal object AodPositionHook {
                 )
             }
         }
-        return PositionResolution(stockDecision(requestedX, appliedY, geometry, zoneChanged))
-    }
-
-    private fun stockDecision(
-        requestedX: Int,
-        requestedY: Float,
-        geometry: AodClockGeometry,
-        zoneChanged: Boolean
-    ): AodClockPlacementDecision {
-        val top = (requestedY + geometry.viewTop).toInt()
-        return AodClockPlacementDecision(
-            requestedTranslationX = requestedX,
-            requestedTranslationY = requestedY,
-            appliedTranslationX = requestedX,
-            appliedTranslationY = requestedY,
-            clockTop = top,
-            clockBottom = top + geometry.viewHeight,
-            lyricTopSafe = top.coerceAtLeast(0),
-            zone = AodSceneZone.STOCK,
-            zoneChanged = zoneChanged,
-            overridden = false
+        return PositionResolution(
+            stockClockDecision(requestedX, requestedY, appliedY, geometry, zoneChanged)
         )
     }
 
@@ -634,13 +656,15 @@ internal object AodPositionHook {
      */
     private fun pinRenderedClockY(appliedY: Float, requestedY: Float) {
         val target = targetViewRef.get() ?: return
-        if (target.translationY == appliedY) return
-        val key = "y=" + Math.round(appliedY) + " r=" + Math.round(requestedY)
+        val observed = target.translationY
+        if (observed == appliedY) return
+        val key = "y=" + Math.round(appliedY) + " o=" + Math.round(observed) +
+            " r=" + Math.round(requestedY)
         if (key != lastRenderedPinKey) {
             lastRenderedPinKey = key
             HookLogger.i(
                 TAG,
-                "Rendered clock pinned translationY=$appliedY (requested=$requestedY)"
+                "Rendered clock pinned translationY=$appliedY (observed=$observed requested=$requestedY)"
             )
         }
         val pin = Runnable {
@@ -652,6 +676,26 @@ internal object AodPositionHook {
             pin.run()
         } else {
             mainHandler.post(pin)
+        }
+    }
+
+    /**
+     * issue #39 建议一:`proceed` 之后回读 controller 的 `mTranslationY`,确认入参替换是否
+     * 被系统采纳。此前日志只能看到「下发了什么」,看不到「系统实际存了什么」,是最大盲区。
+     * 仅 STOCK 被钉住时回读,取值变化时记录一次,避免刷屏。
+     */
+    private fun logStockClockReadback(controller: Any, decision: AodClockPlacementDecision) {
+        val stored = runCatching { readFloatField(controller, "mTranslationY") }.getOrNull() ?: return
+        val key = "f=" + Math.round(stored) +
+            " a=" + Math.round(decision.appliedTranslationY) +
+            " r=" + Math.round(decision.requestedTranslationY)
+        if (key != lastStockReadbackKey) {
+            lastStockReadbackKey = key
+            HookLogger.i(
+                TAG,
+                "Stock clock read-back controller mTranslationY=$stored " +
+                    "appliedY=${decision.appliedTranslationY} requestedY=${decision.requestedTranslationY}"
+            )
         }
     }
 

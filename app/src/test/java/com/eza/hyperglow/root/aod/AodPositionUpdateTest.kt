@@ -745,4 +745,54 @@ class AodPositionUpdateTest {
             )
         )
     }
+
+    @Test
+    fun stockClockDecisionKeepsRequestedSeparateFromPinnedAppliedY() {
+        // issue #39:冻结时 appliedY(锚定+偏移)必须与系统请求的 requestedY 分离落到决策,
+        // 否则 needsClockYWriteback 恒为 false,渲染层写回永不触发。
+        val geometry = AodClockGeometry(
+            mode = 2,
+            baseTranslationY = 0f,
+            translationYStep = 0f,
+            viewTop = 511,
+            viewHeight = 803
+        )
+        val pinned = stockClockDecision(
+            requestedX = 390,
+            requestedY = -174f,
+            appliedY = 260f,
+            geometry = geometry,
+            zoneChanged = false
+        )
+        assertEquals(-174f, pinned.requestedTranslationY)
+        assertEquals(260f, pinned.appliedTranslationY)
+        // clockTop/Bottom 由实际应用值推导,供布局安全区使用。
+        assertEquals(771, pinned.clockTop)
+        assertEquals(1574, pinned.clockBottom)
+        assertEquals(AodSceneZone.STOCK, pinned.zone)
+        assertFalse(pinned.overridden)
+        assertTrue(needsClockYWriteback(pinned))
+    }
+
+    @Test
+    fun stockClockDecisionPassThroughKeepsAppliedEqualToRequested() {
+        // 未冻结:appliedY == requestedY,不触发渲染层写回(普通透传不受影响)。
+        val geometry = AodClockGeometry(
+            mode = 2,
+            baseTranslationY = 0f,
+            translationYStep = 0f,
+            viewTop = 511,
+            viewHeight = 803
+        )
+        val passThrough = stockClockDecision(
+            requestedX = 390,
+            requestedY = 260f,
+            appliedY = 260f,
+            geometry = geometry,
+            zoneChanged = false
+        )
+        assertEquals(260f, passThrough.requestedTranslationY)
+        assertEquals(260f, passThrough.appliedTranslationY)
+        assertFalse(needsClockYWriteback(passThrough))
+    }
 }
