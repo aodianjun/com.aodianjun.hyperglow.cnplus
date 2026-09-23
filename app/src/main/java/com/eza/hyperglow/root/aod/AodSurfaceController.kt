@@ -1902,18 +1902,20 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // container is only measured and observed).
         var klass: Class<*>? = root.javaClass
         while (klass != null && klass != Any::class.java) {
+            val current = klass
             runCatching {
-                klass!!.getDeclaredField("mTableModeContainer").apply { isAccessible = true }
+                current.getDeclaredField("mTableModeContainer").apply { isAccessible = true }
                     .get(root) as? ViewGroup
             }.getOrNull()?.let { return it }
-            klass = klass!!.superclass
+            klass = current.superclass
         }
         // Type-based fallback: find the first ViewGroup-typed declared field that holds
         // a non-null value. Catches HyperOS renames where the type is preserved.
         klass = root.javaClass
         while (klass != null && klass != Any::class.java) {
+            val current = klass
             runCatching {
-                for (field in klass!!.declaredFields) {
+                for (field in current.declaredFields) {
                     if (!ViewGroup::class.java.isAssignableFrom(field.type)) continue
                     field.isAccessible = true
                     val value = field.get(root) as? ViewGroup
@@ -1926,7 +1928,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     }
                 }
             }
-            klass = klass!!.superclass
+            klass = current.superclass
         }
         // Last resort: AODView typically extends FrameLayout. Use root itself so the
         // surface can still render; clock geometry falls back to measured bounds.

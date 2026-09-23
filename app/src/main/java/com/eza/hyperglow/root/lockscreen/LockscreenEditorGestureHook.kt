@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.lockscreen
 
 import android.view.MotionEvent
+import com.eza.hyperglow.root.HookInstallGuard
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.HookRegistry
 import com.eza.hyperglow.root.capability.XiaomiCapability
@@ -33,31 +34,31 @@ internal object LockscreenEditorGestureHook {
     private const val MAGAZINE_CONTROLLER =
         "com.android.keyguard.magazine.LockScreenMagazineController"
     private const val FEATURE_ID = "editor-gesture"
-    private var installed = false
+    private val installGuard = HookInstallGuard()
 
-    @Synchronized
     fun install(module: XposedModule, classLoader: ClassLoader) {
-        if (installed) return
-        val touch = SymbolResolver.resolveMethod(
-            classLoader,
-            FEATURE_ID,
-            SymbolRequest.method(EDITOR_HELPER, "onTouchEvent", MotionEvent::class.java.name)
-        ) ?: return
-        val launch = SymbolResolver.resolveMethod(
-            classLoader,
-            FEATURE_ID,
-            SymbolRequest.method(EDITOR_HELPER, "tryStartEditActivity")
-        ) ?: return
-        val showMagazinePreview = SymbolResolver.resolveMethod(
-            classLoader,
-            FEATURE_ID,
-            SymbolRequest.method(MAGAZINE_CONTROLLER, "handleSingleClickEvent")
-        ) ?: return
-        HookRegistry.hook(module, FEATURE_ID, touch, EditorTouchHooker)
-        HookRegistry.hook(module, FEATURE_ID, launch, EditorLaunchHooker)
-        HookRegistry.hook(module, FEATURE_ID, showMagazinePreview, MagazinePreviewHooker)
-        installed = true
-        HookLogger.i(TAG, "Lockscreen customization hooks installed")
+        val completed = installGuard.runOnce {
+            val touch = SymbolResolver.resolveMethod(
+                classLoader,
+                FEATURE_ID,
+                SymbolRequest.method(EDITOR_HELPER, "onTouchEvent", MotionEvent::class.java.name)
+            ) ?: return@runOnce false
+            val launch = SymbolResolver.resolveMethod(
+                classLoader,
+                FEATURE_ID,
+                SymbolRequest.method(EDITOR_HELPER, "tryStartEditActivity")
+            ) ?: return@runOnce false
+            val showMagazinePreview = SymbolResolver.resolveMethod(
+                classLoader,
+                FEATURE_ID,
+                SymbolRequest.method(MAGAZINE_CONTROLLER, "handleSingleClickEvent")
+            ) ?: return@runOnce false
+            HookRegistry.hook(module, FEATURE_ID, touch, EditorTouchHooker)
+            HookRegistry.hook(module, FEATURE_ID, launch, EditorLaunchHooker)
+            HookRegistry.hook(module, FEATURE_ID, showMagazinePreview, MagazinePreviewHooker)
+            true
+        }
+        if (completed) HookLogger.i(TAG, "Lockscreen customization hooks installed")
     }
 
     private object EditorTouchHooker : Hooker {

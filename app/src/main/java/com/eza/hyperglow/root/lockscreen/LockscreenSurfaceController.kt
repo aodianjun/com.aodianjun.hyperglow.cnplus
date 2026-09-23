@@ -476,7 +476,9 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             progressView?.stop()
         } else {
             val renderContent = eligibleSnapshot.renderContent()
-            val renderProfile = layoutResult!!.profile
+            val renderProfile = checkNotNull(layoutResult) {
+                "visible lockscreen implies a layout result"
+            }.profile
             if (!wasVisible || renderContent != lastRenderContent ||
                 renderProfile != lastRenderedProfile
             ) {
@@ -969,7 +971,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                     progress.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     card.addView(progress, FrameLayout.LayoutParams(0, 0))
                 }
-                cardBackgroundView?.bind(lyricCanvas!!, progressView!!)
+                cardBackgroundView?.bind(checkNotNull(lyricCanvas), checkNotNull(progressView))
                 addView(card, FrameLayout.LayoutParams(0, 0))
             }
         }

@@ -1,10 +1,8 @@
 package com.eza.hyperglow.ui
 
-import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -51,9 +49,6 @@ internal fun PermissionStatusSection() {
         mutableStateOf(checkBatteryOptimizationWhitelisted(context))
     }
     var rootGranted by remember { mutableStateOf(false) }
-    var queryAllPackages by remember {
-        mutableStateOf(checkQueryAllPackages(context))
-    }
     val scope = rememberCoroutineScope()
 
     // 从系统设置返回时刷新权限状态
@@ -63,7 +58,6 @@ internal fun PermissionStatusSection() {
         notificationGranted = checkNotificationPermission(context)
         foregroundServiceRunning = checkForegroundServiceRunning(context)
         batteryWhitelisted = checkBatteryOptimizationWhitelisted(context)
-        queryAllPackages = checkQueryAllPackages(context)
     }
 
     LaunchedEffect(Unit) {
@@ -71,7 +65,6 @@ internal fun PermissionStatusSection() {
         notificationGranted = checkNotificationPermission(context)
         foregroundServiceRunning = checkForegroundServiceRunning(context)
         batteryWhitelisted = checkBatteryOptimizationWhitelisted(context)
-        queryAllPackages = checkQueryAllPackages(context)
         rootGranted = checkRootGranted()
     }
 
@@ -152,37 +145,6 @@ internal fun PermissionStatusSection() {
                 }
             }
         )
-    }
-
-    // 5. 获取应用列表(枚举已安装应用,用于检测可用的音乐应用)
-    if (queryAllPackages) {
-        BasicComponent(
-            title = stringResource(R.string.label_query_all_packages),
-            summary = stringResource(R.string.summary_query_all_packages_granted)
-        )
-    } else {
-        ArrowPreference(
-            title = stringResource(R.string.label_query_all_packages),
-            summary = stringResource(R.string.summary_query_all_packages_denied),
-            onClick = {
-                permissionLauncher.launch(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                    }
-                )
-            }
-        )
-    }
-}
-
-private fun checkQueryAllPackages(context: Context): Boolean {
-    // Android 11+ 枚举全部已安装应用需要 QUERY_ALL_PACKAGES 特殊权限
-    // (MIUI 上表现为「获取应用列表」开关);低于 11 无此限制,视为已授予。
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        context.checkSelfPermission(Manifest.permission.QUERY_ALL_PACKAGES) ==
-            PackageManager.PERMISSION_GRANTED
-    } else {
-        true
     }
 }
 

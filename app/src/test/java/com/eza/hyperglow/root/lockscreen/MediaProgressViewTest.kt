@@ -21,4 +21,22 @@ class MediaProgressViewTest {
         assertEquals(CadenceChange.STOP, gate.update(false))
         assertEquals(CadenceChange.START, gate.update(true))
     }
+
+    @Test
+    fun repeatedVisibilityUpdatesAreIdempotent() {
+        val gate = EffectiveCadenceGate()
+
+        assertEquals(CadenceChange.START, gate.update(true))
+        assertEquals(CadenceChange.NONE, gate.update(true))
+        assertEquals(CadenceChange.NONE, gate.update(true))
+        assertEquals(CadenceChange.STOP, gate.update(false))
+        assertEquals(CadenceChange.NONE, gate.update(false))
+    }
+
+    @Test
+    fun projectionDegradesOnStaleClockOrMissingDuration() {
+        assertEquals(0.125f, projectedMediaProgress(4_000, 500, 2_000, 1f, 1_000), 0.0001f)
+        assertEquals(0f, projectedMediaProgress(-1, 500, 1_000, 1f, 1_500), 0.0001f)
+        assertEquals(0f, projectedMediaProgress(0, 0, 0, 3f, 0), 0.0001f)
+    }
 }

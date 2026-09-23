@@ -144,20 +144,23 @@ class SpicyLyricProducer : LyricProducer {
         val matchedDocument = document?.takeIf { it.matches(spicy) }
         val timedDocument = matchedDocument?.takeIf { isTimedDocumentType(it.type) }
         val noLyrics = spicy.status == "no_lyrics"
-        val unsynced = matchedDocument != null && timedDocument == null
         val hasTimedLyrics = !noLyrics && timedDocument?.let(::hasActualLyricTiming) == true
         // Active row at the sampled position (null during interludes or when there is no timed
         // document). Suppressed entirely under no_lyrics so projection falls back to "🎶".
         val row = timedDocument?.primaryRowAt(position)?.takeUnless { noLyrics }
-        val lineIndex = row?.let { r -> timedDocument!!.rows.indexOfFirst { it === r } } ?: -1
+        val lineIndex = if (timedDocument != null && row != null) {
+            timedDocument.rows.indexOfFirst { it === row }
+        } else {
+            -1
+        }
 
         // lyricKind: NONE covers both "no lyrics" and "no document" (the latter lets projection
         // use the producer's `line` field as an untimed fallback one-liner). UNSYNCED is a
         // non-timed document. LINE/SYLLABLE come from the timed document's type.
         val lyricKind = when {
             noLyrics || matchedDocument == null -> LyricKind.NONE
-            unsynced -> LyricKind.UNSYNCED
-            isLineLevelDocumentType(timedDocument!!.type) -> LyricKind.LINE
+            timedDocument == null -> LyricKind.UNSYNCED
+            isLineLevelDocumentType(timedDocument.type) -> LyricKind.LINE
             else -> LyricKind.SYLLABLE
         }
 

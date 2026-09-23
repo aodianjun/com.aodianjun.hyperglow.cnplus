@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.lockscreen
 
 import com.eza.hyperglow.root.aod.AodWakeBroker
+import com.eza.hyperglow.root.HookInstallGuard
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.HookRegistry
 import com.eza.hyperglow.root.capability.XiaomiCapability
@@ -28,19 +29,19 @@ internal object RaiseToAodController {
 
 internal object RaiseToAodHook {
     private const val FEATURE_ID = "raise-to-aod"
-    private var installed = false
+    private val installGuard = HookInstallGuard()
 
-    @Synchronized
     fun install(module: XposedModule, classLoader: ClassLoader) {
-        if (installed) return
-        val wakeUp = SymbolResolver.resolveMethod(
-            classLoader,
-            FEATURE_ID,
-            SymbolRequest.method(POWER_MANAGER, "wakeUp", "long", "java.lang.String")
-        ) ?: return
-        HookRegistry.hook(module, FEATURE_ID, wakeUp, WakeUpHooker)
-        installed = true
-        HookLogger.i(TAG, "Pickup wake remap hook installed")
+        val completed = installGuard.runOnce {
+            val wakeUp = SymbolResolver.resolveMethod(
+                classLoader,
+                FEATURE_ID,
+                SymbolRequest.method(POWER_MANAGER, "wakeUp", "long", "java.lang.String")
+            ) ?: return@runOnce false
+            HookRegistry.hook(module, FEATURE_ID, wakeUp, WakeUpHooker)
+            true
+        }
+        if (completed) HookLogger.i(TAG, "Pickup wake remap hook installed")
     }
 
     private object WakeUpHooker : Hooker {

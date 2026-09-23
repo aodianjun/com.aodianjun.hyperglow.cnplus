@@ -69,6 +69,27 @@ internal object HookRegistry {
 }
 
 /**
+ * One-shot guard behind a hook object's install(): the first caller runs [install], later
+ * calls no-op. When [install] aborts (returns false, e.g. a required symbol is missing on
+ * this host) the guard stays open so a later call retries — silent degradation instead of
+ * a permanently disabled feature.
+ */
+internal class HookInstallGuard {
+    private var installed = false
+
+    @Synchronized
+    fun runOnce(install: () -> Boolean): Boolean {
+        if (installed) return false
+        if (!install()) return false
+        installed = true
+        return true
+    }
+
+    @Synchronized
+    fun isInstalled(): Boolean = installed
+}
+
+/**
  * Stable hook id for one feature/target pair. Pure string mapping so id stability
  * is host-testable without the framework.
  */

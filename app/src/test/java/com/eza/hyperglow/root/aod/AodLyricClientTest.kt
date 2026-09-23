@@ -1,7 +1,9 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.aod.AodStateWireMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,4 +30,75 @@ class AodLyricClientTest {
         assertTrue(shouldLogBindAttempt(50))
         assertFalse(shouldLogBindAttempt(51))
     }
+
+    @Test
+    fun staleHeartbeatMergeIsAnIdempotentNoOp() {
+        val pending = hidden(revision = 7, updatedAt = 1_000)
+
+        assertNull(mergePendingKeepAlive(pending, keepAlive(revision = 7, updatedAt = 1_000)))
+        assertNull(mergePendingKeepAlive(pending, keepAlive(revision = 7, updatedAt = 900)))
+        assertNull(mergePendingKeepAlive(pending, keepAlive(revision = 8, updatedAt = 2_000)))
+    }
+
+    @Test
+    fun freshHeartbeatMergesScalarsWithPlaybackGrace() {
+        val pending = hidden(revision = 7, updatedAt = 1_000, keepAlive = true)
+        val incoming = keepAlive(
+            revision = 7,
+            updatedAt = 2_000,
+            keepAlive = false,
+            playbackActive = true,
+            wakeSignal = 9L
+        )
+
+        val merged = mergePendingKeepAlive(pending, incoming) as AodStateWireMessage.Hidden
+
+        assertEquals(2_000L, merged.updatedAtElapsedMs)
+        assertTrue(merged.keepAlive)
+        assertTrue(merged.playbackActive)
+        assertEquals(9L, merged.wakeSignal)
+    }
+
+    @Test
+    fun heartbeatGraceKeepsLeaseExpiryAuthorityWithSnapshots() {
+        assertFalse(heartbeatKeepAliveWithGrace(keepAlive = false, playbackActive = false))
+        assertTrue(heartbeatKeepAliveWithGrace(keepAlive = true, playbackActive = false))
+        assertTrue(heartbeatKeepAliveWithGrace(keepAlive = false, playbackActive = true))
+        assertTrue(heartbeatKeepAliveWithGrace(keepAlive = true, playbackActive = true))
+    }
+
+    @Test
+    fun keepAliveNeverDisplacesAPendingSnapshot() {
+        val pending = hidden(revision = 3, updatedAt = 500)
+        val stale = keepAlive(revision = 3, updatedAt = 500)
+
+        assertTrue(shouldReplacePendingState(null, keepAlive(revision = 3, updatedAt = 600)))
+        assertFalse(shouldReplacePendingState(pending, keepAlive(revision = 3, updatedAt = 600)))
+        assertTrue(shouldReplacePendingState(stale, keepAlive(revision = 3, updatedAt = 600)))
+        assertTrue(shouldReplacePendingState(stale, hidden(revision = 3, updatedAt = 600)))
+    }
+
+    private fun hidden(revision: Long, updatedAt: Long, keepAlive: Boolean = true) =
+        AodStateWireMessage.Hidden(
+            revision = revision,
+            userId = 0,
+            updatedAtElapsedMs = updatedAt,
+            keepAlive = keepAlive,
+            wakeSignal = 0L
+        )
+
+    private fun keepAlive(
+        revision: Long,
+        updatedAt: Long,
+        keepAlive: Boolean = true,
+        playbackActive: Boolean = false,
+        wakeSignal: Long = 0L
+    ) = AodStateWireMessage.KeepAlive(
+        revision = revision,
+        userId = 0,
+        updatedAtElapsedMs = updatedAt,
+        keepAlive = keepAlive,
+        wakeSignal = wakeSignal,
+        playbackActive = playbackActive
+    )
 }

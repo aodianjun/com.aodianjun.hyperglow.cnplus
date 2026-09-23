@@ -435,7 +435,4 @@
     <string name="label_root_permission">Root 權限</string>
     <string name="summary_root_permission_granted">已授予 Root 權限</string>
     <string name="summary_root_permission_denied">點擊授予 Root 權限</string>
-    <string name="label_query_all_packages">獲取應用列表</string>
-    <string name="summary_query_all_packages_granted">可查看已安裝應用</string>
-    <string name="summary_query_all_packages_denied">點擊允許查看已安裝應用</string>
 </resources>

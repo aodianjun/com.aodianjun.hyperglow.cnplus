@@ -77,9 +77,9 @@ data class PluginManifest(
                     }
                 }
                 PluginSettingType.SLIDER -> {
-                    if (setting.min == null || setting.max == null ||
-                        setting.min!! > setting.max!!
-                    ) {
+                    val min = setting.min
+                    val max = setting.max
+                    if (min == null || max == null || min > max) {
                         return "setting ${setting.key} (slider) needs min<=max"
                     }
                 }
