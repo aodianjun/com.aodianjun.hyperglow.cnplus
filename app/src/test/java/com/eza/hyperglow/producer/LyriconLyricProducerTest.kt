@@ -1431,4 +1431,60 @@ class LyriconLyricProducerTest {
         assertEquals(ActivePlayerPlayback.UNKNOWN, classifyActivePlayerPlayback(MediaPlayback.ERROR))
         assertEquals(ActivePlayerPlayback.UNKNOWN, classifyActivePlayerPlayback(99))
     }
+    // --- issue #56: (重)连后补发的当前歌不得归零时间轴 ---
+
+    @Test
+    fun firstSongAfterSubscribeKeepsMidSongPosition() {
+        // issue #56 核心:冷启动后 SDK 补发的 onSongChanged 不是切歌 —— 不应归零、门控保持开放,
+        // 歌中途的真实位置直接定位出正确行(6000ms → 3 行歌的第 3 句),而不是从第 1 句重来。
+        val producer = LyriconLyricProducer { 0L }
+        producer.connectionListener.onConnected(unusedSubscriber)
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPositionChanged(6_000L)
+
+        val state = producer.state.value!!
+        assertEquals(6_000L, state.positionMs)
+        assertEquals(2, state.lineIndex) // [5000,7000] "third"
+        assertEquals("third", state.line)
+    }
+
+    @Test
+    fun reconnectResyncsInsteadOfResettingPosition() {
+        // 重连路径:onReconnected 后补发的 onSongChanged 同样按重同步处理 —— 不归零,门控仍开。
+        val producer = LyriconLyricProducer { 0L }
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPositionChanged(6_000L)
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        producer.connectionListener.onDisconnected(unusedSubscriber)
+        producer.connectionListener.onReconnected(unusedSubscriber)
+        producer.playerListener.onSongChanged(threeLineSong())
+
+        // 重同步后首个真实位置(已播到 6200)直接采信,行不落回第 1 句。
+        producer.playerListener.onPositionChanged(6_200L)
+        val state = producer.state.value!!
+        assertEquals(6_200L, state.positionMs)
+        assertEquals(2, state.lineIndex)
+        assertEquals("third", state.line)
+    }
+
+    @Test
+    fun inSessionSongChangeStillResetsAndRejectsResidual() {
+        // 同一会话内的第二次 onSongChanged 仍是切歌:归零 + 关闸(回归:#11 保护不被削弱)。
+        val producer = LyriconLyricProducer { 0L }
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPositionChanged(6_000L)
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        assertEquals(0L, producer.state.value!!.positionMs)
+        assertEquals(-1, producer.state.value!!.lineIndex)
+
+        // 切歌后旧时间线残留(恰好等于旧歌末位置 6000)仍必须被拒绝,而不是跳回旧行。
+        producer.playerListener.onPositionChanged(6_000L)
+        assertTrue(
+            "in-session change residual must not jump back to the old line",
+            producer.state.value!!.positionMs < 6_000L
+        )
+    }
 }
