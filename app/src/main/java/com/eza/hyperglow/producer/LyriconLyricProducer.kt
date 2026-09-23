@@ -178,18 +178,30 @@ class LyriconLyricProducer(
     // 增长追上该值后也必须继续拒绝(暂停状态跳歌的场景)。
     @Volatile private var gateFrozenRejectMs = -1L
 
+    // issue #56:(重)连接后 SDK 会对「当前正在播放的歌」补发一次 onSongChanged。只有本次
+    // 连接会话内已经见过歌时,后续 onSongChanged 才按「切歌」处理(归零 + 关闸);首次补发
+    // 按「重同步」处理 —— 否则歌中途的真实位置会被合理性门控当残留拒绝,歌词从第 1 句
+    // 重新开始,整条时间轴平移「已播时长」。
+    @Volatile private var songSeenSinceSubscribe = false
+    // issue #56 建议四:门控拒绝路径留一条去重日志(position/bound/sinceStart/duration/歌名),
+    // 便于现场直接判定「旧时间线残留」还是「中途订阅被误拒」。
+    @Volatile private var gateRejectLogged = false
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
+
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
 
     internal val connectionListener = object : ConnectionListener {
         override fun onConnected(s: LyriconSubscriber) {
             AppLog.i("LyriconLyricProducer", "connected")
+            songSeenSinceSubscribe = false
             mutableConnection.value = ProducerConnection.CONNECTED
         }
 
         override fun onReconnected(s: LyriconSubscriber) {
             AppLog.i("LyriconLyricProducer", "reconnected")
+            songSeenSinceSubscribe = false
             mutableConnection.value = ProducerConnection.RECONNECTED
         }
 
@@ -246,28 +258,52 @@ class LyriconLyricProducer(
             }
             currentLineIndex = -1
             cachedWords = null
-            // Reset position tracking for the new song. The shared memory may still hold the
-            // previous song's position until the player writes the new one, which caused the
-            // active line to jump to a stale index (e.g. idx=64 on song change).
-            //
-            // Capture the previous song's last position so onPositionChanged can reject the
-            // residual value (it will keep arriving at ~60 Hz until the player writes new progress).
-            // Enable extrapolation from 0 so lyrics advance during the write gap if playing.
-            previousSongLastPositionMs = lastRealPositionMs
-            currentPositionMs = 0L
-            lastRealPositionMs = 0L
-            lastRealPositionClockMs = clock()
-            extrapolating = false
-            positionUnknown = false
-            pauseStaleRejectMs = -1L
-            // Close the post-song-change plausibility gate (issue #11): the next real position
-            // must be plausible for a song that starts now, or it is old-timeline residual.
-            songStartGateOpen = false
-            songStartClockMs = lastRealPositionClockMs
-            gateRateAnchorPosMs = -1L
-            gateRateAnchorClockMs = 0L
-            gateRateX = 1.0
-            gateFrozenRejectMs = -1L
+            // issue #56:区分「真的切歌」与「(重)连后 SDK 补发的当前歌」。冷启动/重连后 SDK
+            // 会对正在播放的歌回调一次 onSongChanged —— 此时位置可能已到歌中途;若按切歌处理
+            // (归零 + 关闸),首个真实位置会被合理性门控当旧时间线残留拒绝,歌词从第 1 句重新
+            // 开始、整条时间轴平移「已播时长」。只有本次连接会话内已见过歌时才算切歌。
+            val songChangedInSession = songSeenSinceSubscribe
+            songSeenSinceSubscribe = true
+            if (songChangedInSession) {
+                // Reset position tracking for the new song. The shared memory may still hold the
+                // previous song's position until the player writes the new one, which caused the
+                // active line to jump to a stale index (e.g. idx=64 on song change).
+                //
+                // Capture the previous song's last position so onPositionChanged can reject the
+                // residual value (it will keep arriving at ~60 Hz until the player writes new progress).
+                // Enable extrapolation from 0 so lyrics advance during the write gap if playing.
+                previousSongLastPositionMs = lastRealPositionMs
+                currentPositionMs = 0L
+                lastRealPositionMs = 0L
+                lastRealPositionClockMs = clock()
+                extrapolating = false
+                positionUnknown = false
+                pauseStaleRejectMs = -1L
+                // Close the post-song-change plausibility gate (issue #11): the next real position
+                // must be plausible for a song that starts now, or it is old-timeline residual.
+                songStartGateOpen = false
+                songStartClockMs = lastRealPositionClockMs
+                gateRateAnchorPosMs = -1L
+                gateRateAnchorClockMs = 0L
+                gateRateX = 1.0
+                gateFrozenRejectMs = -1L
+            } else {
+                // (Re)connect re-sync (issue #56): the song may already be mid-playback, so the
+                // shared-memory position IS this song's timeline. Keep it, keep the plausibility
+                // gate open, and drop the exact-match residual filters — the next real position
+                // locates the active line directly instead of restarting the timeline from 0.
+                previousSongLastPositionMs = -1L
+                pauseStaleRejectMs = -1L
+                seekRejectPositionMs = -1L
+                songStartGateOpen = true
+                gateFrozenRejectMs = -1L
+                AppLog.i(
+                    "LyriconLyricProducer",
+                    "onSongChanged: (re)connect re-sync; keeping position ${lastRealPositionMs}ms, " +
+                        "plausibility gate open"
+                )
+            }
+            gateRejectLogged = false
             refreshRenderModes()
             emit()
         }
@@ -378,7 +414,16 @@ class LyriconLyricProducer(
                     val boundMs = (sinceStartMs * gateRateX +
                         SONG_START_PLAUSIBILITY_TOLERANCE_MS).toLong()
                     if (frozenResidual || position > boundMs) {
-                        // Track the residual's advance rate: the residual advances at the true
+                        if (!gateRejectLogged) {
+                            gateRejectLogged = true
+                            AppLog.i(
+                                "LyriconLyricProducer",
+                                "post-song-change residual rejected: pos=${position}ms " +
+                                    "bound=${boundMs}ms sinceStart=${sinceStartMs}ms " +
+                                    "duration=${currentSong?.duration ?: 0L}ms " +
+                                    "song=${currentSong?.name}"
+                            )
+                        }                        // Track the residual's advance rate: the residual advances at the true
                         // playback speed, so its cumulative Δpos/Δwall gives the rate for the
                         // bound — without this, 1.25x~3x 倍速用户的真实位置会在容差耗尽后
                         // 被 1x 上界误拒。冻结残留(Δpos=0)不更新速率。
@@ -475,6 +520,7 @@ class LyriconLyricProducer(
                 // A plausible/real position arrived: the writer is on this song's timeline —
                 // open the post-song-change gate (issue #11).
                 songStartGateOpen = true
+                gateRejectLogged = false
                 // A real value also means the position source is alive again: clear the
                 // unknown-position marker so recomputeAndEmit re-selects the active line.
                 positionUnknown = false
@@ -520,6 +566,7 @@ class LyriconLyricProducer(
             // A seek is a deliberate, authoritative position: open the post-song-change gate
             // (issue #11) — the seek target defines the timeline from here on.
             songStartGateOpen = true
+            gateRejectLogged = false
             // Seek invalidates the navigator's sequential cache (playback jumped).
             navigator?.resetCache()
             currentLineIndex = -1
