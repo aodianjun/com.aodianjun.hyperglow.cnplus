@@ -1083,7 +1083,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         if (retained != retainedMediaSnapshot) retainedMediaSnapshot = retained
         schedulePausedKeepAliveExpiry(retained)
-        val effectiveKeepAlive = retained?.keepAlive ?: signal.keepAlive
+        // 心跳 keepAlive=false 不具租约过期权威(issue #22):播放中宽限为续期,与下方
+        // playback-active 脉搏注释同源;全量快照的 keepAlive=false 不受影响。
+        val effectiveKeepAlive = retained?.keepAlive
+            ?: heartbeatKeepAliveWithGrace(signal.keepAlive, signal.playbackActive)
         latestSnapshot = latestSnapshot?.copy(
             updatedAtElapsedMs = signal.updatedAtElapsedMs,
             keepAlive = effectiveKeepAlive,

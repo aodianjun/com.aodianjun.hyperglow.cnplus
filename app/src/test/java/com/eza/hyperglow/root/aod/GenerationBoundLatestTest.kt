@@ -112,6 +112,66 @@ class GenerationBoundLatestTest {
         assertTrue(mergedHidden.keepAlive)
     }
 
+    @Test
+    fun heartbeatKeepAliveFalseIsGracedWhilePlaybackActive() {
+        // issue #22:切歌 BUFFERING 窗口内心跳携带 keepAlive=false + playbackActive=true,
+        // 宽限视为续期,不提前关闭 draw-wake。
+        val snapshot = snapshot(revision = 20L, updatedAtElapsedMs = 2_000L, keepAlive = true)
+        val keepAlive = keepAlive(revision = 20L).copy(
+            updatedAtElapsedMs = 3_000L,
+            keepAlive = false,
+            playbackActive = true
+        )
+
+        val merged = mergePendingKeepAlive(snapshot, keepAlive)
+
+        assertTrue(merged is AodStateWireMessage.Snapshot)
+        assertTrue((merged as AodStateWireMessage.Snapshot).keepAlive)
+        assertTrue(merged.playbackActive)
+    }
+
+    @Test
+    fun heartbeatKeepAliveFalseExpiresLeaseWhenPlaybackStopped() {
+        // 播放停止时心跳 keepAlive=false 照常生效,宽限只覆盖播放中的心跳。
+        val snapshot = snapshot(revision = 20L, updatedAtElapsedMs = 2_000L, keepAlive = true)
+        val keepAlive = keepAlive(revision = 20L).copy(
+            updatedAtElapsedMs = 3_000L,
+            keepAlive = false,
+            playbackActive = false
+        )
+
+        val merged = mergePendingKeepAlive(snapshot, keepAlive)
+
+        assertTrue(merged is AodStateWireMessage.Snapshot)
+        assertFalse((merged as AodStateWireMessage.Snapshot).keepAlive)
+    }
+
+    @Test
+    fun heartbeatKeepAliveGraceAppliesToHiddenPendingState() {
+        val hidden = hidden(revision = 20L).copy(
+            updatedAtElapsedMs = 2_000L,
+            keepAlive = true
+        )
+        val keepAlive = keepAlive(revision = 20L).copy(
+            updatedAtElapsedMs = 3_000L,
+            keepAlive = false,
+            playbackActive = true
+        )
+
+        val merged = mergePendingKeepAlive(hidden, keepAlive)
+
+        assertTrue(merged is AodStateWireMessage.Hidden)
+        assertTrue((merged as AodStateWireMessage.Hidden).keepAlive)
+    }
+
+    @Test
+    fun heartbeatKeepAliveGraceTruthTable() {
+        assertTrue(heartbeatKeepAliveWithGrace(keepAlive = true, playbackActive = false))
+        assertTrue(heartbeatKeepAliveWithGrace(keepAlive = true, playbackActive = true))
+        assertTrue(heartbeatKeepAliveWithGrace(keepAlive = false, playbackActive = true))
+        assertFalse(heartbeatKeepAliveWithGrace(keepAlive = false, playbackActive = false))
+    }
+
     private fun hidden(revision: Long) = AodStateWireMessage.Hidden(
         revision = revision,
         userId = 0,

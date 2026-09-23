@@ -42,6 +42,14 @@ internal fun shouldReplacePendingState(
     pending is AodStateWireMessage.KeepAlive
 
 /**
+ * 心跳 keepAlive 的播放宽限(issue #22):心跳的 keepAlive=false 不具备租约过期权威——
+ * 切歌 BUFFERING 窗口里它会与 playbackActive=true 同时到达,直接采信会提前关闭 draw-wake
+ * 续期。playbackActive=true 时宽限视为续期;租约过期权威仍只属于全量快照。
+ */
+internal fun heartbeatKeepAliveWithGrace(keepAlive: Boolean, playbackActive: Boolean): Boolean =
+    keepAlive || playbackActive
+
+/**
  * Preserve a pending state while applying a newer same-revision heartbeat to its scalar fields. A
  * heartbeat cannot carry the lyric body, but dropping it here lets a stale `keepAlive=false` expire
  * the AOD lease before the next full snapshot arrives.
@@ -58,14 +66,14 @@ internal fun mergePendingKeepAlive(
     return when (pending) {
         is AodStateWireMessage.Snapshot -> pending.copy(
             updatedAtElapsedMs = incoming.updatedAtElapsedMs,
-            keepAlive = incoming.keepAlive,
+            keepAlive = heartbeatKeepAliveWithGrace(incoming.keepAlive, incoming.playbackActive),
             wakeSignal = incoming.wakeSignal,
             playbackActive = incoming.playbackActive,
             pauseRetentionEligible = incoming.pauseRetentionEligible
         )
         is AodStateWireMessage.Hidden -> pending.copy(
             updatedAtElapsedMs = incoming.updatedAtElapsedMs,
-            keepAlive = incoming.keepAlive,
+            keepAlive = heartbeatKeepAliveWithGrace(incoming.keepAlive, incoming.playbackActive),
             wakeSignal = incoming.wakeSignal,
             playbackActive = incoming.playbackActive,
             pauseRetentionEligible = incoming.pauseRetentionEligible
