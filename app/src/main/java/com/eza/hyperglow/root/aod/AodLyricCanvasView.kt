@@ -836,6 +836,10 @@ internal data class LandscapeMappedBounds(
     /** 与视口至少相交：非零输出的必要条件。 */
     fun hits(viewWidth: Int, viewHeight: Int): Boolean =
         maxX > 0f && minX < viewWidth.toFloat() && maxY > 0f && minY < viewHeight.toFloat()
+
+    /** 完整落在视口内：内容无裁切（「务必完整可见」的通过条件，issue #61）。 */
+    fun fitsWithin(viewWidth: Int, viewHeight: Int): Boolean =
+        minX >= 0f && minY >= 0f && maxX <= viewWidth.toFloat() && maxY <= viewHeight.toFloat()
 }
 
 /**
@@ -1057,6 +1061,13 @@ private const val FULLSCREEN_MIN_SCALE = 1.0f
 private const val FULLSCREEN_MAX_SCALE = 1.7f
 
 /**
+ * 普通横屏(未全屏化)放缩比上限:beginRotationTransform 在 scale=1 时已把逻辑帧精确
+ * 铺满画布(逻辑帧 == 旋转后的画布),任何 >1 的缩放都会把帧内内容推出画布框被裁
+ * (issue #61)。要放大必须同步放大画布 rect,即走「横屏全屏」路径。
+ */
+internal const val LANDSCAPE_FRAME_MAX_SCALE = 1.0f
+
+/**
  * 横屏全屏化的自适应放缩比(纯函数):让内容高度按 [fillRatio] 铺满 [availableHeight],
  * 但钳制在 [minScale]..[maxScale],不越界、单行时也不放得过小。非法输入返回 [minScale]。
  */
@@ -1074,6 +1085,16 @@ internal fun fullscreenAutoScale(
     }
     return (availableHeight / contentHeight * fillRatio).coerceIn(minScale, maxScale)
 }
+
+/**
+ * 普通横屏(未开启「横屏全屏」)的放缩比(纯函数,issue #61):逻辑帧尺寸 == 旋转后的
+ * 画布尺寸,scale=1 已精确铺满;用户倍数 [userScale] 与 fit 系数 [fitScale] 只决定
+ * 「是否需要缩小」,上限恒为 [LANDSCAPE_FRAME_MAX_SCALE] —— 任何 >1 的缩放都会在
+ * 已铺满的基座上再放大,帧内内容必然溢出画布框被裁。下限沿用 FULLSCREEN_MIN_SCALE
+ * (不缩小),故结果恒为 1.0;两个输入保留用于诊断留痕。
+ */
+internal fun landscapeFrameFitScale(userScale: Float, fitScale: Float): Float =
+    minOf(userScale, fitScale).coerceIn(FULLSCREEN_MIN_SCALE, LANDSCAPE_FRAME_MAX_SCALE)
 
 /**
  * 横屏全屏化放缩的长轴上限(纯函数):短轴填充驱动的缩放同时作用于长轴,
@@ -1638,11 +1659,13 @@ internal class AodLyricCanvasView(
     }
 
     /**
-     * 普通横屏(未开启「横屏全屏」)的 fit-to-frame 放缩比。beginRotationTransform 在
-     * scale=1 时已把逻辑帧精确铺满画布;若直接采用用户的 [landscapeTextScale]>1,等于在
-     * 已铺满的基座上再放大,内容必然溢出画布框(issue #54:关闭横屏全屏时歌词落在框外)。
-     * 因此以用户倍数作上限,垂直接堆叠可用高、水平取最长行可用宽,取两者较小者把一个「恰好
-     * 铺满不越界」的系数钳为最终缩放。
+     * 普通横屏(未开启「横屏全屏」)的放缩比。beginRotationTransform 在 scale=1 时已把
+     * 逻辑帧精确铺满画布(逻辑帧 == 旋转后的画布);若直接采用用户的 [landscapeTextScale]>1,
+     * 等于在已铺满的基座上再放大,帧内内容必然溢出画布框被裁(issue #54:关闭横屏全屏时
+     * 歌词落在框外;issue #61:fit 系数可 >1,放大后四周溢出)。因此最终缩放由
+     * [landscapeFrameFitScale] 恒钳在 1.0 —— 用户倍数与 fit 系数(垂直可用高/水平最长
+     * 行宽)仅计算留痕;需要更大字号时走「横屏全屏」路径(画布扩至整屏后由
+     * [computeFullscreenAutoScale] 放大)。
      */
     private fun computeLandscapeTextScale(): Float {
         val bounds = verticalBounds(layout) ?: return landscapeTextScale
@@ -1654,9 +1677,9 @@ internal class AodLyricCanvasView(
             availableHeight / contentHeight,
             availableWidth / maxLineWidth.coerceAtLeast(1f)
         )
-        val scale = minOf(landscapeTextScale, fitScale)
-            .coerceIn(FULLSCREEN_MIN_SCALE, FULLSCREEN_MAX_SCALE)
-        // issue #54:记录用户倍数、fit 系数与最终缩放、内容包围盒 vs 可用框,便于直接判定是否越界。
+        val scale = landscapeFrameFitScale(landscapeTextScale, fitScale)
+        // issue #54/#61:记录用户倍数、fit 系数与最终缩放(恒 ≤1)、内容包围盒 vs 可用框,
+        // 便于直接判定是否越界。
         val key = "u=$landscapeTextScale fit=$fitScale s=$scale " +
             "c=${contentHeight.roundToInt()} ah=${availableHeight.roundToInt()} " +
             "lw=${maxLineWidth.roundToInt()} aw=${availableWidth.roundToInt()}"
@@ -1785,19 +1808,32 @@ internal class AodLyricCanvasView(
         val frameBounds = mapLandscapeLogicalRect(transform, 0f, 0f, ow.toFloat(), oh.toFloat())
         val hit = clipBounds.hits(width, height)
         val cover = frameBounds.covers(width, height)
+        // issue #61:cover/hit 只说明「铺满/有交集」,内容被裁时两者仍为 true;补 fits
+        // (内容包围盒 ⊆ 画布)与四向裁切像素量,被裁直接量化、可对照截图。
+        val fits = clipBounds.fitsWithin(width, height)
+        val overflowLeft = (-clipBounds.minX).coerceAtLeast(0f).roundToInt()
+        val overflowTop = (-clipBounds.minY).coerceAtLeast(0f).roundToInt()
+        val overflowRight = (clipBounds.maxX - width).coerceAtLeast(0f).roundToInt()
+        val overflowBottom = (clipBounds.maxY - height).coerceAtLeast(0f).roundToInt()
         val key = "clip=(${clip[0]},${clip[1]})-(${clip[2]},${clip[3]}) " +
             "bounds=(${clipBounds.minX.roundToInt()},${clipBounds.minY.roundToInt()})-" +
             "(${clipBounds.maxX.roundToInt()},${clipBounds.maxY.roundToInt()}) " +
-            "view=${width}x$height cover=$cover hit=$hit"
+            "view=${width}x$height cover=$cover hit=$hit fits=$fits " +
+            "overflow=($overflowLeft,$overflowTop,$overflowRight,$overflowBottom)"
         if (key != lastRotationBoundsKey) {
             lastRotationBoundsKey = key
-            if (hit) {
-                HookLogger.i("AodLyricCanvasView", "Landscape bounds: $key")
-            } else {
+            if (!hit) {
                 HookLogger.w(
                     "AodLyricCanvasView",
                     "Landscape bounds: $key (content outside canvas; check translate/scale)"
                 )
+            } else if (!fits) {
+                HookLogger.w(
+                    "AodLyricCanvasView",
+                    "Landscape bounds: $key (content clipped by canvas; check scale/anchor)"
+                )
+            } else {
+                HookLogger.i("AodLyricCanvasView", "Landscape bounds: $key")
             }
         }
     }

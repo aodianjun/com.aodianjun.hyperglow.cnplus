@@ -387,4 +387,49 @@ class AodLandscapeBehaviorTest {
         val rect = AodSurfaceRect(100, 200, 400, 500)
         assertEquals(rect, swapAodSurfaceRectForLandscape(rect, 1080, 2400))
     }
+
+    // ---- issue #61 非全屏横屏缩放上限 [landscapeFrameFitScale] ----
+
+    @Test
+    fun landscapeFrameFitNeverMagnifiesBeyondFrame() {
+        // issue #61 现场:u=1.5 fit=1.44 —— 逻辑帧 == 旋转后的画布,scale>1 必溢出被裁。
+        // 上限恒为 1.0:scale=1 已精确铺满,再放大必然把帧内内容推出画布框。
+        assertEquals(1.0f, landscapeFrameFitScale(userScale = 1.5f, fitScale = 1.44f), 0.001f)
+        assertEquals(1.0f, landscapeFrameFitScale(userScale = 1.7f, fitScale = 3.01f), 0.001f)
+        assertEquals(1.0f, landscapeFrameFitScale(userScale = 1.2f, fitScale = 1.0f), 0.001f)
+    }
+
+    @Test
+    fun landscapeFrameFitDoesNotShrinkBelowOne() {
+        // 下限沿用 FULLSCREEN_MIN_SCALE:内容超帧(fit<1)或用户倍数<1 时也不缩小,
+        // 与修复前行为一致(缩小语义不属于本条 issue)。
+        assertEquals(1.0f, landscapeFrameFitScale(userScale = 1.5f, fitScale = 0.7f), 0.001f)
+        assertEquals(1.0f, landscapeFrameFitScale(userScale = 0.8f, fitScale = 1.44f), 0.001f)
+    }
+
+    @Test
+    fun landscapeFrameFitCapIsExactlyOne() {
+        // 回归锚点:非全屏横屏的放大上限必须恒为 1.0(逻辑帧 == 画布)。
+        assertEquals(1.0f, LANDSCAPE_FRAME_MAX_SCALE, 0.001f)
+    }
+
+    // ---- issue #61 内容包围盒完整可见判定 [LandscapeMappedBounds.fitsWithin] ----
+
+    @Test
+    fun fitsWithinRejectsClippedContentThatCoversCanvas() {
+        // issue #61 现场:bounds=(-199,-158)-(1105,878) vs view=906x720 ——
+        // cover=true、hit=true,但内容四向被裁,fits 必须为 false。
+        val clipped = LandscapeMappedBounds(-199f, -158f, 1105f, 878f)
+        assertTrue(clipped.covers(906, 720))
+        assertTrue(clipped.hits(906, 720))
+        assertFalse(clipped.fitsWithin(906, 720))
+    }
+
+    @Test
+    fun fitsWithinAcceptsContentInsideCanvas() {
+        val inside = LandscapeMappedBounds(10f, 20f, 700f, 700f)
+        assertTrue(inside.fitsWithin(906, 720))
+        // 贴边(恰好等于画布)也算完整可见。
+        assertTrue(LandscapeMappedBounds(0f, 0f, 906f, 720f).fitsWithin(906, 720))
+    }
 }
