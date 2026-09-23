@@ -296,4 +296,95 @@ class AodLandscapeBehaviorTest {
         assertTrue(start.second >= 0f)
         assertTrue(end.second <= 2400f)
     }
+
+    // ---- issue #63 横屏内容块锚定 [landscapeBlockAnchorOffset] ----
+
+    @Test
+    fun anchorHalfMatchesLegacyFullscreenCentering() {
+        // anchor=0.5 必须与旧「全屏强制居中」逐点等价,保证既有全屏行为不回归。
+        listOf(
+            floatArrayOf(100f, 300f, 906f, 22f),
+            floatArrayOf(22f, 1200f, 1036f, 22f),
+            floatArrayOf(500f, 100f, 906f, 30f)
+        ).forEach { (blockTop, blockHeight, available, padTop) ->
+            val legacy = fullscreenBlockCenterOffset(blockTop, blockHeight, available, padTop)
+            val anchored = landscapeBlockAnchorOffset(blockTop, blockHeight, available, padTop, 0.5f)
+            assertEquals("top=$blockTop h=$blockHeight", legacy, anchored, 0.001f)
+        }
+    }
+
+    @Test
+    fun anchorEndpointsPinBlockToEdges() {
+        // 可用 906、块高 306、块原顶部 100、padTop 22:
+        // anchor=0 → 块顶贴 padTop(offset=-78);anchor=1 → 块底贴 padTop+906(offset=522)。
+        val top = landscapeBlockAnchorOffset(100f, 306f, 906f, 22f, 0f)
+        val bottom = landscapeBlockAnchorOffset(100f, 306f, 906f, 22f, 1f)
+        assertEquals(-78f, top, 0.001f)
+        assertEquals(522f, bottom, 0.001f)
+    }
+
+    @Test
+    fun anchorNeverLiftsBlockWhenContentTallerThanAvailable() {
+        // 内容高于可用区间:不缩小、不上移(保持原顶部,避免裁切),三个锚点结果一致。
+        val expected = -(100f - 22f)
+        listOf(0f, 0.5f, 1f).forEach { anchor ->
+            assertEquals(
+                "anchor=$anchor",
+                expected,
+                landscapeBlockAnchorOffset(100f, 1200f, 906f, 22f, anchor),
+                0.001f
+            )
+        }
+    }
+
+    @Test
+    fun anchorOutOfRangeIsCoerced() {
+        val atZero = landscapeBlockAnchorOffset(100f, 306f, 906f, 22f, 0f)
+        val atOne = landscapeBlockAnchorOffset(100f, 306f, 906f, 22f, 1f)
+        assertEquals(atZero, landscapeBlockAnchorOffset(100f, 306f, 906f, 22f, -0.5f), 0.001f)
+        assertEquals(atOne, landscapeBlockAnchorOffset(100f, 306f, 906f, 22f, 1.8f), 0.001f)
+    }
+
+    // ---- 横屏画布 rect 宽高交换 [swapAodSurfaceRectForLandscape] ----
+
+    @Test
+    fun landscapeRectSwapExchangesDimsAroundCenter() {
+        // issue #63 现场形态:竖屏放置给出 900x600(宽>高)的歌词 rect,中心 (550,500)。
+        // 交换后 600x900,中心不变 —— 横持视角下画布由「高>宽」变为「宽>高」。
+        val swapped = swapAodSurfaceRectForLandscape(
+            AodSurfaceRect(100, 200, 1000, 800),
+            rootWidth = 1080,
+            rootHeight = 2400
+        )
+        assertEquals(AodSurfaceRect(250, 50, 850, 950), swapped)
+    }
+
+    @Test
+    fun landscapeRectSwapClampsIntoRoot() {
+        // rect 靠左边缘:交换后左界会被推到 0 并保持完整宽度(不裁剪、不越界)。
+        val swapped = swapAodSurfaceRectForLandscape(
+            AodSurfaceRect(0, 0, 500, 900),
+            rootWidth = 1080,
+            rootHeight = 2400
+        )
+        assertEquals(AodSurfaceRect(0, 200, 900, 700), swapped)
+    }
+
+    @Test
+    fun landscapeRectSwapShrinksOversizedWidthToRoot() {
+        // 极端:交换后的宽超过 root 宽 → 钳到 root 宽;高仍完整交换,整体在 root 内。
+        val swapped = swapAodSurfaceRectForLandscape(
+            AodSurfaceRect(0, 0, 900, 1500),
+            rootWidth = 1080,
+            rootHeight = 2400
+        )
+        assertEquals(AodSurfaceRect(0, 300, 1080, 1200), swapped)
+    }
+
+    @Test
+    fun landscapeRectSwapKeepsSquareRectUnchanged() {
+        // 已是正方形的 rect 交换后不变(幂等,避免无谓的重新布局)。
+        val rect = AodSurfaceRect(100, 200, 400, 500)
+        assertEquals(rect, swapAodSurfaceRectForLandscape(rect, 1080, 2400))
+    }
 }

@@ -64,6 +64,27 @@ internal data class AodSurfaceRect(
     val height: Int get() = bottom - top
 }
 
+/**
+ * 横屏(非全屏)画布 rect 的宽高交换(纯函数):以 rect 中心为锚交换宽与高,再整体钳进
+ * [rootWidth]×[rootHeight]。竖屏放置算法给出的歌词 rect 通常「宽≥高」(贴在时钟下方);
+ * 横屏逻辑帧 ow=视图高、oh=视图宽,旋转 90° 后用户在横持视角看到的画布反而「高>宽」,
+ * 歌词行在视觉横向上变得很短。交换后画布在用户视角呈横宽形,行布局空间与横屏语义一致。
+ * 中心锚定保证交换前后画布覆盖同一块屏幕区域(仍避开时钟所在一侧),钳制兜底极端尺寸。
+ */
+internal fun swapAodSurfaceRectForLandscape(
+    rect: AodSurfaceRect,
+    rootWidth: Int,
+    rootHeight: Int
+): AodSurfaceRect {
+    val newWidth = rect.height.coerceIn(0, rootWidth)
+    val newHeight = rect.width.coerceIn(0, rootHeight)
+    val centerX = (rect.left + rect.right) / 2
+    val centerY = (rect.top + rect.bottom) / 2
+    val left = (centerX - newWidth / 2).coerceIn(0, (rootWidth - newWidth).coerceAtLeast(0))
+    val top = (centerY - newHeight / 2).coerceIn(0, (rootHeight - newHeight).coerceAtLeast(0))
+    return AodSurfaceRect(left, top, left + newWidth, top + newHeight)
+}
+
 internal data class AodRenderedClockBounds(
     val top: Int,
     val bottom: Int
@@ -1888,13 +1909,25 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             shiftedLeft + placedWidth,
             placed?.bottom?.roundToInt() ?: 0
         )
+        // 横屏(非全屏):交换画布 rect 宽高,使横持视角下的画布呈横宽形(否则旋转 90° 后
+        // 用户看到的画布仍沿竖屏放置的「宽>高」变成「高>宽」,长宽没有交换)。交换先于
+        // 时钟避让,让交换后更高的 rect 仍能被整体下推出时钟区;全屏横屏已是整屏画布,无需交换。
+        val landscapeRectSwap =
+            aodRotateWithDevice &&
+                currentRotationStep != AodOrientationStep.PORTRAIT &&
+                !fullscreenPlacement
+        val orientedRect = if (landscapeRectSwap) {
+            swapAodSurfaceRectForLandscape(placedRect, root.width, root.height)
+        } else {
+            placedRect
+        }
         // 自定义位置由用户通过 verticalBias 主动设定(全屏画布)。此模式下歌词应无视系统时钟的
         // 下移,固定在用户选择的位置,不做硬避让("自定义位置"即用户已按自身喜好摆放)。
         val rect = if (profile.anchor == "custom_vertical_bias") {
-            placedRect
+            orientedRect
         } else {
             avoidStockClockOverlap(
-                placedRect,
+                orientedRect,
                 physicalClockBounds,
                 margin,
                 root.height

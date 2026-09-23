@@ -1136,6 +1136,20 @@ internal fun fullscreenBlockCenterOffset(
     padTop: Float
 ): Float = max(0f, (availableHeight - blockHeight) / 2f) - (blockTop - padTop)
 
+/**
+ * 横屏内容块的锚定偏移(纯函数,issue #63):把垂直占 [blockTop, blockTop + blockHeight]
+ * 的内容块,在可用区间 [padTop, padTop + availableHeight] 内按 [anchor] 整体摆放
+ * (0=顶、0.5=居中、1=底)。anchor=0.5 时与 [fullscreenBlockCenterOffset] 逐点等价;
+ * 内容块高于可用区间时不缩小、也不再上移(保持原顶部,避免裁切)。
+ */
+internal fun landscapeBlockAnchorOffset(
+    blockTop: Float,
+    blockHeight: Float,
+    availableHeight: Float,
+    padTop: Float,
+    anchor: Float
+): Float = max(0f, availableHeight - blockHeight) * anchor.coerceIn(0f, 1f) - (blockTop - padTop)
+
 private fun steadyTextAlpha(factor: Float): Float = if (factor < 0.5f) {
     max(0.35f * AOD_DIMMING_BOOST, 0.55f)
 } else {
@@ -1603,6 +1617,10 @@ internal class AodLyricCanvasView(
         rotationStep != AodOrientationStep.PORTRAIT &&
         landscapeFullscreen
 
+    /** 是否处于横屏步进(启用旋转 且 当前非竖屏),含全屏与非全屏。 */
+    private fun landscapeActive(): Boolean =
+        rotationEnabled && rotationStep != AodOrientationStep.PORTRAIT
+
     /**
      * 绘制期生效的横屏放缩比。
      *  - 横屏全屏化:改用 [computeFullscreenAutoScale] 自动铺满,不再使用手动倍数;
@@ -1696,10 +1714,11 @@ internal class AodLyricCanvasView(
     }
 
     /**
-     * 绘制期生效的垂直对齐:横屏全屏化时强制居中,否则沿用外部设定的对齐。
+     * 绘制期生效的垂直对齐:横屏时行块改由 [landscapeAnchor] 锚定(见 positionRows),
+     * 竖直对齐只在竖屏路径生效,这里直接返回外部设定值。
+     * (此前横屏全屏在此强制 CENTER;issue #63 起横屏两方向统一走锚定,默认 0.5 等价居中。)
      */
-    private fun effectiveVerticalAlignment(): AodCanvasVerticalAlignment =
-        if (fullscreenLandscapeActive()) AodCanvasVerticalAlignment.CENTER else verticalAlignment
+    private fun effectiveVerticalAlignment(): AodCanvasVerticalAlignment = verticalAlignment
 
     /**
      * 刚性绘制变换:绕视图中心旋转画布坐标系,把竖屏逻辑框整体转成横屏显示。
@@ -2218,7 +2237,12 @@ internal class AodLyricCanvasView(
             val topPadding = padTop.toFloat()
             val bottomPadding = oh - padBottom
             val available = (bottomPadding - topPadding).coerceAtLeast(0f)
-            var top = if (effectiveVerticalAlignment() == AodCanvasVerticalAlignment.TOP) {
+            // issue #63:横屏时行堆叠轴经 90° 旋转映射为画布的视觉横轴,沿用竖屏的 TOP 会让
+            // 内容整块贴向画布一侧(现场实测偏约 185px)。横屏统一按 landscapeAnchor 锚定
+            // (默认 0.5=居中);竖屏维持原 TOP/CENTER 语义。
+            var top = if (landscapeActive()) {
+                topPadding + max(0f, available - total) * landscapeAnchor.coerceIn(0f, 1f)
+            } else if (effectiveVerticalAlignment() == AodCanvasVerticalAlignment.TOP) {
                 topPadding
             } else {
                 topPadding + max(0f, (available - total) / 2f)
@@ -2230,11 +2254,12 @@ internal class AodLyricCanvasView(
             }
         }
         // issue #41:横屏全屏时元数据分支走 anchor 排版,会把整块锚到 padTop/padBottom,
-        // 完全不做居中(居中只在无元数据分支生效)。这里对整块(元数据+歌词)统一居中。
-        if (metadata != null) centerFullscreenMetadataBlock(positioned)
-        // issue #41/#44:记录横屏整块(元数据+歌词)的最终占位范围与对齐方式,便于真机核对
-        // 内容是否被正确居中、是否偏靠一侧/越界被裁。
-        if (fullscreenLandscapeActive()) {
+        // 完全不做居中(居中只在无元数据分支生效)。这里对整块(元数据+歌词)统一锚定。
+        // issue #63 起扩展到全部横屏(含非全屏),锚点取 landscapeAnchor(默认 0.5=居中)。
+        if (metadata != null) anchorLandscapeContentBlock(positioned)
+        // issue #41/#44/#63:记录横屏整块(元数据+歌词)的最终占位范围与锚定参数,便于真机核对
+        // 内容是否被正确锚定/居中、是否偏靠一侧/越界被裁。覆盖 oh/pad/total→block 全链路。
+        if (landscapeActive()) {
             var minTop = Float.POSITIVE_INFINITY
             var maxBottom = Float.NEGATIVE_INFINITY
             positioned.forEach { p ->
@@ -2243,10 +2268,10 @@ internal class AodLyricCanvasView(
                 if (t < minTop) minTop = t
                 if (b > maxBottom) maxBottom = b
             }
-            val key = "rot=$rotationStep ow=$ow oh=$oh" +
+            val key = "rot=$rotationStep ow=$ow oh=$oh padT=$padTop padB=$padBottom" +
                 if (metadata != null) " md=1" else " md=0" +
                 " block=${minTop.roundToInt()}..${maxBottom.roundToInt()} " +
-                "align=${effectiveVerticalAlignment()}"
+                "anchor=$landscapeAnchor fs=${fullscreenLandscapeActive()}"
             if (key != lastRowLayoutLogKey) {
                 lastRowLayoutLogKey = key
                 HookLogger.i("AodLyricCanvasView", "Landscape row layout: $key")
@@ -2264,13 +2289,13 @@ internal class AodLyricCanvasView(
     }
 
     /**
-     * issue #41:横屏全屏(rotation+landscape fullscreen)时把整块(元数据+歌词)垂直居中。
-     * 该分支此前只用 metadataAnchor 锚定到 padTop/padBottom,完全不做居中——而无元数据
-     * 分支经 effectiveVerticalAlignment()=CENTER 会居中,导致有元数据时不居中、挤向画布一侧。
-     * 仅在全屏横屏激活时生效(需自适应 scale 也读完预缩放布局),竖屏/普通横屏不受影响。
+     * issue #41/#63:横屏(全屏与非全屏)时把整块(元数据+歌词)按 [landscapeAnchor] 锚定。
+     * 元数据分支此前只用 metadataAnchor 锚定到 padTop/padBottom,完全不做居中——而无元数据
+     * 分支会居中/锚定,导致有元数据时不居中、挤向画布一侧。anchor=0.5 与旧全屏居中行为
+     * 逐点等价;仅在横屏激活时生效(需自适应 scale 也读完预缩放布局),竖屏不受影响。
      */
-    private fun centerFullscreenMetadataBlock(positioned: MutableList<PositionedRow>) {
-        if (!fullscreenLandscapeActive() || positioned.isEmpty()) return
+    private fun anchorLandscapeContentBlock(positioned: MutableList<PositionedRow>) {
+        if (!landscapeActive() || positioned.isEmpty()) return
         var minTop = Float.POSITIVE_INFINITY
         var maxBottom = Float.NEGATIVE_INFINITY
         positioned.forEach { p ->
@@ -2282,11 +2307,12 @@ internal class AodLyricCanvasView(
         if (!minTop.isFinite() || !maxBottom.isFinite() || maxBottom <= minTop) return
         val available = (oh - padTop - padBottom).coerceAtLeast(0)
         val blockHeight = maxBottom - minTop
-        val offset = fullscreenBlockCenterOffset(
+        val offset = landscapeBlockAnchorOffset(
             blockTop = minTop,
             blockHeight = blockHeight,
             availableHeight = available.toFloat(),
-            padTop = padTop.toFloat()
+            padTop = padTop.toFloat(),
+            anchor = landscapeAnchor
         )
         if (offset == 0f) return
         val shifted = positioned.map { it.copy(baseline = it.baseline + offset) }
@@ -2296,8 +2322,8 @@ internal class AodLyricCanvasView(
             lastCenteredLogKey = offset.toString()
             HookLogger.i(
                 "AodLyricCanvasView",
-                "Landscape fullscreen metadata block centered minTop=$minTop " +
-                    "blockH=$blockHeight avail=$available offset=$offset"
+                "Landscape content block anchored minTop=$minTop " +
+                    "blockH=$blockHeight avail=$available anchor=$landscapeAnchor offset=$offset"
             )
         }
     }
