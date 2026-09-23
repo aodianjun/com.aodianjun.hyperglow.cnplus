@@ -1,13 +1,17 @@
 package com.eza.hyperglow.root.aod
 
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * 横屏相关行为的纯函数测试:
  *  - 「横屏自动隐藏系统息屏内容、回落竖屏恢复」的判定 [shouldHideStockAodContent];
- *  - 横屏全屏化「自动铺满不越界」的放缩比 [fullscreenAutoScale]。
+ *  - 横屏全屏化「自动铺满不越界」的放缩比 [fullscreenAutoScale];
+ *  - 横屏刚性变换(平移分量/缩放枢轴)与缩放上限 [landscapeRotationTransform];#57 现场数据回归见测试内注释。
  */
 class AodLandscapeBehaviorTest {
 
@@ -196,52 +200,100 @@ class AodLandscapeBehaviorTest {
         assertTrue(wrong < 0f)
     }
 
-    // ---- issue #55 横向平移量缩放补偿 ----
+    // ---- issue #55/#57 横屏刚性变换:平移分量与缩放枢轴 ----
 
     @Test
-    fun compensateRotationTranslateKeepsDeviceShiftEqualToD() {
-        // issue #55:先 translate 再 scale 时平移量 d 会被放大成 d×scale,
-        // 补偿后视觉平移 = scale * (d/scale) = d(恒等于原始平移量),内容不再被推出画布。
-        val d = -747f // 横屏全屏:视口 906x2400,d=(906-2400)/2
-        val scale = 1.7f
-        val compensated = compensateRotationTranslate(d, scale)
-        assertEquals(-747f / scale, compensated, 0.0001f)
-        assertEquals(d, scale * compensated, 0.001f)
+    fun legacySymmetricTranslateReproducesIssue57FieldBounds() {
+        // 现场数据回归(issue #57):0.3.103 的自检日志
+        //   Landscape bounds: clip=(0,0)-(2400,906) bounds=(1392,-10)-(2932,4070) view=906x2400
+        // 用旧参数(translate 共用同一量 t=d/scale、scale 绕视口中心)复算:两个对角角点必须与
+        // 日志逐点吻合,以证明本文件的映射模型与真机 Canvas 行为完全一致。
+        val legacy = LandscapeRotationTransform(
+            degrees = 90f,
+            viewPivotX = 453f,
+            viewPivotY = 1200f,
+            translateX = -747f / 1.7f,
+            translateY = -747f / 1.7f,
+            scale = 1.7f,
+            scalePivotX = 453f,
+            scalePivotY = 1200f
+        )
+        val bounds = mapLandscapeLogicalRect(legacy, 0f, 0f, 2400f, 906f)
+
+        assertEquals(1392, bounds.minX.roundToInt())
+        assertEquals(4070, bounds.maxY.roundToInt())
+        assertEquals(2932, bounds.maxX.roundToInt())
+        assertEquals(-10, bounds.minY.roundToInt())
+        // 旧参数下内容与画布完全不相交 —— 这正是「横屏什么都看不到」的直接证据。
+        assertFalse(bounds.hits(906, 2400))
     }
 
     @Test
-    fun compensateRotationTranslateScaleOneIsIdentity() {
-        // scale≈1 时不补偿,行为与旧版完全一致(无回归)。
-        assertEquals(-747f, compensateRotationTranslate(-747f, 1f), 0.001f)
-        assertEquals(93f, compensateRotationTranslate(93f, 1f), 0.001f)
+    fun logicalFrameMapsExactlyOntoViewportAtScaleOne() {
+        // 修复后的参数在 scale=1 时把逻辑帧四角逐点映射到视口四角:
+        // 两种画布尺寸(整屏 906x2400、旧中间态 906x720)× 两个旋转方向都必须成立。
+        listOf(906 to 2400, 906 to 720).forEach { (w, h) ->
+            listOf(AodOrientationStep.LANDSCAPE, AodOrientationStep.REVERSE_LANDSCAPE).forEach { step ->
+                val transform = landscapeRotationTransform(w, h, step, 1f)!!
+                val bounds = mapLandscapeLogicalRect(transform, 0f, 0f, h.toFloat(), w.toFloat())
+                assertEquals("minX w=$w h=$h $step", 0f, bounds.minX, 0.001f)
+                assertEquals("minY w=$w h=$h $step", 0f, bounds.minY, 0.001f)
+                assertEquals("maxX w=$w h=$h $step", w.toFloat(), bounds.maxX, 0.001f)
+                assertEquals("maxY w=$w h=$h $step", h.toFloat(), bounds.maxY, 0.001f)
+            }
+        }
     }
 
     @Test
-    fun compensateRotationTranslateNonFiniteScaleFallsBackToD() {
-        // 非有限 scale(NaN/Inf)不得除出 NaN,回退为原始平移量。
-        assertEquals(-747f, compensateRotationTranslate(-747f, Float.NaN), 0.001f)
-        assertEquals(-747f, compensateRotationTranslate(-747f, Float.POSITIVE_INFINITY), 0.001f)
+    fun scaledContentStaysCenteredAndCoversViewport() {
+        // issue #57 现场参数:视口 906x2400、scale=1.7。逻辑帧中心必须映射到视口中心(缩放
+        // 对称),放大后的逻辑帧完整覆盖视口(内容有余量,而不是被整体推出画布)。
+        val transform =
+            landscapeRotationTransform(906, 2400, AodOrientationStep.LANDSCAPE, 1.7f)!!
+        val center = mapLandscapeLogicalPoint(transform, 1200f, 453f)
+
+        assertEquals(453f, center.first, 0.001f)
+        assertEquals(1200f, center.second, 0.001f)
+        val frame = mapLandscapeLogicalRect(transform, 0f, 0f, 2400f, 906f)
+        assertTrue(frame.covers(906, 2400))
+        assertTrue(frame.hits(906, 2400))
     }
 
     @Test
-    fun landscapeLineStaysOnScreenAfterRotationTransform() {
-        // 建模 beginRotationTransform(rotate 90° + translate(d,d) + scale(s, 视口中心)):
-        // 逻辑点 (x,y) → (w - y, x) → 缩放后视口 y = cy + (x - cy) * s。
-        // 取 issue #51 现场参数:视口 906x2400、s=1.7,验证逻辑 x(对齐结果)映射到视口 y。
-        val cy = 2400f / 2f
-        val s = 1.7f
-        fun mapLogicalXToViewY(x: Float) = cy + (x - cy) * s
+    fun rotationTransformUsesLogicalFrameCenterAsScalePivot() {
+        // 缩放发生在逻辑坐标系内(pre-concat 的 S·T·R),枢轴必须取逻辑帧中心 (oh/2, ow/2),
+        // 而不是视口中心 —— 记错坐标系会让放大后的内容整体偏移。#57 修复的另一半是平移分量:
+        // 逻辑帧坐标系内取 (d, -d),x/y 必须不同号。
+        val transform =
+            landscapeRotationTransform(906, 2400, AodOrientationStep.LANDSCAPE, 1.7f)!!
 
-        // 正确基准(逻辑帧宽 2400)居中 1400px 行:x∈[500,1900] → 视口 y∈[10,2390] 全程可见。
-        val startX = edgeSafeAlignedStart(2400f, 0f, 0f, 0f, 1400f, "center")
-        assertEquals(500f, startX, 0.001f)
-        assertTrue(mapLogicalXToViewY(startX) >= 0f)
-        assertTrue(mapLogicalXToViewY(startX + 1400f) <= 2400f)
+        assertEquals(1200f, transform.scalePivotX, 0.001f) // oh/2 = 906/2
+        assertEquals(453f, transform.scalePivotY, 0.001f)  // ow/2 = 2400/2
+        assertEquals(-747f, transform.translateX, 0.001f)
+        assertEquals(747f, transform.translateY, 0.001f)
+    }
 
-        // 回归对照(误用视口宽 906):startX=-247 → 行起点落在视口 y=-1260,
-        // 行首约 1.2k px 被裁出屏幕(issue #51 现场:横屏歌词被推出可视区)。
-        val brokenX = edgeSafeAlignedStart(906f, 0f, 0f, 0f, 1400f, "center")
-        assertEquals(-247f, brokenX, 0.001f)
-        assertTrue(mapLogicalXToViewY(brokenX) < 0f)
+    @Test
+    fun rotationTransformIsNullForPortraitOrDegenerateSize() {
+        assertNull(landscapeRotationTransform(906, 2400, AodOrientationStep.PORTRAIT, 1.7f))
+        assertNull(landscapeRotationTransform(0, 2400, AodOrientationStep.LANDSCAPE, 1.7f))
+        assertNull(landscapeRotationTransform(906, 0, AodOrientationStep.LANDSCAPE, 1.7f))
+        // 非有限 scale 回退为 1,不产生 NaN 坐标。
+        val fallback =
+            landscapeRotationTransform(906, 2400, AodOrientationStep.LANDSCAPE, Float.NaN)!!
+        assertEquals(1f, fallback.scale, 0.001f)
+    }
+
+    @Test
+    fun cappedLineEndsStayInsideViewport() {
+        // 与 #51 长轴上限配合:最长行(≤ 可用宽)放大后,行两端仍必须落在视口内。
+        val transform =
+            landscapeRotationTransform(906, 2400, AodOrientationStep.LANDSCAPE, 1.7f)!!
+        // 居中 1400px 行 → 逻辑 x∈[500,1900];映射到视口 y 应落在 [0,2400]。
+        val start = mapLandscapeLogicalPoint(transform, 500f, 453f)
+        val end = mapLandscapeLogicalPoint(transform, 1900f, 453f)
+
+        assertTrue(start.second >= 0f)
+        assertTrue(end.second <= 2400f)
     }
 }

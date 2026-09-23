@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
-import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Shader
@@ -800,12 +799,123 @@ internal fun aodLandscapeFrameLayout(
 }
 
 /**
- * issue #55:横屏旋转平移量的缩放补偿。Canvas 变换为 pre-concat,后施加的 scale 会作用于前面
- * 已施加的 translate,把平移量 d 放大成 d×scale 再把逻辑框推出画布。解法:按 scale 预除以
- * 抵消后续缩放,令最终设备平移恒等于 d;scale≈1 时不补偿,行为与旧版完全一致,无回归。
+ * 横屏刚性变换参数（与 [beginRotationTransform] 的 Canvas 调用一一对应：rotate → translate → scale）。
+ *
+ * Canvas 的 pre-concat 语义下最终映射为 S·T·R —— 对逻辑点先缩放、再平移、最后旋转。实测与之
+ * 相符：issue #57 现场 `Landscape bounds` 的角点数值可用该组合逐点复算（见单测回归）。因此：
+ *  - [scalePivotX]/[scalePivotY] 位于**逻辑帧坐标系**，必须取逻辑帧中心 (oh/2, ow/2)；
+ *  - [translateX]/[translateY] 也位于逻辑帧坐标系，取 (d, -d)：x/y 分量**不同号**，
+ *    使 R∘T 把逻辑帧精确铺满视口（scale=1 时四角逐点重合）；
+ *  - 旋转枢轴 [viewPivotX]/[viewPivotY] 位于**视口坐标系**（视口中心）。
+ *
+ * issue #57：此前 x/y 共用同一平移量 translate(d, d)，并在 scale≠1 时除以 scale 补偿，两者都与
+ * 90° 旋转后的实际映射不符 —— 内容整体被推出画布（inside=false，屏幕零输出）。
  */
-internal fun compensateRotationTranslate(d: Float, scale: Float): Float =
-    if (scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f) d / scale else d
+internal data class LandscapeRotationTransform(
+    val degrees: Float,
+    val viewPivotX: Float,
+    val viewPivotY: Float,
+    val translateX: Float,
+    val translateY: Float,
+    val scale: Float,
+    val scalePivotX: Float,
+    val scalePivotY: Float
+)
+
+/** 映射后的逻辑矩形在视口坐标系中的包围盒，附带覆盖自检（自检日志与单测共用）。 */
+internal data class LandscapeMappedBounds(
+    val minX: Float,
+    val minY: Float,
+    val maxX: Float,
+    val maxY: Float
+) {
+    /** 完全覆盖视口：内容有余量（缩放后的正常形态）。 */
+    fun covers(viewWidth: Int, viewHeight: Int): Boolean =
+        minX <= 0f && minY <= 0f && maxX >= viewWidth.toFloat() && maxY >= viewHeight.toFloat()
+
+    /** 与视口至少相交：非零输出的必要条件。 */
+    fun hits(viewWidth: Int, viewHeight: Int): Boolean =
+        maxX > 0f && minX < viewWidth.toFloat() && maxY > 0f && minY < viewHeight.toFloat()
+}
+
+/**
+ * 横屏变换参数推导（纯函数）。PORTRAIT / 非法尺寸返回 null（不做变换）。
+ * 逻辑帧：ow = 视口高、oh = 视口宽（旋转 90° 后宽高交换）。
+ */
+internal fun landscapeRotationTransform(
+    viewWidth: Int,
+    viewHeight: Int,
+    rotationStep: AodOrientationStep,
+    scale: Float
+): LandscapeRotationTransform? {
+    if (rotationStep == AodOrientationStep.PORTRAIT) return null
+    if (viewWidth <= 0 || viewHeight <= 0) return null
+    val degrees = when (rotationStep) {
+        AodOrientationStep.LANDSCAPE -> 90f
+        AodOrientationStep.REVERSE_LANDSCAPE -> -90f
+        AodOrientationStep.PORTRAIT -> return null
+    }
+    val effectiveScale = if (scale.isFinite() && scale > 0f) scale else 1f
+    val d = (viewWidth - viewHeight) / 2f
+    return LandscapeRotationTransform(
+        degrees = degrees,
+        viewPivotX = viewWidth / 2f,
+        viewPivotY = viewHeight / 2f,
+        // 逻辑帧坐标系内的平移：x 取 d、y 取 -d（两个方向同理，二者只差旋转符号）。
+        translateX = d,
+        translateY = -d,
+        scale = effectiveScale,
+        // 逻辑帧中心 = (ow/2, oh/2) = (视口高/2, 视口宽/2)。
+        scalePivotX = viewHeight / 2f,
+        scalePivotY = viewWidth / 2f
+    )
+}
+
+/**
+ * 逻辑点 → 视口点映射（纯函数），与 Canvas 的 S·T·R 组合严格同构：先绕逻辑帧中心缩放、
+ * 再在逻辑帧坐标系内平移、最后绕视口中心旋转。自检日志与单测共用。
+ */
+internal fun mapLandscapeLogicalPoint(
+    transform: LandscapeRotationTransform,
+    x: Float,
+    y: Float
+): Pair<Float, Float> {
+    val scaledX = transform.scalePivotX + (x - transform.scalePivotX) * transform.scale
+    val scaledY = transform.scalePivotY + (y - transform.scalePivotY) * transform.scale
+    val translatedX = scaledX + transform.translateX
+    val translatedY = scaledY + transform.translateY
+    val radians = Math.toRadians(transform.degrees.toDouble())
+    val cos = kotlin.math.cos(radians).toFloat()
+    val sin = kotlin.math.sin(radians).toFloat()
+    val dx = translatedX - transform.viewPivotX
+    val dy = translatedY - transform.viewPivotY
+    return Pair(
+        transform.viewPivotX + dx * cos - dy * sin,
+        transform.viewPivotY + dx * sin + dy * cos
+    )
+}
+
+/** 逻辑矩形四角映射后的包围盒（自检日志用）。 */
+internal fun mapLandscapeLogicalRect(
+    transform: LandscapeRotationTransform,
+    left: Float,
+    top: Float,
+    right: Float,
+    bottom: Float
+): LandscapeMappedBounds {
+    val corners = listOf(
+        mapLandscapeLogicalPoint(transform, left, top),
+        mapLandscapeLogicalPoint(transform, right, top),
+        mapLandscapeLogicalPoint(transform, right, bottom),
+        mapLandscapeLogicalPoint(transform, left, bottom)
+    )
+    return LandscapeMappedBounds(
+        minX = corners.minOf { it.first },
+        minY = corners.minOf { it.second },
+        maxX = corners.maxOf { it.first },
+        maxY = corners.maxOf { it.second }
+    )
+}
 
 internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
     startedAtMs > 0L && nowMs - startedAtMs >= durationMs
@@ -1601,92 +1711,75 @@ internal class AodLyricCanvasView(
         if (!rotationEnabled || rotationStep == AodOrientationStep.PORTRAIT) {
             return NO_ROTATION_SAVE
         }
-        val save = canvas.save()
-        val cx = width / 2f
-        val cy = height / 2f
-        when (rotationStep) {
-            AodOrientationStep.LANDSCAPE -> canvas.rotate(90f, cx, cy)
-            AodOrientationStep.REVERSE_LANDSCAPE -> canvas.rotate(-90f, cx, cy)
-            AodOrientationStep.PORTRAIT -> Unit
-        }
-        // 刚性平移:交换宽高后的逻辑框经 rotate+平移精确铺满竖屏视口。
-        val d = (width - height) / 2f
         val scale = if (applyScale) effectiveLandscapeScale() else 1f
-        val scaled = scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f
-        // issue #55:Canvas 变换是累积的(pre-concat,后调用的 scale 是最外层、作用于前面所有
-        // 已施加的变换),先 translate 再 scale 时,平移量 d 会被 scale 放大成 d×scale,
-        // 把逻辑框推出画布(横屏全屏 d=-747、scale=1.7 → 视觉平移 -1269,内容整屏不可见)。
-        // 解法:平移量按 scale 预除以抵消后续缩放,令最终设备平移恒等于 d;scale=1 时
-        // d/1=d,行为与旧版完全一致,无回归。
-        val t = compensateRotationTranslate(d, scale)
-        if (rotationStep == AodOrientationStep.LANDSCAPE) {
-            canvas.translate(t, t)
-        } else if (rotationStep == AodOrientationStep.REVERSE_LANDSCAPE) {
-            canvas.translate(-t, -t)
-        }
+        // 变换参数集中在 [landscapeRotationTransform]:平移取 (d,-d) 且缩放枢轴取逻辑帧中心,
+        // 与 90° 旋转后的实际映射一致(issue #57);两个旋转方向共用同一组参数。
+        val transform = landscapeRotationTransform(width, height, rotationStep, scale)
+            ?: return NO_ROTATION_SAVE
+        val save = canvas.save()
+        canvas.rotate(transform.degrees, transform.viewPivotX, transform.viewPivotY)
+        canvas.translate(transform.translateX, transform.translateY)
         if (applyScale) {
-            // issue #41/#44:记录旋转/平移/缩放参数,便于真机核对「居中基准(oh)」与
-            // 「缩放枢轴(view 中心 cx,cy)」是否一致、平移量 d 的方向量级是否正确。
-            val key = "rot=$rotationStep w=$width h=$height d=$d d'=$t scale=$scale " +
+            // issue #41/#44/#57:记录旋转/平移/缩放参数,便于真机核对方向与量级是否正确。
+            val key = "rot=$rotationStep w=$width h=$height tx=${transform.translateX} " +
+                "ty=${transform.translateY} scale=${transform.scale} " +
+                "sp=(${transform.scalePivotX},${transform.scalePivotY}) " +
                 "fs=${fullscreenLandscapeActive()}"
             if (key != lastTransformLogKey) {
                 lastTransformLogKey = key
                 HookLogger.i("AodLyricCanvasView", "Landscape transform: $key")
             }
-            if (scaled) {
-                canvas.scale(scale, scale, cx, cy)
+            if (kotlin.math.abs(transform.scale - 1f) > 0.001f) {
+                canvas.scale(
+                    transform.scale,
+                    transform.scale,
+                    transform.scalePivotX,
+                    transform.scalePivotY
+                )
             }
-            // issue #55:自检——把「内容所在(裁剪区)经本变换后的设备包围盒」算出来并校验
-            // 是否落在画布(0,0)-(width,height)内,任何"整屏零输出/越界"都能被日志直接捕获。
-            logRotationTransformBounds(scale = scale, d = d)
+            // issue #55/#57 自检:把逻辑帧与内容裁剪区经同一变换映射到视口,输出包围盒与
+            // 覆盖判定;任何「整屏零输出」都会以 W 级日志直接暴露,无需靠截图反推。
+            logRotationTransformBounds(transform)
         }
         return save
     }
-
     /**
      * issue #55 自检日志:用与 [beginRotationTransform] 完全相同的 pre-concat 顺序重建矩阵
      * (rotate → translate(t) → scale),把内容裁剪区四个角映射到设备坐标,输出其包围盒及
      * 是否落在画布 (0,0)-(width,height) 内。当旋转+平移+缩放把内容推出可视区时,这里会
      * 直接报越界,无需再靠截图或反推日志判断。
      */
-    private fun logRotationTransformBounds(scale: Float, d: Float) {
-        val scaled = scale.isFinite() && kotlin.math.abs(scale - 1f) > 0.001f
-        if (!scaled) return // scale=1 时平移不被放大,旧逻辑已稳定,无需自检
-        val cx = width / 2f
-        val cy = height / 2f
-        val t = d / scale
-        // Canvas.rotate/translate/scale 是 pre-concat(后调用为最外层变换),故设备坐标 =
-        // S(scale)·T(translate)·R(rotate)。用 preX 按同样顺序重建镜像矩阵以精确映射逻辑点→设备点。
-        val m = Matrix()
-        when (rotationStep) {
-            AodOrientationStep.LANDSCAPE -> m.setRotate(90f, cx, cy)
-            AodOrientationStep.REVERSE_LANDSCAPE -> m.setRotate(-90f, cx, cy)
-            else -> return
-        }
-        if (rotationStep == AodOrientationStep.LANDSCAPE) m.preTranslate(t, t)
-        else if (rotationStep == AodOrientationStep.REVERSE_LANDSCAPE) m.preTranslate(-t, -t)
-        m.preScale(scale, scale, cx, cy)
+    /**
+     * issue #55/#57 自检日志:用与 [beginRotationTransform] 完全相同的变换参数把「逻辑帧」与
+     * 「内容裁剪区」映射到视口坐标,输出包围盒,并判定覆盖(cover=铺满且有余量)与相交
+     * (hit=非零输出)。变换把内容推出画布时 hit=false —— 以 W 级留痕,第一时间暴露「零输出」。
+     */
+    private fun logRotationTransformBounds(transform: LandscapeRotationTransform) {
         val clip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
-        val pts = floatArrayOf(
-            clip[0].toFloat(), clip[1].toFloat(),
-            clip[2].toFloat(), clip[1].toFloat(),
-            clip[2].toFloat(), clip[3].toFloat(),
-            clip[0].toFloat(), clip[3].toFloat()
+        val clipBounds = mapLandscapeLogicalRect(
+            transform,
+            clip[0].toFloat(),
+            clip[1].toFloat(),
+            clip[2].toFloat(),
+            clip[3].toFloat()
         )
-        m.mapPoints(pts)
-        val minX = pts.filterIndexed { i, _ -> i % 2 == 0 }.minOrNull() ?: 0f
-        val maxX = pts.filterIndexed { i, _ -> i % 2 == 0 }.maxOrNull() ?: 0f
-        val minY = pts.filterIndexed { i, _ -> i % 2 == 1 }.minOrNull() ?: 0f
-        val maxY = pts.filterIndexed { i, _ -> i % 2 == 1 }.maxOrNull() ?: 0f
-        val inside = minX >= 0f && maxX <= width.toFloat() &&
-            minY >= 0f && maxY <= height.toFloat()
+        val frameBounds = mapLandscapeLogicalRect(transform, 0f, 0f, ow.toFloat(), oh.toFloat())
+        val hit = clipBounds.hits(width, height)
+        val cover = frameBounds.covers(width, height)
         val key = "clip=(${clip[0]},${clip[1]})-(${clip[2]},${clip[3]}) " +
-            "bounds=(${minX.roundToInt()},${minY.roundToInt()})-(" +
-            "${maxX.roundToInt()},${maxY.roundToInt()}) " +
-            "view=${width}x$height inside=$inside"
+            "bounds=(${clipBounds.minX.roundToInt()},${clipBounds.minY.roundToInt()})-" +
+            "(${clipBounds.maxX.roundToInt()},${clipBounds.maxY.roundToInt()}) " +
+            "view=${width}x$height cover=$cover hit=$hit"
         if (key != lastRotationBoundsKey) {
             lastRotationBoundsKey = key
-            HookLogger.i("AodLyricCanvasView", "Landscape bounds: $key")
+            if (hit) {
+                HookLogger.i("AodLyricCanvasView", "Landscape bounds: $key")
+            } else {
+                HookLogger.w(
+                    "AodLyricCanvasView",
+                    "Landscape bounds: $key (content outside canvas; check translate/scale)"
+                )
+            }
         }
     }
 
