@@ -826,6 +826,111 @@ class LyriconLyricProducerTest {
         )
     }
 
+    // --- Song-feed watchdog (issue #64: 位置在推、歌曲通道已丢的「半死」状态) ---
+
+    @Test
+    fun songWatchdog_firesWhenSongMissingWhilePositionAdvancing() {
+        // issue #64 故障链:onPositionChanged 持续回调且值在推进(播放器真在播、SDK
+        // 位置通道活着),但 onSongChanged 始终不到、currentSong 长期为空 —— 必须强制
+        // 重建订阅让 SDK 补发歌曲,而不是等用户重启 app。
+        assertTrue(
+            shouldForceResubscribeSongFeed(
+                playing = true,
+                songAbsentMs = LyriconLyricProducer.SONG_ABSENCE_RESUBSCRIBE_MS + 1_000L,
+                providerSyncPendingMs = -1L,
+                positionAdvancing = true,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun songWatchdog_firesOnStaleProviderSync() {
+        // provider 已切换但 SDK 超过宽限期仍未补发新歌(歌曲可能非空 —— 旧歌残留),
+        // 位置仍在推进:同样判定歌曲通道半死。
+        assertTrue(
+            shouldForceResubscribeSongFeed(
+                playing = true,
+                songAbsentMs = -1L,
+                providerSyncPendingMs = LyriconLyricProducer.PROVIDER_SYNC_GRACE_MS + 1_000L,
+                positionAdvancing = true,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun songWatchdog_ignoresWhenSongLoadedAndSynced() {
+        // 健康状态:歌曲已加载(缺席=-1)且无挂起的 provider 同步 —— 不得触发。
+        assertFalse(
+            shouldForceResubscribeSongFeed(
+                playing = true,
+                songAbsentMs = -1L,
+                providerSyncPendingMs = -1L,
+                positionAdvancing = true,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun songWatchdog_ignoresWhenPositionFrozen() {
+        // issue #27 停止检测 teardown 后的场景:歌曲已被清空,但播放器真的停了 ——
+        // 位置值冻结不变。此时没有新歌可期待,不得触发(否则每 30s 一次无效 IPC)。
+        assertFalse(
+            shouldForceResubscribeSongFeed(
+                playing = true,
+                songAbsentMs = 600_000L,
+                providerSyncPendingMs = -1L,
+                positionAdvancing = false,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun songWatchdog_ignoresWhilePaused() {
+        // 暂停时没有新的歌曲数据是预期行为,不是故障:不得重建订阅。
+        assertFalse(
+            shouldForceResubscribeSongFeed(
+                playing = false,
+                songAbsentMs = 600_000L,
+                providerSyncPendingMs = 600_000L,
+                positionAdvancing = true,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun songWatchdog_toleratesBriefSongAbsence() {
+        // 正常切歌间隙:onSongChanged 在数秒内到达,短于阈值的缺席不得触发。
+        assertFalse(
+            shouldForceResubscribeSongFeed(
+                playing = true,
+                songAbsentMs = LyriconLyricProducer.SONG_ABSENCE_RESUBSCRIBE_MS,
+                providerSyncPendingMs = LyriconLyricProducer.PROVIDER_SYNC_GRACE_MS,
+                positionAdvancing = true,
+                sinceLastAttemptMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun songWatchdog_respectsCooldownBetweenAttempts() {
+        // 与位置看门狗共用冷却窗口:上次强制重建(任意看门狗)后仍在冷却内,即使
+        // 半死状态持续也不得反复轰炸 IPC。
+        assertFalse(
+            shouldForceResubscribeSongFeed(
+                playing = true,
+                songAbsentMs = 600_000L,
+                providerSyncPendingMs = 600_000L,
+                positionAdvancing = true,
+                sinceLastAttemptMs = LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+            )
+        )
+    }
+
     @Test
     fun positionExtrapolation_afterSongEnd_realPositionRestoresLine() {
         // 外推越过歌尾被钳制并清空行后,一旦真实位置恢复(亮屏 writer 恢复),应重新选中正确行。

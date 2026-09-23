@@ -86,6 +86,19 @@ class LyriconLyricProducer(
     @Volatile private var lastForcedResubscribeElapsedMs: Long = 0L
     private val watchdogScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
+    // --- Song-feed watchdog (issue #64) ---
+    // 位置通道活跃(回调持续、值在推进)但歌曲通道已丢(onSongChanged 不再到达,
+    // currentSong 长期为空)的「半死」状态:位置静默看门狗覆盖不到(它只看回调是否
+    // 完全停发),故障时只能靠重启恢复。这里跟踪歌曲缺席起点、provider 切换后等歌
+    // 宽限起点、位置值推进时刻,供 maybeResubscribeOnSongFeed 判定强制重建订阅;
+    // 重建后 SDK 会对当前在播歌曲补发 onSongChanged(与重启等效的恢复路径,见 #56)。
+    @Volatile private var songAbsentSinceMs: Long = -1L
+    @Volatile private var providerSyncPendingSinceMs: Long = -1L
+    @Volatile private var lastPositionFeedValueMs: Long = -1L
+    @Volatile private var lastAdvancingPositionClockMs: Long = -1L
+    // 去重日志:每个「无歌」纪元只输出一次 position-dropped 告警,加载歌曲后复位。
+    @Volatile private var noSongDropLogged: Boolean = false
+
     // --- MediaSession stop detection (issue #27) ---
     // Lyricon 的 `onPlaybackStateChanged(false)` 对「会话仍 active 但已停止」的播放器(如
     // 网易云:active=true 且保留 metadata,仅 state 变 null)不会触发,导致 producer 一直
@@ -228,6 +241,12 @@ class LyriconLyricProducer(
                 // No active player: clear state, let arbiter fall back / go idle.
                 resetToIdle("onActiveProviderChanged: null (no active player)")
             } else {
+                // issue #64:provider 切换后 SDK 应补发 onSongChanged;若始终不到(歌曲
+                // 通道半死),歌曲侧看门狗会在宽限期后强制重建订阅。相同包名的重复回调
+                // 不重开宽限。
+                if (pkg != activeProviderPackage) {
+                    providerSyncPendingSinceMs = clock()
+                }
                 activeProviderPackage = pkg
             }
         }
@@ -249,6 +268,10 @@ class LyriconLyricProducer(
             // dropping invalid lines. Safe to call on the SDK's instance (it doesn't mutate it).
             val normalized = song.normalize()
             currentSong = normalized
+            // issue #64:歌曲通道恢复 —— 结束缺席纪元与 provider 等歌宽限,复位去重日志。
+            songAbsentSinceMs = -1L
+            providerSyncPendingSinceMs = -1L
+            noSongDropLogged = false
             generation++
             val lyrics = normalized.lyrics
             navigator = if (!lyrics.isNullOrEmpty()) {
@@ -354,6 +377,22 @@ class LyriconLyricProducer(
             val now = clock()
             // Feed heartbeat for the position-silence watchdog (see maybeResubscribeOnSilence).
             lastPositionCallbackElapsedMs = now
+            // issue #64:歌曲侧看门狗的「位置在推进」心跳 —— 值在变化证明播放器真在播、
+            // SDK 位置通道活着(冻结的写入端只会重复同一值)。独立于下方所有残留/门控分支。
+            if (position != lastPositionFeedValueMs) {
+                lastPositionFeedValueMs = position
+                lastAdvancingPositionClockMs = now
+            }
+            // issue #64 建议三:位置到了但没有歌曲数据时留一条去重告警,现场可直接区分
+            // 「位置没来」与「歌曲没来」;每个无歌纪元只输出一次。
+            if (currentSong == null && !noSongDropLogged) {
+                noSongDropLogged = true
+                AppLog.w(
+                    "LyriconLyricProducer",
+                    "no song loaded; dropping position ${position}ms " +
+                        "(playing=$isPlayingState provider=$activeProviderPackage)"
+                )
+            }
             // Reject residual values from the previous song: after onSongChanged, the shared
             // memory may keep returning the old position until the player writes new progress.
             // The residual matches the previous song's last position exactly (same bytes in memory).
@@ -593,6 +632,13 @@ class LyriconLyricProducer(
         }
         started = true
         contextRef = context.applicationContext
+        // issue #64:复位歌曲侧看门狗状态 —— 上一次运行遗留的缺席纪元/等歌宽限不应
+        // 影响本次会话(新订阅建立后 SDK 会重新补发 onSongChanged,见 #56)。
+        songAbsentSinceMs = -1L
+        providerSyncPendingSinceMs = -1L
+        lastPositionFeedValueMs = -1L
+        lastAdvancingPositionClockMs = -1L
+        noSongDropLogged = false
         AppLog.i("LyriconLyricProducer", "start: api=${Build.VERSION.SDK_INT}")
 
         // API < 27: LyriconFactory returns EmptyLyriconSubscriber (no-op). Per spec, this
@@ -675,6 +721,10 @@ class LyriconLyricProducer(
         gateRateAnchorPosMs = -1L
         gateRateX = 1.0
         gateFrozenRejectMs = -1L
+        // issue #64:进入无歌纪元 —— 起点只在首次缺席时记录,重复的清空(幂等路径)
+        // 不推迟看门狗;provider 等歌宽限视为已被本次 SDK 回调应答,一并清除。
+        if (songAbsentSinceMs < 0L) songAbsentSinceMs = lastRealPositionClockMs
+        providerSyncPendingSinceMs = -1L
         mutableState.value = null
         AppLog.i("LyriconLyricProducer", "resetToIdle: $reason")
     }
@@ -761,6 +811,7 @@ class LyriconLyricProducer(
         while (watchdogScope.isActive) {
             delay(POSITION_WATCHDOG_POLL_MS)
             maybeResubscribeOnPositionSilence()
+            maybeResubscribeOnSongFeed()
         }
     }
 
@@ -770,7 +821,7 @@ class LyriconLyricProducer(
      * via the cooldown in the decision function; failures are logged and retried after cooldown.
      */
     private fun maybeResubscribeOnPositionSilence() {
-        val sub = subscriber ?: return
+        if (subscriber == null) return
         val last = lastPositionCallbackElapsedMs
         if (last < 0L) return // never saw a position callback: nothing to compare yet
         val now = clock()
@@ -783,13 +834,53 @@ class LyriconLyricProducer(
         ) {
             return
         }
-        lastForcedResubscribeElapsedMs = now
         // Re-anchor the heartbeat so the same silence doesn't re-trigger before the next poll.
         lastPositionCallbackElapsedMs = now
-        AppLog.w(
-            "LyriconLyricProducer",
-            "position feed silent for ${silenceMs}ms while playing; rebuilding subscription"
+        forceResubscribeActivePlayer("position feed silent for ${silenceMs}ms while playing")
+    }
+
+    /**
+     * issue #64:「位置在推、歌曲缺失」半死状态的恢复动作。触发条件(全部成立,见
+     * [shouldForceResubscribeSongFeed]):播放中 + 位置值仍在推进(证明播放器真在播、
+     * SDK 位置通道活着)+ 歌曲缺席超阈值(或 provider 切换后等歌超宽限)+ 冷却期外。
+     * 强制重建订阅后 SDK 会对当前在播歌曲补发 onSongChanged,与重启等效(见 #56)。
+     */
+    private fun maybeResubscribeOnSongFeed() {
+        if (subscriber == null) return
+        val now = clock()
+        val songAbsentMs = songAbsentSinceMs.let { if (it < 0L) -1L else now - it }
+        val providerPendingMs = providerSyncPendingSinceMs.let { if (it < 0L) -1L else now - it }
+        val positionAdvancing = lastAdvancingPositionClockMs >= 0L &&
+            now - lastAdvancingPositionClockMs < SONG_FEED_POSITION_FRESH_MS
+        if (!shouldForceResubscribeSongFeed(
+                playing = isPlayingState,
+                songAbsentMs = songAbsentMs,
+                providerSyncPendingMs = providerPendingMs,
+                positionAdvancing = positionAdvancing,
+                sinceLastAttemptMs = now - lastForcedResubscribeElapsedMs
+            )
+        ) {
+            return
+        }
+        // 重锚缺席/宽限起点:一次失败的重建不会在冷却后按同一纪元反复重试刷屏;
+        // 若歌曲通道真的恢复,onSongChanged 会把它们清成 -1(见 issue #64)。
+        if (songAbsentSinceMs >= 0L) songAbsentSinceMs = now
+        if (providerSyncPendingSinceMs >= 0L) providerSyncPendingSinceMs = now
+        forceResubscribeActivePlayer(
+            "song feed missing while position advancing " +
+                "(absent=${songAbsentMs}ms providerPending=${providerPendingMs}ms)"
         )
+    }
+
+    /**
+     * Shared forced-resubscribe action: rebuild the active-player subscription so the SDK
+     * re-arms its poller and re-delivers the current song/state. Applies the shared attempt
+     * timestamp so every watchdog respects the same cooldown window.
+     */
+    private fun forceResubscribeActivePlayer(reason: String) {
+        val sub = subscriber ?: return
+        lastForcedResubscribeElapsedMs = clock()
+        AppLog.w("LyriconLyricProducer", "$reason; rebuilding subscription")
         runCatching {
             sub.unsubscribeActivePlayer(playerListener)
             sub.subscribeActivePlayer(playerListener)
@@ -1168,6 +1259,25 @@ class LyriconLyricProducer(
         internal const val RESUBSCRIBE_COOLDOWN_MS = 30_000L
 
         /**
+         * issue #64:位置通道活跃但歌曲数据长期缺席(半死)时,强制重建订阅前的缺席阈值。
+         * 正常切歌/(重)连补发的 onSongChanged 在数秒内到达;播放中 30s 无歌且位置值仍在
+         * 推进即异常。必须明显大于正常切歌间隙,并大于 [PROVIDER_SYNC_GRACE_MS]。
+         */
+        internal const val SONG_ABSENCE_RESUBSCRIBE_MS = 30_000L
+
+        /**
+         * issue #64:provider 切换后等待 SDK 补发 onSongChanged 的宽限期;超过仍未到(且
+         * 位置在推进、播放中)判定歌曲通道半死,由歌曲侧看门狗强制重建订阅。
+         */
+        internal const val PROVIDER_SYNC_GRACE_MS = 10_000L
+
+        /**
+         * issue #64:判定「位置仍在推进」的新鲜度窗口 —— 窗口内有变化的位置值才证明播放器
+         * 真在播。已停止/被冻结的播放器只会重复同一值,不应期待新歌,看门狗不得触发。
+         */
+        internal const val SONG_FEED_POSITION_FRESH_MS = 10_000L
+
+        /**
          * When the player's position stream resumes after a stall, how far below our extrapolated
          * position it may be before we treat it as a real rewind (seek / wrap-around / pause)
          * rather than resume-stage jitter. The Lyricon feed from NetEase is delivered in bursts
@@ -1233,6 +1343,38 @@ internal fun shouldForceResubscribePositionFeed(
 ): Boolean = playing &&
     silenceMs > LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS &&
     sinceLastAttemptMs > LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+
+/**
+ * Decision rule for the song-feed watchdog (issue #64). Fires only when ALL hold:
+ * - `playing`: during a real pause/stop the absence of new song data is expected, not a
+ *   fault — same guard as the position-silence watchdog;
+ * - `positionAdvancing`: the position VALUE changed within the freshness window. A frozen
+ *   value means the player is stopped/frozen, so no new song should be expected and the
+ *   watchdog must not fire (this is what keeps the issue #27 stop-detector teardown —
+ *   which clears the song while the stale feed keeps repeating the old value — from
+ *   triggering pointless resubscribes);
+ * - the song channel is provably stale: `songAbsentMs` beyond
+ *   [LyriconLyricProducer.SONG_ABSENCE_RESUBSCRIBE_MS] (no song data at all while the
+ *   position feed is alive — the #64 half-dead state; -1 while a song is loaded), or
+ *   `providerSyncPendingMs` beyond [LyriconLyricProducer.PROVIDER_SYNC_GRACE_MS] (the
+ *   provider switched but the SDK never delivered the new song; -1 when none is pending);
+ * - the previous forced resubscribe (any watchdog) is older than
+ *   [LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS], so a persistent failure retries at
+ *   most once per cooldown window instead of hammering IPC every poll.
+ */
+internal fun shouldForceResubscribeSongFeed(
+    playing: Boolean,
+    songAbsentMs: Long,
+    providerSyncPendingMs: Long,
+    positionAdvancing: Boolean,
+    sinceLastAttemptMs: Long
+): Boolean {
+    if (!playing || !positionAdvancing) return false
+    if (sinceLastAttemptMs <= LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS) return false
+    val songMissing = songAbsentMs > LyriconLyricProducer.SONG_ABSENCE_RESUBSCRIBE_MS
+    val providerSyncStale = providerSyncPendingMs > LyriconLyricProducer.PROVIDER_SYNC_GRACE_MS
+    return songMissing || providerSyncStale
+}
 
 /** Mirrors [android.media.session.PlaybackState] state constants for JVM-testable classification. */
 internal object MediaPlayback {
