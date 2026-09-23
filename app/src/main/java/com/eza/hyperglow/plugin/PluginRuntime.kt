@@ -41,7 +41,7 @@ object PluginRuntime {
         val manifest: PluginManifest,
         val plugin: HyperLyricPlugin?,
         val hostContext: HostPluginContext?,
-        /** 加载失败原因；plugin==null 时非空。 */
+        /** 加载/初始化失败原因；plugin==null 时非空。 */
         val loadError: String?
     ) {
         val processors: List<LyricProcessorExtension>
@@ -76,13 +76,22 @@ object PluginRuntime {
         synchronized(lock) {
             loaded.clear()
             manifests.forEach { manifest ->
-                val plugin = loadPlugin(context, manifest)
+                var plugin = loadPlugin(context, manifest)
                 val instance = plugin.plugin
                 val hostContext = plugin.hostContext
                 if (instance != null && hostContext != null) {
                     runCatching { instance.onLoad(hostContext) }
-                        .onFailure {
-                            AppLog.w(TAG, "onLoad failed for ${manifest.id}", it)
+                        .onFailure { error ->
+                            AppLog.w(TAG, "onLoad failed for ${manifest.id}", error)
+                            // 初始化失败必须显式可见：插件类已实例化但 registerExtension
+                            // 未必完成，按「已加载 · 无处理器」展示会被误读为插件设计
+                            // 如此（issue #65）。置 plugin=null 让 UI 走 load failed 分支。
+                            plugin = LoadedPlugin(
+                                manifest,
+                                null,
+                                hostContext,
+                                "onLoad: ${error.message ?: error.javaClass.simpleName}"
+                            )
                         }
                 }
                 loaded += plugin
@@ -216,30 +225,66 @@ object PluginRuntime {
 
     /**
      * 构造可加载插件入口类的 ClassLoader。优先级：
-     * 1. 磁盘 dex（安装时已置只读）+ [PathClassLoader] —— 正常路径，保留 odex 缓存；
+     * 1. 磁盘 dex + [PathClassLoader] —— 正常路径，保留 odex 缓存；
      * 2. 若主路径被系统以「可写 dex」拒绝（构造或加载阶段抛出，Android 14+/targetSdk≥34
      *    的防篡改检查），降级 [InMemoryDexClassLoader] 从字节加载，完全绕开可写路径校验——
      *    适用于只读设置在某 ROM 上仍不被接受的情形。
+     *
+     * in-memory 路径下插件类由独立 ClassLoader 定义，访问宿主 Kotlin 运行时中任何
+     * 运行期可见性被收紧的类（如 R8 access-modification 产物）会抛 IllegalAccessError
+     * （issue #65），因此它只作最后手段，且必须记录双亲链便于定位可见性问题。
+     *
+     * 加载前先把仍可写的 dex 自愈为只读：安装时已置只读，但旧版本安装残留/备份恢复
+     * 可能丢失该属性（issue #65 现场 dex 即为 rw），自愈后 PathClassLoader 主路径可用。
      */
     private fun loadEntryClass(dexFiles: List<File>, manifest: PluginManifest): Class<*> {
+        ensureDexFilesReadOnly(dexFiles, manifest.id)
         val dexPath = dexFiles.joinToString(File.pathSeparator) { it.absolutePath }
-        val pathClass = runCatching {
+        val pathResult = runCatching {
             PathClassLoader(dexPath, javaClass.classLoader).loadClass(manifest.entry)
-        }.getOrNull()
-        if (pathClass != null) return pathClass
+        }
+        pathResult.getOrNull()?.let { return it }
         AppLog.w(
             TAG,
-            "path class-loading rejected for ${manifest.id} (writable dex?) → in-memory fallback"
+            "path class-loading rejected for ${manifest.id} (writable dex?) → in-memory fallback",
+            pathResult.exceptionOrNull()
+        )
+        val parent = javaClass.classLoader
+        AppLog.w(
+            TAG,
+            "in-memory fallback for ${manifest.id}, parent chain: ${describeClassLoaderChain(parent)}"
         )
         val memoryClass = try {
             val buffers = dexFiles.map { ByteBuffer.wrap(it.readBytes()) }.toTypedArray()
-            InMemoryDexClassLoader(buffers, javaClass.classLoader).loadClass(manifest.entry)
+            InMemoryDexClassLoader(buffers, parent).loadClass(manifest.entry)
         } catch (fallback: Throwable) {
             AppLog.w(TAG, "in-memory fallback failed for ${manifest.id}: ${fallback.message}")
             throw fallback
         }
         return memoryClass
     }
+
+    /**
+     * Android 14+/targetSdk≥34 拒绝按路径加载可写 dex。安装时已置只读，但旧版本安装
+     * 残留或备份恢复可能丢失该属性（issue #65 现场即为 rw）；加载前自愈一次，让
+     * PathClassLoader 主路径可用，避免落入 in-memory 回退。
+     */
+    private fun ensureDexFilesReadOnly(dexFiles: List<File>, pluginId: String) {
+        dexFiles.forEach { dex ->
+            if (!dex.canWrite()) return@forEach
+            val healed = runCatching { dex.setReadOnly() }.getOrDefault(false) && !dex.canWrite()
+            if (healed) {
+                AppLog.w(TAG, "dex ${dex.name} of $pluginId was writable; re-applied read-only")
+            } else {
+                AppLog.w(TAG, "dex ${dex.name} of $pluginId still writable after setReadOnly")
+            }
+        }
+    }
+
+    /** 诊断用：打印 ClassLoader 双亲链（issue #65 建议，定位 in-memory 可见性问题）。 */
+    private fun describeClassLoaderChain(loader: ClassLoader?): String =
+        generateSequence(loader) { it.parent }
+            .joinToString(" <- ") { it.javaClass.name }
 
     /** 加载诊断：记录 dex 实际路径可见信息（可写性）、API 级别与结果，便于区分平台限制与真正损坏。 */
     private fun logLoadDiagnostics(id: String, dexFiles: List<File>, result: LoadedPlugin) {

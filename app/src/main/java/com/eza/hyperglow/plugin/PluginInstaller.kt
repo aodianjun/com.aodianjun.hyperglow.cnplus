@@ -49,7 +49,10 @@ object PluginInstaller {
                 // Android 14+ 拒绝通过 DexClassLoader 加载「位于可写位置、且自身可写」的
                 // dex（防篡改）。已固化的插件 dex 须置只读，否则 PathClassLoader 在
                 // targetSdk≥34 时抛 "Writable dex file … is not allowed"。
-                if (dexFile.isFile) dexFile.setReadOnly()
+                // 失败仅记日志：PluginRuntime 加载前会再做一次只读自愈（issue #65）。
+                if (dexFile.isFile && !dexFile.setReadOnly()) {
+                    AppLogInstall(manifest.id, "setReadOnly rejected for ${dexFile.name}")
+                }
             }
             File(dir, MANIFEST_ENTRY).writeText(manifestText.toString(Charsets.UTF_8))
         }.getOrElse { return null to "install io failed: ${it.message}" }
