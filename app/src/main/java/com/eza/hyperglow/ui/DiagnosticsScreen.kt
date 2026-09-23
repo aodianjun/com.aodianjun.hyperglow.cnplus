@@ -809,16 +809,3 @@ private fun openGitHubIssue(context: Context, issue: DiagnosticGitHubIssue) {
         ).show()
     }
 }
-
-private fun openExternalUrl(context: Context, url: String) {
-    val opened = runCatching {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-    }.isSuccess
-    if (!opened) {
-        Toast.makeText(
-            context,
-            context.getString(R.string.toast_no_link_handler),
-            Toast.LENGTH_LONG
-        ).show()
-    }
-}
