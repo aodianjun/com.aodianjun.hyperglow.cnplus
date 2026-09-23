@@ -438,4 +438,21 @@ class AodLifetimePolicyTest {
         assertTrue(shouldRetainAodPowerOnProjectionStale(keepAliveRequested = true))
         assertFalse(shouldRetainAodPowerOnProjectionStale(keepAliveRequested = false))
     }
+
+    @Test
+    fun offPulseShorterThanSettleWindowIsNotSessionEnd() {
+        // issue #62 现场:AOD 防烧屏脉冲的 OFF 段每 1~2s 出现一次、单段最长约 1.8s ——
+        // 短于 settle 窗口的 OFF 是脉冲,不得清锚;持续到底才是真会话结束。
+        assertFalse(isAodOffSessionEnd(offHeldMs = 700L, settleMs = AOD_OFF_ANCHOR_RESET_SETTLE_MS))
+        assertFalse(isAodOffSessionEnd(offHeldMs = 1_800L, settleMs = AOD_OFF_ANCHOR_RESET_SETTLE_MS))
+        assertFalse(isAodOffSessionEnd(offHeldMs = 4_999L, settleMs = AOD_OFF_ANCHOR_RESET_SETTLE_MS))
+        assertTrue(isAodOffSessionEnd(offHeldMs = 5_000L, settleMs = AOD_OFF_ANCHOR_RESET_SETTLE_MS))
+        assertTrue(isAodOffSessionEnd(offHeldMs = 30_000L, settleMs = AOD_OFF_ANCHOR_RESET_SETTLE_MS))
+    }
+
+    @Test
+    fun offAnchorSettleWindowClearsObservedPulseWithMargin() {
+        // 回归锚点:settle 窗口必须明显大于实测最长 OFF 脉冲段(~1.8s),否则脉冲仍会清锚。
+        assertTrue(AOD_OFF_ANCHOR_RESET_SETTLE_MS > 2_000L)
+    }
 }

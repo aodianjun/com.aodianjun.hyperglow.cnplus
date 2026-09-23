@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.aod
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import com.eza.hyperglow.root.HookLogger
@@ -260,13 +261,23 @@ internal object AodPositionHook {
     private var lastManagedPinSkipLogged = false
     private var lastRenderedPinKey = ""
 
-    /** 仅当 AOD 真正退出(显示完全关闭,见 AodPowerCoordinator)时清空跨 controller 锚定。 */
+    private var lastAnchorResetElapsedMs = Long.MIN_VALUE
+
+    /** 仅当 AOD 真正退出(显示完全关闭且持续过脉冲窗口,见 AodPowerCoordinator)时清空跨 controller 锚定。 */
     fun resetStockAnchor(cause: String) {
         inheritedAnchorX = null
         inheritedAnchorY = null
         lastPinnedLogKey = ""
         lastManagedPinSkipLogged = false
-        HookLogger.i(TAG, "Stock anchor reset ($cause)")
+        // issue #62:记录距上次清锚的间隔,脉冲抖动触发的高频清锚可直接从间隔暴露。
+        val now = SystemClock.elapsedRealtime()
+        val interval = if (lastAnchorResetElapsedMs == Long.MIN_VALUE) {
+            "first"
+        } else {
+            "${now - lastAnchorResetElapsedMs}ms"
+        }
+        lastAnchorResetElapsedMs = now
+        HookLogger.i(TAG, "Stock anchor reset ($cause, interval=$interval)")
     }
 
     /**

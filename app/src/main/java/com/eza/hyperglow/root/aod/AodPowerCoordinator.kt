@@ -27,6 +27,14 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     private var lifetimeActive = false
     private var lifetimeActiveSinceElapsedMs = Long.MIN_VALUE
     private var hideRaceRecoveryPending = false
+    private var offAnchorResetPending = false
+    private var lastOffEdgeElapsedMs = Long.MIN_VALUE
+    private val offAnchorReset = Runnable {
+        offAnchorResetPending = false
+        val heldMs = SystemClock.elapsedRealtime() - lastOffEdgeElapsedMs
+        if (!isAodOffSessionEnd(heldMs, AOD_OFF_ANCHOR_RESET_SETTLE_MS)) return@Runnable
+        AodPositionHook.resetStockAnchor("display off settled")
+    }
     /** What last moved the guard. Reported with the transition so a release names its own cause. */
     private var guardCause = "init"
     private val graceExpiry = Runnable {
@@ -70,12 +78,28 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
         if (off == aodDisplayOff) return
         aodDisplayOff = off
         if (off) {
-            // 真正的 AOD 会话结束(显示完全关闭):清空跨 controller 继承的时钟锚定,
-            // 下次进入 AOD 重新锚定到当前系统位置。必须绑在 OFF 边而非每次 surface
+            // 真正的 AOD 会话结束(显示完全关闭)才清空跨 controller 继承的时钟锚定,
+            // 下次进入 AOD 重新锚定到当前系统位置。但 AOD 防烧屏脉冲会让 OFF↔DOZE
+            // 每 1~2s 交替(issue #62),OFF 边本身不足以判定会话结束:立即清锚会让
+            // 锚点反复落到已漂移的请求值,防下移退化为「钉住当前漂移位」。改为延迟
+            // AOD_OFF_ANCHOR_RESET_SETTLE_MS 清锚 —— 脉冲期间回到非 OFF 即取消,
+            // 只有 OFF 持续到底(真会话结束)才生效。必须绑在 OFF 边而非每次 surface
             // detach —— 旋转/LinkageTransition 会高频重建 surface,但 AOD 仍在呈现,
             // 此时清锚会让锚点落到已漂移的请求值,防下移失效、旋转回竖屏回不到原位
             // (issue #36)。
-            AodPositionHook.resetStockAnchor("display off")
+            lastOffEdgeElapsedMs = SystemClock.elapsedRealtime()
+            offAnchorResetPending = true
+            mainHandler.removeCallbacks(offAnchorReset)
+            mainHandler.postDelayed(offAnchorReset, AOD_OFF_ANCHOR_RESET_SETTLE_MS)
+        } else if (offAnchorResetPending) {
+            offAnchorResetPending = false
+            mainHandler.removeCallbacks(offAnchorReset)
+            val heldMs = SystemClock.elapsedRealtime() - lastOffEdgeElapsedMs
+            HookLogger.i(
+                TAG,
+                "AOD off pulse ignored for anchor reset " +
+                    "(held ${heldMs}ms < ${AOD_OFF_ANCHOR_RESET_SETTLE_MS}ms)"
+            )
         }
         if (!off || lastWakeSignal == Long.MIN_VALUE) return
         if (!shouldRecoverRacedAodHide(
@@ -338,6 +362,22 @@ internal fun isAodDisplayOffState(state: Int): Boolean = state == 1
 
 /** Bounds recovery to Xiaomi's hide animation; the captured race lost the panel 1.79 s in. */
 internal const val HIDE_RACE_RECOVERY_WINDOW_MS = 2_500L
+
+/**
+ * 清锚的 OFF 稳定窗口(issue #62):实测 AOD 防烧屏脉冲的 OFF 段每 1~2s 出现一次、
+ * 单段最长约 1.8s;真会话结束(关屏/传感器暂停/休眠)的 OFF 会持续远超该窗口。
+ * 取 5s,对脉冲留有近 3 倍余量。
+ */
+internal const val AOD_OFF_ANCHOR_RESET_SETTLE_MS = 5_000L
+
+/**
+ * OFF 脉冲 vs 会话结束的判定(纯函数,issue #62):仅当 OFF 已连续持续 [settleMs]
+ * (中途没有任何非 OFF 边取消)才视为会话结束、允许清锚;更短的 OFF↔DOZE 交替是
+ * 防烧屏脉冲,必须忽略 —— 否则锚点被反复清空,下一次位置到达时以漂移后的请求值
+ * 重新播种,「防下移」退化为「钉住当前漂移位」。
+ */
+internal fun isAodOffSessionEnd(offHeldMs: Long, settleMs: Long): Boolean =
+    offHeldMs >= settleMs
 
 internal fun shouldActivateAodPowerLifetime(
     surfaceAttached: Boolean,
