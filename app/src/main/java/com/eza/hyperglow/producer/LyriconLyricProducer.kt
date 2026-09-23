@@ -423,7 +423,8 @@ class LyriconLyricProducer(
                                     "duration=${currentSong?.duration ?: 0L}ms " +
                                     "song=${currentSong?.name}"
                             )
-                        }                        // Track the residual's advance rate: the residual advances at the true
+                        }
+                        // Track the residual's advance rate: the residual advances at the true
                         // playback speed, so its cumulative Δpos/Δwall gives the rate for the
                         // bound — without this, 1.25x~3x 倍速用户的真实位置会在容差耗尽后
                         // 被 1x 上界误拒。冻结残留(Δpos=0)不更新速率。
