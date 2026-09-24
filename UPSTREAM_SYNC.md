@@ -10,8 +10,8 @@
 
 ## Current Status
 
-- **CN+ version**: 0.3.96 (123), upstream baseline as of `8422d78` (v0.3.97). Evaluated increments since then: `748912e` (2026-09-14) and `2885511` (2026-09-15) — see the evaluation sections below.
-- **Upstream latest**: 2026-09-15 `2885511`, version 0.3.177 (203) — **evaluated 2026-09-15** (DexKit symbol resolution + metadata multi-line; no mandatory port), see the `2885511` Evaluation section below.
+- **CN+ version**: 0.3.104 (131), upstream baseline as of `1537c58` (v0.3.178). Evaluated increments since `8422d78` (v0.3.97): `748912e` (2026-09-14), `2885511` (2026-09-15), `1537c58` (2026-09-17) — all handled, see the sections below.
+- **Upstream latest**: 2026-09-17 `1537c58`, version 0.3.178 (204) — **fully ported 2026-09-25** (managed-position exhaustion fallback + `burnInPattern` diagnostic field), see its row in the synced table below.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
   HierarchyFields.kt and its use across all hooks, missingProbeNames, and miuix via the public Maven Central repository
@@ -166,6 +166,7 @@ Also: `strings.xml` got only a comment block (no user-facing text change).
 
 | 上游提交 | 日期 | 内容 | 状态 |
 |---|---|---|---|
+| `1537c58` (v0.3.178) | 2026-09-17 | **managed 位置重试耗尽后回落原厂几何**：新增纯函数 `shouldAttemptManagedPosition(latchedUnavailable, scheduleChanged)`（`AodSnapshotPolicy.kt`）；`AodSurfaceController` 增加 `managedPositionUnavailable` latch —— 重试耗尽时置位并 `setStockWidgetControlActive(false)` 释放托管控制，使场景真正跟随小米原厂时钟几何（而非停在初始顶部兜底但控制名义上仍开）；burn-in 图案/间隔变化时清除 latch 重新尝试一次；detach 时复位 latch 与重试计数。另：诊断报告 `renderPreferences` 段新增 `burnInPattern` 字段（`DiagnosticReportFactory` + `DiagnosticContract` 键集） | ✅ 已移植（2026-09-25；CN+ 适配：守卫挂在 CN+ 自己的 `setStockWidgetControlActive` 调用点，未带上游的 `!suppressStockAodContent` 前缀——CN+ 抑制逻辑独立走 `applySuppressionAndRotation`；测试 `exhaustedManagedRetriesFallBackToStockGeometry` + `latchedManagedFailureStaysOnStockUntilScheduleChanges` 已随 `AodPositionUpdateTest` 落地并离线验证） |
 | `2885511` 项 #2 | 2026-09-15 | **元数据多行**：`AodStateProjector.projectToDisplay` 将歌名/歌手用 `\n` 拼接（且 `·`→换行）替代 `" · "`；画布把元数据按行拆成多行并预留额外行高 | ✅ 已移植（2026-09-18）。投影层改为 `joinToString("\n").replace('·','\n')`；CN+ 画布 `wrapMetadataText` 现按 `\n`/`·` 作为硬换行拆行（仅对超宽段做 token 换行）。多行渲染与额外行高预留 CN+ 早已由 `drawText`/`positionRows`/intro-large/morph 处理。AodCanvasLayoutTest/AodStateProjectorTest 跑绿 |
 | `2885511` 项 #4 | 2026-09-08 | **所有歌词绘制路径共享逻辑裁剪**：`AodLyricCanvasView.drawRows` 顶层统一 `clipRect(padLeft, padTop, ow-padRight, oh-padBottom)`，即使整词不可分/动画越界也强制限制在 padding 框内；删除 `drawText` 逐行重复 clip | ✅ 已移植（2026-09-08；水平 padding 边界由顶层共享 clip 统一施加，其余 per-line clip 保留作额外垂直收敛） |
 | `748912e` 项 #8+#9 | 2026-09-16 | 按场景 AOD 亮度覆写（`AodBrightnessController.setBrightnessOverride` + 两模式设置 UI：总开关开启后 → 按场景自动化 vs 自定义 10–255 滑块）与 AOD 最大高度硬上限 `0.5→0.9`（仅 SurfacePolicyResolver；CN+ AOD 内部保持内容贴合） | ✅ 已发布（2026-09-16，随预发行 0.3.88 / `115-0.3.88`；CI 跑绿） |

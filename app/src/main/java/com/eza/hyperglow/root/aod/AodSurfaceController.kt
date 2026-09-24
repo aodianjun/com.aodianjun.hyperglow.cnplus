@@ -166,6 +166,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var renderStallWatchdogScheduled = false
     private var lastPlacedTrace: String? = null
     private var managedPositionRetryCount = 0
+    private var managedPositionUnavailable = false
     private var initialRevealPending = true
     private var initialRevealActive = false
     private var initialRevealStartedAt = 0L
@@ -349,6 +350,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 ) {
                     mainHandler.postDelayed(this, MANAGED_BURN_IN_RETRY_MS)
                 } else {
+                    // The controller geometry never resolved on this ROM. Release managed
+                    // control so the scene follows Xiaomi's stock clock (enabling the
+                    // stock-geometry measurement path) instead of staying pinned to the
+                    // initial top fallback with control nominally still on.
+                    managedPositionUnavailable = true
+                    setStockWidgetControlActive(false)
                     HookLogger.i(TAG, "Managed AOD position unavailable; using stock geometry")
                 }
             }
@@ -638,10 +645,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             burnInIntervalMs != resolvedSnapshot.burnInIntervalMs
         burnInPattern = resolvedSnapshot.burnInPattern
         burnInIntervalMs = resolvedSnapshot.burnInIntervalMs
+        if (burnInScheduleChanged) managedPositionUnavailable = false
         setStockWidgetControlActive(
             resolvedSnapshot.positionFollowingEnabled &&
                 canRenderAod(resolvedSnapshot) &&
-                XiaomiCapabilityResolver.hasCapability(XiaomiCapability.AOD_POSITION_UPDATES),
+                XiaomiCapabilityResolver.hasCapability(XiaomiCapability.AOD_POSITION_UPDATES) &&
+                shouldAttemptManagedPosition(managedPositionUnavailable, burnInScheduleChanged),
             restartSchedule = burnInScheduleChanged
         )
         applySuppressionAndRotation(resolvedSnapshot)
@@ -850,6 +859,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         cancelStockMotionTransition(resetAlpha = false)
         positionUpdates.clear()
         stockWidgetControlActive = false
+        managedPositionUnavailable = false
+        managedPositionRetryCount = 0
         suppressStockAodContent = false
         suppressGateActive = false
         stockClockReserveTop = null
