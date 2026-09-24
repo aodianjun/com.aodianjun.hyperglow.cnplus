@@ -35,7 +35,10 @@ Xiaomi keeps brightness authority in pause, pocket, proximity, off, finish, and 
 On exact verified AOD modes, the optional scene coordinator temporarily owns native AOD content/lyric
 burn-in timing and placement while lyrics are active. The native target is Xiaomi's clock container,
 including custom-image styles. Xiaomi's natural target is cached and restored when the lyric scene
-ends.
+ends. The landscape stock-suppression gate (`aod_landscape_hide_stock`) obeys the same ownership
+rule: while active it may force Xiaomi's burn-in container subtree to GONE and rewrite visibility
+requests, but every affected view's host-believed visibility is recorded and restored when the gate
+closes — gate close never relies on Xiaomi re-issuing visibility calls.
 
 ## Exclusions
 

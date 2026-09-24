@@ -20,7 +20,8 @@ object AodSurfaceHook {
     )
 
     /**
-     * suppressStockAodContent 的运行时闸门:关闭时为极速直通(不触碰任何视图)。
+     * suppressStockAodContent 的运行时闸门:开启时强制 GONE 并拦截宿主可见性请求;
+     * 关闭时按 [restoreTargets] 把受抑制视图恢复到宿主信念态。
      * 由 AodSurfaceController 依据快照的 suppressStockAodContent 翻转。
      */
     @Volatile
@@ -30,6 +31,14 @@ object AodSurfaceHook {
     private val suppressedRoots = Collections.newSetFromMap(WeakHashMap<View, Boolean>())
     /** 显式登记的受抑制目标(时钟/天气等系统组件束)。 */
     private val suppressedTargets = Collections.newSetFromMap(WeakHashMap<View, Boolean>())
+
+    /**
+     * 关闸恢复台账:受抑制视图 → 宿主信念态(可见性值)。forceGone 前以 putIfAbsent
+     * 捕获抑制前可见性(首见为准);抑制期间宿主发出的非 GONE 请求本会被改写为 GONE,
+     * 改写前以其覆盖台账(宿主最新意图为准)。关闸时必须按台账恢复:闸门开启期间宿主
+     * 发出的 VISIBLE 已被改写,宿主认为视图仍可见而不会重发,不主动恢复则视图永久停在 GONE。
+     */
+    private val restoreTargets = WeakHashMap<View, Int>()
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         val aodViewClass = SymbolResolver.resolveClass(
@@ -89,7 +98,7 @@ object AodSurfaceHook {
         if (suppressionGateActive == active) return
         suppressionGateActive = active
         HookLogger.i(TAG, "Stock suppression gate=$active targets=${suppressedTargets.size}")
-        if (active) enforceSuppressed()
+        if (active) enforceSuppressed() else releaseSuppressedViews()
     }
 
     @Synchronized
@@ -106,6 +115,10 @@ object AodSurfaceHook {
 
     @Synchronized
     fun clearSuppressedState() {
+        // detach 路径同样关闸:闸门若跨 detach/attach 泄漏为 true,重开闸会被
+        // setSuppressionGate 的等值早退跳过,遗留改写会命中新一代 AODView。
+        suppressionGateActive = false
+        releaseSuppressedViews()
         suppressedRoots.clear()
         suppressedTargets.clear()
     }
@@ -119,8 +132,28 @@ object AodSurfaceHook {
     @Synchronized
     private fun forceGone(view: View) {
         runCatching {
-            if (view.visibility != View.GONE) view.visibility = View.GONE
+            if (view.visibility != View.GONE) {
+                restoreTargets.putIfAbsent(view, view.visibility)
+                view.visibility = View.GONE
+            }
         }
+    }
+
+    /** 关闸恢复:按台账把受抑制视图放回宿主信念态。调用前闸门须已翻 false,恢复才可直通。 */
+    @Synchronized
+    private fun releaseSuppressedViews() {
+        if (restoreTargets.isEmpty()) return
+        var restored = 0
+        for ((view, visibility) in restoreTargets) {
+            runCatching {
+                if (view.visibility != visibility) {
+                    view.visibility = visibility
+                    restored++
+                }
+            }
+        }
+        restoreTargets.clear()
+        HookLogger.i(TAG, "Suppressed views released restored=$restored")
     }
 
     fun isSuppressionActive(): Boolean = suppressionGateActive
@@ -133,6 +166,8 @@ object AodSurfaceHook {
             val view = chain.thisObject as? View ?: return chain.proceed()
             if (!isSuppressed(view)) return chain.proceed()
             // 强制接缝:受抑制容器/目标上任何非 GONE 请求一律改回 GONE。
+            // 请求值以其覆盖台账首见捕获:关闸时按宿主最新意图恢复(信念态)。
+            synchronized(this@AodSurfaceHook) { restoreTargets[view] = requested }
             return chain.proceed(arrayOf<Any>(View.GONE))
         }
     }
