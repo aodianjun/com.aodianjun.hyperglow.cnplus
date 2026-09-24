@@ -674,7 +674,8 @@ class AodPositionUpdateTest {
         val seeded = seedControllerState(inheritedX = 390, inheritedY = 1471f)
         assertEquals(390, seeded.lastStockTranslationX)
         assertEquals(1471f, seeded.lastStockTranslationY)
-        // 无继承值(跨会话首次):锚定字段留空,由 stockResolution 以请求值锚定。
+        // 无继承值(跨会话首次):锚定字段留空,由 stockResolution 经
+        // resolveStockAnchorSeed 按几何就绪情况播种(issue #66:绝不用请求值兜底)。
         val fresh = seedControllerState(inheritedX = null, inheritedY = null)
         assertNull(fresh.lastStockTranslationX)
         assertNull(fresh.lastStockTranslationY)
@@ -829,5 +830,58 @@ class AodPositionUpdateTest {
         assertEquals(5, burnInVerticalStep(mode = 3, moveCurrent = 10))
         assertEquals(0, burnInVerticalStep(mode = 1, moveCurrent = 10))
         assertEquals(0, burnInVerticalStep(mode = 7, moveCurrent = 10))
+    }
+
+    @Test
+    fun resolveStockAnchorSeedInheritsExistingAnchor() {
+        // issue #66:已有锚定值 → 原样继承(同一 AOD 会话内重建不重置,issue #36),
+        // 即使当前几何未就绪也不许重锚。
+        val broken = AodClockGeometry(
+            mode = 0,
+            baseTranslationY = Float.NaN,
+            translationYStep = 0f,
+            viewTop = 0,
+            viewHeight = 0
+        )
+        val seed = resolveStockAnchorSeed(1471f, broken)
+        assertEquals(1471f, seed.anchorY)
+        assertEquals(StockAnchorSeedSource.INHERITED, seed.source)
+    }
+
+    @Test
+    fun resolveStockAnchorSeedUsesNaturalBaselineWhenGeometryReady() {
+        // issue #66 根因二:首次播种取未位移基准 baseTranslationY - viewTop(即系统
+        // 步进=0 时的 f),不用已随防烧屏位移的 requestedY。步进项为 0 时结果与 mode
+        // 无关,故不走 naturalAodTranslation 的 mode 白名单(mode=1 也可播种)。
+        val geometry = AodClockGeometry(
+            mode = 1,
+            baseTranslationY = 390f,
+            translationYStep = 52.5f,
+            viewTop = 36,
+            viewHeight = 1080
+        )
+        val seed = resolveStockAnchorSeed(null, geometry)
+        assertEquals(354f, seed.anchorY)
+        assertEquals(StockAnchorSeedSource.NATURAL_BASELINE, seed.source)
+    }
+
+    @Test
+    fun resolveStockAnchorSeedDefersWhenGeometryNotReady() {
+        // issue #66 实机印证:AOD 刚进入时 step<=0 / viewHeight<=0 / 非有限,
+        // 此时必须返回 null(调用方透传不播种),而不是回落到已位移的 requestedY
+        // ——兜底值一旦写入 lastStockTranslationY 即被永久继承,钉住即固化偏移。
+        val zeroStep = AodClockGeometry(
+            mode = 0,
+            baseTranslationY = 390f,
+            translationYStep = 0f,
+            viewTop = 36,
+            viewHeight = 1080
+        )
+        assertNull(resolveStockAnchorSeed(null, zeroStep).anchorY)
+        assertNull(resolveStockAnchorSeed(null, zeroStep).source)
+        val zeroHeight = zeroStep.copy(translationYStep = 52.5f, viewHeight = 0)
+        assertNull(resolveStockAnchorSeed(null, zeroHeight).anchorY)
+        val nanBase = zeroStep.copy(baseTranslationY = Float.NaN, translationYStep = 52.5f)
+        assertNull(resolveStockAnchorSeed(null, nanBase).anchorY)
     }
 }

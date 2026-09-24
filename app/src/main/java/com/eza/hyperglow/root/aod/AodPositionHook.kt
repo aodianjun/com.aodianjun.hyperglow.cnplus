@@ -29,7 +29,8 @@ internal data class ControllerState(
 
 /**
  * controller 更替重建时的新状态播种:继承跨 controller 生命周期的时钟锚定
- * (issue #33);无继承值时锚定字段留空,由 stockResolution 以本次请求值锚定。
+ * (issue #33);无继承值时锚定字段留空,由 stockResolution 经 resolveStockAnchorSeed
+ * 按几何就绪情况播种(几何未就绪时保持留空、本帧透传,绝不用请求值兜底,issue #66)。
  */
 internal fun seedControllerState(inheritedX: Int?, inheritedY: Float?): ControllerState =
     ControllerState(lastStockTranslationX = inheritedX, lastStockTranslationY = inheritedY)
@@ -66,6 +67,39 @@ internal fun burnInVerticalStep(mode: Int, moveCurrent: Int): Int {
         2, 3 -> halfStep
         else -> 0
     }
+}
+
+internal enum class StockAnchorSeedSource { INHERITED, NATURAL_BASELINE }
+
+internal data class StockAnchorSeed(
+    val anchorY: Float?,
+    val source: StockAnchorSeedSource?
+)
+
+/**
+ * 锚点播种决策(纯函数,issue #66 根因二):
+ * - 已有锚定值 → 原样继承(同一 AOD 会话内重建不重置,issue #36);
+ * - 无锚定值且几何就绪 → 未位移基准 baseTranslationY - viewTop,即系统 step=0 时的
+ *   f(与 naturalAodTranslation(moveCurrent=0) 同值,但不依赖 mode 白名单——步进项为 0
+ *   时 y 与 mode 无关);
+ * - 几何未就绪(AOD 刚进入字段未初始化:step<=0 / viewHeight<=0 / 非有限)→ anchorY=null,
+ *   调用方本帧透传且不播种。绝不用已位移的 requestedY 充当锚点——它会被
+ *   lastStockTranslationY 固化并被后续帧永久继承,「钉住生效却钉在下移后的位置」。
+ */
+internal fun resolveStockAnchorSeed(
+    seededY: Float?,
+    geometry: AodClockGeometry
+): StockAnchorSeed {
+    if (seededY != null) return StockAnchorSeed(seededY, StockAnchorSeedSource.INHERITED)
+    val geometryReady = geometry.baseTranslationY.isFinite() &&
+        geometry.translationYStep.isFinite() &&
+        geometry.translationYStep > 0f &&
+        geometry.viewHeight > 0
+    if (!geometryReady) return StockAnchorSeed(null, null)
+    return StockAnchorSeed(
+        geometry.baseTranslationY - geometry.viewTop,
+        StockAnchorSeedSource.NATURAL_BASELINE
+    )
 }
 
 /**
@@ -315,6 +349,7 @@ internal object AodPositionHook {
     private var lastRenderedPinKey = ""
     private var lastStockReadbackKey = ""
     private var lastPinPostFrameKey = ""
+    private var pinSamplerScheduled = false
 
     private var lastAnchorResetElapsedMs = Long.MIN_VALUE
 
@@ -348,7 +383,7 @@ internal object AodPositionHook {
         HookLogger.i(
             TAG,
             "Position state rebuilt; anchor " +
-                (if (inheritedAnchorY != null) "inherited y=$inheritedAnchorY" else "seeded from request")
+                (if (inheritedAnchorY != null) "inherited y=$inheritedAnchorY" else "pending geometry")
         )
         return seeded
     }
@@ -608,14 +643,30 @@ internal object AodPositionHook {
         // 锚定起点取上次锚定值(防烧屏沉降时时钟被钉住);freeze 时把该原始锚定值保留在
         // lastStockTranslationY,仅对本次应用到时钟的 Y 叠加用户自定义偏移,避免逐帧累积。
         //
-        // issue #66 根因二(锚点语义):首次播种若直接取 requestedY,锚点会带上系统已发生的
-        // 防烧屏位移(requestedY 是当前步进 drift 后的值),导致「钉住生效却钉在下移后的
-        // 位置」。这里在尚无锚定值时改用未位移基准——即 verticalStep=0 时系统公式算出的
-        // 自然位置(naturalAodTranslation(moveCurrent=0)),从播种源头消除偏移;已有锚定值
-        // 时维持继承不变(同一 AOD 会话内重建不应重置锚点,issue #36)。
-        val anchorY = state.lastStockTranslationY
-            ?: naturalAodTranslation(geometry, 0)?.y
-            ?: requestedY
+        // issue #66 根因二(锚点语义):首次播种若取 requestedY,锚点会带上系统已发生的防烧屏
+        // 位移(requestedY 是当前步进 drift 后的值),导致「钉住生效却钉在下移后的位置」——
+        // 实机日志已印证该兜底会把偏移锚点固化进 lastStockTranslationY。因此改由
+        // resolveStockAnchorSeed 决策:已有锚定值 → 继承(同一 AOD 会话内重建不重置,issue #36);
+        // 无锚定值且几何就绪 → 未位移基准 baseTranslationY - viewTop;几何未就绪(AOD 刚进入)
+        // → 本帧透传且不播种,宁可晚一帧也不让位移值固化。
+        val seed = resolveStockAnchorSeed(state.lastStockTranslationY, geometry)
+        if (seed.anchorY == null) {
+            // 几何未就绪:透传本帧请求,不写任何锚点状态,待下一帧几何可用再锚定。
+            val key = "defer " + Math.round(requestedY)
+            if (key != lastPinnedLogKey) {
+                lastPinnedLogKey = key
+                HookLogger.i(
+                    TAG,
+                    "Stock clock anchor deferred requestedY=$requestedY " +
+                        "mViewTop=${geometry.viewTop} mViewHeight=${geometry.viewHeight} " +
+                        "step=${geometry.translationYStep} base=${geometry.baseTranslationY}"
+                )
+            }
+            return PositionResolution(
+                stockClockDecision(requestedX, requestedY, requestedY, geometry, zoneChanged)
+            )
+        }
+        val anchorY = seed.anchorY
         state.lastStockTranslationY = anchorY
         // 锚定镜像到跨 controller 生命周期持有者(issue #33 建议一)。
         inheritedAnchorX = state.lastStockTranslationX
@@ -623,13 +674,19 @@ internal object AodPositionHook {
         val appliedY = pinnedClockAppliedY(anchorY, clockYOffsetPx, freeze, requestedY)
         if (freeze && appliedY != requestedY) {
             // 钉住生效现场,仅变化时记录(建议三):请求 Y 持续漂移而应用 Y 被钉住。
-            val key = "a=" + Math.round(anchorY) + " o=" + clockYOffsetPx
+            // 附锚点来源与原始几何(issue #66 定性需求:区分 inherited/natural_baseline 与
+            // 几何取值,验证锚点是否仍可能来自位移后的值)。
+            val key = "a=" + Math.round(anchorY) + " o=" + clockYOffsetPx +
+                " s=" + seed.source
             if (key != lastPinnedLogKey) {
                 lastPinnedLogKey = key
                 HookLogger.i(
                     TAG,
                     "Stock clock pinned anchorY=$anchorY appliedY=$appliedY " +
-                        "requestedY=$requestedY offset=$clockYOffsetPx"
+                        "requestedY=$requestedY offset=$clockYOffsetPx " +
+                        "source=${seed.source} natural=${geometry.baseTranslationY - geometry.viewTop} " +
+                        "mViewTop=${geometry.viewTop} mViewHeight=${geometry.viewHeight} " +
+                        "step=${geometry.translationYStep} base=${geometry.baseTranslationY}"
                 )
             }
         }
@@ -795,6 +852,40 @@ internal object AodPositionHook {
         mainHandler.postDelayed({
             logPinPostFrame(controller, appliedY, requestedY)
         }, PIN_POST_FRAME_DELAY_MS)
+        schedulePinSampler(controller)
+    }
+
+    /**
+     * pin 期间的低频无条件采样(issue #66 实机反馈):现有 pin/post-frame 日志均按值
+     * 去重,「无日志窗口」恰好可能掩盖漂移——22:50→22:56 没有任何 pin 日志,无法区分
+     * 是值真没变还是去重键没变。此采样不看任何去重键,每 2s 在主线程固定打一行
+     * view/controller 定位量:漂移是一次性跳变还是持续渐变、发生在哪个时间窗,由
+     * 采样序列直接读出。自续跑直到 pin 关闭或视图销毁。
+     */
+    private fun schedulePinSampler(controller: Any?) {
+        if (pinSamplerScheduled) return
+        pinSamplerScheduled = true
+        mainHandler.postDelayed({
+            pinSamplerScheduled = false
+            if (!pinClockVisible) return@postDelayed
+            val live = targetViewRef.get() ?: return@postDelayed
+            val stored = controller?.let {
+                runCatching { readFloatField(it, "mTranslationY") }.getOrNull()
+            }
+            val moveCurrent = controller?.let {
+                runCatching { readIntField(it, "mAodMoveCurrent") }.getOrNull()
+            }
+            val topMargin =
+                (live.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin
+            HookLogger.i(
+                TAG,
+                "Pin sample anchor=$inheritedAnchorY " +
+                    "viewY=${live.translationY} y=${live.y} top=${live.top} " +
+                    "topMargin=$topMargin controllerY=$stored " +
+                    "moveCurrent=$moveCurrent attached=${live.isAttachedToWindow}"
+            )
+            schedulePinSampler(controller)
+        }, PIN_SAMPLE_INTERVAL_MS)
     }
 
     /**
@@ -869,6 +960,8 @@ internal object AodPositionHook {
     // pin 写回后跳过一帧 layout 再回读(issue #66 建议一):略大于 60fps 一帧,
     // 使「系统是否在下一帧 layout 覆盖 translationY」可被观测。
     private const val PIN_POST_FRAME_DELAY_MS = 32L
+    // pin 期间的低频采样间隔(issue #66):2s 一行,绕开值去重,覆盖漂移时间窗。
+    private const val PIN_SAMPLE_INTERVAL_MS = 2000L
     private const val TAG = "AodPositionHook"
 }
 
