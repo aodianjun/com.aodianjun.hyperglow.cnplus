@@ -151,7 +151,7 @@ class ElrcParserTest {
 
     @Test
     fun stripsZeroWidthCharacters_fromLineAndWordText() {
-        val lrc = "[00:01.000]Hel\u200Blo\uFEFF\n[00:05.000]<00:05.000>W\u206Bo"
+        val lrc = "[00:01.000]Hel\u200Blo\uFEFF\n[00:05.000]<00:05.000>W\u2060o"
         val lines = ElrcParser.parse(lrc)
 
         assertEquals("Hello", lines[0].text)
