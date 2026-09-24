@@ -180,6 +180,7 @@
     <string name="setting_aod_clock_image">AOD clock or image</string>
     <string name="setting_aod_clock_y_offset">Clock vertical offset</string>
     <string name="summary_aod_clock_y_offset">Moves the pinned system clock vertically when "Follow system clock in real time" is off (negative moves up, positive moves down).</string>
+    <string name="summary_burn_in_paused_when_pinned">Burn-in shifting is paused while the clock is pinned (\"Follow system clock in real time\" is off).</string>
     <string name="summary_aod_placement_unsupported">This System UI version does not support coordinated AOD placement.</string>
     <string name="setting_movement_interval">Movement interval</string>
     <string name="setting_aod_brightness_boost">AOD brightness boost</string>
@@ -211,6 +212,10 @@
     <string name="summary_export_config">Save all settings to a JSON file.</string>
     <string name="setting_import_config">Import config</string>
     <string name="summary_import_config">Restore all settings from a JSON file. Some interface settings may require restarting the app to take full effect.</string>
+    <string name="setting_reset_defaults">Restore default settings</string>
+    <string name="summary_reset_defaults">Reset all options on this page to their built-in defaults. Appearance and lyric layout are not affected.</string>
+    <string name="dialog_reset_defaults_title">Restore default settings?</string>
+    <string name="dialog_reset_defaults_summary">Every option on this page will be reset to its default value. Appearance and lyric layout customizations are kept. The page reloads afterwards.</string>
     <string name="toast_config_exported">Config exported</string>
     <string name="toast_config_export_failed">Config export failed</string>
     <string name="toast_config_imported">Config imported</string>
