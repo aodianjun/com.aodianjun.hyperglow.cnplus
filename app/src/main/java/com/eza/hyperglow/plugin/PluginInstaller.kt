@@ -154,4 +154,5 @@ object PluginInstaller {
     }
 
     private const val MANIFEST_ENTRY = "manifest.json"
+    private const val TAG = "PluginInstaller"
 }
