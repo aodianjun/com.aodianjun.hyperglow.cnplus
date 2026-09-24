@@ -14,6 +14,19 @@ package com.lidesheng.hyperlyric.plugin.api
  * HyperGlow hosts the runtime in the App process instead of SystemUI. That is
  * invisible to plugins: this API deliberately exposes no Android, MediaSession
  * or Xposed types, so the same plugin dex runs in either host.
+ *
+ * Packaging contract (issue #65): a plugin ZIP is manifest.json + classes.dex.
+ * The dex must NOT contain classes under `com.lidesheng.hyperlyric.plugin.api.**`
+ * — the host ClassLoader resolves that package parent-first so plugin
+ * implementations and host share one type identity; a bundled copy is dead
+ * weight at best. Platform classes (java./javax./android./androidx./org.json.
+ * and friends) also resolve to the host's copies. Classes the plugin bundles
+ * for itself — including kotlin./kotlinx. runtime helpers like
+ * kotlin.collections.SetsKt__SetsKt — are loaded child-first: the plugin's own
+ * copies win, so they can never be shadowed by the host's R8-narrowed runtime
+ * (cross-ClassLoader access to those used to throw IllegalAccessError). No
+ * kotlin types cross this API surface (PluginConfig.getStringSet returns
+ * java.util.Set at runtime), so child-first isolation is safe.
  */
 
 /** The first stable HyperLyric plugin API contract. */

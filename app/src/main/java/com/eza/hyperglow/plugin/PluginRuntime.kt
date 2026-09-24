@@ -12,8 +12,6 @@ import com.lidesheng.hyperlyric.plugin.api.PluginProcessingContext
 import com.lidesheng.hyperlyric.plugin.api.PluginProcessorStage
 import com.lidesheng.hyperlyric.plugin.api.PluginSong
 import com.lidesheng.hyperlyric.plugin.api.PluginSongResult
-import dalvik.system.InMemoryDexClassLoader
-import dalvik.system.PathClassLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withTimeoutOrNull
@@ -371,23 +369,30 @@ object PluginRuntime {
 
     /**
      * 构造可加载插件入口类的 ClassLoader。优先级：
-     * 1. 磁盘 dex + [PathClassLoader] —— 正常路径，保留 odex 缓存；
+     * 1. 磁盘 dex + [PluginPathClassLoader] —— 正常路径，保留 odex 缓存；
      * 2. 若主路径被系统以「可写 dex」拒绝（构造或加载阶段抛出，Android 14+/targetSdk≥34
-     *    的防篡改检查），降级 [InMemoryDexClassLoader] 从字节加载，完全绕开可写路径校验——
-     *    适用于只读设置在某 ROM 上仍不被接受的情形。
+     *    的防篡改检查），降级 [PluginInMemoryDexClassLoader] 从字节加载，完全绕开可写
+     *    路径校验——适用于只读设置在某 ROM 上仍不被接受的情形。该路径只作最后手段，
+     *    且必须记录双亲链便于定位可见性问题。
      *
-     * in-memory 路径下插件类由独立 ClassLoader 定义，访问宿主 Kotlin 运行时中任何
-     * 运行期可见性被收紧的类（如 R8 access-modification 产物）会抛 IllegalAccessError
-     * （issue #65），因此它只作最后手段，且必须记录双亲链便于定位可见性问题。
+     * 两条路径的 ClassLoader 都对非共享类子优先（issue #65 建议 ①，见
+     * [PluginClassLoaderPolicy]）：插件 dex 自带的 kotlin.*/kotlinx.* 副本由插件
+     * 自己的 ClassLoader 定义，不会被宿主 R8 收紧后的同名类顶掉，从根上避免
+     * 跨 ClassLoader 访问收紧类的 IllegalAccessError。
      *
      * 加载前先把仍可写的 dex 自愈为只读：安装时已置只读，但旧版本安装残留/备份恢复
-     * 可能丢失该属性（issue #65 现场 dex 即为 rw），自愈后 PathClassLoader 主路径可用。
+     * 可能丢失该属性（issue #65 现场 dex 即为 rw），自愈后按路径加载的主路径可用。
      */
     private fun loadEntryClass(dexFiles: List<File>, manifest: PluginManifest): Class<*> {
         ensureDexFilesReadOnly(dexFiles, manifest.id)
+        val parent = javaClass.classLoader
         val dexPath = dexFiles.joinToString(File.pathSeparator) { it.absolutePath }
+        // 两条路径都走子优先 ClassLoader（issue #65 建议 ①）：插件 dex 自带的类
+        // （如 AMLL 插件的 kotlin.collections.SetsKt__SetsKt）若双亲优先会解析成
+        // 宿主 R8 收紧后的同名类，跨 ClassLoader 访问抛 IllegalAccessError；
+        // 子优先只作用于非共享类，API 契约类仍双亲优先。
         val pathResult = runCatching {
-            PathClassLoader(dexPath, javaClass.classLoader).loadClass(manifest.entry)
+            PluginPathClassLoader(dexPath, parent).loadClass(manifest.entry)
         }
         pathResult.getOrNull()?.let { return it }
         AppLog.w(
@@ -395,14 +400,13 @@ object PluginRuntime {
             "path class-loading rejected for ${manifest.id} (writable dex?) → in-memory fallback",
             pathResult.exceptionOrNull()
         )
-        val parent = javaClass.classLoader
         AppLog.w(
             TAG,
             "in-memory fallback for ${manifest.id}, parent chain: ${describeClassLoaderChain(parent)}"
         )
         val memoryClass = try {
             val buffers = dexFiles.map { ByteBuffer.wrap(it.readBytes()) }.toTypedArray()
-            InMemoryDexClassLoader(buffers, parent).loadClass(manifest.entry)
+            PluginInMemoryDexClassLoader(buffers, parent).loadClass(manifest.entry)
         } catch (fallback: Throwable) {
             AppLog.w(TAG, "in-memory fallback failed for ${manifest.id}: ${fallback.message}")
             throw fallback
@@ -448,15 +452,34 @@ object PluginRuntime {
     private fun describeSong(song: PluginSong): String =
         "id=${song.id ?: "-"} name=${song.name ?: "-"} artist=${song.artist ?: "-"}"
 
-    /** 加载诊断：记录 dex 实际路径可见信息（可写性）、API 级别与结果，便于区分平台限制与真正损坏。 */
+    /**
+     * 加载诊断：记录 dex 可写性、API 级别、结果，以及插件 dex 自带的
+     * kotlin/kotlinx/androidx 类数量（issue #65 建议 ③，重叠越多越依赖
+     * 子优先隔离，越不能按「宿主已有同类」假设排障）。
+     */
     private fun logLoadDiagnostics(id: String, dexFiles: List<File>, result: LoadedPlugin) {
         val dex = dexFiles.joinToString(", ") {
             "${it.name}(${if (it.canWrite()) "rw" else "ro"})"
         }
+        var total = 0
+        var kotlin = 0
+        var kotlinx = 0
+        var androidx = 0
+        dexFiles.forEach { file ->
+            val overlap = runCatching { file.readBytes() }.getOrNull()
+                ?.let { PluginClassLoaderPolicy.summarizeDexOverlap(it) }
+            if (overlap != null) {
+                total += overlap.totalClasses
+                kotlin += overlap.kotlinClasses
+                kotlinx += overlap.kotlinxClasses
+                androidx += overlap.androidxClasses
+            }
+        }
         AppLog.i(
             TAG,
             "plugin $id loaded=${result.plugin != null} " +
-                "dex=[$dex] sdk=${Build.VERSION.SDK_INT} error=${result.loadError ?: "-"}"
+                "dex=[$dex] sdk=${Build.VERSION.SDK_INT} error=${result.loadError ?: "-"} " +
+                "classes=$total bundled(kotlin=$kotlin kotlinx=$kotlinx androidx=$androidx)"
         )
     }
 
