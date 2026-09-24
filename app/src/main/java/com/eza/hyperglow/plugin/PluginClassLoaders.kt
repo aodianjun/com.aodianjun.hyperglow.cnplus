@@ -1,6 +1,6 @@
 package com.eza.hyperglow.plugin
 
-import dalvik.system.BaseDexClassLoader
+import dalvik.system.InMemoryDexClassLoader
 import dalvik.system.PathClassLoader
 import java.nio.ByteBuffer
 
@@ -18,9 +18,8 @@ import java.nio.ByteBuffer
  * 定义者，引用解析依旧双亲优先，隔离不生效）。
  *
  * 策略见 [PluginClassLoaderPolicy]：共享类（平台 + API 契约）仍双亲优先，
- * 其余类插件 dex 里有就用插件的，没有再回退双亲。两个子类的 loadClass
- * 算法相同，受保护成员（findLoadedClass/resolveClass）只能在子类内访问，
- * 故各保留一份实现。
+ * 其余类插件 dex 里有就用插件的，没有再回退双亲。两条加载路径语义一致，
+ * 实现机制不同（in-memory 侧受 SDK 限制只能组合而非继承），见各自注释。
  */
 internal class PluginPathClassLoader(dexPath: String, parent: ClassLoader) :
     PathClassLoader(dexPath, parent) {
@@ -42,27 +41,50 @@ internal class PluginPathClassLoader(dexPath: String, parent: ClassLoader) :
 }
 
 /**
- * In-memory 回退路径的子优先实现，语义同 [PluginPathClassLoader]。
- * InMemoryDexClassLoader 是 final 无法继承，改用 API 27+ 的
- * [BaseDexClassLoader] 字节缓冲构造器（minSdk 33 满足），行为等价。
+ * In-memory 回退路径的子优先实现，语义同 [PluginPathClassLoader]，机制不同。
+ *
+ * 子优先要求「定义插件类的 ClassLoader 重写过 loadClass」，而两条继承路线都被
+ * 堵死：InMemoryDexClassLoader 是 final；BaseDexClassLoader 的 ByteBuffer 构造器
+ * 在 compileSdk 37 的 android.jar 中已不可见（仅剩 4 参 String 构造器）。改为组合：
+ * 内部持有一个以本加载器为双亲的 [definer]（InMemoryDexClassLoader）负责真正
+ * define 插件类；插件类对自身 dex 内其他类的引用经 ART 走 definer 的双亲委派
+ * 回到这里，由这里执行子优先策略——效果与继承等价。
+ *
+ * [definingGuard] 打破委派回环：definer 委派本加载器加载 X 时，若 X 已在「尝试
+ * 用插件 dex 定义」的流程中，说明这是回环，直接抛 ClassNotFoundException 让
+ * definer 落入自己的 findClass（插件 dex 优先）；插件 dex 没有 X 时回到下面的
+ * catch 分支回退宿主双亲。守卫按线程 + 类名追踪，嵌套引用（定义 X 时触发其
+ * 父类/签名类加载）不受影响：共享类命中双亲优先，插件类递归子优先，宿主独有
+ * 类最终落到宿主双亲。
  */
 internal class PluginInMemoryDexClassLoader(
     buffers: Array<ByteBuffer>,
     parent: ClassLoader
-) : BaseDexClassLoader(buffers, parent) {
+) : ClassLoader(parent) {
+
+    private val definer = InMemoryDexClassLoader(buffers, this)
+    private val definingGuard = ThreadLocal<MutableSet<String>>()
 
     @Throws(ClassNotFoundException::class)
     override fun loadClass(name: String, resolve: Boolean): Class<*> {
         if (PluginClassLoaderPolicy.isSharedWithHost(name)) {
             return super.loadClass(name, resolve)
         }
-        findLoadedClass(name)?.let { return it }
-        val loaded = try {
-            findClass(name)
+        val inFlight = definingGuard.get()
+        if (inFlight != null && name in inFlight) {
+            throw ClassNotFoundException(name)
+        }
+        val names = inFlight ?: mutableSetOf<String>().also { definingGuard.set(it) }
+        names.add(name)
+        try {
+            val loaded = definer.loadClass(name)
+            if (resolve) resolveClass(loaded)
+            return loaded
         } catch (notInPlugin: ClassNotFoundException) {
             return super.loadClass(name, resolve)
+        } finally {
+            names.remove(name)
+            if (names.isEmpty()) definingGuard.remove()
         }
-        if (resolve) resolveClass(loaded)
-        return loaded
     }
 }
