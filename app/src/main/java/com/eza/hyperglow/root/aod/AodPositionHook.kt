@@ -54,6 +54,21 @@ internal fun pinnedClockAppliedY(
 ): Float = if (freeze) anchorY + offsetPx else requestedY
 
 /**
+ * 由系统防烧屏计数器(mAodMoveCurrent)推出垂直步进,公式与 naturalAodTranslation /
+ * AODUpdatePositionController 的 f = mTranslationYStep*vstep - mViewTop + mTranslationY
+ * 严格一致:mode0 在 3 列网格里 verticalStep=halfStep/3,mode2/3 纯垂直 verticalStep=halfStep,
+ * 其余 mode 不参与垂直位移返回 0。
+ */
+internal fun burnInVerticalStep(mode: Int, moveCurrent: Int): Int {
+    val halfStep = moveCurrent / 2
+    return when (mode) {
+        0 -> halfStep / 3
+        2, 3 -> halfStep
+        else -> 0
+    }
+}
+
+/**
  * 是否需要把实际渲染视图(targetView.translationY)强制钉到决策的应用 Y。
  *
  * issue #39:锚定/冻结场景下 `updateTranslation` 的入参替换疑似不被效果层采纳,
@@ -204,11 +219,16 @@ internal object AodPositionHook {
             }
             if (decision != null && needsClockYWriteback(decision)) {
                 // issue #39/#66:updateTranslation 的入参替换与 targetView 写回均未被效果层
-                // 采纳(controller.mTranslationY 恒为既有值),时钟仍随防烧屏位移。这里把
-                // 权威字段 controller.mTranslationY 与渲染视图 translationY 一并钉到应用值,
-                // 并回读确认写入落到显示层,使锚定/冻结真正生效。
+                // 采纳,时钟仍随防烧屏位移。这里把权威字段 controller.mTranslationY(按系统
+                // 公式反解出锁定 appliedY 所需的基准值)与渲染视图 translationY 一并钉到
+                // 应用值,并回读确认写入落到显示层,使锚定/冻结真正生效。
                 if (controller != null) logStockClockReadback(controller, decision)
-                pinRenderedClockY(controller, decision.appliedTranslationY, decision.requestedTranslationY)
+                pinRenderedClockY(
+                    controller,
+                    decision.appliedTranslationY,
+                    decision.requestedTranslationY,
+                    geometry = controller?.let { readClockGeometry(it) }
+                )
             }
             val translationX = decision?.appliedTranslationX?.toFloat()
                 ?: requestedX?.toFloat()
@@ -587,7 +607,15 @@ internal object AodPositionHook {
     ): PositionResolution {
         // 锚定起点取上次锚定值(防烧屏沉降时时钟被钉住);freeze 时把该原始锚定值保留在
         // lastStockTranslationY,仅对本次应用到时钟的 Y 叠加用户自定义偏移,避免逐帧累积。
-        val anchorY = state.lastStockTranslationY ?: requestedY
+        //
+        // issue #66 根因二(锚点语义):首次播种若直接取 requestedY,锚点会带上系统已发生的
+        // 防烧屏位移(requestedY 是当前步进 drift 后的值),导致「钉住生效却钉在下移后的
+        // 位置」。这里在尚无锚定值时改用未位移基准——即 verticalStep=0 时系统公式算出的
+        // 自然位置(naturalAodTranslation(moveCurrent=0)),从播种源头消除偏移;已有锚定值
+        // 时维持继承不变(同一 AOD 会话内重建不应重置锚点,issue #36)。
+        val anchorY = state.lastStockTranslationY
+            ?: naturalAodTranslation(geometry, 0)?.y
+            ?: requestedY
         state.lastStockTranslationY = anchorY
         // 锚定镜像到跨 controller 生命周期持有者(issue #33 建议一)。
         inheritedAnchorX = state.lastStockTranslationX
@@ -697,7 +725,6 @@ internal object AodPositionHook {
         controller: Any?,
         appliedY: Float,
         requestedY: Float,
-        burnInStep: Int,
         geometry: AodClockGeometry?
     ) {
         val target = targetViewRef.get() ?: return
@@ -711,10 +738,20 @@ internal object AodPositionHook {
                 runCatching {
                     val field = requireField(controller, "mTranslationY")
                     beforeController = runCatching { field.getFloat(controller) }.getOrNull()
-                    // 反解 f = appliedY 所需的 mTranslationY 基准值;缺几何/步进时退化为
-                    // 直接写 appliedY(对应 step*step 项为 0 的旧行为)。
+                    // 反解 f = appliedY 所需的 mTranslationY 基准值。系统步进来自 controller
+                    // 的 mAodMoveCurrent 计数器(naturalAodTranslation 同款),垂直步进按
+                    // mode 取 halfStep/3(mode0) 或 halfStep(mode2/3);缺几何时退化为
+                    // 直接写 appliedY(对应 verticalStep 项为 0 的旧行为)。
+                    val verticalStep = if (geometry != null) {
+                        val moveCurrent =
+                            runCatching { readIntField(controller, "mAodMoveCurrent") }
+                                .getOrDefault(0)
+                        burnInVerticalStep(geometry.mode, moveCurrent)
+                    } else {
+                        0
+                    }
                     val baseTarget = if (geometry != null) {
-                        appliedY + geometry.viewTop - geometry.translationYStep * burnInStep
+                        appliedY + geometry.viewTop - geometry.translationYStep * verticalStep
                     } else {
                         appliedY
                     }
@@ -724,7 +761,7 @@ internal object AodPositionHook {
                         " type=" + field.type.name +
                         " final=" + java.lang.reflect.Modifier.isFinal(field.modifiers) +
                         " base=" + Math.round(baseTarget) +
-                        " step=" + burnInStep +
+                        " vstep=" + verticalStep +
                         " write=" + (if (!wrote) "unsupported" else if (afterController != null &&
                             kotlin.math.abs(afterController!! - baseTarget) < 0.5f
                         ) "ok" else "noop")

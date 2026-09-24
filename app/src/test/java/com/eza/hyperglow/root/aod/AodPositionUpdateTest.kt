@@ -795,4 +795,39 @@ class AodPositionUpdateTest {
         assertEquals(260f, passThrough.appliedTranslationY)
         assertFalse(needsClockYWriteback(passThrough))
     }
+
+    @Test
+    fun burnInVerticalStepMatchesNaturalTranslationGridFormula() {
+        // 与 naturalAodTranslation 内部垂直步进公式严格一致(issue #66:反解
+        // mTranslationY 基准值依赖同一垂直步进,二者必须同根,否则锁定会偏一格)。
+        val geometry = AodClockGeometry(
+            mode = 2,
+            baseTranslationY = 231f,
+            translationYStep = 18.5f,
+            viewTop = 510,
+            viewHeight = 803
+        )
+        for (moveCurrent in listOf(0, 2, 4, 10, 36)) {
+            val natural = naturalAodTranslation(geometry, moveCurrent)!!
+            val verticalStep = burnInVerticalStep(geometry.mode, moveCurrent)
+            // natural.y = baseTranslationY + translationYStep*verticalStep - viewTop
+            val recomposed = geometry.baseTranslationY +
+                geometry.translationYStep * verticalStep - geometry.viewTop
+            assertEquals(recomposed, natural.y, 0.001f)
+        }
+    }
+
+    @Test
+    fun burnInVerticalStepRespectsModeGridLayout() {
+        // mode0 三列网格:verticalStep=halfStep/3;mode2/3 纯垂直:verticalStep=halfStep;
+        // 其余 mode 不参与垂直位移返回 0。
+        assertEquals(0, burnInVerticalStep(mode = 0, moveCurrent = 0))
+        assertEquals(0, burnInVerticalStep(mode = 0, moveCurrent = 5))
+        assertEquals(1, burnInVerticalStep(mode = 0, moveCurrent = 6))
+        assertEquals(0, burnInVerticalStep(mode = 2, moveCurrent = 1))
+        assertEquals(1, burnInVerticalStep(mode = 2, moveCurrent = 2))
+        assertEquals(5, burnInVerticalStep(mode = 3, moveCurrent = 10))
+        assertEquals(0, burnInVerticalStep(mode = 1, moveCurrent = 10))
+        assertEquals(0, burnInVerticalStep(mode = 7, moveCurrent = 10))
+    }
 }
