@@ -190,6 +190,7 @@ class LyriconLyricProducer(
     // 按「重同步」处理 —— 否则歌中途的真实位置会被合理性门控当残留拒绝,歌词从第 1 句
     // 重新开始,整条时间轴平移「已播时长」。
     @Volatile internal var songSeenSinceSubscribe = false
+
     // issue #56 建议四:门控拒绝路径留一条去重日志(position/bound/sinceStart/duration/歌名),
     // 便于现场直接判定「旧时间线残留」还是「中途订阅被误拒」。
     @Volatile internal var gateRejectLogged = false
