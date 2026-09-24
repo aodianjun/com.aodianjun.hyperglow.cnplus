@@ -186,7 +186,6 @@ internal object LinkageTransitionCoordinator {
                 snapshotVisible = snapshot?.visible == true,
                 aodEnabled = snapshot?.aodEnabled == true,
                 lockscreenEnabled = snapshot?.lockscreenEnabled == true,
-                seamlessEnabled = snapshot?.seamlessTransitionEnabled == true,
                 aodProfileEnabled = aodProfile?.enabled != false,
                 lockscreenProfileEnabled = lockscreenProfile?.enabled != false,
                 sourceAttached = surfaces[sourceKind] != null
@@ -196,8 +195,7 @@ internal object LinkageTransitionCoordinator {
             TAG,
             "Linkage request toLockscreen=$toLockscreen state=$currentState " +
                 "snapshot=${snapshot?.revision}/${snapshot?.visible} " +
-                "flags=aod:${snapshot?.aodEnabled},lock:${snapshot?.lockscreenEnabled}," +
-                "seamless:${snapshot?.seamlessTransitionEnabled} " +
+                "flags=aod:${snapshot?.aodEnabled},lock:${snapshot?.lockscreenEnabled} " +
                 "profiles=aod:${aodProfile?.enabled},lock:${lockscreenProfile?.enabled} " +
                 "caps=direction:$directionCapable,geometry:$geometryCapable " +
                 "surfaces=${surfaces.keys}"

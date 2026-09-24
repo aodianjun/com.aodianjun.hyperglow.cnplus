@@ -56,14 +56,12 @@ internal data class AodStateWireSnapshot(
     val trackGeneration: Long,
     val aodEnabled: Boolean,
     val lockscreenEnabled: Boolean,
-    val seamlessTransitionEnabled: Boolean,
     val positionFollowingEnabled: Boolean,
     val burnInPattern: String,
     val burnInIntervalMs: Long,
     val suppressStockAodContent: Boolean,
     val aodRotateWithDevice: Boolean,
     val aodRotationMode: String,
-    val aodCanvasAnchor: Float,
     val aodRotationSettleMs: Long,
     val aodCanvasAnchorLandscape: Float,
     val aodLandscapeTextScale: Float,
@@ -267,14 +265,12 @@ internal object AodStateWireCodec {
                 output.writeLong(snapshot.trackGeneration)
                 output.writeStrictBoolean(snapshot.aodEnabled)
                 output.writeStrictBoolean(snapshot.lockscreenEnabled)
-                output.writeStrictBoolean(snapshot.seamlessTransitionEnabled)
                 output.writeStrictBoolean(snapshot.positionFollowingEnabled)
                 output.writeBoundedString(snapshot.burnInPattern)
                 output.writeLong(snapshot.burnInIntervalMs)
                 output.writeStrictBoolean(snapshot.suppressStockAodContent)
                 output.writeStrictBoolean(snapshot.aodRotateWithDevice)
                 output.writeBoundedString(snapshot.aodRotationMode)
-                output.writeFloat(snapshot.aodCanvasAnchor)
                 output.writeLong(snapshot.aodRotationSettleMs)
                 output.writeFloat(snapshot.aodCanvasAnchorLandscape)
                 output.writeFloat(snapshot.aodLandscapeTextScale)
@@ -355,7 +351,6 @@ internal object AodStateWireCodec {
             val trackGeneration = input.readLong()
             val aodEnabled = input.readStrictBoolean() ?: return null
             val lockscreenEnabled = input.readStrictBoolean() ?: return null
-            val seamlessTransitionEnabled = input.readStrictBoolean() ?: return null
             val positionFollowingEnabled = input.readStrictBoolean() ?: return null
             val burnInPattern = input.readBoundedString(
                 AodStateWireLimits.MAX_STYLE_CHARS,
@@ -366,7 +361,6 @@ internal object AodStateWireCodec {
             val suppressStockAodContent = input.readStrictBoolean() ?: return null
             val aodRotateWithDevice = input.readStrictBoolean() ?: return null
             val aodRotationMode = input.readStyleString(budget) ?: return null
-            val aodCanvasAnchor = input.readFloat()
             val aodRotationSettleMs = input.readLong()
             val aodCanvasAnchorLandscape = input.readFloat()
             val aodLandscapeTextScale = input.readFloat()
@@ -478,14 +472,12 @@ internal object AodStateWireCodec {
                 trackGeneration = trackGeneration,
                 aodEnabled = aodEnabled,
                 lockscreenEnabled = lockscreenEnabled,
-                seamlessTransitionEnabled = seamlessTransitionEnabled,
                 positionFollowingEnabled = positionFollowingEnabled,
                 burnInPattern = burnInPattern,
                 burnInIntervalMs = burnInIntervalMs,
                 suppressStockAodContent = suppressStockAodContent,
                 aodRotateWithDevice = aodRotateWithDevice,
                 aodRotationMode = aodRotationMode,
-                aodCanvasAnchor = aodCanvasAnchor,
                 aodRotationSettleMs = aodRotationSettleMs,
                 aodCanvasAnchorLandscape = aodCanvasAnchorLandscape,
                 aodLandscapeTextScale = aodLandscapeTextScale,
@@ -550,7 +542,6 @@ internal object AodStateWireCodec {
         if (snapshot.burnInPattern != normalizeAodBurnInPattern(snapshot.burnInPattern) ||
             snapshot.burnInIntervalMs != normalizeAodBurnInInterval(snapshot.burnInIntervalMs) ||
             snapshot.aodRotationMode != normalizeAodRotationMode(snapshot.aodRotationMode) ||
-            snapshot.aodCanvasAnchor != normalizeAodCanvasAnchor(snapshot.aodCanvasAnchor) ||
             snapshot.aodRotationSettleMs != normalizeAodRotationSettleMs(snapshot.aodRotationSettleMs) ||
             snapshot.aodCanvasAnchorLandscape != normalizeAodCanvasAnchor(snapshot.aodCanvasAnchorLandscape) ||
             snapshot.aodLandscapeTextScale != normalizeAodLandscapeTextScale(snapshot.aodLandscapeTextScale) ||

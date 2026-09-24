@@ -24,7 +24,6 @@ internal enum class LinkageStartBlockReason {
     MISSING_CAPABILITY,
     SNAPSHOT_NOT_VISIBLE,
     SURFACE_DISABLED,
-    SEAMLESS_DISABLED,
     PROFILE_DISABLED,
     MISSING_SOURCE
 }
@@ -35,7 +34,6 @@ internal data class LinkageStartEligibility(
     val snapshotVisible: Boolean,
     val aodEnabled: Boolean,
     val lockscreenEnabled: Boolean,
-    val seamlessEnabled: Boolean,
     val aodProfileEnabled: Boolean,
     val lockscreenProfileEnabled: Boolean,
     val sourceAttached: Boolean
@@ -49,7 +47,6 @@ internal fun linkageStartBlockReason(
     !eligibility.snapshotVisible -> LinkageStartBlockReason.SNAPSHOT_NOT_VISIBLE
     !eligibility.aodEnabled || !eligibility.lockscreenEnabled ->
         LinkageStartBlockReason.SURFACE_DISABLED
-    !eligibility.seamlessEnabled -> LinkageStartBlockReason.SEAMLESS_DISABLED
     !eligibility.aodProfileEnabled || !eligibility.lockscreenProfileEnabled ->
         LinkageStartBlockReason.PROFILE_DISABLED
     !eligibility.sourceAttached -> LinkageStartBlockReason.MISSING_SOURCE

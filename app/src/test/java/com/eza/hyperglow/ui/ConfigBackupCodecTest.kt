@@ -11,7 +11,6 @@ class ConfigBackupCodecTest {
     private fun nonDefaultPreferences() = AodRenderConfig(
         aodEnabled = false,
         lockscreenEnabled = true,
-        seamlessTransitionEnabled = false,
         alignment = "end",
         secondaryMode = "Both",
         overflowMode = "Clip",
@@ -46,7 +45,6 @@ class ConfigBackupCodecTest {
         suppressStockAodContent = true,
         aodRotateWithDevice = true,
         aodRotationMode = "landscape_reverse",
-        aodCanvasAnchor = 0.25f,
         aodRotationSettleMs = 2_000L,
         aodCanvasAnchorLandscape = 0.75f,
         aodLandscapeTextScale = 1.5f,

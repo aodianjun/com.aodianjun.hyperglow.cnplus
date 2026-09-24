@@ -7,7 +7,6 @@ import com.eza.hyperglow.producer.LyricSource
 data class AodRenderConfig(
     val aodEnabled: Boolean = true,
     val lockscreenEnabled: Boolean = false,
-    val seamlessTransitionEnabled: Boolean = true,
     val alignment: String = "auto",
     val secondaryMode: String = "Main only",
     val overflowMode: String = "Wrap",
@@ -81,7 +80,6 @@ data class AodRenderConfig(
     /** AOD 画布随设备旋转(竖屏/横屏/横屏反向/自动)。可独立开关。 */
     val aodRotateWithDevice: Boolean = false,
     val aodRotationMode: String = AOD_ROTATION_MODE_PORTRAIT,
-    val aodCanvasAnchor: Float = DEFAULT_CANVAS_ANCHOR,
     val aodRotationSettleMs: Long = DEFAULT_ROTATION_SETTLE_MS,
     val aodCanvasAnchorLandscape: Float = DEFAULT_CANVAS_ANCHOR,
     val aodLandscapeTextScale: Float = DEFAULT_LANDSCAPE_TEXT_SCALE,
@@ -259,7 +257,6 @@ object AodRenderPreferences {
     const val PREFS = "aod_render"
     const val AOD_ENABLED = "aod_enabled"
     const val LOCKSCREEN_ENABLED = "lockscreen_enabled"
-    const val SEAMLESS_TRANSITION_ENABLED = "seamless_transition_enabled"
     const val ALIGNMENT = "alignment"
     const val SECONDARY = "secondary"
     const val OVERFLOW = "overflow"
@@ -298,7 +295,6 @@ object AodRenderPreferences {
     const val SUPPRESS_STOCK_AOD_CONTENT = "suppress_stock_aod_content"
     const val AOD_ROTATE_WITH_DEVICE = "aod_rotate_with_device"
     const val AOD_ROTATION_MODE = "aod_rotation_mode"
-    const val AOD_CANVAS_ANCHOR = "aod_canvas_anchor"
     const val AOD_ROTATION_SETTLE_MS = "aod_rotation_settle_ms"
     const val AOD_CANVAS_ANCHOR_LANDSCAPE = "aod_canvas_anchor_landscape"
     const val AOD_LANDSCAPE_TEXT_SCALE = "aod_landscape_text_scale"
@@ -344,7 +340,6 @@ object AodRenderPreferences {
         return AodRenderConfig(
             prefs.safeBoolean(AOD_ENABLED, true),
             prefs.safeBoolean(LOCKSCREEN_ENABLED, false),
-            true,
             normalizeAodAlignment(prefs.safeString(ALIGNMENT, "auto")),
             normalizeAodSecondary(prefs.safeString(SECONDARY, "Main only")),
             normalizeAodOverflow(prefs.safeString(OVERFLOW, "Wrap")),
@@ -385,7 +380,6 @@ object AodRenderPreferences {
                     prefs.safeString(AOD_ROTATION_MODE, AOD_ROTATION_MODE_PORTRAIT)
                 )
             ),
-            normalizeAodCanvasAnchor(prefs.safeFloat(AOD_CANVAS_ANCHOR, 0.5f)),
             normalizeAodRotationSettleMs(prefs.safeLong(AOD_ROTATION_SETTLE_MS, 1_000L)),
             normalizeAodCanvasAnchor(prefs.safeFloat(AOD_CANVAS_ANCHOR_LANDSCAPE, 0.5f)),
             normalizeAodLandscapeTextScale(prefs.safeFloat(AOD_LANDSCAPE_TEXT_SCALE, 1f)),

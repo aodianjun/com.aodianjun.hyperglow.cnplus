@@ -68,9 +68,6 @@ internal object ConfigBackupCodec {
     internal val booleanFields = listOf(
         BackupBooleanField(AodRenderPreferences.AOD_ENABLED) { it.aodEnabled },
         BackupBooleanField(AodRenderPreferences.LOCKSCREEN_ENABLED) { it.lockscreenEnabled },
-        BackupBooleanField(AodRenderPreferences.SEAMLESS_TRANSITION_ENABLED) {
-            it.seamlessTransitionEnabled
-        },
         BackupBooleanField(AodRenderPreferences.ADAPTIVE_SECTIONING) { it.adaptiveSectioning },
         BackupBooleanField(AodRenderPreferences.KEEP_AWAKE) { it.keepAwake },
         BackupBooleanField(AodRenderPreferences.AOD_CLOCK_FOLLOW) { it.aodClockFollow },
@@ -119,7 +116,6 @@ internal object ConfigBackupCodec {
     )
 
     internal val floatFields = listOf(
-        BackupFloatField(AodRenderPreferences.AOD_CANVAS_ANCHOR) { it.aodCanvasAnchor },
         BackupFloatField(AodRenderPreferences.AOD_CANVAS_ANCHOR_LANDSCAPE) {
             it.aodCanvasAnchorLandscape
         },
@@ -214,9 +210,6 @@ internal object ConfigBackupCodec {
         aodEnabled = stored.boolean(AodRenderPreferences.AOD_ENABLED) ?: DEFAULTS.aodEnabled,
         lockscreenEnabled = stored.boolean(AodRenderPreferences.LOCKSCREEN_ENABLED)
             ?: DEFAULTS.lockscreenEnabled,
-        seamlessTransitionEnabled = stored.boolean(
-            AodRenderPreferences.SEAMLESS_TRANSITION_ENABLED
-        ) ?: DEFAULTS.seamlessTransitionEnabled,
         alignment = stored.string(AodRenderPreferences.ALIGNMENT) ?: DEFAULTS.alignment,
         secondaryMode = stored.string(AodRenderPreferences.SECONDARY) ?: DEFAULTS.secondaryMode,
         overflowMode = stored.string(AodRenderPreferences.OVERFLOW) ?: DEFAULTS.overflowMode,
@@ -285,8 +278,6 @@ internal object ConfigBackupCodec {
             } else {
                 DEFAULTS.aodRotationMode
             },
-        aodCanvasAnchor = stored.float(AodRenderPreferences.AOD_CANVAS_ANCHOR)
-            ?.let(::normalizeAodCanvasAnchor) ?: DEFAULTS.aodCanvasAnchor,
         aodRotationSettleMs = stored.long(AodRenderPreferences.AOD_ROTATION_SETTLE_MS)
             ?.let(::normalizeAodRotationSettleMs) ?: DEFAULTS.aodRotationSettleMs,
         aodCanvasAnchorLandscape = stored.float(

@@ -1,5 +1,6 @@
 package com.eza.hyperglow.ui
 
+import android.app.Activity
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
@@ -84,6 +85,7 @@ internal fun HomeScreen(
     var showKeepAwakeDurationDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showSourceDialog by remember { mutableStateOf(false) }
+    var showResetDefaultsDialog by remember { mutableStateOf(false) }
     val selectedTab = SettingsTab.entries.firstOrNull { it.name == selectedTabName }
         ?: SettingsTab.OVERVIEW
     val selectedTabIndex = SettingsTab.entries.indexOf(selectedTab)
@@ -617,7 +619,12 @@ internal fun HomeScreen(
                             ArrowPreference(
                                 title = stringResource(R.string.setting_aod_clock_image),
                                 summary = if (positionFollowingSupported) {
-                                    aodMovementLabel(context, positionFollowing, burnInPattern)
+                                    val movementLabel = aodMovementLabel(context, positionFollowing, burnInPattern)
+                                    if (!aodClockFollow) {
+                                        movementLabel + "\n" + stringResource(R.string.summary_burn_in_paused_when_pinned)
+                                    } else {
+                                        movementLabel
+                                    }
                                 } else {
                                     stringResource(R.string.summary_aod_placement_unsupported)
                                 },
@@ -1008,6 +1015,11 @@ internal fun HomeScreen(
                                     )
                                 }
                             )
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_reset_defaults),
+                                summary = stringResource(R.string.summary_reset_defaults),
+                                onClick = { showResetDefaultsDialog = true }
+                            )
                         }
                     }
                 }
@@ -1042,6 +1054,39 @@ internal fun HomeScreen(
 
     if (showSourceDialog) {
         LyricSourcePickerDialog(onDismiss = { showSourceDialog = false })
+    }
+
+    if (showResetDefaultsDialog) {
+        WindowDialog(
+            title = stringResource(R.string.dialog_reset_defaults_title),
+            summary = stringResource(R.string.dialog_reset_defaults_summary),
+            show = true,
+            onDismissRequest = { showResetDefaultsDialog = false }
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = { showResetDefaultsDialog = false }
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_restore),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = {
+                        showResetDefaultsDialog = false
+                        val success = resetToDefaults(context)
+                        Toast.makeText(
+                            context,
+                            if (success) R.string.toast_settings_restored else R.string.toast_settings_restore_failed,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        if (success) (context as? Activity)?.recreate()
+                    }
+                )
+            }
+        }
     }
 
     if (showRestartDialog) {

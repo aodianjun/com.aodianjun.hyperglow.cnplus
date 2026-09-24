@@ -153,6 +153,7 @@
     <string name="setting_aod_clock_image">息屏时钟或图片</string>
     <string name="setting_aod_clock_y_offset">时钟垂直偏移</string>
     <string name="summary_aod_clock_y_offset">在关闭「实时跟随系统时钟」时,垂直移动被钉住的系统时钟(负值上移、正值下移)。</string>
+    <string name="summary_burn_in_paused_when_pinned">已关闭「实时跟随系统时钟」:播放期间时钟被钉住,防烧屏位移暂不生效。</string>
     <string name="summary_aod_placement_unsupported">此系统界面版本不支持协调息屏位置。</string>
     <string name="setting_movement_interval">移动间隔</string>
     <string name="setting_aod_brightness_boost">息屏亮度增强</string>
@@ -210,6 +211,10 @@
     <string name="summary_export_config">将所有设置保存为 JSON 文件。</string>
     <string name="setting_import_config">导入配置</string>
     <string name="summary_import_config">从 JSON 文件恢复所有设置。部分界面设置可能需要重启应用后完全生效。</string>
+    <string name="setting_reset_defaults">恢复默认设置</string>
+    <string name="summary_reset_defaults">将本页所有设置项恢复为内置默认值，不影响外观与歌词布局。</string>
+    <string name="dialog_reset_defaults_title">恢复默认设置？</string>
+    <string name="dialog_reset_defaults_summary">本页全部设置项将被恢复为默认值，外观与歌词布局的自定义保持不变。完成后页面会自动刷新。</string>
     <string name="toast_config_exported">配置已导出</string>
     <string name="toast_config_export_failed">配置导出失败</string>
     <string name="toast_config_imported">配置已导入</string>

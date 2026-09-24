@@ -15,7 +15,7 @@ data class CustomizationDocument(
 data class SurfaceProfile(
     val enabled: Boolean = true,
     val anchor: String = "below_stock_clock",
-    /** 时钟跟随模式:true=实时跟随实际时钟位置定位歌词;false=锚定防抖(默认,避免时钟振荡导致歌词跳动)。 */
+    /** 时钟跟随模式:true=实时跟随实际时钟位置定位歌词;false=锚定防抖(默认,避免时钟振荡导致歌词跳动)。仅作旧版迁移载体,运行时以 aod_render prefs 的 aod_clock_follow 为准。 */
     val aodClockFollow: Boolean = false,
     val widthFraction: Float = 0.88f,
     val maxHeightFraction: Float = 0.46f,
@@ -101,7 +101,7 @@ data class CompiledSurfaceProfile(
     val surface: String,
     val enabled: Boolean,
     val anchor: String,
-    /** 时钟跟随模式:true=实时跟随实际时钟;false=锚定防抖。由 SurfaceProfile.aodClockFollow 编译而来。 */
+    /** 时钟跟随模式:true=实时跟随实际时钟;false=锚定防抖。由 SurfaceProfile.aodClockFollow 编译而来,RuntimeCustomization.loadCompiled 会以 aod_render prefs 的 aod_clock_follow 覆盖。 */
     val aodClockFollow: Boolean = false,
     val widthFraction: Float,
     val maxHeightFraction: Float,

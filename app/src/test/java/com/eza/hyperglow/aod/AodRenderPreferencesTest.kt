@@ -70,7 +70,6 @@ class AodRenderPreferencesTest {
 
         assertEquals(true, config.aodEnabled)
         assertEquals(false, config.lockscreenEnabled)
-        assertEquals(true, config.seamlessTransitionEnabled)
         assertEquals("auto", config.alignment)
         assertEquals("Main only", config.secondaryMode)
         assertEquals("Wrap", config.overflowMode)

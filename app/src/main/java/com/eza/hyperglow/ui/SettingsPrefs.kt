@@ -36,7 +36,6 @@ private fun applyDocumentToLegacyPreferences(
         .putString(AodRenderPreferences.ANIMATION, aod.animation)
         .putString(AodRenderPreferences.GLOW, aod.glow)
         .putBoolean(AodRenderPreferences.ADAPTIVE_SECTIONING, aod.adaptiveSectioning)
-        .putBoolean(AodRenderPreferences.AOD_CLOCK_FOLLOW, aod.aodClockFollow)
         .commit()
 }
 
@@ -174,6 +173,12 @@ private fun configBackupWritePreferences(
     ConfigBackupCodec.longFields.forEach { editor.putLong(it.key, it.read(config)) }
     ConfigBackupCodec.stringFields.forEach { editor.putString(it.key, it.read(config)) }
     return editor.commit()
+}
+
+internal fun resetToDefaults(context: android.content.Context): Boolean {
+    val success = configBackupWritePreferences(context, AodRenderConfig.DEFAULTS)
+    if (success) publishRuntimeConfiguration(context)
+    return success
 }
 
 internal fun updateKeepAwakeDuration(context: android.content.Context, value: Long): Boolean {

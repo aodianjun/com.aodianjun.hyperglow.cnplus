@@ -68,14 +68,12 @@ class SystemUiLyricProjectionTest {
                 trackGeneration = 24L,
                 aodEnabled = false,
                 lockscreenEnabled = true,
-                seamlessTransitionEnabled = false,
                 positionFollowingEnabled = true,
                 burnInPattern = "four_corner",
                 burnInIntervalMs = 120_000L,
                 suppressStockAodContent = true,
                 aodRotateWithDevice = true,
                 aodRotationMode = "auto",
-                aodCanvasAnchor = 0.4f,
                 aodRotationSettleMs = 5_000L,
                 aodCanvasAnchorLandscape = 0.7f,
                 aodLandscapeTextScale = 0.9f,
@@ -131,7 +129,6 @@ class SystemUiLyricProjectionTest {
         assertTrue(value.visible)
         assertFalse(value.aodEnabled)
         assertTrue(value.lockscreenEnabled)
-        assertFalse(value.seamlessTransitionEnabled)
         assertTrue(value.keepAlive)
         assertTrue(value.positionFollowingEnabled)
         assertEquals("four_corner", value.burnInPattern)

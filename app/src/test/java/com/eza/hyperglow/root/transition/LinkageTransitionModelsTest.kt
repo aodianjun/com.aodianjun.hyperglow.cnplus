@@ -16,7 +16,6 @@ class LinkageTransitionModelsTest {
             snapshotVisible = true,
             aodEnabled = true,
             lockscreenEnabled = true,
-            seamlessEnabled = true,
             aodProfileEnabled = true,
             lockscreenProfileEnabled = true,
             sourceAttached = true
@@ -34,10 +33,6 @@ class LinkageTransitionModelsTest {
         assertEquals(
             LinkageStartBlockReason.SURFACE_DISABLED,
             linkageStartBlockReason(eligible.copy(lockscreenEnabled = false))
-        )
-        assertEquals(
-            LinkageStartBlockReason.SEAMLESS_DISABLED,
-            linkageStartBlockReason(eligible.copy(seamlessEnabled = false))
         )
         assertEquals(
             LinkageStartBlockReason.PROFILE_DISABLED,
