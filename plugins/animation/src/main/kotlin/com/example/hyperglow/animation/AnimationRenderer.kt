@@ -87,6 +87,7 @@ internal class AnimationRenderer(
     private fun renderRipple(row: PluginLyricLine, index: Int, rng: HashRng): PluginLyricLine {
         val text = row.text
         if (text.isNullOrBlank()) return row
+        if (density <= 0f) return row
         val glyphs = glyphs("ripple")
         if (glyphs.isEmpty()) return row
         val baseDepth = when {
@@ -105,6 +106,7 @@ internal class AnimationRenderer(
     private fun renderSpectrum(row: PluginLyricLine, rng: HashRng): PluginLyricLine {
         val text = row.text
         if (text.isNullOrBlank()) return row
+        if (density <= 0f) return row
         val glyphs = glyphs("spectrum")
         if (glyphs.isEmpty()) return row
         val barCount = (3 + density * 6).toInt().coerceIn(3, 9)
