@@ -631,6 +631,30 @@ internal object AodPositionHook {
     private fun readFloatField(controller: Any, name: String): Float =
         requireField(controller, name).getFloat(controller)
 
+    /**
+     * 按声明类型把数值写进字段(issue #66 根因:mTranslationY 在设备固件里是 int,
+     * setFloat 会抛 IllegalArgumentException,写入从未生效)。int/long 取整后窄化写,
+     * float/double 原样写,其余类型返回 false 交由调用方记日志。
+     */
+    private fun writeNumberField(controller: Any, name: String, value: Float): Boolean {
+        val field = requireField(controller, name)
+        return when (field.type) {
+            java.lang.Integer.TYPE -> {
+                field.setInt(controller, Math.round(value)); true
+            }
+            java.lang.Long.TYPE -> {
+                field.setLong(controller, Math.round(value).toLong()); true
+            }
+            java.lang.Float.TYPE -> {
+                field.setFloat(controller, value); true
+            }
+            java.lang.Double.TYPE -> {
+                field.setDouble(controller, value.toDouble()); true
+            }
+            else -> false
+        }
+    }
+
     private fun readFodSafeBottom(controller: Any?): Int? = runCatching {
         controller ?: return null
         val shown = requireField(controller, "mIsGxzwIconShow").getBoolean(controller)
@@ -647,25 +671,35 @@ internal object AodPositionHook {
     }
 
     /**
-     * 把系统时钟钉到应用值,同时写回两条定位通路(issue #66)。
+     * 把系统时钟钉到锚点(issue #66 根治)。
      *
-     * issue #39 只写回 targetView.translationY,但实测(issue #66)时钟在防烧屏整分钟
-     * 位移后仍停在新位置:controller 的 `mTranslationY` 恒为既有值、对入参替换与
-     * view 写回均无响应,说明它才是时钟最终定位的权威字段,`AodContainerView` 的
-     * translationY 并不单独决定时钟位置。因此这里:
-     *  1. 直接写回 controller 的权威字段 `mTranslationY`(系统每帧布局读它定位时钟);
-     *  2. 同时写回 targetView.translationY(与 `renderedTargetBoundsInRoot` 实测读法一致,
-     *     且覆盖 view 直接参与绘制的 ROM);
-     *  3. 写回后回读两个值 + view 的 y/top,一次性判定写入是否落到显示层。
+     * 系统防烧屏定位公式(反编译 AODUpdatePositionController 确认):
+     *     f = mTranslationYStep * step - mViewTop + mTranslationY
+     *     targetView.setTranslationY(f)
+     * 其中 step 即 updateTranslation(z, i, f) 的步进索引 i,随整分钟位移递增;
+     * mTranslationY 是设备固件里的 int 字段(此前 setFloat 抛 IllegalArgumentException,
+     * 写入从未生效,日志 controllerY=231.0->null 可证)。
      *
-     * 安全性:pin 激活时 managed 位移互斥绕过(`routesToManagedPath` / `advanceManagedPosition`
-     * 均因 pinClockVisible 提前 return),`mTranslationY`(geometry.baseTranslationY)仅被
+     * 要让时钟锁定在锚点 appliedY,只需令 f = appliedY,反解出应写入的权威字段:
+     *     mTranslationY = appliedY + mViewTop - mTranslationYStep * step
+     * 这样系统下一帧自算的 f 恒等于 appliedY,无需再事后改 view,也绕开了「hook 在系统
+     * 下发位移后才纠正、天然落后一拍」的问题。translationY 同步写一次作为即时呈现
+     * (本帧系统在 proceed 时已按旧 f 画过),后续帧由权威字段驱动。
+     *
+     * 写入按声明类型分派(int/long/float/double),避免 ROM 改类型时静默失败;写后同线程
+     * 回读 + 跳过一帧回读,确认落到显示层。
+     *
+     * 安全性:pin 激活时 managed 位移互斥绕过(routesToManagedPath / advanceManagedPosition
+     * 均因 pinClockVisible 提前 return),mTranslationY(geometry.baseTranslationY)仅被
      * managed 路径读取,故 pin 期间改写它不会干扰 managed 逻辑。
-     *
-     * 仅变化时记录一次避免刷屏;target 尚未捕获时静默跳过,后续 updateTranslation 会再次
-     * 尝试。写回统一在主线程执行,避免跨线程触碰视图树。
      */
-    private fun pinRenderedClockY(controller: Any?, appliedY: Float, requestedY: Float) {
+    private fun pinRenderedClockY(
+        controller: Any?,
+        appliedY: Float,
+        requestedY: Float,
+        burnInStep: Int,
+        geometry: AodClockGeometry?
+    ) {
         val target = targetViewRef.get() ?: return
         val pin = Runnable {
             val live = targetViewRef.get() ?: return@Runnable
@@ -676,18 +710,28 @@ internal object AodPositionHook {
             if (controller != null) {
                 runCatching {
                     val field = requireField(controller, "mTranslationY")
-                    beforeController = field.getFloat(controller)
-                    field.setFloat(controller, appliedY)
-                    afterController = field.getFloat(controller)
+                    beforeController = runCatching { field.getFloat(controller) }.getOrNull()
+                    // 反解 f = appliedY 所需的 mTranslationY 基准值;缺几何/步进时退化为
+                    // 直接写 appliedY(对应 step*step 项为 0 的旧行为)。
+                    val baseTarget = if (geometry != null) {
+                        appliedY + geometry.viewTop - geometry.translationYStep * burnInStep
+                    } else {
+                        appliedY
+                    }
+                    val wrote = writeNumberField(controller, "mTranslationY", baseTarget)
+                    afterController = runCatching { field.getFloat(controller) }.getOrNull()
                     fieldDesc = field.declaringClass.name + "#" + field.name +
-                        " final=" + java.lang.reflect.Modifier.isFinal(field.modifiers) +
                         " type=" + field.type.name +
-                        " write=" + (if (afterController == appliedY) "ok" else "noop")
-                }.onFailure { fieldDesc = "err=" + it.javaClass.simpleName }
+                        " final=" + java.lang.reflect.Modifier.isFinal(field.modifiers) +
+                        " base=" + Math.round(baseTarget) +
+                        " step=" + burnInStep +
+                        " write=" + (if (!wrote) "unsupported" else if (afterController != null &&
+                            kotlin.math.abs(afterController!! - baseTarget) < 0.5f
+                        ) "ok" else "noop")
+                }.onFailure { fieldDesc = "err=" + it.javaClass.simpleName + ":" + it.message }
             }
             if (live.translationY != appliedY) live.translationY = appliedY
-            // 与写入同一线程立即回读,消除跨线程时序误判(issue #66:写发生在主线程,
-            // 回读亦须同线程,否则 before/after 可能读到写入前/被下帧 layout 重置的值)。
+            // 与写入同一线程立即回读,消除跨线程时序误判(写发生在主线程,回读亦须同线程)。
             val afterView = live.translationY
             val key = "y=" + Math.round(appliedY) + " c=" + afterController +
                 " v=" + Math.round(afterView) + " r=" + Math.round(requestedY)
@@ -710,8 +754,7 @@ internal object AodPositionHook {
         } else {
             mainHandler.post(pin)
         }
-        // 跳过一帧 layout 后于主线程回读(issue #66 建议一/二):
-        // 判定系统是否在下一帧用权威字段(top/mViewTop)重算 y 盖掉 translationY。
+        // 跳过一帧 layout 后于主线程回读:确认权威字段驱动的 f 是否锁定在 appliedY。
         mainHandler.postDelayed({
             logPinPostFrame(controller, appliedY, requestedY)
         }, PIN_POST_FRAME_DELAY_MS)
