@@ -353,9 +353,14 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     // The controller geometry never resolved on this ROM. Release managed
                     // control so the scene follows Xiaomi's stock clock (enabling the
                     // stock-geometry measurement path) instead of staying pinned to the
-                    // initial top fallback with control nominally still on.
-                    managedPositionUnavailable = true
-                    setStockWidgetControlActive(false)
+                    // initial top fallback with control nominally still on. 仅限「实时跟随
+                    // 系统时钟」开启:锚定(固定)模式下时钟由 integral pin 接管,耗尽只记
+                    // 日志,不释放控制、不置 latch(issue #33 锚定优先)。
+                    val aodClockFollow = currentAodProfile().aodClockFollow
+                    if (shouldReleaseManagedControlOnExhaustion(aodClockFollow)) {
+                        managedPositionUnavailable = true
+                        setStockWidgetControlActive(false)
+                    }
                     HookLogger.i(TAG, "Managed AOD position unavailable; using stock geometry")
                 }
             }

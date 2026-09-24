@@ -902,4 +902,12 @@ class AodPositionUpdateTest {
         assertFalse(shouldAttemptManagedPosition(true, false))
         assertTrue(shouldAttemptManagedPosition(true, true))
     }
+
+    // ---- 耗尽回落仅限「实时跟随系统时钟」：锚定(固定)模式行为保持移植前 ----
+
+    @Test
+    fun exhaustionReleaseOnlyWhenClockFollowEnabled() {
+        assertTrue(shouldReleaseManagedControlOnExhaustion(true))
+        assertFalse(shouldReleaseManagedControlOnExhaustion(false))
+    }
 }
