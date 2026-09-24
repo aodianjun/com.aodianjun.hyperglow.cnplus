@@ -1,0 +1,164 @@
+{
+    "id": "com.example.hyperglow.animation",
+    "name": "HyperGlow Animation Pack",
+    "nameLocales": {
+        "zh-CN": "HyperGlow 官方动画包",
+        "zh-TW": "HyperGlow 官方動畫包"
+    },
+    "author": "HyperGlow CN+",
+    "version": "0.1.0",
+    "apiVersion": 1,
+    "entry": "com.example.hyperglow.animation.AnimationPlugin",
+    "activationSettingKey": "animation_enabled",
+    "settings": [
+        {
+            "type": "switch",
+            "key": "animation_enabled",
+            "title": "Enable animation effects",
+            "titleLocales": {
+                "zh-CN": "启用动画效果",
+                "zh-TW": "啟用動畫效果"
+            },
+            "summary": "Decorates lyrics so the KTV/AOD renderer shows animated visuals.",
+            "summaryLocales": {
+                "zh-CN": "装饰歌词，让 KTV/AOD 渲染出动画观感。",
+                "zh-TW": "裝飾歌詞，讓 KTV/AOD 渲染出動畫觀感。"
+            },
+            "default": false
+        },
+        {
+            "type": "select",
+            "key": "animation_mode",
+            "title": "Animation mode",
+            "titleLocales": {
+                "zh-CN": "动画模式",
+                "zh-TW": "動畫模式"
+            },
+            "summary": "Choose which visual pattern decorates the current lyric line.",
+            "summaryLocales": {
+                "zh-CN": "选择用来装饰当前歌词行的视觉样式。",
+                "zh-TW": "選擇用來裝飾當前歌詞行的視覺樣式。"
+            },
+            "default": "breathing",
+            "options": [
+                {
+                    "value": "breathing",
+                    "label": "Breathing glow",
+                    "labelLocales": {
+                        "zh-CN": "呼吸光晕",
+                        "zh-TW": "呼吸光暈"
+                    }
+                },
+                {
+                    "value": "particles",
+                    "label": "Particles",
+                    "labelLocales": {
+                        "zh-CN": "粒子",
+                        "zh-TW": "粒子"
+                    }
+                },
+                {
+                    "value": "ripple",
+                    "label": "Ripple",
+                    "labelLocales": {
+                        "zh-CN": "涟漪",
+                        "zh-TW": "漣漪"
+                    }
+                },
+                {
+                    "value": "spectrum",
+                    "label": "Spectrum bars",
+                    "labelLocales": {
+                        "zh-CN": "频谱条",
+                        "zh-TW": "頻譜條"
+                    }
+                },
+                {
+                    "value": "notes",
+                    "label": "Floating notes",
+                    "labelLocales": {
+                        "zh-CN": "漂浮音符",
+                        "zh-TW": "漂浮音符"
+                    }
+                },
+                {
+                    "value": "wave",
+                    "label": "Word-timing wave",
+                    "labelLocales": {
+                        "zh-CN": "逐词波浪",
+                        "zh-TW": "逐詞波浪"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "slider",
+            "key": "animation_intensity",
+            "title": "Intensity",
+            "titleLocales": {
+                "zh-CN": "强度",
+                "zh-TW": "強度"
+            },
+            "summary": "Controls how many decorative glyphs appear per line.",
+            "summaryLocales": {
+                "zh-CN": "控制每行出现的装饰符数量。",
+                "zh-TW": "控制每行出現的裝飾符數量。"
+            },
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "default": 60
+        },
+        {
+            "type": "slider",
+            "key": "animation_step_ms",
+            "title": "Wave step (ms)",
+            "titleLocales": {
+                "zh-CN": "波浪步长 (毫秒)",
+                "zh-TW": "波浪步長 (毫秒)"
+            },
+            "summary": "Extra delay added to each word in wave mode.",
+            "summaryLocales": {
+                "zh-CN": "波浪模式下逐词添加的时值偏移。",
+                "zh-TW": "波浪模式下逐詞添加的時值偏移。"
+            },
+            "min": 20,
+            "max": 500,
+            "step": 10,
+            "default": 120
+        },
+        {
+            "type": "select",
+            "key": "animation_glyph_style",
+            "title": "Glyph style",
+            "titleLocales": {
+                "zh-CN": "字形风格",
+                "zh-TW": "字形風格"
+            },
+            "summary": "Rich Unicode symbols or plain ASCII fallback.",
+            "summaryLocales": {
+                "zh-CN": "使用富 Unicode 符号或纯 ASCII 回退。",
+                "zh-TW": "使用富 Unicode 符號或純 ASCII 回退。"
+            },
+            "default": "symbol",
+            "options": [
+                {
+                    "value": "symbol",
+                    "label": "Unicode symbols",
+                    "labelLocales": {
+                        "zh-CN": "Unicode 符号",
+                        "zh-TW": "Unicode 符號"
+                    }
+                },
+                {
+                    "value": "ascii",
+                    "label": "ASCII fallback",
+                    "labelLocales": {
+                        "zh-CN": "ASCII 回退",
+                        "zh-TW": "ASCII 回退"
+                    }
+                }
+            ]
+        }
+    ]
+}

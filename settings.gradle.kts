@@ -25,3 +25,4 @@ include(":app")
 // ClassLoader 提供,绝不打进插件 ZIP);demo 为参考实现插件模块。
 include(":plugins:api")
 include(":plugins:demo")
+include(":plugins:animation")

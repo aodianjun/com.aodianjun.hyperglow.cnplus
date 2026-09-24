@@ -70,6 +70,18 @@ jobs:
       - name: Verify HyperLyric plugin API contract fingerprint
         run: python3 plugins/api/check-api-fingerprint.py
 
+      - name: Build bundled plugin ZIPs
+        run: ./gradlew :plugins:demo:pluginZip :plugins:animation:pluginZip --console=plain
+
+      - name: Upload bundled plugin ZIPs
+        uses: actions/upload-artifact@v6
+        with:
+          name: hyperglow-plugins
+          path: |
+            plugins/demo/build/distributions/*.zip
+            plugins/animation/build/distributions/*.zip
+          if-no-files-found: error
+
       - name: Test and build debug APK
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
