@@ -124,3 +124,12 @@ internal fun shouldAttemptManagedPosition(
     latchedUnavailable: Boolean,
     scheduleChanged: Boolean
 ): Boolean = !latchedUnavailable || scheduleChanged
+
+/**
+ * 耗尽回落的上游行为只在「实时跟随系统时钟」开启时适用:锚定(固定)模式下系统时钟由
+ * integral pin 接管(issue #33 锚定优先,`advanceManagedPosition` 在 pin 激活时恒返回
+ * false),托管控制本就不驱动时钟——此时耗尽只记日志,不释放控制、不置 latch,
+ * 固定模式行为与移植前完全一致。
+ */
+internal fun shouldReleaseManagedControlOnExhaustion(aodClockFollow: Boolean): Boolean =
+    aodClockFollow

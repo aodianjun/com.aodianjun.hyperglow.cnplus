@@ -118,6 +118,11 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   leaves native-content translation to Xiaomi while HyperGlow observes the exact target and keeps
   the lyric canvas clear. Fixed and moving choices make HyperGlow the translation authority for the
   same clock-or-image container with the selected pattern.
+- Managed-position exhaustion fallback (upstream `1537c58`) releases managed control so the scene
+  follows Xiaomi's stock geometry only while `real-time clock follow` (实时跟随系统时钟) is
+  enabled. In the anchored (clock-pinned) mode the integral pin keeps clock authority regardless
+  of the selected pattern: exhaustion is logged without releasing control or latching, and clock
+  behavior stays unchanged.
 - Xiaomi movement callbacks remain observed so its latest natural target is cached, but their
   translation is suppressed during module ownership. The default `static_bottom` pattern moves the
   native clock-or-image container to the verified bottom zone once and holds it there while lyrics
@@ -448,6 +453,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 自定义图像与不受管的 AOD 场景可以在控制器更新之前使用测得的原生内容几何。原生 linkage 场景在亮屏阶段立即渲染，使用精确的 SystemUI 时钟形变边界或有界的 35% fallback，然后在经验证的暗屏接缝处采用确定性的受管几何。
 - 在精确验证的普通/linkage 位置模式下，实验性场景协调器仅在歌词处于活动状态时，才可能平移 Xiaomi 的原生 AOD 内容容器并接管 burn-in 计时。在普通模式下，该容器同时包含原生时钟样式与自定义图像样式。
 - `AOD clock or image` 设置将既有策略呈现为一个选项。`Follow Xiaomi` 将原生内容平移留给 Xiaomi，HyperGlow 只观察精确目标并保持歌词画布干净。固定与移动选项则让 HyperGlow 成为同一时钟或图像容器的平移权威，并应用所选模式。
+- 受管位置重试耗尽的回落（上游 `1537c58`）仅在开启「实时跟随系统时钟」时释放托管控制、让场景跟随 Xiaomi 原厂几何。锚定（时钟钉住）模式下 integral pin 始终拥有时钟权威（与所选图案无关）：耗尽仅记日志，不释放托管控制、不置 latch，时钟行为保持不变。
 - Xiaomi 的移动回调仍被监听，以便缓存其最新自然目标，但在模块接管期间其平移被抑制。默认的 `static_bottom` 模式将原生时钟或图像容器一次性移动到经验证的底部区域，并在歌词活动期间保持在那里。可选的有界计时器可按 30 秒、1 分钟、2 分钟或 5 分钟的间隔选择六分区、四角或垂直交换位置。
 - Xiaomi linkage 的零号槽位及后续 burn-in 位置都是固定网格坐标，并非随机。模块在 AOD 根附加时注册位置控制器，并在有效布局后推导初始自然目标，而不是等待 Xiaomi 延迟的首次 `updateTranslation()` 回调。
 - 歌词在物理上与权威时钟边界相对的空闲区域内解析。受管动态区域变更是事务性的：歌词淡出 150 毫秒，等待 Xiaomi 精确的 `DozeHost.updatePosition()` 动画完成回调，一次性应用目标几何，然后歌词淡入 180 毫秒。若错过 OEM 回调，有界的 1500 毫秒超时会向前失败（fails forward）。画布不会持续穿越时钟路径。静态受管位置无需该移动事务即可保持可见。
