@@ -294,6 +294,7 @@ internal object AodPositionHook {
     private var lastManagedPinSkipLogged = false
     private var lastRenderedPinKey = ""
     private var lastStockReadbackKey = ""
+    private var lastPinPostFrameKey = ""
 
     private var lastAnchorResetElapsedMs = Long.MIN_VALUE
 
@@ -666,43 +667,87 @@ internal object AodPositionHook {
      */
     private fun pinRenderedClockY(controller: Any?, appliedY: Float, requestedY: Float) {
         val target = targetViewRef.get() ?: return
-        val beforeController = controller?.let {
-            runCatching { readFloatField(it, "mTranslationY") }.getOrNull()
-        }
-        val beforeView = target.translationY
         val pin = Runnable {
+            val live = targetViewRef.get() ?: return@Runnable
+            val beforeView = live.translationY
+            var beforeController: Float? = null
+            var afterController: Float? = null
+            var fieldDesc: String? = null
             if (controller != null) {
-                runCatching { requireField(controller, "mTranslationY").setFloat(controller, appliedY) }
+                runCatching {
+                    val field = requireField(controller, "mTranslationY")
+                    beforeController = field.getFloat(controller)
+                    field.setFloat(controller, appliedY)
+                    afterController = field.getFloat(controller)
+                    fieldDesc = field.declaringClass.name + "#" + field.name +
+                        " final=" + java.lang.reflect.Modifier.isFinal(field.modifiers) +
+                        " type=" + field.type.name +
+                        " write=" + (if (afterController == appliedY) "ok" else "noop")
+                }.onFailure { fieldDesc = "err=" + it.javaClass.simpleName }
             }
-            val live = targetViewRef.get()
-            if (live != null && live.translationY != appliedY) live.translationY = appliedY
+            if (live.translationY != appliedY) live.translationY = appliedY
+            // 与写入同一线程立即回读,消除跨线程时序误判(issue #66:写发生在主线程,
+            // 回读亦须同线程,否则 before/after 可能读到写入前/被下帧 layout 重置的值)。
+            val afterView = live.translationY
+            val key = "y=" + Math.round(appliedY) + " c=" + afterController +
+                " v=" + Math.round(afterView) + " r=" + Math.round(requestedY)
+            if (key != lastRenderedPinKey) {
+                lastRenderedPinKey = key
+                HookLogger.i(
+                    TAG,
+                    "Rendered clock pinned appliedY=$appliedY requestedY=$requestedY " +
+                        "controllerY=$beforeController->$afterController " +
+                        "viewY=$beforeView->$afterView " +
+                        "y=${live.y} top=${live.top} " +
+                        "topMargin=${(live.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin} " +
+                        "paddingTop=${live.paddingTop} " +
+                        "field=$fieldDesc view=${live.javaClass.name}"
+                )
+            }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
             pin.run()
         } else {
             mainHandler.post(pin)
         }
-        // 设置后回读(issue #66 建议一):controller 权威值 + view 的 translationY/y/top,
-        // 判定写入是否落到显示层;仅值变化时记录,避免「设置成功」与「从未触发」无法区分。
-        val afterController = controller?.let {
+        // 跳过一帧 layout 后于主线程回读(issue #66 建议一/二):
+        // 判定系统是否在下一帧用权威字段(top/mViewTop)重算 y 盖掉 translationY。
+        mainHandler.postDelayed({
+            logPinPostFrame(controller, appliedY, requestedY)
+        }, PIN_POST_FRAME_DELAY_MS)
+    }
+
+    /**
+     * pin 写回后跳过一帧,在主线程回读显示层各候选定位量(issue #66 建议一/二)。
+     *
+     * 上一版在 hook 调用线程回读,既无法排除「跨线程时序」也无法观测「下一帧 layout 是否
+     * 覆盖」。此处在写回完成 + 越过至少一帧 layout 后,同线程读 translationY/y/top/
+     * topMargin/paddingTop 与 mTranslationY:
+     *  - translationY 已被改回非 appliedY → 系统在下帧覆盖,需换写入目标(top/topMargin);
+     *  - translationY 仍是 appliedY 但视觉在新位置 → translationY 不参与最终定位,权威在 top;
+     *  - mTranslationY 与写入值的关系 → 区分「反射写入无效」与「写入后被覆盖」。
+     * 仅值变化时记录,避免整分钟位移周期外刷屏。
+     */
+    private fun logPinPostFrame(controller: Any?, appliedY: Float, requestedY: Float) {
+        val live = targetViewRef.get() ?: return
+        val stored = controller?.let {
             runCatching { readFloatField(it, "mTranslationY") }.getOrNull()
         }
-        val live = targetViewRef.get()
-        if (afterController == beforeController && live != null && live.translationY == beforeView) {
-            return
-        }
-        val key = "y=" + Math.round(appliedY) + " c=" + afterController +
-            " v=" + Math.round(live?.translationY ?: Float.NaN) + " r=" + Math.round(requestedY)
-        if (key != lastRenderedPinKey) {
-            lastRenderedPinKey = key
-            HookLogger.i(
-                TAG,
-                "Rendered clock pinned appliedY=$appliedY requestedY=$requestedY " +
-                    "controllerY=$beforeController->$afterController " +
-                    "viewY=$beforeView->${live?.translationY} " +
-                    "y=${live?.y} top=${live?.top} view=${live?.javaClass?.name}"
-            )
-        }
+        val topMargin = (live.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin
+        val key = "t=" + Math.round(live.translationY) +
+            " y=" + Math.round(live.y) +
+            " top=" + live.top +
+            " tm=" + topMargin +
+            " c=" + stored
+        if (key == lastPinPostFrameKey) return
+        lastPinPostFrameKey = key
+        HookLogger.i(
+            TAG,
+            "Rendered clock post-frame appliedY=$appliedY requestedY=$requestedY " +
+                "translationY=${live.translationY} y=${live.y} top=${live.top} " +
+                "topMargin=$topMargin paddingTop=${live.paddingTop} " +
+                "controllerY=$stored attached=${live.isAttachedToWindow}"
+        )
     }
 
     /**
@@ -741,6 +786,9 @@ internal object AodPositionHook {
     private const val DOZE_HOST_CLASS = "com.miui.aod.DozeHost"
     private const val LINKAGE_MODE = 3
     private const val MIN_VISIBLE_ALPHA = 0.02f
+    // pin 写回后跳过一帧 layout 再回读(issue #66 建议一):略大于 60fps 一帧,
+    // 使「系统是否在下一帧 layout 覆盖 translationY」可被观测。
+    private const val PIN_POST_FRAME_DELAY_MS = 32L
     private const val TAG = "AodPositionHook"
 }
 
