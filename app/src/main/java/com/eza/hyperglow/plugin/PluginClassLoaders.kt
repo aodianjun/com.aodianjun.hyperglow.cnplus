@@ -1,6 +1,6 @@
 package com.eza.hyperglow.plugin
 
-import dalvik.system.InMemoryDexClassLoader
+import dalvik.system.BaseDexClassLoader
 import dalvik.system.PathClassLoader
 import java.nio.ByteBuffer
 
@@ -41,11 +41,15 @@ internal class PluginPathClassLoader(dexPath: String, parent: ClassLoader) :
     }
 }
 
-/** In-memory 回退路径的子优先实现，语义同 [PluginPathClassLoader]。 */
+/**
+ * In-memory 回退路径的子优先实现，语义同 [PluginPathClassLoader]。
+ * InMemoryDexClassLoader 是 final 无法继承，改用 API 27+ 的
+ * [BaseDexClassLoader] 字节缓冲构造器（minSdk 33 满足），行为等价。
+ */
 internal class PluginInMemoryDexClassLoader(
     buffers: Array<ByteBuffer>,
     parent: ClassLoader
-) : InMemoryDexClassLoader(buffers, parent) {
+) : BaseDexClassLoader(buffers, parent) {
 
     @Throws(ClassNotFoundException::class)
     override fun loadClass(name: String, resolve: Boolean): Class<*> {

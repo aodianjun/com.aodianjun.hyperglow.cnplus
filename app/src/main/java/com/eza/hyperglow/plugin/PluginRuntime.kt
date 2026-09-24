@@ -376,7 +376,7 @@ object PluginRuntime {
      *    且必须记录双亲链便于定位可见性问题。
      *
      * 两条路径的 ClassLoader 都对非共享类子优先（issue #65 建议 ①，见
-     * [PluginClassLoaderPolicy]）：插件 dex 自带的 kotlin.*/kotlinx.* 副本由插件
+     * [PluginClassLoaderPolicy]）：插件 dex 自带的 kotlin 与 kotlinx 副本由插件
      * 自己的 ClassLoader 定义，不会被宿主 R8 收紧后的同名类顶掉，从根上避免
      * 跨 ClassLoader 访问收紧类的 IllegalAccessError。
      *
