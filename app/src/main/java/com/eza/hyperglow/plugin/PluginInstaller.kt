@@ -1,6 +1,7 @@
 package com.eza.hyperglow.plugin
 
 import android.content.Context
+import com.eza.hyperglow.AppLog
 import java.io.File
 import java.util.zip.ZipInputStream
 
@@ -27,17 +28,20 @@ object PluginInstaller {
      * 同 id 插件重复安装 = 覆盖升级（先卸载旧目录再落盘新版本）。
      */
     fun install(context: Context, zipBytes: ByteArray): Pair<PluginManifest?, String> {
-        if (zipBytes.isEmpty()) return null to "empty archive"
-        if (zipBytes.size > MAX_ZIP_BYTES) return null to "archive too large"
+        AppLog.i(TAG, "install begin bytes=${zipBytes.size}")
+        if (zipBytes.isEmpty()) return reject("empty archive")
+        if (zipBytes.size > MAX_ZIP_BYTES) {
+            return reject("archive too large: ${zipBytes.size}B > ${MAX_ZIP_BYTES}B")
+        }
         val extracted = runCatching { extract(zipBytes) }.getOrElse {
-            return null to "malformed archive: ${it.message}"
+            return reject("malformed archive: ${it.message}")
         }
         val manifestText = extracted.manifest
-            ?: return null to "missing $MANIFEST_ENTRY"
-        if (extracted.dexEntries.isEmpty()) return null to "no classes.dex in archive"
+            ?: return reject("missing $MANIFEST_ENTRY")
+        if (extracted.dexEntries.isEmpty()) return reject("no classes.dex in archive")
         val manifest = PluginManifestCodec.decode(manifestText.toString(Charsets.UTF_8))
-            ?: return null to "unparseable $MANIFEST_ENTRY"
-        manifest.validate()?.let { return null to "invalid manifest: $it" }
+            ?: return reject("unparseable $MANIFEST_ENTRY")
+        manifest.validate()?.let { return reject("invalid manifest: $it") }
 
         val dir = pluginDir(context, manifest.id)
         runCatching {
@@ -50,46 +54,76 @@ object PluginInstaller {
                 // dex（防篡改）。已固化的插件 dex 须置只读，否则 PathClassLoader 在
                 // targetSdk≥34 时抛 "Writable dex file … is not allowed"。
                 // 失败仅记日志：PluginRuntime 加载前会再做一次只读自愈（issue #65）。
-                if (dexFile.isFile && !dexFile.setReadOnly()) {
-                    AppLogInstall(manifest.id, "setReadOnly rejected for ${dexFile.name}")
+                val readOnly = dexFile.isFile && !dexFile.canWrite()
+                if (dexFile.isFile && !dexFile.setReadOnly() && !readOnly) {
+                    AppLog.w(TAG, "setReadOnly rejected for ${manifest.id}/${dexFile.name}")
                 }
+                AppLog.i(
+                    TAG,
+                    "wrote ${manifest.id}/${dexFile.name} bytes=${bytes.size} " +
+                        "readOnly=${if (dexFile.canWrite()) "no" else "yes"}"
+                )
             }
             File(dir, MANIFEST_ENTRY).writeText(manifestText.toString(Charsets.UTF_8))
-        }.getOrElse { return null to "install io failed: ${it.message}" }
+        }.getOrElse { return reject("install io failed: ${it.message}") }
+        AppLog.i(
+            TAG,
+            "install ok ${manifest.id} v${manifest.version} dex=${extracted.dexEntries.size} " +
+                "dir=${dir.absolutePath}"
+        )
         return manifest to ""
     }
 
     /** 卸载：删除插件目录。已加载的 ClassLoader 无法真正卸载，进程重启后彻底移除。 */
     fun uninstall(context: Context, pluginId: String): Boolean {
         val dir = pluginDir(context, pluginId)
-        return runCatching { dir.deleteRecursively() }.getOrDefault(false)
+        val removed = runCatching { dir.deleteRecursively() }.getOrDefault(false)
+        if (removed) {
+            AppLog.i(TAG, "uninstall $pluginId removed dir=${dir.absolutePath}")
+        } else {
+            AppLog.w(TAG, "uninstall $pluginId failed dir=${dir.absolutePath}")
+        }
+        return removed
     }
 
     /** 枚举磁盘上已安装插件的 manifest（App 冷启动恢复用）。 */
-    fun installed(context: Context): List<PluginManifest> =
-        pluginsRoot(context).takeIf { it.isDirectory }
-            ?.listFiles { file -> file.isDirectory }
-            .orEmpty()
-            .sortedBy { it.name }
-            .mapNotNull { dir ->
-                val manifestFile = File(dir, MANIFEST_ENTRY)
-                if (!manifestFile.isFile) return@mapNotNull null
-                val manifest = PluginManifestCodec.decode(manifestFile.readText())
-                when {
-                    manifest == null -> {
-                        AppLogInstall(dir.name, "manifest unreadable")
-                        null
-                    }
-                    manifest.validate() != null -> {
-                        AppLogInstall(dir.name, "manifest invalid on rescan")
-                        null
-                    }
-                    else -> manifest
-                }
+    fun installed(context: Context): List<PluginManifest> {
+        val root = pluginsRoot(context)
+        if (!root.isDirectory) {
+            AppLog.i(TAG, "rescan: plugin root absent (${root.absolutePath})")
+            return emptyList()
+        }
+        val dirs = root.listFiles { file -> file.isDirectory }.orEmpty().sortedBy { it.name }
+        val manifests = dirs.mapNotNull { dir ->
+            val manifestFile = File(dir, MANIFEST_ENTRY)
+            if (!manifestFile.isFile) {
+                AppLog.w(TAG, "skip ${dir.name}: missing $MANIFEST_ENTRY")
+                return@mapNotNull null
             }
+            val manifest = PluginManifestCodec.decode(manifestFile.readText())
+            when {
+                manifest == null -> {
+                    AppLog.w(TAG, "skip ${dir.name}: manifest unreadable")
+                    null
+                }
+                manifest.validate() != null -> {
+                    AppLog.w(TAG, "skip ${dir.name}: manifest invalid on rescan")
+                    null
+                }
+                else -> manifest
+            }
+        }
+        AppLog.i(
+            TAG,
+            "rescan: ${dirs.size} dir(s) → ${manifests.size} valid manifest(s) " +
+                manifests.joinToString(prefix = "[", postfix = "]") { "${it.id}:${it.version}" }
+        )
+        return manifests
+    }
 
-    private fun AppLogInstall(pluginDirName: String, reason: String) {
-        com.eza.hyperglow.AppLog.w("PluginInstaller", "skip $pluginDirName: $reason")
+    private fun reject(reason: String): Pair<PluginManifest?, String> {
+        AppLog.w(TAG, "install rejected: $reason")
+        return null to reason
     }
 
     private class Extracted(

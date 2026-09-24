@@ -1,6 +1,7 @@
 package com.eza.hyperglow.plugin
 
 import android.content.Context
+import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.bridge.SpicyBridgeDocumentStore
@@ -9,11 +10,11 @@ import com.eza.hyperglow.producer.LyricProducers
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
 import com.lidesheng.hyperlyric.plugin.api.PluginSong
 import com.lidesheng.hyperlyric.plugin.api.PluginSongField
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -39,6 +40,9 @@ object PluginPipeline {
     private var processedSessionKey: String? = null
     private var processedDocument: Any? = null
 
+    /** 上一次记录的跳过原因；仅用于去重，避免 collector 高频回调刷屏。 */
+    private var skipReason: String? = null
+
     fun start(context: Context) {
         val app = context.applicationContext
         synchronized(this) {
@@ -53,13 +57,16 @@ object PluginPipeline {
                     SpicyBridgeDocumentStore.state.collect { maybeProcess() }
                 }
             }
+            AppLog.i(TAG, "pipeline started: observing arbiter.active + SpicyBridgeDocumentStore")
         }
     }
 
     /** 引擎 project() 的同步富化入口——绝不能抛异常、绝不能阻塞。 */
     fun enrich(state: LyricProducerState): LyricProducerState {
         val current = patched ?: return state
-        return runCatching { PluginSongBridge.enrichState(state, current) }.getOrDefault(state)
+        return runCatching { PluginSongBridge.enrichState(state, current) }
+            .onFailure { AppLog.w(TAG, "enrich failed for ${current.sessionKey}", it) }
+            .getOrDefault(state)
     }
 
     fun processingEnabled(): Boolean =
@@ -70,27 +77,41 @@ object PluginPipeline {
      * maybeProcess 自带会话/文档去重，重复调用安全。
      */
     fun requestProcess() {
+        AppLog.i(TAG, "requestProcess: manual re-process requested")
         maybeProcess()
     }
 
     /** 总开关关闭或插件全部卸载时清空缓存，让富化立即回到透传。 */
     fun invalidate() {
+        val hadPatch = patched != null
         chainJob?.cancel()
         chainJob = null
         patched = null
         processedSessionKey = null
         processedDocument = null
+        skipReason = null
+        AppLog.i(TAG, "invalidate: cleared patched cache (hadPatch=$hadPatch)")
     }
 
     private fun maybeProcess() {
-        val context = appContext ?: return
+        if (appContext == null) return
         if (!processingEnabled()) {
-            if (patched != null) invalidate()
+            if (patched != null) {
+                AppLog.i(TAG, "processing disabled; discarding patched cache")
+                invalidate()
+            }
             return
         }
         val state = LyricProducers.arbiter.active.value ?: return
         val document = SpicyBridgeDocumentStore.state.value ?: return
-        if (!documentMatches(document, state)) return
+        if (!documentMatches(document, state)) {
+            logSkipOnce(
+                "document/state mismatch: document=[${document.producerId} gen=${document.generation} " +
+                    "uri=${document.trackUri}] state=[${state.producerId} gen=${state.generation} " +
+                    "uri=${state.trackUri}]"
+            )
+            return
+        }
         val sessionKey = PluginSongBridge.sessionKey(state)
         if (sessionKey == processedSessionKey && document === processedDocument) return
 
@@ -98,8 +119,11 @@ object PluginPipeline {
         processedSessionKey = sessionKey
         processedDocument = document
         patched = null
+        skipReason = null
+        AppLog.i(TAG, "chain scheduled: session=$sessionKey rows=${document.rows.size}")
         chainJob = scope.launch {
-            val result = runCatching {
+            val startedAtMs = SystemClock.elapsedRealtime()
+            val result = try {
                 val original = PluginSongBridge.fromDocument(document, state)
                 val processed = PluginRuntime.processChain(
                     original,
@@ -112,15 +136,36 @@ object PluginPipeline {
                     if (songFields.isEmpty() && lyricFields.isEmpty()) null
                     else PatchedSong(sessionKey, processed, songFields, lyricFields)
                 }
-            }.getOrElse { error ->
-                AppLog.w(TAG, "plugin chain failed for $sessionKey", error)
+            } catch (cancelled: CancellationException) {
+                // 切歌取消旧链是正常控制流，不可与真正的处理失败混为一谈。
+                AppLog.i(TAG, "chain cancelled for $sessionKey (superseded by newer session)")
+                throw cancelled
+            } catch (error: Throwable) {
+                AppLog.w(TAG, "chain failed for $sessionKey", error)
                 null
             }
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAtMs
             patched = result
             if (result != null) {
-                AppLog.i(TAG, "plugin chain patched $sessionKey (fields=${result.changedLyricFields})")
+                AppLog.i(
+                    TAG,
+                    "chain applied session=$sessionKey songFields=${result.changedSongFields} " +
+                        "lyricFields=${result.changedLyricFields} elapsed=${elapsedMs}ms"
+                )
+            } else {
+                AppLog.i(
+                    TAG,
+                    "chain produced no change for $sessionKey elapsed=${elapsedMs}ms (passthrough)"
+                )
             }
         }
+    }
+
+    /** 只在跳过原因发生变化时记一次，避免 collector 高频回调刷屏。 */
+    private fun logSkipOnce(reason: String) {
+        if (skipReason == reason) return
+        skipReason = reason
+        AppLog.i(TAG, "chain skipped: $reason")
     }
 
     private fun documentMatches(

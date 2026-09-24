@@ -2,6 +2,7 @@ package com.eza.hyperglow.plugin
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.lidesheng.hyperlyric.plugin.api.HyperLyricExtension
 import com.lidesheng.hyperlyric.plugin.api.HyperLyricPlugin
@@ -66,16 +67,27 @@ object PluginRuntime {
             if (appContext === app) return
             appContext = app
         }
+        AppLog.i(TAG, "bootstrap: runtime attached to app context")
         reloadAll()
     }
 
     /** 重新扫描插件目录并加载（安装/卸载后调用；旧 ClassLoader 无法卸载，进程重启后彻底清理）。 */
     fun reloadAll() {
-        val context = appContext ?: return
+        val context = appContext
+        if (context == null) {
+            AppLog.w(TAG, "reloadAll skipped: runtime not bootstrapped")
+            return
+        }
         val manifests = PluginInstaller.installed(context)
+        AppLog.i(TAG, "reloadAll: ${manifests.size} manifest(s) to load")
         synchronized(lock) {
             loaded.clear()
             manifests.forEach { manifest ->
+                AppLog.i(
+                    TAG,
+                    "loading ${manifest.id} v${manifest.version} entry=${manifest.entry} " +
+                        "apiVersion=${manifest.apiVersion} cacheScopes=${manifest.cacheScopes.size}"
+                )
                 var plugin = loadPlugin(context, manifest)
                 val instance = plugin.plugin
                 val hostContext = plugin.hostContext
@@ -93,6 +105,20 @@ object PluginRuntime {
                                 "onLoad: ${error.message ?: error.javaClass.simpleName}"
                             )
                         }
+                }
+                if (plugin.plugin != null) {
+                    AppLog.i(
+                        TAG,
+                        "loaded ${manifest.id}: processors=${plugin.processors.size} " +
+                            "extensions=${describeExtensions(plugin)}"
+                    )
+                } else {
+                    AppLog.w(
+                        TAG,
+                        "not loaded ${manifest.id}: " +
+                            "${plugin.loadError ?: "unknown"} " +
+                            "(extensions=${describeExtensions(plugin)})"
+                    )
                 }
                 loaded += plugin
             }
@@ -116,39 +142,76 @@ object PluginRuntime {
 
     /** 设置页保存某项配置后实时同步 onConfigChanged（下一首歌生效）。 */
     fun notifyConfigChanged(pluginId: String) {
-        val plugin = installed(pluginId) ?: return
-        val instance = plugin.plugin ?: return
-        val context = appContext ?: return
+        val plugin = installed(pluginId)
+        if (plugin == null) {
+            AppLog.w(TAG, "onConfigChanged ignored: $pluginId not loaded")
+            return
+        }
+        val instance = plugin.plugin
+        if (instance == null) {
+            AppLog.w(
+                TAG,
+                "onConfigChanged ignored: $pluginId load failed (${plugin.loadError ?: "-"})"
+            )
+            return
+        }
+        val context = appContext
+        if (context == null) {
+            AppLog.w(TAG, "onConfigChanged ignored: $pluginId runtime not bootstrapped")
+            return
+        }
         runCatching {
             instance.onConfigChanged(PluginSettingsStore.asPluginConfig(context, pluginId))
-        }.onFailure {
-            AppLog.w(TAG, "onConfigChanged failed for $pluginId", it)
         }
+            .onSuccess { AppLog.i(TAG, "onConfigChanged delivered to $pluginId") }
+            .onFailure { AppLog.w(TAG, "onConfigChanged failed for $pluginId", it) }
     }
 
     /** 激活开关从关到开时补发 onEnable（HyperLyric:宿主允许其参与处理时调用）。 */
     fun notifyEnabled(pluginId: String, enabled: Boolean) {
-        val plugin = installed(pluginId) ?: return
-        if (!enabled) return
-        val instance = plugin.plugin ?: return
-        runCatching { instance.onEnable() }.onFailure {
-            AppLog.w(TAG, "onEnable failed for $pluginId", it)
+        val plugin = installed(pluginId)
+        if (plugin == null) {
+            AppLog.w(TAG, "onEnable ignored: $pluginId not loaded (enabled=$enabled)")
+            return
         }
+        if (!enabled) {
+            AppLog.i(TAG, "onEnable skipped: $pluginId disabled")
+            return
+        }
+        val instance = plugin.plugin
+        if (instance == null) {
+            AppLog.w(TAG, "onEnable ignored: $pluginId load failed (${plugin.loadError ?: "-"})")
+            return
+        }
+        runCatching { instance.onEnable() }
+            .onSuccess { AppLog.i(TAG, "onEnable delivered to $pluginId") }
+            .onFailure { AppLog.w(TAG, "onEnable failed for $pluginId", it) }
     }
 
     fun clearCache(pluginId: String) {
-        installed(pluginId)?.hostContext?.let {
-            val extension = it.cacheExtension()
-            if (extension != null) {
-                runCatching { extension.clearAll() }
-                    .onFailure { error -> AppLog.w(TAG, "clearAll failed for $pluginId", error) }
-            }
-            it.clearCache()
+        val hostContext = installed(pluginId)?.hostContext
+        if (hostContext == null) {
+            AppLog.w(TAG, "clearCache ignored: $pluginId not loaded")
+            return
         }
+        val sizeBefore = hostContext.cacheSizeBytes()
+        val extension = hostContext.cacheExtension()
+        if (extension != null) {
+            runCatching { extension.clearAll() }
+                .onSuccess { AppLog.i(TAG, "plugin cache extension clearAll for $pluginId") }
+                .onFailure { error -> AppLog.w(TAG, "clearAll failed for $pluginId", error) }
+        } else {
+            AppLog.i(TAG, "no plugin cache extension for $pluginId; clearing host cache only")
+        }
+        hostContext.clearCache()
+        AppLog.i(TAG, "cache cleared for $pluginId (size before=${sizeBefore}B)")
     }
 
-    fun cacheSizeBytes(pluginId: String): Long =
-        installed(pluginId)?.hostContext?.cacheSizeBytes() ?: 0L
+    fun cacheSizeBytes(pluginId: String): Long {
+        val size = installed(pluginId)?.hostContext?.cacheSizeBytes() ?: 0L
+        AppLog.i(TAG, "cache size for $pluginId = ${size}B")
+        return size
+    }
 
     /**
      * 处理器链入口：按阶段顺序执行所有已激活插件的处理器并合并结果。
@@ -159,43 +222,119 @@ object PluginRuntime {
         mediaInfo: PluginMediaInfo?
     ): PluginSong {
         var current = song
-        val context = appContext ?: return song
+        val context = appContext
+        if (context == null) {
+            AppLog.w(TAG, "processChain skipped: runtime not bootstrapped")
+            return song
+        }
         val processingContext = PluginProcessingContext(mediaInfo = mediaInfo)
         val plugins = installed()
+        val startedAtMs = SystemClock.elapsedRealtime()
+        var processorRuns = 0
+        var acceptedResults = 0
+        AppLog.i(
+            TAG,
+            "processChain begin song=${describeSong(song)} rows=${song.lyrics?.size ?: 0} " +
+                "plugins=${plugins.size}"
+        )
         for (plugin in plugins) {
-            if (!plugin.isActivated(context)) continue
+            val activated = plugin.isActivated(context)
+            AppLog.i(
+                TAG,
+                "processChain plugin ${plugin.manifest.id}: activated=$activated " +
+                    "processors=${plugin.processors.size} loadError=${plugin.loadError ?: "-"}"
+            )
+            if (!activated) continue
             for (processor in plugin.processors) {
-                val result = runProcessorSafely(processor, current, processingContext)
-                    ?: continue
-                val merged = runCatching { PluginChainMerger.merge(current, result) }
-                    .getOrNull()
+                processorRuns++
+                val result = runProcessorSafely(
+                    plugin.manifest.id,
+                    processor,
+                    current,
+                    processingContext
+                ) ?: continue
+                val outcome = runCatching { PluginChainMerger.mergeWithReason(current, result) }
+                    .getOrElse { error ->
+                        AppLog.w(
+                            TAG,
+                            "merge threw for ${plugin.manifest.id}/${processor.id}",
+                            error
+                        )
+                        PluginChainMerger.MergeOutcome(
+                            null,
+                            "merge threw: ${error.message ?: error.javaClass.simpleName}"
+                        )
+                    }
+                val merged = outcome.song
                 if (merged == null) {
                     AppLog.w(
                         TAG,
                         "rejected result from ${plugin.manifest.id}/${processor.id}: " +
-                            "merge validation failed"
+                            "${outcome.reason}"
                     )
                     continue
                 }
+                acceptedResults++
+                AppLog.i(
+                    TAG,
+                    "accepted result from ${plugin.manifest.id}/${processor.id}: " +
+                        "changedFields=${result.changedFields} " +
+                        "changedLyricFields=${result.changedLyricFields} " +
+                        "mode=${result.lyricsUpdateMode}"
+                )
                 current = merged
             }
         }
+        AppLog.i(
+            TAG,
+            "processChain end runs=$processorRuns accepted=$acceptedResults " +
+                "changed=${current != song} elapsed=${SystemClock.elapsedRealtime() - startedAtMs}ms"
+        )
         return current
     }
 
     private suspend fun runProcessorSafely(
+        pluginId: String,
         processor: LyricProcessorExtension,
         song: PluginSong,
         processingContext: PluginProcessingContext
-    ): PluginSongResult? = try {
-        withTimeoutOrNull(PROCESSOR_TIMEOUT_MS) {
-            runInterruptible(Dispatchers.IO) {
-                processor.processResult(song, processingContext)
+    ): PluginSongResult? {
+        val startedAtMs = SystemClock.elapsedRealtime()
+        return try {
+            val result = withTimeoutOrNull(PROCESSOR_TIMEOUT_MS) {
+                runInterruptible(Dispatchers.IO) {
+                    processor.processResult(song, processingContext)
+                }
             }
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAtMs
+            when {
+                result != null -> AppLog.i(
+                    TAG,
+                    "processor $pluginId/${processor.id} (stage=${processor.stage}) " +
+                        "produced result in ${elapsedMs}ms"
+                )
+                // withTimeoutOrNull 无法区分「超时」与「插件返回 null」，用耗时贴近上限区分。
+                elapsedMs >= PROCESSOR_TIMEOUT_MS -> AppLog.w(
+                    TAG,
+                    "processor $pluginId/${processor.id} (stage=${processor.stage}) " +
+                        "timed out after ${elapsedMs}ms (limit=${PROCESSOR_TIMEOUT_MS}ms)"
+                )
+                else -> AppLog.i(
+                    TAG,
+                    "processor $pluginId/${processor.id} (stage=${processor.stage}) " +
+                        "returned no result in ${elapsedMs}ms"
+                )
+            }
+            result
+        } catch (error: Throwable) {
+            AppLog.w(
+                TAG,
+                "processor $pluginId/${processor.id} (stage=${processor.stage}) threw after " +
+                    "${SystemClock.elapsedRealtime() - startedAtMs}ms",
+                error
+            )
+            null
         }
-    } catch (error: Throwable) {
-        AppLog.w(TAG, "processor ${processor.id} threw", error)
-        null
     }
 
     private fun loadPlugin(context: Context, manifest: PluginManifest): LoadedPlugin {
@@ -204,11 +343,18 @@ object PluginRuntime {
             ?.sortedBy { it.name }
             .orEmpty()
         if (dexFiles.isEmpty()) {
+            AppLog.w(TAG, "no dex files for ${manifest.id} in ${dir.absolutePath}")
             return LoadedPlugin(manifest, null, null, "no dex files")
         }
         val result = runCatching {
             val entryClass = loadEntryClass(dexFiles, manifest)
+            AppLog.i(
+                TAG,
+                "entry ${manifest.entry} resolved for ${manifest.id} via " +
+                    "${entryClass.classLoader?.javaClass?.simpleName ?: "?"}"
+            )
             val instance = entryClass.getDeclaredConstructor().newInstance() as HyperLyricPlugin
+            AppLog.i(TAG, "instantiated ${instance.javaClass.name} for ${manifest.id}")
             val hostContext = HostPluginContext(
                 context = context,
                 manifest = manifest,
@@ -216,7 +362,7 @@ object PluginRuntime {
             )
             LoadedPlugin(manifest, instance, hostContext, null)
         }.getOrElse { error ->
-            AppLog.w(TAG, "load failed for ${manifest.id}: ${error.message}")
+            AppLog.w(TAG, "load failed for ${manifest.id}: ${error.message}", error)
             LoadedPlugin(manifest, null, null, error.message ?: "load failed")
         }
         logLoadDiagnostics(manifest.id, dexFiles, result)
@@ -285,6 +431,22 @@ object PluginRuntime {
     private fun describeClassLoaderChain(loader: ClassLoader?): String =
         generateSequence(loader) { it.parent }
             .joinToString(" <- ") { it.javaClass.name }
+
+    /** 诊断用：列出插件注册的扩展（类型 + id + 处理器阶段），定位「已加载但无处理器」。 */
+    private fun describeExtensions(plugin: LoadedPlugin): String {
+        val extensions = plugin.hostContext?.registeredExtensions.orEmpty()
+        if (extensions.isEmpty()) return "[]"
+        return extensions.joinToString(prefix = "[", postfix = "]") { extension ->
+            when (extension) {
+                is LyricProcessorExtension -> "${extension.id}@${extension.stage}"
+                else -> "${extension.id}:${extension.javaClass.simpleName}"
+            }
+        }
+    }
+
+    /** 诊断用：歌曲身份摘要（不打印歌词正文，避免日志膨胀）。 */
+    private fun describeSong(song: PluginSong): String =
+        "id=${song.id ?: "-"} name=${song.name ?: "-"} artist=${song.artist ?: "-"}"
 
     /** 加载诊断：记录 dex 实际路径可见信息（可写性）、API 级别与结果，便于区分平台限制与真正损坏。 */
     private fun logLoadDiagnostics(id: String, dexFiles: List<File>, result: LoadedPlugin) {

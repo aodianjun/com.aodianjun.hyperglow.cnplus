@@ -17,30 +17,54 @@ import com.lidesheng.hyperlyric.plugin.api.PluginSongResult
  */
 object PluginChainMerger {
 
-    fun merge(current: PluginSong, result: PluginSongResult): PluginSong? {
+    /**
+     * 合并结果：成功时 [song] 非空且 [reason] 为 null；被拒时 [song] 为 null、
+     * [reason] 给出具体违例规则（供宿主日志定位是插件结果非法还是快照不匹配）。
+     */
+    internal data class MergeOutcome(val song: PluginSong?, val reason: String?)
+
+    fun merge(current: PluginSong, result: PluginSongResult): PluginSong? =
+        mergeWithReason(current, result).song
+
+    /** [merge] 的带原因版本。宿主用它把「结果为何被丢弃」写进日志，而不是只记一句失败。 */
+    internal fun mergeWithReason(current: PluginSong, result: PluginSongResult): MergeOutcome {
         if (PluginSongField.LYRICS !in result.changedFields) {
-            return copyTopLevel(current, result)
+            return MergeOutcome(copyTopLevel(current, result), null)
         }
-        val candidateRows = result.song.lyrics ?: return null
+        val candidateRows = result.song.lyrics
+            ?: return MergeOutcome(null, "changedFields declares LYRICS but result.song.lyrics is null")
         val mergedRows = when (result.lyricsUpdateMode) {
             PluginLyricsUpdateMode.PATCH -> {
-                val currentRows = current.lyrics ?: return null
-                if (candidateRows.size != currentRows.size) return null
+                val currentRows = current.lyrics
+                    ?: return MergeOutcome(null, "PATCH mode but current snapshot has no lyrics")
+                if (candidateRows.size != currentRows.size) {
+                    return MergeOutcome(
+                        null,
+                        "PATCH row count mismatch: candidate=${candidateRows.size} " +
+                            "current=${currentRows.size}"
+                    )
+                }
                 candidateRows.mapIndexed { index, candidate ->
                     patchRow(currentRows[index], candidate, result.changedLyricFields)
                 }
             }
             PluginLyricsUpdateMode.REPLACE -> {
-                if (candidateRows.isEmpty()) return null
+                if (candidateRows.isEmpty()) {
+                    return MergeOutcome(null, "REPLACE mode with empty rows")
+                }
                 candidateRows.forEachIndexed { index, row ->
                     if (row.begin < 0L || row.end < row.begin) {
-                        return null
+                        return MergeOutcome(
+                            null,
+                            "REPLACE row $index has invalid timeline: " +
+                                "begin=${row.begin} end=${row.end}"
+                        )
                     }
                 }
                 candidateRows.map { patchRow(it, it, result.changedLyricFields) }
             }
         }
-        return copyTopLevel(current, result).copy(lyrics = mergedRows)
+        return MergeOutcome(copyTopLevel(current, result).copy(lyrics = mergedRows), null)
     }
 
     /** 按 changedFields 拷贝顶层字段（含 metadata 整体替换）；未声明字段保留 current。 */

@@ -10,6 +10,7 @@ import com.lidesheng.hyperlyric.plugin.api.PluginConfig
 import com.lidesheng.hyperlyric.plugin.api.PluginContext
 import com.lidesheng.hyperlyric.plugin.api.PluginStorage
 import com.lidesheng.hyperlyric.plugin.api.HyperLyricExtension
+import com.lidesheng.hyperlyric.plugin.api.LyricProcessorExtension
 import java.io.File
 import java.security.MessageDigest
 
@@ -42,20 +43,26 @@ internal class HostPluginLogger(pluginId: String) : PluginLogger {
 
 internal class HostPluginStorage(context: Context, pluginId: String) : PluginStorage {
     private val prefs = context.getSharedPreferences("plugin_storage_$pluginId", Context.MODE_PRIVATE)
+    private val area = "PluginStorage:$pluginId"
 
     override fun getString(key: String, defaultValue: String?): String? =
         runCatching { prefs.getString(key, defaultValue) }.getOrDefault(defaultValue)
 
     override fun putString(key: String, value: String) {
         runCatching { prefs.edit().putString(key, value).apply() }
+            .onFailure { AppLog.w(area, "putString failed key=$key", it) }
     }
 
     override fun remove(key: String) {
         runCatching { prefs.edit().remove(key).apply() }
+            .onFailure { AppLog.w(area, "remove failed key=$key", it) }
     }
 
     override fun clear() {
+        val before = prefs.all.size
         runCatching { prefs.edit().clear().apply() }
+            .onSuccess { AppLog.i(area, "storage cleared (keys before=$before)") }
+            .onFailure { AppLog.w(area, "clear failed", it) }
     }
 }
 
@@ -80,24 +87,33 @@ internal class HostPluginCache(context: Context, private val pluginId: String) :
 
     override fun putBytes(key: String, value: ByteArray) {
         runCatching {
-            if (dir.totalSize() + value.size > MAX_TOTAL_BYTES) {
-                AppLog.w("PluginCache", "cache quota exceeded for $pluginId key=$key")
+            val sizeBefore = dir.totalSize()
+            if (sizeBefore + value.size > MAX_TOTAL_BYTES) {
+                AppLog.w(
+                    TAG,
+                    "cache quota exceeded for $pluginId key=$key " +
+                        "(used=${sizeBefore}B + ${value.size}B > ${MAX_TOTAL_BYTES}B)"
+                )
                 return
             }
             dir.mkdirs()
             fileFor(key).writeBytes(value)
-        }.onFailure { AppLog.w("PluginCache", "write failed for $pluginId key=$key", it) }
+            AppLog.i(TAG, "cache put $pluginId bytes=${value.size} total=${dir.totalSize()}B")
+        }.onFailure { AppLog.w(TAG, "cache write failed for $pluginId key=$key", it) }
     }
 
     override fun contains(key: String): Boolean =
         runCatching { fileFor(key).isFile }.getOrDefault(false)
 
     override fun remove(key: String) {
-        runCatching { fileFor(key).delete() }
+        val removed = runCatching { fileFor(key).delete() }.getOrDefault(false)
+        if (removed) AppLog.i(TAG, "cache remove $pluginId")
     }
 
     override fun clear() {
-        runCatching { dir.deleteRecursively() }
+        val sizeBefore = runCatching { dir.totalSize() }.getOrDefault(0L)
+        val removed = runCatching { dir.deleteRecursively() }.getOrDefault(false)
+        AppLog.i(TAG, "cache clear $pluginId removed=$removed freed=${sizeBefore}B")
     }
 
     fun totalSizeBytes(): Long = runCatching { dir.totalSize() }.getOrDefault(0L)
@@ -112,6 +128,8 @@ internal class HostPluginCache(context: Context, private val pluginId: String) :
         takeIf { it.isDirectory }?.walkBottomUp()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
 
     companion object {
+        private const val TAG = "PluginCache"
+
         /** 每插件 16 MiB 缓存配额（HyperLyric 由宿主掌握大小策略，此处取保守值）。 */
         const val MAX_TOTAL_BYTES = 16L * 1024 * 1024
     }
@@ -139,9 +157,20 @@ class HostPluginContext(
     override val cache: PluginCache = if (hasCacheScope) cacheBackend else NoopPluginCache
 
     val registeredExtensions = mutableListOf<HyperLyricExtension>()
+    private val area = "Plugin:${manifest.id}"
 
     override fun registerExtension(extension: HyperLyricExtension) {
         registeredExtensions += extension
+        val detail = if (extension is LyricProcessorExtension) {
+            "${extension.id} stage=${extension.stage}"
+        } else {
+            extension.id
+        }
+        AppLog.i(
+            area,
+            "registerExtension $detail (type=${extension.javaClass.simpleName}) " +
+                "total=${registeredExtensions.size}"
+        )
     }
 
     fun cacheExtension(): PluginCacheExtension? =

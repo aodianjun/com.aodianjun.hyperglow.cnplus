@@ -2,6 +2,7 @@ package com.eza.hyperglow.plugin
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.eza.hyperglow.AppLog
 import com.lidesheng.hyperlyric.plugin.api.PluginConfig
 
 /**
@@ -14,6 +15,8 @@ import com.lidesheng.hyperlyric.plugin.api.PluginConfig
  *   存独立文件天然隔离，后续若做统一备份再按该标记过滤）。
  */
 object PluginSettingsStore {
+    private const val TAG = "PluginSettings"
+
     private fun prefs(context: Context, pluginId: String): SharedPreferences =
         context.getSharedPreferences("plugin_settings_$pluginId", Context.MODE_PRIVATE)
 
@@ -39,22 +42,28 @@ object PluginSettingsStore {
 
     fun putBoolean(context: Context, pluginId: String, key: String, value: Boolean) {
         prefs(context, pluginId).edit().putBoolean(key, value).apply()
+        AppLog.i(TAG, "put $pluginId $key=$value")
     }
 
     fun putString(context: Context, pluginId: String, key: String, value: String) {
         prefs(context, pluginId).edit().putString(key, value).apply()
+        // 设置值可能很长（含换行/正文），只记长度，避免污染日志。
+        AppLog.i(TAG, "put $pluginId $key (chars=${value.length})")
     }
 
     fun putFloat(context: Context, pluginId: String, key: String, value: Float) {
         prefs(context, pluginId).edit().putFloat(key, value).apply()
+        AppLog.i(TAG, "put $pluginId $key=$value")
     }
 
     fun putStringSet(context: Context, pluginId: String, key: String, value: Set<String>) {
         prefs(context, pluginId).edit().putStringSet(key, value).apply()
+        AppLog.i(TAG, "put $pluginId $key (size=${value.size} values=$value)")
     }
 
     fun clear(context: Context, pluginId: String) {
         prefs(context, pluginId).edit().clear().apply()
+        AppLog.i(TAG, "cleared settings for $pluginId")
     }
 
     /** 插件激活判定：manifest 声明了 activationSettingKey 则读该键，未声明视为始终激活。 */
