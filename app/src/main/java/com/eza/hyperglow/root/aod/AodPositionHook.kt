@@ -203,11 +203,12 @@ internal object AodPositionHook {
                 chain.proceed()
             }
             if (decision != null && needsClockYWriteback(decision)) {
-                // issue #39:updateTranslation 的入参替换疑似不被效果层采纳,时钟仍随
-                // 防烧屏往复移动。这里把实际渲染视图的 translationY 强制钉到应用值,
-                // 使锚定/冻结在渲染层生效。首次钉住时记录一次,便于确认写回已触发。
+                // issue #39/#66:updateTranslation 的入参替换与 targetView 写回均未被效果层
+                // 采纳(controller.mTranslationY 恒为既有值),时钟仍随防烧屏位移。这里把
+                // 权威字段 controller.mTranslationY 与渲染视图 translationY 一并钉到应用值,
+                // 并回读确认写入落到显示层,使锚定/冻结真正生效。
                 if (controller != null) logStockClockReadback(controller, decision)
-                pinRenderedClockY(decision.appliedTranslationY, decision.requestedTranslationY)
+                pinRenderedClockY(controller, decision.appliedTranslationY, decision.requestedTranslationY)
             }
             val translationX = decision?.appliedTranslationX?.toFloat()
                 ?: requestedX?.toFloat()
@@ -645,37 +646,62 @@ internal object AodPositionHook {
     }
 
     /**
-     * 把实际渲染视图(系统时钟 targetView)的 translationY 强制钉到应用值。
+     * 把系统时钟钉到应用值,同时写回两条定位通路(issue #66)。
      *
-     * issue #39:`updateTranslation` 的入参替换疑似未被效果层采纳——`appliedY` 已钉住,
-     * 但时钟渲染位置仍随防烧屏在往复区间自由移动。渲染层最终用的是视图的
-     * translationY(`renderedTargetBoundsInRoot` 正是读它实测时钟位置),因此在
-     * `proceed` 之后直接写回视图属性,确保锚定/冻结在效果层生效。仅变化时记录一次,
-     * 避免刷屏;target 尚未捕获时静默跳过,后续 updateTranslation 会再次尝试。
-     * View 属性写回统一在主线程执行,避免跨线程触碰视图树。
+     * issue #39 只写回 targetView.translationY,但实测(issue #66)时钟在防烧屏整分钟
+     * 位移后仍停在新位置:controller 的 `mTranslationY` 恒为既有值、对入参替换与
+     * view 写回均无响应,说明它才是时钟最终定位的权威字段,`AodContainerView` 的
+     * translationY 并不单独决定时钟位置。因此这里:
+     *  1. 直接写回 controller 的权威字段 `mTranslationY`(系统每帧布局读它定位时钟);
+     *  2. 同时写回 targetView.translationY(与 `renderedTargetBoundsInRoot` 实测读法一致,
+     *     且覆盖 view 直接参与绘制的 ROM);
+     *  3. 写回后回读两个值 + view 的 y/top,一次性判定写入是否落到显示层。
+     *
+     * 安全性:pin 激活时 managed 位移互斥绕过(`routesToManagedPath` / `advanceManagedPosition`
+     * 均因 pinClockVisible 提前 return),`mTranslationY`(geometry.baseTranslationY)仅被
+     * managed 路径读取,故 pin 期间改写它不会干扰 managed 逻辑。
+     *
+     * 仅变化时记录一次避免刷屏;target 尚未捕获时静默跳过,后续 updateTranslation 会再次
+     * 尝试。写回统一在主线程执行,避免跨线程触碰视图树。
      */
-    private fun pinRenderedClockY(appliedY: Float, requestedY: Float) {
+    private fun pinRenderedClockY(controller: Any?, appliedY: Float, requestedY: Float) {
         val target = targetViewRef.get() ?: return
-        val observed = target.translationY
-        if (observed == appliedY) return
-        val key = "y=" + Math.round(appliedY) + " o=" + Math.round(observed) +
-            " r=" + Math.round(requestedY)
-        if (key != lastRenderedPinKey) {
-            lastRenderedPinKey = key
-            HookLogger.i(
-                TAG,
-                "Rendered clock pinned translationY=$appliedY (observed=$observed requested=$requestedY)"
-            )
+        val beforeController = controller?.let {
+            runCatching { readFloatField(it, "mTranslationY") }.getOrNull()
         }
+        val beforeView = target.translationY
         val pin = Runnable {
-            val live = targetViewRef.get() ?: return@Runnable
-            if (live.translationY == appliedY) return@Runnable
-            live.translationY = appliedY
+            if (controller != null) {
+                runCatching { requireField(controller, "mTranslationY").setFloat(controller, appliedY) }
+            }
+            val live = targetViewRef.get()
+            if (live != null && live.translationY != appliedY) live.translationY = appliedY
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
             pin.run()
         } else {
             mainHandler.post(pin)
+        }
+        // 设置后回读(issue #66 建议一):controller 权威值 + view 的 translationY/y/top,
+        // 判定写入是否落到显示层;仅值变化时记录,避免「设置成功」与「从未触发」无法区分。
+        val afterController = controller?.let {
+            runCatching { readFloatField(it, "mTranslationY") }.getOrNull()
+        }
+        val live = targetViewRef.get()
+        if (afterController == beforeController && live != null && live.translationY == beforeView) {
+            return
+        }
+        val key = "y=" + Math.round(appliedY) + " c=" + afterController +
+            " v=" + Math.round(live?.translationY ?: Float.NaN) + " r=" + Math.round(requestedY)
+        if (key != lastRenderedPinKey) {
+            lastRenderedPinKey = key
+            HookLogger.i(
+                TAG,
+                "Rendered clock pinned appliedY=$appliedY requestedY=$requestedY " +
+                    "controllerY=$beforeController->$afterController " +
+                    "viewY=$beforeView->${live?.translationY} " +
+                    "y=${live?.y} top=${live?.top} view=${live?.javaClass?.name}"
+            )
         }
     }
 
