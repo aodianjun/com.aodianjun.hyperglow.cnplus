@@ -55,57 +55,68 @@ class CustomizationPreviewTest {
     }
 
     @Test
-    fun fontColorPresetWritesAndClearsFontSemanticKeys() {
-        val colored = applyFontColor(emptyMap(), "#FFD9A0")
-        assertEquals("#FFD9A0", colored["primaryText"])
-        assertEquals("#FFD9A0", colored["sungText"])
-        assertEquals("#FFD9A0", colored["unsungText"])
-        assertEquals("#FFD9A0", colored["glow"])
-        assertEquals("#FFD9A0", fontColorPresetName(colored))
+    fun paletteColorWritesAndClearsEverySemanticKey() {
+        // 每个语义色键都能独立写入任意 hex 颜色
+        var palette = emptyMap<String, String>()
+        for (key in PaletteColor.entries) {
+            palette = applyPaletteColor(palette, key, "#123456")
+        }
+        for (key in PaletteColor.entries) {
+            assertEquals("#123456", palette[key.token])
+            assertEquals("#123456", paletteValue(palette, key))
+        }
 
-        // 换色覆盖,非字体键(如 dimmed 预设残留)不受影响
-        val switched = applyFontColor(colored + ("metadataText" to "dimmed"), "#A9D9FF")
-        assertEquals("#A9D9FF", fontColorPresetName(switched))
-        assertEquals("dimmed", switched["metadataText"])
-
-        // default 清除字体键恢复白色,非字体键保留
-        val cleared = applyFontColor(switched, "default")
-        assertEquals("default", fontColorPresetName(cleared))
-        assertNull(cleared["primaryText"])
-        assertEquals("dimmed", cleared["metadataText"])
+        // default 只清除对应键并回落默认,其余键保留
+        palette = applyPaletteColor(palette, PaletteColor.METADATA_TEXT, PALETTE_DEFAULT)
+        assertNull(palette[PaletteColor.METADATA_TEXT.token])
+        assertEquals(PALETTE_DEFAULT, paletteValue(palette, PaletteColor.METADATA_TEXT))
+        assertEquals("#123456", palette[PaletteColor.NEXT_LINE_TEXT.token])
+        assertEquals("#123456", palette[PaletteColor.PRIMARY_TEXT.token])
     }
 
     @Test
-    fun metadataAndNextLineColorsWriteIndependentPaletteKeys() {
-        // 歌曲信息/下一行歌词颜色各写各的语义键,互不干扰也不影响字体颜色键
-        val base = applyFontColor(emptyMap(), "#FFD9A0")
-        val colored = applyNextLineColor(applyMetadataColor(base, "#A9D9FF"), "#B8F0C9")
+    fun paletteEffectiveArgbFallsBackScalesDimmedAndReadsHex() {
+        // 缺省回退到键默认色(歌曲信息默认为灰)
+        assertEquals(
+            PaletteColor.METADATA_TEXT.defaultArgb,
+            paletteEffectiveArgb(emptyMap(), PaletteColor.METADATA_TEXT)
+        )
+        // 任意 hex 原样生效
+        assertEquals(
+            0xFF123456.toInt(),
+            paletteEffectiveArgb(mapOf(PaletteColor.ACCENT.token to "#123456"), PaletteColor.ACCENT)
+        )
+        // dimmed 预设按 72% 亮度折算白色(255 * 0.72 ≈ 184 = 0xB8)
+        assertEquals(
+            0xFFB8B8B8.toInt(),
+            paletteEffectiveArgb(
+                mapOf(PaletteColor.PRIMARY_TEXT.token to PALETTE_DIMMED),
+                PaletteColor.PRIMARY_TEXT
+            )
+        )
+    }
 
-        assertEquals("#A9D9FF", metadataColorPresetName(colored))
-        assertEquals("#B8F0C9", nextLineColorPresetName(colored))
-        assertEquals("#FFD9A0", fontColorPresetName(colored))
-        assertEquals("#A9D9FF", colored["metadataText"])
-        assertEquals("#B8F0C9", colored["nextLineText"])
+    @Test
+    fun argbToColorTokenDropsAlphaChannel() {
+        assertEquals("#FFD9A0", argbToColorToken(0xFFFFD9A0.toInt()))
+        assertEquals("#000000", argbToColorToken(0xFF000000.toInt()))
+    }
 
-        // default 只清除对应键
-        val clearedMeta = applyMetadataColor(colored, "default")
-        assertEquals("default", metadataColorPresetName(clearedMeta))
-        assertEquals("#B8F0C9", clearedMeta["nextLineText"])
-        assertEquals("#FFD9A0", fontColorPresetName(clearedMeta))
-
-        // nextLineText 通过编译白名单(SceneCompiler/SystemUi 两侧 SEMANTIC_COLORS 已含该键)
+    @Test
+    fun everyPaletteKeySurvivesSceneCompilation() {
+        // 9 个语义色键全部通过编译白名单(SceneCompiler / SystemUi 两侧 SEMANTIC_COLORS)
+        val palette = PaletteColor.entries.associate { it.token to "#123456" }
         val compiled = SceneCompiler.compile(
             com.eza.hyperglow.customization.CustomizationDocument(
                 profiles = mapOf(
-                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
-                        palette = colored
-                    )
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(palette = palette)
                 )
             )
         )
         val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
-        assertEquals("#A9D9FF", aod.palette["metadataText"])
-        assertEquals("#B8F0C9", aod.palette["nextLineText"])
+        for (key in PaletteColor.entries) {
+            assertEquals("#123456", aod.palette[key.token])
+        }
     }
 
     @Test

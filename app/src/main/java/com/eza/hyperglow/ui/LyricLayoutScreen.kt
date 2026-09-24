@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -33,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
@@ -49,6 +55,7 @@ import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.ColorPicker
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -77,6 +84,7 @@ internal fun LyricLayoutScreen(
         )
     }
     var activeChoice by remember { mutableStateOf<AodChoice?>(null) }
+    var activeColorPicker by remember { mutableStateOf<PaletteColor?>(null) }
     var showResetDialog by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -125,7 +133,10 @@ internal fun LyricLayoutScreen(
         ).show()
     }
 
-    BackHandler(enabled = activeChoice == null && !showResetDialog, onBack = onBack)
+    BackHandler(
+        enabled = activeChoice == null && activeColorPicker == null && !showResetDialog,
+        onBack = onBack
+    )
 
     fun saveEditor(next: CustomizationEditorState): Boolean {
         if (!CustomizationRepository.saveDocument(context, next.document)) {
@@ -445,49 +456,7 @@ internal fun LyricLayoutScreen(
                             palettePresetName(selectedProfile.palette)
                         ) { value -> updateSelected { it.copy(palette = palettePreset(value)) } }
                     }
-                    AodChoiceRow(AodChoiceKind.FONT_COLOR, fontColorPresetName(selectedProfile.palette)) {
-                        openChoice(
-                            AodChoiceKind.FONT_COLOR,
-                            FONT_COLOR_CHOICES,
-                            fontColorPresetName(selectedProfile.palette)
-                        ) { value ->
-                            updateSelected { it.copy(palette = applyFontColor(it.palette, value)) }
-                        }
-                    }
-                    if (selectedProfile.metadataVisible) {
-                        AodChoiceRow(
-                            AodChoiceKind.SONG_INFO_COLOR,
-                            metadataColorPresetName(selectedProfile.palette)
-                        ) {
-                            openChoice(
-                                AodChoiceKind.SONG_INFO_COLOR,
-                                FONT_COLOR_CHOICES,
-                                metadataColorPresetName(selectedProfile.palette)
-                            ) { value ->
-                                updateSelected {
-                                    it.copy(palette = applyMetadataColor(it.palette, value))
-                                }
-                            }
-                        }
-                    }
-                    if (selectedProfile.showNextLine) {
-                        AodChoiceRow(
-                            AodChoiceKind.NEXT_LINE_COLOR,
-                            nextLineColorPresetName(selectedProfile.palette)
-                        ) {
-                            openChoice(
-                                AodChoiceKind.NEXT_LINE_COLOR,
-                                FONT_COLOR_CHOICES,
-                                nextLineColorPresetName(selectedProfile.palette)
-                            ) { value ->
-                                updateSelected {
-                                    it.copy(palette = applyNextLineColor(it.palette, value))
-                                }
-                            }
-                        }
-                    }
-                    AodChoiceRow(
-                        AodChoiceKind.TRANSITION_SPEED,
+                    AodChoiceRow(AodChoiceKind.TRANSITION_SPEED,
                         selectedProfile.transition.durationMs.toString()
                     ) {
                         openChoice(
@@ -499,6 +468,26 @@ internal fun LyricLayoutScreen(
                                 it.copy(transition = it.transition.copy(durationMs = value.toInt()))
                             }
                         }
+                    }
+                }
+            }
+            item { SmallTitle(text = stringResource(R.string.section_colors)) }
+            item {
+                SettingsCard {
+                    PaletteColor.entries.forEach { paletteKey ->
+                        val currentToken = paletteValue(selectedProfile.palette, paletteKey)
+                        ArrowPreference(
+                            title = stringResource(paletteKey.titleRes),
+                            summary = colorTokenLabel(context, currentToken),
+                            startAction = {
+                                ColorSwatch(
+                                    argb = paletteEffectiveArgb(selectedProfile.palette, paletteKey)
+                                )
+                            },
+                            onClick = {
+                                activeColorPicker = paletteKey
+                            }
+                        )
                     }
                 }
             }
@@ -602,6 +591,25 @@ internal fun LyricLayoutScreen(
                 }
             }
         }
+    }
+
+    activeColorPicker?.let { paletteKey ->
+        PaletteColorPickerDialog(
+            key = paletteKey,
+            currentArgb = paletteEffectiveArgb(selectedProfile.palette, paletteKey),
+            onPick = { argb ->
+                updateSelected {
+                    it.copy(palette = applyPaletteColor(it.palette, paletteKey, argbToColorToken(argb)))
+                }
+            },
+            onReset = {
+                updateSelected {
+                    it.copy(palette = applyPaletteColor(it.palette, paletteKey, PALETTE_DEFAULT))
+                }
+                activeColorPicker = null
+            },
+            onDismiss = { activeColorPicker = null }
+        )
     }
 
     if (showResetDialog) {
@@ -779,6 +787,63 @@ private fun AodChoiceRow(kind: AodChoiceKind, value: String, onClick: () -> Unit
     )
 }
 
+/** 圆角色块,展示某语义色键当前生效的颜色;放在颜色行的起始位置。 */
+@Composable
+private fun ColorSwatch(argb: Int) {
+    Box(
+        Modifier
+            .padding(end = 12.dp)
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(Color(argb))
+    )
+}
+
+/**
+ * 取色对话框:用 miuix ColorPicker 为单个语义色键挑选任意颜色。
+ * 选择即时写入(与其它滑杆设置一致),「恢复默认」清除该键回落默认色。
+ */
+@Composable
+private fun PaletteColorPickerDialog(
+    key: PaletteColor,
+    currentArgb: Int,
+    onPick: (Int) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    WindowDialog(
+        title = stringResource(R.string.dialog_pick_color),
+        summary = stringResource(key.titleRes),
+        show = true,
+        onDismissRequest = onDismiss
+    ) {
+        Column {
+            ColorPicker(
+                color = Color(currentArgb),
+                onColorChanged = { onPick(it.toArgb()) }
+            )
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                TextButton(
+                    text = stringResource(R.string.action_reset_color),
+                    modifier = Modifier.weight(1f),
+                    onClick = onReset
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_save),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = onDismiss
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun TextSizePreference(
     title: String,
@@ -879,17 +944,6 @@ private fun choiceDisplayLabel(
     AodChoiceKind.TEXT_BRIGHTNESS -> context.getString(
         if (value == "dimmed") R.string.option_dimmed else R.string.option_default
     )
-    AodChoiceKind.FONT_COLOR,
-    AodChoiceKind.SONG_INFO_COLOR,
-    AodChoiceKind.NEXT_LINE_COLOR -> context.getString(when (value) {
-        "#FFD9A0" -> R.string.option_color_warm_gold
-        "#A9D9FF" -> R.string.option_color_ice_blue
-        "#B8F0C9" -> R.string.option_color_mint_green
-        "#FFC9DE" -> R.string.option_color_sakura_pink
-        "#FFF3A8" -> R.string.option_color_butter_yellow
-        "#D9C9FF" -> R.string.option_color_lavender
-        else -> R.string.option_default
-    })
     AodChoiceKind.LINE_PROGRESS -> context.getString(when (value) {
         "None" -> R.string.option_none
         "Top to bottom" -> R.string.option_top_to_bottom
@@ -955,9 +1009,6 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     GLOW(R.string.choice_glow),
     LINE_PROGRESS(R.string.choice_line_progress_effect),
     TEXT_BRIGHTNESS(R.string.choice_text_brightness),
-    FONT_COLOR(R.string.choice_font_color),
-    SONG_INFO_COLOR(R.string.choice_song_info_color),
-    NEXT_LINE_COLOR(R.string.choice_next_line_color),
     TRANSITION_SPEED(R.string.choice_scene_transition_speed),
     CARD_COLOR(R.string.choice_card_color)
 }
