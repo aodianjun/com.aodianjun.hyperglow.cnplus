@@ -26,9 +26,16 @@ object ElrcParser {
     private val TIME_REGEX = Regex("""^\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3})?)]""")
     private val WORD_REGEX = Regex("""<(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3})?)>""")
 
+    // 零宽不可见字符(U+200B 零宽空格/U+2060 词连接符/U+FEFF BOM):部分歌词源会混入,
+    // 会污染逐字高亮的词界与文本比对,行/词文本统一剥离(与 Bridge LyricTextSanitizer 同集合)。
+    private val IGNORABLE_CHARS_REGEX = Regex("[\u200B\u2060\uFEFF]")
+
     /**
      * Parses `lrc` (elrc or plain lrc) into sorted [TimedLine]s. Lines without a leading
      * timestamp are ignored. `defaultLineDurationMs` fills the last line's end.
+     *
+     * 词级时间轴经 [shouldDowngradeWordTiming] 判定可疑时整行降级为行级(words 清空),
+     * 脏逐字数据以错误的词界高亮不如安静回退行级。
      */
     fun parse(lrc: String, defaultLineDurationMs: Long = 4_000L): List<TimedLine> {
         val raws = lrc.split("\n").flatMap(::parseRawLine)
@@ -36,8 +43,12 @@ object ElrcParser {
         val sorted = raws.sortedBy { it.startMs }
         return sorted.mapIndexed { i, raw ->
             val endMs = sorted.getOrNull(i + 1)?.startMs ?: (raw.startMs + defaultLineDurationMs)
-            val words = raw.words?.map { word ->
-                if (word.endMs > word.startMs) word else word.copy(endMs = endMs)
+            val words = when {
+                raw.words == null -> null
+                shouldDowngradeWordTiming(raw.words.map { it.startMs }) -> emptyList()
+                else -> raw.words.map { word ->
+                    if (word.endMs > word.startMs) word else word.copy(endMs = endMs)
+                }
             }
             TimedLine(raw.startMs, endMs, raw.text, words)
         }
@@ -59,15 +70,16 @@ object ElrcParser {
     }
 
     private fun parseWords(text: String): Pair<String, List<LyricWord>> {
-        val markers = WORD_REGEX.findAll(text).toList()
-        if (markers.isEmpty()) return Pair(text.trim(), emptyList())
+        val sanitized = IGNORABLE_CHARS_REGEX.replace(text, "")
+        val markers = WORD_REGEX.findAll(sanitized).toList()
+        if (markers.isEmpty()) return Pair(sanitized.trim(), emptyList())
         val clean = StringBuilder()
         val words = mutableListOf<LyricWord>()
         for (i in markers.indices) {
             val m = markers[i]
             val wordStart = m.range.last + 1
-            val wordEnd = if (i + 1 < markers.size) markers[i + 1].range.first else text.length
-            val wordText = text.substring(wordStart, wordEnd)
+            val wordEnd = if (i + 1 < markers.size) markers[i + 1].range.first else sanitized.length
+            val wordText = sanitized.substring(wordStart, wordEnd)
             clean.append(wordText)
             val wend = if (i + 1 < markers.size) toMs(markers[i + 1].groupValues) else toMs(m.groupValues)
             words.add(LyricWord(wordText.trim(), "", toMs(m.groupValues), wend, false))
@@ -82,6 +94,32 @@ object ElrcParser {
         val frac = if (fracStr.isEmpty()) 0L else fracStr.padEnd(3, '0').substring(0, 3).toLong()
         return min * 60_000L + sec * 1_000L + frac
     }
+
+    /**
+     * 词级时间轴可疑降级判定(纯函数;启发与 ColorOS Live Lyrics Bridge 的
+     * LyricTimingRepair 对齐,issue #68):
+     * - 词起点非严格递增(乱序或同刻)→ 词时间轴整体不可信;
+     * - 存在 ≥[SUSPICIOUS_WORD_GAP_MS] 的行内间隙,且(词数 ≤4 或 最大间隙 ≥ 跨度 2/3)
+     *   → 伪逐字形态(整句一个词标 + 稀疏点缀),真实的两段式长句间隙占比不会这么高。
+     * 返回 true 时调用方应放弃词级、按行级渲染。
+     */
+    internal fun shouldDowngradeWordTiming(wordStartsMs: List<Long>): Boolean {
+        if (wordStartsMs.size < 2) return false
+        var maxGap = 0L
+        var strictlyIncreasing = true
+        for (i in 1 until wordStartsMs.size) {
+            val prev = wordStartsMs[i - 1]
+            val cur = wordStartsMs[i]
+            if (cur <= prev) strictlyIncreasing = false else maxGap = maxOf(maxGap, cur - prev)
+        }
+        if (!strictlyIncreasing) return true
+        val span = wordStartsMs.last() - wordStartsMs.first()
+        if (span <= 0L) return false
+        return maxGap >= SUSPICIOUS_WORD_GAP_MS &&
+            (wordStartsMs.size <= 4 || maxGap * 3 >= span * 2)
+    }
+
+    private const val SUSPICIOUS_WORD_GAP_MS = 8_000L
 
     /**
      * Selects the active [TimedLine] for [positionMs] (the last line whose start is <= position,

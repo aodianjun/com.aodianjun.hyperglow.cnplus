@@ -278,4 +278,20 @@ class DiagnosticCaptureCollectorTest {
         assertFalse(timeout.diagnosticLoggingEnabled)
         assertTrue(timeout.deletePendingDraft)
     }
+
+    @Test
+    fun redactsPrivateDataAndStoragePaths() {
+        // Bridge SensitiveFieldRedactor 同集合:私有目录与外部存储绝对路径不进报告,
+        // 避免暴露用户目录结构与媒体文件名(路径本体已含 uid/包名,整体脱敏)。
+        val line = sanitizeDiagnosticLines(
+            "scan /data/user/0/com.spotify.music/shared_prefs/x.xml " +
+                "and /sdcard/Music/song.mp3 plus /storage/emulated/0/Android/media/a.flac"
+        )
+        assertTrue(line.contains("/data/user/<redacted>"))
+        assertTrue(line.contains("/sdcard/<redacted>"))
+        assertTrue(line.contains("/storage/emulated/0/<redacted>"))
+        assertFalse(line.contains("com.spotify.music"))
+        assertFalse(line.contains("song.mp3"))
+        assertFalse(line.contains("a.flac"))
+    }
 }

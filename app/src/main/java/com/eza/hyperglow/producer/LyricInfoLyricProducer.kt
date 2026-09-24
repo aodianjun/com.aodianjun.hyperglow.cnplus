@@ -21,6 +21,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlin.math.abs
 
 /**
  * [LyricProducer] that reads lyrics injected by the LyricInfo Xposed module.
@@ -38,8 +39,9 @@ import kotlinx.serialization.json.JsonPrimitive
  *    back to any active media session so that playback metadata (title/artist/position) is still
  *    available when the lyric injection module is absent or when another producer (Lyricon) dies.
  * 3. Parses the payload lanes via [ElrcParser] and selects the active line by position:
- *    word-timed `rawLyric` wins over line `lyric`; translation resolves translationLyric →
- *    translation → transLyric; `roma` feeds the romanized lane.
+ *    word-timed `rawLyric` wins over line `lyric`; translation resolves the lyricInfo alias
+ *    family (translationLyric → translation → transLyric → Bridge 的 5 个扩展别名);
+ *    translation/roma attach by nearest startMs within 120ms ([matchSupplementalLine]).
  * 4. Polls [MediaController.playbackState] for position and extrapolates while playing.
  *
  * Requires the user to grant notification access (ACTION_NOTIFICATION_LISTENER_SETTINGS).
@@ -308,12 +310,12 @@ class LyricInfoLyricProducer(
         // 让投影显示 🎶 占位。activeLineAt 返回「最后一条 start <= pos」的行，不检查 end，
         // 这里显式兜住结尾，避免最后一句在尾奏期间长期滞留。
         val active = activeLinePastEndOrNull(timedLines, currentPositionMs)
-        val translationText = active?.let { a ->
-            translationLines.firstOrNull { it.startMs == a.startMs }?.text.orEmpty()
-        }.orEmpty()
-        val romanizedText = active?.let { a ->
-            romaLines.firstOrNull { it.startMs == a.startMs }?.text.orEmpty()
-        }.orEmpty()
+        val translationText = active
+            ?.let { matchSupplementalLine(it, timedLines, translationLines)?.text }
+            .orEmpty()
+        val romanizedText = active
+            ?.let { matchSupplementalLine(it, timedLines, romaLines)?.text }
+            .orEmpty()
         val words = active?.words?.takeIf { it.isNotEmpty() }
         val lyricKind = when {
             active == null -> LyricKind.NONE
@@ -487,6 +489,11 @@ internal data class LyricInfoPayload(
     val transLyric: String? = null,
     val rawLyric: String? = null,
     val translationLyric: String? = null,
+    val translatedLyric: String? = null,
+    val translateLyric: String? = null,
+    val lyricTranslation: String? = null,
+    val translationLrc: String? = null,
+    val transLrc: String? = null,
     val roma: String? = null
 )
 
@@ -514,6 +521,11 @@ internal fun parseLyricInfoPayload(raw: String): LyricInfoPayload? = runCatching
         transLyric = text("transLyric"),
         rawLyric = text("rawLyric"),
         translationLyric = text("translationLyric"),
+        translatedLyric = text("translatedLyric"),
+        translateLyric = text("translateLyric"),
+        lyricTranslation = text("lyricTranslation"),
+        translationLrc = text("translationLrc"),
+        transLrc = text("transLrc"),
         roma = text("roma")
     )
 }.onFailure {
@@ -559,12 +571,62 @@ internal fun resolveLyricInfoTimedLines(payload: LyricInfoPayload?): List<ElrcPa
 
 /**
  * 翻译 lane 优先级:Bridge 规范 translationLyric → limczhh 完整版 translation →
- * QQ 精简版 transLyric。三条 lane 格式同为逐行 LRC,ElrcParser 统一解析。
+ * QQ 精简版 transLyric → Bridge LyricInfoContract 的其余 5 个别名键
+ * (translatedLyric/translateLyric/lyricTranslation/translationLrc/transLrc,issue #68)。
+ * 八条 lane 格式同为逐行 LRC,ElrcParser 统一解析;别名命中时 require 可解析出时间行
+ * (不可解析自然产出空列表,与旧行为一致)。
  */
 internal fun resolveLyricInfoTranslationLines(
     payload: LyricInfoPayload?
 ): List<ElrcParser.TimedLine> = ElrcParser.parse(
     payload?.translationLyric?.takeIf { it.isNotBlank() }
         ?: payload?.translation?.takeIf { it.isNotBlank() }
-        ?: payload?.transLyric.orEmpty()
+        ?: payload?.transLyric?.takeIf { it.isNotBlank() }
+        ?: payload?.translatedLyric?.takeIf { it.isNotBlank() }
+        ?: payload?.translateLyric?.takeIf { it.isNotBlank() }
+        ?: payload?.lyricTranslation?.takeIf { it.isNotBlank() }
+        ?: payload?.translationLrc?.takeIf { it.isNotBlank() }
+        ?: payload?.transLrc.orEmpty()
 )
+
+/**
+ * 翻译/罗马音 lane 与主行的对齐窗口(与 Bridge SupplementalTranslationPolicy 的
+ * SUPPLEMENTAL_MATCH_WINDOW_MS 一致):源与翻译行的发布误差常有几十毫秒,
+ * 旧实现的 startMs 精确相等会把这些行静默丢掉。
+ */
+internal const val SUPPLEMENTAL_MATCH_WINDOW_MS = 120L
+
+/**
+ * 在 [candidates] 中为 [primary] 选出应挂载的翻译/罗马音行(纯函数,可单测)。
+ *
+ * 匹配:窗口 ±[SUPPLEMENTAL_MATCH_WINDOW_MS] 内取 startMs 最近的候选。
+ * 两道护栏防误挂(语义与 Bridge SupplementalTranslationPolicy 对齐):
+ * 1. 最近主行:窗口内存在比 [primary] 严格更接近候选的其它主行 → 候选属于邻居,不挂;
+ * 2. 重复文本:窗口内另一主行已渲染与候选相同的文本 → 候选是重复歌词而非翻译,不挂。
+ */
+internal fun matchSupplementalLine(
+    primary: ElrcParser.TimedLine,
+    primaryLines: List<ElrcParser.TimedLine>,
+    candidates: List<ElrcParser.TimedLine>
+): ElrcParser.TimedLine? {
+    var best: ElrcParser.TimedLine? = null
+    var bestDistance = Long.MAX_VALUE
+    for (candidate in candidates) {
+        val distance = abs(candidate.startMs - primary.startMs)
+        if (distance <= SUPPLEMENTAL_MATCH_WINDOW_MS && distance < bestDistance) {
+            best = candidate
+            bestDistance = distance
+        }
+    }
+    val matched = best ?: return null
+    for (other in primaryLines) {
+        if (other === primary) continue
+        if (abs(other.startMs - matched.startMs) < bestDistance) return null
+    }
+    for (other in primaryLines) {
+        if (other === primary) continue
+        if (abs(other.startMs - primary.startMs) > SUPPLEMENTAL_MATCH_WINDOW_MS) continue
+        if (other.text.trim() == matched.text.trim()) return null
+    }
+    return matched
+}

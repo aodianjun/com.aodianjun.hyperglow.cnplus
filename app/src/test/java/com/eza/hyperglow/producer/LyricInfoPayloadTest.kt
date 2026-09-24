@@ -239,4 +239,73 @@ class LyricInfoPayloadTest {
         assertTrue(resolveLyricInfoTimedLines(null).isEmpty())
         assertTrue(resolveLyricInfoTranslationLines(null).isEmpty())
     }
+
+    // --- Bridge LyricInfoContract 翻译别名族(issue #68) ---
+
+    @Test
+    fun resolveTranslationLines_acceptsBridgeAliasFamily() {
+        // Bridge LyricInfoContract 共 8 个翻译键;新增 5 个别名逐一兜底解析。
+        listOf(
+            "translatedLyric",
+            "translateLyric",
+            "lyricTranslation",
+            "translationLrc",
+            "transLrc"
+        ).forEach { key ->
+            val payload = parseLyricInfoPayload("""{"$key":"[00:10.000]First line"}""")
+            val lines = resolveLyricInfoTranslationLines(payload)
+            assertEquals("key=$key", 1, lines.size)
+            assertEquals("First line", lines[0].text)
+        }
+    }
+
+    @Test
+    fun resolveTranslationLines_canonicalStillWinsOverNewAliases() {
+        val payload = parseLyricInfoPayload(
+            """{"translationLyric":"[00:10.000]canonical","translatedLyric":"[00:10.000]alias"}"""
+        )
+        assertEquals("canonical", resolveLyricInfoTranslationLines(payload)[0].text)
+    }
+
+    // --- matchSupplementalLine:翻译/roma ±120ms 最近行对齐(带双护栏) ---
+
+    private fun lineAt(startMs: Long, text: String): ElrcParser.TimedLine =
+        ElrcParser.parse(
+            "[00:${startMs / 1000}.${(startMs % 1000).toString().padStart(3, '0')}]" + text
+        )[0]
+
+    @Test
+    fun matchSupplemental_exactStart_stillMatches() {
+        val primary = lineAt(10_000L, "主行")
+        assertEquals("翻译", matchSupplementalLine(primary, listOf(primary), listOf(lineAt(10_000L, "翻译")))?.text)
+    }
+
+    @Test
+    fun matchSupplemental_offBy80ms_attachesNearest() {
+        // 发布误差 80ms:旧实现精确相等会丢,窗口内最近行挂上。
+        val primary = lineAt(10_000L, "主行")
+        assertEquals("翻译", matchSupplementalLine(primary, listOf(primary), listOf(lineAt(10_080L, "翻译")))?.text)
+    }
+
+    @Test
+    fun matchSupplemental_beyondWindow_returnsNull() {
+        val primary = lineAt(10_000L, "主行")
+        assertNull(matchSupplementalLine(primary, listOf(primary), listOf(lineAt(10_150L, "翻译"))))
+    }
+
+    @Test
+    fun matchSupplemental_skipsWhenCloserPrimaryExists() {
+        // 最近主行护栏:候选与乙(10.100)完全重合,不得挂到甲(差 100ms)。
+        val a = lineAt(10_000L, "甲")
+        val b = lineAt(10_100L, "乙")
+        assertNull(matchSupplementalLine(a, listOf(a, b), listOf(lineAt(10_100L, "翻译乙"))))
+    }
+
+    @Test
+    fun matchSupplemental_skipsWhenNeighborAlreadyRendersSameText() {
+        // 重复文本护栏:窗口内邻行已渲染与候选相同的文本 → 候选是重复歌词而非翻译。
+        val a = lineAt(10_000L, "主行")
+        val b = lineAt(10_050L, "重复的翻译文本")
+        assertNull(matchSupplementalLine(a, listOf(a, b), listOf(lineAt(10_000L, "重复的翻译文本"))))
+    }
 }

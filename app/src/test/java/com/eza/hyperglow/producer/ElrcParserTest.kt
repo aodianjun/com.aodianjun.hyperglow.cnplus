@@ -1,6 +1,7 @@
 package com.eza.hyperglow.producer
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -144,5 +145,57 @@ class ElrcParserTest {
         // 与 activeLineAt 的「最后一条 start <= pos」语义一致，仅兜住真正的结尾。
         val lines = ElrcParser.parse("[00:01.000]One\n[00:05.000]Two\n[00:10.000]Three")
         assertEquals("One", activeLinePastEndOrNull(lines, 4_999L)?.text)
+    }
+
+    // --- 零宽字符剥离(Bridge LyricTextSanitizer 同集合,issue #68) ---
+
+    @Test
+    fun stripsZeroWidthCharacters_fromLineAndWordText() {
+        val lrc = "[00:01.000]Hel\u200Blo\uFEFF\n[00:05.000]<00:05.000>W\u206Bo"
+        val lines = ElrcParser.parse(lrc)
+
+        assertEquals("Hello", lines[0].text)
+        assertTrue(lines[0].words!!.isEmpty())
+        assertEquals("Wo", lines[1].text)
+        assertEquals("Wo", lines[1].words!![0].text)
+    }
+
+    // --- 词级时间轴可疑降级(Bridge LyricTimingRepair 同启发) ---
+
+    @Test
+    fun downgradesNonIncreasingWordTiming_toLineLevel() {
+        // 词起点乱序(09.000 < 10.000):词时间轴整体不可信 → 降级为行级。
+        val lines = ElrcParser.parse("[00:10.000]<00:10.000>A<00:09.000>B")
+
+        assertEquals(1, lines.size)
+        assertEquals("AB", lines[0].text)
+        assertTrue(lines[0].words!!.isEmpty())
+    }
+
+    @Test
+    fun downgradesSuspiciousInlineWordGap_toLineLevel() {
+        // 4 词、单个 9s 行内间隙且占比 9*3 >= 11*2:伪逐字形态 → 降级。
+        val lines = ElrcParser.parse(
+            "[00:10.000]<00:10.000>前<00:11.000>奏<00:20.000>间<00:21.000>奏"
+        )
+
+        assertTrue(lines[0].words!!.isEmpty())
+    }
+
+    @Test
+    fun keepsDenseWordTiming_withLongTailNote() {
+        // 7 词、9s 尾间隙但占比 9*3=27 < 15*2=30:真实的两段式长句,保留逐字。
+        val starts = listOf(0L, 1_000L, 2_000L, 3_000L, 4_000L, 5_000L, 6_000L, 15_000L)
+        assertFalse(ElrcParser.shouldDowngradeWordTiming(starts))
+    }
+
+    @Test
+    fun shouldDowngradeWordTiming_predicateContract() {
+        // 单词不判;乱序/同刻判;8s+ 间隙且词数 <=4 判;短间隙不判。
+        assertFalse(ElrcParser.shouldDowngradeWordTiming(listOf(0L)))
+        assertTrue(ElrcParser.shouldDowngradeWordTiming(listOf(3_000L, 1_000L)))
+        assertTrue(ElrcParser.shouldDowngradeWordTiming(listOf(1_000L, 1_000L)))
+        assertTrue(ElrcParser.shouldDowngradeWordTiming(listOf(0L, 9_000L)))
+        assertFalse(ElrcParser.shouldDowngradeWordTiming(listOf(0L, 1_000L)))
     }
 }
