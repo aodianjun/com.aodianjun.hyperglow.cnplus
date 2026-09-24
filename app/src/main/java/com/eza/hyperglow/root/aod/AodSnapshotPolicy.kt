@@ -114,3 +114,13 @@ internal fun smoothAodRevealProgress(progress: Float): Float {
 
 internal fun shouldRetryManagedAodPosition(attempts: Int, maximumAttempts: Int): Boolean =
     attempts < maximumAttempts
+
+/**
+ * Managed clock control stays off once the ROM geometry proved unreadable, so the
+ * scene actually uses the stock geometry the exhaustion log claims. A changed
+ * pattern/interval re-arms one fresh attempt; anything else keeps following Xiaomi.
+ */
+internal fun shouldAttemptManagedPosition(
+    latchedUnavailable: Boolean,
+    scheduleChanged: Boolean
+): Boolean = !latchedUnavailable || scheduleChanged

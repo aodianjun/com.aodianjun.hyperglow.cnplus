@@ -884,4 +884,22 @@ class AodPositionUpdateTest {
         val nanBase = zeroStep.copy(baseTranslationY = Float.NaN, translationYStep = 52.5f)
         assertNull(resolveStockAnchorSeed(null, nanBase).anchorY)
     }
+
+    // ---- managed 位置重试耗尽后的回落（上游 1537c58 / v0.3.178 移植）----
+
+    @Test
+    fun exhaustedManagedRetriesFallBackToStockGeometry() {
+        assertTrue(shouldRetryManagedAodPosition(0, 5))
+        assertTrue(shouldRetryManagedAodPosition(4, 5))
+        assertFalse(shouldRetryManagedAodPosition(5, 5))
+        assertFalse(shouldRetryManagedAodPosition(6, 5))
+    }
+
+    @Test
+    fun latchedManagedFailureStaysOnStockUntilScheduleChanges() {
+        assertTrue(shouldAttemptManagedPosition(false, false))
+        assertTrue(shouldAttemptManagedPosition(false, true))
+        assertFalse(shouldAttemptManagedPosition(true, false))
+        assertTrue(shouldAttemptManagedPosition(true, true))
+    }
 }
