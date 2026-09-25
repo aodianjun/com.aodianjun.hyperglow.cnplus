@@ -16,8 +16,8 @@ internal const val LOCKSCREEN_CARD_WIDTH_FRACTION = 0.92f
 
 private val CARD_BACKGROUND_COLOR = 0xD91A1A1Au.toInt()
 
-/** 卡片背景色 token → RGB(忽略 alpha,alpha 由 cardAlpha 单独控制)。 */
-private fun cardColorRgb(token: String): Int = when (token) {
+/** 卡片背景色 token → RGB(忽略 alpha,alpha 由 cardAlpha 单独控制)。预览(PreviewComponents)同源引用。 */
+internal fun cardColorRgb(token: String): Int = when (token) {
     "white" -> 0xFFFFFF
     "dark_gray" -> 0x333333
     "accent" -> 0x1ED760.toInt() // Spotify-ish green;动态取色上线前作为占位强调色
