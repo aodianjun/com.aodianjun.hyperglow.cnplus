@@ -107,6 +107,11 @@ before opening a pull request:
   repackaged CN+ fork is based on.
 - [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) — the referenced project HyperGlow
   adapts code from, which this fork inherits.
+- [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —
+  several hardening pieces in the lyric ingestion path (translation lane alignment, word-timing
+  repair, text sanitization, opening-metadata cleanup) are adapted from its implementation.
+- [LuckyPray/DexKit](https://github.com/LuckyPray/DexKit) — runtime Dex symbol resolution behind
+  the capability probes.
 - The lyrics sources that make this possible:
   [Spicy EX](https://github.com/amarinne/spicy-ex), [Lyricon](https://github.com/tomakino/lyricon),
   [SuperLyric](https://github.com/HChenX/SuperLyric), and
@@ -195,6 +200,8 @@ JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 
 - [amarinne/hyperglow](https://github.com/amarinne/hyperglow) —— 本 CN+ 重打包版所基于的上游项目。
 - [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) —— HyperGlow 改编借鉴其代码的参考项目，本 fork 沿用了该代码。
+- [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —— 歌词摄取路径的多项加固（翻译 lane 对齐、词级时间轴修复、文本清洗、开头元数据清理）改编自其实现。
+- [LuckyPray/DexKit](https://github.com/LuckyPray/DexKit) —— 能力探测背后的运行期 Dex 符号解析。
 - 让这一切成为可能的歌词源：[Spicy EX](https://github.com/amarinne/spicy-ex)、
   [Lyricon](https://github.com/tomakino/lyricon)、[SuperLyric](https://github.com/HChenX/SuperLyric)
   与 [LyricInfo](https://github.com/limczhh/LyricInfo)。
