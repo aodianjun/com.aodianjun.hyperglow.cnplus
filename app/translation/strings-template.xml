@@ -168,6 +168,11 @@
     <string name="section_playback_behavior">Playback behavior</string>
     <string name="setting_after_spotify_pauses">After music pauses</string>
     <string name="section_aod_behavior">AOD behavior</string>
+    <string name="summary_aod_behavior_entry">Keep-awake, clock placement, brightness, rotation</string>
+    <string name="section_aod_keep_awake">Keep-awake</string>
+    <string name="section_aod_clock_placement">Clock placement &amp; burn-in</string>
+    <string name="section_aod_brightness_display">Brightness &amp; content</string>
+    <string name="section_aod_rotation">Rotation</string>
     <string name="setting_keep_aod_active">Keep AOD active</string>
     <string name="summary_keep_aod_active">Uses more battery.</string>
     <string name="summary_unavailable_systemui_profile">Unavailable on this System UI profile.</string>

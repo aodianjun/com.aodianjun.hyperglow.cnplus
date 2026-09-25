@@ -140,6 +140,11 @@
     <string name="setting_after_spotify_pauses">音樂暫停後</string>
 
     <string name="section_aod_behavior">息屏行為</string>
+    <string name="summary_aod_behavior_entry">保持亮屏、時鐘位置、亮度與橫屏旋轉</string>
+    <string name="section_aod_keep_awake">保持亮屏</string>
+    <string name="section_aod_clock_placement">時鐘位置與防燒屏</string>
+    <string name="section_aod_brightness_display">亮度與內容</string>
+    <string name="section_aod_rotation">橫屏旋轉</string>
     <string name="setting_keep_aod_active">保持息屏活動</string>
     <string name="summary_keep_aod_active">會增加耗電。</string>
     <string name="summary_unavailable_systemui_profile">此係統界面配置不可用。</string>
