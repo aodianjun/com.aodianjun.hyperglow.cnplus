@@ -2,9 +2,12 @@
 
 # English / 英文
 
-HyperGlow sends a diagnostic report only after you open **Report a problem**, review the included
-data, accept this policy, and tap **Upload once**. There are no background uploads, analytics,
-remote configuration, automatic GitHub issues, cookies, or embedded API credentials.
+HyperGlow does not send diagnostic data anywhere on its own. When you open **Report a problem**, the
+app collects the data described below into a local draft, shows you the exact payload for review,
+and — after you accept this policy — finalizes it locally into a receipt plus a ready-to-open
+GitHub issue draft. Nothing leaves the device unless you personally attach or paste it somewhere.
+There are no background uploads, analytics, remote configuration, automatic GitHub issues, cookies,
+or embedded API credentials.
 
 ## Included data
 
@@ -34,35 +37,32 @@ remote configuration, automatic GitHub issues, cookies, or embedded API credenti
 
 ## Storage and retention
 
-Reports are private. Accepted report data is retained indefinitely until a maintainer manually
-deletes or redacts it. There is no automatic expiry. Temporary report data on the phone expires after
-30 minutes and is deleted after cancellation or successful upload.
+The report exists only on your device. HyperGlow operates no intake endpoint and stores nothing
+server-side. The temporary draft expires after 30 minutes and is deleted after cancellation or
+finalization; the finalized receipt and issue draft are kept only while the screen is open.
 
-If the intake cannot map a report onto its known fields, it stores the report exactly as your phone
-sent it instead of discarding it, so a newer app version is never silently dropped. That stored copy
-holds only what this policy already describes, is private in the same way as every other report, and
-a maintainer can delete or redact it on request.
-
-The report ID is a private-storage reference, not a public download key. It cannot retrieve report
-contents from the intake endpoint.
+If you choose to open a GitHub issue, you share exactly what the draft shows — voluntarily. The
+report ID is a local reference for correlating issues; it cannot retrieve report contents from
+anywhere.
 
 ## GitHub issues
 
-Opening GitHub creates a separate public draft containing your description, report ID, HyperGlow
-version, device model, compatibility summary, song identity, provider, language, and timing type.
-Lyric text, private diagnostic logs, and settings are not added to the GitHub issue. Screenshots can
-be attached manually in GitHub when useful.
+The generated GitHub issue draft contains only your description, report ID, HyperGlow version,
+device model, compatibility summary, song identity, provider, language, and timing type. Lyric
+text, private diagnostic logs, and settings are not added to the GitHub issue. Screenshots can be
+attached manually in GitHub when useful.
 
-To request deletion or redaction, open a HyperGlow issue with the report ID and the requested action.
-Do not post additional private diagnostic data in GitHub.
+To delete or redact something you already posted, edit or delete the issue yourself, or ask the
+maintainer through the issue. Do not post additional private diagnostic data in GitHub.
 
 ---
 
 # 中文 / Chinese
 
-只有在您打开**报告问题（Report a problem）**、查看所包含的数据、接受本政策并点按**单次上传（Upload once）**后，
-HyperGlow 才会发送诊断报告。不存在后台上传、分析统计、远程配置、自动创建 GitHub issue、Cookie
-或内嵌的 API 凭据。
+HyperGlow 自身不会向任何地方发送诊断数据。当您打开**报告问题（Report a problem）**时，应用会把
+下述数据收集为一个本地草稿，向您展示确切的载荷内容，并在您接受本政策后于本地定稿为回执与一份
+可直接开启的 GitHub issue 草稿。除非您亲自把内容附加或粘贴到某处，否则任何数据都不会离开设备。
+不存在后台上传、分析统计、远程配置、自动创建 GitHub issue、Cookie 或内嵌的 API 凭据。
 
 ## 包含的数据
 
@@ -89,20 +89,17 @@ HyperGlow 才会发送诊断报告。不存在后台上传、分析统计、远�
 
 ## 存储与保留
 
-报告均为私密数据。已接受的报告数据将无限期保留，直到维护者手动删除或对其脱敏处理。
-不存在自动过期机制。手机上的临时报告数据在 30 分钟后过期，并在取消或成功上传后删除。
+报告仅存在于您的设备上。HyperGlow 不运营任何接收端点，也不在服务端存储任何内容。临时草稿在
+30 分钟后过期，并在取消或定稿后删除；定稿的回执与 issue 草稿仅在页面打开期间保留。
 
-如果接收端无法将报告映射到其已知字段，会按手机发送时的原样存储该报告而非将其丢弃，因此较新的
-应用版本绝不会被静默丢弃。该存储副本仅包含本政策已描述的内容，与其他所有报告同样私密，维护者
-可根据请求删除或对其脱敏处理。
-
-报告 ID 是私密存储的引用，并非公开的下载密钥，无法用于从接收端点获取报告内容。
+如果您选择开启 GitHub issue，您分享的就是草稿所展示的内容——完全自愿。报告 ID 只是用于关联
+issue 的本地引用，无法从任何地方取回报告内容。
 
 ## GitHub issue
 
-打开 GitHub 时会创建一个单独的公开草稿，其中包含您的描述、报告 ID、HyperGlow 版本、设备型号、
-兼容性摘要、歌曲标识、提供方、语言及时间轴类型。歌词文本、私密诊断日志和设置不会被添加到
-GitHub issue 中。如有需要，可以在 GitHub 中手动附加屏幕截图。
+生成的 GitHub issue 草稿仅包含您的描述、报告 ID、HyperGlow 版本、设备型号、兼容性摘要、
+歌曲标识、提供方、语言及时间轴类型。歌词文本、私密诊断日志和设置不会被添加到 GitHub issue 中。
+如有需要，可以在 GitHub 中手动附加屏幕截图。
 
-如需请求删除或脱敏处理，请提交一个 HyperGlow issue，并附上报告 ID 和所请求的操作。
+如需删除或脱敏您已发布的内容，请自行编辑或删除该 issue，或通过 issue 联系维护者。
 请勿在 GitHub 中发布额外的私密诊断数据。
