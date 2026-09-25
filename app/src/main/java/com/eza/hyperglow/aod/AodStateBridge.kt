@@ -179,8 +179,10 @@ object AodStateBridge {
                     lastFullPublishAtElapsedMs = publication.message.updatedAtElapsedMs
                     latest
                 }
-            } ?: return
-            broadcast(payload)
+            }
+            if (payload != null) {
+                broadcast(payload)
+            }
         }
     }
 
@@ -203,8 +205,10 @@ object AodStateBridge {
                     latestConfiguration = encoded
                     encoded
                 }
-            } ?: return
-            broadcastConfiguration(bundle)
+            }
+            if (bundle != null) {
+                broadcastConfiguration(bundle)
+            }
         }
     }
 
@@ -236,8 +240,10 @@ object AodStateBridge {
                         AodStateWireBundleCodec.toBundle(envelope)
                     }
                 }
-            } ?: return
-            broadcast(payload)
+            }
+            if (payload != null) {
+                broadcast(payload)
+            }
         }
     }
 
