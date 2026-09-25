@@ -204,7 +204,9 @@ class LyricInfoLyricProducer(
             else payload?.artist?.takeIf { it.isNotBlank() } ?: metaArtist
         val newAlbum = payload?.album?.takeIf { it.isNotBlank() }
             ?: meta.getString(android.media.MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
-        if (newTitle != title || newArtist != artist) {
+        // 换歌判定走曲目身份模糊匹配(issue #68 #15):标题尾缀/译名/feat 写法变化
+        // 不再误判切歌;一侧标题为空白时回退为"变化"。见 TrackIdentity.isSameTrackIdentity。
+        if (!isSameTrackIdentity(title, artist, newTitle, newArtist)) {
             generation++
             // 旧歌的外推/容差状态不得带进新歌:换歌后第一条真实位置无条件接受。
             extrapolating = false
@@ -217,7 +219,17 @@ class LyricInfoLyricProducer(
         artist = newArtist
         album = newAlbum
         durationMs = meta.getLong(MEDIA_METADATA_KEY_DURATION).coerceAtLeast(0L)
-        timedLines = resolveLyricInfoTimedLines(payload)
+        timedLines = resolveLyricInfoTimedLines(payload).let { parsed ->
+            // 开头元数据清理(issue #68 #4):版权/制作明细/标题歌手头,仅前 32 行且 ≤30s。
+            val filtered = LyricOpeningFilter.filterOpeningMetadata(parsed)
+            if (filtered.size != parsed.size) {
+                AppLog.i(
+                    "LyricInfoLyricProducer",
+                    "opening metadata filtered: ${parsed.size - filtered.size} line(s) for '$title'"
+                )
+            }
+            filtered
+        }
         // 翻译 lane 优先级:Bridge 规范 translationLyric → 完整版 translation → 精简版 transLyric。
         translationLines = resolveLyricInfoTranslationLines(payload)
         romaLines = ElrcParser.parse(payload?.roma.orEmpty())
