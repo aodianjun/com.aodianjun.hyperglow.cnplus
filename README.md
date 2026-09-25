@@ -22,12 +22,19 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
   - **SuperLyric** (active-line push via Binder, works with many music apps).
   - **LyricInfo** (injects elrc/lrc lyrics into the media session metadata of supported apps).
 - Line-, word- and syllable-synchronized karaoke.
-- Transliteration and translation with Spicy EX Full.
+- Transliteration, translation and romaji where the source provides them (Spicy EX Full,
+  Lyricon, LyricInfo translation/romaji lanes).
+- HyperLyric-compatible plugins (e.g. AI translation) with an in-app management screen; the
+  plugin chain currently processes Spicy EX full-song lyrics.
 
-- AOD clock placement and burn-in movement.
-- Keep AOD active while lyrics are visible.
+- AOD clock placement, anchored clock positioning and burn-in movement.
+- AOD lyrics rotate with the device (landscape/reverse), optionally hiding the stock AOD
+  content in landscape.
+- Keep AOD active while lyrics are visible (configurable duration, up to indefinite).
 - Keep the lock screen awake while music is playing.
 - Raise to show AOD instead of the full lock screen.
+- Built-in diagnostics (guided capture, locally generated report ready for a GitHub issue)
+  and settings backup/restore.
 
 ## Requirements
 
@@ -122,12 +129,15 @@ before opening a pull request:
   - **SuperLyric**（通过 Binder 实时推送当前歌词行，支持众多音乐软件）。
   - **LyricInfo**（向受支持应用的媒体会话元数据注入 elrc/lrc 歌词）。
 - 支持逐行、逐词、逐音节同步的卡拉OK。
-- 搭配 Spicy EX Full 支持音译与翻译。
+- 音译、翻译与罗马音随歌词源提供（Spicy EX Full、Lyricon、LyricInfo 的翻译/罗马音 lane）。
+- HyperLyric 兼容插件（如 AI 翻译）与应用内插件管理页；插件链当前处理 Spicy EX 整首歌词。
 
-- AOD 时钟位置与防烧屏位移。
-- 歌词显示时保持 AOD 常亮。
+- AOD 时钟位置、锚定式时钟定位与防烧屏位移。
+- AOD 歌词跟随设备横竖屏旋转（横屏/反向横屏），可选隐藏横屏下的系统息屏内容。
+- 歌词显示时保持 AOD 常亮（时长可配置，最长不限）。
 - 播放音乐时保持锁屏常亮。
 - 拿起手机显示 AOD 而非完整锁屏。
+- 内置诊断（引导采集、本地生成报告并可一键组装 GitHub issue）与设置备份/恢复。
 
 ## 环境要求
 
