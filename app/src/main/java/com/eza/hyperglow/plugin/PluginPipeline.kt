@@ -371,13 +371,15 @@ object PluginPipeline {
         finalRows: List<com.lidesheng.hyperlyric.plugin.api.PluginLyricLine>
     ): Set<PluginLyricField> {
         if (originalRows.size != finalRows.size) {
-            // REPLACE 整表替换（行数变化）：内容字段全量按新表覆盖显示。
-            return setOf(
-                PluginLyricField.TEXT,
-                PluginLyricField.TRANSLATION,
-                PluginLyricField.ROMA,
-                PluginLyricField.WORDS
-            )
+            // REPLACE 整表替换（行数变化）：按行比较失去意义，但行数变化 ≠ 正文变化——
+            // 全量标记 TEXT/TRANSLATION/ROMA/WORDS 会让空表把正在显示的歌词抹掉。
+            // 只标记新表里实际携带内容的字段，回向只覆盖有内容可投的行字段。
+            return buildSet {
+                if (finalRows.any { !it.text.isNullOrBlank() }) add(PluginLyricField.TEXT)
+                if (finalRows.any { !it.translation.isNullOrBlank() }) add(PluginLyricField.TRANSLATION)
+                if (finalRows.any { !it.roma.isNullOrBlank() }) add(PluginLyricField.ROMA)
+                if (finalRows.any { !it.words.isNullOrEmpty() }) add(PluginLyricField.WORDS)
+            }
         }
         val changed = mutableSetOf<PluginLyricField>()
         for ((base, next) in originalRows.zip(finalRows)) {

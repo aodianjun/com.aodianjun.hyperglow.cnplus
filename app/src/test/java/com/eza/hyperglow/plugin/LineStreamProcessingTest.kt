@@ -3,8 +3,12 @@ package com.eza.hyperglow.plugin
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricSongRow
 import com.eza.hyperglow.producer.LyricSongSnapshot
+import com.eza.hyperglow.producer.LyricWord
 import com.eza.hyperglow.producer.ProducerRenderModes
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
+import com.lidesheng.hyperlyric.plugin.api.PluginLyricLine
+import com.lidesheng.hyperlyric.plugin.api.PluginMetadata
+import com.lidesheng.hyperlyric.plugin.api.PluginSong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -206,4 +210,102 @@ class PluginSongBridgeSnapshotTest {
         // TEXT 未变：原文行与 nextLine 不被插件覆盖。
         assertEquals("raw", enriched.line)
     }
+
+    @Test
+    fun enrichStateKeepsProducerLineWhenPatchedRowTextIsBlank() {
+        val st = state(positionMs = 6_000L) // 活动行 = 第二行 [5000, 9000)
+        val original = PluginSongBridge.fromSnapshot(st, snapshot())
+        val blanked = original.copy(
+            lyrics = original.lyrics?.map { row -> row.copy(text = "") }
+        )
+        val patched = PatchedSong(
+            sessionKey = PluginSongBridge.sessionKey(st),
+            song = blanked,
+            changedSongFields = emptySet(),
+            changedLyricFields = setOf(PluginLyricField.TEXT)
+        )
+
+        val enriched = PluginSongBridge.enrichState(st, patched)
+
+        // 插件空文本不覆盖非空生产者行：否则活动行被抹空，AOD 只剩 🎶 占位。
+        assertEquals("raw", enriched.line)
+    }
+
+    @Test
+    fun enrichStateKeepsProducerWordsWhenPatchedRowHasNoWords() {
+        val producerWords = listOf(
+            LyricWord("raw", "", 5_000L, 6_000L, false)
+        )
+        val st = state(positionMs = 6_000L).copy(words = producerWords)
+        val original = PluginSongBridge.fromSnapshot(st, snapshot())
+        val stripped = original.copy(
+            lyrics = original.lyrics?.map { row -> row.copy(words = null) }
+        )
+        val patched = PatchedSong(
+            sessionKey = PluginSongBridge.sessionKey(st),
+            song = stripped,
+            changedSongFields = emptySet(),
+            changedLyricFields = setOf(PluginLyricField.WORDS)
+        )
+
+        val enriched = PluginSongBridge.enrichState(st, patched)
+
+        // 空词表不覆盖生产者词级时间轴（逐字卡拉OK依赖它）。
+        assertEquals(producerWords, enriched.words)
+    }
+
+    @Test
+    fun diffOnRowCountChangeOnlyMarksContentBearingFields() {
+        val base = song(
+            listOf(
+                line(0, 1_000, "a"),
+                line(1_000, 2_000, "b")
+            )
+        )
+        val restructured = song(
+            listOf(
+                line(0, 500, "a1"),
+                line(500, 1_000, "a2"),
+                line(1_000, 2_000, "b")
+            )
+        )
+        val emptyRows = song(
+            listOf(
+                line(0, 500, ""),
+                line(500, 1_000, ""),
+                line(1_000, 2_000, "")
+            )
+        )
+
+        val (songFields, lyricFields) = PluginPipeline.diff(base, restructured)
+
+        // 行数变化 ≠ 正文变化：只标记新表里实际携带内容的字段。
+        assertTrue(PluginLyricField.TEXT in lyricFields)
+        assertFalse(PluginLyricField.TRANSLATION in lyricFields)
+        assertFalse(PluginLyricField.ROMA in lyricFields)
+        assertFalse(PluginLyricField.WORDS in lyricFields)
+        assertTrue(songFields.isEmpty())
+
+        val (_, emptyLyricFields) = PluginPipeline.diff(base, emptyRows)
+        assertTrue(emptyLyricFields.isEmpty())
+    }
+
+    private fun line(begin: Long, end: Long, text: String) = PluginLyricLine(
+        begin = begin,
+        end = end,
+        duration = end - begin,
+        isAlignedRight = false,
+        metadata = PluginMetadata(values = mapOf("role" to "LEAD")),
+        text = text
+    )
+
+    private fun song(rows: List<PluginLyricLine>) = PluginSong(
+        id = "superlyric:song",
+        name = "song",
+        artist = "artist",
+        album = "album",
+        duration = 9_000L,
+        metadata = PluginMetadata(values = mapOf("producerId" to "superlyric")),
+        lyrics = rows
+    )
 }
