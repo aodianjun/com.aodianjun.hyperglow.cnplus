@@ -294,7 +294,10 @@ internal class SystemUiLyricProjection(
         XiaomiCapabilityResolver.setExperimentalMode(configuration.experimentalMode)
         val parsed = CompiledCustomizationBundleCodec.fromWirePayload(
             configuration,
-            expectedUserId
+            expectedUserId,
+            onReject = { reason ->
+                HookLogger.w(TAG, "Customization payload rejected: $reason")
+            }
         ) ?: return
         acceptConfiguration(parsed)
     }

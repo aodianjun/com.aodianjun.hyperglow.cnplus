@@ -78,6 +78,11 @@
             <grant-uri-permission android:pathPrefix="/" />
         </provider>
 
+        <provider
+            android:name=".bridge.CustomFontProvider"
+            android:authorities="${applicationId}.customfont"
+            android:exported="true" />
+
         <service
             android:name=".producer.LyricInfoNotificationListener"
             android:exported="false"

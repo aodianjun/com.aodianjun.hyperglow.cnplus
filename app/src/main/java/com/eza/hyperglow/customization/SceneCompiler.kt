@@ -242,7 +242,7 @@ object SceneCompiler {
     private val SECONDARY_MODES = setOf("Main only", "Transliteration", "Translation", "Both")
     private val WEIGHTS = setOf("Regular", "Medium", "Bold")
     private val TEXT_SIZES = setOf("small", "normal", "large", "xlarge", "custom")
-    private val FONT_FAMILIES = setOf("noto", "spotify", "apple")
+    private val FONT_FAMILIES = setOf("noto", "spotify", "apple", "noto-sc", "custom")
     private val ANIMATIONS = setOf("Minimal", "Gradient")
     private fun normalizeLineSyncFillMode(value: String): String = when (value) {
         "None",

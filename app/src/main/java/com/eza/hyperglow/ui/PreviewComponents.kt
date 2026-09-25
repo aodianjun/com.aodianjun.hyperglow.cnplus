@@ -33,9 +33,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
+import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import top.yukonga.miuix.kmp.basic.Card
@@ -163,7 +166,14 @@ private fun LyricPreviewSurface(
     val metadataColor = ComposeColor(resolvedColors.metadataText).copy(alpha = 0.6f)
     val nextLineColor = ComposeColor(resolvedColors.nextLineText).copy(alpha = 0.45f)
     val textSize = previewTextSizeSp(profile)
-    val weight = previewFontWeight(profile)
+    val context = LocalContext.current
+    val lyricTypeface = remember(context, profile.fontFamily, profile.weight) {
+        LyricTypefaceResolver.resolve(context, profile.fontFamily, profile.weight)
+    }
+    val regularFontFamily = remember(context, profile.fontFamily) {
+        if (profile.fontFamily == "auto") null
+        else FontFamily(LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular"))
+    }
     val textAlign = previewTextAlign(profile)
     val showMetadata = profile.metadataVisible
     val showNext = profile.showNextLine
@@ -195,12 +205,12 @@ private fun LyricPreviewSurface(
             verticalArrangement = Arrangement.Center
         ) {
             if (showMetadata && profile.metadataAnchor == "top") {
-                PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent)
+                PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent, regularFontFamily)
             }
             PreviewAnimatedLyric(
                 text = snapshot.original,
                 textSize = textSize,
-                weight = weight,
+                lyricTypeface = lyricTypeface,
                 color = lyricColor,
                 glowColor = lyricColor,
                 glowEnabled = profile.glow == "On",
@@ -213,6 +223,7 @@ private fun LyricPreviewSurface(
                     line,
                     fontSize = textSize * 0.72f,
                     fontWeight = FontWeight.Normal,
+                    fontFamily = regularFontFamily,
                     color = secondaryColor,
                     textAlign = textAlign,
                     maxLines = 1,
@@ -224,6 +235,7 @@ private fun LyricPreviewSurface(
                     snapshot.nextLine,
                     fontSize = textSize * 0.72f,
                     fontWeight = FontWeight.Normal,
+                    fontFamily = regularFontFamily,
                     color = nextLineColor,
                     textAlign = textAlign,
                     maxLines = 1,
@@ -231,17 +243,18 @@ private fun LyricPreviewSurface(
                 )
             }
             if (showMetadata && profile.metadataAnchor == "bottom") {
-                PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent)
+                PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent, regularFontFamily)
             }
         }
     }
 }
 
 @Composable
-private fun PreviewMetaLine(text: String, color: ComposeColor, sizePercent: Int) {
+private fun PreviewMetaLine(text: String, color: ComposeColor, sizePercent: Int, fontFamily: FontFamily?) {
     Text(
         text,
         fontSize = previewMetadataTextSizeSp(sizePercent),
+        fontFamily = fontFamily,
         color = color,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis
@@ -261,7 +274,7 @@ internal fun previewMetadataTextSizeSp(sizePercent: Int): androidx.compose.ui.un
 private fun PreviewAnimatedLyric(
     text: String,
     textSize: TextUnit,
-    weight: FontWeight,
+    lyricTypeface: Typeface,
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
@@ -272,11 +285,6 @@ private fun PreviewAnimatedLyric(
     val density = LocalDensity.current
     val glowArgb = glowColor.toArgb()
     val sungArgb = color.copy(alpha = 1f).toArgb()
-    val nativeTypeface = when (weight) {
-        FontWeight.Normal -> Typeface.create("sans-serif", Typeface.NORMAL)
-        FontWeight.Bold -> Typeface.create("sans-serif", Typeface.BOLD)
-        else -> Typeface.create("sans-serif", Typeface.BOLD)
-    }
     val align = when (textAlign) {
         TextAlign.Center -> android.text.Layout.Alignment.ALIGN_CENTER
         TextAlign.End -> android.text.Layout.Alignment.ALIGN_OPPOSITE
@@ -297,10 +305,10 @@ private fun PreviewAnimatedLyric(
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val widthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
         val fontSizePx = with(density) { textSize.toPx() }
-        val layoutHeight = remember(text, textSize, maxLines, widthPx) {
+        val layoutHeight = remember(text, textSize, maxLines, widthPx, lyricTypeface) {
             val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.textSize = fontSizePx
-                typeface = nativeTypeface
+                typeface = lyricTypeface
             }
             val layout = StaticLayout.Builder
                 .obtain(text, 0, text.length, paint, widthPx)
@@ -314,7 +322,7 @@ private fun PreviewAnimatedLyric(
             val p = progressValue
             val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.textSize = fontSizePx
-                typeface = nativeTypeface
+                typeface = lyricTypeface
             }
             val layout = StaticLayout.Builder
                 .obtain(text, 0, text.length, paint, size.width.toInt().coerceAtLeast(1))
@@ -356,13 +364,6 @@ private fun PreviewAnimatedLyric(
         }
     }
 }
-
-private fun previewFontWeight(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): FontWeight =
-    when (profile.weight) {
-        "Regular" -> FontWeight.Normal
-        "Bold" -> FontWeight.Bold
-        else -> FontWeight.Medium
-    }
 
 private fun previewTextAlign(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): TextAlign =
     // "auto" 与应用渲染一致:在 alignedRight=false 时解析为左对齐(见 AodLyricCanvasView)。
