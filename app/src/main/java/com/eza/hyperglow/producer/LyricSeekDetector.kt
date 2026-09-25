@@ -55,6 +55,7 @@ class LyricSeekDetector(private val now: () -> Long = SystemClock::elapsedRealti
     private fun rebase(positionMs: Long, wallMs: Long) {
         lastPositionMs = positionMs
         lastWallMs = wallMs
+        hasBaseline = true
     }
 
     companion object {
