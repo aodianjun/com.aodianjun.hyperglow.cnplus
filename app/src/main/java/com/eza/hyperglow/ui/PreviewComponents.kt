@@ -2,9 +2,7 @@ package com.eza.hyperglow.ui
 
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.text.StaticLayout
 import android.text.TextPaint
-import android.text.TextUtils
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -38,6 +36,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,8 +46,24 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
+import com.eza.hyperglow.root.aod.LyricLayoutLine
+import com.eza.hyperglow.root.aod.LyricLayoutResult
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
+import com.eza.hyperglow.root.aod.LYRIC_LINE_EXTRA_HEIGHT_DP
+import com.eza.hyperglow.root.aod.LYRIC_LINE_GAP_DP
+import com.eza.hyperglow.root.aod.LYRIC_WORD_GAP_DP
+import com.eza.hyperglow.root.aod.METADATA_LYRIC_GAP_DP
+import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_NEXT_LINE_DP
+import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_ORIGINAL_DP
+import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_SECONDARY_DP
 import com.eza.hyperglow.root.aod.baseTextSizeSp
+import com.eza.hyperglow.root.aod.layoutMetadataLines
+import com.eza.hyperglow.root.aod.layoutOriginalLines
+import com.eza.hyperglow.root.aod.layoutSecondaryLines
+import com.eza.hyperglow.root.aod.lineStartX
+import com.eza.hyperglow.root.aod.metadataTextSizeSp
+import com.eza.hyperglow.root.aod.nextLineTextSizeSp
+import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
@@ -192,14 +207,14 @@ private fun LyricPreviewSurface(
     val lyricTypeface = remember(context, profile.fontFamily, profile.weight, customFontVersion) {
         LyricTypefaceResolver.resolve(context, profile.fontFamily, profile.weight)
     }
-    val regularFontFamily = remember(context, profile.fontFamily, customFontVersion) {
-        if (profile.fontFamily == "auto") null
-        else FontFamily(LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular"))
+    val regularTypeface = remember(context, profile.fontFamily, customFontVersion) {
+        if (profile.fontFamily == "auto") Typeface.create("sans-serif", Typeface.NORMAL)
+        else LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular")
     }
     val textAlign = previewTextAlign(profile, snapshot.alignedRight)
     val showMetadata = profile.metadataVisible
     val showNext = profile.showNextLine
-    val secondaryLines = previewSecondaryLines(profile, snapshot, baseSp)
+    val secondaryRows = previewSecondaryLines(profile, snapshot, baseSp)
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -226,64 +241,120 @@ private fun LyricPreviewSurface(
             },
             verticalArrangement = Arrangement.Center
         ) {
-            if (showMetadata && profile.metadataAnchor == "top") {
-                PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent, regularFontFamily)
-            }
-            // 溢出语义与实机一致:Clip 恒单行,Wrap 按行数上限硬截(无省略号)。
-            PreviewAnimatedLyric(
-                text = snapshot.original,
-                textSize = textSize,
-                lyricTypeface = lyricTypeface,
-                color = lyricColor,
-                glowColor = glowColor,
-                glowEnabled = profile.glow == "On",
-                textAlign = textAlign,
-                maxLines = if (profile.overflow == "Clip") 1
-                else if (profile.lyricLineLimit > 0) profile.lyricLineLimit else Int.MAX_VALUE,
-                overflow = TextOverflow.Clip
-            )
-            secondaryLines.forEach { line ->
-                Text(
-                    line.text,
-                    fontSize = line.size,
-                    fontWeight = FontWeight.Normal,
-                    fontFamily = regularFontFamily,
-                    color = secondaryColor,
-                    textAlign = textAlign,
-                    maxLines = line.maxLines,
-                    overflow = TextOverflow.Clip
-                )
-            }
-            if (showNext && snapshot.nextLine.isNotBlank()) {
-                Text(
-                    snapshot.nextLine,
-                    fontSize = nextLineTextSizeSp().sp,
-                    fontWeight = FontWeight.Normal,
-                    fontFamily = regularFontFamily,
-                    color = nextLineColor,
-                    textAlign = textAlign,
-                    maxLines = previewSecondaryWrapLines(profile),
-                    overflow = TextOverflow.Clip
-                )
-            }
-            if (showMetadata && profile.metadataAnchor == "bottom") {
-                PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent, regularFontFamily)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val density = LocalDensity.current
+                val availablePx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
+                // 换行/测量全部委托 LyricLayoutEngine(与实机同源):断行点、行数上限、
+                // Clip 语义一致;预览只负责卡片内的居中摆放。
+                val mainLayout = remember(
+                    snapshot.original, textSize, lyricTypeface, availablePx,
+                    profile.lyricLineLimit, profile.overflow, profile.adaptiveSectioning
+                ) {
+                    buildPreviewMainLayout(
+                        text = snapshot.original,
+                        textSizePx = with(density) { textSize.toPx() },
+                        typeface = lyricTypeface,
+                        availableWidthPx = availablePx.toFloat(),
+                        lineLimit = profile.lyricLineLimit,
+                        wrap = profile.overflow == "Wrap",
+                        adaptiveSectioning = profile.adaptiveSectioning,
+                        alignment = when (textAlign) {
+                            TextAlign.Center -> "center"
+                            TextAlign.End -> "end"
+                            else -> "start"
+                        },
+                        density = density.density
+                    )
+                }
+                Column(Modifier.fillMaxWidth()) {
+                    if (showMetadata && profile.metadataAnchor == "top") {
+                        PreviewMetaLine(
+                            snapshot.metadata, metadataColor, profile.metadataSizePercent,
+                            regularTypeface, availablePx,
+                            Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp)
+                        )
+                    }
+                    PreviewAnimatedLyric(
+                        layout = mainLayout,
+                        color = lyricColor,
+                        glowColor = glowColor,
+                        glowEnabled = profile.glow == "On",
+                        modifier = Modifier.padding(top = ROW_GAP_BEFORE_ORIGINAL_DP.dp)
+                    )
+                    secondaryRows.forEach { row ->
+                        PreviewSecondaryRow(
+                            row = row,
+                            color = secondaryColor,
+                            typeface = regularTypeface,
+                            availableWidthPx = availablePx,
+                            preferredLines = mainLayout.lines.size,
+                            wrap = profile.overflow == "Wrap",
+                            adaptiveSectioning = profile.adaptiveSectioning,
+                            textAlign = textAlign,
+                            modifier = Modifier.padding(top = ROW_GAP_BEFORE_SECONDARY_DP.dp)
+                        )
+                    }
+                    if (showNext && snapshot.nextLine.isNotBlank()) {
+                        PreviewSecondaryRow(
+                            row = PreviewSecondaryLine(
+                                snapshot.nextLine,
+                                nextLineTextSizeSp().sp,
+                                italic = false
+                            ),
+                            color = nextLineColor,
+                            typeface = regularTypeface,
+                            availableWidthPx = availablePx,
+                            preferredLines = mainLayout.lines.size,
+                            wrap = profile.overflow == "Wrap",
+                            adaptiveSectioning = profile.adaptiveSectioning,
+                            textAlign = textAlign,
+                            modifier = Modifier.padding(top = ROW_GAP_BEFORE_NEXT_LINE_DP.dp)
+                        )
+                    }
+                    if (showMetadata && profile.metadataAnchor == "bottom") {
+                        PreviewMetaLine(
+                            snapshot.metadata, metadataColor, profile.metadataSizePercent,
+                            regularTypeface, availablePx,
+                            Modifier.padding(top = METADATA_LYRIC_GAP_DP.dp)
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun PreviewMetaLine(text: String, color: ComposeColor, sizePercent: Int, fontFamily: FontFamily?) {
-    Text(
-        text,
-        fontSize = previewMetadataTextSizeSp(sizePercent),
-        fontFamily = fontFamily,
-        color = color,
-        // 与实机 wrapMetadataText 一致:最多 2 行,溢出丢弃(无省略号)。
-        maxLines = 2,
-        overflow = TextOverflow.Clip
-    )
+private fun PreviewMetaLine(
+    text: String,
+    color: ComposeColor,
+    sizePercent: Int,
+    typeface: Typeface,
+    availableWidthPx: Int,
+    modifier: Modifier = Modifier
+) {
+    val size = previewMetadataTextSizeSp(sizePercent)
+    val sizePx = with(LocalDensity.current) { size.toPx() }
+    // 换行与实机 wrapMetadataText 同算法:最多 2 行,溢出丢弃(无省略号)。
+    val lines = remember(text, sizePx, typeface, availableWidthPx) {
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = sizePx
+            this.typeface = typeface
+        }
+        layoutMetadataLines(text, paint, availableWidthPx.toFloat())
+    }
+    Column(modifier.fillMaxWidth()) {
+        lines.forEach { line ->
+            Text(
+                line.text,
+                fontSize = size,
+                fontFamily = FontFamily(typeface),
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Clip
+            )
+        }
+    }
 }
 
 /** 主页预览的歌曲信息字号:与实机 metadataPaint 同源(14sp 基准 × metadataSizePercent,50%~200%)。 */
@@ -297,11 +368,6 @@ internal fun previewBaseTextSizeSp(text: String, textSizeMode: String, textSizeC
 /** 副文本透明度:与实机 drawSecondaryLine 同一公式(steadyTextAlpha 含 AOD 亮度补偿)。 */
 internal fun previewSecondaryAlpha(bright: Boolean): Float =
     steadyTextAlpha(staticSecondaryTextFactor(bright))
-
-/** 副文本/下一行行数上限:与实机 wrapSecondaryText 同门控(adaptiveSectioning + Wrap 时最多 2 行)。 */
-internal fun previewSecondaryWrapLines(
-    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile
-): Int = if (profile.adaptiveSectioning && profile.overflow == "Wrap") 2 else 1
 
 private fun previewTextAlign(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
@@ -318,7 +384,7 @@ private fun previewTextAlign(
 private data class PreviewSecondaryLine(
     val text: String,
     val size: TextUnit,
-    val maxLines: Int
+    val italic: Boolean
 )
 
 private fun previewSecondaryLines(
@@ -326,13 +392,12 @@ private fun previewSecondaryLines(
     snapshot: LyricSnapshot,
     baseSp: Float
 ): List<PreviewSecondaryLine> {
-    // 字号与实机 setContent 同源:音标行/翻译行各自公式(不同下限),行数与实机换行门控一致。
-    val wrapLines = previewSecondaryWrapLines(profile)
+    // 字号与实机 setContent 同源:音标行/翻译行各自公式(不同下限);翻译行走斜体(与实机一致)。
     val reading = snapshot.romanized.ifBlank { null }?.let {
-        PreviewSecondaryLine(it, secondaryReadingTextSizeSp(baseSp).sp, wrapLines)
+        PreviewSecondaryLine(it, secondaryReadingTextSizeSp(baseSp).sp, italic = false)
     }
     val translation = snapshot.translated.ifBlank { null }?.let {
-        PreviewSecondaryLine(it, secondaryTranslationTextSizeSp(baseSp).sp, wrapLines)
+        PreviewSecondaryLine(it, secondaryTranslationTextSizeSp(baseSp).sp, italic = true)
     }
     return when (profile.secondaryMode) {
         "Transliteration" -> listOfNotNull(reading)
@@ -348,102 +413,163 @@ internal fun previewCardColor(cardColor: String, cardAlpha: Int): ComposeColor {
     return ComposeColor(0xFF000000.toInt() or rgb).copy(alpha = cardAlpha.coerceIn(0, 100) / 100f)
 }
 
+/** 预览主歌词行布局:行断点来自共享引擎,基线/对齐 X 按实机行距公式解析。 */
+private class PreviewMainLayout(
+    val lines: List<LyricLayoutLine>,
+    val baselines: List<Float>,
+    val startsX: List<Float>,
+    val blockHeight: Float,
+    val paint: TextPaint
+)
+
+private fun buildPreviewMainLayout(
+    text: String,
+    textSizePx: Float,
+    typeface: Typeface,
+    availableWidthPx: Float,
+    lineLimit: Int,
+    wrap: Boolean,
+    adaptiveSectioning: Boolean,
+    alignment: String,
+    density: Float
+): PreviewMainLayout {
+    val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = textSizePx
+        this.typeface = typeface
+    }
+    // 与实机 buildOriginalLayout 同一引擎入口(预览无词/音标时退化为整段折行)。
+    val result: LyricLayoutResult = layoutOriginalLines(
+        original = text,
+        words = emptyList(),
+        ruby = emptyList(),
+        layoutGroups = emptyList(),
+        paint = paint,
+        availableWidth = availableWidthPx,
+        lineLimit = lineLimit,
+        wordGapPx = LYRIC_WORD_GAP_DP * density,
+        wrap = wrap,
+        adaptiveSectioning = adaptiveSectioning
+    )
+    val fm = paint.fontMetrics
+    val lineHeight = fm.descent - fm.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density
+    val lineGap = LYRIC_LINE_GAP_DP * density
+    val baselines = ArrayList<Float>(result.lines.size)
+    val startsX = ArrayList<Float>(result.lines.size)
+    var top = 0f
+    result.lines.forEach { line ->
+        baselines += top - fm.ascent
+        startsX += lineStartX(
+            text = line.text,
+            textWidth = line.width,
+            paint = paint,
+            alignment = alignment,
+            canvasWidth = availableWidthPx,
+            padLeft = 0f,
+            padRight = 0f,
+            density = density
+        )
+        top += lineHeight + lineGap
+    }
+    val blockHeight = originalRowHeight(lineHeight, result.lines.size.coerceAtLeast(1), 0f, lineGap)
+    return PreviewMainLayout(result.lines, baselines, startsX, blockHeight, paint)
+}
+
 /**
- * 主页预览的歌词主体渲染:在原生 Canvas 上用 StaticLayout 绘制主歌词,按播放进度模拟
- * 息屏外观的三种效果 —— 文字发光(glow)、整行进度扫光(line progress sweep)与逐字高亮
- * (当前演唱词的强调光斑)。这样预览与 AodLyricCanvasView 的息屏渲染保持一致。
+ * 主页预览的歌词主体渲染:行布局来自共享 LyricLayoutEngine(与实机断行一致),
+ * 绘制委托 LyricGlowRenderer(实机 AOD/锁屏同源)—— dim 底、光晕、扫光带(缓动/
+ * 光带占比/渐变 stops)全部单点定义,预览即实机效果。进度为演示扫光(0→1 循环)。
  */
 @Composable
 private fun PreviewAnimatedLyric(
-    text: String,
-    textSize: TextUnit,
-    lyricTypeface: Typeface,
+    layout: PreviewMainLayout,
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
-    textAlign: TextAlign,
-    maxLines: Int,
-    overflow: TextOverflow
+    modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
     val glowArgb = glowColor.toArgb()
     val sungArgb = color.copy(alpha = 1f).toArgb()
-    val align = when (textAlign) {
-        TextAlign.Center -> android.text.Layout.Alignment.ALIGN_CENTER
-        TextAlign.End -> android.text.Layout.Alignment.ALIGN_OPPOSITE
-        else -> android.text.Layout.Alignment.ALIGN_NORMAL
-    }
-    val truncate = if (overflow == TextOverflow.Clip) null else TextUtils.TruncateAt.END
-    val maxLinesSafe = maxLines.coerceAtLeast(1)
 
-    // 逐条演示行播放时,进度从 0 扫到 1,驱动扫光与逐字高亮。
+    // 逐条演示行播放时,进度从 0 扫到 1,驱动扫光。
     val progress = remember { Animatable(0f) }
-    LaunchedEffect(text) {
+    LaunchedEffect(layout) {
         progress.snapTo(0f)
         progress.animateTo(1f, tween(DEMO_LINE_SWITCH_MS.toInt(), easing = LinearEasing))
     }
     // 在组合作用域读取进度,保证每次动画变化都会重绘 Canvas。
     val progressValue = progress.value
 
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val widthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
-        val fontSizePx = with(density) { textSize.toPx() }
-        val layoutHeight = remember(text, textSize, maxLines, widthPx, lyricTypeface) {
-            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                this.textSize = fontSizePx
-                typeface = lyricTypeface
+    Canvas(
+        modifier
+            .fillMaxWidth()
+            .height(with(density) { layout.blockHeight.toDp() })
+    ) {
+        val rows = ArrayList<LyricGlowRow>(layout.lines.size)
+        layout.lines.forEachIndexed { index, line ->
+            val baseline = layout.baselines[index]
+            val left = layout.startsX[index]
+            rows += LyricGlowRow(left, line.width, baseline) { c, paintArg ->
+                if (line.text.isNotEmpty()) c.drawText(line.text, left, baseline, paintArg)
             }
-            val layout = StaticLayout.Builder
-                .obtain(text, 0, text.length, paint, widthPx)
-                .setAlignment(align)
-                .setMaxLines(maxLinesSafe)
-                .setEllipsize(truncate)
-                .build()
-            with(density) { layout.height.toDp() }
         }
-        Canvas(Modifier.fillMaxWidth().height(layoutHeight)) {
-            val p = progressValue
-            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                this.textSize = fontSizePx
-                typeface = lyricTypeface
-            }
-            val layout = StaticLayout.Builder
-                .obtain(text, 0, text.length, paint, size.width.toInt().coerceAtLeast(1))
-                .setAlignment(align)
-                .setMaxLines(maxLinesSafe)
-                .setEllipsize(truncate)
-                .build()
-            val top = (size.height - layout.height) / 2f
-            drawIntoCanvas { canvas ->
-                val nc = canvas.nativeCanvas
-                nc.save()
-                nc.translate(0f, top)
+        drawIntoCanvas { canvas ->
+            LyricGlowRenderer.draw(
+                canvas = canvas.nativeCanvas,
+                paint = layout.paint,
+                rows = rows,
+                progress = progressValue,
+                sungColor = sungArgb,
+                glowColor = glowArgb,
+                glowEnabled = glowEnabled
+            )
+        }
+    }
+}
 
-                // 委托共享渲染核心 LyricGlowRenderer(实机 AOD/锁屏同源):
-                // dim 底、光晕、扫光带(缓动/光带占比/渐变 stops)全部单点定义,
-                // 预览即实机效果,杜绝两份手工同步的实现漂移。
-                val rows = ArrayList<LyricGlowRow>(layout.lineCount)
-                for (line in 0 until layout.lineCount) {
-                    val start = layout.getLineStart(line)
-                    val end = layout.getLineEnd(line)
-                    val left = layout.getLineLeft(line)
-                    val width = layout.getLineWidth(line)
-                    val lineBaseline = layout.getLineBaseline(line).toFloat()
-                    rows += LyricGlowRow(left, width, lineBaseline) { c, paintArg ->
-                        if (end > start) c.drawText(text, start, end, left, lineBaseline, paintArg)
-                    }
-                }
-                LyricGlowRenderer.draw(
-                    canvas = nc,
-                    paint = paint,
-                    rows = rows,
-                    progress = p,
-                    sungColor = sungArgb,
-                    glowColor = glowArgb,
-                    glowEnabled = glowEnabled
-                )
-                nc.restore()
-            }
+/** 副文本/下一行一行内容(字号/斜体按实机 paint 语义区分音标与翻译)。 */
+@Composable
+private fun PreviewSecondaryRow(
+    row: PreviewSecondaryLine,
+    color: ComposeColor,
+    typeface: Typeface,
+    availableWidthPx: Int,
+    preferredLines: Int,
+    wrap: Boolean,
+    adaptiveSectioning: Boolean,
+    textAlign: TextAlign,
+    modifier: Modifier = Modifier
+) {
+    val measureTypeface = if (row.italic) Typeface.create(typeface, Typeface.ITALIC) else typeface
+    val sizePx = with(LocalDensity.current) { row.size.toPx() }
+    // 换行与实机 wrapSecondaryText 同门控/同算法(引擎内部门控)。
+    val lines = remember(row.text, sizePx, measureTypeface, availableWidthPx, preferredLines, wrap, adaptiveSectioning) {
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = sizePx
+            this.typeface = measureTypeface
+        }
+        layoutSecondaryLines(
+            text = row.text,
+            paint = paint,
+            availableWidth = availableWidthPx.toFloat(),
+            preferredLines = preferredLines,
+            wrap = wrap,
+            adaptiveSectioning = adaptiveSectioning
+        )
+    }
+    Column(modifier.fillMaxWidth()) {
+        lines.forEach { line ->
+            Text(
+                line.text,
+                fontSize = row.size,
+                fontWeight = FontWeight.Normal,
+                fontStyle = if (row.italic) FontStyle.Italic else FontStyle.Normal,
+                fontFamily = FontFamily(measureTypeface),
+                color = color,
+                textAlign = textAlign,
+                maxLines = 1,
+                overflow = TextOverflow.Clip
+            )
         }
     }
 }

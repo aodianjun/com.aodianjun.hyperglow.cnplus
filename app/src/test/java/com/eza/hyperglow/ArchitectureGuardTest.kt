@@ -78,7 +78,11 @@ class ArchitectureGuardTest {
             "staticNextLineTextFactor",
             "cardColorRgb",
             "resolveAodPalette",
-            "LyricGlowRenderer"
+            "LyricGlowRenderer",
+            "layoutOriginalLines",
+            "layoutSecondaryLines",
+            "layoutMetadataLines",
+            "lineStartX"
         )
         val missing = required.filterNot { text.contains(it) }
         assertTrue("PreviewComponents must delegate to shared render core, missing: $missing", missing.isEmpty())
