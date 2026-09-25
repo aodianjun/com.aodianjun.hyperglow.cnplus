@@ -20,8 +20,7 @@ import kotlin.math.roundToInt
 /** Bounded Spicy live-card renderer adapted for Xiaomi AOD. */
 internal class AodLyricCanvasView(
     context: Context,
-    private val useDozeHandlerCadence: Boolean = false,
-    private val powerSaverProvider: () -> Boolean = { false }
+    private val useDozeHandlerCadence: Boolean = false
 ) : View(context) {
     enum class Alignment { START, CENTER, END }
 
@@ -1481,8 +1480,7 @@ internal class AodLyricCanvasView(
 
     private fun frameInterval(): Long = frameIntervalForTiming(
         effectiveCadenceActive(),
-        timingActive = true,
-        powerSaverActive = powerSaverProvider()
+        timingActive = true
     )
 
     private fun effectiveCadenceActive(): Boolean = isEffectiveCadenceActive(

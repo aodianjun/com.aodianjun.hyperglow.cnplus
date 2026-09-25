@@ -881,7 +881,6 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         clockPinActive = false
         AodSurfaceHook.clearSuppressedState()
         AodOrientationMonitor.detach()
-        AodPowerStateMonitor.detach()
         currentRotationStep = AodOrientationStep.PORTRAIT
         setDrawWakeRenewalActive(false)
         finishInitialReveal()
@@ -1293,12 +1292,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
-                AodPowerStateMonitor.attach(context)
-                lyricCanvas = AodLyricCanvasView(
-                    context,
-                    useDozeHandlerCadence = true,
-                    powerSaverProvider = { AodPowerStateMonitor.isPowerSaverActive() }
-                ).also {
+                lyricCanvas = AodLyricCanvasView(context, useDozeHandlerCadence = true).also {
                     it.layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
