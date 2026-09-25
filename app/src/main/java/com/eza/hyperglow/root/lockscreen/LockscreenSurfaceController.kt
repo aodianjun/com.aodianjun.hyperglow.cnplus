@@ -43,7 +43,9 @@ import com.eza.hyperglow.root.surface.PlacementEngine
 import com.eza.hyperglow.root.surface.PlacementEnvironment
 import com.eza.hyperglow.root.surface.WidgetMeasurement
 import java.lang.ref.WeakReference
+import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
 internal const val MIN_VISIBLE_ALPHA = 0.01f
@@ -132,6 +134,18 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 publicNoArgMethod(type, "getClipTopAmount"),
                 publicNoArgMethod(type, "getClipBottomAmount")
             )
+    }
+    private val declaredFieldHandles = object : ClassValue<ConcurrentHashMap<String, Any>>() {
+        override fun computeValue(type: Class<*>): ConcurrentHashMap<String, Any> =
+            ConcurrentHashMap()
+    }
+    private val declaredNoArgMethodHandles = object : ClassValue<ConcurrentHashMap<String, Any>>() {
+        override fun computeValue(type: Class<*>): ConcurrentHashMap<String, Any> =
+            ConcurrentHashMap()
+    }
+    private val publicNoArgMethodHandles = object : ClassValue<ConcurrentHashMap<String, Any>>() {
+        override fun computeValue(type: Class<*>): ConcurrentHashMap<String, Any> =
+            ConcurrentHashMap()
     }
     private val refreshFrame = Runnable {
         refreshPostOwner.clear()
@@ -1312,9 +1326,39 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         return root.findViewById(id)
     }
 
+    private object MissingHandle
+
+    private fun declaredFieldHandle(type: Class<*>, name: String): Field? {
+        val cache = declaredFieldHandles.get(type)
+        cache[name]?.let { return it as? Field }
+        val resolved = runCatching {
+            type.getDeclaredField(name).apply { isAccessible = true }
+        }.getOrNull()
+        cache[name] = resolved ?: MissingHandle
+        return resolved
+    }
+
+    private fun declaredNoArgMethodHandle(type: Class<*>, name: String): Method? {
+        val cache = declaredNoArgMethodHandles.get(type)
+        cache[name]?.let { return it as? Method }
+        val resolved = runCatching {
+            type.getDeclaredMethod(name).apply { isAccessible = true }
+        }.getOrNull()
+        cache[name] = resolved ?: MissingHandle
+        return resolved
+    }
+
+    private fun publicNoArgMethodHandle(type: Class<*>, name: String): Method? {
+        val cache = publicNoArgMethodHandles.get(type)
+        cache[name]?.let { return it as? Method }
+        val resolved = publicNoArgMethod(type, name)
+        cache[name] = resolved ?: MissingHandle
+        return resolved
+    }
+
     private fun readField(owner: Any?, name: String): Any? = runCatching {
         owner ?: return null
-        owner.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(owner)
+        declaredFieldHandle(owner.javaClass, name)?.get(owner)
     }.getOrNull()
 
     private fun readHierarchyField(owner: Any?, name: String): Any? {
@@ -1323,7 +1367,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         while (type != null) {
             val currentType = type
             val value = runCatching {
-                currentType.getDeclaredField(name).apply { isAccessible = true }.get(owner)
+                declaredFieldHandle(currentType, name)?.get(owner)
             }.getOrNull()
             if (value != null) return value
             type = currentType.superclass
@@ -1333,7 +1377,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
 
     private fun invokePublicNoArgInt(owner: Any?, name: String): Int = runCatching {
         owner ?: return -1
-        (owner.javaClass.getMethod(name).invoke(owner) as? Number)?.toInt() ?: -1
+        (publicNoArgMethodHandle(owner.javaClass, name)?.invoke(owner) as? Number)?.toInt() ?: -1
     }.getOrDefault(-1)
 
     private fun readBoolean(owner: Any, name: String, fallback: Boolean): Boolean =
@@ -1366,14 +1410,14 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
 
     private fun invokeNoArgInt(owner: Any?, name: String): Int = runCatching {
         owner ?: return 0
-        (owner.javaClass.getDeclaredMethod(name).apply { isAccessible = true }.invoke(owner) as? Number)
+        (declaredNoArgMethodHandle(owner.javaClass, name)?.invoke(owner) as? Number)
             ?.toInt() ?: 0
     }.getOrDefault(0)
 
     private fun invokeNoArgBoolean(owner: Any?, name: String, fallback: Boolean): Boolean =
         runCatching {
             owner ?: return fallback
-            owner.javaClass.getDeclaredMethod(name).apply { isAccessible = true }.invoke(owner) as? Boolean
+            declaredNoArgMethodHandle(owner.javaClass, name)?.invoke(owner) as? Boolean
                 ?: fallback
         }.getOrDefault(fallback)
 

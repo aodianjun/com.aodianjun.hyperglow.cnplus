@@ -102,6 +102,11 @@ fun shouldRepublish(lastPublished: AodDisplayState?, next: AodDisplayState): Boo
 
 object AodStateBridge {
     private val callbacks = RemoteCallbackList<IAodLyricCallback>()
+
+    // 锁序恒为 deliveryLock → stateLock：决策与编码在 stateLock 短临界区内完成，
+    // Binder 投递（oneway，不会重入）只持 deliveryLock，投递顺序与决策顺序一致。
+    private val deliveryLock = Any()
+    private val stateLock = Any()
     private var currentRevision = 0L
     private var latestMessage: AodStateWireMessage = AodStateWireMessage.Hidden(
         revision = 0L,
@@ -118,96 +123,127 @@ object AodStateBridge {
     private var lastPublished: AodDisplayState? = null
     private var lastFullPublishAtElapsedMs = Long.MIN_VALUE
 
-    @Synchronized
     fun register(callback: IAodLyricCallback) {
-        callbacks.register(callback)
-        latestConfiguration?.let { configuration ->
-            try {
-                callback.onConfiguration(Bundle(configuration))
-            } catch (error: Exception) {
-                AppLog.w(TAG, "Initial configuration delivery failed", error)
+        synchronized(deliveryLock) {
+            val configurationSnapshot: Bundle?
+            val stateSnapshot: Bundle?
+            synchronized(stateLock) {
+                callbacks.register(callback)
+                configurationSnapshot = latestConfiguration?.let { Bundle(it) }
+                stateSnapshot = AodStateWireCodec.encode(latestMessage)
+                    ?.let(AodStateWireBundleCodec::toBundle)
+            }
+            configurationSnapshot?.let { configuration ->
+                try {
+                    callback.onConfiguration(configuration)
+                } catch (error: Exception) {
+                    AppLog.w(TAG, "Initial configuration delivery failed", error)
+                }
+            }
+            stateSnapshot?.let { state ->
+                try {
+                    callback.onState(state)
+                } catch (error: Exception) {
+                    AppLog.w(TAG, "Initial state delivery failed", error)
+                }
             }
         }
-        val replayEnvelope = AodStateWireCodec.encode(latestMessage) ?: return
-        try {
-            callback.onState(AodStateWireBundleCodec.toBundle(replayEnvelope))
-        } catch (error: Exception) {
-            AppLog.w(TAG, "Initial state delivery failed", error)
+    }
+
+    fun unregister(callback: IAodLyricCallback) {
+        synchronized(stateLock) {
+            callbacks.unregister(callback)
         }
     }
 
-    @Synchronized
-    fun unregister(callback: IAodLyricCallback) {
-        callbacks.unregister(callback)
+    fun hasSystemUiCallback(): Boolean = synchronized(stateLock) {
+        callbacks.registeredCallbackCount > 0
     }
 
-    @Synchronized
-    fun hasSystemUiCallback(): Boolean = callbacks.registeredCallbackCount > 0
-
-    @Synchronized
     fun publish(state: AodDisplayState) {
-        val publishedState = normalizeAodDisplayState(state)
-        if (!shouldRepublish(lastPublished, publishedState)) return
-        lastPublished = publishedState
-        currentRevision++
-        val publication = encodeNormalizedAodStatePublication(
-            state = publishedState,
-            revision = currentRevision,
-            updatedAtElapsedMs = SystemClock.elapsedRealtime()
-        )
-        latestMessage = publication.message
-        latest = AodStateWireBundleCodec.toBundle(publication.envelope)
-        lastFullPublishAtElapsedMs = publication.message.updatedAtElapsedMs
-        broadcast(latest)
+        synchronized(deliveryLock) {
+            val payload: Bundle? = synchronized(stateLock) {
+                val publishedState = normalizeAodDisplayState(state)
+                if (!shouldRepublish(lastPublished, publishedState)) {
+                    null
+                } else {
+                    lastPublished = publishedState
+                    currentRevision++
+                    val publication = encodeNormalizedAodStatePublication(
+                        state = publishedState,
+                        revision = currentRevision,
+                        updatedAtElapsedMs = SystemClock.elapsedRealtime()
+                    )
+                    latestMessage = publication.message
+                    latest = AodStateWireBundleCodec.toBundle(publication.envelope)
+                    lastFullPublishAtElapsedMs = publication.message.updatedAtElapsedMs
+                    latest
+                }
+            } ?: return
+            broadcast(payload)
+        }
     }
 
-    @Synchronized
     fun publishConfiguration(
         configuration: CompiledCustomization,
         userId: Int,
         experimentalMode: Boolean = false
     ) {
-        if (configuration.hash == lastConfigurationHash) return
-        val bundle = CompiledCustomizationBundleCodec.toBundle(configuration, userId, experimentalMode)
-        lastConfigurationHash = configuration.hash
-        latestConfiguration = bundle
-        val count = callbacks.beginBroadcast()
-        try {
-            for (index in 0 until count) {
-                try {
-                    callbacks.getBroadcastItem(index).onConfiguration(Bundle(bundle))
-                } catch (error: Exception) {
-                    AppLog.w(TAG, "Configuration delivery failed", error)
+        synchronized(deliveryLock) {
+            val bundle: Bundle? = synchronized(stateLock) {
+                if (configuration.hash == lastConfigurationHash) {
+                    null
+                } else {
+                    val encoded = CompiledCustomizationBundleCodec.toBundle(
+                        configuration,
+                        userId,
+                        experimentalMode
+                    )
+                    lastConfigurationHash = configuration.hash
+                    latestConfiguration = encoded
+                    encoded
                 }
-            }
-        } finally {
-            callbacks.finishBroadcast()
+            } ?: return
+            broadcastConfiguration(bundle)
         }
     }
 
-    @Synchronized
     fun refreshVisibleState() {
-        val current = latestMessage as? AodStateWireMessage.Snapshot ?: return
-        val updatedAt = SystemClock.elapsedRealtime()
-        val refreshed = refreshAodStateWireSnapshot(current, updatedAt)
-        latestMessage = refreshed
-        val republish = shouldRepublishFullSnapshot(updatedAt, lastFullPublishAtElapsedMs)
-        val message: AodStateWireMessage = if (republish) refreshed else AodStateWireMessage.KeepAlive(
-            revision = current.revision,
-            userId = current.userId,
-            updatedAtElapsedMs = updatedAt,
-            keepAlive = current.keepAlive,
-            wakeSignal = current.wakeSignal,
-            playbackActive = current.playbackActive,
-            pauseRetentionEligible = current.pauseRetentionEligible
-        )
-        val envelope = AodStateWireCodec.encode(message) ?: return
-        if (republish) lastFullPublishAtElapsedMs = updatedAt
-        broadcast(AodStateWireBundleCodec.toBundle(envelope))
+        synchronized(deliveryLock) {
+            val payload: Bundle? = synchronized(stateLock) {
+                val current = latestMessage as? AodStateWireMessage.Snapshot
+                if (current == null) {
+                    null
+                } else {
+                    val updatedAt = SystemClock.elapsedRealtime()
+                    val refreshed = refreshAodStateWireSnapshot(current, updatedAt)
+                    latestMessage = refreshed
+                    val republish = shouldRepublishFullSnapshot(updatedAt, lastFullPublishAtElapsedMs)
+                    val message: AodStateWireMessage = if (republish) refreshed else AodStateWireMessage.KeepAlive(
+                        revision = current.revision,
+                        userId = current.userId,
+                        updatedAtElapsedMs = updatedAt,
+                        keepAlive = current.keepAlive,
+                        wakeSignal = current.wakeSignal,
+                        playbackActive = current.playbackActive,
+                        pauseRetentionEligible = current.pauseRetentionEligible
+                    )
+                    val envelope = AodStateWireCodec.encode(message)
+                    if (envelope == null) {
+                        null
+                    } else {
+                        if (republish) lastFullPublishAtElapsedMs = updatedAt
+                        AodStateWireBundleCodec.toBundle(envelope)
+                    }
+                }
+            } ?: return
+            broadcast(payload)
+        }
     }
 
-    @Synchronized
-    fun hasVisibleState(): Boolean = latestMessage is AodStateWireMessage.Snapshot
+    fun hasVisibleState(): Boolean = synchronized(stateLock) {
+        latestMessage is AodStateWireMessage.Snapshot
+    }
 
     private fun broadcast(state: Bundle) {
         val count = callbacks.beginBroadcast()
@@ -217,6 +253,21 @@ object AodStateBridge {
                     callbacks.getBroadcastItem(index).onState(Bundle(state))
                 } catch (error: Exception) {
                     AppLog.w(TAG, "State delivery failed", error)
+                }
+            }
+        } finally {
+            callbacks.finishBroadcast()
+        }
+    }
+
+    private fun broadcastConfiguration(configuration: Bundle) {
+        val count = callbacks.beginBroadcast()
+        try {
+            for (index in 0 until count) {
+                try {
+                    callbacks.getBroadcastItem(index).onConfiguration(Bundle(configuration))
+                } catch (error: Exception) {
+                    AppLog.w(TAG, "Configuration delivery failed", error)
                 }
             }
         } finally {
