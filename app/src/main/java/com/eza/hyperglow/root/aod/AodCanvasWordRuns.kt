@@ -12,6 +12,14 @@ internal data class AodCanvasWord(
 
 internal data class AodCanvasRuby(val start: Int, val end: Int, val reading: String)
 
+/** 布局后的词:测量宽/词距/原文区间(词行布局与逐字/音标几何共用,布局引擎输出携带)。 */
+internal data class PlacedWord(
+    val word: AodCanvasWord,
+    val width: Float,
+    val gapAfter: Float,
+    val offset: IntRange?
+)
+
 internal data class OriginalTextRun(val start: Int, val end: Int, val x: Float)
 
 internal fun originalTextRuns(

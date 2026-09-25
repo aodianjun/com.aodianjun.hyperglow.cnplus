@@ -43,6 +43,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
   contract").
 - Real-device `custom`/`noto-sc` typeface rendering through the unified `LyricTypefaceResolver`
   path (preview-device font unification) — pending a hardware smoke check after merge.
+- Line breaking/row metrics after the shared `LyricLayoutEngine` extraction (verbatim algorithm
+  move) — pending a hardware smoke check of lyric wrapping/line spacing after merge.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -95,6 +97,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 
 - AOD 上逐帧 60 FPS 动画（`docs/ARCHITECTURE.md`："remains unverified and is not a contract"）。
 - 实机 `custom`/`noto-sc` 字体经统一 `LyricTypefaceResolver` 路径渲染（预览/实机字体同源）——合并后待真机冒烟确认。
+- 共享 `LyricLayoutEngine` 抽取后的断行/行距（算法逐字迁移）——合并后待真机冒烟歌词折行与行距无回归。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.SystemClock
@@ -1035,7 +1034,7 @@ internal class AodLyricCanvasView(
         }
         if (content.original.isNotBlank()) {
             val metrics = originalPaint.fontMetrics
-            val lineHeight = metrics.descent - metrics.ascent + 2f * density
+            val lineHeight = metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density
             rows += Row(
                 RowKind.ORIGINAL,
                 content.original,
@@ -1046,7 +1045,7 @@ internal class AodLyricCanvasView(
                     originalLayout.rubyHeight,
                     originalLayout.lineGap
                 ),
-                8f * density,
+                ROW_GAP_BEFORE_ORIGINAL_DP * density,
                 emptyList(),
                 lineHeight
             )
@@ -1056,14 +1055,14 @@ internal class AodLyricCanvasView(
         if (showReading && content.romanized.isNotBlank()) {
             val lines = transliterationLines(originalLayout)
                 ?: wrapSecondaryText(content.romanized, romanizedPaint, originalLayout.lineCount)
-            rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, 2f * density, lines)
+            rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, ROW_GAP_BEFORE_SECONDARY_DP * density, lines)
         }
         if (showTranslation && content.translated.isNotBlank()) {
             rows += rowWithLines(
                 RowKind.TRANSLATED,
                 content.translated,
                 translatedPaint,
-                2f * density,
+                ROW_GAP_BEFORE_SECONDARY_DP * density,
                 wrapSecondaryText(content.translated, translatedPaint, originalLayout.lineCount)
             )
         }
@@ -1072,7 +1071,7 @@ internal class AodLyricCanvasView(
                 RowKind.NEXT_LINE,
                 content.nextLine,
                 nextLinePaint,
-                4f * density,
+                ROW_GAP_BEFORE_NEXT_LINE_DP * density,
                 wrapSecondaryText(content.nextLine, nextLinePaint, 1)
             )
         }
@@ -1123,12 +1122,12 @@ internal class AodLyricCanvasView(
                 padBottom.toFloat(),
                 metadata.paint.fontMetrics.ascent,
                 metadata.paint.fontMetrics.descent,
-                10f * density
+                METADATA_LYRIC_GAP_DP * density
             )
             val metadataBaseline = metadataBounds.metadataBaseline
             positioned += PositionedRow(metadata, metadataBaseline, false)
             val lyricRows = rows.filterNot { it.kind == RowKind.METADATA }
-            val gap = 10f * density
+            val gap = METADATA_LYRIC_GAP_DP * density
             // 元数据被换行成多行时，其实际占高超过单行基线；歌词起点需按多出的高度避让。
             val metadataExtraHeight = (metadata.lines.size - 1).coerceAtLeast(0) *
                 metadata.lineHeight
@@ -1612,150 +1611,29 @@ internal class AodLyricCanvasView(
     }
 
     private fun buildOriginalLayout(): OriginalLayout {
-        val words = coalesceRubyWords(
-            content.original,
-            content.words.filter { it.text.isNotBlank() },
-            content.ruby
+        // 换行/词行布局统一委托 LyricLayoutEngine(与预览同源,断行一致)。
+        val layout = layoutOriginalLines(
+            original = content.original,
+            words = content.words,
+            ruby = content.ruby,
+            layoutGroups = content.layoutGroups,
+            paint = originalPaint,
+            availableWidth = (ow - padLeft - padRight).coerceAtLeast(1).toFloat(),
+            lineLimit = content.lyricLineLimit,
+            wordGapPx = LYRIC_WORD_GAP_DP * density,
+            wrap = content.overflowMode == "Wrap",
+            adaptiveSectioning = content.adaptiveSectioning
         )
-        val lines = if (words.isEmpty()) {
-            if (content.adaptiveSectioning) layoutTextByGroups()
-            else wrapText(content.original, originalPaint)
-        } else {
-            layoutWordLines(words, 8f * density)
+        val lines = layout.lines.map {
+            originalLine(it.text, it.width, it.charStart, it.charEnd).copy(words = it.words)
         }
         val metrics = originalPaint.fontMetrics
         return OriginalLayout(
             assignRuby(lines),
-            metrics.descent - metrics.ascent + 2f * density,
-            ORIGINAL_LINE_GAP_DP * density,
-            words.isNotEmpty()
+            metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density,
+            LYRIC_LINE_GAP_DP * density,
+            layout.timed
         )
-    }
-
-    private fun layoutTextByGroups(): List<OriginalLine> {
-        val ranges = coveredLayoutRanges(content.original, content.layoutGroups)
-        if (ranges.isEmpty()) return wrapText(content.original, originalPaint)
-        val synthetic = ranges.mapIndexed { index, range ->
-            val nextStart = ranges.getOrNull(index + 1)?.first ?: range.last + 1
-            val boundaryAfter = index < ranges.lastIndex && content.original
-                .substring(range.last + 1, nextStart).any { it.isWhitespace() }
-            AodCanvasWord(
-                content.original.substring(range.first, range.last + 1),
-                "",
-                0L,
-                0L,
-                boundaryAfter,
-                range.first,
-                range.last + 1
-            )
-        }
-        return layoutWordLines(synthetic, 8f * density)
-    }
-
-    private fun layoutWordLines(words: List<AodCanvasWord>, gap: Float): List<OriginalLine> {
-        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
-        val maxLines = lyricLayoutLineLimit(words.size)
-        val offsets = wordOffsets(words)
-        val placed = words.mapIndexed { index, word ->
-            val wordWidth = originalPaint.measureText(word.text)
-            val gapAfter = if (index == words.lastIndex) {
-                0f
-            } else {
-                authoredWordSeparator(content.original, word, words[index + 1])
-                    ?.let(originalPaint::measureText)
-                    ?: aodWordGapAfter(word.boundaryAfter, gap)
-            }
-            PlacedWord(word, wordWidth, gapAfter, offsets[index])
-        }
-        if (content.overflowMode != "Wrap") {
-            return listOf(wordLine(placed))
-        }
-        if (!content.adaptiveSectioning) {
-            return legacyAttachedWordLineRanges(
-                words,
-                placed.map(PlacedWord::width),
-                placed.map(PlacedWord::gapAfter),
-                available,
-                maxLines
-            ).map { range ->
-                val lineWords = range.map(placed::get)
-                wordLine(lineWords)
-            }
-        }
-        val groupIds = lexicalGroupIds(offsets, content.layoutGroups)
-        val chunks = ArrayList<List<PlacedWord>>()
-        var index = 0
-        while (index < placed.size) {
-            val groupId = groupIds[index]
-            var end = index + 1
-            if (groupId != null) while (end < placed.size && groupIds[end] == groupId) end++
-            val chunk = placed.subList(index, end)
-            val chunkWidth = chunk.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
-            if (chunkWidth > available && chunk.size > 1) chunk.forEach { chunks += listOf(it) }
-            else chunks += chunk.toList()
-            index = end
-        }
-        val chunkWidths = chunks.map { chunk ->
-            chunk.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
-        }
-        val lines = balancedChunkRanges(chunkWidths, available, maxLines).map { range ->
-            val lineWords = range.flatMap { chunks[it] }
-            wordLine(lineWords)
-        }
-        return lines.ifEmpty { listOf(originalLine("", 0f, null, null)) }
-    }
-
-    private fun wordLine(words: List<PlacedWord>): OriginalLine {
-        val mapped = words.mapNotNull { word -> word.offset?.let { it.first to it.last + 1 } }
-        val offsets = mapped.takeIf { it.size == words.size }
-        val start = offsets?.minOf { it.first }
-        val end = offsets?.maxOf { it.second }
-        val text = if (start != null && end != null && start >= 0 && end <= content.original.length) {
-            content.original.substring(start, end)
-        } else {
-            buildString {
-                words.forEachIndexed { index, placed ->
-                    append(placed.word.text)
-                    if (index < words.lastIndex && placed.gapAfter > 0f) append(' ')
-                }
-            }
-        }
-        val width = words.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat() -
-            (words.lastOrNull()?.gapAfter ?: 0f)
-        return originalLine(
-            text,
-            width,
-            start,
-            end
-        )
-            .copy(words = words)
-    }
-
-    private fun wrapText(text: String, paint: Paint): List<OriginalLine> {
-        if (text.isBlank()) return emptyList()
-        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
-        if (content.overflowMode != "Wrap") {
-            return listOf(originalLine(text, paint.measureText(text), 0, text.length))
-        }
-        val maxLines = lyricLayoutLineLimit()
-        val lines = ArrayList<OriginalLine>(maxLines)
-        var remaining = text
-        var charStart = 0
-        while (remaining.isNotEmpty() && lines.size < maxLines) {
-            val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-            // CJK 避头尾(issue #68 #2):断点落在禁则字符上时回退;整段放得下的末行不调。
-            val fitEnd = charStart + count
-            val breakEnd = if (fitEnd < text.length) {
-                adjustForCjkLineBreak(text, charStart, fitEnd, text.length)
-            } else {
-                fitEnd
-            }
-            val line = text.substring(charStart, breakEnd)
-            lines += originalLine(line, paint.measureText(line), charStart, breakEnd)
-            remaining = text.substring(breakEnd)
-            charStart = breakEnd
-        }
-        return lines
     }
 
     private fun lyricLayoutLineLimit(wordCount: Int = content.words.size): Int =
@@ -1788,7 +1666,7 @@ internal class AodLyricCanvasView(
         return secondaryTimedVisualRanges(
             segments,
             available,
-            MAX_SECONDARY_LINES,
+            MAX_SECONDARY_LAYOUT_LINES,
             wrap = content.adaptiveSectioning && content.overflowMode == "Wrap"
         ).map { range ->
             val lineSegments = range.map(segments::get).mapIndexed { index, segment ->
@@ -1805,97 +1683,27 @@ internal class AodLyricCanvasView(
         }
     }
 
-    private fun wrapSecondaryText(text: String, paint: Paint, preferredLines: Int): List<TextLine> {
-        if (!content.adaptiveSectioning || content.overflowMode != "Wrap") {
-            return listOf(textLine(text, paint.measureText(text), paint))
-        }
-        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
-        val tokens = secondaryTokens(text).flatMap { token ->
-            if (paint.measureText(token) <= available) {
-                listOf(token)
-            } else {
-                val pieces = ArrayList<String>()
-                var remaining = token
-                while (remaining.isNotEmpty()) {
-                    val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-                    // CJK 避头尾(issue #68 #2):次级文本超宽 token 的切片同样不走禁则断点。
-                    val breakEnd = if (count < remaining.length) {
-                        adjustForCjkLineBreak(remaining, 0, count, remaining.length)
-                    } else {
-                        count
-                    }
-                    pieces += remaining.take(breakEnd)
-                    remaining = remaining.drop(breakEnd)
-                }
-                pieces
-            }
-        }
-        if (tokens.isEmpty()) return emptyList()
-        val maxLines = if (paint.measureText(text) > available) {
-            maxOf(preferredLines, MAX_SECONDARY_LINES)
-        } else {
-            preferredLines
-        }.coerceIn(1, MAX_SECONDARY_LINES)
-        return balancedTokenLineTexts(
-            tokens,
-            tokens.map(paint::measureText),
-            paint.measureText(" "),
-            available,
-            maxLines
-        ).map { line -> textLine(line, paint.measureText(line), paint) }
-    }
+    private fun wrapSecondaryText(text: String, paint: Paint, preferredLines: Int): List<TextLine> =
+        // 换行统一委托 LyricLayoutEngine(与预览同源);定位 X 仍由 textLine 按实机几何解析。
+        layoutSecondaryLines(
+            text = text,
+            paint = paint,
+            availableWidth = (ow - padLeft - padRight).coerceAtLeast(1).toFloat(),
+            preferredLines = preferredLines,
+            wrap = content.overflowMode == "Wrap",
+            adaptiveSectioning = content.adaptiveSectioning
+        ).map { textLine(it.text, it.width, paint) }
 
     /**
-     * 歌曲信息（歌名/歌手）专用换行：只要单行超出可用宽度就自动换行，最多
-     * [MAX_SECONDARY_LINES] 行（不受歌词 sectioning/overflow 偏好门控，与歌词换行解耦）。
+     * 歌曲信息（歌名/歌手）专用换行：委托 LyricLayoutEngine.layoutMetadataLines
+     * (与预览同源,最多 MAX_SECONDARY_LAYOUT_LINES 行);定位 X 按 metadata 对齐解析。
      */
-    private fun wrapMetadataText(text: String, paint: Paint): List<TextLine> {
-        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
-        // 歌名/歌手已由投影层按行拆分:保留这些硬换行作为独立行,仅对其中仍超宽的行做 token 换行。
-        val segments = text.split('\n', '·')
-        val out = ArrayList<TextLine>()
-        for (segment in segments) {
-            val clean = segment.trim()
-            if (clean.isEmpty()) continue
-            if (out.size >= MAX_SECONDARY_LINES) break
-            if (paint.measureText(clean) <= available) {
-                out += textLine(clean, paint.measureText(clean), paint, alignmentFor(RowKind.METADATA))
-                continue
-            }
-            val tokens = secondaryTokens(clean).flatMap { token ->
-                if (paint.measureText(token) <= available) {
-                    listOf(token)
-                } else {
-                    val pieces = ArrayList<String>()
-                    var remaining = token
-                    while (remaining.isNotEmpty()) {
-                        val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-                        // CJK 避头尾(issue #68 #2):元数据超宽 token 的切片同样不走禁则断点。
-                        val breakEnd = if (count < remaining.length) {
-                            adjustForCjkLineBreak(remaining, 0, count, remaining.length)
-                        } else {
-                            count
-                        }
-                        pieces += remaining.take(breakEnd)
-                        remaining = remaining.drop(breakEnd)
-                    }
-                    pieces
-                }
-            }
-            if (tokens.isEmpty()) continue
-            val wrapped = balancedTokenLineTexts(
-                tokens,
-                tokens.map(paint::measureText),
-                paint.measureText(" "),
-                available,
-                (MAX_SECONDARY_LINES - out.size).coerceAtLeast(1)
-            )
-            out += wrapped.map { line ->
-                textLine(line, paint.measureText(line), paint, alignmentFor(RowKind.METADATA))
-            }
-        }
-        return out
-    }
+    private fun wrapMetadataText(text: String, paint: Paint): List<TextLine> =
+        layoutMetadataLines(
+            text = text,
+            paint = paint,
+            availableWidth = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
+        ).map { textLine(it.text, it.width, paint, alignmentFor(RowKind.METADATA)) }
 
     private fun textLine(
         text: String,
@@ -1918,9 +1726,6 @@ internal class AodLyricCanvasView(
             charEnd
         )
     }
-
-    private fun wordOffsets(words: List<AodCanvasWord>): List<IntRange?> =
-        words.map { transportedWordOffset(content.original, it) }
 
     private fun assignRuby(lines: List<OriginalLine>): List<OriginalLine> = lines.map { line ->
         val lineStart = line.charStart
@@ -2110,13 +1915,6 @@ internal class AodLyricCanvasView(
         safetyInset = if (lineAlignment == Alignment.END) END_EDGE_SAFETY_DP * density else 0f
     )
 
-    private fun visualExtents(text: String, paint: Paint, advanceWidth: Float): Pair<Float, Float> {
-        if (text.isEmpty()) return 0f to advanceWidth
-        val bounds = Rect()
-        paint.getTextBounds(text, 0, text.length, bounds)
-        return minOf(0f, bounds.left.toFloat()) to maxOf(advanceWidth, bounds.right.toFloat())
-    }
-
     private fun projectedPosition(): Long {
         val elapsed = (SystemClock.elapsedRealtime() - content.sampledAtElapsedMs).coerceAtLeast(0L)
         return content.positionMs + (elapsed * content.speed).toLong()
@@ -2236,12 +2034,6 @@ internal class AodLyricCanvasView(
         val lines: List<TextLine>,
         val lineHeight: Float
     )
-    private data class PlacedWord(
-        val word: AodCanvasWord,
-        val width: Float,
-        val gapAfter: Float,
-        val offset: IntRange?
-    )
     private data class OriginalLine(
         val text: String,
         val words: List<PlacedWord>,
@@ -2305,11 +2097,8 @@ internal class AodLyricCanvasView(
     )
 
     companion object {
-        private const val MAX_SECONDARY_LINES = 2
         private const val ENTER_TRANSITION_MS = 210L
         private const val EXIT_TRANSITION_MS = 130L
-        private const val ORIGINAL_LINE_GAP_DP = 4f
-        private const val END_EDGE_SAFETY_DP = 4f
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_HALO_ALPHA = 235
