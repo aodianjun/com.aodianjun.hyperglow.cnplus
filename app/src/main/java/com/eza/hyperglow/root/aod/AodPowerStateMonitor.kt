@@ -51,8 +51,9 @@ internal object AodPowerStateMonitor {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // 热状态用 30s 有界重读而非推送监听:低频后台读一次 currentThermalStatus 的开销
-    // 可忽略,而电量广播只覆盖电池事件、不含温控事件。
-    private val thermalRecheck = Runnable {
+    // 可忽略,而电量广播只覆盖电池事件、不含温控事件。显式 Runnable 类型:
+    // runnable 自引用 postDelayed,不标注会让类型推断递归。
+    private val thermalRecheck: Runnable = Runnable {
         val app = appContext
         if (app != null) {
             val powerManager = app.getSystemService(Context.POWER_SERVICE) as? PowerManager
