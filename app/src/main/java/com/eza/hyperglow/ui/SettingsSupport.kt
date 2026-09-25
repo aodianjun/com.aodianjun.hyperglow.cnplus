@@ -236,3 +236,13 @@ internal val KEEP_AWAKE_DURATIONS = listOf(
 internal val PAUSE_LINGER_OPTIONS = listOf(0L, 5_000L, 10_000L, 30_000L, -1L)
 
 internal val BURN_IN_INTERVALS = listOf(30_000L, 60_000L, 120_000L, 300_000L)
+
+/** 渲染刷新率上限档(issue #68 #12):0=跟随默认;60/90/120=可选上限。 */
+internal val AOD_REFRESH_RATE_CAPS = listOf(0, 60, 90, 120)
+
+internal fun aodRefreshRateCapLabel(context: android.content.Context, value: Int): String =
+    if (value <= 0) {
+        context.getString(R.string.refresh_rate_cap_follow)
+    } else {
+        context.getString(R.string.refresh_rate_cap_hz, value)
+    }

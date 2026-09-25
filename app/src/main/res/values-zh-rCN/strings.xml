@@ -167,6 +167,9 @@
     <string name="setting_movement_interval">移动间隔</string>
     <string name="setting_aod_brightness_boost">息屏亮度增强</string>
     <string name="summary_aod_brightness_boost">歌词显示时把过低的息屏亮度提升至可读级别。关闭后保持系统原本的超低息屏亮度（歌词可能难以看清）。</string>
+    <string name="setting_aod_refresh_rate_cap">渲染刷新率上限</string>
+    <string name="refresh_rate_cap_follow">跟随默认 (60 fps)</string>
+    <string name="refresh_rate_cap_hz">%1$d Hz</string>
     <string name="setting_aod_brightness_custom">自定义亮度</string>
     <string name="summary_aod_brightness_custom_off">关闭:按场景自动把息屏亮度提升到可读级别。</string>
     <string name="summary_aod_brightness_custom_on">开启:息屏歌词使用固定的自定义亮度。用下方滑块调节。</string>
