@@ -200,7 +200,6 @@ internal class AodLyricCanvasView(
     }
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
-    private val typefaceCache = HashMap<TypefaceKey, Typeface>(3)
     private var sceneActive = false
     private var aggregatedVisible = false
     private val cadenceGate = EffectiveCadenceGate()
@@ -2222,31 +2221,10 @@ internal class AodLyricCanvasView(
         isSubpixelText = true
     }
 
-    private fun resolveTypeface(family: String, weight: String): Typeface {
-        val key = TypefaceKey(family, weight)
-        typefaceCache[key]?.let { return it }
-        val asset = if (family == "noto") {
-            "fonts/NotoSans-" + when (weight) {
-                "Bold" -> "Bold"
-                "Medium" -> "Medium"
-                else -> "Regular"
-            } + ".ttf"
-        } else if (family == "apple") {
-            if (weight == "Regular") "fonts/lyrics_medium.ttf" else "fonts/sf-pro-display-bold.ttf"
-        } else if (weight == "Bold") {
-            "fonts/sf-pro-display-bold.ttf"
-        } else {
-            "fonts/spotifymix-medium.ttf"
-        }
-        val typeface = runCatching {
-            Typeface.createFromAsset(fontContext?.assets ?: context.assets, asset)
-        }.getOrElse {
-            val fallback = if (family == "apple") "sans-serif" else "sans-serif-medium"
-            Typeface.create(fallback, if (weight == "Bold") Typeface.BOLD else Typeface.NORMAL)
-        }
-        typefaceCache[key] = typeface
-        return typeface
-    }
+    // 字体解析与预览同源:统一委托 LyricTypefaceResolver(支持 custom/noto-sc/自定义 provider),
+    // 消除"预览用 LyricTypefaceResolver、实机用内联 asset 映射"的双路径漂移。
+    private fun resolveTypeface(family: String, weight: String): Typeface =
+        LyricTypefaceResolver.resolve(fontContext ?: context, family, weight)
 
     private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE }
     private data class Row(
@@ -2325,7 +2303,6 @@ internal class AodLyricCanvasView(
         val rows: List<PositionedRow>,
         val original: OriginalLayout
     )
-    private data class TypefaceKey(val family: String, val weight: String)
 
     companion object {
         private const val MAX_SECONDARY_LINES = 2
