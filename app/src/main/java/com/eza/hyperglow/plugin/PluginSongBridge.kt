@@ -125,29 +125,35 @@ object PluginSongBridge {
 
         var enriched = state
         if (PluginLyricField.TEXT in patched.changedLyricFields) {
-            enriched = enriched.copy(line = active.text ?: "")
+            enriched = enriched.copy(line = keepUnlessBlank(active.text, enriched.line))
         }
         if (PluginLyricField.TRANSLATION in patched.changedLyricFields) {
-            enriched = enriched.copy(translatedLine = active.translation.orEmpty())
-        }
-        if (PluginLyricField.ROMA in patched.changedLyricFields) {
-            enriched = enriched.copy(romanizedLine = active.roma.orEmpty())
-        }
-        if (PluginLyricField.WORDS in patched.changedLyricFields) {
             enriched = enriched.copy(
-                words = active.words?.map { word ->
-                    LyricWord(
-                        text = word.text.orEmpty(),
-                        romanized = "",
-                        startMs = word.begin,
-                        endMs = word.end,
-                        boundaryAfter = true
-                    )
-                }
+                translatedLine = keepUnlessBlank(active.translation, enriched.translatedLine)
             )
         }
+        if (PluginLyricField.ROMA in patched.changedLyricFields) {
+            enriched = enriched.copy(
+                romanizedLine = keepUnlessBlank(active.roma, enriched.romanizedLine)
+            )
+        }
+        if (PluginLyricField.WORDS in patched.changedLyricFields) {
+            val patchedWords = active.words?.map { word ->
+                LyricWord(
+                    text = word.text.orEmpty(),
+                    romanized = "",
+                    startMs = word.begin,
+                    endMs = word.end,
+                    boundaryAfter = true
+                )
+            }?.takeIf { it.isNotEmpty() }
+            // 空词表不覆盖生产者词级时间轴:逐字卡拉OK会因此整体失效。
+            if (patchedWords != null) enriched = enriched.copy(words = patchedWords)
+        }
         if (PluginLyricField.TEXT in patched.changedLyricFields) {
-            enriched = enriched.copy(nextLine = nextLeadText(rows, active) ?: "")
+            enriched = enriched.copy(
+                nextLine = keepUnlessBlank(nextLeadText(rows, active), enriched.nextLine)
+            )
         }
         if (PluginSongField.NAME in patched.changedSongFields) {
             enriched = enriched.copy(title = patched.song.name ?: state.title)
@@ -183,6 +189,13 @@ object PluginSongBridge {
         }
         return candidates.minByOrNull { it.begin }?.text
     }
+
+    /**
+     * 插件侧空内容不覆盖非空生产者值。回向是"用插件结果增强显示"，不是"用插件结果替换
+     * 显示"：插件缺字段、输出空行或快照只聚合到半截时抹掉正在显示的歌词 = AOD 歌词消失。
+     */
+    private fun keepUnlessBlank(pluginValue: String?, producerValue: String): String =
+        pluginValue?.takeIf { it.isNotBlank() } ?: producerValue
 
     fun sessionKey(state: LyricProducerState): String =
         "${state.producerId}:${state.generation}:${state.trackUri}"

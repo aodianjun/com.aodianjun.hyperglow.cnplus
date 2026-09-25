@@ -733,6 +733,49 @@ private fun String.isWellFormedUtf16(): Boolean {
     return true
 }
 
+/**
+ * 孤立代理项替换为 U+FFFD（等长），成对代理项原样保留。
+ * [isWellFormedUtf16] 拒收任一孤立代理项，而歌词文本来自播放器/插件/JSON 解析，
+ * 无法保证良构——一个非法码点就足以让整个快照被拒收、降级为 Hidden。
+ */
+internal fun String.sanitizeUtf16(): String {
+    if (isWellFormedUtf16()) return this
+    val out = StringBuilder(length)
+    var index = 0
+    while (index < length) {
+        val current = this[index]
+        val next = if (index + 1 < length) this[index + 1] else ' '
+        when {
+            current.isHighSurrogate() && next.isLowSurrogate() -> {
+                out.append(current).append(next)
+                index += 2
+            }
+            current.isHighSurrogate() || current.isLowSurrogate() -> {
+                out.append(REPLACEMENT_CHARACTER)
+                index++
+            }
+            else -> {
+                out.append(current)
+                index++
+            }
+        }
+    }
+    return out.toString()
+}
+
+/**
+ * 文本字段的 wire 规整：孤立代理项替换 → 去首尾空白 → 按 [maxChars] 截断（不切开代理对）
+ * → 截断后二次去尾空白。最后一步不可省——[isValidSnapshot] 要求各文本字段 `== trim()`，
+ * 截断落点正好停在空白上会破坏该不变量并让快照被拒收。
+ */
+internal fun String.normalizeAodWireText(maxChars: Int): String =
+    sanitizeUtf16().trim().takeUtf16Prefix(maxChars).trim()
+
+/** UTF-8 字节计数，与 [AodStateWireCodec] 校验侧的聚合预算同口径。 */
+internal fun aodUtf8Bytes(value: String): Int = value.toByteArray(Charsets.UTF_8).size
+
+private const val REPLACEMENT_CHARACTER = '\uFFFD'
+
 internal object AodStateWireBundleCodec {
     fun toBundle(envelope: AodStateWireEnvelope): Bundle = Bundle().apply {
         putInt(KEY_PROTOCOL, envelope.protocol)

@@ -291,8 +291,12 @@ internal fun encodeNormalizedAodStatePublication(
 }
 
 internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
-    val original = state.original.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS)
+    val original = state.original.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
     val trimOffset = state.original.length - state.original.trimStart().length
+    val romanized = state.romanized.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
+    val translated = state.translated.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
+    val nextLine = state.nextLine.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
+    val metadata = state.metadata.normalizeAodWireText(AodStateWireLimits.MAX_METADATA_CHARS)
     val effectiveVisible = state.visible && original.isNotEmpty()
     val baseDuration = state.durationMs.coerceIn(0L, AodStateWireLimits.MAX_MEDIA_DURATION_MS)
     val duration = if (effectiveVisible && baseDuration <= 0L) {
@@ -329,8 +333,9 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
                 if (duration > 0L) it.coerceAtMost(duration) else it
             }
             word.copy(
-                text = word.text.takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
-                romanized = word.romanized.takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
+                text = word.text.sanitizeUtf16().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
+                romanized = word.romanized.sanitizeUtf16()
+                    .takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
                 startMs = startMs,
                 endMs = word.endMs.coerceAtLeast(startMs).let {
                     if (duration > 0L) it.coerceAtMost(duration) else it
@@ -348,7 +353,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             if (end <= start) null else item.copy(
                 start = start,
                 end = end,
-                reading = item.reading.takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS)
+                reading = item.reading.sanitizeUtf16().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS)
             )
         }
         .toList()
@@ -357,13 +362,24 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         .mapNotNull { group ->
             val start = (group.start - trimOffset).coerceAtLeast(0)
             val end = (group.end - trimOffset).coerceAtMost(original.length)
-            if (end <= start) null else group.copy(
+            // 非有限置信度（NaN/±Inf）直接丢弃:coerceIn 对 NaN 不生效,
+            // 而 isValidSnapshot 会因此拒收整包(布局组是可选增强,不该连累行文本)。
+            val confidence = group.confidence.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0)
+            if (end <= start || confidence == null) null else group.copy(
                 start = start,
                 end = end,
-                kind = group.kind.takeUtf16Prefix(AodStateWireLimits.MAX_METADATA_CHARS)
+                kind = group.kind.sanitizeUtf16().takeUtf16Prefix(AodStateWireLimits.MAX_METADATA_CHARS),
+                confidence = confidence
             )
         }
         .toList()
+    val (budgetWords, budgetRuby, budgetGroups) = fitAodEnhancementBudget(
+        baseTexts = listOf(original, romanized, translated, nextLine, metadata),
+        styleTexts = styleTokens(state),
+        words = words,
+        ruby = ruby,
+        groups = layoutGroups
+    )
     return state.copy(
         visible = effectiveVisible,
         pauseRetentionEligible = state.pauseRetentionEligible &&
@@ -389,10 +405,10 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             state.aodCanvasPaddingLandscapeYPercent
         ),
         original = original,
-        romanized = state.romanized.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
-        translated = state.translated.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
-        nextLine = state.nextLine.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
-        metadata = state.metadata.trim().takeUtf16Prefix(AodStateWireLimits.MAX_METADATA_CHARS),
+        romanized = romanized,
+        translated = translated,
+        nextLine = nextLine,
+        metadata = metadata,
         lineStartMs = lineStart,
         lineEndMs = lineEnd,
         durationMs = duration,
@@ -401,9 +417,9 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         speed = state.speed.takeIf {
             it.isFinite() && it in 0f..AodStateWireLimits.MAX_PLAYBACK_SPEED
         } ?: 1f,
-        words = words,
-        ruby = ruby,
-        layoutGroups = layoutGroups,
+        words = budgetWords,
+        ruby = budgetRuby,
+        layoutGroups = budgetGroups,
         weight = normalizeAodWeight(state.weight),
         textSizeMode = normalizeAodTextSize(state.textSizeMode),
         textSizeCustom = state.textSizeCustom.coerceIn(0, 500),
@@ -529,4 +545,53 @@ internal fun trimAodSourceRange(
     val trimmedStart = (start - trimOffset).coerceAtLeast(0)
     val trimmedEnd = (end - trimOffset).coerceAtMost(trimmedTextLength)
     return if (trimmedStart < trimmedEnd) trimmedStart to trimmedEnd else -1 to -1
+}
+
+/** 快照携带的样式 token（与 [toWireMessage]/[AodStateWireCodec] 校验侧同一顺序与归一）。 */
+private fun styleTokens(state: AodDisplayState): List<String> = listOf(
+    normalizeAodBurnInPattern(state.burnInPattern),
+    normalizeAodWeight(state.weight),
+    normalizeAodTextSize(state.textSizeMode),
+    normalizeAodSecondary(state.secondaryMode),
+    normalizeAodAnimation(state.animationMode),
+    normalizeAodGlow(state.glowMode),
+    "Fluid",
+    normalizeAodLineSyncFill(state.lineSyncFillMode.trim()),
+    normalizeAodOverflow(state.overflowMode),
+    normalizeAodTransition(state.transitionMode.trim()),
+    normalizeAodFontFamily(state.fontFamily),
+    normalizeAodAlignment(state.alignmentMode),
+    normalizeAodMetadataAnchor(state.metadataAnchor)
+)
+
+/**
+ * 增强数据（词/注音/布局组）的聚合文本预算裁剪。
+ *
+ * [AodStateWireCodec] 的 isValidSnapshot 按 UTF-8 字节总额把关
+ * （[AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES]），超限直接拒收整包、静默降级为
+ * Hidden——整句歌词会因为词级数据超长而整体消失。词/注音/布局组是可选增强（STYLE_GUIDE:
+ * 可选内容按序降级），这里按校验侧同一计数顺序（行文本 → 样式 → 词 → 注音 → 布局组）
+ * 只装下最长前缀，行文本永远保留；口径与顺序必须与 isValidSnapshot 的 Utf8Budget 一致。
+ */
+private fun fitAodEnhancementBudget(
+    baseTexts: List<String>,
+    styleTexts: List<String>,
+    words: List<AodDisplayWord>,
+    ruby: List<AodDisplayRuby>,
+    groups: List<AodDisplayLayoutGroup>
+): Triple<List<AodDisplayWord>, List<AodDisplayRuby>, List<AodDisplayLayoutGroup>> {
+    var used = 0
+    fun accept(vararg values: String): Boolean {
+        var extra = 0
+        for (value in values) extra += aodUtf8Bytes(value)
+        if (used + extra > AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES) return false
+        used += extra
+        return true
+    }
+    // 行文本与样式是内容本身，必装（normalizeAodWireText 已压进各自字符上限）。
+    for (text in baseTexts + styleTexts) accept(text)
+    val keptWords = words.takeWhile { accept(it.text, it.romanized) }
+    val keptRuby = ruby.takeWhile { accept(it.reading) }
+    val keptGroups = groups.takeWhile { accept(it.kind) }
+    return Triple(keptWords, keptRuby, keptGroups)
 }

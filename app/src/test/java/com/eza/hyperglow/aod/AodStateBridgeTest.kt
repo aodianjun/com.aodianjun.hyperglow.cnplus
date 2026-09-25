@@ -108,7 +108,7 @@ class AodStateBridgeTest {
     }
 
     @Test
-    fun aggregateOverflowPublishesHiddenFailClosedRevision() {
+    fun aggregateOverflowDropsEnhancementEntriesButKeepsTheLine() {
         val normalized = normalizeAodDisplayState(
             state().copy(
                 keepAlive = true,
@@ -118,11 +118,65 @@ class AodStateBridgeTest {
             )
         )
 
+        // 词级数据是可选增强：超预算就丢弃增强条目，行文本与 KeepAlive 语义保留，
+        // 而不是让整包降级为 Hidden（那会让整句歌词消失）。
+        assertTrue(normalized.words.size < 100)
+        assertEquals("line", normalized.original)
         val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
-
-        assertTrue(publication.message is AodStateWireMessage.Hidden)
-        assertFalse(publication.message.keepAlive)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertTrue(publication.message.keepAlive)
         assertEquals(9L, publication.message.revision)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
+    fun illFormedUtf16InTextFieldsIsRepairedBeforeEncode() {
+        val highLone = "line" + 0xD800.toChar() + "tail"
+        val lowLone = 0xDC00.toChar() + "head"
+
+        val normalized = normalizeAodDisplayState(
+            state().copy(original = highLone, translated = lowLone)
+        )
+
+        // 一个非法码点曾让整包被拒收、静默降级为 Hidden；现在替换为 U+FFFD 后正常下发。
+        assertEquals("line" + 0xFFFD.toChar() + "tail", normalized.original)
+        assertEquals(0xFFFD.toChar() + "head", normalized.translated)
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
+    fun truncationLandingOnWhitespaceStillEncodes() {
+        val source = "x".repeat(AodStateWireLimits.MAX_LYRIC_CHARS - 1) + " " + "y".repeat(8)
+
+        val normalized = normalizeAodDisplayState(state().copy(original = source))
+
+        // 截断落点正好停在空白上时，takeUtf16Prefix 后必须二次 trim——
+        // 否则 original != original.trim()，快照被拒收并降级为 Hidden。
+        assertEquals("x".repeat(AodStateWireLimits.MAX_LYRIC_CHARS - 1), normalized.original)
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
+    fun nonFiniteLayoutGroupConfidenceIsDroppedInsteadOfRejecting() {
+        val normalized = normalizeAodDisplayState(
+            state().copy(
+                layoutGroups = listOf(
+                    AodDisplayLayoutGroup(0, 4, "phrase", true, Double.NaN),
+                    AodDisplayLayoutGroup(0, 4, "phrase", true, 2.5),
+                    AodDisplayLayoutGroup(0, 4, "phrase", true, 0.5)
+                )
+            )
+        )
+
+        // NaN 置信度曾让整包拒收（coerceIn 对 NaN 不生效）；非有限直接丢弃，越界钳进 [0,1]。
+        assertEquals(2, normalized.layoutGroups.size)
+        assertTrue(normalized.layoutGroups.all { it.confidence.isFinite() && it.confidence in 0.0..1.0 })
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
         assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
     }
 
