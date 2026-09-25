@@ -1,0 +1,30 @@
+{
+    "id": "com.example.hyperglow.template",
+    "name": "HyperGlow Template Plugin",
+    "nameLocales": {
+        "zh-CN": "HyperGlow 模板插件",
+        "zh-TW": "HyperGlow 範本外掛"
+    },
+    "author": "Your Name",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "entry": "com.example.hyperglow.template.TemplatePlugin",
+    "activationSettingKey": "template_enabled",
+    "settings": [
+        {
+            "type": "switch",
+            "key": "template_enabled",
+            "title": "Enable template processing",
+            "titleLocales": {
+                "zh-CN": "启用模板处理",
+                "zh-TW": "啟用範本處理"
+            },
+            "summary": "Master switch for the template lyric processor.",
+            "summaryLocales": {
+                "zh-CN": "模板歌词处理器的总开关。",
+                "zh-TW": "範本歌詞處理器的總開關。"
+            },
+            "default": false
+        }
+    ]
+}
