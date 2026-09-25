@@ -135,6 +135,15 @@ class LyricProducerArbiter(
     fun connection(source: LyricSource): StateFlow<ProducerConnection>? =
         producer(source)?.connection
 
+    /**
+     * The full-song snapshot of [source]'s producer — the plugin chain's whole-track input
+     * for non-Spicy sources. Null when the producer has no full-track data (pure line-stream
+     * sources; the host-side LineStreamAggregator substitutes for those). See
+     * [LyricProducer.fullSongSnapshot].
+     */
+    fun fullSongSnapshot(source: LyricSource): LyricSongSnapshot? =
+        producer(source)?.fullSongSnapshot()
+
     private suspend fun arbitrateLoop(context: Context) {
         // Collect both producers' connection and state, recomputing `active` on any change.
         // We re-read .value on each tick rather than combine() to keep the staleness check

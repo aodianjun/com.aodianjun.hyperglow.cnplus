@@ -2,6 +2,7 @@ package com.eza.hyperglow.plugin
 
 import com.eza.hyperglow.bridge.SpicyBridgeDocument
 import com.eza.hyperglow.producer.LyricProducerState
+import com.eza.hyperglow.producer.LyricSongSnapshot
 import com.eza.hyperglow.producer.LyricWord
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricLine
@@ -61,6 +62,45 @@ object PluginSongBridge {
                     secondary = row.romanized.ifEmpty { null },
                     translation = row.translated.ifEmpty { null },
                     roma = row.romanized.ifEmpty { null }
+                )
+            }
+        )
+
+    /**
+     * 整首快照（Lyricon/LyricInfo 直读内存行数组，或 SuperLyric 经 LineStreamAggregator
+     * 聚合）→ PluginSong。与 [fromDocument] 镜像：行角色进 metadata，回向
+     * [selectActiveRow] 复刻同一窗口语义。duration 取快照值——SuperLyric 聚合快照的
+     * 时长是已见行的最大 endMs，不受其 durationMs 字段被挪用为行结束时间的影响。
+     */
+    fun fromSnapshot(state: LyricProducerState, snapshot: LyricSongSnapshot): PluginSong =
+        PluginSong(
+            id = state.trackUri.ifEmpty { null },
+            name = state.title.ifEmpty { null },
+            artist = state.artist.ifEmpty { null },
+            album = state.album.ifEmpty { null },
+            duration = snapshot.durationMs,
+            metadata = PluginMetadata(
+                values = mapOf("producerId" to state.producerId)
+            ),
+            lyrics = snapshot.rows.map { row ->
+                PluginLyricLine(
+                    begin = row.startMs,
+                    end = row.endMs,
+                    duration = (row.endMs - row.startMs).coerceAtLeast(0L),
+                    isAlignedRight = false,
+                    metadata = PluginMetadata(values = mapOf(META_ROLE to row.role)),
+                    text = row.text,
+                    words = row.words?.takeIf { it.isNotEmpty() }?.map { word ->
+                        PluginWord(
+                            begin = word.startMs,
+                            end = word.endMs,
+                            duration = (word.endMs - word.startMs).coerceAtLeast(0L),
+                            text = word.text
+                        )
+                    },
+                    secondary = row.roma.ifEmpty { null },
+                    translation = row.translation.ifEmpty { null },
+                    roma = row.roma.ifEmpty { null }
                 )
             }
         )

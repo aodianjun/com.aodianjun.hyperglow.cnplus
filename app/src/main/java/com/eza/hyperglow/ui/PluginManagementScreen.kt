@@ -46,6 +46,7 @@ import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.plugin.PluginRuntime
 import com.eza.hyperglow.plugin.PluginSettingsStore
 import com.eza.hyperglow.plugin.PluginSettingData
+import com.eza.hyperglow.producer.LyricSource
 import com.lidesheng.hyperlyric.plugin.api.PluginSettingInputType
 import com.lidesheng.hyperlyric.plugin.api.PluginSettingType
 import kotlinx.coroutines.Dispatchers
@@ -90,10 +91,11 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
     }
     var openSettingsPluginId by remember { mutableStateOf<String?>(null) }
     var uninstallPluginId by remember { mutableStateOf<String?>(null) }
-    // 管线输入状态(与 PluginPipeline.maybeProcess 同源):总开关开启时向用户解释
-    // 「为什么配好了插件却没有动静」——逐行源没有整首文档,v1 不进插件链。
+    // 管线输入状态(与 PluginPipeline.maybeProcess 同源):Spicy 源按文档状态提示,
+    // 逐行源(Lyricon/SuperLyric/LyricInfo)已接入插件链,固定显示接入提示。
     val activeProducerState by collectActiveState()
     val spicyDocument by SpicyBridgeDocumentStore.state.collectAsState()
+    val activeSource by collectActiveSource()
 
     fun refresh() {
         plugins = PluginRuntime.installed()
@@ -187,36 +189,41 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
                         summary = stringResource(R.string.summary_plugin_action_install),
                         onClick = { pickPluginZip() }
                     )
-                    val inputState = PluginPipeline.pipelineInputState(
-                        activeProducerState, spicyDocument
-                    )
-                    if (processingEnabled && plugins.isNotEmpty() &&
-                        inputState != PluginPipeline.PipelineInputState.IDLE_NO_SOURCE
-                    ) {
-                        val statusText: String? = when (inputState) {
-                            PluginPipeline.PipelineInputState.IDLE_NO_DOCUMENT ->
-                                stringResource(
-                                    R.string.plugin_pipeline_status_no_document,
-                                    activeProducerState?.producerId ?: ""
-                                )
-                            PluginPipeline.PipelineInputState.SOURCE_MISMATCH ->
-                                stringResource(R.string.plugin_pipeline_status_mismatch)
-                            PluginPipeline.PipelineInputState.READY ->
-                                stringResource(
-                                    R.string.plugin_pipeline_status_ready,
-                                    spicyDocument?.rows?.size ?: 0
-                                )
-                            PluginPipeline.PipelineInputState.IDLE_NO_SOURCE -> null
-                        }
-                        if (statusText != null) {
-                            Text(
-                                text = statusText,
-                                fontSize = 13.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
-                                modifier = Modifier
-                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                    val activeState = activeProducerState
+                    val statusText: String? = when {
+                        !processingEnabled || plugins.isEmpty() || activeState == null -> null
+                        // Spicy 源沿用文档状态;逐行源已接入插件链(v2),固定显示接入提示。
+                        activeSource == LyricSource.SPICY -> {
+                            val inputState = PluginPipeline.pipelineInputState(
+                                activeState, spicyDocument
                             )
+                            when (inputState) {
+                                PluginPipeline.PipelineInputState.IDLE_NO_DOCUMENT ->
+                                    stringResource(
+                                        R.string.plugin_pipeline_status_no_document,
+                                        activeState.producerId
+                                    )
+                                PluginPipeline.PipelineInputState.SOURCE_MISMATCH ->
+                                    stringResource(R.string.plugin_pipeline_status_mismatch)
+                                PluginPipeline.PipelineInputState.READY ->
+                                    stringResource(
+                                        R.string.plugin_pipeline_status_ready,
+                                        spicyDocument?.rows?.size ?: 0
+                                    )
+                                PluginPipeline.PipelineInputState.IDLE_NO_SOURCE -> null
+                            }
                         }
+                        else ->
+                            stringResource(R.string.plugin_pipeline_status_line_stream)
+                    }
+                    if (statusText != null) {
+                        Text(
+                            text = statusText,
+                            fontSize = 13.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+                            modifier = Modifier
+                                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                        )
                     }
                 }
             }
