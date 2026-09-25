@@ -15,6 +15,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -49,13 +51,11 @@ object PluginPipeline {
             if (appContext === app) return
             appContext = app
             PluginRuntime.bootstrap(app)
+            // 两个源流合并进单个 collector：maybeProcess 的去重检查与链调度构成临界区，
+            // 之前两个并行 collector（Dispatchers.Default）会交错通过去重检查、重复跑链。
             collector = scope.launch {
-                launch {
-                    LyricProducers.arbiter.active.collect { maybeProcess() }
-                }
-                launch {
-                    SpicyBridgeDocumentStore.state.collect { maybeProcess() }
-                }
+                merge(LyricProducers.arbiter.active, SpicyBridgeDocumentStore.state)
+                    .collect { maybeProcess() }
             }
             AppLog.i(TAG, "pipeline started: observing arbiter.active + SpicyBridgeDocumentStore")
         }
@@ -82,6 +82,7 @@ object PluginPipeline {
     }
 
     /** 总开关关闭或插件全部卸载时清空缓存，让富化立即回到透传。 */
+    @Synchronized
     fun invalidate() {
         val hadPatch = patched != null
         chainJob?.cancel()
@@ -93,6 +94,10 @@ object PluginPipeline {
         AppLog.i(TAG, "invalidate: cleared patched cache (hadPatch=$hadPatch)")
     }
 
+    // @Synchronized 串行化"去重检查 + 取消旧链 + 调度新链"临界区：collector（合并后单协程）
+    // 与 requestProcess()（设置页 UI 线程）可能并发进入。临界区内只有 StateFlow 读和
+    // launch，无 Binder 调用、无阻塞，持锁时间可忽略。
+    @Synchronized
     private fun maybeProcess() {
         if (appContext == null) return
         if (!processingEnabled()) {
@@ -145,6 +150,12 @@ object PluginPipeline {
                 null
             }
             val elapsedMs = SystemClock.elapsedRealtime() - startedAtMs
+            // processChain 返回后被取代/invalidate 取消的窗口：丢弃过期结果，
+            // 避免覆盖新会话的 patched（或 invalidate 刚清空的状态）。
+            if (!isActive) {
+                AppLog.i(TAG, "chain result discarded for $sessionKey (superseded)")
+                return@launch
+            }
             patched = result
             if (result != null) {
                 AppLog.i(

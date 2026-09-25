@@ -220,6 +220,10 @@ class LyricProducerArbiter(
     /**
      * 返回一个已连接、非 stale 且带词级时间戳的源的状态；多个命中时按 enum 顺序取最早
      * （SuperLyric 优先于 lyricinfo）。无则返回 null。
+     *
+     * 注意：与首选/fallback 路径不同，这里刻意不对暂停态豁免 stale。升级会用另一个源的
+     * 状态替换仍然健康的首选源——暂停+stale 的词级状态可能属于另一首（更旧的）歌，
+     * 豁免会把正在播放的行级歌词换成冻结的旧歌词。
      */
     private fun timedState(): LyricProducerState? =
         LyricSource.entries.firstNotNullOfOrNull { source ->
@@ -273,6 +277,29 @@ class LyricProducerArbiter(
             )
             return otherState
         }
+        // Second pass: no live source found. A connected producer whose state is stale only
+        // because it is PAUSED still holds a valid frozen lyric (same rationale as the
+        // preferred-path exemption in computeActiveOnce); forwarding it keeps the frozen line
+        // on screen instead of clearing AOD lyrics. Live sources always win in the first
+        // pass, so a frozen earlier-enum source can never hide an actively-playing one.
+        for (otherSource in LyricSource.entries) {
+            if (otherSource == excluded) continue
+            val other = producer(otherSource) ?: continue
+            val otherConn = other.connection.value
+            if (otherConn != ProducerConnection.CONNECTED &&
+                otherConn != ProducerConnection.RECONNECTED
+            ) {
+                continue
+            }
+            val otherState = other.state.value ?: continue
+            if (otherState.playing) continue
+            AppLog.i(
+                "LyricProducerArbiter",
+                "fallback: $otherSource paused frozen producer=${otherState.producerId} " +
+                    "gen=${otherState.generation} seq=${otherState.sequence}"
+            )
+            return otherState
+        }
         AppLog.i("LyricProducerArbiter", "fallback: no connected non-stale producer -> null")
         return null
     }
@@ -314,14 +341,23 @@ class LyricProducerArbiter(
         // Independently clear `active` if the currently-forwarded state goes stale between
         // arbitration ticks (e.g. producer stopped emitting but didn't disconnect).
         while (scope.isActive) {
-            val current = mutableActive.value
-            if (current != null && isStale(current)) {
+            if (shouldClearStaleActive(mutableActive.value)) {
                 AppLog.i("LyricProducerArbiter", "active state went stale, clearing")
                 mutableActive.value = null
             }
             delay(STALE_SWEEP_TICK_MS)
         }
     }
+
+    /**
+     * Whether the sweep should clear [current]. Paused states are exempt for the same reason
+     * as in [computeActiveOnce]: a paused producer's position flow is naturally silent, so the
+     * frozen state stays valid. Without this exemption the sweep would clear a paused frozen
+     * state that the next arbitration tick immediately re-publishes, flapping `active`
+     * null<->state on every sweep tick. Exposed for unit tests (mirrors [computeActiveOnce]).
+     */
+    internal fun shouldClearStaleActive(current: LyricProducerState?): Boolean =
+        current != null && current.playing && isStale(current)
 
     private fun producer(source: LyricSource): LyricProducer? = producers[source]
 

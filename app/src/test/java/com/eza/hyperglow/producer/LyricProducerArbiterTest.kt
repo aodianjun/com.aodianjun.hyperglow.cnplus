@@ -439,7 +439,7 @@ class LyricProducerArbiterTest {
     // --- prefer timed source: when the preferred source is line-level only, a connected
     //     non-stale source with per-word timing wins the slot. ---
 
-    private fun timedState(producerId: String, receivedAt: Long) =
+    private fun timedState(producerId: String, receivedAt: Long, playing: Boolean = true) =
         LyricProducerState(
             producerId = producerId,
             generation = 1,
@@ -449,7 +449,7 @@ class LyricProducerArbiterTest {
             title = producerId, artist = "", album = "", imageId = "",
             line = "lyric", romanizedLine = "", translatedLine = "",
             lineIndex = 0, positionMs = 0L, durationMs = 180_000L,
-            sampledAtElapsedMs = receivedAt, speed = 1f, playing = true,
+            sampledAtElapsedMs = receivedAt, speed = 1f, playing = playing,
             receivedAtElapsedMs = receivedAt,
             words = listOf(LyricWord("你", "", 100L, 200L, false)),
             renderModes = renderModes()
@@ -573,5 +573,102 @@ class LyricProducerArbiterTest {
         arbiter.setPreference(LyricSource.LYRICON)
 
         assertNull(arbiter.computeActiveOnce())
+    }
+
+    // --- Stale sweep: same pause exemption as arbitration. Before the fix the sweep cleared
+    //     a paused+stale active that arbitration immediately re-published, flapping `active`
+    //     null<->state every 500ms sweep tick. ---
+
+    @Test
+    fun staleSweep_keepsPausedFrozenState() {
+        val arbiter = LyricProducerArbiter(
+            arbiterMap(FakeProducer(LyricSource.SPICY))
+        ) { 5_000L }
+
+        assertEquals(false, arbiter.shouldClearStaleActive(state("spicy", 0L, playing = false)))
+    }
+
+    @Test
+    fun staleSweep_clearsPlayingStaleState() {
+        val arbiter = LyricProducerArbiter(
+            arbiterMap(FakeProducer(LyricSource.SPICY))
+        ) { 5_000L }
+
+        assertEquals(true, arbiter.shouldClearStaleActive(state("spicy", 0L, playing = true)))
+    }
+
+    @Test
+    fun staleSweep_keepsFreshAndNullStates() {
+        val arbiter = LyricProducerArbiter(
+            arbiterMap(FakeProducer(LyricSource.SPICY))
+        ) { 5_000L }
+
+        assertEquals(false, arbiter.shouldClearStaleActive(state("spicy", 4_500L, playing = true)))
+        assertEquals(false, arbiter.shouldClearStaleActive(null))
+    }
+
+    // --- Fallback pause exemption: two-pass. A connected paused+stale source still holds a
+    //     valid frozen lyric and beats clearing, but never beats a live source. ---
+
+    @Test
+    fun fallback_acceptsPausedFrozenSource_whenNoLiveAlternative() {
+        // Preferred disconnected; the only other source is connected but paused+stale. Its
+        // frozen lyric stays on screen instead of clearing (same rationale as the preferred
+        // path exemption).
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 0L, playing = false)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
+
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("lyricon", active?.producerId)
+        assertEquals("lyric-lyricon", active?.line)
+        assertEquals(LyricSource.LYRICON, arbiter.activeSource.value)
+    }
+
+    @Test
+    fun fallback_prefersLiveSource_overEarlierPausedFrozenSource() {
+        // LYRICON (earlier enum order) is paused+stale; SUPERLYRIC is live. The live source
+        // must win the first pass — a frozen lyric must never hide an actively-playing one.
+        val now = 5_000L
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 0L, playing = false)
+        )
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED,
+            state("superlyric", now - 500L, playing = true)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon, superLyric)) { now }
+
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("superlyric", active?.producerId)
+        assertEquals(LyricSource.SUPERLYRIC, arbiter.activeSource.value)
+    }
+
+    @Test
+    fun timedUpgrade_ignoresPausedStaleTimedSource() {
+        // Preferred LYRICINFO is healthy but line-level; SUPERLYRIC has word timing but is
+        // paused+stale (possibly a different, older song). The upgrade path deliberately
+        // stays strict: it must not swap live line-level lyrics for a frozen foreign song.
+        val now = 5_000L
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED,
+            state("lyricinfo", now, playing = true)
+        )
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED,
+            timedState("superlyric", 0L, playing = false)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricInfo, superLyric)) { now }
+        arbiter.setPreference(LyricSource.LYRICINFO)
+
+        assertEquals("lyricinfo", arbiter.computeActiveOnce()?.producerId)
+        assertEquals(LyricSource.LYRICINFO, arbiter.activeSource.value)
     }
 }
