@@ -466,6 +466,34 @@ class LyriconLyricProducer(
         }.onFailure { AppLog.w("LyriconLyricProducer", "forced resubscribe failed", it) }
     }
 
+    /**
+     * 整首歌快照：直接取内存里的排序行数组（与 TimingNavigator 同源，onSongChanged 时
+     * 已按 begin 排序），行自带真实 begin/end 与可选 translation/roma/words。trackUri 与
+     * emit() 的构造保持同一表达式，保证会话三元组校验成立。实现是纯读 + 一次映射，
+     * 管线只在新会话首次进入插件链时调用。
+     */
+    override fun fullSongSnapshot(): LyricSongSnapshot? {
+        val song = currentSong ?: return null
+        val lines = navigator?.source ?: return null
+        if (lines.isEmpty()) return null
+        return LyricSongSnapshot(
+            producerId = PRODUCER_ID,
+            generation = generation,
+            trackUri = "lyricon:${song.id ?: song.name}",
+            durationMs = song.duration,
+            rows = lines.map { line ->
+                LyricSongRow(
+                    startMs = line.begin,
+                    endMs = line.end,
+                    text = line.text.orEmpty(),
+                    translation = line.translation.orEmpty(),
+                    roma = line.roma.orEmpty(),
+                    words = line.toLyricWords()?.takeIf { it.isNotEmpty() }
+                )
+            }
+        )
+    }
+
     companion object {
         internal const val PRODUCER_ID = "lyricon"
 

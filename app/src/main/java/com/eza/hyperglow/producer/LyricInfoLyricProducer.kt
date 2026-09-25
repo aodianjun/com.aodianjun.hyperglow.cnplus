@@ -367,6 +367,34 @@ class LyricInfoLyricProducer(
         )
     }
 
+    /**
+     * 整首歌快照：timedLines（LRC/elrc 解析结果）+ translation/roma lane 按 startMs 对齐，
+     * 与 emit() 的活动行翻译匹配同一规则。纯文本歌词（timedLines 空）返回 null，自然不进
+     * 插件链。实现是纯读 + 一次映射，管线只在新会话首次进入插件链时调用。
+     */
+    override fun fullSongSnapshot(): LyricSongSnapshot? {
+        val lines = timedLines
+        if (lines.isEmpty()) return null
+        return LyricSongSnapshot(
+            producerId = PRODUCER_ID,
+            generation = generation,
+            trackUri = "lyricinfo:$title",
+            durationMs = durationMs,
+            rows = lines.map { line ->
+                LyricSongRow(
+                    startMs = line.startMs,
+                    endMs = line.endMs,
+                    text = line.text,
+                    translation = translationLines
+                        .firstOrNull { it.startMs == line.startMs }?.text.orEmpty(),
+                    roma = romaLines
+                        .firstOrNull { it.startMs == line.startMs }?.text.orEmpty(),
+                    words = line.words?.takeIf { it.isNotEmpty() }
+                )
+            }
+        )
+    }
+
     private fun emitTrack(active: ElrcParser.TimedLine?) {
         val now = clock()
         sequence++

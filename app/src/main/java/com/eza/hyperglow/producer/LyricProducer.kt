@@ -185,4 +185,13 @@ interface LyricProducer {
 
     fun start(context: Context)
     fun stop()
+
+    /**
+     * 整首歌歌词快照（插件处理链的整首输入，见 [LyricSongSnapshot]）；null = 该源没有
+     * 整首数据（纯逐行源如 SuperLyric，由宿主侧 LineStreamAggregator 聚合代替）。
+     * 快照的 producerId/generation/trackUri 必须与当前 [state] 的三元组一致。
+     * 实现注意：本方法可能被高频路径间接调用，实现应廉价（读内存数组/缓存），
+     * 复杂的解析必须在状态更新时完成。
+     */
+    fun fullSongSnapshot(): LyricSongSnapshot? = null
 }

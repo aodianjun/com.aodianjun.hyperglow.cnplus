@@ -8,14 +8,18 @@ import com.eza.hyperglow.bridge.SpicyBridgeDocument
 import com.eza.hyperglow.bridge.SpicyBridgeDocumentStore
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
+import com.eza.hyperglow.producer.LyricSongSnapshot
+import com.eza.hyperglow.producer.LyricSource
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
 import com.lidesheng.hyperlyric.plugin.api.PluginSong
 import com.lidesheng.hyperlyric.plugin.api.PluginSongField
+import com.lidesheng.hyperlyric.plugin.api.PluginLyricLine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -25,8 +29,13 @@ import kotlinx.coroutines.launch
  * 富化在 project() 内同步查表（无插件结果时原样返回，保持引擎引用相等校验），
  * 链本身在换歌时异步执行（每处理器 40s 上限，切歌取消旧任务——插件必须响应中断）。
  *
- * 数据边界：v1 只有 Spicy 路径提供整首文档（SpicyBridgeDocumentStore），
- * Lyricon/SuperLyric/LyricInfo 源暂无整首歌快照，插件不参与（透传原始状态）。
+ * 数据边界（v2）：三条输入路径汇入同一条插件链——
+ * - Spicy 整首文档（SpicyBridgeDocumentStore，v1 起有，语义不变）；
+ * - 内存持有整首行数组的生产者（Lyricon/LyricInfo）经 fullSongSnapshot 直读，每会话一次；
+ * - 纯逐行源（SuperLyric）经 [LineStreamAggregator] 边播边聚合，首行立即跑链、
+ *   之后按 [STREAM_CHAIN_MIN_INTERVAL_MS] 节流补跑（控制增量 LLM 调用频率）。
+ * 三条路径的产物统一走 [PluginSongBridge.enrichState] 富化，行内容字段覆盖、
+ * 时间轴字段保留生产者权威值。
  */
 object PluginPipeline {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -40,6 +49,19 @@ object PluginPipeline {
 
     private var processedSessionKey: String? = null
     private var processedDocument: Any? = null
+
+    /** 逐行源聚合器（SuperLyric 等无整首数据的源）。仅在 collector 协程上访问。 */
+    private val aggregator = LineStreamAggregator()
+
+    /** 上次调度的快照内容指纹（行数 + 末行 endMs），供逐行路径去重。 */
+    private var snapshotFingerprint: Pair<Int, Long>? = null
+
+    /** 本会话上次链启动时刻（SystemClock.elapsedRealtime），逐行节流窗口的基准。 */
+    private var streamLastChainStartElapsedMs = 0L
+
+    /** 链运行期间到来了新行：链完成后按节流窗口补评一次。 */
+    private var streamDirty = false
+    private var streamRetryJob: Job? = null
 
     /** 上一次记录的跳过原因；仅用于去重，避免 collector 高频回调刷屏。 */
     private var skipReason: String? = null
@@ -91,6 +113,10 @@ object PluginPipeline {
         processedSessionKey = null
         processedDocument = null
         skipReason = null
+        snapshotFingerprint = null
+        streamDirty = false
+        streamRetryJob?.cancel()
+        streamRetryJob = null
         AppLog.i(TAG, "invalidate: cleared patched cache (hadPatch=$hadPatch)")
     }
 
@@ -106,33 +132,115 @@ object PluginPipeline {
             return
         }
         val state = LyricProducers.arbiter.active.value ?: return
-        // v1 数据边界:只有 Spicy 路径有整首文档,逐行源(SuperLyric/Lyricon/LyricInfo)不进
-        // 管线。此前这里静默返回,"配好插件却毫无动静"只能读源码定位——记一次跳过原因。
-        val document = SpicyBridgeDocumentStore.state.value ?: run {
-            logSkipOnce("no spicy document; plugin chain idle for source=${state.producerId}")
+        val document = SpicyBridgeDocumentStore.state.value
+        if (document != null && documentMatches(document, state)) {
+            // Spicy 路径（v1 语义不变）：整首文档 → 插件链，按会话 + 文档身份去重。
+            val sessionKey = PluginSongBridge.sessionKey(state)
+            if (sessionKey == processedSessionKey && document === processedDocument) return
+            processedDocument = document
+            scheduleChain(state, sessionKey, document.rows.size) {
+                PluginSongBridge.fromDocument(document, state)
+            }
             return
         }
-        if (!documentMatches(document, state)) {
+        val source = LyricProducers.arbiter.activeSource.value
+        if (source == null || source == LyricSource.SPICY) {
+            // Spicy 状态但文档缺失/不匹配：文档路径的过渡态。不落入逐行路径
+            // （Spicy 的行不该进聚合器），保留 skip 日志便于现场定位。
             logSkipOnce(
-                "document/state mismatch: document=[${document.producerId} gen=${document.generation} " +
-                    "uri=${document.trackUri}] state=[${state.producerId} gen=${state.generation} " +
-                    "uri=${state.trackUri}]"
+                if (document == null) {
+                    "no spicy document; plugin chain idle for source=${state.producerId}"
+                } else {
+                    "document/state mismatch: document=[${document.producerId} " +
+                        "gen=${document.generation} uri=${document.trackUri}] " +
+                        "state=[${state.producerId} gen=${state.generation} " +
+                        "uri=${state.trackUri}]"
+                }
             )
             return
         }
-        val sessionKey = PluginSongBridge.sessionKey(state)
-        if (sessionKey == processedSessionKey && document === processedDocument) return
+        maybeProcessLineStream(state, source)
+    }
 
+    /**
+     * 逐行源（Lyricon/LyricInfo/SuperLyric）的插件链入口：
+     * - 内存里有整首行数组的生产者（Lyricon/LyricInfo）：fullSongSnapshot 直读，
+     *   每会话一次（内容指纹去重）；
+     * - 纯逐行源（SuperLyric）：聚合器累积，本会话首行立即跑链，之后按
+     *   [STREAM_CHAIN_MIN_INTERVAL_MS] 节流补跑——链运行中不重排（半截 LLM 调用
+     *   是浪费），期间到来的新行记 dirty，链完成后按剩余窗口补评。
+     */
+    private fun maybeProcessLineStream(state: LyricProducerState, source: LyricSource) {
+        val fullSnapshot = LyricProducers.arbiter.fullSongSnapshot(source)
+        if (fullSnapshot != null && fullSnapshot.matches(state)) {
+            val sessionKey = PluginSongBridge.sessionKey(state)
+            val fingerprint = fingerprintOf(fullSnapshot)
+            if (sessionKey == processedSessionKey && fingerprint == snapshotFingerprint) return
+            snapshotFingerprint = fingerprint
+            scheduleChain(state, sessionKey, fullSnapshot.rows.size) {
+                PluginSongBridge.fromSnapshot(state, fullSnapshot)
+            }
+            return
+        }
+        val accumulation = aggregator.onState(state)
+        val aggregated = accumulation.snapshot ?: return
+        if (!aggregated.matches(state)) return
+        val sessionKey = PluginSongBridge.sessionKey(state)
+        val fingerprint = fingerprintOf(aggregated)
+        if (chainJob != null) {
+            // 链运行中：不打断；新行记 dirty，链完成后按剩余节流窗口补评。
+            if (accumulation.addedNewRow) streamDirty = true
+            return
+        }
+        if (sessionKey == processedSessionKey && fingerprint == snapshotFingerprint && !streamDirty) {
+            return
+        }
+        val elapsedSinceLastChain = SystemClock.elapsedRealtime() - streamLastChainStartElapsedMs
+        if (streamLastChainStartElapsedMs != 0L &&
+            elapsedSinceLastChain < STREAM_CHAIN_MIN_INTERVAL_MS
+        ) {
+            scheduleStreamRetry(STREAM_CHAIN_MIN_INTERVAL_MS - elapsedSinceLastChain)
+            return
+        }
+        streamDirty = false
+        snapshotFingerprint = fingerprint
+        scheduleChain(state, sessionKey, aggregated.rows.size) {
+            PluginSongBridge.fromSnapshot(state, aggregated)
+        }
+    }
+
+    /** 节流窗口到点后的重评：窗口期间错过的新行在此补跑（指纹去重保证幂等）。 */
+    private fun scheduleStreamRetry(delayMs: Long) {
+        streamRetryJob?.cancel()
+        streamRetryJob = scope.launch {
+            delay(delayMs.coerceAtLeast(MIN_STREAM_RETRY_DELAY_MS))
+            streamRetryJob = null
+            val retryState = LyricProducers.arbiter.active.value ?: return@launch
+            val retrySource = LyricProducers.arbiter.activeSource.value ?: return@launch
+            if (retrySource != LyricSource.SPICY) maybeProcessLineStream(retryState, retrySource)
+        }
+    }
+
+    /**
+     * 统一的链调度：取消旧任务、登记会话、清空 patched 后异步执行插件链。会话身份里
+     * 的文档引用 / 快照指纹由调用方在调用前登记（document 身份 / snapshotFingerprint）。
+     */
+    private fun scheduleChain(
+        state: LyricProducerState,
+        sessionKey: String,
+        rowsCount: Int,
+        buildSong: () -> PluginSong
+    ) {
         chainJob?.cancel()
         processedSessionKey = sessionKey
-        processedDocument = document
         patched = null
         skipReason = null
-        AppLog.i(TAG, "chain scheduled: session=$sessionKey rows=${document.rows.size}")
+        streamLastChainStartElapsedMs = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "chain scheduled: session=$sessionKey rows=$rowsCount")
         chainJob = scope.launch {
             val startedAtMs = SystemClock.elapsedRealtime()
             val result = try {
-                val original = PluginSongBridge.fromDocument(document, state)
+                val original = buildSong()
                 val processed = PluginRuntime.processChain(
                     original,
                     PluginSongBridge.mediaInfo(state)
@@ -166,8 +274,20 @@ object PluginPipeline {
                     "chain produced no change for $sessionKey elapsed=${elapsedMs}ms (passthrough)"
                 )
             }
+            // 逐行聚合路径：链运行期间到来的新行在节流窗口后补评（文档路径 streamDirty 恒 false）。
+            if (streamDirty) {
+                streamDirty = false
+                scheduleStreamRetry(
+                    STREAM_CHAIN_MIN_INTERVAL_MS -
+                        (SystemClock.elapsedRealtime() - streamLastChainStartElapsedMs)
+                )
+            }
         }
     }
+
+    /** 快照内容指纹：行数 + 末行 endMs——足以区分「聚合器又积累了几行」。 */
+    private fun fingerprintOf(snapshot: LyricSongSnapshot): Pair<Int, Long> =
+        snapshot.rows.size to (snapshot.rows.lastOrNull()?.endMs ?: 0L)
 
     /** 只在跳过原因发生变化时记一次，避免 collector 高频回调刷屏。 */
     private fun logSkipOnce(reason: String) {
@@ -290,4 +410,13 @@ object PluginPipeline {
     }
 
     private const val TAG = "PluginPipeline"
+
+    /**
+     * 逐行聚合链的最小重跑间隔：控制增量 LLM 调用频率。插件自身的缓存扩展会去重
+     * 已翻译行，重复行成本趋近于零；若实测费用仍高，调大此值或改为偏好设置。
+     */
+    internal const val STREAM_CHAIN_MIN_INTERVAL_MS = 15_000L
+
+    /** 节流重评任务的最小延迟下限，避免 0 延迟忙转。 */
+    private const val MIN_STREAM_RETRY_DELAY_MS = 50L
 }
