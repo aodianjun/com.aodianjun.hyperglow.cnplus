@@ -126,6 +126,58 @@ class AodStateBridgeTest {
         assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
     }
 
+    @Test
+    fun zeroDurationVisibleStateFallsBackToLineTiming() {
+        val normalized = normalizeAodDisplayState(
+            state().copy(durationMs = 0L, positionMs = 500L, lineEndMs = 3_000L)
+        )
+
+        assertEquals(3_000L, normalized.durationMs)
+        assertTrue(normalized.lineEndMs <= normalized.durationMs)
+        assertTrue(normalized.positionMs <= normalized.durationMs)
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
+    fun lineEndBeyondDurationIsClampedIntoSnapshot() {
+        val normalized = normalizeAodDisplayState(
+            state().copy(lineEndMs = 9_000L)
+        )
+
+        assertEquals(2_000L, normalized.durationMs)
+        assertEquals(2_000L, normalized.lineEndMs)
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
+    fun wordTimingsBeyondDurationAreClampedIntoSnapshot() {
+        val normalized = normalizeAodDisplayState(
+            state().copy(
+                words = listOf(AodDisplayWord("a", "", 1_500L, 5_000L, false))
+            )
+        )
+
+        assertTrue(normalized.words.all { it.endMs <= normalized.durationMs })
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
+    fun hiddenStateKeepsZeroDurationNormalization() {
+        val normalized = normalizeAodDisplayState(
+            AodDisplayState(visible = false, durationMs = 0L, lineEndMs = 5_000L)
+        )
+
+        assertEquals(0L, normalized.durationMs)
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Hidden)
+    }
+
     private fun state(
         positionMs: Long = 1_000L,
         sampledAtElapsedMs: Long = 1_000L

@@ -257,6 +257,8 @@ internal fun refreshAodStateWireSnapshot(
     updatedAtElapsedMs = updatedAtElapsedMs.coerceAtLeast(snapshot.updatedAtElapsedMs)
 )
 
+private const val AOD_STATE_BRIDGE_TAG = "AodStateBridge"
+
 internal fun encodeNormalizedAodStatePublication(
     state: AodDisplayState,
     revision: Long,
@@ -265,6 +267,13 @@ internal fun encodeNormalizedAodStatePublication(
     val intendedMessage = state.toWireMessage(revision, updatedAtElapsedMs)
     val intendedEnvelope = AodStateWireCodec.encode(intendedMessage)
     val deliveredMessage = if (intendedEnvelope == null) {
+        AppLog.w(
+            AOD_STATE_BRIDGE_TAG,
+            "AOD 状态编码失败，回退为 Hidden: visible=${state.visible} " +
+                "durationMs=${state.durationMs} lineStartMs=${state.lineStartMs} " +
+                "lineEndMs=${state.lineEndMs} positionMs=${state.positionMs} " +
+                "words=${state.words.size} originalLength=${state.original.length} revision=$revision"
+        )
         AodStateWireMessage.Hidden(
             revision = revision,
             userId = state.userId,
@@ -284,6 +293,28 @@ internal fun encodeNormalizedAodStatePublication(
 internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
     val original = state.original.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS)
     val trimOffset = state.original.length - state.original.trimStart().length
+    val effectiveVisible = state.visible && original.isNotEmpty()
+    val baseDuration = state.durationMs.coerceIn(0L, AodStateWireLimits.MAX_MEDIA_DURATION_MS)
+    val duration = if (effectiveVisible && baseDuration <= 0L) {
+        maxOf(
+            state.lineStartMs,
+            state.lineEndMs,
+            state.positionMs,
+            state.words.maxOfOrNull { it.endMs } ?: 0L,
+            1L
+        ).coerceIn(1L, AodStateWireLimits.MAX_MEDIA_DURATION_MS)
+    } else {
+        baseDuration
+    }
+    val lineStart = state.lineStartMs.coerceAtLeast(0L).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
+    val lineEnd = state.lineEndMs.coerceAtLeast(lineStart).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
+    val position = state.positionMs.coerceAtLeast(0L).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
     val words = state.words.asSequence()
         .take(AodStateWireLimits.MAX_WORDS)
         .map { word ->
@@ -294,12 +325,16 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
                 start = word.sourceStart,
                 end = word.sourceEnd
             )
-            val startMs = word.startMs.coerceAtLeast(0L)
+            val startMs = word.startMs.coerceAtLeast(0L).let {
+                if (duration > 0L) it.coerceAtMost(duration) else it
+            }
             word.copy(
                 text = word.text.takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
                 romanized = word.romanized.takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
                 startMs = startMs,
-                endMs = word.endMs.coerceAtLeast(startMs),
+                endMs = word.endMs.coerceAtLeast(startMs).let {
+                    if (duration > 0L) it.coerceAtMost(duration) else it
+                },
                 sourceStart = range.first,
                 sourceEnd = range.second
             )
@@ -329,13 +364,8 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             )
         }
         .toList()
-    val lineStart = state.lineStartMs.coerceAtLeast(0L)
-    val duration = state.durationMs.coerceIn(0L, AodStateWireLimits.MAX_MEDIA_DURATION_MS)
-    val position = state.positionMs.coerceAtLeast(0L).let {
-        if (duration > 0L) it.coerceAtMost(duration) else it
-    }
     return state.copy(
-        visible = state.visible && original.isNotEmpty(),
+        visible = effectiveVisible,
         pauseRetentionEligible = state.pauseRetentionEligible &&
             !state.visible && !state.playbackActive,
         userId = state.userId.coerceAtLeast(0),
@@ -364,7 +394,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         nextLine = state.nextLine.trim().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
         metadata = state.metadata.trim().takeUtf16Prefix(AodStateWireLimits.MAX_METADATA_CHARS),
         lineStartMs = lineStart,
-        lineEndMs = state.lineEndMs.coerceAtLeast(lineStart),
+        lineEndMs = lineEnd,
         durationMs = duration,
         positionMs = position,
         sampledAtElapsedMs = state.sampledAtElapsedMs.coerceAtLeast(0L),
