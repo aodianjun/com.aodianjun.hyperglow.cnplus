@@ -76,6 +76,9 @@
     <string name="plugin_action_install">Install plugin</string>
     <string name="summary_plugin_action_install">Install a HyperLyric plugin package (.zip).</string>
     <string name="plugin_empty_hint">No plugins installed. Install a HyperLyric plugin package (.zip) to enhance lyrics.</string>
+    <string name="plugin_pipeline_status_mismatch">Lyric document does not match the active source yet; waiting for the next scheduling</string>
+    <string name="plugin_pipeline_status_no_document">Current source %1$s provides no full-track lyric document, so the plugin chain stays idle (v1 accepts Spicy full-track documents only)</string>
+    <string name="plugin_pipeline_status_ready">Plugin chain input ready: %1$d lyric rows</string>
     <string name="section_installed_plugins">Installed plugins</string>
     <string name="plugin_load_failed">Load failed: %1$s</string>
     <string name="plugin_status_inactive">Loaded · inactive</string>

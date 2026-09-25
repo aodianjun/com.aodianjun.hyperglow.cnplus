@@ -76,6 +76,9 @@
     <string name="plugin_action_install">安装插件</string>
     <string name="summary_plugin_action_install">安装 HyperLyric 插件包（.zip）。</string>
     <string name="plugin_empty_hint">尚未安装插件。安装 HyperLyric 插件包（.zip）以增强歌词。</string>
+    <string name="plugin_pipeline_status_mismatch">歌词文档与当前歌词源暂不匹配，等待重新调度</string>
+    <string name="plugin_pipeline_status_no_document">当前歌词源 %1$s 没有整首歌词文档，插件链暂不运行（v1 仅支持 Spicy 整首文档输入）</string>
+    <string name="plugin_pipeline_status_ready">插件链输入就绪：共 %1$d 行歌词</string>
     <string name="section_installed_plugins">已安装插件</string>
     <string name="plugin_load_failed">加载失败：%1$s</string>
     <string name="plugin_status_inactive">已加载 · 未激活</string>
