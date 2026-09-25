@@ -20,9 +20,17 @@ import kotlin.math.roundToInt
 /** Bounded Spicy live-card renderer adapted for Xiaomi AOD. */
 internal class AodLyricCanvasView(
     context: Context,
-    private val useDozeHandlerCadence: Boolean = false
+    private val useDozeHandlerCadence: Boolean = false,
+    private val powerSaverProvider: () -> Boolean = { false }
 ) : View(context) {
     enum class Alignment { START, CENTER, END }
+
+    // 绘制热路径性能聚合(issue #68 #13):默认跟随诊断日志开关,关闭时零开销;
+    // 开启时每 5s 输出一条 draw count/avg/max 汇总,回答"掉帧的花销在哪"。
+    private val perfSampler = AodPerfSampler(
+        enabled = { HookLogger.traceEnabled },
+        sink = { HookLogger.i("AodLyricCanvasView", it) }
+    )
 
     private var content = AodCanvasContent(
         trackGeneration = 0L,
@@ -191,6 +199,7 @@ internal class AodLyricCanvasView(
     }
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
+    private val typefaceCache = HashMap<TypefaceKey, Typeface>(3)
     private var sceneActive = false
     private var aggregatedVisible = false
     private val cadenceGate = EffectiveCadenceGate()
@@ -444,6 +453,7 @@ internal class AodLyricCanvasView(
     }
 
     override fun onDraw(canvas: Canvas) {
+        val drawStartedAt = perfSampler.begin()
         super.onDraw(canvas)
         val rotationSave = beginRotationTransform(canvas, applyScale = true)
         try {
@@ -462,6 +472,7 @@ internal class AodLyricCanvasView(
                 if (frameSave != NO_ROTATION_SAVE) canvas.restoreToCount(frameSave)
             }
         }
+        perfSampler.end(AodPerfSampler.Metric.DRAW, drawStartedAt)
     }
 
     private val NO_ROTATION_SAVE = -1
@@ -1479,7 +1490,8 @@ internal class AodLyricCanvasView(
 
     private fun frameInterval(): Long = frameIntervalForTiming(
         effectiveCadenceActive(),
-        timingActive = true
+        timingActive = true,
+        powerSaverActive = powerSaverProvider()
     )
 
     private fun effectiveCadenceActive(): Boolean = isEffectiveCadenceActive(
@@ -2147,8 +2159,31 @@ internal class AodLyricCanvasView(
         isSubpixelText = true
     }
 
-    private fun resolveTypeface(family: String, weight: String): Typeface =
-        LyricTypefaceResolver.resolve(fontContext ?: context, family, weight)
+    private fun resolveTypeface(family: String, weight: String): Typeface {
+        val key = TypefaceKey(family, weight)
+        typefaceCache[key]?.let { return it }
+        val asset = if (family == "noto") {
+            "fonts/NotoSans-" + when (weight) {
+                "Bold" -> "Bold"
+                "Medium" -> "Medium"
+                else -> "Regular"
+            } + ".ttf"
+        } else if (family == "apple") {
+            if (weight == "Regular") "fonts/lyrics_medium.ttf" else "fonts/sf-pro-display-bold.ttf"
+        } else if (weight == "Bold") {
+            "fonts/sf-pro-display-bold.ttf"
+        } else {
+            "fonts/spotifymix-medium.ttf"
+        }
+        val typeface = runCatching {
+            Typeface.createFromAsset(fontContext?.assets ?: context.assets, asset)
+        }.getOrElse {
+            val fallback = if (family == "apple") "sans-serif" else "sans-serif-medium"
+            Typeface.create(fallback, if (weight == "Bold") Typeface.BOLD else Typeface.NORMAL)
+        }
+        typefaceCache[key] = typeface
+        return typeface
+    }
 
     private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE }
     private data class Row(
@@ -2227,6 +2262,7 @@ internal class AodLyricCanvasView(
         val rows: List<PositionedRow>,
         val original: OriginalLayout
     )
+    private data class TypefaceKey(val family: String, val weight: String)
 
     companion object {
         private const val MAX_SECONDARY_LINES = 2

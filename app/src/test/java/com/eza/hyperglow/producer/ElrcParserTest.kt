@@ -198,29 +198,4 @@ class ElrcParserTest {
         assertTrue(ElrcParser.shouldDowngradeWordTiming(listOf(0L, 9_000L)))
         assertFalse(ElrcParser.shouldDowngradeWordTiming(listOf(0L, 1_000L)))
     }
-
-    // --- 占位行判定与丢弃(Bridge LyricTextSanitizer.isPlaceholderOnly 同语义) ---
-
-    @Test
-    fun placeholderOnlyPredicateTruthTable() {
-        // 空串/纯空白/纯零宽字符 → 占位;任何可见字形 → 非占位。
-        assertTrue(ElrcParser.isPlaceholderOnly(""))
-        assertTrue(ElrcParser.isPlaceholderOnly(" \t "))
-        assertTrue(ElrcParser.isPlaceholderOnly("\u200B\uFEFF\u2060"))
-        assertTrue(ElrcParser.isPlaceholderOnly(" \u200B "))
-        assertFalse(ElrcParser.isPlaceholderOnly("♪"))
-        assertFalse(ElrcParser.isPlaceholderOnly("词"))
-    }
-
-    @Test
-    fun parseDropsPlaceholderOnlyLines_andTimeaxisSpansTheGap() {
-        // 中间的空白占位行被丢弃;前一行 endMs 直接衔接到下一行 startMs。
-        val lines = ElrcParser.parse(
-            "[00:01.000]歌词\n[00:05.000]   \n[00:09.000]\uFEFF\n[00:13.000]第二句"
-        )
-        assertEquals(2, lines.size)
-        assertEquals("歌词", lines[0].text)
-        assertEquals(13_000L, lines[0].endMs)
-        assertEquals("第二句", lines[1].text)
-    }
 }

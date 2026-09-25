@@ -38,9 +38,7 @@ object ElrcParser {
      * 脏逐字数据以错误的词界高亮不如安静回退行级。
      */
     fun parse(lrc: String, defaultLineDurationMs: Long = 4_000L): List<TimedLine> {
-        // 占位行(仅空白/零宽字符)不渲染任何内容,直接丢弃(issue #68 #16),
-        // 避免产生空活动行;时间轴由相邻真实行衔接。
-        val raws = lrc.split("\n").flatMap(::parseRawLine).filterNot { isPlaceholderOnly(it.text) }
+        val raws = lrc.split("\n").flatMap(::parseRawLine)
         if (raws.isEmpty()) return emptyList()
         val sorted = raws.sortedBy { it.startMs }
         return sorted.mapIndexed { i, raw ->
@@ -54,20 +52,6 @@ object ElrcParser {
             }
             TimedLine(raw.startMs, endMs, raw.text, words)
         }
-    }
-
-    /**
-     * 占位行判定(Bridge LyricTextSanitizer.isPlaceholderOnly 同语义,issue #68 #16):
-     * 只有空白与零宽不可见字符、没有任何可见字形的行返回 true。空串视为占位行。
-     */
-    internal fun isPlaceholderOnly(text: String): Boolean {
-        val codePoints = text.codePoints().iterator()
-        while (codePoints.hasNext()) {
-            val codePoint = codePoints.next()
-            if (codePoint == 0x200B || codePoint == 0x2060 || codePoint == 0xFEFF) continue
-            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) return false
-        }
-        return true
     }
 
     private data class RawLine(val startMs: Long, val text: String, val words: List<LyricWord>?)
