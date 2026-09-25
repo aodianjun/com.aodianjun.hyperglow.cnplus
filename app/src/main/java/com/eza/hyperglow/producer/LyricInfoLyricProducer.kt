@@ -231,12 +231,15 @@ class LyricInfoLyricProducer(
             // 行时间戳词级对齐(issue #68 #18):行 start/end 锚到首词/末词;单词全零回填。
             // 必须在重叠仲裁之前——重叠判定要基于最终时间轴。
             val normalized = LyricTimelineSanitizer.resetLineTimestampsFromWords(filtered)
+            // 词锚定可能打乱时间序(词时序与行时序交叉的脏源):先稳定排序,
+            // 重叠仲裁与 activeLineAt 的"升序+break"前提才成立。
+            val ordered = LyricTimelineSanitizer.sortedByTimeline(normalized)
             // 非刻意行间重叠截断(issue #68 #17):≥500ms 或(>100ms 且 >下一行时长 10%)
             // 判有意保留;其余截断到下一行 start,防多行同亮/高亮跳动。
-            val sanitized = LyricTimelineSanitizer.sanitizeUnintentionalOverlaps(normalized)
+            val sanitized = LyricTimelineSanitizer.sanitizeUnintentionalOverlaps(ordered)
             val reAnchored = filtered.zip(normalized)
                 .count { (a, b) -> a.startMs != b.startMs || a.endMs != b.endMs }
-            val truncated = normalized.zip(sanitized)
+            val truncated = ordered.zip(sanitized)
                 .count { (a, b) -> a.endMs != b.endMs }
             if (filtered.size != parsed.size || reAnchored > 0 || truncated > 0) {
                 AppLog.i(
@@ -281,6 +284,14 @@ class LyricInfoLyricProducer(
         // 外推值（共享内存/回调延迟）。Lyricon 通道的 monotonicResume 在 1..300ms 容差内
         // 保持外推值以避免行回退闪烁；本通道此前无条件接受 ps.position，抬起解冻时行
         // 会回跳几秒。对齐同样的容差保护。
+        //
+        // 外推期恢复真实推送时重建跳转判定基线(issue #68 #19 修复):合成外推期间
+        // 无真实位置推送,冻结时长会让下一次真实推送的 mediaDelta 携带整段停滞而
+        // wallDelta 被 800ms 信任上限钳住,必然误报 seek。页面恢复属"本质连续"场景,
+        // 按 AMLL 语义不由判定器代判——首推只建基线。
+        if (extrapolating) {
+            seekDetector.reset()
+        }
         val monotonicResume = isMonotonicExtrapolationResume(
             wasExtrapolating = extrapolating,
             extrapolatedPositionMs = currentPositionMs,
