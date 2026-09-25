@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import com.eza.hyperglow.root.HookLogger
 
@@ -25,6 +27,7 @@ internal fun isAodPowerSaverActive(
 
 internal const val AOD_POWER_SAVER_BATTERY_LEVEL_PCT = 15
 internal const val AOD_POWER_SAVER_THERMAL_STATUS = 2 // PowerManager.THERMAL_STATUS_MODERATE
+private const val THERMAL_RECHECK_MS = 30_000L
 
 /**
  * SystemUI 侧电量/温控状态缓存,驱动 AOD 歌词画布的省电降帧。
@@ -45,7 +48,18 @@ internal object AodPowerStateMonitor {
     private var attached = false
     private var appContext: Context? = null
     private var receiver: BroadcastReceiver? = null
-    private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // 热状态用 30s 有界重读而非推送监听:低频后台读一次 currentThermalStatus 的开销
+    // 可忽略,而电量广播只覆盖电池事件、不含温控事件。
+    private val thermalRecheck = Runnable {
+        val app = appContext
+        if (app != null) {
+            val powerManager = app.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (powerManager != null) thermalStatus = powerManager.currentThermalStatus
+            mainHandler.postDelayed(thermalRecheck, THERMAL_RECHECK_MS)
+        }
+    }
 
     @Synchronized
     fun attach(context: Context) {
@@ -59,11 +73,7 @@ internal object AodPowerStateMonitor {
             HookLogger.w(TAG, "PowerManager unavailable; thermal saver disabled")
         } else {
             thermalStatus = powerManager.currentThermalStatus
-            val listener = PowerManager.OnThermalStatusChangedListener { status ->
-                thermalStatus = status
-            }
-            thermalListener = listener
-            powerManager.addOnThermalStatusChangedListener(app.mainExecutor, listener)
+            mainHandler.postDelayed(thermalRecheck, THERMAL_RECHECK_MS)
         }
         val batteryReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -89,13 +99,8 @@ internal object AodPowerStateMonitor {
         if (app != null && batteryReceiver != null) {
             runCatching { app.unregisterReceiver(batteryReceiver) }
         }
-        val powerManager = app?.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val listener = thermalListener
-        if (powerManager != null && listener != null) {
-            runCatching { powerManager.removeOnThermalStatusChangedListener(listener) }
-        }
+        mainHandler.removeCallbacks(thermalRecheck)
         receiver = null
-        thermalListener = null
         appContext = null
         batteryPercent = null
         charging = null
