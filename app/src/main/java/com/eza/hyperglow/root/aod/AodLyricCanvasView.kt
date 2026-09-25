@@ -25,6 +25,13 @@ internal class AodLyricCanvasView(
 ) : View(context) {
     enum class Alignment { START, CENTER, END }
 
+    // 绘制热路径性能聚合(issue #68 #13):默认跟随诊断日志开关,关闭时零开销;
+    // 开启时每 5s 输出一条 draw count/avg/max 汇总,回答"掉帧的花销在哪"。
+    private val perfSampler = AodPerfSampler(
+        enabled = { HookLogger.traceEnabled },
+        sink = { HookLogger.i("AodLyricCanvasView", it) }
+    )
+
     private var content = AodCanvasContent(
         trackGeneration = 0L,
         metadata = "",
@@ -192,6 +199,7 @@ internal class AodLyricCanvasView(
     }
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
+    private val typefaceCache = HashMap<TypefaceKey, Typeface>(3)
     private var sceneActive = false
     private var aggregatedVisible = false
     private val cadenceGate = EffectiveCadenceGate()
@@ -445,6 +453,7 @@ internal class AodLyricCanvasView(
     }
 
     override fun onDraw(canvas: Canvas) {
+        val drawStartedAt = perfSampler.begin()
         super.onDraw(canvas)
         val rotationSave = beginRotationTransform(canvas, applyScale = true)
         try {
@@ -463,6 +472,7 @@ internal class AodLyricCanvasView(
                 if (frameSave != NO_ROTATION_SAVE) canvas.restoreToCount(frameSave)
             }
         }
+        perfSampler.end(AodPerfSampler.Metric.DRAW, drawStartedAt)
     }
 
     private val NO_ROTATION_SAVE = -1
@@ -1690,10 +1700,17 @@ internal class AodLyricCanvasView(
         var charStart = 0
         while (remaining.isNotEmpty() && lines.size < maxLines) {
             val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-            val line = remaining.take(count)
-            lines += originalLine(line, paint.measureText(line), charStart, charStart + line.length)
-            remaining = remaining.drop(count)
-            charStart += count
+            // CJK 避头尾(issue #68 #2):断点落在禁则字符上时回退;整段放得下的末行不调。
+            val fitEnd = charStart + count
+            val breakEnd = if (fitEnd < text.length) {
+                adjustForCjkLineBreak(text, charStart, fitEnd, text.length)
+            } else {
+                fitEnd
+            }
+            val line = text.substring(charStart, breakEnd)
+            lines += originalLine(line, paint.measureText(line), charStart, breakEnd)
+            remaining = text.substring(breakEnd)
+            charStart = breakEnd
         }
         return lines
     }
@@ -1758,8 +1775,14 @@ internal class AodLyricCanvasView(
                 var remaining = token
                 while (remaining.isNotEmpty()) {
                     val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-                    pieces += remaining.take(count)
-                    remaining = remaining.drop(count)
+                    // CJK 避头尾(issue #68 #2):次级文本超宽 token 的切片同样不走禁则断点。
+                    val breakEnd = if (count < remaining.length) {
+                        adjustForCjkLineBreak(remaining, 0, count, remaining.length)
+                    } else {
+                        count
+                    }
+                    pieces += remaining.take(breakEnd)
+                    remaining = remaining.drop(breakEnd)
                 }
                 pieces
             }
@@ -1804,8 +1827,14 @@ internal class AodLyricCanvasView(
                     var remaining = token
                     while (remaining.isNotEmpty()) {
                         val count = paint.breakText(remaining, true, available, null).coerceAtLeast(1)
-                        pieces += remaining.take(count)
-                        remaining = remaining.drop(count)
+                        // CJK 避头尾(issue #68 #2):元数据超宽 token 的切片同样不走禁则断点。
+                        val breakEnd = if (count < remaining.length) {
+                            adjustForCjkLineBreak(remaining, 0, count, remaining.length)
+                        } else {
+                            count
+                        }
+                        pieces += remaining.take(breakEnd)
+                        remaining = remaining.drop(breakEnd)
                     }
                     pieces
                 }
@@ -2149,8 +2178,31 @@ internal class AodLyricCanvasView(
         isSubpixelText = true
     }
 
-    private fun resolveTypeface(family: String, weight: String): Typeface =
-        LyricTypefaceResolver.resolve(fontContext ?: context, family, weight)
+    private fun resolveTypeface(family: String, weight: String): Typeface {
+        val key = TypefaceKey(family, weight)
+        typefaceCache[key]?.let { return it }
+        val asset = if (family == "noto") {
+            "fonts/NotoSans-" + when (weight) {
+                "Bold" -> "Bold"
+                "Medium" -> "Medium"
+                else -> "Regular"
+            } + ".ttf"
+        } else if (family == "apple") {
+            if (weight == "Regular") "fonts/lyrics_medium.ttf" else "fonts/sf-pro-display-bold.ttf"
+        } else if (weight == "Bold") {
+            "fonts/sf-pro-display-bold.ttf"
+        } else {
+            "fonts/spotifymix-medium.ttf"
+        }
+        val typeface = runCatching {
+            Typeface.createFromAsset(fontContext?.assets ?: context.assets, asset)
+        }.getOrElse {
+            val fallback = if (family == "apple") "sans-serif" else "sans-serif-medium"
+            Typeface.create(fallback, if (weight == "Bold") Typeface.BOLD else Typeface.NORMAL)
+        }
+        typefaceCache[key] = typeface
+        return typeface
+    }
 
     private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE }
     private data class Row(
@@ -2229,6 +2281,7 @@ internal class AodLyricCanvasView(
         val rows: List<PositionedRow>,
         val original: OriginalLayout
     )
+    private data class TypefaceKey(val family: String, val weight: String)
 
     companion object {
         private const val MAX_SECONDARY_LINES = 2

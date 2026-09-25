@@ -65,6 +65,11 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      # 发布契约校验(issue #68 #7):applicationId/版本格式/tag 约定/资产命名模板/
+      # 必含文档;结构违规即红。版本新鲜度不在 CI 阻塞(发版 bump 提交同步维护即可)。
+      - name: Validate release contract
+        run: pwsh ./scripts/validate-release-contract.ps1 -RepoRoot .
+
       # 防止无意重命名/重排 HyperLyric 插件契约副本(plugins/api/.../PluginApi.kt)。
       # 该文件必须与上游契约字节级一致,否则预编译插件 ZIP 无法无需重编译加载。
       - name: Verify HyperLyric plugin API contract fingerprint
@@ -220,6 +225,11 @@ jobs:
           echo "Release APK: $REL_DST"
           echo "Debug APK: $DBG_DST"
 
+      # 发布 APK 禁止字符串扫描(issue #68 #7/#9):正式包绝不允许出现调试签名标记等
+      # 违禁串;命中即失败,拦截"伪正式版"流出。
+      - name: Scan release APK for forbidden strings
+        run: pwsh ./scripts/validate-release-contract.ps1 -RepoRoot . -ApkPath "${{ env.RELEASE_APK }}"
+
       - name: Upload APKs (artifact)
         uses: actions/upload-artifact@v6
         with:
@@ -246,10 +256,17 @@ jobs:
             TAG="${VC}-${VN}"
           fi
           echo "Publishing to release: $TAG"
-          # 首次发布时 release 可能不存在,则创建
+          # 预发行必须在 CI 发布前手动创建且带 prerelease 标记(docs/RELEASE_CONVENTIONS.md):
+          # 缺失或非 prerelease 直接失败——绝不静默建成正式版,也不往正式版里灌测试资产。
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "HyperGlow CN+ ${TAG}" \
-              --generate-notes --repo "$GITHUB_REPOSITORY"
+            echo "::error::release $TAG does not exist. Pre-create the prerelease (tag $TAG, prerelease: true) before publishing - see docs/RELEASE_CONVENTIONS.md."
+            exit 1
+          fi
+          IS_PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isPrerelease --jq '.isPrerelease')
+          if [ "$IS_PRERELEASE" != "true" ]; then
+            echo "::error::release $TAG exists but is not a prerelease; refusing to publish into it."
+            exit 1
           fi
           gh release upload "$TAG" "$RELEASE_APK" "$DEBUG_APK" \
             --repo "$GITHUB_REPOSITORY" --clobber

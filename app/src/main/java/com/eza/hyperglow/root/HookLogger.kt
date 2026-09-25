@@ -17,6 +17,25 @@ object HookLogger {
         module?.log(Log.INFO, TAG, "[$area] $message")
     }
 
+    private val throttle = LogThrottle()
+
+    /**
+     * 节流版 info(issue #68 #10):同一 [key] 在 [windowMs] 毫秒内只输出一次;窗口内
+     * 被抑制的条数在下一条输出时以 "[suppressed=N]" 后缀补报,降噪不吞掉频次信息。
+     * [message] 是 lambda:仅在实际放行时才构造字符串(热路径友好)。一次性事件
+     * 仍用 [i];w/e 永不节流。
+     */
+    fun iThrottled(key: String, windowMs: Long, area: String, message: () -> String) {
+        if (windowMs <= 0L) {
+            i(area, message())
+            return
+        }
+        if (!throttle.shouldLog(key, windowMs)) return
+        val suppressed = throttle.drainSuppressed(key)
+        val text = message()
+        i(area, if (suppressed > 0) "$text [suppressed=$suppressed]" else text)
+    }
+
     /**
      * Finite boot-path evidence. It must not depend on bridge-delivered diagnostic configuration,
      * since this path is also used to diagnose a bridge which never connects.
