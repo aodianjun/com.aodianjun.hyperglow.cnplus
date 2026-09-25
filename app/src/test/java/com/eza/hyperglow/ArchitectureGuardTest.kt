@@ -58,6 +58,46 @@ class ArchitectureGuardTest {
         assertScopesDoNotImport(scope = "aod", forbidden = "com.eza.hyperglow.ui.")
     }
 
+    @Test
+    fun previewRenderingDelegatesToSharedRenderCore() {
+        // 预览同源契约(PARITY 契约的机器门):预览渲染必须委托 root 共享渲染核心,
+        // 禁止在 ui 侧重建换算/渲染配方 —— 修复 PR #76 的显示漂移后,由本规则防止再漂。
+        val base = mainSourceDir() ?: return
+        val preview = File(base, "ui/PreviewComponents.kt")
+        assertTrue("ui/PreviewComponents.kt exists", preview.isFile)
+        val text = preview.readText()
+        val required = listOf(
+            "baseTextSizeSp",
+            "textSizeModeMultiplier",
+            "metadataTextSizeSp",
+            "secondaryReadingTextSizeSp",
+            "secondaryTranslationTextSizeSp",
+            "nextLineTextSizeSp",
+            "steadyTextAlpha",
+            "staticSecondaryTextFactor",
+            "staticNextLineTextFactor",
+            "cardColorRgb",
+            "resolveAodPalette",
+            "LyricGlowRenderer"
+        )
+        val missing = required.filterNot { text.contains(it) }
+        assertTrue("PreviewComponents must delegate to shared render core, missing: $missing", missing.isEmpty())
+    }
+
+    @Test
+    fun previewRenderingHidesNoPrivateFormulaLiterals() {
+        // 预览禁止出现渲染换算的字面量指纹(字号比例/透明度/卡片色表):
+        // 这些公式只允许存在于 root 共享纯函数,ui 侧重写即为漂移回归。
+        val base = mainSourceDir() ?: return
+        val text = File(base, "ui/PreviewComponents.kt").readText()
+        val marker = Regex(
+            """0\.48f|0\.72f|0\.46f|0\.56f|0\.6f|-> 118|-> 140|1\.18f""" +
+                """|0x3A6EA5|0x2A2A2A|0xFF1A1A1E|ComposeColor\(0xFF000000\)|ComposeColor\(0xFFFFFFFF\)"""
+        )
+        val hit = marker.findAll(text).map { it.value }.toList()
+        assertTrue("render-math literals in PreviewComponents: $hit", hit.isEmpty())
+    }
+
     // --- helpers ---
 
     private fun mainSourceDir(): File? {
