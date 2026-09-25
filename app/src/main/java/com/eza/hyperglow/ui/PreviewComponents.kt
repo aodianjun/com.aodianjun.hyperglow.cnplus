@@ -167,10 +167,15 @@ private fun LyricPreviewSurface(
     val nextLineColor = ComposeColor(resolvedColors.nextLineText).copy(alpha = 0.45f)
     val textSize = previewTextSizeSp(profile)
     val context = LocalContext.current
-    val lyricTypeface = remember(context, profile.fontFamily, profile.weight) {
+    val customFontVersion = if (profile.fontFamily == LyricTypefaceResolver.FAMILY_CUSTOM) {
+        LyricTypefaceResolver.customVersion(context)
+    } else {
+        null
+    }
+    val lyricTypeface = remember(context, profile.fontFamily, profile.weight, customFontVersion) {
         LyricTypefaceResolver.resolve(context, profile.fontFamily, profile.weight)
     }
-    val regularFontFamily = remember(context, profile.fontFamily) {
+    val regularFontFamily = remember(context, profile.fontFamily, customFontVersion) {
         if (profile.fontFamily == "auto") null
         else FontFamily(LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular"))
     }

@@ -307,6 +307,7 @@
     <string name="option_card_color_blur">Blur</string>
     <string name="section_both_surfaces">Both surfaces</string>
     <string name="action_import_appearance">Import appearance file</string>
+    <string name="action_import_custom_font">Import custom font</string>
     <string name="action_export_appearance">Export appearance file</string>
     <string name="action_reset_surfaces">Reset both surfaces</string>
     <string name="dialog_reset_title">Reset AOD and lock screen settings?</string>
@@ -330,6 +331,8 @@
     <string name="option_noto_sans">Noto Sans</string>
     <string name="option_spotify_mix">Spotify Mix</string>
     <string name="option_sf_pro_display">SF Pro Display</string>
+    <string name="option_noto_sans_sc">Noto Sans SC</string>
+    <string name="option_custom_font">Custom font</string>
     <string name="option_default">Default</string>
     <string name="option_dimmed">Dimmed</string>
     <string name="option_color_warm_gold">Warm gold</string>
@@ -381,6 +384,8 @@
     <string name="toast_no_link_handler">No app can open this link</string>
     <string name="toast_appearance_imported">Appearance file imported</string>
     <string name="toast_appearance_invalid">This is not a valid HyperGlow appearance file</string>
+    <string name="toast_custom_font_imported">Custom font imported</string>
+    <string name="toast_custom_font_invalid">This is not a valid font file</string>
     <string name="toast_appearance_exported">Appearance file exported</string>
     <string name="toast_appearance_export_failed">Could not export the appearance file</string>
     <string name="toast_appearance_save_failed">Could not save the appearance settings</string>

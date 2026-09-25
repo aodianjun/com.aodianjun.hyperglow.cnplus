@@ -35,7 +35,7 @@ object LyricTypefaceResolver {
     }
 
     private fun resolveCustom(context: Context, weight: String): Typeface {
-        val version = resolveCustomVersion(context)
+        val version = customVersion(context)
             ?: return fallbackTypeface(FAMILY_CUSTOM, weight)
         val key = TypefaceKey(FAMILY_CUSTOM, weight, version)
         cache[key]?.let { return it }
@@ -51,7 +51,11 @@ object LyricTypefaceResolver {
         return typeface
     }
 
-    private fun resolveCustomVersion(context: Context): String? {
+    fun invalidateCustomCache() {
+        customVersionCache = null
+    }
+
+    fun customVersion(context: Context): String? {
         val now = System.currentTimeMillis()
         customVersionCache?.let { (fetchedAt, version) ->
             if (now - fetchedAt < CUSTOM_VERSION_TTL_MS) return version

@@ -1,5 +1,6 @@
 package com.eza.hyperglow.ui
 
+import android.graphics.Typeface
 import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
@@ -43,6 +44,8 @@ import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
+import com.eza.hyperglow.root.aod.CustomFontContract
+import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
@@ -51,6 +54,7 @@ import com.eza.hyperglow.root.surface.PlacementEnvironment
 import com.eza.hyperglow.root.surface.PlacementRect
 import com.eza.hyperglow.root.surface.ResolvedPlacement
 import com.eza.hyperglow.root.surface.WidgetMeasurement
+import java.io.File
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -173,6 +177,38 @@ internal fun LyricLayoutScreen(
         onSelect: (String) -> Unit
     ) {
         activeChoice = AodChoice(kind, values, current, onSelect)
+    }
+
+    var customFontAvailable by remember {
+        mutableStateOf(File(context.filesDir, CustomFontContract.FONT_RELATIVE_PATH).isFile)
+    }
+    val fontImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val imported = runCatching {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+                input.readNBytes(MAX_CUSTOM_FONT_BYTES + 1)
+            } ?: error("Font file unavailable")
+            if (bytes.size > MAX_CUSTOM_FONT_BYTES || !hasFontMagic(bytes)) error("Invalid font file")
+            val target = File(context.filesDir, CustomFontContract.FONT_RELATIVE_PATH)
+            target.parentFile?.mkdirs()
+            target.writeBytes(bytes)
+            runCatching { Typeface.createFromFile(target) }.getOrElse {
+                target.delete()
+                error("Font file unreadable")
+            }
+        }.isSuccess
+        if (imported) {
+            LyricTypefaceResolver.invalidateCustomCache()
+            customFontAvailable = true
+            updateSelected { it.copy(fontFamily = LyricTypefaceResolver.FAMILY_CUSTOM) }
+        }
+        Toast.makeText(
+            context,
+            context.getString(
+                if (imported) R.string.toast_custom_font_imported else R.string.toast_custom_font_invalid
+            ),
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     val selectedProfile = editorState.document.profiles[editorState.selectedSurface] ?: SurfaceProfile()
@@ -416,10 +452,20 @@ internal fun LyricLayoutScreen(
                     AodChoiceRow(AodChoiceKind.FONT, selectedProfile.fontFamily) {
                         openChoice(
                             AodChoiceKind.FONT,
-                            listOf("noto", "spotify", "apple"),
+                            buildList {
+                                add("noto")
+                                add("spotify")
+                                add("apple")
+                                add(LyricTypefaceResolver.FAMILY_NOTO_SC)
+                                if (customFontAvailable) add(LyricTypefaceResolver.FAMILY_CUSTOM)
+                            },
                             selectedProfile.fontFamily
                         ) { value -> updateSelected { it.copy(fontFamily = value) } }
                     }
+                    ArrowPreference(
+                        title = stringResource(R.string.action_import_custom_font),
+                        onClick = { fontImportLauncher.launch(arrayOf("*/*")) }
+                    )
                 }
             }
             item { SmallTitle(text = stringResource(R.string.section_effects)) }
@@ -777,6 +823,21 @@ private val DEMO_LINES = listOf(
 /** How long each demo line stays on screen before cycling to the next. */
 internal const val DEMO_LINE_SWITCH_MS = 2_500L
 
+private const val MAX_CUSTOM_FONT_BYTES = 30 * 1024 * 1024
+
+private fun hasFontMagic(bytes: ByteArray): Boolean {
+    if (bytes.size < 4) return false
+    val ttf = bytes[0] == 0x00.toByte() && bytes[1] == 0x01.toByte() &&
+        bytes[2] == 0x00.toByte() && bytes[3] == 0x00.toByte()
+    val otf = bytes[0] == 0x4F.toByte() && bytes[1] == 0x54.toByte() &&
+        bytes[2] == 0x54.toByte() && bytes[3] == 0x4F.toByte()
+    val ttc = bytes[0] == 0x74.toByte() && bytes[1] == 0x74.toByte() &&
+        bytes[2] == 0x63.toByte() && bytes[3] == 0x66.toByte()
+    val macTrueType = bytes[0] == 0x74.toByte() && bytes[1] == 0x72.toByte() &&
+        bytes[2] == 0x75.toByte() && bytes[3] == 0x65.toByte()
+    return ttf || otf || ttc || macTrueType
+}
+
 @Composable
 private fun AodChoiceRow(kind: AodChoiceKind, value: String, onClick: () -> Unit) {
     val context = LocalContext.current
@@ -939,6 +1000,8 @@ private fun choiceDisplayLabel(
         "noto" -> R.string.option_noto_sans
         "spotify" -> R.string.option_spotify_mix
         "apple" -> R.string.option_sf_pro_display
+        LyricTypefaceResolver.FAMILY_NOTO_SC -> R.string.option_noto_sans_sc
+        LyricTypefaceResolver.FAMILY_CUSTOM -> R.string.option_custom_font
         else -> R.string.option_noto_sans
     })
     AodChoiceKind.TEXT_BRIGHTNESS -> context.getString(

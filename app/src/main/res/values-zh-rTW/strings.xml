@@ -284,6 +284,7 @@
     <string name="option_card_color_blur">模糊</string>
     <string name="section_both_surfaces">兩個顯示區域</string>
     <string name="action_import_appearance">導入外觀文件</string>
+    <string name="action_import_custom_font">匯入自訂字體</string>
     <string name="action_export_appearance">導出外觀文件</string>
     <string name="action_reset_surfaces">重置兩個顯示區域</string>
     <string name="dialog_reset_title">重置息屏和鎖屏設置？</string>
@@ -308,6 +309,8 @@
     <string name="option_noto_sans">Noto Sans</string>
     <string name="option_spotify_mix">Spotify Mix</string>
     <string name="option_sf_pro_display">SF Pro Display</string>
+    <string name="option_noto_sans_sc">思源黑體</string>
+    <string name="option_custom_font">自訂字體</string>
     <string name="option_default">默認</string>
     <string name="option_dimmed">較暗</string>
     <string name="option_color_warm_gold">暖金</string>
@@ -360,6 +363,8 @@
     <string name="toast_no_link_handler">沒有應用可以打開此鏈接</string>
     <string name="toast_appearance_imported">已導入外觀文件</string>
     <string name="toast_appearance_invalid">這不是有效的 HyperGlow 外觀文件</string>
+    <string name="toast_custom_font_imported">已匯入自訂字體</string>
+    <string name="toast_custom_font_invalid">這不是有效的字體文件</string>
     <string name="toast_appearance_exported">已導出外觀文件</string>
     <string name="toast_appearance_export_failed">無法導出外觀文件</string>
     <string name="toast_appearance_save_failed">無法保存外觀設置</string>
