@@ -41,27 +41,29 @@ object PluginPipeline {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var appContext: Context? = null
     private var collector: Job? = null
-    private var chainJob: Job? = null
+    @Volatile private var chainJob: Job? = null
 
     /** 当前会话已处理好的插件结果；null = 无结果（透传）。 */
     @Volatile
     private var patched: PatchedSong? = null
 
-    private var processedSessionKey: String? = null
+    // 以下字段会被 collector / retry / 链完成回调多个协程读写:可见性一律 @Volatile,
+    // 复合状态收敛进 LineStreamAggregator(内部 @Synchronized)。
+    @Volatile private var processedSessionKey: String? = null
     private var processedDocument: Any? = null
 
-    /** 逐行源聚合器（SuperLyric 等无整首数据的源）。仅在 collector 协程上访问。 */
+    /** 逐行源聚合器（SuperLyric 等无整首数据的源）。内部 @Synchronized,可多协程安全调用。 */
     private val aggregator = LineStreamAggregator()
 
     /** 上次调度的快照内容指纹（行数 + 末行 endMs），供逐行路径去重。 */
-    private var snapshotFingerprint: Pair<Int, Long>? = null
+    @Volatile private var snapshotFingerprint: Pair<Int, Long>? = null
 
     /** 本会话上次链启动时刻（SystemClock.elapsedRealtime），逐行节流窗口的基准。 */
-    private var streamLastChainStartElapsedMs = 0L
+    @Volatile private var streamLastChainStartElapsedMs = 0L
 
     /** 链运行期间到来了新行：链完成后按节流窗口补评一次。 */
-    private var streamDirty = false
-    private var streamRetryJob: Job? = null
+    @Volatile private var streamDirty = false
+    @Volatile private var streamRetryJob: Job? = null
 
     /** 上一次记录的跳过原因；仅用于去重，避免 collector 高频回调刷屏。 */
     private var skipReason: String? = null
@@ -115,8 +117,10 @@ object PluginPipeline {
         skipReason = null
         snapshotFingerprint = null
         streamDirty = false
+        streamLastChainStartElapsedMs = 0L
         streamRetryJob?.cancel()
         streamRetryJob = null
+        aggregator.reset()
         AppLog.i(TAG, "invalidate: cleared patched cache (hadPatch=$hadPatch)")
     }
 
@@ -187,13 +191,19 @@ object PluginPipeline {
         if (!aggregated.matches(state)) return
         val sessionKey = PluginSongBridge.sessionKey(state)
         val fingerprint = fingerprintOf(aggregated)
-        if (chainJob != null) {
+        // 判活用 isActive 而非 null:Job 完成后引用仍在,判 null 会让补评/节流
+        // 在第一条链完成后永久失效(issue #75 评审修复)。
+        if (chainJob?.isActive == true) {
             // 链运行中：不打断；新行记 dirty，链完成后按剩余节流窗口补评。
             if (accumulation.addedNewRow) streamDirty = true
             return
         }
         if (sessionKey == processedSessionKey && fingerprint == snapshotFingerprint && !streamDirty) {
             return
+        }
+        if (sessionKey != processedSessionKey) {
+            // 新会话:节流窗口不跨歌,首行立即跑链(与本函数文档一致)。
+            streamLastChainStartElapsedMs = 0L
         }
         val elapsedSinceLastChain = SystemClock.elapsedRealtime() - streamLastChainStartElapsedMs
         if (streamLastChainStartElapsedMs != 0L &&
@@ -215,6 +225,8 @@ object PluginPipeline {
         streamRetryJob = scope.launch {
             delay(delayMs.coerceAtLeast(MIN_STREAM_RETRY_DELAY_MS))
             streamRetryJob = null
+            // 重试也可能落在总开关关闭之后:与 maybeProcess 同一道门。
+            if (!processingEnabled()) return@launch
             val retryState = LyricProducers.arbiter.active.value ?: return@launch
             val retrySource = LyricProducers.arbiter.activeSource.value ?: return@launch
             if (retrySource != LyricSource.SPICY) maybeProcessLineStream(retryState, retrySource)
@@ -282,6 +294,12 @@ object PluginPipeline {
                         (SystemClock.elapsedRealtime() - streamLastChainStartElapsedMs)
                 )
             }
+        }.also { job ->
+            // 链结束后释放引用:判活改用 isActive(issue #75 评审修复),
+            // 但不长期挂着已完成的 Job;若已被更新的链替换则不动。
+            job.invokeOnCompletion {
+                synchronized(this@PluginPipeline) { if (chainJob === job) chainJob = null }
+            }
         }
     }
 
@@ -300,7 +318,7 @@ object PluginPipeline {
     internal enum class PipelineInputState {
         /** 没有活动歌词源（当前没有媒体在播）。 */
         IDLE_NO_SOURCE,
-        /** 有活动源但没有整首文档：v1 数据边界，逐行源（SuperLyric/Lyricon/LyricInfo）不进管线。 */
+        /** 有活动源但没有整首文档：Spicy 的过渡态；逐行源（SuperLyric/Lyricon/LyricInfo）在 v2 起走聚合/快照路径，不会停留在此。 */
         IDLE_NO_DOCUMENT,
         /** 文档与活动源不匹配（换歌瞬间的过渡态，等下一次调度）。 */
         SOURCE_MISMATCH,

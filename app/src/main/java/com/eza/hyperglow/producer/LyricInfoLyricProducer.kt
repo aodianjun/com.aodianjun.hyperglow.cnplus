@@ -385,10 +385,10 @@ class LyricInfoLyricProducer(
                     startMs = line.startMs,
                     endMs = line.endMs,
                     text = line.text,
-                    translation = translationLines
-                        .firstOrNull { it.startMs == line.startMs }?.text.orEmpty(),
-                    roma = romaLines
-                        .firstOrNull { it.startMs == line.startMs }?.text.orEmpty(),
+                    // 翻译/roma 对齐与 emit() 同规则(issue #75 评审修复):±120ms 最近行,
+                    // 精确相等会丢掉发布误差几十毫秒的翻译 lane。
+                    translation = matchSupplementalLine(line, lines, translationLines)?.text.orEmpty(),
+                    roma = matchSupplementalLine(line, lines, romaLines)?.text.orEmpty(),
                     words = line.words?.takeIf { it.isNotEmpty() }
                 )
             }

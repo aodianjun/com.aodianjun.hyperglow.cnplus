@@ -37,6 +37,9 @@ internal class LineStreamAggregator {
         var roma: String
     )
 
+    // 可从多个协程进入(collector/retry/链完成补评):onState 的「读-改-写 rows 与
+    // 会话状态」必须原子,否则 TreeMap 并发修改会让 collector 被永久杀死。
+    @Synchronized
     fun onState(state: LyricProducerState): Accumulation {
         val key = PluginSongBridge.sessionKey(state)
         if (key != sessionKey) {
@@ -91,6 +94,7 @@ internal class LineStreamAggregator {
     }
 
     /** 丢弃缓冲（总开关关闭等场景）；下次 onState 按会话变化重新开始。 */
+    @Synchronized
     fun reset() {
         sessionKey = null
         rows.clear()
