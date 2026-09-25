@@ -43,6 +43,7 @@ internal enum class SettingsTab {
 
 internal const val DIAGNOSTICS_DESTINATION = "__diagnostics__"
 internal const val PLUGIN_DESTINATION = "__plugins__"
+internal const val AOD_BEHAVIOR_DESTINATION = "__aod_behavior__"
 internal const val GITHUB_URL = "https://github.com/amarinne/hyperglow"
 internal const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/hyperglow_CNplus"
 internal const val SPICY_EX_GITHUB_URL = "https://github.com/amarinne/spicy-ex/releases"

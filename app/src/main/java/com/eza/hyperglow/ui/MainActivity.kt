@@ -81,6 +81,8 @@ class MainActivity : ComponentActivity() {
                         DiagnosticsScreen(onBack = { editingSurface = null })
                     } else if (surface == PLUGIN_DESTINATION) {
                         PluginManagementScreen(onBack = { editingSurface = null })
+                    } else if (surface == AOD_BEHAVIOR_DESTINATION) {
+                        AodBehaviorScreen(onBack = { editingSurface = null })
                     } else if (surface != null) {
                         LyricLayoutScreen(
                             initialSurface = surface,
@@ -93,7 +95,8 @@ class MainActivity : ComponentActivity() {
                             onSelectTab = { selectedTabName = it },
                             onOpenDiagnostics = { editingSurface = DIAGNOSTICS_DESTINATION },
                             onOpenLyricLayout = { target -> editingSurface = target },
-                            onOpenPlugins = { editingSurface = PLUGIN_DESTINATION }
+                            onOpenPlugins = { editingSurface = PLUGIN_DESTINATION },
+                            onOpenAodBehavior = { editingSurface = AOD_BEHAVIOR_DESTINATION }
                         )
                     }
                 }
