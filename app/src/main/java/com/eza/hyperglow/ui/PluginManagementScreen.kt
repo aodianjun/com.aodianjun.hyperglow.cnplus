@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.aod.AodRenderPreferences
+import com.eza.hyperglow.bridge.SpicyBridgeDocumentStore
 import com.eza.hyperglow.plugin.PluginInstaller
 import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.plugin.PluginRuntime
@@ -88,6 +90,10 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
     }
     var openSettingsPluginId by remember { mutableStateOf<String?>(null) }
     var uninstallPluginId by remember { mutableStateOf<String?>(null) }
+    // 管线输入状态(与 PluginPipeline.maybeProcess 同源):总开关开启时向用户解释
+    // 「为什么配好了插件却没有动静」——逐行源没有整首文档,v1 不进插件链。
+    val activeProducerState by collectActiveState()
+    val spicyDocument by SpicyBridgeDocumentStore.state.collectAsState()
 
     fun refresh() {
         plugins = PluginRuntime.installed()
@@ -181,6 +187,37 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
                         summary = stringResource(R.string.summary_plugin_action_install),
                         onClick = { pickPluginZip() }
                     )
+                    val inputState = PluginPipeline.pipelineInputState(
+                        activeProducerState, spicyDocument
+                    )
+                    if (processingEnabled && plugins.isNotEmpty() &&
+                        inputState != PluginPipeline.PipelineInputState.IDLE_NO_SOURCE
+                    ) {
+                        val statusText: String? = when (inputState) {
+                            PluginPipeline.PipelineInputState.IDLE_NO_DOCUMENT ->
+                                stringResource(
+                                    R.string.plugin_pipeline_status_no_document,
+                                    activeProducerState?.producerId ?: ""
+                                )
+                            PluginPipeline.PipelineInputState.SOURCE_MISMATCH ->
+                                stringResource(R.string.plugin_pipeline_status_mismatch)
+                            PluginPipeline.PipelineInputState.READY ->
+                                stringResource(
+                                    R.string.plugin_pipeline_status_ready,
+                                    spicyDocument?.rows?.size ?: 0
+                                )
+                            PluginPipeline.PipelineInputState.IDLE_NO_SOURCE -> null
+                        }
+                        if (statusText != null) {
+                            Text(
+                                text = statusText,
+                                fontSize = 13.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+                                modifier = Modifier
+                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                            )
+                        }
+                    }
                 }
             }
             if (plugins.isEmpty()) {

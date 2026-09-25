@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.aod.AodRenderPreferences
+import com.eza.hyperglow.bridge.SpicyBridgeDocument
 import com.eza.hyperglow.bridge.SpicyBridgeDocumentStore
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
@@ -99,11 +100,18 @@ object PluginPipeline {
             if (patched != null) {
                 AppLog.i(TAG, "processing disabled; discarding patched cache")
                 invalidate()
+            } else {
+                logSkipOnce("processing disabled (plugin master switch off)")
             }
             return
         }
         val state = LyricProducers.arbiter.active.value ?: return
-        val document = SpicyBridgeDocumentStore.state.value ?: return
+        // v1 数据边界:只有 Spicy 路径有整首文档,逐行源(SuperLyric/Lyricon/LyricInfo)不进
+        // 管线。此前这里静默返回,"配好插件却毫无动静"只能读源码定位——记一次跳过原因。
+        val document = SpicyBridgeDocumentStore.state.value ?: run {
+            logSkipOnce("no spicy document; plugin chain idle for source=${state.producerId}")
+            return
+        }
         if (!documentMatches(document, state)) {
             logSkipOnce(
                 "document/state mismatch: document=[${document.producerId} gen=${document.generation} " +
@@ -166,6 +174,29 @@ object PluginPipeline {
         if (skipReason == reason) return
         skipReason = reason
         AppLog.i(TAG, "chain skipped: $reason")
+    }
+
+    /** 管线输入状态，供插件管理页展示「为什么配好了插件却没有动静」。 */
+    internal enum class PipelineInputState {
+        /** 没有活动歌词源（当前没有媒体在播）。 */
+        IDLE_NO_SOURCE,
+        /** 有活动源但没有整首文档：v1 数据边界，逐行源（SuperLyric/Lyricon/LyricInfo）不进管线。 */
+        IDLE_NO_DOCUMENT,
+        /** 文档与活动源不匹配（换歌瞬间的过渡态，等下一次调度）。 */
+        SOURCE_MISMATCH,
+        /** 文档与源匹配，插件链已具备处理输入。 */
+        READY
+    }
+
+    /** 纯函数：按当前活动源与文档快照分类管线输入状态，判定与 [maybeProcess] 保持一致。 */
+    internal fun pipelineInputState(
+        state: LyricProducerState?,
+        document: SpicyBridgeDocument?
+    ): PipelineInputState = when {
+        state == null -> PipelineInputState.IDLE_NO_SOURCE
+        document == null -> PipelineInputState.IDLE_NO_DOCUMENT
+        documentMatches(document, state) -> PipelineInputState.READY
+        else -> PipelineInputState.SOURCE_MISMATCH
     }
 
     private fun documentMatches(
