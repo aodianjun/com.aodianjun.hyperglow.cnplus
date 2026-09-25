@@ -116,4 +116,72 @@ class LyricTimelineSanitizerTest {
         )
         assertSame(rows, LyricTimelineSanitizer.sanitizeSnapshotRows(rows))
     }
+
+    @Test
+    fun wordReset_mayDisorder_sortRestoresTimelineOrder() {
+        // 词时序与行时序交叉的脏源:行1 标 0-3000 词在 1500-2500,行2 标 1000-5000
+        // 词在 1100-1200 → 锚定后行1 start=1500 反而在行2 start=1100 之后。
+        val lines = listOf(
+            ElrcParser.TimedLine(0, 3000, "A", words(1500L to 2500L)),
+            ElrcParser.TimedLine(1000, 5000, "B", words(1100L to 1200L))
+        )
+        val retimed = LyricTimelineSanitizer.resetLineTimestampsFromWords(lines)
+        assertEquals(1500L, retimed[0].startMs)
+        assertEquals(1100L, retimed[1].startMs)
+        val ordered = LyricTimelineSanitizer.sortedByTimeline(retimed)
+        assertEquals("B", ordered[0].text)
+        assertEquals(1100L, ordered[0].startMs)
+        assertEquals("A", ordered[1].text)
+        assertEquals(1500L, ordered[1].startMs)
+    }
+
+    @Test
+    fun disorderedInputMissesTruncation_sortedInputCatchesIt() {
+        // 词锚定后的乱序形状:后行 B(1100-1550) 的尾越过前行 A(1500-2500) 的头 50ms。
+        // 直接喂重叠仲裁:内层 break 假设升序,A 对 B 算出的 overlap 方向不对、提前退出,
+        // 漏掉 B→A 的 50ms 截断;先 stable 排序再仲裁才逮住。
+        val a = ElrcParser.TimedLine(1500, 2500, "A", null)
+        val b = ElrcParser.TimedLine(1100, 1550, "B", null)
+        val missed = LyricTimelineSanitizer.sanitizeUnintentionalOverlaps(listOf(a, b))
+        assertEquals(1550L, missed[1].endMs)
+        val ordered = LyricTimelineSanitizer.sortedByTimeline(listOf(a, b))
+        val caught = LyricTimelineSanitizer.sanitizeUnintentionalOverlaps(ordered)
+        assertEquals("B", caught[0].text)
+        assertEquals(1500L, caught[0].endMs)
+        assertEquals(2500L, caught[1].endMs)
+    }
+
+    @Test
+    fun sortedByTimeline_sortedInputReturnsSameInstance() {
+        val lines = listOf(line(0, 1000), line(1000, 2000))
+        assertSame(lines, LyricTimelineSanitizer.sortedByTimeline(lines))
+    }
+
+    @Test
+    fun sortedByTimeline_tiesKeepOriginalRelativeOrder() {
+        // 稳定排序:同 startMs 平局保原相对序(AMLL 用 originalIndex 同义)。
+        val first = line(1000, 2000, "first")
+        val second = line(1000, 3000, "second")
+        val later = line(500, 900, "later")
+        val ordered = LyricTimelineSanitizer.sortedByTimeline(listOf(first, second, later))
+        assertEquals("later", ordered[0].text)
+        assertEquals("first", ordered[1].text)
+        assertEquals("second", ordered[2].text)
+    }
+
+    @Test
+    fun snapshotRows_reorderKeepsLanesWithTheirRows() {
+        // 词锚定打乱序时,translation/roma/role 必须跟着各自的行走,不能因重排串行。
+        val rows = listOf(
+            LyricSongRow(0, 3000, "A", translation = "ta", roma = "ra", words = words(1500L to 2500L)),
+            LyricSongRow(1000, 5000, "B", translation = "tb", roma = "rb", words = words(1100L to 1200L))
+        )
+        val out = LyricTimelineSanitizer.sanitizeSnapshotRows(rows)
+        assertEquals("B", out[0].text)
+        assertEquals("tb", out[0].translation)
+        assertEquals("rb", out[0].roma)
+        assertEquals("A", out[1].text)
+        assertEquals("ta", out[1].translation)
+        assertEquals("ra", out[1].roma)
+    }
 }

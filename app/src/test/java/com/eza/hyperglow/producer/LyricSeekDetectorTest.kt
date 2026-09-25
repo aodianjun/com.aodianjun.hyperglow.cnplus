@@ -76,4 +76,29 @@ class LyricSeekDetectorTest {
         wall = 1_200L
         assertFalse(detector.detect(20_100L, isPlaying = true))
     }
+
+    @Test
+    fun resetAfterPushGapRebuildsBaselineOnly() {
+        // 冻结/外推期恢复后调用方先 reset:携带整段停滞位移的首推只建基线不判跳转
+        // (AMLL 语义:页面恢复等本质连续场景不由判定器代判)。
+        var wall = 1_000L
+        val detector = LyricSeekDetector { wall }
+        detector.detect(5_000L, isPlaying = true)
+        wall = 61_000L
+        detector.reset()
+        assertFalse(detector.detect(65_000L, isPlaying = true))
+        // 基线重建后,正常推进继续按常规判定。
+        wall = 61_250L
+        assertFalse(detector.detect(65_250L, isPlaying = true))
+    }
+
+    @Test
+    fun withoutResetStaleGapWouldFlagSeek() {
+        // 对照组:不 reset 时,同样的停滞位移会被判 seek——证明 reset 是必需的。
+        var wall = 1_000L
+        val detector = LyricSeekDetector { wall }
+        detector.detect(5_000L, isPlaying = true)
+        wall = 61_000L
+        assertTrue(detector.detect(65_000L, isPlaying = true))
+    }
 }

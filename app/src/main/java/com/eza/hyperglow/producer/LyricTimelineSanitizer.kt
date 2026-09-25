@@ -78,18 +78,38 @@ object LyricTimelineSanitizer {
     }
 
     /**
+     * 词锚定后按 startMs 稳定排序(issue #68 #18 修复:AMLL sortLyricLines 同位)。
+     * [resetLineTimestampsFromWords] 把行时间戳拉到词时间戳后,词时序与行时序交叉的源
+     * 会打乱升序——下游 [sanitizeUnintentionalOverlaps] 与选行(activeLineAt)都靠
+     * "升序 + break 提前退出"工作,乱序输入会漏截断、选错行。同 startMs 保持原相对
+     * 顺序(稳定排序,与 AMLL 用 originalIndex 平局同义)。已有序时返回输入实例。
+     */
+    fun sortedByTimeline(lines: List<ElrcParser.TimedLine>): List<ElrcParser.TimedLine> {
+        for (i in 1 until lines.size) {
+            if (lines[i - 1].startMs > lines[i].startMs) {
+                return lines.sortedBy { it.startMs }
+            }
+        }
+        return lines
+    }
+
+    /**
      * 快照出口的同一套规整(issue #68 #17/#18,#75 合并后接入逐行源/整首快照):
      * [LyricSongRow] 与 [ElrcParser.TimedLine] 共享 startMs/endMs/words 三个被规整字段,
-     * 先降到 [ElrcParser.TimedLine] 跑同一套「词级对齐 → 重叠仲裁」,再把结果拷回行
-     * (translation/roma/role 原样保留)。调用方输出均为 startMs 升序(聚合器 TreeMap、
-     * Lyricon 按 begin 排序的源数组),满足两个纯函数的有序前提。
+     * 先降到 [ElrcParser.TimedLine] 跑同一套「词级对齐 → 时间序稳定排序 → 重叠仲裁」,
+     * 再把结果拷回行(translation/roma/role 原样保留)。行与规整结果**成对**随排序
+     * 一起置换(sortedBy 稳定,平局保原相对序),回填按位对应不串行。
      */
     fun sanitizeSnapshotRows(rows: List<LyricSongRow>): List<LyricSongRow> {
         if (rows.isEmpty()) return rows
         val asLines = rows.map { ElrcParser.TimedLine(it.startMs, it.endMs, it.text, it.words) }
-        val normalized = sanitizeUnintentionalOverlaps(resetLineTimestampsFromWords(asLines))
+        val retimed = resetLineTimestampsFromWords(asLines)
+        val orderedPairs = rows.zip(retimed).sortedBy { it.second.startMs }
+        val orderedRows = orderedPairs.map { it.first }
+        val ordered = orderedPairs.map { it.second }
+        val sanitized = sanitizeUnintentionalOverlaps(ordered)
         var changed = false
-        val out = rows.zip(normalized) { row, line ->
+        val out = orderedRows.zip(sanitized) { row, line ->
             if (row.startMs == line.startMs && row.endMs == line.endMs && row.words == line.words) {
                 row
             } else {
@@ -97,6 +117,7 @@ object LyricTimelineSanitizer {
                 row.copy(startMs = line.startMs, endMs = line.endMs, words = line.words)
             }
         }
-        return if (changed) out else rows
+        val orderChanged = orderedRows.zip(rows).any { (a, b) -> a !== b }
+        return if (changed || orderChanged) out else rows
     }
 }
