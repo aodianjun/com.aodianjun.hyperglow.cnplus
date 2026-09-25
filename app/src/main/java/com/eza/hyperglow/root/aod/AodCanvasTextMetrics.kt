@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.aod
 
 import kotlin.math.max
+import kotlin.math.round
 
 internal fun baseTextSizeSp(text: String): Float = when {
     text.codePointCount(0, text.length) >= 30 -> 23f
@@ -66,6 +67,26 @@ internal fun metadataLayoutBounds(
 
 internal fun metadataTextSizeMultiplier(percent: Int): Float =
     percent.coerceIn(50, 200) / 100f
+
+/**
+ * 预览(PreviewComponents)与实机(AodLyricCanvasView)共用的字号/字号档换算 ——
+ * 与 LyricGlowRenderer 同思路:公式只此一份,杜绝预览与实机各写一套造成显示漂移。
+ */
+
+/** 歌曲信息字号(sp):14sp 基准 × 用户百分比(50%~200%)。 */
+internal fun metadataTextSizeSp(percent: Int): Float =
+    14f * metadataTextSizeMultiplier(percent)
+
+/** 副文本音标行字号(sp):主字号 baseSp 的 0.48 倍,带 14sp 下限。 */
+internal fun secondaryReadingTextSizeSp(baseSp: Float): Float =
+    max(14f, round(baseSp * 0.48f))
+
+/** 副文本翻译行字号(sp):音标行再小 1sp,带 13sp 下限。 */
+internal fun secondaryTranslationTextSizeSp(baseSp: Float): Float =
+    max(13f, round(baseSp * 0.48f) - 1f)
+
+/** 下一行歌词字号(sp):固定 15sp,不随字号档位缩放。 */
+internal fun nextLineTextSizeSp(): Float = 15f
 
 internal fun metadataWidgetHeightDp(percent: Int): Float =
     22f + 14f * metadataTextSizeMultiplier(percent)

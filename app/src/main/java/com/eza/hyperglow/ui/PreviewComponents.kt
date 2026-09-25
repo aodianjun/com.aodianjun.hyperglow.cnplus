@@ -48,7 +48,17 @@ import com.eza.hyperglow.R
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
+import com.eza.hyperglow.root.aod.baseTextSizeSp
+import com.eza.hyperglow.root.aod.metadataTextSizeSp
+import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
+import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
+import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
+import com.eza.hyperglow.root.aod.staticNextLineTextFactor
+import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
+import com.eza.hyperglow.root.aod.steadyTextAlpha
+import com.eza.hyperglow.root.aod.textSizeModeMultiplier
+import com.eza.hyperglow.root.lockscreen.cardColorRgb
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
@@ -161,11 +171,18 @@ private fun LyricPreviewSurface(
     val snapshot = live ?: collectDemoSnapshot(scenario)
     // 颜色与实机同源:统一走 resolveAodPalette(dimmed 预设/自定义字体颜色 hex token 一处解析)
     val resolvedColors = resolveAodPalette(profile.palette)
-    val lyricColor = ComposeColor(resolvedColors.primaryText)
-    val secondaryColor = ComposeColor(resolvedColors.secondaryText).copy(alpha = 0.72f)
-    val metadataColor = ComposeColor(resolvedColors.metadataText).copy(alpha = 0.6f)
-    val nextLineColor = ComposeColor(resolvedColors.nextLineText).copy(alpha = 0.45f)
-    val textSize = previewTextSizeSp(profile)
+    // 主行取色与实机 drawOriginalGlowBlock 调用一致:已唱/底色走 sungText,光晕走 glow token。
+    val lyricColor = ComposeColor(resolvedColors.sungText)
+    val glowColor = ComposeColor(resolvedColors.glow)
+    // 透明度与实机 drawSecondaryLine/drawNextLine 同一公式(含 AOD 亮度补偿),metadata 与实机一致不透明。
+    val secondaryColor = ComposeColor(resolvedColors.secondaryText)
+        .copy(alpha = previewSecondaryAlpha(profile.secondaryTextBright))
+    val metadataColor = ComposeColor(resolvedColors.metadataText)
+    val nextLineColor = ComposeColor(resolvedColors.nextLineText)
+        .copy(alpha = staticNextLineTextFactor())
+    // 字号与实机 setContent 同源:随行长自适应基准 × 字号档倍率(AodCanvasTextMetrics 共享公式)。
+    val baseSp = previewBaseTextSizeSp(snapshot.original, profile.textSize, profile.textSizeCustom)
+    val textSize = baseSp.sp
     val context = LocalContext.current
     val customFontVersion = if (profile.fontFamily == LyricTypefaceResolver.FAMILY_CUSTOM) {
         LyricTypefaceResolver.customVersion(context)
@@ -179,10 +196,10 @@ private fun LyricPreviewSurface(
         if (profile.fontFamily == "auto") null
         else FontFamily(LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular"))
     }
-    val textAlign = previewTextAlign(profile)
+    val textAlign = previewTextAlign(profile, snapshot.alignedRight)
     val showMetadata = profile.metadataVisible
     val showNext = profile.showNextLine
-    val secondaryLines = previewSecondaryLines(profile, snapshot)
+    val secondaryLines = previewSecondaryLines(profile, snapshot, baseSp)
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -195,7 +212,7 @@ private fun LyricPreviewSurface(
                     .fillMaxSize()
                     .padding(4.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(previewCardColor(profile))
+                    .background(previewCardColor(profile.cardColor, profile.cardAlpha))
             )
         }
         Column(
@@ -212,39 +229,41 @@ private fun LyricPreviewSurface(
             if (showMetadata && profile.metadataAnchor == "top") {
                 PreviewMetaLine(snapshot.metadata, metadataColor, profile.metadataSizePercent, regularFontFamily)
             }
+            // 溢出语义与实机一致:Clip 恒单行,Wrap 按行数上限硬截(无省略号)。
             PreviewAnimatedLyric(
                 text = snapshot.original,
                 textSize = textSize,
                 lyricTypeface = lyricTypeface,
                 color = lyricColor,
-                glowColor = lyricColor,
+                glowColor = glowColor,
                 glowEnabled = profile.glow == "On",
                 textAlign = textAlign,
-                maxLines = if (profile.lyricLineLimit > 0) profile.lyricLineLimit else Int.MAX_VALUE,
-                overflow = if (profile.overflow == "Clip") TextOverflow.Clip else TextOverflow.Ellipsis
+                maxLines = if (profile.overflow == "Clip") 1
+                else if (profile.lyricLineLimit > 0) profile.lyricLineLimit else Int.MAX_VALUE,
+                overflow = TextOverflow.Clip
             )
             secondaryLines.forEach { line ->
                 Text(
-                    line,
-                    fontSize = textSize * 0.72f,
+                    line.text,
+                    fontSize = line.size,
                     fontWeight = FontWeight.Normal,
                     fontFamily = regularFontFamily,
                     color = secondaryColor,
                     textAlign = textAlign,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = line.maxLines,
+                    overflow = TextOverflow.Clip
                 )
             }
             if (showNext && snapshot.nextLine.isNotBlank()) {
                 Text(
                     snapshot.nextLine,
-                    fontSize = textSize * 0.72f,
+                    fontSize = nextLineTextSizeSp().sp,
                     fontWeight = FontWeight.Normal,
                     fontFamily = regularFontFamily,
                     color = nextLineColor,
                     textAlign = textAlign,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = previewSecondaryWrapLines(profile),
+                    overflow = TextOverflow.Clip
                 )
             }
             if (showMetadata && profile.metadataAnchor == "bottom") {
@@ -261,14 +280,73 @@ private fun PreviewMetaLine(text: String, color: ComposeColor, sizePercent: Int,
         fontSize = previewMetadataTextSizeSp(sizePercent),
         fontFamily = fontFamily,
         color = color,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis
+        // 与实机 wrapMetadataText 一致:最多 2 行,溢出丢弃(无省略号)。
+        maxLines = 2,
+        overflow = TextOverflow.Clip
     )
 }
 
-/** 主页预览的歌曲信息字号:基准 10sp,按用户设置的 metadataSizePercent 缩放(50%~200%)。 */
+/** 主页预览的歌曲信息字号:与实机 metadataPaint 同源(14sp 基准 × metadataSizePercent,50%~200%)。 */
 internal fun previewMetadataTextSizeSp(sizePercent: Int): androidx.compose.ui.unit.TextUnit =
-    (10 * sizePercent.coerceIn(50, 200) / 100).sp
+    metadataTextSizeSp(sizePercent).sp
+
+/** 预览主歌词字号(sp):与实机 setContent 同源 —— baseTextSizeSp(随行长自适应)× 字号档倍率。 */
+internal fun previewBaseTextSizeSp(text: String, textSizeMode: String, textSizeCustom: Int): Float =
+    baseTextSizeSp(text) * textSizeModeMultiplier(textSizeMode, textSizeCustom)
+
+/** 副文本透明度:与实机 drawSecondaryLine 同一公式(steadyTextAlpha 含 AOD 亮度补偿)。 */
+internal fun previewSecondaryAlpha(bright: Boolean): Float =
+    steadyTextAlpha(staticSecondaryTextFactor(bright))
+
+/** 副文本/下一行行数上限:与实机 wrapSecondaryText 同门控(adaptiveSectioning + Wrap 时最多 2 行)。 */
+internal fun previewSecondaryWrapLines(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile
+): Int = if (profile.adaptiveSectioning && profile.overflow == "Wrap") 2 else 1
+
+private fun previewTextAlign(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    alignedRight: Boolean
+): TextAlign =
+    // "auto" 与实机 setContent 一致:alignedRight 时右对齐,否则左对齐(见 AodLyricCanvasView)。
+    when (profile.alignment) {
+        "start" -> TextAlign.Start
+        "center" -> TextAlign.Center
+        "end" -> TextAlign.End
+        else -> if (alignedRight) TextAlign.End else TextAlign.Start
+    }
+
+private data class PreviewSecondaryLine(
+    val text: String,
+    val size: TextUnit,
+    val maxLines: Int
+)
+
+private fun previewSecondaryLines(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    snapshot: LyricSnapshot,
+    baseSp: Float
+): List<PreviewSecondaryLine> {
+    // 字号与实机 setContent 同源:音标行/翻译行各自公式(不同下限),行数与实机换行门控一致。
+    val wrapLines = previewSecondaryWrapLines(profile)
+    val reading = snapshot.romanized.ifBlank { null }?.let {
+        PreviewSecondaryLine(it, secondaryReadingTextSizeSp(baseSp).sp, wrapLines)
+    }
+    val translation = snapshot.translated.ifBlank { null }?.let {
+        PreviewSecondaryLine(it, secondaryTranslationTextSizeSp(baseSp).sp, wrapLines)
+    }
+    return when (profile.secondaryMode) {
+        "Transliteration" -> listOfNotNull(reading)
+        "Translation" -> listOfNotNull(translation)
+        "Both" -> listOfNotNull(reading, translation)
+        else -> emptyList()
+    }
+}
+
+internal fun previewCardColor(cardColor: String, cardAlpha: Int): ComposeColor {
+    // 卡片色与实机 AdaptiveLyricCardBackgroundView.cardColorRgb 同一 token 映射,alpha 由 cardAlpha 单独控制。
+    val rgb = cardColorRgb(cardColor) and 0x00FFFFFF
+    return ComposeColor(0xFF000000.toInt() or rgb).copy(alpha = cardAlpha.coerceIn(0, 100) / 100f)
+}
 
 /**
  * 主页预览的歌词主体渲染:在原生 Canvas 上用 StaticLayout 绘制主歌词,按播放进度模拟
@@ -370,46 +448,3 @@ private fun PreviewAnimatedLyric(
     }
 }
 
-private fun previewTextAlign(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): TextAlign =
-    // "auto" 与应用渲染一致:在 alignedRight=false 时解析为左对齐(见 AodLyricCanvasView)。
-    when (profile.alignment) {
-        "start" -> TextAlign.Start
-        "center" -> TextAlign.Center
-        "end" -> TextAlign.End
-        else -> TextAlign.Start
-    }
-
-private fun previewTextSizeSp(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): androidx.compose.ui.unit.TextUnit {
-    val percent = when (profile.textSize) {
-        "small" -> 90
-        "large" -> 118
-        "xlarge" -> 140
-        "custom" -> profile.textSizeCustom.coerceIn(50, 200)
-        else -> 100
-    }
-    return (20 * percent / 100).sp
-}
-
-private fun previewSecondaryLines(
-    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
-    snapshot: LyricSnapshot
-): List<String> = when (profile.secondaryMode) {
-    "Transliteration" -> listOfNotNull(snapshot.romanized.ifBlank { null })
-    "Translation" -> listOfNotNull(snapshot.translated.ifBlank { null })
-    "Both" -> listOfNotNull(
-        snapshot.romanized.ifBlank { null },
-        snapshot.translated.ifBlank { null }
-    )
-    else -> emptyList()
-}
-
-private fun previewCardColor(profile: com.eza.hyperglow.customization.CompiledSurfaceProfile): ComposeColor {
-    val base = when (profile.cardColor) {
-        "white" -> ComposeColor(0xFFFFFFFF)
-        "dark_gray" -> ComposeColor(0xFF2A2A2A)
-        "accent" -> ComposeColor(0xFF3A6EA5)
-        "blur" -> ComposeColor(0xFF1A1A1E)
-        else -> ComposeColor(0xFF000000)
-    }
-    return base.copy(alpha = profile.cardAlpha.coerceIn(0, 100) / 100f)
-}

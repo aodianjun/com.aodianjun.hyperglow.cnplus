@@ -323,11 +323,13 @@ internal class AodLyricCanvasView(
             rubyPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
         }
         originalPaint.textSize = baseSp * scaledDensity
-        metadataPaint.textSize = 14f * metadataTextSizeMultiplier(
+        // 字号公式收口到 AodCanvasTextMetrics 共享纯函数(与预览同源,杜绝两套换算漂移)。
+        metadataPaint.textSize = metadataTextSizeSp(
             nextContent.metadataSizePercent
         ) * scaledDensity
-        romanizedPaint.textSize = max(14f, kotlin.math.round(baseSp * 0.48f)) * scaledDensity
-        translatedPaint.textSize = max(13f, kotlin.math.round(baseSp * 0.48f) - 1f) * scaledDensity
+        romanizedPaint.textSize = secondaryReadingTextSizeSp(baseSp) * scaledDensity
+        translatedPaint.textSize = secondaryTranslationTextSizeSp(baseSp) * scaledDensity
+        nextLinePaint.textSize = nextLineTextSizeSp() * scaledDensity
         rubyPaint.textSize = originalPaint.textSize * 0.46f
         currentRenderStyle = captureRenderStyle()
         rebuildLayout()

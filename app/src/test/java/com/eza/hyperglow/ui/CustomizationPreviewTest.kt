@@ -1,7 +1,11 @@
 package com.eza.hyperglow.ui
 
+import androidx.compose.ui.graphics.toArgb
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
+import com.eza.hyperglow.root.aod.nextLineTextSizeSp
+import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
+import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -121,11 +125,56 @@ class CustomizationPreviewTest {
 
     @Test
     fun previewMetadataTextSizeScalesWithUserPercent() {
-        assertEquals(10f, previewMetadataTextSizeSp(100).value, 0.0001f)
-        assertEquals(5f, previewMetadataTextSizeSp(50).value, 0.0001f)
-        assertEquals(20f, previewMetadataTextSizeSp(200).value, 0.0001f)
+        // 与实机 metadataPaint 同源:14sp 基准 × metadataSizeMultiplier。
+        assertEquals(14f, previewMetadataTextSizeSp(100).value, 0.0001f)
+        assertEquals(7f, previewMetadataTextSizeSp(50).value, 0.0001f)
+        assertEquals(28f, previewMetadataTextSizeSp(200).value, 0.0001f)
         // 越界值收敛到 50%~200%。
-        assertEquals(5f, previewMetadataTextSizeSp(1).value, 0.0001f)
-        assertEquals(20f, previewMetadataTextSizeSp(900).value, 0.0001f)
+        assertEquals(7f, previewMetadataTextSizeSp(1).value, 0.0001f)
+        assertEquals(28f, previewMetadataTextSizeSp(900).value, 0.0001f)
+    }
+
+    @Test
+    fun previewTextSizeFollowsDeviceLengthAdaptiveFormula() {
+        // 与实机 setContent 同源:baseTextSizeSp 随行长降档(28/26/24/23sp)× LIVE_CARD_SIZE_MULTIPLIER。
+        assertEquals(28f * 0.68f, previewBaseTextSizeSp("short", "normal", 100), 0.001f)
+        assertEquals(26f * 0.68f, previewBaseTextSizeSp("a".repeat(14), "normal", 100), 0.001f)
+        assertEquals(24f * 0.68f, previewBaseTextSizeSp("a".repeat(22), "normal", 100), 0.001f)
+        assertEquals(23f * 0.68f, previewBaseTextSizeSp("a".repeat(30), "normal", 100), 0.001f)
+        // 字号档倍率与实机 textSizeModeMultiplier 一致(large=1.2/xlarge=1.5,custom=百分比)。
+        assertEquals(28f * 0.68f * 1.2f, previewBaseTextSizeSp("short", "large", 100), 0.001f)
+        assertEquals(28f * 0.68f * 1.5f, previewBaseTextSizeSp("short", "xlarge", 100), 0.001f)
+        assertEquals(28f * 0.68f * 1.5f, previewBaseTextSizeSp("short", "custom", 150), 0.001f)
+    }
+
+    @Test
+    fun previewSecondaryAndNextLineSizesMatchDeviceFormula() {
+        // 与实机 setContent 同源:音标 0.48×base 带 14sp 下限,翻译再小 1sp 带 13sp 下限。
+        assertEquals(14f, secondaryReadingTextSizeSp(19.04f), 0.001f)
+        assertEquals(18f, secondaryReadingTextSizeSp(38f), 0.001f)
+        assertEquals(13f, secondaryTranslationTextSizeSp(19.04f), 0.001f)
+        assertEquals(17f, secondaryTranslationTextSizeSp(38f), 0.001f)
+        // 下一行固定 15sp,不随字号档位缩放。
+        assertEquals(15f, nextLineTextSizeSp(), 0.001f)
+    }
+
+    @Test
+    fun previewSecondaryAlphaFollowsDeviceBrightnessFormula() {
+        // 与实机 drawSecondaryLine 同一公式:bright=不透明,dim 走 AOD 亮度补偿下限。
+        assertEquals(1f, previewSecondaryAlpha(true), 0.001f)
+        assertEquals(0.56f, previewSecondaryAlpha(false), 0.001f)
+    }
+
+    @Test
+    fun previewCardColorMatchesDeviceTokenMap() {
+        // 与实机 AdaptiveLyricCardBackgroundView.cardColorRgb 同一 token 映射(alpha 由 cardAlpha 单独控制)。
+        assertEquals(0x1ED760, previewCardColor("accent", 100).toArgb() and 0xFFFFFF)
+        assertEquals(0x333333, previewCardColor("dark_gray", 100).toArgb() and 0xFFFFFF)
+        assertEquals(0x1A1A1A, previewCardColor("black", 100).toArgb() and 0xFFFFFF)
+        assertEquals(0x1A1A1A, previewCardColor("blur", 100).toArgb() and 0xFFFFFF)
+        assertEquals(0xFFFFFF, previewCardColor("white", 100).toArgb() and 0xFFFFFF)
+        // Compose Color 的 alpha 走 8-bit 量化(0.5f → 128/255),按通道值断言避免浮点容差踩量化误差。
+        assertEquals(128, previewCardColor("black", 50).toArgb() ushr 24)
+        assertEquals(255, previewCardColor("black", 100).toArgb() ushr 24)
     }
 }
