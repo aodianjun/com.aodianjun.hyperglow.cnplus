@@ -272,6 +272,8 @@ private fun redactDiagnosticSecrets(line: String): String = line
     .replace(SPOTIFY_TRACK_URI_REGEX, "spotify:track:<redacted>")
     .replace(URL_REGEX, "<url redacted>")
     .replace(CREDENTIAL_REGEX, "$1=<redacted>")
+    .replace(DATA_PATH_REGEX, "/data/user/<redacted>")
+    .replace(STORAGE_PATH_REGEX, "$1<redacted>")
     .replace(EXCEPTION_MESSAGE_REGEX, "$1: <message redacted>")
 
 private fun isCrashBoundary(line: String): Boolean =
@@ -285,6 +287,13 @@ private val SPOTIFY_TRACK_URI_REGEX = Regex("spotify:track:[A-Za-z0-9]+")
 private val URL_REGEX = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
 private val CREDENTIAL_REGEX = Regex(
     "(?i)\\b(token|authorization|cookie|set-cookie)\\s*[=:]\\s*\\S+"
+)
+// 私有存储路径(与 Bridge SensitiveFieldRedactor 同集合):/data/user/<uid>/<pkg>
+// 与外部存储绝对路径可能暴露用户目录结构与媒体文件名,报告统一脱敏。
+private val DATA_PATH_REGEX = Regex("/data/user/\\d+/[A-Za-z0-9_.]+")
+private val STORAGE_PATH_REGEX = Regex(
+    "(/storage/emulated/\\d+/|/sdcard/)[^\\s,]+",
+    RegexOption.IGNORE_CASE
 )
 private val EXCEPTION_MESSAGE_REGEX = Regex(
     "((?:java|kotlin|android|com\\.[A-Za-z0-9_$.]+)\\.[A-Za-z0-9_$.]*(?:Exception|Error))(?::[^\\n]*)?"
