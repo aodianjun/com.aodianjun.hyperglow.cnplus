@@ -173,6 +173,8 @@ class CustomizationPreviewTest {
         assertEquals(0x1A1A1A, previewCardColor("black", 100).toArgb() and 0xFFFFFF)
         assertEquals(0x1A1A1A, previewCardColor("blur", 100).toArgb() and 0xFFFFFF)
         assertEquals(0xFFFFFF, previewCardColor("white", 100).toArgb() and 0xFFFFFF)
-        assertEquals(0.5f, previewCardColor("black", 50).alpha, 0.001f)
+        // Compose Color 的 alpha 走 8-bit 量化(0.5f → 128/255),按通道值断言避免浮点容差踩量化误差。
+        assertEquals(128, previewCardColor("black", 50).toArgb() ushr 24)
+        assertEquals(255, previewCardColor("black", 100).toArgb() ushr 24)
     }
 }
