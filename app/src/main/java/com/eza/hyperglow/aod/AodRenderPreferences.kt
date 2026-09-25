@@ -103,7 +103,12 @@ data class AodRenderConfig(
     /** 自定义 AOD 亮度(10-255),仅当 [aodBrightnessOverride] 为 true 时生效。 */
     val aodBrightnessLevel: Int = DEFAULT_AOD_BRIGHTNESS_LEVEL,
     /** 调试开关:在 AOD 画布上描出画布边界(逻辑帧 ow×oh)与内容裁剪区,便于核对布局。 */
-    val aodDebugShowCanvasFrame: Boolean = false
+    val aodDebugShowCanvasFrame: Boolean = false,
+    /**
+     * 渲染刷新率上限档(issue #68 #12):0=跟随现有行为(16ms≈60fps);
+     * 60/90/120=用户可选上限,随配置下发到 SystemUI 侧帧调度。
+     */
+    val aodRefreshRateCap: Int = 0
 ) {
     companion object {
         /** 出厂默认配置;备份解码时用于逐字段回退缺失/类型错误的值。 */
