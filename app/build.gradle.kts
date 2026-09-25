@@ -36,6 +36,20 @@ val releaseSigningConfigured = listOf(
     signingKeyPassword
 ).all { !it.isNullOrBlank() }
 
+// 签名 guard(Bridge 同款,issue #68 #9):请求 release 产物任务而正式签名未配置时,
+// 配置期直接失败——绝不走 buildTypes 的 debug 签名回退,产出"伪正式版"。
+// 本地构建 release 请先配置 SIGNING_KEYSTORE_FILE / SIGNING_STORE_PASSWORD /
+// SIGNING_KEY_ALIAS / SIGNING_KEY_PASSWORD;仅跑测试或 debug 构建不受影响。
+val releaseArtifactRequested = gradle.startParameter.taskNames.any {
+    Regex("(?i)(^|:)(assemble|bundle|lint)release$").containsMatchIn(it)
+}
+if (releaseArtifactRequested && !releaseSigningConfigured) {
+    throw GradleException(
+        "release artifact task requested but SIGNING_* env is not configured; " +
+            "refusing to produce a debug-signed release. Configure signing or use assembleDebug."
+    )
+}
+
 android {
     namespace = "com.eza.hyperglow"
     compileSdk = 37

@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "applicationId": "com.aodianjun.hyperglow.cnplus",
+  "releaseTagPattern": "^\\d+-\\d+\\.\\d+\\.\\d+$",
+  "assetNameTemplates": {
+    "releaseApk": "hyperglow-cnplus-release-v<version>-<code>.apk",
+    "debugApk": "hyperglow-cnplus-debug-v<version>-<code>.apk"
+  },
+  "forbiddenReleaseApkStrings": [
+    "androiddebugkey"
+  ],
+  "requiredFiles": [
+    "README.md",
+    "FAQ.md",
+    "DIAGNOSTIC_DATA_POLICY.md",
+    "UPSTREAM_SYNC.md",
+    "docs/RELEASE_CONVENTIONS.md",
+    "docs/ARCHITECTURE.md",
+    "docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md",
+    "plugins/api/api-contract.fingerprint"
+  ]
+}

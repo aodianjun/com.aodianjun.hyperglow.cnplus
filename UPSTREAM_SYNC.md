@@ -10,7 +10,7 @@
 
 ## Current Status
 
-- **CN+ version**: 0.3.104 (131), upstream baseline as of `1537c58` (v0.3.178). Evaluated increments since `8422d78` (v0.3.97): `748912e` (2026-09-14), `2885511` (2026-09-15), `1537c58` (2026-09-17) — all handled, see the sections below.
+- **CN+ version**: 0.3.113 (140) as of 2026-09-25, upstream baseline as of `1537c58` (v0.3.178). Evaluated increments since `8422d78` (v0.3.97): `748912e` (2026-09-14), `2885511` (2026-09-15), `1537c58` (2026-09-17) — all handled, see the sections below.
 - **Upstream latest**: 2026-09-17 `1537c58`, version 0.3.178 (204) — **fully ported 2026-09-25** (managed-position exhaustion fallback + `burnInPattern` diagnostic field), see its row in the synced table below.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
@@ -111,8 +111,8 @@ Also: `strings.xml` got only a comment block (no user-facing text change).
 
 ## 当前状态
 
-- **CN+ 版本**：0.3.96 (123)，上游基线截至 `8422d78`（v0.3.97）。此后的评估增量：`748912e`（2026-09-14）与 `2885511`（2026-09-15）——见下方对应评估小节。
-- **上游最新**：2026-09-15 `2885511`，版本 0.3.177 (203) —— **已于 2026-09-15 评估**（DexKit 符号解析 + 元数据多行化；无必须移植项），见下方「`2885511` 评估」小节。
+- **CN+ 版本**：0.3.113 (140)（截至 2026-09-25），上游基线截至 `1537c58`（v0.3.178）。此后的评估增量：`748912e`（2026-09-14）、`2885511`（2026-09-15）与 `1537c58`（2026-09-17）——见下方对应评估小节与「已同步 / 已包含」表。
+- **上游最新**：2026-09-17 `1537c58`，版本 0.3.178 (204) —— **已于 2026-09-25 全部移植**（托管位移重试耗尽回落 + `burnInPattern` 诊断字段，#67），见「已同步 / 已包含」表。
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
   HierarchyFields.kt 及全 hook 使用、missingProbeNames、miuix 走 Maven Central 公共仓库
@@ -150,7 +150,7 @@ Also: `strings.xml` got only a comment block (no user-facing text change).
 
 | # | 特性 | 关键文件/体量 | CN+ 相关性 | 建议 |
 |---|---|---|---|---|
-| 1 | **DexKit 动态符号解析**——新增 `root/symbols` 包：`DexKitRuntime`（+195，引入 `org.luckypray:dexkit:2.2.0` 原生库、按 classpath APK 建桥、受限抽取兜底）、`SymbolCache`（按 loader 弱缓存）、`SymbolResolver`（+602，符号总闸：先用内置反射、miss 才查 DexKit；`debug.hyperglow.symbols` 系统属性切策略；来源台账）；约 13 个 hook + `XiaomiCapabilityResolver` 探针改走此闸；`frameworkOwned()` 保证引导类路径仍纯反射 | DexKitRuntime/SymbolCache/SymbolResolver + 约 12 个 hook 文件改造；Gradle 依赖 | 高——应对不同 ROM 版本的小米符号改名 | **暂缓（体量大、风险高）**。自包含但改写全部安装路径并引入原生库（ABI 打包/proguard/SystemUI 原生加载）。CN+ 目前静态安装即工作；仅当出现确切的改名符号 hook 失效再移植。若移植需对齐 CN+ 的 `hierarchyField`/探针管线并保留框架快速路径 |
+| 1 | **DexKit 动态符号解析**——新增 `root/symbols` 包：`DexKitRuntime`（+195，引入 `org.luckypray:dexkit:2.2.0` 原生库、按 classpath APK 建桥、受限抽取兜底）、`SymbolCache`（按 loader 弱缓存）、`SymbolResolver`（+602，符号总闸：先用内置反射、miss 才查 DexKit；`debug.hyperglow.symbols` 系统属性切策略；来源台账）；约 13 个 hook + `XiaomiCapabilityResolver` 探针改走此闸；`frameworkOwned()` 保证引导类路径仍纯反射 | DexKitRuntime/SymbolCache/SymbolResolver + 约 12 个 hook 文件改造；Gradle 依赖 | 高——应对不同 ROM 版本的小米符号改名 | **已移植（2026-09-18）**。symbols 包单测通过、`compileDebugKotlin` 绿。**保留直接反射**：`AodWakeBroker`（trigger-class 候选 + 多态 `fireAodState` 兜底）与 `HierarchyFields` 字段链探针——CN+ 分叉的候选/兜底逻辑不映射为单个 `SymbolRequest`，与英文表 "Kept direct" 记录一致 |
 | 2 | **元数据多行化**——`AodStateProjector.projectToDisplay` 将歌名/歌手用 `\n` 拼接（`·`→换行）替代 `" · "`；画布 `metadataLineTexts`/`metadataLayoutBounds` 增加行高、元数据逐行绘制 | AodStateProjector +3，AodLyricCanvasView ~40，AodStateProjectorTest/AodCanvasLayoutTest | 中-高、用户可见 | **可选移植（低风险、自包含）**——CN+ 在 `AodStateProjector.kt:82` 有相同 `" · "` 拼接、已有元数据 RowKind；值得让歌名/歌手分行 |
 | 3 | **书写体系标点归附**（`aodPunctuationAttachToPrevious`/`Next`、`attachAodPunctuationGroups`）+ 词块打包计入渲染分隔符 | AodLyricCanvasView ~50，AodCanvasLayoutTest | 中（换行润色） | **选择性**——低风险；若独立中日文字标点换行观感不佳再移植 |
 | 4 | **所有歌词绘制路径共享逻辑裁剪**（强制水平 padding，即使整词不可分/动画越界也裁；取代逐 `drawText` clip） | AodLyricCanvasView ~10 | 中 | **可选移植（低风险）**——CN+ 应保证内容不越出四周 padding 框 |
