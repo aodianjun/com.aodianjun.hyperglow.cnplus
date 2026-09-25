@@ -19,8 +19,9 @@ class AodLineBreakPolicyTest {
 
     @Test
     fun prohibitedLineEndWalksBreakBack() {
-        // "（你好":断点 2 的前一字符是「(」(行尾禁则) → 回退。
-        assertEquals(1, adjustForCjkLineBreak("（你好", 0, 2, 4))
+        // "好（你":宽度只容得下 2 字,断点后的行尾是「(」(行尾禁则) → 回退,「(」随
+        // 「你」一起去下一行;回退后再无禁则,停在第 1 个码点。
+        assertEquals(1, adjustForCjkLineBreak("好（你", 0, 2, 4))
     }
 
     @Test

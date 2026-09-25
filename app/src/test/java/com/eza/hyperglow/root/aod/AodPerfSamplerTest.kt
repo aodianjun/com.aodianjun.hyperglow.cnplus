@@ -68,8 +68,12 @@ class AodPerfSamplerTest {
         )
         sampler.end(AodPerfSampler.Metric.DRAW, sampler.begin())
         assertEquals(0, reports.size)
+        // 启用后:首帧只开窗(无输出),时钟跨过报告窗口的第二帧才出第一条汇总。
         enabled = true
         clock = 5_000L
+        sampler.end(AodPerfSampler.Metric.DRAW, sampler.begin())
+        assertEquals(0, reports.size)
+        clock = 9_000L
         sampler.end(AodPerfSampler.Metric.DRAW, sampler.begin())
         assertEquals(1, reports.size)
     }

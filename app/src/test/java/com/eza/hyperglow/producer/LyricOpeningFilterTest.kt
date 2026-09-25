@@ -77,18 +77,23 @@ class LyricOpeningFilterTest {
             lineAt(0L, "版权所有 (C) 2026"),
             lineAt(1_000L, "和声合唱团")
         )
-        assertEquals(2, LyricOpeningFilter.filterOpeningMetadata(afterCopyright).size)
+        // 版权行隐藏,但其后不是标题歌手头 → 续行规则不触发,和声行保留。
+        val afterCopyrightFiltered = LyricOpeningFilter.filterOpeningMetadata(afterCopyright)
+        assertEquals(1, afterCopyrightFiltered.size)
+        assertEquals("和声合唱团", afterCopyrightFiltered[0].text)
     }
 
     @Test
     fun lyricContentAfterCreditIsKept() {
-        // 真实歌词行(≥8 个 CJK 字符)即使紧跟标题歌手头也不隐藏。
+        // 真实歌词行(≥8 个 CJK 字符)即使紧跟标题歌手头也不隐藏:
+        // 歌词头隐藏,歌词行经 looksLikeLyricContent 判定为正文而保留。
         val lines = listOf(
             lineAt(0L, "歌名 - 歌手"),
             lineAt(1_000L, "这是一句足够长而且真实存在的歌词内容")
         )
         val filtered = LyricOpeningFilter.filterOpeningMetadata(lines)
-        assertEquals(2, filtered.size)
+        assertEquals(1, filtered.size)
+        assertEquals("这是一句足够长而且真实存在的歌词内容", filtered[0].text)
     }
 
     @Test
