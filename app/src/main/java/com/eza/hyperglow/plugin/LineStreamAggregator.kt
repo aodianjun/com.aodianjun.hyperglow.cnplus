@@ -3,6 +3,7 @@ package com.eza.hyperglow.plugin
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricSongRow
 import com.eza.hyperglow.producer.LyricSongSnapshot
+import com.eza.hyperglow.producer.LyricTimelineSanitizer
 
 /**
  * 纯逐行源（SuperLyric 等，无整首歌词数据）的行流聚合器。
@@ -79,15 +80,17 @@ internal class LineStreamAggregator {
                 generation = state.generation,
                 trackUri = state.trackUri,
                 durationMs = durationMs,
-                rows = buffered.map { (startMs, row) ->
-                    LyricSongRow(
-                        startMs = startMs,
-                        endMs = row.endMs,
-                        text = row.text,
-                        translation = row.translation,
-                        roma = row.roma
-                    )
-                }
+                rows = LyricTimelineSanitizer.sanitizeSnapshotRows(
+                    buffered.map { (startMs, row) ->
+                        LyricSongRow(
+                            startMs = startMs,
+                            endMs = row.endMs,
+                            text = row.text,
+                            translation = row.translation,
+                            roma = row.roma
+                        )
+                    }
+                )
             )
         }
         return Accumulation(snapshot, added)

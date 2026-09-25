@@ -91,6 +91,9 @@ class LyricInfoLyricProducer(
     /** True while currentPositionMs is being advanced by extrapolation (stale/frozen ps). */
     @Volatile private var extrapolating: Boolean = false
 
+    /** 跳转判定器(issue #68 #19):注入与外推同一时钟;换歌时 reset。 */
+    private val seekDetector = LyricSeekDetector(clock)
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     @Volatile private var generation: Int = 0
     @Volatile private var sequence: Long = 0L
@@ -211,6 +214,8 @@ class LyricInfoLyricProducer(
             generation++
             // 旧歌的外推/容差状态不得带进新歌:换歌后第一条真实位置无条件接受。
             extrapolating = false
+            // 旧歌的位置基线同样作废:新歌首次推送只建基线,不判跳转。
+            seekDetector.reset()
             AppLog.i(
                 "LyricInfoLyricProducer",
                 "song changed: title=$newTitle artist=$newArtist"
@@ -223,13 +228,24 @@ class LyricInfoLyricProducer(
         timedLines = resolveLyricInfoTimedLines(payload).let { parsed ->
             // 开头元数据清理(issue #68 #4):版权/制作明细/标题歌手头,仅前 32 行且 ≤30s。
             val filtered = LyricOpeningFilter.filterOpeningMetadata(parsed)
-            if (filtered.size != parsed.size) {
+            // 行时间戳词级对齐(issue #68 #18):行 start/end 锚到首词/末词;单词全零回填。
+            // 必须在重叠仲裁之前——重叠判定要基于最终时间轴。
+            val normalized = LyricTimelineSanitizer.resetLineTimestampsFromWords(filtered)
+            // 非刻意行间重叠截断(issue #68 #17):≥500ms 或(>100ms 且 >下一行时长 10%)
+            // 判有意保留;其余截断到下一行 start,防多行同亮/高亮跳动。
+            val sanitized = LyricTimelineSanitizer.sanitizeUnintentionalOverlaps(normalized)
+            val reAnchored = filtered.zip(normalized)
+                .count { (a, b) -> a.startMs != b.startMs || a.endMs != b.endMs }
+            val truncated = normalized.zip(sanitized)
+                .count { (a, b) -> a.endMs != b.endMs }
+            if (filtered.size != parsed.size || reAnchored > 0 || truncated > 0) {
                 AppLog.i(
                     "LyricInfoLyricProducer",
-                    "opening metadata filtered: ${parsed.size - filtered.size} line(s) for '$title'"
+                    "timeline normalized: opening=${parsed.size - filtered.size}" +
+                        " reAnchored=$reAnchored truncated=$truncated for '$title'"
                 )
             }
-            filtered
+            sanitized
         }
         // 翻译 lane 优先级:Bridge 规范 translationLyric → 完整版 translation → 精简版 transLyric。
         translationLines = resolveLyricInfoTranslationLines(payload)
@@ -274,6 +290,17 @@ class LyricInfoLyricProducer(
             // 保持单调外推值，把外推时钟重新锚定到它。
             lastRealPositionMs = currentPositionMs
         } else {
+            // 跳转判定(issue #68 #19):把"这次位置变化是否为真 seek"从隐式启发改为
+            // 显式判定器并落日志,真机可区分"用户拖进度条"与"源位置抖动"。
+            // 本通道行为不变——接受真实位置即 snap 选中行;判定结果为逐行源(#75)
+            // 复用与后续"seek 免追赶动画"策略提供统一出口。
+            val playing = ps.state == PlaybackState.STATE_PLAYING
+            if (seekDetector.detect(ps.position, playing)) {
+                AppLog.i(
+                    "LyricInfoLyricProducer",
+                    "seek detected: position=${ps.position} playing=$playing"
+                )
+            }
             lastRealPositionMs = ps.position
             currentPositionMs = ps.position
         }

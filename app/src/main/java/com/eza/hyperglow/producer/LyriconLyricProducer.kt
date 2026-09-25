@@ -481,16 +481,18 @@ class LyriconLyricProducer(
             generation = generation,
             trackUri = "lyricon:${song.id ?: song.name}",
             durationMs = song.duration,
-            rows = lines.map { line ->
-                LyricSongRow(
-                    startMs = line.begin,
-                    endMs = line.end,
-                    text = line.text.orEmpty(),
-                    translation = line.translation.orEmpty(),
-                    roma = line.roma.orEmpty(),
-                    words = line.toLyricWords()?.takeIf { it.isNotEmpty() }
-                )
-            }
+            rows = LyricTimelineSanitizer.sanitizeSnapshotRows(
+                lines.map { line ->
+                    LyricSongRow(
+                        startMs = line.begin,
+                        endMs = line.end,
+                        text = line.text.orEmpty(),
+                        translation = line.translation.orEmpty(),
+                        roma = line.roma.orEmpty(),
+                        words = line.toLyricWords()?.takeIf { it.isNotEmpty() }
+                    )
+                }
+            )
         )
     }
 
