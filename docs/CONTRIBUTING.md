@@ -37,8 +37,9 @@ which rules are easy to miss.
   belong under the ignored `research/` directory (STYLE_GUIDE §12).
 - **Upstream (`amarinne/hyperglow`) is ported by hand**, evaluated per commit and recorded in
   `UPSTREAM_SYNC.md`; direct merges are not possible. The `.github/workflows/upstream-scan.yml`
-  workflow only *reports* new upstream commits — the baseline in `.github/upstream-baseline.txt`
-  is advanced by a human PR after the port is recorded.
+  workflow only *reports* new upstream commits when triggered manually (no automatic schedule) —
+  the baseline in `.github/upstream-baseline.txt` is advanced by a human PR after the port is
+  recorded.
 
 ## CI and releases
 
@@ -84,8 +85,8 @@ reports are triaged against `docs/DEVICE_COMPAT_MATRIX.md`.
 - **专有研究不进公开树。** 设备日志、JADX 输出与临时采集放在被忽略的 `research/` 目录
   （STYLE_GUIDE §12）。
 - **上游（`amarinne/hyperglow`）按提交人工移植**，逐个评估并记录在 `UPSTREAM_SYNC.md`；无法直接
-  merge。`.github/workflows/upstream-scan.yml` 只负责*报告*新上游提交——`.github/upstream-baseline.txt`
-  中的基线只在移植记录完成后由人工 PR 推进。
+  merge。`.github/workflows/upstream-scan.yml` 只负责*报告*新上游提交（仅手动触发，无定时自动
+  运行）——`.github/upstream-baseline.txt` 中的基线只在移植记录完成后由人工 PR 推进。
 
 ## CI 与发版
 

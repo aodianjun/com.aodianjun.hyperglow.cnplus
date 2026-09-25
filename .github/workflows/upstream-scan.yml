@@ -1,15 +1,12 @@
 name: Upstream sync scan
 
+# Manually triggered scan (workflow_dispatch only — no automatic schedule by design).
 # Reports new commits on upstream (amarinne/hyperglow) since the recorded baseline.
 # The baseline in .github/upstream-baseline.txt is ONLY advanced by a human PR after
 # the port has been evaluated and recorded in UPSTREAM_SYNC.md; this workflow never
-# auto-advances it. Scheduled workflows are disabled by GitHub after ~60 days of
-# repository inactivity — re-run manually via workflow_dispatch in that case.
+# auto-advances it.
 
 on:
-  schedule:
-    # Daily at 21:17 UTC (05:17 Beijing time, off the hour to reduce runner contention).
-    - cron: "17 21 * * *"
   workflow_dispatch:
 
 permissions:
@@ -87,9 +84,10 @@ jobs:
             cat upstream-watchlist.txt
             echo '```'
             echo
-            echo "> Maintained by the \`upstream-scan\` workflow. The baseline in"
-            echo "> \`.github/upstream-baseline.txt\` is **only advanced by a human PR** after the port"
-            echo "> is recorded in \`UPSTREAM_SYNC.md\`; the scan never auto-advances it."
+            echo "> Maintained by the \`upstream-scan\` workflow (manual trigger only — no automatic"
+            echo "> schedule). The baseline in \`.github/upstream-baseline.txt\` is **only advanced by a"
+            echo "> human PR** after the port is recorded in \`UPSTREAM_SYNC.md\`; the scan never"
+            echo "> auto-advances it."
             echo "> Evaluate against the operating procedure in \`UPSTREAM_SYNC.md\`, then close this"
             echo "> issue via the baseline-advancing PR."
           } > issue-body.md
