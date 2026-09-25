@@ -1,0 +1,103 @@
+name: Upstream sync scan
+
+# Reports new commits on upstream (amarinne/hyperglow) since the recorded baseline.
+# The baseline in .github/upstream-baseline.txt is ONLY advanced by a human PR after
+# the port has been evaluated and recorded in UPSTREAM_SYNC.md; this workflow never
+# auto-advances it. Scheduled workflows are disabled by GitHub after ~60 days of
+# repository inactivity — re-run manually via workflow_dispatch in that case.
+
+on:
+  schedule:
+    # Daily at 21:17 UTC (05:17 Beijing time, off the hour to reduce runner contention).
+    - cron: "17 21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Fetch upstream main
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/amarinne/hyperglow.git
+          git fetch upstream main --no-tags --unshallow 2>/dev/null || git fetch upstream main --no-tags
+          echo "UPSTREAM_HEAD=$(git rev-parse upstream/main)" >> "$GITHUB_ENV"
+
+      - name: Compare against recorded baseline
+        id: diff
+        run: |
+          set -euo pipefail
+          BASELINE=$(tr -d '[:space:]' < .github/upstream-baseline.txt)
+          echo "baseline=$BASELINE" >> "$GITHUB_OUTPUT"
+          echo "baseline=$BASELINE"
+          echo "upstream=$UPSTREAM_HEAD"
+          if [ "$BASELINE" = "$UPSTREAM_HEAD" ]; then
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "pending=true" >> "$GITHUB_OUTPUT"
+          echo "count=$(git rev-list --count "$BASELINE..upstream/main")" >> "$GITHUB_OUTPUT"
+          git log --oneline --no-decorate "$BASELINE..upstream/main" > upstream-log.txt
+          git diff --stat "$BASELINE..upstream/main" | tail -n 80 > upstream-stat.txt
+          {
+            git log --name-only --pretty=format:'commit %h %s' "$BASELINE..upstream/main" \
+              | grep -Ei 'wire|capability|customiz|spec|bridge|AodState|AodRender' || true
+          } > upstream-watchlist.txt
+          echo "--- log ---"; cat upstream-log.txt
+          echo "--- stat ---"; cat upstream-stat.txt
+          echo "--- watchlist ---"; cat upstream-watchlist.txt
+
+      - name: Update pending-sync issue
+        if: steps.diff.outputs.pending == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASELINE: ${{ steps.diff.outputs.baseline }}
+          COUNT: ${{ steps.diff.outputs.count }}
+        run: |
+          set -euo pipefail
+          TITLE="[upstream-sync] new upstream commits pending evaluation"
+          {
+            echo "Upstream \`amarinne/hyperglow\` has **${COUNT}** new commit(s) since the recorded baseline."
+            echo
+            echo "- Recorded baseline: \`${BASELINE}\` (see \`UPSTREAM_SYNC.md\`)"
+            echo "- Upstream head: \`${UPSTREAM_HEAD}\`"
+            echo
+            echo "## New commits"
+            echo
+            echo '```'
+            cat upstream-log.txt
+            echo '```'
+            echo
+            echo "## Diff stat (tail)"
+            echo
+            echo '```'
+            cat upstream-stat.txt
+            echo '```'
+            echo
+            echo "## Watchlist hits (wire/capability/customization/spec/bridge paths or subjects)"
+            echo
+            echo '```'
+            cat upstream-watchlist.txt
+            echo '```'
+            echo
+            echo "> Maintained by the \`upstream-scan\` workflow. The baseline in"
+            echo "> \`.github/upstream-baseline.txt\` is **only advanced by a human PR** after the port"
+            echo "> is recorded in \`UPSTREAM_SYNC.md\`; the scan never auto-advances it."
+            echo "> Evaluate against the operating procedure in \`UPSTREAM_SYNC.md\`, then close this"
+            echo "> issue via the baseline-advancing PR."
+          } > issue-body.md
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "$TITLE in:title" --json number --jq '.[0].number' || true)
+          if [ -n "$EXISTING" ]; then
+            gh issue edit "$EXISTING" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file issue-body.md
+            echo "updated issue #$EXISTING"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file issue-body.md
+          fi

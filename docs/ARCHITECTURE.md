@@ -190,9 +190,11 @@ X sweep across every visible lyric row. Word/syllable timing remains unchanged.
 ## User-triggered diagnostic reporting
 
 The app process owns a dedicated Compose diagnostic destination, bounded metadata collection,
-temporary guided-capture state, payload preview, HTTPS upload, and GitHub issue drafting. SystemUI
-never performs network or repository work. It contributes only the UID-validated capability report
-and privacy-safe `HyperGlow` log events already governed by the logging contract.
+temporary guided-capture state, payload preview, and GitHub issue drafting. Reports are finalized
+locally: the user reviews the exact allowlisted JSON and receives a receipt plus a ready-to-open
+GitHub issue draft; the historical HTTPS uploader remains in code but is not invoked by the current
+UI. SystemUI never performs network or repository work. It contributes only the UID-validated
+capability report and privacy-safe `HyperGlow` log events already governed by the logging contract.
 
 Capability protocol v2 adds report time, effective profile state, experimental state, raw exact-symbol
 probe results, and the resolved capability set. The app accepts v1 during app/SystemUI process update
@@ -203,9 +205,10 @@ from compatibility state.
 Guided capture temporarily enables existing diagnostic logging and publishes the normal compiled
 configuration. Finish executes only fixed, bounded root commands with no user-controlled shell text.
 Root denial degrades to metadata-only reporting. The app process filters/redacts output, previews the
-exact allowlisted JSON, uploads manually through one bounded `HttpURLConnection` request, and deletes
-the temporary draft after cancellation, timeout, or success. The APK contains no intake credential.
-See `docs/DIAGNOSTIC_REPORTING_SPEC.md`.
+exact allowlisted JSON, finalizes the report locally into a receipt plus a GitHub issue draft, and
+deletes the temporary draft after cancellation, timeout, or finalization. The serialized report field
+set is pinned to `DIAGNOSTIC_DATA_POLICY.md` by a unit-test gate. See
+`docs/DIAGNOSTIC_REPORTING_SPEC.md`.
 
 ## Customization Boundary
 
@@ -222,6 +225,28 @@ noninteractive notification-style scrim; `none` remains transparent. AOD always 
 Migration preserves current AOD preferences. The initial lockscreen profile derives from those
 values but remains disabled for existing users. Old preferences remain readable for one rollback
 cycle after a successful migration.
+
+## Plugin Runtime Boundary
+
+Plugins extend the app-process lyric pipeline with HyperLyric-compatible manifests. They never run
+inside `com.android.systemui`, `android` (system_server), or `com.miui.aod`; the Exclusions clause
+against arbitrary third-party code in SystemUI applies to plugin code as well.
+
+- Installation and loading are staged: plugin archives are validated structurally (`PluginManifest`:
+  id format, API version against the host, entry point, setting schema), written to a read-only
+  location (Android 14 rejects writable dex paths), and loaded through dedicated class loaders
+  (`PathClassLoader` / `InMemoryDexClassLoader`).
+- Class-loader delegation is a load boundary, not a security sandbox: host-owned prefixes (`java.`,
+  `android.`, `kotlin.`, `androidx.`, the plugin API contract package) resolve parent-first and
+  everything else resolves child-first, so a plugin cannot shadow host classes.
+- The plugin API surface is the byte-fingerprinted contract under `plugins/api`; CI fails when the
+  contract changes without an explicit fingerprint update.
+- Trust model: a plugin is user-installed input of untrusted origin. Installing it grants it the app
+  process's own capabilities — no SystemUI access, no root, no Xposed hooks. Manifest validation is
+  structural only; there is today no cryptographic publisher signature, no runtime API allowlist
+  enforcement, and no network/exec sandbox. Any future hardening starts from that honest baseline.
+- Per-plugin settings files are keyed by the SHA-256 of the plugin id, so untrusted ids cannot
+  escape the settings directory.
 
 ## Observed Animation Capability
 
@@ -402,9 +427,11 @@ profile 开关只选择亮色或暗色呈现，从不改变时序节奏。行级
 
 ## 用户触发的诊断上报
 
-app 进程负责专用的 Compose 诊断入口、受限的元数据收集、临时的引导采集状态、载荷预览、HTTPS
-上传以及 GitHub issue 起草。SystemUI 从不执行网络或仓库操作，只贡献经 UID 校验的 capability
-报告以及已受日志契约约束的、隐私安全的 `HyperGlow` 日志事件。
+app 进程负责专用的 Compose 诊断入口、受限的元数据收集、临时的引导采集状态、载荷预览以及
+GitHub issue 起草。报告在本地定稿：用户审阅确切的白名单 JSON 后获得回执与一份可直接开启的
+GitHub issue 草稿；历史上的 HTTPS 上传器仍保留在代码中，但当前 UI 不再调用。SystemUI 从不执行
+网络或仓库操作，只贡献经 UID 校验的 capability 报告以及已受日志契约约束的、隐私安全的
+`HyperGlow` 日志事件。
 
 capability 协议 v2 新增上报时间、生效 profile 状态、实验性状态、原始的精确符号 probe 结果
 以及解析出的 capability 集合。app 在 app/SystemUI 进程更新过渡期间接受 v1。原始 probe 覆盖
@@ -413,8 +440,9 @@ AOD 宿主容器以及锁屏控制器/宿主/几何接缝；未知 profile 仍�
 
 引导采集会临时启用既有的诊断日志并发布正常编译的配置。完成操作只执行固定的、受限的 root 命令，
 不含任何用户可控的 shell 文本。root 被拒绝时降级为仅元数据上报。app 进程会对输出进行过滤/脱敏，
-预览确切的白名单 JSON，通过一次受限的 `HttpURLConnection` 请求手动上传，并在取消、超时或成功后
-删除临时草稿。APK 中不包含任何 intake 凭据。参见 `docs/DIAGNOSTIC_REPORTING_SPEC.md`。
+预览确切的白名单 JSON，把报告在本地定稿为回执加 GitHub issue 草稿，并在取消、超时或定稿后
+删除临时草稿。序列化报告的字段集合由一个单测门钉在 `DIAGNOSTIC_DATA_POLICY.md` 上。
+参见 `docs/DIAGNOSTIC_REPORTING_SPEC.md`。
 
 ## 自定义边界
 
@@ -428,6 +456,24 @@ URL、命令或任何可执行代码。
 
 迁移会保留当前的 AOD 偏好。初始锁屏 profile 派生自这些值，但对既有用户保持禁用。旧偏好在迁移
 成功后的一个回滚周期内仍可读取。
+
+## 插件运行时边界
+
+插件通过 HyperLyric 兼容的 manifest 扩展 app 进程的歌词管线。它们绝不运行在
+`com.android.systemui`、`android`（system_server）或 `com.miui.aod` 内；排除条款中「SystemUI
+内禁止任意第三方代码」同样适用于插件代码。
+
+- 安装与加载分阶段进行：插件包先做结构性校验（`PluginManifest`：id 格式、对宿主的 API 版本、
+  入口点、设置 schema），写入只读位置（Android 14 拒绝可写 dex 路径），再经专用类加载器
+  （`PathClassLoader` / `InMemoryDexClassLoader`）加载。
+- 类加载器委派是加载边界，不是安全沙箱：宿主拥有的前缀（`java.`、`android.`、`kotlin.`、
+  `androidx.`、插件 API 契约包）按双亲优先解析，其余按子优先解析，因此插件无法遮蔽宿主类。
+- 插件 API 面是 `plugins/api` 下带字节指纹的契约；契约变更而没有显式更新指纹时，CI 会失败。
+- 信任模型：插件是用户自行安装的不可信来源输入。安装它所授予的是 app 进程自身的能力——没有
+  SystemUI 访问权、没有 root、没有 Xposed hook。manifest 校验仅是结构性的；当前没有加密的
+  发布者签名、没有运行时 API 允许名单强制、也没有网络/exec 沙箱。任何后续加固都从这个诚实的
+  基线出发。
+- 每个插件的设置文件以插件 id 的 SHA-256 为键，使不受信任的 id 无法逃出设置目录。
 
 ## 实测动画能力
 
