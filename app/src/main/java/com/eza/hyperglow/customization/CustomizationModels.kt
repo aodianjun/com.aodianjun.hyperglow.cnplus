@@ -93,7 +93,12 @@ data class CompiledCustomization(
      * 自定义系统时钟钉住位置的垂直偏移(px,负值上移、正值下移)。
      * 仅关闭「实时跟随系统时钟」且 AOD 渲染时生效,叠加到被钉住的系统时钟 Y 上。
      */
-    val aodClockYOffset: Int = 0
+    val aodClockYOffset: Int = 0,
+    /**
+     * 渲染刷新率上限档(issue #68 #12):0=跟随现有行为(16ms);60/90/120=用户可选
+     * 上限。App 端运行时开关,随配置下发到 SystemUI 侧 AodLyricCanvasView 帧调度。
+     */
+    val aodRefreshRateCap: Int = 0
 )
 
 @Serializable

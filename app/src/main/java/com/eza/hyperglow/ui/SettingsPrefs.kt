@@ -258,6 +258,21 @@ internal fun updateAodBrightnessLevel(
     return true
 }
 
+internal fun updateAodRefreshRateCap(
+    context: android.content.Context,
+    capHz: Int
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putInt(
+            AodRenderPreferences.AOD_REFRESH_RATE_CAP,
+            com.eza.hyperglow.aod.normalizeAodRefreshRateCap(capHz)
+        )
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 internal fun updateAodRotationMode(
     context: android.content.Context,
     mode: String

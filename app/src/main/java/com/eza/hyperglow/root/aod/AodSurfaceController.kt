@@ -1297,7 +1297,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 lyricCanvas = AodLyricCanvasView(
                     context,
                     useDozeHandlerCadence = true,
-                    powerSaverProvider = { AodPowerStateMonitor.isPowerSaverActive() }
+                    powerSaverProvider = { AodPowerStateMonitor.isPowerSaverActive() },
+                    refreshRateCapProvider = { customization?.aodRefreshRateCap ?: 0 }
                 ).also {
                     it.layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,

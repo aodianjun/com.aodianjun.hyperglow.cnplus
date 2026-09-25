@@ -21,7 +21,8 @@ import kotlin.math.roundToInt
 internal class AodLyricCanvasView(
     context: Context,
     private val useDozeHandlerCadence: Boolean = false,
-    private val powerSaverProvider: () -> Boolean = { false }
+    private val powerSaverProvider: () -> Boolean = { false },
+    private val refreshRateCapProvider: () -> Int = { 0 }
 ) : View(context) {
     enum class Alignment { START, CENTER, END }
 
@@ -203,6 +204,10 @@ internal class AodLyricCanvasView(
     private var sceneActive = false
     private var aggregatedVisible = false
     private val cadenceGate = EffectiveCadenceGate()
+    // issue #68 #12:deadline 调度状态。帧间隔不再每次回调后简单顺延(那样每帧都把
+    // 回调延迟累积进相位),而是记录下一个到期 deadline,按整数周期推进保持相位对齐。
+    private var frameDeadlineNanos = 0L
+    private var lastFrameIntervalMs = -1L
     private val frame = object : Runnable {
         override fun run() {
             if (!effectiveCadenceActive()) {
@@ -220,10 +225,36 @@ internal class AodLyricCanvasView(
                 exitSnapshot = null
                 contentBoundsChangedListener?.invoke()
             }
+            val nowNanos = System.nanoTime()
+            if (frameDeadlineNanos != 0L && !isFrameDue(nowNanos, frameDeadlineNanos)) {
+                // 早于 deadline 的回调(postDelayed 取整可能提前至多 1ms):按原 deadline
+                // 重排,不提前绘制,保持相位不漂移。
+                scheduleFrame(
+                    this,
+                    ((frameDeadlineNanos - nowNanos) / NANOS_PER_MS).coerceAtLeast(1L)
+                )
+                return
+            }
             invalidate()
             val interval = frameInterval()
-            if (interval > 0L) scheduleFrame(this, interval)
-            else {
+            if (interval > 0L) {
+                if (interval != lastFrameIntervalMs) {
+                    // 上限档/省电档切换:重置相位,避免旧 deadline 以错误周期推进。
+                    frameDeadlineNanos = 0L
+                    lastFrameIntervalMs = interval
+                }
+                val periodNanos = interval * NANOS_PER_MS
+                frameDeadlineNanos = if (frameDeadlineNanos == 0L) {
+                    nowNanos + periodNanos
+                } else {
+                    // 整数周期推进;挂起恢复落后多个周期时跳过已过周期,不补帧追赶。
+                    advanceFrameDeadline(frameDeadlineNanos, periodNanos, nowNanos)
+                }
+                val delayMs = ((frameDeadlineNanos - nowNanos) / NANOS_PER_MS).coerceAtLeast(1L)
+                scheduleFrame(this, delayMs)
+            } else {
+                frameDeadlineNanos = 0L
+                lastFrameIntervalMs = -1L
                 cadenceGate.update(false)
                 removeCallbacks(this)
             }
@@ -714,6 +745,9 @@ internal class AodLyricCanvasView(
         val elapsed = (SystemClock.elapsedRealtime() - transitionStartedAt).coerceAtLeast(0L)
         val exitProgress = (elapsed / EXIT_TRANSITION_MS.toFloat()).coerceIn(0f, 1f)
         val enterProgress = (elapsed / ENTER_TRANSITION_MS.toFloat()).coerceIn(0f, 1f)
+        // 行块换行用缓动:旧行加速上滑离场、新行减速上滑落位;元数据淡出仍走线性。
+        val exitEased = transitionExitEasing(exitProgress)
+        val enterEased = transitionEnterEasing(enterProgress)
         val metadataMorph = shouldMorphSongChangeMetadata(
             previousOriginal = snapshot.content.original,
             previousMetadata = snapshot.content.metadata,
@@ -738,12 +772,12 @@ internal class AodLyricCanvasView(
             canvas,
             snapshot.layout,
             snapshot.content,
-            1f - exitProgress,
-            if (content.transitionMode == "Fade up") -14f * density * exitProgress else 0f,
+            1f - exitEased,
+            if (content.transitionMode == "Fade up") -14f * density * exitEased else 0f,
             snapshot.renderStyle,
             skipOriginal = metadataMorph
         )
-        drawRows(canvas, layout, content, enterProgress, if (content.transitionMode == "Fade up") 14f * density * (1f - enterProgress) else 0f)
+        drawRows(canvas, layout, content, enterEased, if (content.transitionMode == "Fade up") 14f * density * (1f - enterEased) else 0f)
         if (enterProgress >= 1f) {
             transitionStartedAt = 0L
             exitSnapshot = null
@@ -1491,7 +1525,8 @@ internal class AodLyricCanvasView(
     private fun frameInterval(): Long = frameIntervalForTiming(
         effectiveCadenceActive(),
         timingActive = true,
-        powerSaverActive = powerSaverProvider()
+        powerSaverActive = powerSaverProvider(),
+        refreshRateCapHz = refreshRateCapProvider()
     )
 
     private fun effectiveCadenceActive(): Boolean = isEffectiveCadenceActive(
@@ -1528,10 +1563,17 @@ internal class AodLyricCanvasView(
     private fun syncCadence() {
         when (cadenceGate.update(effectiveCadenceActive())) {
             CadenceChange.START -> {
+                // 重新起帧:重置 deadline 相位,首帧立即绘制,后续按周期对齐。
+                frameDeadlineNanos = 0L
+                lastFrameIntervalMs = -1L
                 removeCallbacks(frame)
                 scheduleFrame(frame, 0L)
             }
-            CadenceChange.STOP -> removeCallbacks(frame)
+            CadenceChange.STOP -> {
+                frameDeadlineNanos = 0L
+                lastFrameIntervalMs = -1L
+                removeCallbacks(frame)
+            }
             CadenceChange.NONE -> Unit
         }
     }

@@ -953,7 +953,11 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                         )
                     )
                 }
-                lyricCanvas = AodLyricCanvasView(context, useDozeHandlerCadence = true).also { canvas ->
+                lyricCanvas = AodLyricCanvasView(
+                    context,
+                    useDozeHandlerCadence = true,
+                    refreshRateCapProvider = { customization?.aodRefreshRateCap ?: 0 }
+                ).also { canvas ->
                     canvas.visibility = View.GONE
                     canvas.isClickable = false
                     canvas.isLongClickable = false

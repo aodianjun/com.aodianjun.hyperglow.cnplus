@@ -258,6 +258,12 @@ internal fun normalizePauseLingerMs(value: Long): Long = when (value) {
 internal fun normalizeAodClockYOffset(value: Int): Int =
     value.coerceIn(MIN_AOD_CLOCK_Y_OFFSET, MAX_AOD_CLOCK_Y_OFFSET)
 
+/** 渲染刷新率上限档:仅接受 0(跟随现有)/60/90/120,其余回落 0。 */
+internal fun normalizeAodRefreshRateCap(value: Int): Int = when (value) {
+    60, 90, 120 -> value
+    else -> 0
+}
+
 object AodRenderPreferences {
     const val PREFS = "aod_render"
     const val AOD_ENABLED = "aod_enabled"
@@ -310,6 +316,7 @@ object AodRenderPreferences {
     const val AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT = "aod_canvas_padding_landscape_x_percent"
     const val AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT = "aod_canvas_padding_landscape_y_percent"
     const val AOD_DEBUG_SHOW_CANVAS_FRAME = "aod_debug_show_canvas_frame"
+    const val AOD_REFRESH_RATE_CAP = "aod_refresh_rate_cap"
 
     // SharedPreferences throws ClassCastException when an older/imported value has the wrong
     // primitive type. Treat malformed entries as missing so a bad setting cannot crash startup.
@@ -405,7 +412,8 @@ object AodRenderPreferences {
             prefs.safeBoolean(AOD_BRIGHTNESS_OVERRIDE, false),
             prefs.safeInt(AOD_BRIGHTNESS_LEVEL, DEFAULT_AOD_BRIGHTNESS_LEVEL)
                 .coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS),
-            prefs.safeBoolean(AOD_DEBUG_SHOW_CANVAS_FRAME, false)
+            prefs.safeBoolean(AOD_DEBUG_SHOW_CANVAS_FRAME, false),
+            normalizeAodRefreshRateCap(prefs.safeInt(AOD_REFRESH_RATE_CAP, 0))
         ).also { cachedConfig = it }
     }
 
