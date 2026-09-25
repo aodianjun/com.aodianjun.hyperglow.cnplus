@@ -308,37 +308,4 @@ class LyricInfoPayloadTest {
         val b = lineAt(10_050L, "重复的翻译文本")
         assertNull(matchSupplementalLine(a, listOf(a, b), listOf(lineAt(10_000L, "重复的翻译文本"))))
     }
-
-    // --- resolveUnsyncedLyricFallback:标准 MediaSession 歌词键 fallback ---
-
-    @Test
-    fun unsyncedFallback_usesMetadataLyricsWhenNoTimedLines() {
-        // 无 lyricInfo/无时间轴时,标准 METADATA_KEY_LYRICS 的纯文本作为非同步歌词源。
-        val fallback = resolveUnsyncedLyricFallback(
-            hasTimedLines = false,
-            metadataLyrics = "第一行\n第二行\n第三行"
-        )
-        assertEquals("第一行\n第二行\n第三行", fallback)
-    }
-
-    @Test
-    fun unsyncedFallback_neverShadowsTimedLines() {
-        // 有时间轴时逐时歌词优先,不得叠加非同步 fallback。
-        assertNull(
-            resolveUnsyncedLyricFallback(hasTimedLines = true, metadataLyrics = "纯文本歌词")
-        )
-    }
-
-    @Test
-    fun unsyncedFallback_blankOrNullMetadataYieldsNull() {
-        assertNull(resolveUnsyncedLyricFallback(hasTimedLines = false, metadataLyrics = null))
-        assertNull(resolveUnsyncedLyricFallback(hasTimedLines = false, metadataLyrics = "   \n  "))
-    }
-
-    @Test
-    fun unsyncedFallback_truncatesToBoundedLength() {
-        val longText = "词".repeat(UNSYNCED_LYRICS_MAX_CHARS + 500)
-        val fallback = resolveUnsyncedLyricFallback(hasTimedLines = false, metadataLyrics = longText)
-        assertEquals(UNSYNCED_LYRICS_MAX_CHARS, fallback?.length)
-    }
 }

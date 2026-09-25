@@ -76,7 +76,6 @@ class LyricInfoLyricProducer(
     @Volatile private var timedLines: List<ElrcParser.TimedLine> = emptyList()
     @Volatile private var translationLines: List<ElrcParser.TimedLine> = emptyList()
     @Volatile private var romaLines: List<ElrcParser.TimedLine> = emptyList()
-    @Volatile private var unsyncedLyrics: String? = null
     @Volatile private var title: String = ""
     @Volatile private var artist: String = ""
     @Volatile private var album: String = ""
@@ -222,12 +221,6 @@ class LyricInfoLyricProducer(
         // 翻译 lane 优先级:Bridge 规范 translationLyric → 完整版 translation → 精简版 transLyric。
         translationLines = resolveLyricInfoTranslationLines(payload)
         romaLines = ElrcParser.parse(payload?.roma.orEmpty())
-        // 标准 MediaSession 歌词键 fallback:payload 缺失或不含时间轴时,读标准
-        // METADATA_KEY_LYRICS(纯文本)作为非同步歌词源,进入 UNSYNCED 展示/keepalive 路径。
-        unsyncedLyrics = resolveUnsyncedLyricFallback(
-            hasTimedLines = timedLines.isNotEmpty(),
-            metadataLyrics = meta.getString(METADATA_KEY_LYRICS)
-        )
         val ps = c.playbackState
         if (ps != null) {
             applyPlaybackState(ps)
@@ -309,9 +302,8 @@ class LyricInfoLyricProducer(
     private fun emit() {
         val c = controller ?: run { mutableState.value = null; return }
         if (timedLines.isEmpty()) {
-            // Connected session but no parseable lyrics yet: emit track-level state,
-            // falling back to standard MediaSession lyrics (UNSYNCED) when present.
-            emitTrack(null, unsyncedLyrics)
+            // Connected session but no parseable lyrics yet: emit metadata-only.
+            emitTrack(null)
             return
         }
         // 最后一句歌词唱完后（position 越过其 end，歌曲进入尾奏/纯器乐段落），清空活动行
@@ -375,7 +367,7 @@ class LyricInfoLyricProducer(
         )
     }
 
-    private fun emitTrack(active: ElrcParser.TimedLine?, unsyncedLyrics: String? = null) {
+    private fun emitTrack(active: ElrcParser.TimedLine?) {
         val now = clock()
         sequence++
         mutableState.value = LyricProducerState(
@@ -388,9 +380,7 @@ class LyricInfoLyricProducer(
             artist = artist,
             album = album,
             imageId = "",
-            // UNSYNCED 行不参与逐行渲染(AodStateProjector 显示 🎶 占位),携带受 bounds
-            // 限制的原文仅供诊断 evidence 与未来非同步展示使用。
-            line = if (unsyncedLyrics != null) unsyncedLyrics else active?.text.orEmpty(),
+            line = active?.text.orEmpty(),
             romanizedLine = "",
             translatedLine = "",
             lineIndex = -1,
@@ -402,7 +392,7 @@ class LyricInfoLyricProducer(
             receivedAtElapsedMs = now,
             words = null,
             renderModes = defaultRenderModes(),
-            lyricKind = if (unsyncedLyrics != null) LyricKind.UNSYNCED else LyricKind.NONE,
+            lyricKind = LyricKind.NONE,
             alignedRight = false,
             lineStartMs = 0L,
             lineEndMs = 0L,
@@ -418,7 +408,6 @@ class LyricInfoLyricProducer(
         private const val PRODUCER_ID = "lyricinfo"
         internal const val LYRIC_INFO_KEY = "lyricInfo"
         private const val MEDIA_METADATA_KEY_DURATION = "android.media.metadata.DURATION"
-        private const val METADATA_KEY_LYRICS = "android.media.metadata.LYRICS"
         private const val POSITION_POLL_MS = 250L
         /** PlaybackState position 多久未更新视为 stale（播放器进程被冻结）。 */
         private const val STALE_POSITION_MS = 2_000L
@@ -640,27 +629,4 @@ internal fun matchSupplementalLine(
         if (other.text.trim() == matched.text.trim()) return null
     }
     return matched
-}
-
-/**
- * 标准 MediaSession 歌词键的截断上限:非同步歌词只用于诊断 evidence 与未来非同步展示,
- * 不参与逐行渲染,超长文本按字符截断(远小于 wire 快照 48 KiB 聚合上限)。
- */
-internal const val UNSYNCED_LYRICS_MAX_CHARS = 4_096
-
-/**
- * 标准 MediaSession 歌词键 fallback(纯函数,可单测)。
- *
- * 播放器把整段纯文本歌词写进标准 `android.media.metadata.LYRICS`(无逐行时间轴)时,
- * lyricInfo 通道不可用或不含时间轴,这里把该文本作为非同步歌词源返回:调用方据此以
- * `LyricKind.UNSYNCED` 发射状态,进入既有的 UNSYNCED 展示(🎶 占位 + 大元数据)与
- * keepAwakeUnsynced 保活语义。时间轴存在时返回 null(逐时歌词优先,不叠加)。
- */
-internal fun resolveUnsyncedLyricFallback(
-    hasTimedLines: Boolean,
-    metadataLyrics: String?
-): String? {
-    if (hasTimedLines) return null
-    val text = metadataLyrics?.takeIf { it.isNotBlank() } ?: return null
-    return text.take(UNSYNCED_LYRICS_MAX_CHARS)
 }
