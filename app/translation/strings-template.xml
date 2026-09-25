@@ -194,6 +194,9 @@
     <string name="setting_movement_interval">Movement interval</string>
     <string name="setting_aod_brightness_boost">AOD brightness boost</string>
     <string name="summary_aod_brightness_boost">Raises the ultra-dim AOD brightness to a readable level while lyrics are shown. Turn off to keep the system's dim AOD brightness (lyrics may be hard to read).</string>
+    <string name="setting_aod_refresh_rate_cap">Render refresh rate cap</string>
+    <string name="refresh_rate_cap_follow">Follow default (60 fps)</string>
+    <string name="refresh_rate_cap_hz">%1$d Hz</string>
     <string name="setting_aod_brightness_custom">Custom brightness</string>
     <string name="summary_aod_brightness_custom_off">Off: boost brightness automatically per scene to a readable level.</string>
     <string name="summary_aod_brightness_custom_on">On: use a fixed custom brightness for AOD lyrics. Adjust with the slider below.</string>

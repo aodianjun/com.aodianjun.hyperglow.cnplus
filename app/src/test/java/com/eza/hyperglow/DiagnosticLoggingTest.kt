@@ -146,4 +146,24 @@ class DiagnosticLoggingTest {
         assertEquals(base.profiles, enabled.profiles)
         assertEquals(base.profiles, disabled.profiles)
     }
+
+    @Test
+    fun refreshRateCapNormalizesAndChangesRuntimeIdentity() {
+        val base = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+        val capped = RuntimeCustomization.withDiagnosticLogging(
+            base,
+            diagnosticLogging = false,
+            aodRefreshRateCap = 120
+        )
+        val invalid = RuntimeCustomization.withDiagnosticLogging(
+            base,
+            diagnosticLogging = false,
+            aodRefreshRateCap = 144
+        )
+
+        assertEquals(120, capped.aodRefreshRateCap)
+        assertEquals(0, invalid.aodRefreshRateCap)
+        assertNotEquals(capped.hash, invalid.hash)
+        assertEquals(base.profiles, capped.profiles)
+    }
 }

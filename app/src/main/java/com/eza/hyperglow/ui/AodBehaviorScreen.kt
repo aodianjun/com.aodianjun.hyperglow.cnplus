@@ -89,12 +89,14 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
     var aodLandscapeHideStock by remember { mutableStateOf(initialConfig.aodLandscapeHideStock) }
     var aodLandscapeFullscreen by remember { mutableStateOf(initialConfig.aodLandscapeFullscreen) }
     var aodDebugShowCanvasFrame by remember { mutableStateOf(initialConfig.aodDebugShowCanvasFrame) }
+    var aodRefreshRateCap by remember { mutableStateOf(initialConfig.aodRefreshRateCap) }
 
     var showKeepAwakeDurationDialog by remember { mutableStateOf(false) }
     var showBurnInPatternDialog by remember { mutableStateOf(false) }
     var showBurnInIntervalDialog by remember { mutableStateOf(false) }
     var showRotationModeDialog by remember { mutableStateOf(false) }
     var showRotationSettleDialog by remember { mutableStateOf(false) }
+    var showRefreshRateCapDialog by remember { mutableStateOf(false) }
 
     BackHandler(onBack = onBack)
 
@@ -281,6 +283,11 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
                         stringResource(R.string.setting_suppress_stock_aod),
                         summary = stringResource(R.string.summary_suppress_stock_aod),
                         enabled = aodSupported
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.setting_aod_refresh_rate_cap),
+                        summary = aodRefreshRateCapLabel(context, aodRefreshRateCap),
+                        onClick = { showRefreshRateCapDialog = true }
                     )
                 }
             }
@@ -557,6 +564,27 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
                             prefs.edit().putLong(AodRenderPreferences.BURN_IN_INTERVAL_MS, value).apply()
                             burnInIntervalMs = value
                             showBurnInIntervalDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showRefreshRateCapDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_aod_refresh_rate_cap),
+            show = true,
+            onDismissRequest = { showRefreshRateCapDialog = false }
+        ) {
+            Column {
+                AOD_REFRESH_RATE_CAPS.forEach { value ->
+                    RadioButtonPreference(
+                        aodRefreshRateCapLabel(context, value),
+                        aodRefreshRateCap == value,
+                        {
+                            if (updateAodRefreshRateCap(context, value)) aodRefreshRateCap = value
+                            showRefreshRateCapDialog = false
                         }
                     )
                 }

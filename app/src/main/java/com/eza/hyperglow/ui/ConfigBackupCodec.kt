@@ -9,6 +9,7 @@ import com.eza.hyperglow.aod.normalizeAodCanvasAnchor
 import com.eza.hyperglow.aod.normalizeAodCanvasPaddingPercent
 import com.eza.hyperglow.aod.normalizeAodClockYOffset
 import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
+import com.eza.hyperglow.aod.normalizeAodRefreshRateCap
 import com.eza.hyperglow.aod.normalizeAodRotationMode
 import com.eza.hyperglow.aod.normalizeAodRotationSettleMs
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_AUTO
@@ -112,7 +113,8 @@ internal object ConfigBackupCodec {
         BackupIntField(AodRenderPreferences.TEXT_SIZE_CUSTOM) { it.textSizeCustom },
         BackupIntField(AodRenderPreferences.METADATA_SIZE) { it.metadataSizePercent },
         BackupIntField(AodRenderPreferences.AOD_BRIGHTNESS_LEVEL) { it.aodBrightnessLevel },
-        BackupIntField(AodRenderPreferences.AOD_CLOCK_Y_OFFSET) { it.aodClockYOffset }
+        BackupIntField(AodRenderPreferences.AOD_CLOCK_Y_OFFSET) { it.aodClockYOffset },
+        BackupIntField(AodRenderPreferences.AOD_REFRESH_RATE_CAP) { it.aodRefreshRateCap }
     )
 
     internal val floatFields = listOf(
@@ -304,7 +306,10 @@ internal object ConfigBackupCodec {
         aodBrightnessOverride = stored.boolean(AodRenderPreferences.AOD_BRIGHTNESS_OVERRIDE)
             ?: DEFAULTS.aodBrightnessOverride,
         aodBrightnessLevel = (stored.int(AodRenderPreferences.AOD_BRIGHTNESS_LEVEL)
-            ?: DEFAULTS.aodBrightnessLevel).coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS)
+            ?: DEFAULTS.aodBrightnessLevel).coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS),
+        aodRefreshRateCap = normalizeAodRefreshRateCap(
+            stored.int(AodRenderPreferences.AOD_REFRESH_RATE_CAP) ?: DEFAULTS.aodRefreshRateCap
+        )
     )
 
     private fun JsonObject.boolean(key: String): Boolean? =

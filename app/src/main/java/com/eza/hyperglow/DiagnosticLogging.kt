@@ -83,7 +83,8 @@ internal object RuntimeCustomization {
             aodBrightnessBoost = preferences.aodBrightnessBoost,
             aodBrightnessOverride = preferences.aodBrightnessOverride,
             aodBrightnessLevel = preferences.aodBrightnessLevel,
-            aodClockYOffset = preferences.aodClockYOffset
+            aodClockYOffset = preferences.aodClockYOffset,
+            aodRefreshRateCap = preferences.aodRefreshRateCap
         )
     }
 
@@ -118,7 +119,8 @@ internal object RuntimeCustomization {
         aodBrightnessBoost: Boolean = configuration.aodBrightnessBoost,
         aodBrightnessOverride: Boolean = configuration.aodBrightnessOverride,
         aodBrightnessLevel: Int = configuration.aodBrightnessLevel,
-        aodClockYOffset: Int = configuration.aodClockYOffset
+        aodClockYOffset: Int = configuration.aodClockYOffset,
+        aodRefreshRateCap: Int = configuration.aodRefreshRateCap
     ): CompiledCustomization = requireNotNull(
         SceneCompiler.finalizeCompiled(
             configuration.copy(
@@ -139,7 +141,8 @@ internal object RuntimeCustomization {
                     com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS,
                     com.eza.hyperglow.aod.MAX_AOD_BRIGHTNESS
                 ),
-                aodClockYOffset = com.eza.hyperglow.aod.normalizeAodClockYOffset(aodClockYOffset)
+                aodClockYOffset = com.eza.hyperglow.aod.normalizeAodClockYOffset(aodClockYOffset),
+                aodRefreshRateCap = com.eza.hyperglow.aod.normalizeAodRefreshRateCap(aodRefreshRateCap)
             )
         )
     )

@@ -53,6 +53,17 @@ class AodRenderPreferencesTest {
     }
 
     @Test
+    fun refreshRateCapAllowsOnlyOfferedSteps() {
+        assertEquals(0, normalizeAodRefreshRateCap(0))
+        assertEquals(60, normalizeAodRefreshRateCap(60))
+        assertEquals(90, normalizeAodRefreshRateCap(90))
+        assertEquals(120, normalizeAodRefreshRateCap(120))
+        assertEquals(0, normalizeAodRefreshRateCap(30))
+        assertEquals(0, normalizeAodRefreshRateCap(144))
+        assertEquals(0, normalizeAodRefreshRateCap(-1))
+    }
+
+    @Test
     fun keepAwakeDurationAllowsOnlyOfferedSessionLengths() {
         assertEquals(-1L, normalizeKeepAwakeDurationMs(-1L))
         assertEquals(300_000L, normalizeKeepAwakeDurationMs(300_000L))
@@ -93,6 +104,7 @@ class AodRenderPreferencesTest {
         assertFalse(config.suppressLockscreenEditorLongPress)
         assertFalse(config.experimentalMode)
         assertEquals(true, config.aodBrightnessBoost)
+        assertEquals(0, config.aodRefreshRateCap)
     }
 
     @Test
