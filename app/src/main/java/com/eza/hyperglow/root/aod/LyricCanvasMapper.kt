@@ -59,6 +59,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     transitionMode = transitionMode,
     fontFamily = profile?.fontFamily ?: fontFamily,
     alignmentMode = profile?.alignment ?: alignmentMode,
+    secondaryAlignment = profile?.secondaryAlignment ?: secondaryAlignment,
     metadataVisible = profile?.metadataVisible ?: metadataVisible,
     metadataAnchor = if ((profile?.metadataAnchor ?: metadataAnchor) == "bottom") "bottom" else "top",
     metadataSizePercent = profile?.metadataSizePercent ?: 100,

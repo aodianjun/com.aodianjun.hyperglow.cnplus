@@ -60,6 +60,7 @@ internal class AodLyricCanvasView(
         transitionMode = "Fade up",
         fontFamily = "noto",
         alignmentMode = "auto",
+        secondaryAlignment = "auto",
         metadataVisible = true,
         metadataAnchor = "top",
         metadataSizePercent = 100,
@@ -70,6 +71,8 @@ internal class AodLyricCanvasView(
     )
     private var resolvedPalette = resolveAodPalette(emptyMap())
     private var alignment = Alignment.START
+    /** 辅助行(音标/翻译/下一行/歌曲信息)的独立对齐覆盖;null=沿用历史「auto」行为。 */
+    private var secondaryAlignmentOverride: Alignment? = null
     private var layout = LayoutState(emptyList(), OriginalLayout(emptyList(), 0f, 0f, false))
     private var exitSnapshot: CanvasSnapshot? = null
     private var transitionStartedAt = 0L
@@ -301,6 +304,14 @@ internal class AodLyricCanvasView(
             "center" -> Alignment.CENTER
             "end" -> Alignment.END
             else -> if (nextContent.alignedRight) Alignment.END else Alignment.START
+        }
+        // 辅助行独立对齐:start/center/end 时覆盖主行对齐;auto 时沿用历史行为
+        // (歌曲信息跟随 alignmentMode,音标/翻译/下一行跟随主行 alignment)。
+        secondaryAlignmentOverride = when (nextContent.secondaryAlignment) {
+            "start" -> Alignment.START
+            "center" -> Alignment.CENTER
+            "end" -> Alignment.END
+            else -> null
         }
         val sizeScale = textSizeModeMultiplier(nextContent.textSizeMode, nextContent.textSizeCustom)
         val baseSp = baseTextSizeSp(nextContent.original) * sizeScale
@@ -1679,7 +1690,8 @@ internal class AodLyricCanvasView(
                 }
             }
             val lineWidth = lineSegments.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
-            textLine(text, lineWidth, romanizedPaint).copy(timedSegments = lineSegments)
+            textLine(text, lineWidth, romanizedPaint, alignmentFor(RowKind.ROMANIZED))
+                .copy(timedSegments = lineSegments)
         }
     }
 
@@ -1692,7 +1704,7 @@ internal class AodLyricCanvasView(
             preferredLines = preferredLines,
             wrap = content.overflowMode == "Wrap",
             adaptiveSectioning = content.adaptiveSectioning
-        ).map { textLine(it.text, it.width, paint) }
+        ).map { textLine(it.text, it.width, paint, alignmentFor(RowKind.ROMANIZED)) }
 
     /**
      * 歌曲信息（歌名/歌手）专用换行：委托 LyricLayoutEngine.layoutMetadataLines
@@ -1881,15 +1893,19 @@ internal class AodLyricCanvasView(
         }
     }
 
-    private fun alignmentFor(kind: RowKind): Alignment = if (kind == RowKind.METADATA) {
-        when (content.alignmentMode) {
-            "start" -> Alignment.START
-            "center" -> Alignment.CENTER
-            "end" -> Alignment.END
-            else -> Alignment.START
+    private fun alignmentFor(kind: RowKind): Alignment {
+        if (kind == RowKind.ORIGINAL) return alignment
+        secondaryAlignmentOverride?.let { return it }
+        return if (kind == RowKind.METADATA) {
+            when (content.alignmentMode) {
+                "start" -> Alignment.START
+                "center" -> Alignment.CENTER
+                "end" -> Alignment.END
+                else -> Alignment.START
+            }
+        } else {
+            alignment
         }
-    } else {
-        alignment
     }
 
     private fun alignedStart(

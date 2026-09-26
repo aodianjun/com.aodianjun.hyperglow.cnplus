@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
+import com.eza.hyperglow.aod.composeSongMetadata
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
 import com.eza.hyperglow.root.aod.LyricLayoutLine
@@ -212,6 +213,28 @@ private fun LyricPreviewSurface(
         else LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular")
     }
     val textAlign = previewTextAlign(profile, snapshot.alignedRight)
+    // 辅助行(音标/翻译/下一行)与歌曲信息各自独立对齐:与实机 alignmentFor 同一规则
+    // (secondaryAlignment 覆盖;auto 时歌曲信息跟随 alignmentMode、其余跟随主行)。
+    val secondaryTextAlign = previewSecondaryTextAlign(profile, textAlign)
+    val metadataTextAlign = previewMetadataTextAlign(profile)
+    // 歌曲信息按用户配置(显示项/顺序/分隔符)拼接,与实机 AodStateProjector 同源;
+    // 无可显示片段时回退到快照自带的拼接结果。
+    val metadataText = remember(
+        snapshot.metadata, snapshot.metadataTitle, snapshot.metadataArtist,
+        snapshot.metadataAlbum, profile.metadataShowTitle, profile.metadataShowArtist,
+        profile.metadataShowAlbum, profile.metadataSegmentOrder, profile.metadataSeparator
+    ) {
+        composeSongMetadata(
+            title = snapshot.metadataTitle,
+            artist = snapshot.metadataArtist,
+            album = snapshot.metadataAlbum,
+            showTitle = profile.metadataShowTitle,
+            showArtist = profile.metadataShowArtist,
+            showAlbum = profile.metadataShowAlbum,
+            segmentOrder = profile.metadataSegmentOrder,
+            separator = profile.metadataSeparator
+        ).ifBlank { snapshot.metadata }
+    }
     val showMetadata = profile.metadataVisible
     val showNext = profile.showNextLine
     val secondaryRows = previewSecondaryLines(profile, snapshot, baseSp)
@@ -269,8 +292,8 @@ private fun LyricPreviewSurface(
                 Column(Modifier.fillMaxWidth()) {
                     if (showMetadata && profile.metadataAnchor == "top") {
                         PreviewMetaLine(
-                            snapshot.metadata, metadataColor, profile.metadataSizePercent,
-                            regularTypeface, availablePx,
+                            metadataText, metadataColor, profile.metadataSizePercent,
+                            regularTypeface, availablePx, metadataTextAlign,
                             Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp)
                         )
                     }
@@ -290,7 +313,7 @@ private fun LyricPreviewSurface(
                             preferredLines = mainLayout.lines.size,
                             wrap = profile.overflow == "Wrap",
                             adaptiveSectioning = profile.adaptiveSectioning,
-                            textAlign = textAlign,
+                            textAlign = secondaryTextAlign,
                             modifier = Modifier.padding(top = ROW_GAP_BEFORE_SECONDARY_DP.dp)
                         )
                     }
@@ -307,14 +330,14 @@ private fun LyricPreviewSurface(
                             preferredLines = mainLayout.lines.size,
                             wrap = profile.overflow == "Wrap",
                             adaptiveSectioning = profile.adaptiveSectioning,
-                            textAlign = textAlign,
+                            textAlign = secondaryTextAlign,
                             modifier = Modifier.padding(top = ROW_GAP_BEFORE_NEXT_LINE_DP.dp)
                         )
                     }
                     if (showMetadata && profile.metadataAnchor == "bottom") {
                         PreviewMetaLine(
-                            snapshot.metadata, metadataColor, profile.metadataSizePercent,
-                            regularTypeface, availablePx,
+                            metadataText, metadataColor, profile.metadataSizePercent,
+                            regularTypeface, availablePx, metadataTextAlign,
                             Modifier.padding(top = METADATA_LYRIC_GAP_DP.dp)
                         )
                     }
@@ -331,6 +354,7 @@ private fun PreviewMetaLine(
     sizePercent: Int,
     typeface: Typeface,
     availableWidthPx: Int,
+    textAlign: TextAlign,
     modifier: Modifier = Modifier
 ) {
     val size = previewMetadataTextSizeSp(sizePercent)
@@ -350,6 +374,7 @@ private fun PreviewMetaLine(
                 fontSize = size,
                 fontFamily = FontFamily(typeface),
                 color = color,
+                textAlign = textAlign,
                 maxLines = 1,
                 overflow = TextOverflow.Clip
             )
@@ -380,6 +405,32 @@ private fun previewTextAlign(
         "end" -> TextAlign.End
         else -> if (alignedRight) TextAlign.End else TextAlign.Start
     }
+
+/** 辅助行(音标/翻译/下一行)对齐:secondaryAlignment 覆盖时独立,auto 时跟随主行。 */
+private fun previewSecondaryTextAlign(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    mainAlign: TextAlign
+): TextAlign = when (profile.secondaryAlignment) {
+    "start" -> TextAlign.Start
+    "center" -> TextAlign.Center
+    "end" -> TextAlign.End
+    else -> mainAlign
+}
+
+/** 歌曲信息对齐:secondaryAlignment 覆盖时独立,auto 时跟随 alignmentMode(实机同规则)。 */
+private fun previewMetadataTextAlign(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile
+): TextAlign = when (profile.secondaryAlignment) {
+    "start" -> TextAlign.Start
+    "center" -> TextAlign.Center
+    "end" -> TextAlign.End
+    else -> when (profile.alignment) {
+        "start" -> TextAlign.Start
+        "center" -> TextAlign.Center
+        "end" -> TextAlign.End
+        else -> TextAlign.Start
+    }
+}
 
 private data class PreviewSecondaryLine(
     val text: String,

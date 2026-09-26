@@ -313,6 +313,7 @@ class AodStateWireCodecTest {
         transitionMode = "Fade up",
         fontFamily = "noto",
         alignmentMode = "auto",
+        secondaryAlignment = "center",
         metadataVisible = true,
         metadataAnchor = "top",
         adaptiveSectioning = true

@@ -62,6 +62,7 @@ data class AodDisplayState(
     val transitionMode: String = "Fade up",
     val fontFamily: String = "noto",
     val alignmentMode: String = "auto",
+    val secondaryAlignment: String = "auto",
     val metadataVisible: Boolean = true,
     val metadataAnchor: String = "top",
     val adaptiveSectioning: Boolean = true
@@ -432,6 +433,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         transitionMode = normalizeAodTransition(state.transitionMode.trim()),
         fontFamily = normalizeAodFontFamily(state.fontFamily),
         alignmentMode = normalizeAodAlignment(state.alignmentMode),
+        secondaryAlignment = normalizeAodAlignment(state.secondaryAlignment),
         metadataAnchor = normalizeAodMetadataAnchor(state.metadataAnchor)
     )
 }
@@ -526,6 +528,7 @@ private fun AodDisplayState.toWireMessage(
             transitionMode = transitionMode,
             fontFamily = fontFamily,
             alignmentMode = alignmentMode,
+            secondaryAlignment = secondaryAlignment,
             metadataVisible = metadataVisible,
             metadataAnchor = metadataAnchor,
             adaptiveSectioning = adaptiveSectioning

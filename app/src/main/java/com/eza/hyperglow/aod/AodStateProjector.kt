@@ -77,10 +77,17 @@ internal fun projectToDisplay(
     val presentable = hasActiveLine || fallbackLine != null
 
     // --- 元数据 ---
-    val metadata = listOf(state.title, state.artist)
-        .filter { it.isNotBlank() }
-        .joinToString("\n")
-        .replace('·', '\n')
+    val aodProfile = compiled?.profiles?.get(SceneCompiler.SURFACE_AOD)
+    val metadata = composeSongMetadata(
+        title = state.title,
+        artist = state.artist,
+        album = state.album,
+        showTitle = aodProfile?.metadataShowTitle ?: prefs.metadataShowTitle,
+        showArtist = aodProfile?.metadataShowArtist ?: prefs.metadataShowArtist,
+        showAlbum = aodProfile?.metadataShowAlbum ?: prefs.metadataShowAlbum,
+        segmentOrder = aodProfile?.metadataSegmentOrder ?: prefs.metadataSegmentOrder,
+        separator = aodProfile?.metadataSeparator ?: prefs.metadataSeparator
+    )
 
     // --- 引导大元数据状态（原 project() 的 lyricState 四分支）---
     val lyricState = when {
@@ -133,7 +140,6 @@ internal fun projectToDisplay(
     // 生产者已把两者合并进 renderModes（Spicy 来自 liveCard*，Lyricon 来自 CompiledSurfaceProfile），
     // 这里统一读 renderModes，与 spec clause 5/7 一致。
     val modes = state.renderModes
-    val aodProfile = compiled?.profiles?.get(SceneCompiler.SURFACE_AOD)
     val aodEnabled = aodProfile?.enabled ?: prefs.aodEnabled
     val lockscreenEnabled = compiled?.profiles?.get(SceneCompiler.SURFACE_LOCKSCREEN)?.enabled
         ?: prefs.lockscreenEnabled
@@ -237,6 +243,7 @@ internal fun projectToDisplay(
         transitionMode = if (noLyrics) "None" else modes.transition,
         fontFamily = modes.font,
         alignmentMode = prefs.alignment,
+        secondaryAlignment = aodProfile?.secondaryAlignment ?: prefs.secondaryAlignment,
         metadataVisible = aodProfile?.metadataVisible ?: (prefs.metadataVisible != "hide"),
         metadataAnchor = prefs.metadataAnchor,
         adaptiveSectioning = prefs.adaptiveSectioning

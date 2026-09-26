@@ -68,6 +68,13 @@ internal data class LyricSnapshot(
     val translated: String = "",
     val nextLine: String = "",
     val metadata: String = "",
+    /**
+     * 歌曲信息原始片段。实机渲染用已按用户配置拼接好的 [metadata];app 内预览需要原始片段
+     * 才能跟随「显示项/顺序/分隔符」设置实时重排,故一并携带(默认为空,不影响 wire 解码)。
+     */
+    val metadataTitle: String = "",
+    val metadataArtist: String = "",
+    val metadataAlbum: String = "",
     val alignedRight: Boolean = false,
     val lineLevelSync: Boolean = false,
     val lineStartMs: Long = 0L,
@@ -91,6 +98,7 @@ internal data class LyricSnapshot(
     val transitionMode: String = "Fade up",
     val fontFamily: String = "noto",
     val alignmentMode: String = "auto",
+    val secondaryAlignment: String = "auto",
     val metadataVisible: Boolean = true,
     val metadataAnchor: String = "top",
     val adaptiveSectioning: Boolean = true
@@ -125,6 +133,7 @@ internal data class LyricSnapshot(
         transitionMode,
         fontFamily,
         alignmentMode,
+        secondaryAlignment,
         metadataVisible,
         metadataAnchor,
         adaptiveSectioning
@@ -161,6 +170,7 @@ internal data class LyricRenderContent(
     val transitionMode: String,
     val fontFamily: String,
     val alignmentMode: String,
+    val secondaryAlignment: String,
     val metadataVisible: Boolean,
     val metadataAnchor: String,
     val adaptiveSectioning: Boolean
@@ -461,6 +471,7 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             transitionMode = value.transitionMode,
             fontFamily = value.fontFamily,
             alignmentMode = value.alignmentMode,
+            secondaryAlignment = value.secondaryAlignment,
             metadataVisible = value.metadataVisible,
             metadataAnchor = value.metadataAnchor,
             adaptiveSectioning = value.adaptiveSectioning

@@ -36,6 +36,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
+import com.eza.hyperglow.aod.METADATA_SEGMENT_ALBUM
+import com.eza.hyperglow.aod.METADATA_SEGMENT_ARTIST
+import com.eza.hyperglow.aod.METADATA_SEGMENT_TITLE
+import com.eza.hyperglow.aod.METADATA_SEPARATOR_DASH
+import com.eza.hyperglow.aod.METADATA_SEPARATOR_DOT
+import com.eza.hyperglow.aod.METADATA_SEPARATOR_NEWLINE
+import com.eza.hyperglow.aod.METADATA_SEPARATOR_PIPE
+import com.eza.hyperglow.aod.METADATA_SEPARATOR_SLASH
+import com.eza.hyperglow.aod.normalizeAodMetadataSegmentOrder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
@@ -334,6 +343,16 @@ internal fun LyricLayoutScreen(
                             selectedProfile.alignment
                         ) { value -> updateSelected { it.copy(alignment = value) } }
                     }
+                    AodChoiceRow(
+                        AodChoiceKind.SECONDARY_ALIGNMENT,
+                        selectedProfile.secondaryAlignment
+                    ) {
+                        openChoice(
+                            AodChoiceKind.SECONDARY_ALIGNMENT,
+                            listOf("auto", "start", "center", "end"),
+                            selectedProfile.secondaryAlignment
+                        ) { value -> updateSelected { it.copy(secondaryAlignment = value) } }
+                    }
                     AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
                         openChoice(
                             AodChoiceKind.SECONDARY_TEXT,
@@ -414,6 +433,42 @@ internal fun LyricLayoutScreen(
                                 }
                             }
                         )
+                        SmallTitle(text = stringResource(R.string.section_song_info_fields))
+                        SwitchPreference(
+                            selectedProfile.metadataShowTitle,
+                            { show -> updateSelected { it.copy(metadataShowTitle = show) } },
+                            stringResource(R.string.setting_song_info_title)
+                        )
+                        SwitchPreference(
+                            selectedProfile.metadataShowArtist,
+                            { show -> updateSelected { it.copy(metadataShowArtist = show) } },
+                            stringResource(R.string.setting_song_info_artist)
+                        )
+                        SwitchPreference(
+                            selectedProfile.metadataShowAlbum,
+                            { show -> updateSelected { it.copy(metadataShowAlbum = show) } },
+                            stringResource(R.string.setting_song_info_album)
+                        )
+                        AodChoiceRow(
+                            AodChoiceKind.SONG_INFO_ORDER,
+                            selectedProfile.metadataSegmentOrder
+                        ) {
+                            openChoice(
+                                AodChoiceKind.SONG_INFO_ORDER,
+                                METADATA_ORDER_OPTIONS,
+                                selectedProfile.metadataSegmentOrder
+                            ) { value -> updateSelected { it.copy(metadataSegmentOrder = value) } }
+                        }
+                        AodChoiceRow(
+                            AodChoiceKind.SONG_INFO_SEPARATOR,
+                            selectedProfile.metadataSeparator
+                        ) {
+                            openChoice(
+                                AodChoiceKind.SONG_INFO_SEPARATOR,
+                                METADATA_SEPARATOR_OPTIONS,
+                                selectedProfile.metadataSeparator
+                            ) { value -> updateSelected { it.copy(metadataSeparator = value) } }
+                        }
                     }
                     AodChoiceRow(AodChoiceKind.TEXT_WEIGHT, selectedProfile.weight) {
                         openChoice(
@@ -780,6 +835,9 @@ internal fun collectDemoSnapshot(scenario: String): LyricSnapshot {
         romanized = line.romanized,
         translated = line.translated,
         metadata = "蝴蝶 · 洛天依",
+        metadataTitle = "蝴蝶",
+        metadataArtist = "洛天依",
+        metadataAlbum = "",
         lineLevelSync = true,
         lineStartMs = 0,
         lineEndMs = DEMO_LINE_SWITCH_MS,
@@ -981,12 +1039,20 @@ private fun choiceDisplayLabel(
         "hide_scene" -> R.string.option_hide_lyrics_blocked
         else -> R.string.option_avoid_system_content
     })
-    AodChoiceKind.ALIGNMENT -> context.getString(when (value) {
+    AodChoiceKind.ALIGNMENT, AodChoiceKind.SECONDARY_ALIGNMENT -> context.getString(when (value) {
         "auto" -> R.string.option_automatic
         "start" -> R.string.option_start
         "center" -> R.string.option_center
         "end" -> R.string.option_end
         else -> R.string.option_automatic
+    })
+    AodChoiceKind.SONG_INFO_ORDER -> metadataOrderLabel(context, value)
+    AodChoiceKind.SONG_INFO_SEPARATOR -> context.getString(when (value) {
+        METADATA_SEPARATOR_DOT -> R.string.option_separator_dot
+        METADATA_SEPARATOR_SLASH -> R.string.option_separator_slash
+        METADATA_SEPARATOR_DASH -> R.string.option_separator_dash
+        METADATA_SEPARATOR_PIPE -> R.string.option_separator_pipe
+        else -> R.string.option_separator_newline
     })
     AodChoiceKind.SONG_INFO_POSITION -> context.getString(
         if (value == "bottom") R.string.option_bottom else R.string.option_top
@@ -1061,10 +1127,13 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     HEIGHT(R.string.choice_height),
     OVERLAP(R.string.choice_overlap_handling),
     ALIGNMENT(R.string.choice_alignment),
+    SECONDARY_ALIGNMENT(R.string.choice_secondary_alignment),
     SECONDARY_TEXT(R.string.choice_secondary_text),
     LONG_LINES(R.string.choice_long_lines),
     LYRIC_LINES(R.string.choice_lyric_lines),
     SONG_INFO_POSITION(R.string.choice_song_info_position),
+    SONG_INFO_ORDER(R.string.choice_song_info_order),
+    SONG_INFO_SEPARATOR(R.string.choice_song_info_separator),
     TEXT_WEIGHT(R.string.choice_text_weight),
     TEXT_SIZE(R.string.choice_text_size),
     FONT(R.string.choice_font),
@@ -1108,3 +1177,33 @@ internal fun withMetadataVisible(profile: SurfaceProfile, visible: Boolean): Sur
     }
     return profile.copy(metadataVisible = visible, widgets = widgets)
 }
+
+/** 歌曲信息片段顺序的全部排列(三个片段共 6 种)。 */
+private val METADATA_ORDER_OPTIONS = listOf(
+    "title,artist,album",
+    "title,album,artist",
+    "artist,title,album",
+    "artist,album,title",
+    "album,title,artist",
+    "album,artist,title"
+)
+
+private val METADATA_SEPARATOR_OPTIONS = listOf(
+    METADATA_SEPARATOR_NEWLINE,
+    METADATA_SEPARATOR_DOT,
+    METADATA_SEPARATOR_SLASH,
+    METADATA_SEPARATOR_DASH,
+    METADATA_SEPARATOR_PIPE
+)
+
+/** 顺序串 → 可读标签(片段名按用户顺序用 '›' 连接)。 */
+private fun metadataOrderLabel(context: android.content.Context, value: String): String =
+    normalizeAodMetadataSegmentOrder(value).split(',').map { key ->
+        context.getString(
+            when (key) {
+                METADATA_SEGMENT_ARTIST -> R.string.setting_song_info_artist
+                METADATA_SEGMENT_ALBUM -> R.string.setting_song_info_album
+                else -> R.string.setting_song_info_title
+            }
+        )
+    }.joinToString(" › ")

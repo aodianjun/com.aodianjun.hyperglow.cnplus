@@ -54,6 +54,7 @@ internal data class AodCanvasContent(
     val transitionMode: String,
     val fontFamily: String,
     val alignmentMode: String,
+    val secondaryAlignment: String = "auto",
     val metadataVisible: Boolean,
     val metadataAnchor: String,
     val metadataSizePercent: Int = 100,

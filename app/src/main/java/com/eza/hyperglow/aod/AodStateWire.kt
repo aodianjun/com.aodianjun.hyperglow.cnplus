@@ -100,6 +100,7 @@ internal data class AodStateWireSnapshot(
     val transitionMode: String,
     val fontFamily: String,
     val alignmentMode: String,
+    val secondaryAlignment: String,
     val metadataVisible: Boolean,
     val metadataAnchor: String,
     val adaptiveSectioning: Boolean
@@ -306,6 +307,7 @@ internal object AodStateWireCodec {
                 output.writeBoundedString(snapshot.transitionMode)
                 output.writeBoundedString(snapshot.fontFamily)
                 output.writeBoundedString(snapshot.alignmentMode)
+                output.writeBoundedString(snapshot.secondaryAlignment)
                 output.writeStrictBoolean(snapshot.metadataVisible)
                 output.writeBoundedString(snapshot.metadataAnchor)
                 output.writeStrictBoolean(snapshot.adaptiveSectioning)
@@ -416,6 +418,7 @@ internal object AodStateWireCodec {
             val transitionMode = input.readStyleString(budget) ?: return null
             val fontFamily = input.readStyleString(budget) ?: return null
             val alignmentMode = input.readStyleString(budget) ?: return null
+            val secondaryAlignment = input.readStyleString(budget) ?: return null
             val metadataVisible = input.readStrictBoolean() ?: return null
             val metadataAnchor = input.readStyleString(budget) ?: return null
             val adaptiveSectioning = input.readStrictBoolean() ?: return null
@@ -516,6 +519,7 @@ internal object AodStateWireCodec {
                 transitionMode = transitionMode,
                 fontFamily = fontFamily,
                 alignmentMode = alignmentMode,
+                secondaryAlignment = secondaryAlignment,
                 metadataVisible = metadataVisible,
                 metadataAnchor = metadataAnchor,
                 adaptiveSectioning = adaptiveSectioning
@@ -573,6 +577,7 @@ internal object AodStateWireCodec {
             snapshot.transitionMode != normalizeAodTransition(snapshot.transitionMode) ||
             snapshot.fontFamily != normalizeAodFontFamily(snapshot.fontFamily) ||
             snapshot.alignmentMode != normalizeAodAlignment(snapshot.alignmentMode) ||
+            snapshot.secondaryAlignment != normalizeAodAlignment(snapshot.secondaryAlignment) ||
             snapshot.metadataAnchor != normalizeAodMetadataAnchor(snapshot.metadataAnchor)
         ) return false
         val budget = Utf8Budget()
@@ -595,6 +600,7 @@ internal object AodStateWireCodec {
             snapshot.transitionMode,
             snapshot.fontFamily,
             snapshot.alignmentMode,
+            snapshot.secondaryAlignment,
             snapshot.metadataAnchor
         )
         if (styles.any { !budget.accept(it, AodStateWireLimits.MAX_STYLE_CHARS, false) }) return false
@@ -692,7 +698,7 @@ internal object AodStateWireCodec {
     }
 
     private const val BODY_MAGIC = 0x414F4453
-    private const val BODY_VERSION = 2
+    private const val BODY_VERSION = 3
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

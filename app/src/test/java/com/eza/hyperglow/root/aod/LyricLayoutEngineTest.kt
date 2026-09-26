@@ -107,13 +107,25 @@ class LyricLayoutEngineTest {
     }
 
     @Test
-    fun metadataSplitsOnSeparatorAndCapsTwoLines() {
+    fun metadataSplitsOnNewlineAndCapsTwoLines() {
+        // 片段分隔符已在上游 composeSongMetadata 拼好,引擎只按换行拆段。
         val lines = layoutMetadataLines(
-            text = "Song Title · The Artist Name",
+            text = "Song Title\nThe Artist Name",
             metrics = mono(),
-            availableWidth = 50f
+            availableWidth = 200f
         )
-        assertEquals(listOf("Song", "Title"), lines.map { it.text })
+        assertEquals(listOf("Song Title", "The Artist Name"), lines.map { it.text })
         assertTrue(lines.size <= MAX_SECONDARY_LAYOUT_LINES)
+    }
+
+    @Test
+    fun metadataKeepsNonNewlineSeparatorsOnOneLine() {
+        // 非换行分隔符(如 '·')不再硬拆行,避免破坏用户选择的分隔符。
+        val lines = layoutMetadataLines(
+            text = "Title · Artist",
+            metrics = mono(),
+            availableWidth = 200f
+        )
+        assertEquals(listOf("Title · Artist"), lines.map { it.text })
     }
 }

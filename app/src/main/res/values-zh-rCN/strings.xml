@@ -283,6 +283,7 @@
     <string name="summary_custom_position">拖动调节歌词块相对屏幕的纵向位置。</string>
     <string name="section_text_language">文字和语言</string>
     <string name="choice_alignment">对齐</string>
+    <string name="choice_secondary_alignment">辅助行对齐</string>
     <string name="choice_secondary_text">辅助文字</string>
     <string name="setting_bright_secondary_text">高亮辅助文字</string>
     <string name="setting_show_furigana">显示振假名</string>
@@ -293,6 +294,12 @@
     <string name="setting_show_song_info">显示歌曲信息</string>
     <string name="choice_song_info_position">歌曲信息位置</string>
     <string name="setting_song_info_size">歌曲信息大小</string>
+    <string name="section_song_info_fields">歌曲信息内容</string>
+    <string name="setting_song_info_title">歌名</string>
+    <string name="setting_song_info_artist">歌手</string>
+    <string name="setting_song_info_album">专辑</string>
+    <string name="choice_song_info_order">歌曲信息顺序</string>
+    <string name="choice_song_info_separator">歌曲信息分隔符</string>
     <string name="choice_text_weight">文字粗细</string>
     <string name="choice_text_size">字号</string>
     <string name="setting_lyric_size">歌词大小</string>
@@ -338,6 +345,11 @@
     <string name="option_end">末端</string>
     <string name="option_top">顶部</string>
     <string name="option_bottom">底部</string>
+    <string name="option_separator_newline">换行</string>
+    <string name="option_separator_dot">圆点 (·)</string>
+    <string name="option_separator_slash">斜杠 (/)</string>
+    <string name="option_separator_dash">短横线 (-)</string>
+    <string name="option_separator_pipe">竖线 (|)</string>
     <string name="option_no_limit">不限制</string>
     <string name="option_noto_sans">Noto Sans</string>
     <string name="option_spotify_mix">Spotify Mix</string>

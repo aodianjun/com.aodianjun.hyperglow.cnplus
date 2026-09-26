@@ -211,6 +211,46 @@ internal fun normalizeMetadataSegmentVisibility(
         Triple(true, true, false)
     }
 
+/** 分隔符 token → 实际拼接文本;newline 用换行(每个片段独占一行)。 */
+internal fun metadataSeparatorText(separator: String): String =
+    when (normalizeAodMetadataSeparator(separator)) {
+        METADATA_SEPARATOR_DOT -> " · "
+        METADATA_SEPARATOR_SLASH -> " / "
+        METADATA_SEPARATOR_DASH -> " - "
+        METADATA_SEPARATOR_PIPE -> " | "
+        else -> "\n"
+    }
+
+/**
+ * 按用户配置拼接歌曲信息:按 [segmentOrder] 决定先后,只保留开启的片段,空片段自动跳过。
+ * 无任何可显示片段时返回空串,渲染层据此不绘制歌曲信息。
+ */
+internal fun composeSongMetadata(
+    title: String,
+    artist: String,
+    album: String,
+    showTitle: Boolean,
+    showArtist: Boolean,
+    showAlbum: Boolean,
+    segmentOrder: String,
+    separator: String
+): String {
+    val values = mapOf(
+        METADATA_SEGMENT_TITLE to title,
+        METADATA_SEGMENT_ARTIST to artist,
+        METADATA_SEGMENT_ALBUM to album
+    )
+    val visibility = mapOf(
+        METADATA_SEGMENT_TITLE to showTitle,
+        METADATA_SEGMENT_ARTIST to showArtist,
+        METADATA_SEGMENT_ALBUM to showAlbum
+    )
+    val segments = metadataSegmentOrderList(segmentOrder)
+        .filter { visibility[it] == true }
+        .mapNotNull { key -> values[key]?.trim()?.takeIf { it.isNotEmpty() } }
+    return segments.joinToString(metadataSeparatorText(separator))
+}
+
 internal fun normalizeAodWeight(value: String?): String = when (value) {
     "Regular" -> "Regular"
     "Bold" -> "Bold"

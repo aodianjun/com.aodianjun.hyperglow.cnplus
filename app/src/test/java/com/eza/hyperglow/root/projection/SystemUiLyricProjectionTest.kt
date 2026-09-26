@@ -113,6 +113,7 @@ class SystemUiLyricProjectionTest {
                 transitionMode = "None",
                 fontFamily = "apple",
                 alignmentMode = "end",
+                secondaryAlignment = "center",
                 metadataVisible = false,
                 metadataAnchor = "bottom",
                 adaptiveSectioning = false
@@ -162,6 +163,7 @@ class SystemUiLyricProjectionTest {
         assertEquals("None", value.transitionMode)
         assertEquals("apple", value.fontFamily)
         assertEquals("end", value.alignmentMode)
+        assertEquals("center", value.secondaryAlignment)
         assertFalse(value.metadataVisible)
         assertEquals("bottom", value.metadataAnchor)
         assertFalse(value.adaptiveSectioning)

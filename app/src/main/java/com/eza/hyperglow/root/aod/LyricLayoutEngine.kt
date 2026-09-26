@@ -166,7 +166,8 @@ internal fun layoutSecondaryLines(
 }
 
 /**
- * 歌曲信息(歌名/歌手)专用换行(与实机 wrapMetadataText 同算法):按 '·'/换行拆段,
+ * 歌曲信息专用换行(与实机 wrapMetadataText 同算法):按换行拆段(片段分隔符已在上游
+ * [com.eza.hyperglow.aod.composeSongMetadata] 拼好,只有换行分隔符才产生多段),
  * 单行放不下就 token 换行,合计最多 [MAX_SECONDARY_LAYOUT_LINES] 行(不受歌词偏好门控)。
  */
 internal fun layoutMetadataLines(
@@ -174,7 +175,7 @@ internal fun layoutMetadataLines(
     metrics: TextMeasurePort,
     availableWidth: Float
 ): List<LyricLayoutTextLine> {
-    val segments = text.split('\n', '·')
+    val segments = text.split('\n')
     val out = ArrayList<LyricLayoutTextLine>()
     for (segment in segments) {
         val clean = segment.trim()

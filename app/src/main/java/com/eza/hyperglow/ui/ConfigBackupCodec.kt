@@ -6,10 +6,14 @@ import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.MAX_AOD_BRIGHTNESS
 import com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS
 import com.eza.hyperglow.aod.normalizeAodCanvasAnchor
+import com.eza.hyperglow.aod.normalizeAodAlignment
 import com.eza.hyperglow.aod.normalizeAodCanvasPaddingPercent
 import com.eza.hyperglow.aod.normalizeAodClockYOffset
 import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
+import com.eza.hyperglow.aod.normalizeAodMetadataSegmentOrder
+import com.eza.hyperglow.aod.normalizeAodMetadataSeparator
 import com.eza.hyperglow.aod.normalizeAodRefreshRateCap
+import com.eza.hyperglow.aod.normalizeMetadataSegmentVisibility
 import com.eza.hyperglow.aod.normalizeAodRotationMode
 import com.eza.hyperglow.aod.normalizeAodRotationSettleMs
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_AUTO
@@ -106,7 +110,10 @@ internal object ConfigBackupCodec {
         },
         BackupBooleanField(AodRenderPreferences.AOD_BRIGHTNESS_OVERRIDE) {
             it.aodBrightnessOverride
-        }
+        },
+        BackupBooleanField(AodRenderPreferences.METADATA_SHOW_TITLE) { it.metadataShowTitle },
+        BackupBooleanField(AodRenderPreferences.METADATA_SHOW_ARTIST) { it.metadataShowArtist },
+        BackupBooleanField(AodRenderPreferences.METADATA_SHOW_ALBUM) { it.metadataShowAlbum }
     )
 
     internal val intFields = listOf(
@@ -157,7 +164,10 @@ internal object ConfigBackupCodec {
         BackupStringField(AodRenderPreferences.ANIMATION) { it.animation },
         BackupStringField(AodRenderPreferences.GLOW) { it.glow },
         BackupStringField(AodRenderPreferences.BURN_IN_PATTERN) { it.burnInPattern },
-        BackupStringField(AodRenderPreferences.AOD_ROTATION_MODE) { it.aodRotationMode }
+        BackupStringField(AodRenderPreferences.AOD_ROTATION_MODE) { it.aodRotationMode },
+        BackupStringField(AodRenderPreferences.SECONDARY_ALIGNMENT) { it.secondaryAlignment },
+        BackupStringField(AodRenderPreferences.METADATA_SEGMENT_ORDER) { it.metadataSegmentOrder },
+        BackupStringField(AodRenderPreferences.METADATA_SEPARATOR) { it.metadataSeparator }
     )
 
     fun encode(preferences: AodRenderConfig, document: CustomizationDocument?): String {
@@ -208,7 +218,19 @@ internal object ConfigBackupCodec {
         return ConfigBackupDecodeResult.Success(preferences, document)
     }
 
-    private fun decodePreferences(stored: JsonObject): AodRenderConfig = AodRenderConfig(
+    private fun decodePreferences(stored: JsonObject): AodRenderConfig = decodeStoredPreferences(
+        stored,
+        normalizeMetadataSegmentVisibility(
+            stored.boolean(AodRenderPreferences.METADATA_SHOW_TITLE) ?: DEFAULTS.metadataShowTitle,
+            stored.boolean(AodRenderPreferences.METADATA_SHOW_ARTIST) ?: DEFAULTS.metadataShowArtist,
+            stored.boolean(AodRenderPreferences.METADATA_SHOW_ALBUM) ?: DEFAULTS.metadataShowAlbum
+        )
+    )
+
+    private fun decodeStoredPreferences(
+        stored: JsonObject,
+        segmentVisibility: Triple<Boolean, Boolean, Boolean>
+    ): AodRenderConfig = AodRenderConfig(
         aodEnabled = stored.boolean(AodRenderPreferences.AOD_ENABLED) ?: DEFAULTS.aodEnabled,
         lockscreenEnabled = stored.boolean(AodRenderPreferences.LOCKSCREEN_ENABLED)
             ?: DEFAULTS.lockscreenEnabled,
@@ -309,6 +331,19 @@ internal object ConfigBackupCodec {
             ?: DEFAULTS.aodBrightnessLevel).coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS),
         aodRefreshRateCap = normalizeAodRefreshRateCap(
             stored.int(AodRenderPreferences.AOD_REFRESH_RATE_CAP) ?: DEFAULTS.aodRefreshRateCap
+        ),
+        secondaryAlignment = normalizeAodAlignment(
+            stored.string(AodRenderPreferences.SECONDARY_ALIGNMENT) ?: DEFAULTS.secondaryAlignment
+        ),
+        metadataShowTitle = segmentVisibility.first,
+        metadataShowArtist = segmentVisibility.second,
+        metadataShowAlbum = segmentVisibility.third,
+        metadataSegmentOrder = normalizeAodMetadataSegmentOrder(
+            stored.string(AodRenderPreferences.METADATA_SEGMENT_ORDER)
+                ?: DEFAULTS.metadataSegmentOrder
+        ),
+        metadataSeparator = normalizeAodMetadataSeparator(
+            stored.string(AodRenderPreferences.METADATA_SEPARATOR) ?: DEFAULTS.metadataSeparator
         )
     )
 

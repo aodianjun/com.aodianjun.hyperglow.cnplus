@@ -239,6 +239,7 @@ class GenerationBoundLatestTest {
             transitionMode = "None",
             fontFamily = "noto",
             alignmentMode = "auto",
+            secondaryAlignment = "auto",
             metadataVisible = true,
             metadataAnchor = "top",
             adaptiveSectioning = true

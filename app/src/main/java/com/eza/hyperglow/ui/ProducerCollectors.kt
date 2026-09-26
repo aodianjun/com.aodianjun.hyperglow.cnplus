@@ -89,6 +89,9 @@ private fun LyricProducerState.toPreviewSnapshot(): LyricSnapshot = LyricSnapsho
         title.takeIf { it.isNotBlank() },
         artist.takeIf { it.isNotBlank() }
     ).joinToString(" · ").ifBlank { "HyperGlow" },
+    metadataTitle = title,
+    metadataArtist = artist,
+    metadataAlbum = album,
     alignedRight = alignedRight,
     lineLevelSync = words == null,
     lineStartMs = lineStartMs,
