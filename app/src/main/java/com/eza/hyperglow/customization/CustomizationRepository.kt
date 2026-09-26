@@ -227,6 +227,7 @@ object CustomizationRepository {
         glow = glow,
         lineSyncFillMode = lineSyncFillMode,
         overflow = overflow,
+        lineTransition = lineTransition,
         adaptiveSectioning = adaptiveSectioning,
         palette = palette,
         backgroundStyle = backgroundStyle,

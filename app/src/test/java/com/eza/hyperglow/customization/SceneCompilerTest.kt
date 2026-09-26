@@ -244,6 +244,76 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun lineTransitionCompilesAndValidatesWithAutoFallback() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(lineTransition = "Slide left")
+                )
+            )
+        )
+        val validated = SystemUiCustomizationValidator.validate(compiled)!!
+
+        assertEquals(
+            "Slide left",
+            validated.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition
+        )
+        // "Auto"(跟随源)自身保留
+        assertEquals(
+            LINE_TRANSITION_AUTO,
+            SystemUiCustomizationValidator.validate(
+                compiled.copy(
+                    profiles = compiled.profiles + (
+                        SceneCompiler.SURFACE_AOD to compiled.profiles
+                            .getValue(SceneCompiler.SURFACE_AOD)
+                            .copy(lineTransition = LINE_TRANSITION_AUTO)
+                        )
+                )
+            )!!.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition
+        )
+        // 未知值兜底 "Auto",与 normalizeLineTransition 一致(不引入非法词进 SystemUI)
+        assertEquals(
+            LINE_TRANSITION_AUTO,
+            SystemUiCustomizationValidator.validate(
+                compiled.copy(
+                    profiles = compiled.profiles + (
+                        SceneCompiler.SURFACE_AOD to compiled.profiles
+                            .getValue(SceneCompiler.SURFACE_AOD)
+                            .copy(lineTransition = "Diagonal")
+                        )
+                )
+            )!!.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition
+        )
+        // 词表内其余可选项逐一原样通过
+        for (mode in listOf("Fade up", "Crossfade", "Slide up", "Zoom", "None")) {
+            assertEquals(
+                mode,
+                SystemUiCustomizationValidator.validate(
+                    compiled.copy(
+                        profiles = compiled.profiles + (
+                            SceneCompiler.SURFACE_AOD to compiled.profiles
+                                .getValue(SceneCompiler.SURFACE_AOD)
+                                .copy(lineTransition = mode)
+                            )
+                    )
+                )!!.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition
+            )
+        }
+        // canonicalize 往返同样必须保住字段(compile -> toSurfaceProfile 逐字段重建)。
+        val canonical = CustomizationRepository.canonicalizeDocument(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(lineTransition = "Slide left")
+                )
+            )
+        )!!
+        assertEquals(
+            "Slide left",
+            canonical.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition
+        )
+    }
+
+    @Test
     fun schemaRejectsOversizeAndExecutableReferencesButIgnoresUnknownFields() {
         assertNull(SceneCompiler.decodeDocument("x".repeat(SceneCompiler.MAX_CONFIG_BYTES + 1)))
         assertNull(SceneCompiler.decodeDocument("""{"version":1,"name":"file:///tmp/x"}"""))

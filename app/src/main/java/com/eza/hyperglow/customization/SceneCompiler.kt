@@ -174,6 +174,7 @@ object SceneCompiler {
             glow = if (profile.glow == "On") "On" else "Off",
             lineSyncFillMode = normalizeLineSyncFillMode(profile.lineSyncFillMode),
             overflow = if (profile.overflow == "Clip") "Clip" else "Wrap",
+            lineTransition = normalizeLineTransition(profile.lineTransition),
             adaptiveSectioning = profile.adaptiveSectioning,
             palette = palette,
             backgroundStyle = when {

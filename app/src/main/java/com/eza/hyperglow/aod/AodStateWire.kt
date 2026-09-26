@@ -706,8 +706,16 @@ internal fun normalizeAodLineSyncFill(value: String): String = when (value) {
     else -> "Top to bottom"
 }
 
+/**
+ * 换行动画词表归一化:画布六种模式原样放行;旧词表小写形态(场景过渡 preset id 曾
+ * 混入本通道)映射到等价模式 —— 特别是 `"none"` 必须落到 `"None"`(关闭动画),
+ * 不能再被兜底成 `"Fade up"`。未知值兜底 `"Fade up"`(fail-safe,与历史行为一致)。
+ */
 internal fun normalizeAodTransition(value: String): String = when (value) {
-    "Fade up", "None" -> value
+    "Fade up", "Crossfade", "Slide up", "Slide left", "Zoom", "None" -> value
+    "continuity" -> "Fade up"
+    "crossfade" -> "Crossfade"
+    "none" -> "None"
     else -> "Fade up"
 }
 

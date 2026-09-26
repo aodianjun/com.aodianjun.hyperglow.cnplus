@@ -324,6 +324,17 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   right-aligns right-to-left lyrics); explicit values align that row independently of the main
   lyric. Both second-line presentations (secondary-text form and standalone next-line row) share the
   one second-line alignment choice.
+- Line-change animation is selectable per surface profile from a fixed vocabulary: `Auto`, `Fade up`,
+  `Crossfade`, `Slide up`, `Slide left`, `Zoom`, or `None`. `Auto` keeps the lyric source's own
+  preference; any explicit choice overrides the source preference, including `None`. `None` performs
+  no line enter/exit animation. `Fade up` is the historical default and must remain pixel-identical
+  to it. A transition draws the frozen outgoing rows against the incoming rows: the outgoing layer
+  completes in 130 ms and the incoming layer in 210 ms from one elapsed anchor, and motion is limited
+  to fade, upward/leftward translation, and content-centered zoom scale. Exit and enter progress
+  each pass through a cubic curve (ease-in on exit, ease-out on enter) before frame recipes are
+  sampled; the metadata fade stays linear. Unknown profile values normalize to `Auto`; legacy
+  lowercase source aliases `continuity`, `crossfade`, and `none` map to `Fade up`, `Crossfade`, and
+  `None`, and an unknown wire value is fail-safe `Fade up` — never a novel animation.
 - Main lyrics accept a per-surface wrap limit of 1, 2, 3, 4, 5, or no user limit. Text size up to 200%
   must use the selected limit rather than the old fixed three-line ceiling. Safe-area geometry,
   optional-row removal, bounded minimum size, and fail-closed placement remain authoritative.
@@ -516,6 +527,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 锁屏显示动画将完整卡片容器作为一个整体。文本、自适应背景、描边与媒体进度共享同一 alpha 与向上平移时间线。
 
 ## 声明式自定义
+- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、`Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom` 或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认，必须与历史效果逐像素一致。过渡将冻结的旧行层与新行层叠加渲染：退场层在 130 毫秒内完成、入场层在 210 毫秒内完成，二者共用同一 elapsed 锚点；运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放。退场/入场进度先经 cubic 缓动（退场 easeIn、入场 easeOut）再查帧配方，元数据淡出保持线性。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
 
 - 文档是带版本的数据，而不是插件。
 - 应用进程编译执行迁移、规范化、能力过滤、限制与稳定的 revision 哈希。SystemUI 会再次校验。

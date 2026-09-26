@@ -736,7 +736,7 @@ internal class AodLyricCanvasView(
         val snapshot = exitSnapshot
         if (snapshot == null) {
             drawMetadata(canvas, layout)
-            drawRows(canvas, layout, content, 1f, 0f)
+            drawRows(canvas, layout, content, LineTransitionFrame(alpha = 1f))
             return
         }
         val elapsed = (SystemClock.elapsedRealtime() - transitionStartedAt).coerceAtLeast(0L)
@@ -769,12 +769,11 @@ internal class AodLyricCanvasView(
             canvas,
             snapshot.layout,
             snapshot.content,
-            1f - exitEased,
-            if (content.transitionMode == "Fade up") -14f * density * exitEased else 0f,
+            lineTransitionExitFrame(content.transitionMode, exitEased),
             snapshot.renderStyle,
             skipOriginal = metadataMorph
         )
-        drawRows(canvas, layout, content, enterEased, if (content.transitionMode == "Fade up") 14f * density * (1f - enterEased) else 0f)
+        drawRows(canvas, layout, content, lineTransitionEnterFrame(content.transitionMode, enterEased))
         if (enterProgress >= 1f) {
             transitionStartedAt = 0L
             exitSnapshot = null
@@ -786,12 +785,11 @@ internal class AodLyricCanvasView(
         canvas: Canvas,
         drawLayout: LayoutState,
         drawContent: AodCanvasContent,
-        alpha: Float,
-        translateY: Float,
+        frame: LineTransitionFrame,
         renderStyle: RenderStyleSnapshot? = null,
         skipOriginal: Boolean = false
     ) {
-        if (alpha <= 0f || drawLayout.rows.none {
+        if (frame.alpha <= 0f || drawLayout.rows.none {
                 it.row.kind != RowKind.METADATA && (!skipOriginal || it.row.kind != RowKind.ORIGINAL)
             }
         ) return
@@ -800,9 +798,20 @@ internal class AodLyricCanvasView(
         if (renderStyle != null) applyRenderStyle(renderStyle)
         content = drawContent
         layout = drawLayout
-        val layer = if (alpha < 1f || translateY != 0f) {
-            val save = canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * alpha).toInt())
-            canvas.translate(0f, translateY)
+        val layer = if (frame.alpha < 1f || frame.translateXDp != 0f ||
+            frame.translateYDp != 0f || frame.scale != 1f
+        ) {
+            val save = canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * frame.alpha).toInt())
+            canvas.translate(frame.translateXDp * density, frame.translateYDp * density)
+            if (frame.scale != 1f) {
+                // 放缩绕内容框中心,保证 Zoom 模式收放不偏离版面锚点。
+                canvas.scale(
+                    frame.scale,
+                    frame.scale,
+                    (padLeft + (ow - padRight)) / 2f,
+                    (padTop + (oh - padBottom)) / 2f
+                )
+            }
             save
         } else canvas.save()
         // 所有歌词绘制路径(原文/注音/翻译/逐字扫光/发光块)共享这一处逻辑裁剪:
@@ -2144,8 +2153,6 @@ internal class AodLyricCanvasView(
     )
 
     companion object {
-        private const val ENTER_TRANSITION_MS = 210L
-        private const val EXIT_TRANSITION_MS = 130L
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_HALO_ALPHA = 235

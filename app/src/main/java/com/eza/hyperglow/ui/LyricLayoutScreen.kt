@@ -49,6 +49,7 @@ import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.CustomFontStore
 import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
@@ -542,6 +543,13 @@ internal fun LyricLayoutScreen(
                             ),
                             selectedProfile.lineSyncFillMode
                         ) { value -> updateSelected { it.copy(lineSyncFillMode = value) } }
+                    }
+                    AodChoiceRow(AodChoiceKind.LINE_TRANSITION, selectedProfile.lineTransition) {
+                        openChoice(
+                            AodChoiceKind.LINE_TRANSITION,
+                            LINE_TRANSITION_MODES,
+                            selectedProfile.lineTransition
+                        ) { value -> updateSelected { it.copy(lineTransition = value) } }
                     }
                     AodChoiceRow(AodChoiceKind.TEXT_BRIGHTNESS, palettePresetName(selectedProfile.palette)) {
                         openChoice(
@@ -1130,6 +1138,15 @@ private fun choiceDisplayLabel(
         "Left to right (whole block)" -> R.string.option_left_to_right_all
         else -> R.string.option_none
     })
+    AodChoiceKind.LINE_TRANSITION -> context.getString(when (value) {
+        "Fade up" -> R.string.option_fade_up
+        "Crossfade" -> R.string.option_crossfade
+        "Slide up" -> R.string.option_slide_up
+        "Slide left" -> R.string.option_slide_left
+        "Zoom" -> R.string.option_zoom
+        "None" -> R.string.option_none
+        else -> R.string.option_auto_follow_source
+    })
     AodChoiceKind.TRANSITION_SPEED -> context.getString(when (value) {
         "200" -> R.string.option_fast
         "500" -> R.string.option_slow
@@ -1189,6 +1206,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     WORD_ANIMATION(R.string.choice_word_animation),
     GLOW(R.string.choice_glow),
     LINE_PROGRESS(R.string.choice_line_progress_effect),
+    LINE_TRANSITION(R.string.choice_line_transition),
     TEXT_BRIGHTNESS(R.string.choice_text_brightness),
     TRANSITION_SPEED(R.string.choice_scene_transition_speed),
     CARD_COLOR(R.string.choice_card_color)

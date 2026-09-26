@@ -8,6 +8,7 @@ import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.WidgetSpec
 import com.eza.hyperglow.customization.normalizeCardAlpha
 import com.eza.hyperglow.customization.normalizeCardColor
+import com.eza.hyperglow.customization.normalizeLineTransition
 import com.eza.hyperglow.customization.normalizeLyricLineLimit
 import com.eza.hyperglow.aod.normalizePauseLingerMs
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
@@ -143,6 +144,7 @@ internal object SystemUiCustomizationValidator {
             glow = if (profile.glow == "On") "On" else "Off",
             lineSyncFillMode = normalizeLineSyncFillMode(profile.lineSyncFillMode),
             overflow = if (profile.overflow == "Clip") "Clip" else "Wrap",
+            lineTransition = normalizeLineTransition(profile.lineTransition),
             backgroundStyle = if (!aod && profile.backgroundStyle == "card") "card" else "none",
             cardAlpha = normalizeCardAlpha(profile.cardAlpha),
             cardColor = normalizeCardColor(profile.cardColor),
