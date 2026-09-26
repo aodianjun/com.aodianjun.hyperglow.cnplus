@@ -69,6 +69,8 @@ import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
+import com.eza.hyperglow.root.aod.SecondLinePresentation
+import com.eza.hyperglow.root.aod.secondLinePresentation
 import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
@@ -294,8 +296,29 @@ private fun LyricPreviewSurface(
                             modifier = Modifier.padding(top = ROW_GAP_BEFORE_SECONDARY_DP.dp)
                         )
                     }
-                    if (showNext && snapshot.nextLine.isNotBlank()) {
-                        PreviewSecondaryRow(
+                    // 下一行歌词呈现与实机同源(secondLinePresentation):「辅助文字显示第二行歌词」
+                    // 开启时以辅助文字样式(辅助行颜色+音标行字号公式)绘制并取代独立下一行行。
+                    when (secondLinePresentation(
+                        profile.secondaryNextLine,
+                        showNext,
+                        snapshot.nextLine.isNotBlank()
+                    )) {
+                        SecondLinePresentation.AS_SECONDARY -> PreviewSecondaryRow(
+                            row = PreviewSecondaryLine(
+                                snapshot.nextLine,
+                                secondaryReadingTextSizeSp(baseSp).sp,
+                                italic = false
+                            ),
+                            color = secondaryColor,
+                            typeface = regularTypeface,
+                            availableWidthPx = availablePx,
+                            preferredLines = mainLayout.lines.size,
+                            wrap = profile.overflow == "Wrap",
+                            adaptiveSectioning = profile.adaptiveSectioning,
+                            textAlign = textAlign,
+                            modifier = Modifier.padding(top = ROW_GAP_BEFORE_NEXT_LINE_DP.dp)
+                        )
+                        SecondLinePresentation.STANDALONE -> PreviewSecondaryRow(
                             row = PreviewSecondaryLine(
                                 snapshot.nextLine,
                                 nextLineTextSizeSp().sp,
@@ -310,6 +333,7 @@ private fun LyricPreviewSurface(
                             textAlign = textAlign,
                             modifier = Modifier.padding(top = ROW_GAP_BEFORE_NEXT_LINE_DP.dp)
                         )
+                        SecondLinePresentation.NONE -> Unit
                     }
                     if (showMetadata && profile.metadataAnchor == "bottom") {
                         PreviewMetaLine(

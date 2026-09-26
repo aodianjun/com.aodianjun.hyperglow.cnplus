@@ -152,6 +152,7 @@ object SceneCompiler {
             secondaryTextBright = profile.secondaryTextBright,
             lyricLineLimit = normalizeLyricLineLimit(profile.lyricLineLimit),
             showNextLine = profile.showNextLine,
+            secondaryNextLine = profile.secondaryNextLine,
             metadataVisible = profile.metadataVisible &&
                 supportedWidgets.any { it.type == "metadata" },
             metadataAnchor = if (profile.metadataAnchor == "bottom") "bottom" else "top",

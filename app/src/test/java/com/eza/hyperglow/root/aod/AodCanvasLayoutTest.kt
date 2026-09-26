@@ -304,6 +304,49 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun secondaryNextLineMapsFromProfileAndDefaultsToOff() {
+        val on = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(secondaryNextLine = true)
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val snapshot = LyricSnapshot(original = "current", nextLine = "second")
+
+        assertTrue(snapshot.toAodCanvasContent(on).secondaryNextLine)
+        // 无 profile 或未开启时默认关闭,既有呈现零变化。
+        assertFalse(snapshot.toAodCanvasContent(null).secondaryNextLine)
+        assertFalse(snapshot.toAodCanvasContent().secondaryNextLine)
+    }
+
+    @Test
+    fun secondLinePresentationNeverStacksBothForms() {
+        // 呈现决策(实机/预览同源):辅助文字形态开启时取代独立下一行行,同一行不重复出现;
+        // 无下行文本时两种开关都为空呈现。
+        assertEquals(
+            SecondLinePresentation.AS_SECONDARY,
+            secondLinePresentation(secondaryNextLine = true, showNextLine = true, hasLine = true)
+        )
+        assertEquals(
+            SecondLinePresentation.AS_SECONDARY,
+            secondLinePresentation(secondaryNextLine = true, showNextLine = false, hasLine = true)
+        )
+        assertEquals(
+            SecondLinePresentation.STANDALONE,
+            secondLinePresentation(secondaryNextLine = false, showNextLine = true, hasLine = true)
+        )
+        assertEquals(
+            SecondLinePresentation.NONE,
+            secondLinePresentation(secondaryNextLine = false, showNextLine = false, hasLine = true)
+        )
+        assertEquals(
+            SecondLinePresentation.NONE,
+            secondLinePresentation(secondaryNextLine = true, showNextLine = true, hasLine = false)
+        )
+    }
+
+    @Test
     fun gradientSweepUsesBroadZoneAndFinishesOutsideVisibleExtent() {
         assertEquals(GradientSweepZone(-40f, 0f), gradientSweepZone(0f, 100f))
         assertEquals(GradientSweepZone(30f, 70f), gradientSweepZone(0.5f, 100f))

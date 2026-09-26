@@ -107,11 +107,12 @@ internal fun estimatedLockscreenSceneHeight(
 ): Float {
     val textScale = textSizeModeMultiplier(profile.textSize, profile.textSizeCustom) *
         fontScale.coerceIn(0.8f, 1.5f)
-    val secondaryRows = when (profile.secondaryMode) {
+    // 辅助文字行数估算:模式行(音译/翻译)+「辅助文字显示第二行歌词」的一行。
+    val secondaryRows = (when (profile.secondaryMode) {
         "Both" -> 2
         "Transliteration", "Translation" -> 1
         else -> 0
-    }
+    }) + if (profile.secondaryNextLine) 1 else 0
     val metadataHeight = if (profile.metadataVisible &&
         profile.widgets.any { it.type == "metadata" }
     ) metadataWidgetHeightDp(profile.metadataSizePercent) else 0f

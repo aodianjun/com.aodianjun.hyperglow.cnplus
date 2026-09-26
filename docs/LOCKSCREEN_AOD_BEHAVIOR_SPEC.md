@@ -315,6 +315,10 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   simultaneous sweep across all visible lyric rows and must not normalize to main-only. Each surface
   profile independently selects bright or dimmed secondary-text presentation. Word/syllable-level
   synchronization is unchanged.
+- Each surface profile may also show the upcoming lyric line (second lyric line) as secondary text.
+  That presentation uses the secondary-text color and the profile's bright/dim secondary selection;
+  when enabled it replaces the standalone next-line row instead of stacking with it, and when it is
+  off the standalone next-line presentation is unchanged.
 - Main lyrics accept a per-surface wrap limit of 1, 2, 3, 4, 5, or no user limit. Text size up to 200%
   must use the selected limit rather than the old fixed three-line ceiling. Safe-area geometry,
   optional-row removal, bounded minimum size, and fail-closed placement remain authoritative.
@@ -515,6 +519,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 未知组件会被丢弃。不存在有效歌词组件时，退回到内置安全 profile。
 - 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。
+- 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现使用辅助文字颜色与该 profile 的亮/暗辅助文字选择；开启时取代独立的下一行歌词行而不与之叠加，关闭时独立下一行呈现保持不变。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
 - 在绑定 generation 的歌曲 intro 期间，匹配的单行标题/艺术家文本会抑制重复的元数据行，并在三秒后形变为持久的元数据位置与大小。不兼容或换行的几何使用有界交叉淡化。两条路径都不改变整个 surface 的 alpha、keepalive 亮度策略或位置权威。

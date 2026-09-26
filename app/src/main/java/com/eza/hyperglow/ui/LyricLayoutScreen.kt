@@ -341,13 +341,20 @@ internal fun LyricLayoutScreen(
                             selectedProfile.secondaryMode
                         ) { value -> updateSelected { it.copy(secondaryMode = value) } }
                     }
-                    if (selectedProfile.secondaryMode != "Main only") {
+                    if (selectedProfile.secondaryMode != "Main only" ||
+                        selectedProfile.secondaryNextLine
+                    ) {
                         SwitchPreference(
                             selectedProfile.secondaryTextBright,
                             { bright -> updateSelected { it.copy(secondaryTextBright = bright) } },
                             stringResource(R.string.setting_bright_secondary_text)
                         )
                     }
+                    SwitchPreference(
+                        selectedProfile.secondaryNextLine,
+                        { enabled -> updateSelected { it.copy(secondaryNextLine = enabled) } },
+                        stringResource(R.string.setting_secondary_next_line)
+                    )
                     SwitchPreference(
                         selectedProfile.rubyVisible,
                         { visible -> updateSelected { it.copy(rubyVisible = visible) } },
@@ -779,6 +786,8 @@ internal fun collectDemoSnapshot(scenario: String): LyricSnapshot {
         original = line.original,
         romanized = line.romanized,
         translated = line.translated,
+        // 演示快照携带下一行文本,让「显示下一行歌词」与「辅助文字显示第二行歌词」在预览可见。
+        nextLine = DEMO_LINES[(index + 1) % DEMO_LINES.size].original,
         metadata = "蝴蝶 · 洛天依",
         lineLevelSync = true,
         lineStartMs = 0,

@@ -29,6 +29,11 @@ data class SurfaceProfile(
     val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
     /** Show the upcoming next lyric line dimmed below the active line. */
     val showNextLine: Boolean = false,
+    /**
+     * 辅助文字显示第二行歌词:开启后下一行歌词以辅助文字样式(辅助行颜色+高亮辅助文字+
+     * 音标行字号公式)绘制在主行下方,并取代「显示下一行歌词」的独立行(同一行不重复出现)。
+     */
+    val secondaryNextLine: Boolean = false,
     val metadataVisible: Boolean = false,
     val metadataAnchor: String = "top",
     val metadataSizePercent: Int = 100,
@@ -138,7 +143,9 @@ data class CompiledSurfaceProfile(
     val secondaryTextBright: Boolean = true,
     val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
     /** Show the upcoming next lyric line dimmed below the active line. */
-    val showNextLine: Boolean = false
+    val showNextLine: Boolean = false,
+    /** 辅助文字显示第二行歌词,见 [SurfaceProfile.secondaryNextLine]。 */
+    val secondaryNextLine: Boolean = false
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1
