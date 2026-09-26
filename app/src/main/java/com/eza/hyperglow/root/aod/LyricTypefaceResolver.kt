@@ -118,10 +118,13 @@ object LyricTypefaceResolver {
         val target = File(cacheContext.cacheDir, "$CUSTOM_CACHE_PREFIX${id}_$safeVersion.ttf")
         if (!target.exists()) {
             val copied = runCatching {
-                cacheContext.contentResolver
-                    .openInputStream(CustomFontContract.customFontUri(family))?.use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    } ?: false
+                val stream = cacheContext.contentResolver
+                    .openInputStream(CustomFontContract.customFontUri(family))
+                    ?: return@runCatching false
+                stream.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+                true
             }.getOrDefault(false)
             if (!copied) return@runCatching null
             pruneStaleCopies(cacheContext, target.name)
