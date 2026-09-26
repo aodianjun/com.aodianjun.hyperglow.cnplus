@@ -108,7 +108,20 @@ data class AodRenderConfig(
      * 渲染刷新率上限档(issue #68 #12):0=跟随现有行为(16ms≈60fps);
      * 60/90/120=用户可选上限,随配置下发到 SystemUI 侧帧调度。
      */
-    val aodRefreshRateCap: Int = 0
+    val aodRefreshRateCap: Int = 0,
+    /**
+     * 辅助行(副文本/下一行/歌曲信息)独立对齐:auto=跟随主歌词对齐(含 alignedRight 推导);
+     * start/center/end=独立于主行固定对齐。
+     */
+    val secondaryAlignment: String = "auto",
+    /** 歌曲信息片段:是否显示歌名/歌手/专辑。 */
+    val metadataShowTitle: Boolean = true,
+    val metadataShowArtist: Boolean = true,
+    val metadataShowAlbum: Boolean = false,
+    /** 歌曲信息片段顺序(逗号分隔的片段 key,见 [normalizeAodMetadataSegmentOrder])。 */
+    val metadataSegmentOrder: String = DEFAULT_METADATA_SEGMENT_ORDER,
+    /** 歌曲信息片段分隔符 token(见 [normalizeAodMetadataSeparator])。 */
+    val metadataSeparator: String = DEFAULT_METADATA_SEPARATOR
 ) {
     companion object {
         /** 出厂默认配置;备份解码时用于逐字段回退缺失/类型错误的值。 */
@@ -141,6 +154,62 @@ internal fun normalizeAodMetadataVisible(value: String?): String =
 
 internal fun normalizeAodMetadataAnchor(value: String?): String =
     if (value == "bottom") "bottom" else "top"
+
+// ---- 歌曲信息片段(歌名/歌手/专辑) ----
+
+internal const val METADATA_SEGMENT_TITLE = "title"
+internal const val METADATA_SEGMENT_ARTIST = "artist"
+internal const val METADATA_SEGMENT_ALBUM = "album"
+internal val METADATA_SEGMENT_KEYS = listOf(
+    METADATA_SEGMENT_TITLE,
+    METADATA_SEGMENT_ARTIST,
+    METADATA_SEGMENT_ALBUM
+)
+internal const val DEFAULT_METADATA_SEGMENT_ORDER = "title,artist,album"
+
+internal const val METADATA_SEPARATOR_NEWLINE = "newline"
+internal const val METADATA_SEPARATOR_DOT = "dot"
+internal const val METADATA_SEPARATOR_SLASH = "slash"
+internal const val METADATA_SEPARATOR_DASH = "dash"
+internal const val METADATA_SEPARATOR_PIPE = "pipe"
+internal const val DEFAULT_METADATA_SEPARATOR = METADATA_SEPARATOR_NEWLINE
+
+/**
+ * 归一化片段顺序:仅保留合法 key 并按用户给定顺序排列,缺失的 key 按默认顺序补到末尾,
+ * 保证结果始终包含全部三个片段(显示与否由 show 开关控制,顺序串只决定相对先后)。
+ */
+internal fun normalizeAodMetadataSegmentOrder(value: String?): String {
+    val requested = value.orEmpty().split(',').map { it.trim() }
+        .filter { it in METADATA_SEGMENT_KEYS }
+    return (requested + METADATA_SEGMENT_KEYS).distinct().joinToString(",")
+}
+
+/** 顺序串 → 片段 key 列表(输入先经 [normalizeAodMetadataSegmentOrder] 归一)。 */
+internal fun metadataSegmentOrderList(order: String): List<String> =
+    normalizeAodMetadataSegmentOrder(order).split(',')
+
+internal fun normalizeAodMetadataSeparator(value: String?): String = when (value) {
+    METADATA_SEPARATOR_DOT,
+    METADATA_SEPARATOR_SLASH,
+    METADATA_SEPARATOR_DASH,
+    METADATA_SEPARATOR_PIPE -> value
+    else -> METADATA_SEPARATOR_NEWLINE
+}
+
+/**
+ * 片段可见性兜底:三项全关时歌曲信息无可显示内容(「显示歌曲信息」开着却永远空白),
+ * 统一回落到默认的歌名+歌手,编译/读取/备份解码共用此兜底。
+ */
+internal fun normalizeMetadataSegmentVisibility(
+    showTitle: Boolean,
+    showArtist: Boolean,
+    showAlbum: Boolean
+): Triple<Boolean, Boolean, Boolean> =
+    if (showTitle || showArtist || showAlbum) {
+        Triple(showTitle, showArtist, showAlbum)
+    } else {
+        Triple(true, true, false)
+    }
 
 internal fun normalizeAodWeight(value: String?): String = when (value) {
     "Regular" -> "Regular"
@@ -317,6 +386,12 @@ object AodRenderPreferences {
     const val AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT = "aod_canvas_padding_landscape_y_percent"
     const val AOD_DEBUG_SHOW_CANVAS_FRAME = "aod_debug_show_canvas_frame"
     const val AOD_REFRESH_RATE_CAP = "aod_refresh_rate_cap"
+    const val SECONDARY_ALIGNMENT = "secondary_alignment"
+    const val METADATA_SHOW_TITLE = "metadata_show_title"
+    const val METADATA_SHOW_ARTIST = "metadata_show_artist"
+    const val METADATA_SHOW_ALBUM = "metadata_show_album"
+    const val METADATA_SEGMENT_ORDER = "metadata_segment_order"
+    const val METADATA_SEPARATOR = "metadata_separator"
 
     // SharedPreferences throws ClassCastException when an older/imported value has the wrong
     // primitive type. Treat malformed entries as missing so a bad setting cannot crash startup.
