@@ -48,16 +48,20 @@ import com.eza.hyperglow.root.capability.XiaomiProfileState
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
@@ -226,7 +230,21 @@ internal fun HomeScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = stringResource(R.string.app_name)) },
+        topBar = {
+            TopAppBar(
+                title = stringResource(R.string.app_name),
+                actions = {
+                    IconButton(onClick = { showRestartDialog = true }) {
+                        Icon(
+                            imageVector = MiuixIcons.Regular.Refresh,
+                            contentDescription =
+                                stringResource(R.string.action_restart_systemui),
+                            tint = MiuixTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            )
+        },
         bottomBar = {
             FloatingNavigationBar {
                 FloatingNavigationBarItem(
@@ -354,10 +372,6 @@ internal fun HomeScreen(
                                     stringResource(R.string.action_report_problem)
                                 },
                                 onClick = onOpenDiagnostics
-                            )
-                            ArrowPreference(
-                                title = stringResource(R.string.action_restart_systemui),
-                                onClick = { showRestartDialog = true }
                             )
                             if (experimentalEligible) {
                                 SwitchPreference(
