@@ -78,6 +78,7 @@ class ArchitectureGuardTest {
             "staticNextLineTextFactor",
             "cardColorRgb",
             "resolveAodPalette",
+            "secondLineColorArgb",
             "LyricGlowRenderer",
             "layoutOriginalLines",
             "layoutSecondaryLines",

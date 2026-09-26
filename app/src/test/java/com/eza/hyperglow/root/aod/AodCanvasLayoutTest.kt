@@ -47,6 +47,30 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun secondLineColorIgnoresPresentationForm() {
+        // 取色与呈现形态解耦:「辅助文字显示第二行歌词」只借辅助文字的字号/亮度样式,
+        // 颜色必须恒走「下一行颜色」——否则开启该开关后"下一行颜色"设置完全失效。
+        val palette = resolveAodPalette(
+            mapOf(
+                "nextLineText" to "#FFD9A0",
+                "secondaryText" to "#88CCFF"
+            )
+        )
+        assertEquals(
+            palette.nextLineText,
+            secondLineColorArgb(SecondLinePresentation.AS_SECONDARY, palette)
+        )
+        assertEquals(
+            palette.nextLineText,
+            secondLineColorArgb(SecondLinePresentation.STANDALONE, palette)
+        )
+        assertNotEquals(
+            palette.secondaryText,
+            secondLineColorArgb(SecondLinePresentation.AS_SECONDARY, palette)
+        )
+    }
+
+    @Test
     fun sentenceFillSpansWrappedLinesContinuously() {
         assertEquals(listOf(1f, 1f / 3f), splitContinuousFill(0.5f, listOf(100f, 300f)))
     }

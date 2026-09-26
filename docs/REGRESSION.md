@@ -51,8 +51,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
   lyrics and `adb logcat -s HyperGlow` must show `Power state monitor attached` with no
   `Attach failed`.
 - "Second line as secondary text" auxiliary presentation (`secondaryNextLine` switch: next lyric
-  line drawn with secondary-text styling, replacing the standalone next-line row) — pending a
-  hardware smoke check after merge.
+  line drawn with secondary-text styling, replacing the standalone next-line row; its color stays
+  on the next-line color setting in both forms) — pending a hardware smoke check after merge.
 - Independent row alignment for song info and the second lyric line (`metadataAlignment` /
   `nextLineAlignment`, `auto` follows the resolved main lyric alignment) — pending a hardware smoke
   check after merge. Note: with both left at `auto`, an explicit main alignment already governed
@@ -115,7 +115,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 实机 `custom`/`noto-sc` 字体经统一 `LyricTypefaceResolver` 路径渲染（预览/实机字体同源）——合并后待真机冒烟确认。
 - 共享 `LyricLayoutEngine` 抽取后的断行/行距（算法逐字迁移）——合并后待真机冒烟歌词折行与行距无回归。
 - AOD surface 挂载韧性修复（power monitor `attach` 空 context 回退 + runCatching 隔离，ArchitectureGuardTest 守卫）——合并后待真机冒烟：息屏必须显示歌词，`adb logcat -s HyperGlow` 出现 `Power state monitor attached` 且无 `Attach failed`。
-- 「辅助文字显示第二行歌词」呈现（`secondaryNextLine` 开关：下一行歌词按辅助文字样式绘制并取代独立下一行行）——合并后待真机冒烟确认。
+- 「辅助文字显示第二行歌词」呈现（`secondaryNextLine` 开关：下一行歌词按辅助文字样式绘制并取代独立下一行行；两种形态颜色均走「下一行颜色」设置）——合并后待真机冒烟确认。
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。

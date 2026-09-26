@@ -26,6 +26,22 @@ internal fun resolveAodPalette(tokens: Map<String, String>): AodResolvedPalette 
         accent = resolvePaletteColor(tokens["accent"], Color.WHITE)
     )
 
+/**
+ * 第二行歌词取色(实机 AodLyricCanvasView 与预览 PreviewComponents 同源):
+ * 两种呈现形态都取「下一行颜色」(nextLineText) —— 「辅助文字显示第二行歌词」只借
+ * 辅助文字的字号/亮度样式,不借「辅助行颜色」(secondaryText),否则"下一行颜色"
+ * 设置对该形态完全失效。取色与呈现形态解耦,防止再按形态分叉取色。
+ */
+internal fun secondLineColorArgb(
+    presentation: SecondLinePresentation,
+    palette: AodResolvedPalette
+): Int = when (presentation) {
+    // 两种呈现形态同取「下一行颜色」:辅助文字形态只借字号/亮度样式,不借「辅助行颜色」。
+    SecondLinePresentation.AS_SECONDARY,
+    SecondLinePresentation.STANDALONE,
+    SecondLinePresentation.NONE -> palette.nextLineText
+}
+
 private fun resolvePaletteColor(token: String?, fallback: Int): Int = when {
     token == "dimmed" -> opaqueRgb(
         (((fallback ushr 16) and 0xFF) * 0.72f).roundToInt(),

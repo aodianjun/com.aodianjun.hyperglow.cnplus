@@ -71,6 +71,7 @@ import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
+import com.eza.hyperglow.root.aod.secondLineColorArgb
 import com.eza.hyperglow.root.aod.SecondLinePresentation
 import com.eza.hyperglow.root.aod.secondLinePresentation
 import com.eza.hyperglow.root.aod.staticNextLineTextFactor
@@ -197,8 +198,14 @@ private fun LyricPreviewSurface(
     val secondaryColor = ComposeColor(resolvedColors.secondaryText)
         .copy(alpha = previewSecondaryAlpha(profile.secondaryTextBright))
     val metadataColor = ComposeColor(resolvedColors.metadataText)
-    val nextLineColor = ComposeColor(resolvedColors.nextLineText)
-        .copy(alpha = staticNextLineTextFactor())
+    val nextLineColor = ComposeColor(
+        secondLineColorArgb(SecondLinePresentation.STANDALONE, resolvedColors)
+    ).copy(alpha = staticNextLineTextFactor())
+    // 第二行歌词以辅助文字形态出现时,颜色仍走「下一行颜色」(secondLineColorArgb 同源),
+    // 只借辅助文字的亮度档;否则"下一行颜色"设置对该形态失效。
+    val nextLineSecondaryColor = ComposeColor(
+        secondLineColorArgb(SecondLinePresentation.AS_SECONDARY, resolvedColors)
+    ).copy(alpha = previewSecondaryAlpha(profile.secondaryTextBright))
     // 字号与实机 setContent 同源:随行长自适应基准 × 字号档倍率(AodCanvasTextMetrics 共享公式)。
     val baseSp = previewBaseTextSizeSp(snapshot.original, profile.textSize, profile.textSizeCustom)
     val textSize = baseSp.sp
@@ -304,7 +311,8 @@ private fun LyricPreviewSurface(
                         )
                     }
                     // 下一行歌词呈现与实机同源(secondLinePresentation):「辅助文字显示第二行歌词」
-                    // 开启时以辅助文字样式(辅助行颜色+音标行字号公式)绘制并取代独立下一行行。
+                    // 开启时以辅助文字样式(音标行字号公式+亮度档)绘制并取代独立下一行行,
+                    // 颜色仍走「下一行颜色」(secondLineColorArgb)。
                     when (secondLinePresentation(
                         profile.secondaryNextLine,
                         showNext,
@@ -316,7 +324,7 @@ private fun LyricPreviewSurface(
                                 secondaryReadingTextSizeSp(baseSp).sp,
                                 italic = false
                             ),
-                            color = secondaryColor,
+                            color = nextLineSecondaryColor,
                             typeface = regularTypeface,
                             availableWidthPx = availablePx,
                             preferredLines = mainLayout.lines.size,
