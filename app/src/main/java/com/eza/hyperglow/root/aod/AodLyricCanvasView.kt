@@ -862,16 +862,26 @@ internal class AodLyricCanvasView(
                 rowIndex++
                 continue
             }
-            // 「辅助文字显示第二行歌词」开启时,下一行按辅助文字样式取色(走下方 else 分支);
-            // 否则维持独立下一行行的 nextLineText token(不能混用 secondaryText)。
-            if (positioned.row.kind == RowKind.NEXT_LINE && !content.secondaryNextLine) {
-                // 下一行歌词颜色走独立的 nextLineText token(与预览/非行级同步路径一致),
-                // 不能混用 secondaryText,否则"下一行歌词颜色"设置对该路径完全无效。
+            // 下一行歌词颜色恒走独立的 nextLineText token(与预览/非行级同步路径同源
+            // secondLineColorArgb):「辅助文字显示第二行歌词」只借辅助文字的亮度档,
+            // 不借「辅助行颜色」,否则"下一行颜色"设置对该形态完全失效。
+            if (positioned.row.kind == RowKind.NEXT_LINE) {
                 setTextAlpha(
                     positioned.row.paint,
-                    staticNextLineTextFactor(),
+                    if (content.secondaryNextLine) {
+                        staticSecondaryTextFactor(bright)
+                    } else {
+                        staticNextLineTextFactor()
+                    },
                     1f,
-                    resolvedPalette.nextLineText
+                    secondLineColorArgb(
+                        if (content.secondaryNextLine) {
+                            SecondLinePresentation.AS_SECONDARY
+                        } else {
+                            SecondLinePresentation.STANDALONE
+                        },
+                        resolvedPalette
+                    )
                 )
             } else {
                 setTextAlpha(
@@ -1066,7 +1076,8 @@ internal class AodLyricCanvasView(
             )
         }
         // 下一行歌词呈现与预览同源(secondLinePresentation):「辅助文字显示第二行歌词」
-        // 开启时以辅助文字样式(音标行字号公式)绘制并取代独立下一行行,同一行不重复出现。
+        // 开启时以辅助文字样式(音标行字号公式+亮度档)绘制并取代独立下一行行,同一行
+        // 不重复出现;颜色恒走「下一行颜色」(secondLineColorArgb),不随形态改用辅助行颜色。
         when (secondLinePresentation(
             content.secondaryNextLine,
             content.showNextLine,
@@ -1900,7 +1911,7 @@ internal class AodLyricCanvasView(
                 row.paint.color = resolvedPalette.metadataText
                 row.paint.alpha = 255
                 canvas.drawText(line.text, line.startX, lineBaseline, row.paint)
-            } else if (row.kind == RowKind.NEXT_LINE && !content.secondaryNextLine) {
+            } else if (row.kind == RowKind.NEXT_LINE) {
                 drawNextLine(canvas, row.paint, line.text, line.startX, lineBaseline)
             } else {
                 drawSecondaryLine(canvas, row.paint, line.text, line.startX, lineBaseline)
@@ -2050,8 +2061,23 @@ internal class AodLyricCanvasView(
         x: Float,
         baseline: Float
     ) {
-        paint.color = resolvedPalette.nextLineText
-        paint.alpha = (255f * staticNextLineTextFactor()).toInt()
+        // 颜色恒走独立的「下一行颜色」(secondLineColorArgb 同源),不随呈现形态改用
+        // 「辅助行颜色」,否则"下一行颜色"设置对辅助文字形态完全失效。
+        val color = secondLineColorArgb(
+            if (content.secondaryNextLine) {
+                SecondLinePresentation.AS_SECONDARY
+            } else {
+                SecondLinePresentation.STANDALONE
+            },
+            resolvedPalette
+        )
+        if (content.secondaryNextLine) {
+            // 辅助文字形态只借辅助文字的亮度档(随「高亮辅助文字」),不借它的颜色。
+            setTextAlpha(paint, staticSecondaryTextFactor(content.secondaryTextBright), 1f, color)
+        } else {
+            paint.color = color
+            paint.alpha = (255f * staticNextLineTextFactor()).toInt()
+        }
         paint.shader = null
         paint.clearShadowLayer()
         canvas.drawText(text, x, baseline, paint)
