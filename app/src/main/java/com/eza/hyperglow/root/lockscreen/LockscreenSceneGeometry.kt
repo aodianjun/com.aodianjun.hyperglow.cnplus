@@ -132,6 +132,28 @@ internal fun estimatedLockscreenSceneHeight(
         metadataHeight + progressHeight + cardPadding) * density
 }
 
+/**
+ * 锁屏卡片自适应高度(实测内容驱动):卡片场景高按实测内容堆叠高度定高——内容多高卡片就
+ * 多高(含进度条与其上间距 [progressHeightWithGapPx]、卡片上下留白 [cardVerticalPaddingPx]),
+ * 「高度」设置仍是上限 [maximumPx];实测缺失(无内容/未测量)时回落到
+ * [estimatedSceneHeightPx] 的设置估算。只决定"要多高",溢出收敛继续由 PlacementEngine 的
+ * 可选行移除、歌词有界最小高与失效关闭兜底。
+ */
+internal fun adaptiveLockscreenSceneHeight(
+    measuredContentStackPx: Float,
+    estimatedSceneHeightPx: Float,
+    progressHeightWithGapPx: Float,
+    cardVerticalPaddingPx: Float,
+    maximumPx: Float
+): Float {
+    val natural = if (measuredContentStackPx > 0f) {
+        measuredContentStackPx + progressHeightWithGapPx + cardVerticalPaddingPx
+    } else {
+        estimatedSceneHeightPx
+    }
+    return minOf(maximumPx, natural)
+}
+
 internal fun maximumLockscreenClockBottom(hostHeight: Int, candidates: List<Int>): Int =
     candidates.maxOrNull()?.coerceIn(0, hostHeight) ?: 0
 

@@ -400,13 +400,13 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 sceneRole == LinkageSceneRole.TRANSITION_SOURCE
         )
         val wasVisible = directSurface.visibility == View.VISIBLE && canvas.visibility == View.VISIBLE
-        val layoutResult = layoutCanvas(controller, host, canvas)
-        val rect = layoutResult?.rect
-        val supported = XiaomiCapabilityResolver.hasCapability(XiaomiCapability.LOCKSCREEN_HOST) &&
-            XiaomiCapabilityResolver.hasCapability(XiaomiCapability.LOCKSCREEN_GEOMETRY)
         val eligibleSnapshot = snapshot?.takeIf {
             canRenderLockscreen(it, allowExpired = it === retainedMediaSnapshot)
         }
+        val layoutResult = layoutCanvas(controller, host, canvas, eligibleSnapshot)
+        val rect = layoutResult?.rect
+        val supported = XiaomiCapabilityResolver.hasCapability(XiaomiCapability.LOCKSCREEN_HOST) &&
+            XiaomiCapabilityResolver.hasCapability(XiaomiCapability.LOCKSCREEN_GEOMETRY)
         val visibilityInputs = LockscreenVisibilityInputs(
             featureEnabled = true,
             supported = supported,
@@ -504,7 +504,8 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
     private fun layoutCanvas(
         controller: Any,
         host: FrameLayout,
-        canvas: AodLyricCanvasView
+        canvas: AodLyricCanvasView,
+        pendingSnapshot: LyricSnapshot?
     ): LockscreenLayoutResult? {
         if (host.width <= 0 || host.height <= 0) {
             layoutDiagnostic = "host=${host.width}x${host.height}"
@@ -541,18 +542,50 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 notificationBounds
             )
         }
-        val metadataHeight = if (profile.metadataVisible &&
-            profile.widgets.any { it.type == "metadata" }
-        ) metadataWidgetHeightDp(profile.metadataSizePercent) * density else 0f
+        val cardStyle = profile.backgroundStyle == "card"
+        val horizontalInset = if (cardStyle) (CARD_HORIZONTAL_PADDING_DP * density).roundToInt() else 0
+        val verticalInset = if (cardStyle) (CARD_VERTICAL_PADDING_DP * density).roundToInt() else 0
+        val placementWidthFraction = if (cardStyle) {
+            maxOf(profile.widthFraction, LOCKSCREEN_CARD_WIDTH_FRACTION)
+        } else {
+            profile.widthFraction
+        }
         val progressHeightWithGap = if (profile.widgets.any { it.type == "media_progress" }) {
             (PROGRESS_HEIGHT_DP + PROGRESS_GAP_DP) * density
         } else {
             0f
         }
         val fontScale = host.resources.displayMetrics.scaledDensity / density.coerceAtLeast(0.1f)
-        val desiredHeight = minOf(
-            host.height * profile.maxHeightFraction,
-            estimatedLockscreenSceneHeight(profile, density, fontScale)
+        // 自适应卡片高度:宽度与高度无关,先按放置宽(卡片样式取通知宽)定内容宽,再实测内容
+        // 自然堆叠高;「高度」设置仍是上限,设置估算只兜底无内容/未测量时。
+        val placementWidth = freeRegion.width * placementWidthFraction
+        val placedLeft = freeRegion.left + (freeRegion.width - placementWidth) / 2f
+        val notificationLeft = notificationBounds?.left ?: 0
+        val notificationRight = notificationBounds?.right ?: 0
+        val matchesNotificationWidth = cardStyle &&
+            notificationRight - notificationLeft >= minWidth(host)
+        val sceneWidth = if (matchesNotificationWidth) {
+            notificationRight - notificationLeft
+        } else {
+            (placedLeft + placementWidth).roundToInt() - placedLeft.roundToInt()
+        }
+        val measureContentWidth = (sceneWidth - horizontalInset * 2).coerceAtLeast(1)
+        val metadataBudgeted = profile.metadataVisible &&
+            profile.widgets.any { it.type == "metadata" }
+        val measured = pendingSnapshot?.toAodCanvasContent(profile)
+            ?.copy(metadataVisible = metadataBudgeted)
+            ?.let { canvas.measureContentStack(it, measureContentWidth) }
+        val metadataHeight = when {
+            !metadataBudgeted -> 0f
+            measured != null -> measured.metadataRowHeightPx
+            else -> metadataWidgetHeightDp(profile.metadataSizePercent) * density
+        }
+        val desiredHeight = adaptiveLockscreenSceneHeight(
+            measuredContentStackPx = measured?.stackHeightPx ?: 0f,
+            estimatedSceneHeightPx = estimatedLockscreenSceneHeight(profile, density, fontScale),
+            progressHeightWithGapPx = progressHeightWithGap,
+            cardVerticalPaddingPx = verticalInset * 2f,
+            maximumPx = host.height * profile.maxHeightFraction
         )
         val measurements = profile.widgets.mapNotNull { widget ->
             when (widget.type) {
@@ -565,11 +598,6 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 "media_progress" -> WidgetMeasurement(widget, progressHeightWithGap)
                 else -> null
             }
-        }
-        val placementWidthFraction = if (profile.backgroundStyle == "card") {
-            maxOf(profile.widthFraction, LOCKSCREEN_CARD_WIDTH_FRACTION)
-        } else {
-            profile.widthFraction
         }
         val placementProfile = if (avoidsNotifications) {
             profile.copy(
@@ -603,10 +631,6 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         )
         runtimeProfile = renderProfile
         progressView?.setPalette(renderProfile.palette)
-        val notificationLeft = notificationBounds?.left ?: 0
-        val notificationRight = notificationBounds?.right ?: 0
-        val matchesNotificationWidth = renderProfile.backgroundStyle == "card" &&
-            notificationRight - notificationLeft >= minWidth(host)
         val rect = LockscreenSceneRect(
             if (matchesNotificationWidth) notificationLeft else placed.left.roundToInt(),
             placed.top.roundToInt(),
@@ -623,9 +647,6 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val progressEnabled = "media_progress" in visibleTypes
         val progressHeight = if (progressEnabled) (PROGRESS_HEIGHT_DP * density).roundToInt() else 0
         val progressGap = if (progressEnabled) (PROGRESS_GAP_DP * density).roundToInt() else 0
-        val cardEnabled = renderProfile.backgroundStyle == "card"
-        val horizontalInset = if (cardEnabled) (CARD_HORIZONTAL_PADDING_DP * density).roundToInt() else 0
-        val verticalInset = if (cardEnabled) (CARD_VERTICAL_PADDING_DP * density).roundToInt() else 0
         val contentWidth = (rect.width - horizontalInset * 2).coerceAtLeast(0)
         val lyricHeight = (rect.height - progressHeight - progressGap - verticalInset * 2)
             .coerceAtLeast(0)

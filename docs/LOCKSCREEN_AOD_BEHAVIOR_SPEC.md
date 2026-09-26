@@ -62,7 +62,10 @@ accessibility-focusable. Xiaomi parent alpha/visibility remains authoritative.
 The default lockscreen scene uses Xiaomi's `getClockBottom()` anchor. The optional built-in card
 scrim is vertically tight to currently rendered rows, unions outgoing/incoming bounds during lyric
 transitions, and follows visible media-card width when available. A bounded 92% width and dark-card
-opacity are used when native media width is unavailable.
+opacity are used when native media width is unavailable. The scene rect height is content-adaptive:
+it measures the content row stack at the resolved content width and sizes the card to that stack
+plus progress spacing and card padding. The height setting remains the upper bound and the bounded
+minimum remains the floor; the settings-based height estimate only backs pre-content placement.
 
 Notification geometry uses an 8 dp dead band against the last applied bounds. Smaller animation
 jitter keeps the current lyric-card placement; larger movement updates collision placement normally.
@@ -447,7 +450,7 @@ minimum safe scene area
 
 该视图仅为视觉呈现：不可点击、不可聚焦、不可长按、不拦截触摸、不可被无障碍聚焦。Xiaomi 父视图的 alpha/可见性始终是权威来源。
 
-默认锁屏场景使用 Xiaomi 的 `getClockBottom()` 锚点。可选的内置卡片 scrim 在垂直方向与当前渲染的行紧密贴合，在歌词过渡期间对离场/入场边界取并集，并在可用时跟随可见的媒体卡片宽度。当原生媒体宽度不可用时，使用有界的 92% 宽度与深色卡片不透明度。
+默认锁屏场景使用 Xiaomi 的 `getClockBottom()` 锚点。可选的内置卡片 scrim 在垂直方向与当前渲染的行紧密贴合，在歌词过渡期间对离场/入场边界取并集，并在可用时跟随可见的媒体卡片宽度。当原生媒体宽度不可用时，使用有界的 92% 宽度与深色卡片不透明度。场景矩形高度自适应内容：按已定内容宽实测内容行堆叠高度（含进度条间距与卡片上下留白）定高，「高度」设置仍是上限，有界最小高度仍是下限；基于设置的高度估算仅在内容就绪前兜底位置。
 
 通知几何对上次应用的边界采用 8 dp 死区。较小的动画抖动保持当前歌词卡片的位置不变；较大的移动则正常更新碰撞位置。
 

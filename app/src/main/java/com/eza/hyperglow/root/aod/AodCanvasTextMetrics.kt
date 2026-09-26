@@ -134,3 +134,24 @@ internal fun normalizeAodAnimation(mode: String): String = when (mode) {
     "Minimal" -> "Minimal"
     else -> "Gradient"
 }
+
+/**
+ * 内容自然堆叠高度(AodLyricCanvasView.measureContentStack 与锁屏卡片自适应高度同源):
+ * 画布上下 padding + 各行(行高 + 行前距)之和 + 元数据行与歌词之间的间距
+ * ([metadataGapPx];无元数据行时传 0)。与 AodLyricCanvasView.positionRows 的顶锚排版
+ * 同式:元数据多行时行高公式已含多出行高(positionRows 的 metadataExtraHeight 避让
+ * 与 rowWithLines 的 height = n * lineHeight 同账),无需另补。
+ */
+internal fun contentStackHeightPx(
+    rowHeightsPx: List<Float>,
+    rowGapsBeforePx: List<Float>,
+    metadataGapPx: Float,
+    padTopPx: Float,
+    padBottomPx: Float
+): Float {
+    var stack = metadataGapPx
+    for (index in rowHeightsPx.indices) {
+        stack += rowHeightsPx[index] + rowGapsBeforePx.getOrElse(index) { 0f }
+    }
+    return padTopPx + padBottomPx + stack
+}

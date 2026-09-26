@@ -299,33 +299,7 @@ internal class AodLyricCanvasView(
         alignment = viewAlignment(
             resolveAlignmentMode(nextContent.alignmentMode, nextContent.alignedRight)
         )
-        val sizeScale = textSizeModeMultiplier(nextContent.textSizeMode, nextContent.textSizeCustom)
-        val baseSp = baseTextSizeSp(nextContent.original) * sizeScale
-        val typeface = resolveTypeface(nextContent.fontFamily, nextContent.weight)
-        originalPaint.typeface = typeface
-        if (nextContent.fontFamily != "auto") {
-            val regularTypeface = resolveTypeface(nextContent.fontFamily, "Regular")
-            metadataPaint.typeface = regularTypeface
-            romanizedPaint.typeface = regularTypeface
-            translatedPaint.typeface = Typeface.create(regularTypeface, Typeface.ITALIC)
-            nextLinePaint.typeface = regularTypeface
-            rubyPaint.typeface = regularTypeface
-        } else {
-            metadataPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
-            romanizedPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
-            translatedPaint.typeface = Typeface.create("sans-serif", Typeface.ITALIC)
-            nextLinePaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
-            rubyPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
-        }
-        originalPaint.textSize = baseSp * scaledDensity
-        // 字号公式收口到 AodCanvasTextMetrics 共享纯函数(与预览同源,杜绝两套换算漂移)。
-        metadataPaint.textSize = metadataTextSizeSp(
-            nextContent.metadataSizePercent
-        ) * scaledDensity
-        romanizedPaint.textSize = secondaryReadingTextSizeSp(baseSp) * scaledDensity
-        translatedPaint.textSize = secondaryTranslationTextSizeSp(baseSp) * scaledDensity
-        nextLinePaint.textSize = nextLineTextSizeSp() * scaledDensity
-        rubyPaint.textSize = originalPaint.textSize * 0.46f
+        applyContentStyle(nextContent)
         currentRenderStyle = captureRenderStyle()
         rebuildLayout()
         syncCadence()
@@ -933,6 +907,38 @@ internal class AodLyricCanvasView(
         }
     }
 
+    /**
+     * 字型/字号按 [forContent] 重配(setContent 与自适应高度测量 [measureContentStack] 共用
+     * 同一公式)。测量路径调用后 setContent 会按同一内容再应用一次,绘制态不受影响。
+     */
+    private fun applyContentStyle(forContent: AodCanvasContent) {
+        val sizeScale = textSizeModeMultiplier(forContent.textSizeMode, forContent.textSizeCustom)
+        val baseSp = baseTextSizeSp(forContent.original) * sizeScale
+        val typeface = resolveTypeface(forContent.fontFamily, forContent.weight)
+        originalPaint.typeface = typeface
+        if (forContent.fontFamily != "auto") {
+            val regularTypeface = resolveTypeface(forContent.fontFamily, "Regular")
+            metadataPaint.typeface = regularTypeface
+            romanizedPaint.typeface = regularTypeface
+            translatedPaint.typeface = Typeface.create(regularTypeface, Typeface.ITALIC)
+            nextLinePaint.typeface = regularTypeface
+            rubyPaint.typeface = regularTypeface
+        } else {
+            metadataPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            romanizedPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            translatedPaint.typeface = Typeface.create("sans-serif", Typeface.ITALIC)
+            nextLinePaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            rubyPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+        originalPaint.textSize = baseSp * scaledDensity
+        // 字号公式收口到 AodCanvasTextMetrics 共享纯函数(与预览同源,杜绝两套换算漂移)。
+        metadataPaint.textSize = metadataTextSizeSp(forContent.metadataSizePercent) * scaledDensity
+        romanizedPaint.textSize = secondaryReadingTextSizeSp(baseSp) * scaledDensity
+        translatedPaint.textSize = secondaryTranslationTextSizeSp(baseSp) * scaledDensity
+        nextLinePaint.textSize = nextLineTextSizeSp() * scaledDensity
+        rubyPaint.textSize = originalPaint.textSize * 0.46f
+    }
+
     private fun captureRenderStyle(): RenderStyleSnapshot = RenderStyleSnapshot(
         metadataPaint = Paint(metadataPaint),
         originalPaint = Paint(originalPaint),
@@ -1030,8 +1036,71 @@ internal class AodLyricCanvasView(
         canvas.restore()
     }
 
+    /** 自适应卡片高度测量结果:内容自然堆叠高度与元数据行实测高度(无元数据行时为 0)。 */
+    internal data class ContentStackMeasure(
+        val stackHeightPx: Float,
+        val metadataRowHeightPx: Float
+    )
+
+    private data class StackMeasureCache(
+        val content: AodCanvasContent,
+        val widthPx: Int,
+        val measure: ContentStackMeasure
+    )
+
+    private var stackMeasureCache: StackMeasureCache? = null
+
+    /**
+     * 自适应卡片高度测量:按 [forContent] 与画布宽度构建行,返回内容自然堆叠高度(各行行高
+     * +行前距、元数据-歌词间距、画布上下 padding,见 contentStackHeightPx)与元数据行实测
+     * 高度,供锁屏卡片按实测内容定高(「高度」设置仍是上限)。只读测量:不改 content/layout
+     * 行状态;字型字号按 [forContent] 重配(与 setContent 同一公式,随后 setContent 会再应用
+     * 一次,绘制态不受影响)。结果按(内容,宽度)缓存,碰撞刷新每帧只在内容/宽度变化时重算换行。
+     */
+    fun measureContentStack(forContent: AodCanvasContent, widthPx: Int): ContentStackMeasure {
+        // 与 setContent 同一规范化入口,保证测量与绘制的换行语义一致。
+        val content = forContent.copy(
+            animationMode = normalizeAodAnimation(forContent.animationMode),
+            motionMode = normalizeAodMotion(forContent.motionMode),
+            overflowMode = normalizeAodOverflow(forContent.overflowMode)
+        )
+        stackMeasureCache?.let { cached ->
+            if (cached.content == content && cached.widthPx == widthPx) return cached.measure
+        }
+        applyContentStyle(content)
+        val built = buildRows(
+            content,
+            (widthPx - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
+        )
+        val metadataRow = built.rows.firstOrNull { it.kind == RowKind.METADATA }
+        val measure = ContentStackMeasure(
+            stackHeightPx = contentStackHeightPx(
+                built.rows.map { it.height },
+                built.rows.map { it.gapBefore },
+                metadataGapPx = if (metadataRow != null) METADATA_LYRIC_GAP_DP * density else 0f,
+                padTopPx = paddingTop.toFloat(),
+                padBottomPx = paddingBottom.toFloat()
+            ),
+            metadataRowHeightPx = metadataRow?.height ?: 0f
+        )
+        stackMeasureCache = StackMeasureCache(content, widthPx, measure)
+        return measure
+    }
+
     private fun rebuildLayout() {
-        val originalLayout = buildOriginalLayout()
+        val built = buildRows(content, (ow - padLeft - padRight).coerceAtLeast(1).toFloat())
+        layout = LayoutState(positionRows(built.rows, built.originalLayout), built.originalLayout)
+        contentBoundsChangedListener?.invoke()
+    }
+
+    private data class BuiltRows(val rows: List<Row>, val originalLayout: OriginalLayout)
+
+    /**
+     * 行装配(rebuildLayout 与自适应高度测量 [measureContentStack] 共用,杜绝两套装配漂移):
+     * [content] 与可用宽度参数化,行内容/换行只依赖这两者,不依赖画布高度。
+     */
+    private fun buildRows(content: AodCanvasContent, availableWidth: Float): BuiltRows {
+        val originalLayout = buildOriginalLayout(content, availableWidth)
         val rows = ArrayList<Row>(4)
         val hasTimedWords = content.words.any { it.endMs > it.startMs }
         val metadataPlaceholder = isSongChangeMetadataPlaceholder(
@@ -1047,7 +1116,7 @@ internal class AodLyricCanvasView(
                 content.metadata,
                 metadataPaint,
                 0f,
-                wrapMetadataText(content.metadata, metadataPaint)
+                wrapMetadataText(content, content.metadata, metadataPaint, availableWidth)
             )
         }
         if (content.original.isNotBlank()) {
@@ -1071,8 +1140,14 @@ internal class AodLyricCanvasView(
         val showReading = content.secondaryMode == "Transliteration" || content.secondaryMode == "Both"
         val showTranslation = content.secondaryMode == "Translation" || content.secondaryMode == "Both"
         if (showReading && content.romanized.isNotBlank()) {
-            val lines = transliterationLines(originalLayout)
-                ?: wrapSecondaryText(content.romanized, romanizedPaint, originalLayout.lineCount)
+            val lines = transliterationLines(content, originalLayout, availableWidth)
+                ?: wrapSecondaryText(
+                    content,
+                    content.romanized,
+                    romanizedPaint,
+                    originalLayout.lineCount,
+                    availableWidth
+                )
             rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, ROW_GAP_BEFORE_SECONDARY_DP * density, lines)
         }
         if (showTranslation && content.translated.isNotBlank()) {
@@ -1081,7 +1156,13 @@ internal class AodLyricCanvasView(
                 content.translated,
                 translatedPaint,
                 ROW_GAP_BEFORE_SECONDARY_DP * density,
-                wrapSecondaryText(content.translated, translatedPaint, originalLayout.lineCount)
+                wrapSecondaryText(
+                    content,
+                    content.translated,
+                    translatedPaint,
+                    originalLayout.lineCount,
+                    availableWidth
+                )
             )
         }
         // 下一行歌词呈现与预览同源(secondLinePresentation):「辅助文字显示第二行歌词」
@@ -1098,10 +1179,12 @@ internal class AodLyricCanvasView(
                 romanizedPaint,
                 ROW_GAP_BEFORE_NEXT_LINE_DP * density,
                 wrapSecondaryText(
+                    content,
                     content.nextLine,
                     romanizedPaint,
                     originalLayout.lineCount,
-                    alignmentFor(RowKind.NEXT_LINE)
+                    availableWidth,
+                    alignmentFor(content, RowKind.NEXT_LINE)
                 )
             )
             SecondLinePresentation.STANDALONE -> rows += rowWithLines(
@@ -1110,16 +1193,17 @@ internal class AodLyricCanvasView(
                 nextLinePaint,
                 ROW_GAP_BEFORE_NEXT_LINE_DP * density,
                 wrapSecondaryText(
+                    content,
                     content.nextLine,
                     nextLinePaint,
                     1,
-                    alignmentFor(RowKind.NEXT_LINE)
+                    availableWidth,
+                    alignmentFor(content, RowKind.NEXT_LINE)
                 )
             )
             SecondLinePresentation.NONE -> Unit
         }
-        layout = LayoutState(positionRows(rows, originalLayout), originalLayout)
-        contentBoundsChangedListener?.invoke()
+        return BuiltRows(rows, originalLayout)
     }
 
     private fun verticalBounds(state: LayoutState): AodCanvasVerticalBounds? {
@@ -1653,7 +1737,10 @@ internal class AodLyricCanvasView(
         cadenceDrawCount++
     }
 
-    private fun buildOriginalLayout(): OriginalLayout {
+    private fun buildOriginalLayout(
+        content: AodCanvasContent,
+        availableWidth: Float
+    ): OriginalLayout {
         // 换行/词行布局统一委托 LyricLayoutEngine(与预览同源,断行一致)。
         val layout = layoutOriginalLines(
             original = content.original,
@@ -1661,7 +1748,7 @@ internal class AodLyricCanvasView(
             ruby = content.ruby,
             layoutGroups = content.layoutGroups,
             paint = originalPaint,
-            availableWidth = (ow - padLeft - padRight).coerceAtLeast(1).toFloat(),
+            availableWidth = availableWidth,
             lineLimit = content.lyricLineLimit,
             wordGapPx = LYRIC_WORD_GAP_DP * density,
             wrap = content.overflowMode == "Wrap",
@@ -1672,7 +1759,7 @@ internal class AodLyricCanvasView(
         }
         val metrics = originalPaint.fontMetrics
         return OriginalLayout(
-            assignRuby(lines),
+            assignRuby(content, lines),
             metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density,
             LYRIC_LINE_GAP_DP * density,
             layout.timed
@@ -1686,9 +1773,12 @@ internal class AodLyricCanvasView(
             wordCount
         )
 
-    private fun transliterationLines(originalLayout: OriginalLayout): List<TextLine>? {
+    private fun transliterationLines(
+        content: AodCanvasContent,
+        originalLayout: OriginalLayout,
+        availableWidth: Float
+    ): List<TextLine>? {
         if (originalLayout.lines.isEmpty() || originalLayout.lines.any { it.words.isEmpty() }) return null
-        val available = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
         val sourceWords = originalLayout.lines.flatMap { it.words }.map { it.word }
         if (sourceWords.isEmpty()) return null
         val spaceWidth = romanizedPaint.measureText(" ")
@@ -1708,7 +1798,7 @@ internal class AodLyricCanvasView(
         if (segments.isEmpty()) return null
         return secondaryTimedVisualRanges(
             segments,
-            available,
+            availableWidth,
             MAX_SECONDARY_LAYOUT_LINES,
             wrap = content.adaptiveSectioning && content.overflowMode == "Wrap"
         ).map { range ->
@@ -1727,16 +1817,18 @@ internal class AodLyricCanvasView(
     }
 
     private fun wrapSecondaryText(
+        content: AodCanvasContent,
         text: String,
         paint: Paint,
         preferredLines: Int,
+        availableWidth: Float,
         lineAlignment: Alignment = alignment
     ): List<TextLine> =
         // 换行统一委托 LyricLayoutEngine(与预览同源);定位 X 按行级对齐(默认主对齐)解析。
         layoutSecondaryLines(
             text = text,
             paint = paint,
-            availableWidth = (ow - padLeft - padRight).coerceAtLeast(1).toFloat(),
+            availableWidth = availableWidth,
             preferredLines = preferredLines,
             wrap = content.overflowMode == "Wrap",
             adaptiveSectioning = content.adaptiveSectioning
@@ -1746,12 +1838,17 @@ internal class AodLyricCanvasView(
      * 歌曲信息（歌名/歌手）专用换行：委托 LyricLayoutEngine.layoutMetadataLines
      * (与预览同源,最多 MAX_SECONDARY_LAYOUT_LINES 行);定位 X 按 metadata 对齐解析。
      */
-    private fun wrapMetadataText(text: String, paint: Paint): List<TextLine> =
+    private fun wrapMetadataText(
+        content: AodCanvasContent,
+        text: String,
+        paint: Paint,
+        availableWidth: Float
+    ): List<TextLine> =
         layoutMetadataLines(
             text = text,
             paint = paint,
-            availableWidth = (ow - padLeft - padRight).coerceAtLeast(1).toFloat()
-        ).map { textLine(it.text, it.width, paint, alignmentFor(RowKind.METADATA)) }
+            availableWidth = availableWidth
+        ).map { textLine(it.text, it.width, paint, alignmentFor(content, RowKind.METADATA)) }
 
     private fun textLine(
         text: String,
@@ -1775,7 +1872,10 @@ internal class AodLyricCanvasView(
         )
     }
 
-    private fun assignRuby(lines: List<OriginalLine>): List<OriginalLine> = lines.map { line ->
+    private fun assignRuby(
+        content: AodCanvasContent,
+        lines: List<OriginalLine>
+    ): List<OriginalLine> = lines.map { line ->
         val lineStart = line.charStart
         val lineEnd = line.charEnd
         if (lineStart == null || lineEnd == null) return@map line
@@ -1933,7 +2033,7 @@ internal class AodLyricCanvasView(
      * 行级对齐(实机/预览同源 resolveRowAlignmentMode):歌曲信息与第二行歌词按各自独立
      * 对齐设置解析("auto" 跟随主对齐),其余行沿用主对齐。
      */
-    private fun alignmentFor(kind: RowKind): Alignment = when (kind) {
+    private fun alignmentFor(content: AodCanvasContent, kind: RowKind): Alignment = when (kind) {
         RowKind.METADATA -> viewAlignment(
             resolveRowAlignmentMode(
                 content.metadataAlignment,
