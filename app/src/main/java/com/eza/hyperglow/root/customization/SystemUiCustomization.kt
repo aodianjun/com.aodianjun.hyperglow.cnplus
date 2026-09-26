@@ -127,6 +127,8 @@ internal object SystemUiCustomizationValidator {
             metadataVisible = profile.metadataVisible && widgets.any { it.type == "metadata" },
             metadataAnchor = if (profile.metadataAnchor == "bottom") "bottom" else "top",
             metadataSizePercent = profile.metadataSizePercent.coerceIn(50, 200),
+            metadataAlignment = profile.metadataAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
+            nextLineAlignment = profile.nextLineAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",
             textSizeCustom = profile.textSizeCustom.coerceIn(50, 200),

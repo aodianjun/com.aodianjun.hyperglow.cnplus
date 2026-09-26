@@ -399,6 +399,18 @@ internal fun LyricLayoutScreen(
                         { enabled -> updateSelected { it.copy(showNextLine = enabled) } },
                         stringResource(R.string.setting_show_next_line)
                     )
+                    if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine) {
+                        AodChoiceRow(
+                            AodChoiceKind.SECOND_LINE_ALIGNMENT,
+                            selectedProfile.nextLineAlignment
+                        ) {
+                            openChoice(
+                                AodChoiceKind.SECOND_LINE_ALIGNMENT,
+                                listOf("auto", "start", "center", "end"),
+                                selectedProfile.nextLineAlignment
+                            ) { value -> updateSelected { it.copy(nextLineAlignment = value) } }
+                        }
+                    }
                     SwitchPreference(
                         selectedProfile.metadataVisible,
                         { visible -> updateSelected { withMetadataVisible(it, visible) } },
@@ -411,6 +423,16 @@ internal fun LyricLayoutScreen(
                                 listOf("top", "bottom"),
                                 selectedProfile.metadataAnchor
                             ) { value -> updateSelected { it.copy(metadataAnchor = value) } }
+                        }
+                        AodChoiceRow(
+                            AodChoiceKind.SONG_INFO_ALIGNMENT,
+                            selectedProfile.metadataAlignment
+                        ) {
+                            openChoice(
+                                AodChoiceKind.SONG_INFO_ALIGNMENT,
+                                listOf("auto", "start", "center", "end"),
+                                selectedProfile.metadataAlignment
+                            ) { value -> updateSelected { it.copy(metadataAlignment = value) } }
                         }
                         TextSizePreference(
                             title = stringResource(R.string.setting_song_info_size),
@@ -1069,7 +1091,9 @@ private fun choiceDisplayLabel(
         "hide_scene" -> R.string.option_hide_lyrics_blocked
         else -> R.string.option_avoid_system_content
     })
-    AodChoiceKind.ALIGNMENT -> context.getString(when (value) {
+    AodChoiceKind.ALIGNMENT,
+    AodChoiceKind.SONG_INFO_ALIGNMENT,
+    AodChoiceKind.SECOND_LINE_ALIGNMENT -> context.getString(when (value) {
         "auto" -> R.string.option_automatic
         "start" -> R.string.option_start
         "center" -> R.string.option_center
@@ -1153,6 +1177,8 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     HEIGHT(R.string.choice_height),
     OVERLAP(R.string.choice_overlap_handling),
     ALIGNMENT(R.string.choice_alignment),
+    SONG_INFO_ALIGNMENT(R.string.choice_song_info_alignment),
+    SECOND_LINE_ALIGNMENT(R.string.choice_second_line_alignment),
     SECONDARY_TEXT(R.string.choice_secondary_text),
     LONG_LINES(R.string.choice_long_lines),
     LYRIC_LINES(R.string.choice_lyric_lines),

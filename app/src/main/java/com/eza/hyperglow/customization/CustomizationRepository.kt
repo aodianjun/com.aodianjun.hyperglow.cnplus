@@ -216,6 +216,8 @@ object CustomizationRepository {
         metadataVisible = metadataVisible,
         metadataAnchor = metadataAnchor,
         metadataSizePercent = metadataSizePercent,
+        metadataAlignment = metadataAlignment,
+        nextLineAlignment = nextLineAlignment,
         rubyVisible = rubyVisible,
         weight = weight,
         textSize = textSize,

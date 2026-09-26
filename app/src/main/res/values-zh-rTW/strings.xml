@@ -256,6 +256,8 @@
     <string name="summary_custom_position">拖動調節歌詞塊相對屏幕的縱向位置。</string>
     <string name="section_text_language">文字和語言</string>
     <string name="choice_alignment">對齊</string>
+    <string name="choice_song_info_alignment">歌曲信息對齊</string>
+    <string name="choice_second_line_alignment">第二行歌詞對齊</string>
     <string name="choice_secondary_text">輔助文字</string>
     <string name="setting_bright_secondary_text">高亮輔助文字</string>
     <string name="setting_secondary_next_line">輔助文字顯示第二行歌詞</string>

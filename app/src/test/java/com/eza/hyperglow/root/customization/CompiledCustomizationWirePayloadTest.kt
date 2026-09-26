@@ -204,6 +204,51 @@ class CompiledCustomizationWirePayloadTest {
     }
 
     @Test
+    fun rowAlignmentsRoundTripWithoutValidateMutation() {
+        // 歌曲信息/第二行歌词独立对齐若被 SystemUI 校验器改写,wire 会以
+        // validate_rewrote_fields 整包拒收——表现即"设置只在预览生效、实机不变"。
+        val document = SceneCompiler.safeDefaultDocument().copy(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                    metadataAlignment = "end",
+                    nextLineAlignment = "center"
+                ),
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    metadataAlignment = "center",
+                    nextLineAlignment = "end"
+                )
+            )
+        )
+        val configuration = SceneCompiler.compile(document)
+        val payload = CompiledCustomizationBundleCodec.toWirePayload(configuration, userId = 10)
+        val rejections = ArrayList<String>()
+        val parsed = CompiledCustomizationBundleCodec.fromWirePayload(
+            payload,
+            expectedUserId = 10,
+            onReject = { rejections += it }
+        )
+
+        assertTrue("payload rejected: $rejections", rejections.isEmpty())
+        assertEquals(configuration, parsed)
+        assertEquals(
+            "end",
+            parsed?.profiles?.get(SceneCompiler.SURFACE_LOCKSCREEN)?.metadataAlignment
+        )
+        assertEquals(
+            "center",
+            parsed?.profiles?.get(SceneCompiler.SURFACE_LOCKSCREEN)?.nextLineAlignment
+        )
+        assertEquals(
+            "center",
+            parsed?.profiles?.get(SceneCompiler.SURFACE_AOD)?.metadataAlignment
+        )
+        assertEquals(
+            "end",
+            parsed?.profiles?.get(SceneCompiler.SURFACE_AOD)?.nextLineAlignment
+        )
+    }
+
+    @Test
     fun unsafeFontFamilyTokenIsNormalizedAtCompileTime() {
         val document = SceneCompiler.safeDefaultDocument().copy(
             profiles = mapOf(

@@ -37,6 +37,17 @@ data class SurfaceProfile(
     val metadataVisible: Boolean = false,
     val metadataAnchor: String = "top",
     val metadataSizePercent: Int = 100,
+    /**
+     * 歌曲信息(歌名/歌手)对齐:auto/start/center/end。"auto" 跟随主歌词对齐的解析结果
+     * (见 resolveRowAlignmentMode),显式值独立于主对齐生效。
+     */
+    val metadataAlignment: String = "auto",
+    /**
+     * 第二行歌词对齐:auto/start/center/end。"auto" 跟随主歌词对齐的解析结果
+     * (见 resolveRowAlignmentMode),显式值独立于主对齐生效,两种呈现形态(辅助文字/
+     * 独立下一行行)共用。
+     */
+    val nextLineAlignment: String = "auto",
     val rubyVisible: Boolean = true,
     val weight: String = "Medium",
     val textSize: String = "normal",
@@ -145,7 +156,11 @@ data class CompiledSurfaceProfile(
     /** Show the upcoming next lyric line dimmed below the active line. */
     val showNextLine: Boolean = false,
     /** 辅助文字显示第二行歌词,见 [SurfaceProfile.secondaryNextLine]。 */
-    val secondaryNextLine: Boolean = false
+    val secondaryNextLine: Boolean = false,
+    /** 歌曲信息对齐,见 [SurfaceProfile.metadataAlignment]。 */
+    val metadataAlignment: String = "auto",
+    /** 第二行歌词对齐,见 [SurfaceProfile.nextLineAlignment]。 */
+    val nextLineAlignment: String = "auto"
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1
