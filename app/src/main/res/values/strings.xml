@@ -346,6 +346,7 @@
     <string name="option_sf_pro_display">SF Pro Display</string>
     <string name="option_noto_sans_sc">Noto Sans SC</string>
     <string name="option_custom_font">Custom font</string>
+    <string name="font_preview_sample">中文示例 AaBb 0123</string>
     <string name="option_default">Default</string>
     <string name="option_dimmed">Dimmed</string>
     <string name="option_color_warm_gold">Warm gold</string>

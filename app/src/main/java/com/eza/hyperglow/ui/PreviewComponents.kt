@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
+import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
 import com.eza.hyperglow.root.aod.LyricLayoutLine
@@ -201,8 +202,8 @@ private fun LyricPreviewSurface(
     val baseSp = previewBaseTextSizeSp(snapshot.original, profile.textSize, profile.textSizeCustom)
     val textSize = baseSp.sp
     val context = LocalContext.current
-    val customFontVersion = if (profile.fontFamily == LyricTypefaceResolver.FAMILY_CUSTOM) {
-        LyricTypefaceResolver.customVersion(context)
+    val customFontVersion = if (CustomFontContract.isCustomFontFamily(profile.fontFamily)) {
+        LyricTypefaceResolver.customVersion(context, context, profile.fontFamily)
     } else {
         null
     }

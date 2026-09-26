@@ -161,7 +161,9 @@ object SceneCompiler {
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",
             textSizeCustom = profile.textSizeCustom.coerceIn(50, 200),
-            fontFamily = profile.fontFamily.takeIf { it in FONT_FAMILIES } ?: "spotify",
+            fontFamily = profile.fontFamily.takeIf {
+                it in FONT_FAMILIES || CustomFontContract.isCustomFontFamily(it)
+            } ?: "spotify",
             animation = when {
                 aod && profile.animation != "Minimal" -> "Gradient"
                 profile.animation in ANIMATIONS -> profile.animation

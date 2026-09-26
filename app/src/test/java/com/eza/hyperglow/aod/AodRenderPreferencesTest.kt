@@ -22,6 +22,20 @@ class AodRenderPreferencesTest {
     }
 
     @Test
+    fun customFontFamiliesPassThroughAndUnsafeTokensFallBack() {
+        // 自定义字体令牌必须原样通过:同一函数用于 wire 快照的拒收校验,任何改写都会
+        // 让整帧被拒或被钳成 spotify —— 前端表现即"字体只在预览生效"。
+        assertEquals("noto-sc", normalizeAodFontFamily("noto-sc"))
+        assertEquals("custom", normalizeAodFontFamily("custom"))
+        assertEquals("custom:yzzqdbtb", normalizeAodFontFamily("custom:yzzqdbtb"))
+        // id 白名单之外的令牌一律回落内置默认,避免令牌变成路径片段。
+        assertEquals("spotify", normalizeAodFontFamily("custom:../x"))
+        assertEquals("spotify", normalizeAodFontFamily("custom:"))
+        assertEquals("spotify", normalizeAodFontFamily("custom:" + "a".repeat(33)))
+        assertEquals("spotify", normalizeAodFontFamily("custom:字体"))
+    }
+
+    @Test
     fun legacyAnimationNamesMigrateToGradient() {
         assertEquals("Gradient", normalizeAodAnimation("Spotlight word"))
         assertEquals("Gradient", normalizeAodAnimation("Karaoke fill"))

@@ -319,6 +319,7 @@
     <string name="option_sf_pro_display">SF Pro Display</string>
     <string name="option_noto_sans_sc">思源黑體</string>
     <string name="option_custom_font">自訂字體</string>
+    <string name="font_preview_sample">中文示例 AaBb 0123</string>
     <string name="option_default">默認</string>
     <string name="option_dimmed">較暗</string>
     <string name="option_color_warm_gold">暖金</string>
