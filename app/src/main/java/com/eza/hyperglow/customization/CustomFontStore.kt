@@ -100,8 +100,10 @@ internal data class CustomFontIndex(val fonts: List<CustomFontEntry> = emptyList
  * 无需迁移即可继续生效。
  *
  * 仅负责落盘与清单;字体可读性校验(需要 android.graphics)留在界面层。
+ *
+ * 可见性为 internal:公开成员签名携带 [CustomFontEntry](internal 数据类)。
  */
-object CustomFontStore {
+internal object CustomFontStore {
     private val json = Json {
         encodeDefaults = true
         ignoreUnknownKeys = true

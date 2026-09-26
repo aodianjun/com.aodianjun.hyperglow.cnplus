@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * 两类上下文必须分开传入,这是 0.3.116 实机「自定义字体只同步预览」的根因:
  * - [assetContext] 用于内置字体:实机侧是模块包上下文(SystemUI 经
- *   `createPackageContext` 读模块 APK 的 `assets/fonts/**`),预览侧就是应用自身。
+ *   `createPackageContext` 读模块 APK 的 `assets/fonts` 目录),预览侧就是应用自身。
  * - [cacheContext] 用于自定义字体:文件本体在应用私有目录(`0700`,SystemUI 读不到),
  *   只能经 ContentProvider 取流后落到**本进程可写**的 cacheDir。此前实现把副本写进
  *   assetContext(模块包)的 cacheDir,SystemUI 无写权限、`runCatching` 吞掉异常后静默
