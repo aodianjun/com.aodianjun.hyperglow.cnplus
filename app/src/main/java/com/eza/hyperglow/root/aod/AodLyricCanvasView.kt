@@ -865,7 +865,9 @@ internal class AodLyricCanvasView(
                 rowIndex++
                 continue
             }
-            if (positioned.row.kind == RowKind.NEXT_LINE) {
+            // 「辅助文字显示第二行歌词」开启时,下一行按辅助文字样式取色(走下方 else 分支);
+            // 否则维持独立下一行行的 nextLineText token(不能混用 secondaryText)。
+            if (positioned.row.kind == RowKind.NEXT_LINE && !content.secondaryNextLine) {
                 // 下一行歌词颜色走独立的 nextLineText token(与预览/非行级同步路径一致),
                 // 不能混用 secondaryText,否则"下一行歌词颜色"设置对该路径完全无效。
                 setTextAlpha(
@@ -1066,14 +1068,28 @@ internal class AodLyricCanvasView(
                 wrapSecondaryText(content.translated, translatedPaint, originalLayout.lineCount)
             )
         }
-        if (content.showNextLine && content.nextLine.isNotBlank()) {
-            rows += rowWithLines(
+        // 下一行歌词呈现与预览同源(secondLinePresentation):「辅助文字显示第二行歌词」
+        // 开启时以辅助文字样式(音标行字号公式)绘制并取代独立下一行行,同一行不重复出现。
+        when (secondLinePresentation(
+            content.secondaryNextLine,
+            content.showNextLine,
+            content.nextLine.isNotBlank()
+        )) {
+            SecondLinePresentation.AS_SECONDARY -> rows += rowWithLines(
+                RowKind.NEXT_LINE,
+                content.nextLine,
+                romanizedPaint,
+                ROW_GAP_BEFORE_NEXT_LINE_DP * density,
+                wrapSecondaryText(content.nextLine, romanizedPaint, originalLayout.lineCount)
+            )
+            SecondLinePresentation.STANDALONE -> rows += rowWithLines(
                 RowKind.NEXT_LINE,
                 content.nextLine,
                 nextLinePaint,
                 ROW_GAP_BEFORE_NEXT_LINE_DP * density,
                 wrapSecondaryText(content.nextLine, nextLinePaint, 1)
             )
+            SecondLinePresentation.NONE -> Unit
         }
         layout = LayoutState(positionRows(rows, originalLayout), originalLayout)
         contentBoundsChangedListener?.invoke()
@@ -1872,7 +1888,7 @@ internal class AodLyricCanvasView(
                 row.paint.color = resolvedPalette.metadataText
                 row.paint.alpha = 255
                 canvas.drawText(line.text, line.startX, lineBaseline, row.paint)
-            } else if (row.kind == RowKind.NEXT_LINE) {
+            } else if (row.kind == RowKind.NEXT_LINE && !content.secondaryNextLine) {
                 drawNextLine(canvas, row.paint, line.text, line.startX, lineBaseline)
             } else {
                 drawSecondaryLine(canvas, row.paint, line.text, line.startX, lineBaseline)

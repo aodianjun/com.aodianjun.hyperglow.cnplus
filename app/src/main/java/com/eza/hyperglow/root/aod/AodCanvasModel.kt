@@ -61,8 +61,29 @@ internal data class AodCanvasContent(
     val palette: Map<String, String>,
     val secondaryTextBright: Boolean = true,
     val lyricLineLimit: Int = 3,
-    val showNextLine: Boolean = false
+    val showNextLine: Boolean = false,
+    /** 辅助文字显示第二行歌词:见 SurfaceProfile.secondaryNextLine。 */
+    val secondaryNextLine: Boolean = false
 )
+
+/** 下一行歌词的呈现方式;同一行只会以其中一种形态出现,不叠加。 */
+internal enum class SecondLinePresentation { NONE, AS_SECONDARY, STANDALONE }
+
+/**
+ * 下一行歌词呈现决策(实机 AodLyricCanvasView 与预览 PreviewComponents 同源):
+ * 「辅助文字显示第二行歌词」开启时以辅助文字样式绘制并取代独立的「显示下一行歌词」行;
+ * 关闭时维持独立下一行行的既有呈现。
+ */
+internal fun secondLinePresentation(
+    secondaryNextLine: Boolean,
+    showNextLine: Boolean,
+    hasLine: Boolean
+): SecondLinePresentation = when {
+    !hasLine -> SecondLinePresentation.NONE
+    secondaryNextLine -> SecondLinePresentation.AS_SECONDARY
+    showNextLine -> SecondLinePresentation.STANDALONE
+    else -> SecondLinePresentation.NONE
+}
 
 internal data class AodCanvasLineIdentity(
     val trackGeneration: Long,

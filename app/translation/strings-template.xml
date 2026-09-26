@@ -282,6 +282,7 @@
     <string name="choice_alignment">Alignment</string>
     <string name="choice_secondary_text">Secondary text</string>
     <string name="setting_bright_secondary_text">Bright secondary text</string>
+    <string name="setting_secondary_next_line">Show second line as secondary text</string>
     <string name="setting_show_furigana">Show furigana</string>
     <string name="choice_long_lines">Long lines</string>
     <string name="choice_lyric_lines">Lyric lines</string>

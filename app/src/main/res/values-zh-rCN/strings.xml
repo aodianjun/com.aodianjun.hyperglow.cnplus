@@ -285,6 +285,7 @@
     <string name="choice_alignment">对齐</string>
     <string name="choice_secondary_text">辅助文字</string>
     <string name="setting_bright_secondary_text">高亮辅助文字</string>
+    <string name="setting_secondary_next_line">辅助文字显示第二行歌词</string>
     <string name="setting_show_furigana">显示振假名</string>
     <string name="choice_long_lines">长歌词</string>
     <string name="choice_lyric_lines">歌词行数</string>

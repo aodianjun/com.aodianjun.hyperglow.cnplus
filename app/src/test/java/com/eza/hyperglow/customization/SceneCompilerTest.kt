@@ -480,6 +480,46 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun secondaryNextLineCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 辅助文字显示第二行歌词开关必须穿过 compile、SystemUI 二次校验与仓库
+        // canonicalize 往返(compile -> toSurfaceProfile):任一环节漏字段都会让开关
+        // 保存后弹回关闭(逐字段重建映射的经典回归面)。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(secondaryNextLine = true)
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertTrue(compiled.secondaryNextLine)
+
+        val validated = SystemUiCustomizationValidator.validate(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(secondaryNextLine = true)
+                    )
+                )
+            )
+        )!!.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertTrue(validated.secondaryNextLine)
+
+        val canonical = CustomizationRepository.canonicalizeDocument(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(secondaryNextLine = true)
+                )
+            )
+        )!!
+        assertTrue(canonical.profiles.getValue(SceneCompiler.SURFACE_AOD).secondaryNextLine)
+        // 默认文档保持关闭:不改变既有用户的呈现。
+        assertFalse(
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).secondaryNextLine
+        )
+    }
+
+    @Test
     fun systemUiValidatorResetsInvalidCardColorToDefault() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(

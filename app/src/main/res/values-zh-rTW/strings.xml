@@ -258,6 +258,7 @@
     <string name="choice_alignment">對齊</string>
     <string name="choice_secondary_text">輔助文字</string>
     <string name="setting_bright_secondary_text">高亮輔助文字</string>
+    <string name="setting_secondary_next_line">輔助文字顯示第二行歌詞</string>
     <string name="setting_show_furigana">顯示振假名</string>
     <string name="choice_long_lines">長歌詞</string>
     <string name="choice_lyric_lines">歌詞行數</string>
