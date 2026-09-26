@@ -67,6 +67,10 @@ closes — gate close never relies on Xiaomi re-issuing visibility calls.
 - The optional card scrim follows current rendered row bounds rather than the full canvas. Its
   horizontal footprint follows visible media-card bounds when available, with a bounded 92% fallback.
   The full-screen stack host is never treated as content geometry.
+- Lockscreen card height is content-adaptive: the scene rect measures the content row stack at the
+  resolved content width (rows, row gaps, metadata gap, progress spacing, card padding) and sizes to
+  it. The height setting remains the upper bound and the bounded minimum the floor; the settings
+  height estimate only backs pre-content placement.
 - The AOD renderer remains in the inner `AODView` root overlay. It never participates in Xiaomi
   clock-container measurement.
 - Shared line-level frame drawing traverses prebuilt layout rows with indexed loops and scalar fill

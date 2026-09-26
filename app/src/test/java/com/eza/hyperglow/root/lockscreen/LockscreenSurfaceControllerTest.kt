@@ -20,6 +20,56 @@ class LockscreenSurfaceControllerTest {
     }
 
     @Test
+    fun adaptiveSceneHeightFollowsMeasuredContentAndKeepsEstimateFallback() {
+        // 实测内容驱动:内容多高卡片就多高(含进度条间距+卡片上下留白);估算只兜底无实测;
+        // 「高度」设置仍是上限;lyricLineLimit=0 的无穷估算不影响实测路径。
+        assertEquals(
+            200f,
+            adaptiveLockscreenSceneHeight(
+                measuredContentStackPx = 150f,
+                estimatedSceneHeightPx = 500f,
+                progressHeightWithGapPx = 30f,
+                cardVerticalPaddingPx = 20f,
+                maximumPx = 800f
+            ),
+            0.0001f
+        )
+        assertEquals(
+            500f,
+            adaptiveLockscreenSceneHeight(
+                measuredContentStackPx = 0f,
+                estimatedSceneHeightPx = 500f,
+                progressHeightWithGapPx = 30f,
+                cardVerticalPaddingPx = 20f,
+                maximumPx = 800f
+            ),
+            0.0001f
+        )
+        assertEquals(
+            800f,
+            adaptiveLockscreenSceneHeight(
+                measuredContentStackPx = 900f,
+                estimatedSceneHeightPx = 500f,
+                progressHeightWithGapPx = 30f,
+                cardVerticalPaddingPx = 20f,
+                maximumPx = 800f
+            ),
+            0.0001f
+        )
+        assertEquals(
+            200f,
+            adaptiveLockscreenSceneHeight(
+                measuredContentStackPx = 150f,
+                estimatedSceneHeightPx = Float.POSITIVE_INFINITY,
+                progressHeightWithGapPx = 30f,
+                cardVerticalPaddingPx = 20f,
+                maximumPx = 800f
+            ),
+            0.0001f
+        )
+    }
+
+    @Test
     fun lockscreenKeepAwakeRequiresActiveVisiblePlayback() {
         assertTrue(shouldKeepLockscreenAwake(true, true, false, true, 1f))
         assertFalse(shouldKeepLockscreenAwake(false, true, false, true, 1f))

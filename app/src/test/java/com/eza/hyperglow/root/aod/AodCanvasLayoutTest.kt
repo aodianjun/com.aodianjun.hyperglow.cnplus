@@ -1231,4 +1231,32 @@ class AodCanvasLayoutTest {
             0.0001f
         )
     }
+
+    @Test
+    fun contentStackHeightAccumulatesRowsWithMetadataGapAndPadding() {
+        // 自适应卡片高度的实测堆叠高:逐行(行高+行前距)累加,元数据-歌词间距只在有元数据
+        // 行时计入,画布上下 padding 兜住上下沿(与 positionRows 顶锚排版同式)。
+        assertEquals(
+            130f,
+            contentStackHeightPx(
+                rowHeightsPx = listOf(40f, 30f, 20f),
+                rowGapsBeforePx = listOf(0f, 8f, 4f),
+                metadataGapPx = 10f,
+                padTopPx = 8f,
+                padBottomPx = 10f
+            ),
+            0.0001f
+        )
+        assertEquals(
+            92f,
+            contentStackHeightPx(
+                rowHeightsPx = listOf(40f, 30f),
+                rowGapsBeforePx = listOf(8f, 4f),
+                metadataGapPx = 0f,
+                padTopPx = 5f,
+                padBottomPx = 5f
+            ),
+            0.0001f
+        )
+    }
 }
