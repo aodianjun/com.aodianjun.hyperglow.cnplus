@@ -1293,7 +1293,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
-                AodPowerStateMonitor.attach(context)
+                // 省电降帧是纯优化,attach 失败不得中断 surface 构建(真机 NPE 曾致 AOD 整段空白):
+                // 后果只是降帧失效,由 isPowerSaverActive() 恒 false 兜底。
+                runCatching { AodPowerStateMonitor.attach(context) }
+                    .onFailure {
+                        HookLogger.w(TAG, "Power state monitor attach failed; saver disabled", it)
+                    }
                 lyricCanvas = AodLyricCanvasView(
                     context,
                     useDozeHandlerCadence = true,
