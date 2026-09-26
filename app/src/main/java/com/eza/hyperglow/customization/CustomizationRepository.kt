@@ -134,7 +134,13 @@ object CustomizationRepository {
             animation = config.animation,
             glow = config.glow,
             overflow = config.overflowMode,
-            adaptiveSectioning = config.adaptiveSectioning
+            adaptiveSectioning = config.adaptiveSectioning,
+            secondaryAlignment = config.secondaryAlignment,
+            metadataShowTitle = config.metadataShowTitle,
+            metadataShowArtist = config.metadataShowArtist,
+            metadataShowAlbum = config.metadataShowAlbum,
+            metadataSegmentOrder = config.metadataSegmentOrder,
+            metadataSeparator = config.metadataSeparator
         )
         return CustomizationDocument(
             id = "migrated_aod_render",
@@ -228,6 +234,12 @@ object CustomizationRepository {
         palette = palette,
         backgroundStyle = backgroundStyle,
         cardAlpha = cardAlpha,
-        cardColor = cardColor
+        cardColor = cardColor,
+        secondaryAlignment = secondaryAlignment,
+        metadataShowTitle = metadataShowTitle,
+        metadataShowArtist = metadataShowArtist,
+        metadataShowAlbum = metadataShowAlbum,
+        metadataSegmentOrder = metadataSegmentOrder,
+        metadataSeparator = metadataSeparator
     )
 }

@@ -1,5 +1,8 @@
 package com.eza.hyperglow.customization
 
+import com.eza.hyperglow.aod.normalizeAodMetadataSegmentOrder
+import com.eza.hyperglow.aod.normalizeAodMetadataSeparator
+import com.eza.hyperglow.aod.normalizeMetadataSegmentVisibility
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import kotlinx.serialization.decodeFromString
@@ -126,6 +129,11 @@ object SceneCompiler {
             .filter { it.key in SEMANTIC_COLORS && isAllowedPaletteValue(it.value) }
             .take(SEMANTIC_COLORS.size)
             .associate { it.key to it.value }
+        val segmentVisibility = normalizeMetadataSegmentVisibility(
+            profile.metadataShowTitle,
+            profile.metadataShowArtist,
+            profile.metadataShowAlbum
+        )
         return CompiledSurfaceProfile(
             surface = surface,
             enabled = profile.enabled,
@@ -177,7 +185,13 @@ object SceneCompiler {
                 else -> "card"
             },
             cardAlpha = normalizeCardAlpha(profile.cardAlpha),
-            cardColor = normalizeCardColor(profile.cardColor)
+            cardColor = normalizeCardColor(profile.cardColor),
+            secondaryAlignment = profile.secondaryAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
+            metadataShowTitle = segmentVisibility.first,
+            metadataShowArtist = segmentVisibility.second,
+            metadataShowAlbum = segmentVisibility.third,
+            metadataSegmentOrder = normalizeAodMetadataSegmentOrder(profile.metadataSegmentOrder),
+            metadataSeparator = normalizeAodMetadataSeparator(profile.metadataSeparator)
         )
     }
 

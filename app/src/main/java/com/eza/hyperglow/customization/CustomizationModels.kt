@@ -1,5 +1,7 @@
 package com.eza.hyperglow.customization
 
+import com.eza.hyperglow.aod.DEFAULT_METADATA_SEGMENT_ORDER
+import com.eza.hyperglow.aod.DEFAULT_METADATA_SEPARATOR
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -47,7 +49,17 @@ data class SurfaceProfile(
     /** 卡片背景不透明度,0-100。0 完全透明,100 完全不透明。 */
     val cardAlpha: Int = 85,
     /** 卡片背景色 token,见 [CARD_COLOR_VALUES]。 */
-    val cardColor: String = "black"
+    val cardColor: String = "black",
+    /** 辅助行(副文本/下一行/歌曲信息)独立对齐:auto=跟随主歌词对齐。 */
+    val secondaryAlignment: String = "auto",
+    /** 歌曲信息片段:是否显示歌名/歌手/专辑。 */
+    val metadataShowTitle: Boolean = true,
+    val metadataShowArtist: Boolean = true,
+    val metadataShowAlbum: Boolean = false,
+    /** 歌曲信息片段顺序(逗号分隔的片段 key)。 */
+    val metadataSegmentOrder: String = DEFAULT_METADATA_SEGMENT_ORDER,
+    /** 歌曲信息片段分隔符 token(newline/dot/slash/dash/pipe)。 */
+    val metadataSeparator: String = DEFAULT_METADATA_SEPARATOR
 )
 
 @Serializable
@@ -138,7 +150,17 @@ data class CompiledSurfaceProfile(
     val secondaryTextBright: Boolean = true,
     val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
     /** Show the upcoming next lyric line dimmed below the active line. */
-    val showNextLine: Boolean = false
+    val showNextLine: Boolean = false,
+    /** 辅助行(副文本/下一行/歌曲信息)独立对齐:auto=跟随主歌词对齐。 */
+    val secondaryAlignment: String = "auto",
+    /** 歌曲信息片段:是否显示歌名/歌手/专辑(编译期已做全关兜底)。 */
+    val metadataShowTitle: Boolean = true,
+    val metadataShowArtist: Boolean = true,
+    val metadataShowAlbum: Boolean = false,
+    /** 歌曲信息片段顺序(逗号分隔的片段 key,编译期已归一)。 */
+    val metadataSegmentOrder: String = DEFAULT_METADATA_SEGMENT_ORDER,
+    /** 歌曲信息片段分隔符 token(编译期已归一)。 */
+    val metadataSeparator: String = DEFAULT_METADATA_SEPARATOR
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1

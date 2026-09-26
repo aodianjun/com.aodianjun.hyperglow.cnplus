@@ -36,6 +36,12 @@ private fun applyDocumentToLegacyPreferences(
         .putString(AodRenderPreferences.ANIMATION, aod.animation)
         .putString(AodRenderPreferences.GLOW, aod.glow)
         .putBoolean(AodRenderPreferences.ADAPTIVE_SECTIONING, aod.adaptiveSectioning)
+        .putString(AodRenderPreferences.SECONDARY_ALIGNMENT, aod.secondaryAlignment)
+        .putBoolean(AodRenderPreferences.METADATA_SHOW_TITLE, aod.metadataShowTitle)
+        .putBoolean(AodRenderPreferences.METADATA_SHOW_ARTIST, aod.metadataShowArtist)
+        .putBoolean(AodRenderPreferences.METADATA_SHOW_ALBUM, aod.metadataShowAlbum)
+        .putString(AodRenderPreferences.METADATA_SEGMENT_ORDER, aod.metadataSegmentOrder)
+        .putString(AodRenderPreferences.METADATA_SEPARATOR, aod.metadataSeparator)
         .commit()
 }
 

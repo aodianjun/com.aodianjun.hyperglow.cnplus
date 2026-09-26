@@ -424,6 +424,11 @@ object AodRenderPreferences {
         }
         cachedConfig?.let { return it }
         val rotateWithDevice = prefs.safeBoolean(AOD_ROTATE_WITH_DEVICE, false)
+        val segmentVisibility = normalizeMetadataSegmentVisibility(
+            prefs.safeBoolean(METADATA_SHOW_TITLE, true),
+            prefs.safeBoolean(METADATA_SHOW_ARTIST, true),
+            prefs.safeBoolean(METADATA_SHOW_ALBUM, false)
+        )
         return AodRenderConfig(
             prefs.safeBoolean(AOD_ENABLED, true),
             prefs.safeBoolean(LOCKSCREEN_ENABLED, false),
@@ -488,7 +493,17 @@ object AodRenderPreferences {
             prefs.safeInt(AOD_BRIGHTNESS_LEVEL, DEFAULT_AOD_BRIGHTNESS_LEVEL)
                 .coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS),
             prefs.safeBoolean(AOD_DEBUG_SHOW_CANVAS_FRAME, false),
-            normalizeAodRefreshRateCap(prefs.safeInt(AOD_REFRESH_RATE_CAP, 0))
+            normalizeAodRefreshRateCap(prefs.safeInt(AOD_REFRESH_RATE_CAP, 0)),
+            normalizeAodAlignment(prefs.safeString(SECONDARY_ALIGNMENT, "auto")),
+            segmentVisibility.first,
+            segmentVisibility.second,
+            segmentVisibility.third,
+            normalizeAodMetadataSegmentOrder(
+                prefs.safeString(METADATA_SEGMENT_ORDER, DEFAULT_METADATA_SEGMENT_ORDER)
+            ),
+            normalizeAodMetadataSeparator(
+                prefs.safeString(METADATA_SEPARATOR, DEFAULT_METADATA_SEPARATOR)
+            )
         ).also { cachedConfig = it }
     }
 
