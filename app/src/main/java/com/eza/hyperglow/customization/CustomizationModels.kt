@@ -57,6 +57,8 @@ data class SurfaceProfile(
     val glow: String = "Off",
     val lineSyncFillMode: String = "Left to right (main only)",
     val overflow: String = "Wrap",
+    /** 换行动画,见 [LINE_TRANSITION_MODES]。"Auto"=跟随歌词源自身的偏好。 */
+    val lineTransition: String = LINE_TRANSITION_AUTO,
     val adaptiveSectioning: Boolean = true,
     val palette: Map<String, String> = emptyMap(),
     val backgroundStyle: String = "auto",
@@ -142,6 +144,8 @@ data class CompiledSurfaceProfile(
     val glow: String,
     val lineSyncFillMode: String,
     val overflow: String,
+    /** 换行动画,见 [LINE_TRANSITION_MODES];由 [SurfaceProfile.lineTransition] 编译而来。 */
+    val lineTransition: String = LINE_TRANSITION_AUTO,
     val adaptiveSectioning: Boolean,
     val palette: Map<String, String>,
     val backgroundStyle: String = "none",
@@ -181,4 +185,31 @@ internal fun normalizeLyricLineLimit(value: Int): Int = when (value) {
     NO_LYRIC_LINE_LIMIT,
     in 1..5 -> value
     else -> DEFAULT_LYRIC_LINE_LIMIT
+}
+
+/** 换行动画的「跟随音源」哨兵值:不覆盖歌词源自带的过渡偏好。 */
+const val LINE_TRANSITION_AUTO = "Auto"
+
+/** 画布换行动画词表(与 AodStateWire.transitionMode 同词表);"Auto" 仅存在于 profile 层。 */
+val LINE_TRANSITION_MODES = listOf(
+    LINE_TRANSITION_AUTO,
+    "Fade up",
+    "Crossfade",
+    "Slide up",
+    "Slide left",
+    "Zoom",
+    "None"
+)
+
+internal fun normalizeLineTransition(value: String): String =
+    value.takeIf { it in LINE_TRANSITION_MODES } ?: LINE_TRANSITION_AUTO
+
+/**
+ * 换行动画解析:profile 显式选择优先于歌词源偏好(设置即所得),`"Auto"` 沿用源值。
+ * 源值来自投影层归一化后的画布词表(wire 出口 [com.eza.hyperglow.aod.normalizeAodTransition]
+ * 已保证规范形),此处只做选择,不再二次归一。
+ */
+internal fun resolveLineTransition(profileValue: String?, sourceValue: String): String = when {
+    profileValue == null || profileValue == LINE_TRANSITION_AUTO -> sourceValue
+    else -> profileValue
 }

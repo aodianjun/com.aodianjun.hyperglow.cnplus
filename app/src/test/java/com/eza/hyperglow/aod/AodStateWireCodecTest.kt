@@ -4,6 +4,7 @@ import java.nio.ByteBuffer
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -211,6 +212,25 @@ class AodStateWireCodecTest {
                 )
             )
         )
+    }
+
+    @Test
+    fun transitionVocabularyIsWhitelistedWithLegacyLowerCaseAliases() {
+        for (mode in listOf("Fade up", "Crossfade", "Slide up", "Slide left", "Zoom", "None")) {
+            assertEquals(mode, normalizeAodTransition(mode))
+            // 词表内的值必须能通过 fail-closed 校验编码进 wire,并按原值回环
+            val message = snapshotMessage(value = snapshotValue().copy(transitionMode = mode))
+            assertNotNull(AodStateWireCodec.encode(message))
+            assertEquals(message, AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode))
+        }
+        // 历史小写别名:Lyricon 曾以联动 preset id(continuity/crossfade/none)填 transition。
+        // "none" 必须归一到真正关闭换行的 "None",不能再落到 "Fade up"(静默开启换行动画)。
+        assertEquals("Fade up", normalizeAodTransition("continuity"))
+        assertEquals("Crossfade", normalizeAodTransition("crossfade"))
+        assertEquals("None", normalizeAodTransition("none"))
+        // 未知值 fail-safe 兜底 "Fade up";与原值不等,编码侧仍 fail-closed 拒绝裸 "Slide"
+        assertEquals("Fade up", normalizeAodTransition("Slide"))
+        assertEquals("Fade up", normalizeAodTransition(""))
     }
 
     @Test

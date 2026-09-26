@@ -24,10 +24,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -45,6 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.customization.CustomFontContract
+import com.eza.hyperglow.customization.resolveLineTransition
+import com.eza.hyperglow.root.aod.ENTER_TRANSITION_MS
+import com.eza.hyperglow.root.aod.EXIT_TRANSITION_MS
+import com.eza.hyperglow.root.aod.LineTransitionFrame
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
 import com.eza.hyperglow.root.aod.LyricLayoutLine
@@ -62,6 +71,8 @@ import com.eza.hyperglow.root.aod.layoutMetadataLines
 import com.eza.hyperglow.root.aod.layoutOriginalLines
 import com.eza.hyperglow.root.aod.layoutSecondaryLines
 import com.eza.hyperglow.root.aod.lineStartX
+import com.eza.hyperglow.root.aod.lineTransitionEnterFrame
+import com.eza.hyperglow.root.aod.lineTransitionExitFrame
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.originalRowHeight
@@ -78,8 +89,12 @@ import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
 import com.eza.hyperglow.root.aod.textSizeModeMultiplier
+import com.eza.hyperglow.root.aod.transitionEnterEasing
+import com.eza.hyperglow.root.aod.transitionExitEasing
 import com.eza.hyperglow.root.lockscreen.cardColorRgb
 import com.eza.hyperglow.root.projection.LyricSnapshot
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -292,6 +307,8 @@ private fun LyricPreviewSurface(
                     }
                     PreviewAnimatedLyric(
                         layout = mainLayout,
+                        text = snapshot.original,
+                        lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
                         color = lyricColor,
                         glowColor = glowColor,
                         glowEnabled = profile.glow == "On",
@@ -522,18 +539,21 @@ private fun buildPreviewMainLayout(
  * 主页预览的歌词主体渲染:行布局来自共享 LyricLayoutEngine(与实机断行一致),
  * 绘制委托 LyricGlowRenderer(实机 AOD/锁屏同源)—— dim 底、光晕、扫光带(缓动/
  * 光带占比/渐变 stops)全部单点定义,预览即实机效果。进度为演示扫光(0→1 循环)。
+ * 演示行循环切换时,旧行/新行的过渡帧取自共享纯函数 [lineTransitionExitFrame] /
+ * [lineTransitionEnterFrame](与实机同源),层变换由 graphicsLayer 施加,预览不另写动画公式;
+ * 线性时间轴先过 #68 缓动再查帧,与 AodLyricCanvasView 完全一致。
  */
 @Composable
 private fun PreviewAnimatedLyric(
     layout: PreviewMainLayout,
+    text: String,
+    lineTransition: String,
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
-    val glowArgb = glowColor.toArgb()
-    val sungArgb = color.copy(alpha = 1f).toArgb()
 
     // 逐条演示行播放时,进度从 0 扫到 1,驱动扫光。
     val progress = remember { Animatable(0f) }
@@ -544,10 +564,98 @@ private fun PreviewAnimatedLyric(
     // 在组合作用域读取进度,保证每次动画变化都会重绘 Canvas。
     val progressValue = progress.value
 
+    // 换行动画演示:演示行文本变化时冻结旧行按 exit 帧退场、新行按 enter 帧进场。
+    // 帧配方与时长常量来自 root.aod 共享实现,与 AodLyricCanvasView 同源;
+    // 仅重排(字体/字号/宽度)不触发过渡,退场冻结的是切换前实际可见的布局。
+    var settledText by remember { mutableStateOf(text) }
+    var stableLayout by remember { mutableStateOf(layout) }
+    var exitingLayout by remember { mutableStateOf<PreviewMainLayout?>(null) }
+    val enterFrameProgress = remember { Animatable(1f) }
+    val exitFrameProgress = remember { Animatable(1f) }
+    SideEffect {
+        if (text == settledText) stableLayout = layout
+    }
+    LaunchedEffect(text) {
+        if (text == settledText) return@LaunchedEffect
+        val previous = stableLayout
+        settledText = text
+        if (lineTransition == "None") {
+            exitingLayout = null
+            enterFrameProgress.snapTo(1f)
+            exitFrameProgress.snapTo(1f)
+        } else {
+            exitingLayout = previous
+            enterFrameProgress.snapTo(0f)
+            exitFrameProgress.snapTo(0f)
+            coroutineScope {
+                launch {
+                    exitFrameProgress.animateTo(
+                        1f, tween(EXIT_TRANSITION_MS.toInt(), easing = LinearEasing)
+                    )
+                }
+                enterFrameProgress.animateTo(
+                    1f, tween(ENTER_TRANSITION_MS.toInt(), easing = LinearEasing)
+                )
+            }
+            exitingLayout = null
+        }
+    }
+    // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方。
+    val exitFrame = lineTransitionExitFrame(lineTransition, transitionExitEasing(exitFrameProgress.value))
+    val enterFrame = lineTransitionEnterFrame(lineTransition, transitionEnterEasing(enterFrameProgress.value))
+
+    Box(Modifier.fillMaxWidth().height(with(density) { layout.blockHeight.toDp() })) {
+        val previous = exitingLayout
+        if (previous != null && exitFrame.alpha > 0f) {
+            PreviewMainLayer(
+                layout = previous,
+                progress = 1f,
+                color = color,
+                glowColor = glowColor,
+                glowEnabled = glowEnabled,
+                frame = exitFrame,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(with(density) { previous.blockHeight.toDp() })
+            )
+        }
+        PreviewMainLayer(
+            layout = layout,
+            progress = progressValue,
+            color = color,
+            glowColor = glowColor,
+            glowEnabled = glowEnabled,
+            frame = enterFrame,
+            modifier = Modifier.fillMaxWidth().height(with(density) { layout.blockHeight.toDp() })
+        )
+    }
+}
+
+/**
+ * 主歌词单层绘制:按 [layout] 行基线画 LyricGlowRow,发光/扫光委托 LyricGlowRenderer;
+ * 换行过渡的 alpha/位移/缩放由共享 [LineTransitionFrame] 通过 graphicsLayer 施加
+ * (缩放锚点默认层中心,与实机 drawRows 的内容框中心一致)。
+ */
+@Composable
+private fun PreviewMainLayer(
+    layout: PreviewMainLayout,
+    progress: Float,
+    color: ComposeColor,
+    glowColor: ComposeColor,
+    glowEnabled: Boolean,
+    frame: LineTransitionFrame,
+    modifier: Modifier = Modifier
+) {
+    val glowArgb = glowColor.toArgb()
+    val sungArgb = color.copy(alpha = 1f).toArgb()
     Canvas(
-        modifier
-            .fillMaxWidth()
-            .height(with(density) { layout.blockHeight.toDp() })
+        modifier.graphicsLayer {
+            alpha = frame.alpha
+            translationX = frame.translateXDp.dp.toPx()
+            translationY = frame.translateYDp.dp.toPx()
+            scaleX = frame.scale
+            scaleY = frame.scale
+        }
     ) {
         val rows = ArrayList<LyricGlowRow>(layout.lines.size)
         layout.lines.forEachIndexed { index, line ->
@@ -562,7 +670,7 @@ private fun PreviewAnimatedLyric(
                 canvas = canvas.nativeCanvas,
                 paint = layout.paint,
                 rows = rows,
-                progress = progressValue,
+                progress = progress,
                 sungColor = sungArgb,
                 glowColor = glowArgb,
                 glowEnabled = glowEnabled

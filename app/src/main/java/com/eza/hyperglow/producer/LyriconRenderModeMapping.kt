@@ -4,6 +4,7 @@ import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.customization.resolveLineTransition
 import io.github.proify.lyricon.lyric.model.RichLyricLine
 
 internal fun CompiledSurfaceProfile.toProducerRenderModes() = ProducerRenderModes(
@@ -15,7 +16,9 @@ internal fun CompiledSurfaceProfile.toProducerRenderModes() = ProducerRenderMode
     glow = glow,
     lineSyncFill = lineSyncFillMode,
     overflow = overflow,
-    transition = transition.id,
+    // 换行动画取 profile.lineTransition("Auto" 退默认 Fade up);不能再借用场景过渡
+    // preset id(continuity/crossfade/none),那是 AOD↔锁屏联动的词表,语义不同。
+    transition = resolveLineTransition(lineTransition, "Fade up"),
     font = fontFamily
 )
 

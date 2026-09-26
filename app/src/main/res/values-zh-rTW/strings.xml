@@ -366,6 +366,13 @@
     <string name="option_on">開啟</string>
     <string name="option_none">無</string>
     <string name="option_top_to_bottom">從上到下</string>
+    <string name="choice_line_transition">換行動畫</string>
+    <string name="option_auto_follow_source">跟隨源</string>
+    <string name="option_fade_up">淡入上移</string>
+    <string name="option_crossfade">交叉淡化</string>
+    <string name="option_slide_up">上滑</string>
+    <string name="option_slide_left">左滑</string>
+    <string name="option_zoom">縮放</string>
 
     <string name="toast_systemui_restarted">重啟完成。未在運行的進程將在下次啟動時生效。</string>
     <string name="toast_systemui_restart_failed">重啟失敗。請檢查 Root 權限。</string>

@@ -388,6 +388,13 @@
     <string name="option_on">On</string>
     <string name="option_none">None</string>
     <string name="option_top_to_bottom">Top to bottom</string>
+    <string name="choice_line_transition">Line change animation</string>
+    <string name="option_auto_follow_source">Follow source</string>
+    <string name="option_fade_up">Fade up</string>
+    <string name="option_crossfade">Crossfade</string>
+    <string name="option_slide_up">Slide up</string>
+    <string name="option_slide_left">Slide left</string>
+    <string name="option_zoom">Zoom</string>
     <string name="toast_systemui_restarted">Restart complete. Processes that were not running will pick up changes on next start.</string>
     <string name="toast_systemui_restart_failed">Restart failed. Check root permission.</string>
     <string name="toast_spotify_not_installed">Spotify is not installed</string>

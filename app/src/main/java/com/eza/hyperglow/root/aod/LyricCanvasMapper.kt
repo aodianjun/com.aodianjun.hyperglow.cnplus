@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.aod
 
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
+import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.projection.LyricSnapshot
 
 internal fun LyricSnapshot.toAodCanvasContent(
@@ -56,7 +57,8 @@ internal fun LyricSnapshot.toAodCanvasContent(
         else -> lineSyncFillMode
     },
     overflowMode = profile?.overflow ?: overflowMode,
-    transitionMode = transitionMode,
+    // 换行动画:profile 显式选择优先("Auto" 时沿用歌词源偏好,见 resolveLineTransition)。
+    transitionMode = resolveLineTransition(profile?.lineTransition, transitionMode),
     fontFamily = profile?.fontFamily ?: fontFamily,
     alignmentMode = profile?.alignment ?: alignmentMode,
     metadataVisible = profile?.metadataVisible ?: metadataVisible,
