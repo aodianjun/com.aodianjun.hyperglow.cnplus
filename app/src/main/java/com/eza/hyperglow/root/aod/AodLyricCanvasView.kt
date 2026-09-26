@@ -296,12 +296,9 @@ internal class AodLyricCanvasView(
             nextContent.speed
         )
         resolvedPalette = resolveAodPalette(nextContent.palette)
-        alignment = when (nextContent.alignmentMode) {
-            "start" -> Alignment.START
-            "center" -> Alignment.CENTER
-            "end" -> Alignment.END
-            else -> if (nextContent.alignedRight) Alignment.END else Alignment.START
-        }
+        alignment = viewAlignment(
+            resolveAlignmentMode(nextContent.alignmentMode, nextContent.alignedRight)
+        )
         val sizeScale = textSizeModeMultiplier(nextContent.textSizeMode, nextContent.textSizeCustom)
         val baseSp = baseTextSizeSp(nextContent.original) * sizeScale
         val typeface = resolveTypeface(nextContent.fontFamily, nextContent.weight)
@@ -1080,14 +1077,24 @@ internal class AodLyricCanvasView(
                 content.nextLine,
                 romanizedPaint,
                 ROW_GAP_BEFORE_NEXT_LINE_DP * density,
-                wrapSecondaryText(content.nextLine, romanizedPaint, originalLayout.lineCount)
+                wrapSecondaryText(
+                    content.nextLine,
+                    romanizedPaint,
+                    originalLayout.lineCount,
+                    alignmentFor(RowKind.NEXT_LINE)
+                )
             )
             SecondLinePresentation.STANDALONE -> rows += rowWithLines(
                 RowKind.NEXT_LINE,
                 content.nextLine,
                 nextLinePaint,
                 ROW_GAP_BEFORE_NEXT_LINE_DP * density,
-                wrapSecondaryText(content.nextLine, nextLinePaint, 1)
+                wrapSecondaryText(
+                    content.nextLine,
+                    nextLinePaint,
+                    1,
+                    alignmentFor(RowKind.NEXT_LINE)
+                )
             )
             SecondLinePresentation.NONE -> Unit
         }
@@ -1699,8 +1706,13 @@ internal class AodLyricCanvasView(
         }
     }
 
-    private fun wrapSecondaryText(text: String, paint: Paint, preferredLines: Int): List<TextLine> =
-        // 换行统一委托 LyricLayoutEngine(与预览同源);定位 X 仍由 textLine 按实机几何解析。
+    private fun wrapSecondaryText(
+        text: String,
+        paint: Paint,
+        preferredLines: Int,
+        lineAlignment: Alignment = alignment
+    ): List<TextLine> =
+        // 换行统一委托 LyricLayoutEngine(与预览同源);定位 X 按行级对齐(默认主对齐)解析。
         layoutSecondaryLines(
             text = text,
             paint = paint,
@@ -1708,7 +1720,7 @@ internal class AodLyricCanvasView(
             preferredLines = preferredLines,
             wrap = content.overflowMode == "Wrap",
             adaptiveSectioning = content.adaptiveSectioning
-        ).map { textLine(it.text, it.width, paint) }
+        ).map { textLine(it.text, it.width, paint, lineAlignment) }
 
     /**
      * 歌曲信息（歌名/歌手）专用换行：委托 LyricLayoutEngine.layoutMetadataLines
@@ -1897,15 +1909,32 @@ internal class AodLyricCanvasView(
         }
     }
 
-    private fun alignmentFor(kind: RowKind): Alignment = if (kind == RowKind.METADATA) {
-        when (content.alignmentMode) {
-            "start" -> Alignment.START
-            "center" -> Alignment.CENTER
-            "end" -> Alignment.END
-            else -> Alignment.START
-        }
-    } else {
-        alignment
+    /**
+     * 行级对齐(实机/预览同源 resolveRowAlignmentMode):歌曲信息与第二行歌词按各自独立
+     * 对齐设置解析("auto" 跟随主对齐),其余行沿用主对齐。
+     */
+    private fun alignmentFor(kind: RowKind): Alignment = when (kind) {
+        RowKind.METADATA -> viewAlignment(
+            resolveRowAlignmentMode(
+                content.metadataAlignment,
+                content.alignmentMode,
+                content.alignedRight
+            )
+        )
+        RowKind.NEXT_LINE -> viewAlignment(
+            resolveRowAlignmentMode(
+                content.nextLineAlignment,
+                content.alignmentMode,
+                content.alignedRight
+            )
+        )
+        else -> alignment
+    }
+
+    private fun viewAlignment(mode: String): Alignment = when (mode) {
+        "center" -> Alignment.CENTER
+        "end" -> Alignment.END
+        else -> Alignment.START
     }
 
     private fun alignedStart(

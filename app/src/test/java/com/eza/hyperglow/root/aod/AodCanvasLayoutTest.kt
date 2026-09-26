@@ -321,6 +321,43 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun rowAlignmentsMapFromProfileAndDefaultToAuto() {
+        val profile = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        metadataAlignment = "center",
+                        nextLineAlignment = "end"
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val snapshot = LyricSnapshot(original = "current", nextLine = "second")
+
+        assertEquals("center", snapshot.toAodCanvasContent(profile).metadataAlignment)
+        assertEquals("end", snapshot.toAodCanvasContent(profile).nextLineAlignment)
+        // 无 profile 时默认 auto(跟随主对齐),既有呈现零变化。
+        assertEquals("auto", snapshot.toAodCanvasContent(null).metadataAlignment)
+        assertEquals("auto", snapshot.toAodCanvasContent().nextLineAlignment)
+    }
+
+    @Test
+    fun resolveRowAlignmentModeExplicitOverridesAndAutoFollowsMain() {
+        // 显式 start/center/end 直接生效,不受主对齐影响。
+        assertEquals("start", resolveRowAlignmentMode("start", "end", false))
+        assertEquals("center", resolveRowAlignmentMode("center", "start", true))
+        assertEquals("end", resolveRowAlignmentMode("end", "center", false))
+        // auto 跟随主对齐解析结果(主 auto 时按歌词方向右对齐,否则左对齐)。
+        assertEquals("center", resolveRowAlignmentMode("auto", "center", false))
+        assertEquals("start", resolveRowAlignmentMode("auto", "start", true))
+        assertEquals("end", resolveRowAlignmentMode("auto", "auto", true))
+        assertEquals("start", resolveRowAlignmentMode("auto", "auto", false))
+        // 非法值按 auto 处理(与编译白名单的回落语义一致)。
+        assertEquals("end", resolveRowAlignmentMode("bogus", "end", false))
+        assertEquals("end", resolveRowAlignmentMode("diagonal", "auto", true))
+    }
+
+    @Test
     fun secondLinePresentationNeverStacksBothForms() {
         // 呈现决策(实机/预览同源):辅助文字形态开启时取代独立下一行行,同一行不重复出现;
         // 无下行文本时两种开关都为空呈现。

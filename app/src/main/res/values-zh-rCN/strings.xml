@@ -283,6 +283,8 @@
     <string name="summary_custom_position">拖动调节歌词块相对屏幕的纵向位置。</string>
     <string name="section_text_language">文字和语言</string>
     <string name="choice_alignment">对齐</string>
+    <string name="choice_song_info_alignment">歌曲信息对齐</string>
+    <string name="choice_second_line_alignment">第二行歌词对齐</string>
     <string name="choice_secondary_text">辅助文字</string>
     <string name="setting_bright_secondary_text">高亮辅助文字</string>
     <string name="setting_secondary_next_line">辅助文字显示第二行歌词</string>

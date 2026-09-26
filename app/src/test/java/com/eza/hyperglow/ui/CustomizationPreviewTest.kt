@@ -1,6 +1,7 @@
 package com.eza.hyperglow.ui
 
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.style.TextAlign
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
@@ -176,5 +177,19 @@ class CustomizationPreviewTest {
         // Compose Color 的 alpha 走 8-bit 量化(0.5f → 128/255),按通道值断言避免浮点容差踩量化误差。
         assertEquals(128, previewCardColor("black", 50).toArgb() ushr 24)
         assertEquals(255, previewCardColor("black", 100).toArgb() ushr 24)
+    }
+
+    @Test
+    fun previewRowAlignmentMatchesDeviceResolution() {
+        // 与实机 alignmentFor/setContent 同源(resolveRowAlignmentMode):
+        // 显式行对齐直接生效;auto 跟随主对齐解析(主 auto 时按歌词方向右对齐)。
+        assertEquals(TextAlign.Start, previewRowTextAlign("start", "end", false))
+        assertEquals(TextAlign.Center, previewRowTextAlign("center", "start", true))
+        assertEquals(TextAlign.End, previewRowTextAlign("end", "center", false))
+        assertEquals(TextAlign.Center, previewRowTextAlign("auto", "center", false))
+        assertEquals(TextAlign.End, previewRowTextAlign("auto", "auto", true))
+        assertEquals(TextAlign.Start, previewRowTextAlign("auto", "auto", false))
+        // 非法值按 auto 处理。
+        assertEquals(TextAlign.End, previewRowTextAlign("bogus", "end", false))
     }
 }

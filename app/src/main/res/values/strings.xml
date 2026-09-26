@@ -284,6 +284,8 @@
     <string name="summary_custom_position">Drag to adjust the lyric block\'s vertical position on screen.</string>
     <string name="section_text_language">Text and language</string>
     <string name="choice_alignment">Alignment</string>
+    <string name="choice_song_info_alignment">Song info alignment</string>
+    <string name="choice_second_line_alignment">Second line alignment</string>
     <string name="choice_secondary_text">Secondary text</string>
     <string name="setting_bright_secondary_text">Bright secondary text</string>
     <string name="setting_secondary_next_line">Show second line as secondary text</string>

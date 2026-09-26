@@ -68,6 +68,7 @@ import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
+import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import com.eza.hyperglow.root.aod.SecondLinePresentation
@@ -214,7 +215,12 @@ private fun LyricPreviewSurface(
         if (profile.fontFamily == "auto") Typeface.create("sans-serif", Typeface.NORMAL)
         else LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular")
     }
-    val textAlign = previewTextAlign(profile, snapshot.alignedRight)
+    val textAlign = previewRowTextAlign("auto", profile.alignment, snapshot.alignedRight)
+    // 行级独立对齐(与实机 alignmentFor 同源):歌曲信息/第二行歌词各自解析。
+    val metadataAlign =
+        previewRowTextAlign(profile.metadataAlignment, profile.alignment, snapshot.alignedRight)
+    val nextLineAlign =
+        previewRowTextAlign(profile.nextLineAlignment, profile.alignment, snapshot.alignedRight)
     val showMetadata = profile.metadataVisible
     val showNext = profile.showNextLine
     val secondaryRows = previewSecondaryLines(profile, snapshot, baseSp)
@@ -273,7 +279,7 @@ private fun LyricPreviewSurface(
                     if (showMetadata && profile.metadataAnchor == "top") {
                         PreviewMetaLine(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
-                            regularTypeface, availablePx,
+                            regularTypeface, availablePx, metadataAlign,
                             Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp)
                         )
                     }
@@ -316,7 +322,7 @@ private fun LyricPreviewSurface(
                             preferredLines = mainLayout.lines.size,
                             wrap = profile.overflow == "Wrap",
                             adaptiveSectioning = profile.adaptiveSectioning,
-                            textAlign = textAlign,
+                            textAlign = nextLineAlign,
                             modifier = Modifier.padding(top = ROW_GAP_BEFORE_NEXT_LINE_DP.dp)
                         )
                         SecondLinePresentation.STANDALONE -> PreviewSecondaryRow(
@@ -331,7 +337,7 @@ private fun LyricPreviewSurface(
                             preferredLines = mainLayout.lines.size,
                             wrap = profile.overflow == "Wrap",
                             adaptiveSectioning = profile.adaptiveSectioning,
-                            textAlign = textAlign,
+                            textAlign = nextLineAlign,
                             modifier = Modifier.padding(top = ROW_GAP_BEFORE_NEXT_LINE_DP.dp)
                         )
                         SecondLinePresentation.NONE -> Unit
@@ -339,7 +345,7 @@ private fun LyricPreviewSurface(
                     if (showMetadata && profile.metadataAnchor == "bottom") {
                         PreviewMetaLine(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
-                            regularTypeface, availablePx,
+                            regularTypeface, availablePx, metadataAlign,
                             Modifier.padding(top = METADATA_LYRIC_GAP_DP.dp)
                         )
                     }
@@ -356,6 +362,7 @@ private fun PreviewMetaLine(
     sizePercent: Int,
     typeface: Typeface,
     availableWidthPx: Int,
+    textAlign: TextAlign,
     modifier: Modifier = Modifier
 ) {
     val size = previewMetadataTextSizeSp(sizePercent)
@@ -375,8 +382,10 @@ private fun PreviewMetaLine(
                 fontSize = size,
                 fontFamily = FontFamily(typeface),
                 color = color,
+                textAlign = textAlign,
                 maxLines = 1,
-                overflow = TextOverflow.Clip
+                overflow = TextOverflow.Clip,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -394,17 +403,19 @@ internal fun previewBaseTextSizeSp(text: String, textSizeMode: String, textSizeC
 internal fun previewSecondaryAlpha(bright: Boolean): Float =
     steadyTextAlpha(staticSecondaryTextFactor(bright))
 
-private fun previewTextAlign(
-    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+/**
+ * 预览行级对齐:与实机 alignmentFor/setContent 同源(resolveRowAlignmentMode)。
+ * 显式 start/center/end 直接生效;"auto" 跟随主对齐解析(主 auto 时按歌词方向右对齐)。
+ */
+internal fun previewRowTextAlign(
+    rowAlignment: String,
+    mainAlignment: String,
     alignedRight: Boolean
-): TextAlign =
-    // "auto" 与实机 setContent 一致:alignedRight 时右对齐,否则左对齐(见 AodLyricCanvasView)。
-    when (profile.alignment) {
-        "start" -> TextAlign.Start
-        "center" -> TextAlign.Center
-        "end" -> TextAlign.End
-        else -> if (alignedRight) TextAlign.End else TextAlign.Start
-    }
+): TextAlign = when (resolveRowAlignmentMode(rowAlignment, mainAlignment, alignedRight)) {
+    "center" -> TextAlign.Center
+    "end" -> TextAlign.End
+    else -> TextAlign.Start
+}
 
 private data class PreviewSecondaryLine(
     val text: String,
@@ -593,7 +604,8 @@ private fun PreviewSecondaryRow(
                 color = color,
                 textAlign = textAlign,
                 maxLines = 1,
-                overflow = TextOverflow.Clip
+                overflow = TextOverflow.Clip,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

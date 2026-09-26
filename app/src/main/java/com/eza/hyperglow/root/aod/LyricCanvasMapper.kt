@@ -65,5 +65,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     adaptiveSectioning = profile?.adaptiveSectioning ?: adaptiveSectioning,
     palette = profile?.palette.orEmpty(),
     showNextLine = profile?.showNextLine ?: false,
-    secondaryNextLine = profile?.secondaryNextLine ?: false
+    secondaryNextLine = profile?.secondaryNextLine ?: false,
+    metadataAlignment = profile?.metadataAlignment ?: "auto",
+    nextLineAlignment = profile?.nextLineAlignment ?: "auto"
 )

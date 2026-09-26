@@ -520,6 +520,51 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun rowAlignmentsCompileValidateAndSurviveCanonicalizeRoundTrip() {
+        // 歌曲信息/第二行歌词独立对齐必须穿过 compile、SystemUI 二次校验与仓库
+        // canonicalize 往返(compile -> toSurfaceProfile):任一环节漏字段都会让设置
+        // 保存后弹回 auto(逐字段重建映射的经典回归面)。
+        val document = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    metadataAlignment = "center",
+                    nextLineAlignment = "end"
+                )
+            )
+        )
+        val compiled = SceneCompiler.compile(document).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("center", compiled.metadataAlignment)
+        assertEquals("end", compiled.nextLineAlignment)
+
+        val validated = SystemUiCustomizationValidator.validate(SceneCompiler.compile(document))!!
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("center", validated.metadataAlignment)
+        assertEquals("end", validated.nextLineAlignment)
+
+        val canonical = CustomizationRepository.canonicalizeDocument(document)!!
+        assertEquals("center", canonical.profiles.getValue(SceneCompiler.SURFACE_AOD).metadataAlignment)
+        assertEquals("end", canonical.profiles.getValue(SceneCompiler.SURFACE_AOD).nextLineAlignment)
+        // 默认文档保持 auto:不改变既有用户的呈现。
+        val safe = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("auto", safe.metadataAlignment)
+        assertEquals("auto", safe.nextLineAlignment)
+        // 非法值回落 auto(与主对齐 ALIGNMENTS 白名单同规则)。
+        val dirty = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        metadataAlignment = "bogus",
+                        nextLineAlignment = "diagonal"
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("auto", dirty.metadataAlignment)
+        assertEquals("auto", dirty.nextLineAlignment)
+    }
+
+    @Test
     fun systemUiValidatorResetsInvalidCardColorToDefault() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(
