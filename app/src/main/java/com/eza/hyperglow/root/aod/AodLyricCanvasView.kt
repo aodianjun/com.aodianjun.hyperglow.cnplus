@@ -2037,8 +2037,10 @@ internal class AodLyricCanvasView(
 
     // 字体解析与预览同源:统一委托 LyricTypefaceResolver(支持 custom/noto-sc/自定义 provider),
     // 消除"预览用 LyricTypefaceResolver、实机用内联 asset 映射"的双路径漂移。
+    // cacheContext 必须是视图自己的上下文(SystemUI):自定义字体经 Provider 取流后的副本
+    // 只能落在本进程可写的 cacheDir,模块包 cacheDir 对 SystemUI 无写权限。
     private fun resolveTypeface(family: String, weight: String): Typeface =
-        LyricTypefaceResolver.resolve(fontContext ?: context, family, weight)
+        LyricTypefaceResolver.resolve(fontContext ?: context, family, weight, cacheContext = context)
 
     private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE }
     private data class Row(

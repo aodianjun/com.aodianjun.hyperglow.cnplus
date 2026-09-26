@@ -2,31 +2,47 @@ package com.eza.hyperglow.root.aod
 
 import android.content.Context
 import android.graphics.Typeface
-import android.net.Uri
-import android.os.Bundle
-import com.eza.hyperglow.BuildConfig
+import com.eza.hyperglow.customization.CustomFontContract
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * 歌词字体解析(预览与实机同源)。
+ *
+ * 两类上下文必须分开传入,这是 0.3.116 实机「自定义字体只同步预览」的根因:
+ * - [assetContext] 用于内置字体:实机侧是模块包上下文(SystemUI 经
+ *   `createPackageContext` 读模块 APK 的 `assets/fonts/**`),预览侧就是应用自身。
+ * - [cacheContext] 用于自定义字体:文件本体在应用私有目录(`0700`,SystemUI 读不到),
+ *   只能经 ContentProvider 取流后落到**本进程可写**的 cacheDir。此前实现把副本写进
+ *   assetContext(模块包)的 cacheDir,SystemUI 无写权限、`runCatching` 吞掉异常后静默
+ *   回落 sans-serif-medium —— 预览正常、实机永远是回退字体。
+ */
 object LyricTypefaceResolver {
     private data class TypefaceKey(val family: String, val weight: String, val variant: String = "")
 
     private val cache = ConcurrentHashMap<TypefaceKey, Typeface>()
 
     const val FAMILY_NOTO_SC = "noto-sc"
-    const val FAMILY_CUSTOM = "custom"
+    const val FAMILY_CUSTOM = CustomFontContract.FAMILY_CUSTOM
 
     private const val CUSTOM_VERSION_TTL_MS = 10_000L
 
-    @Volatile
-    private var customVersionCache: Pair<Long, String?>? = null
+    // 版本缓存按字体 id 分键:多字体共存时,同一 TTL 窗口内切换字体不能串版本。
+    private val customVersionCache = ConcurrentHashMap<String, Pair<Long, String?>>()
 
-    fun resolve(context: Context, family: String, weight: String): Typeface {
-        if (family == FAMILY_CUSTOM) return resolveCustom(context, weight)
+    fun resolve(
+        assetContext: Context,
+        family: String,
+        weight: String,
+        cacheContext: Context = assetContext
+    ): Typeface {
+        if (CustomFontContract.isCustomFontFamily(family)) {
+            return resolveCustom(assetContext, cacheContext, family, weight)
+        }
         val key = TypefaceKey(family, weight)
         cache[key]?.let { return it }
         val typeface = runCatching {
-            Typeface.createFromAsset(context.assets, assetPath(family, weight))
+            Typeface.createFromAsset(assetContext.assets, assetPath(family, weight))
         }.getOrElse {
             fallbackTypeface(family, weight)
         }
@@ -34,45 +50,53 @@ object LyricTypefaceResolver {
         return typeface
     }
 
-    private fun resolveCustom(context: Context, weight: String): Typeface {
-        val version = customVersion(context)
-            ?: return fallbackTypeface(FAMILY_CUSTOM, weight)
-        val key = TypefaceKey(FAMILY_CUSTOM, weight, version)
+    private fun resolveCustom(
+        assetContext: Context,
+        cacheContext: Context,
+        family: String,
+        weight: String
+    ): Typeface {
+        val id = CustomFontContract.fontIdOf(family) ?: return fallbackTypeface(family, weight)
+        val version = customVersion(assetContext, cacheContext, family)
+            ?: return fallbackTypeface(family, weight)
+        val key = TypefaceKey(family, weight, version)
         cache[key]?.let { return it }
-        val local = File(context.filesDir, CustomFontContract.FONT_RELATIVE_PATH)
+        val local = CustomFontContract.fontFile(assetContext.filesDir, id)
         val base = if (local.canRead()) {
             runCatching { Typeface.createFromFile(local) }.getOrNull()
         } else {
-            loadViaProvider(context, version)
+            loadViaProvider(cacheContext, family, id, version)
         }
-        val typeface = base?.let { Typeface.create(it, if (weight == "Bold") Typeface.BOLD else Typeface.NORMAL) }
-            ?: fallbackTypeface(FAMILY_CUSTOM, weight)
+        val typeface = base?.let {
+            Typeface.create(it, if (weight == "Bold") Typeface.BOLD else Typeface.NORMAL)
+        } ?: fallbackTypeface(family, weight)
         cache[key] = typeface
         return typeface
     }
 
     fun invalidateCustomCache() {
-        customVersionCache = null
+        customVersionCache.clear()
     }
 
-    fun customVersion(context: Context): String? {
+    fun customVersion(context: Context, cacheContext: Context, family: String): String? {
+        val id = CustomFontContract.fontIdOf(family) ?: return null
         val now = System.currentTimeMillis()
-        customVersionCache?.let { (fetchedAt, version) ->
+        customVersionCache[id]?.let { (fetchedAt, version) ->
             if (now - fetchedAt < CUSTOM_VERSION_TTL_MS) return version
         }
-        val local = File(context.filesDir, CustomFontContract.FONT_RELATIVE_PATH)
+        val local = CustomFontContract.fontFile(context.filesDir, id)
         val version = if (local.canRead()) {
             "${local.lastModified()}_${local.length()}"
         } else {
-            queryProviderVersion(context)
+            queryProviderVersion(cacheContext, family)
         }
-        customVersionCache = now to version
+        customVersionCache[id] = now to version
         return version
     }
 
-    private fun queryProviderVersion(context: Context): String? = runCatching {
-        val result: Bundle? = context.contentResolver.call(
-            customFontUri(),
+    private fun queryProviderVersion(cacheContext: Context, family: String): String? = runCatching {
+        val result = cacheContext.contentResolver.call(
+            CustomFontContract.customFontUri(family),
             CustomFontContract.METHOD_VERSION,
             null,
             null
@@ -80,19 +104,38 @@ object LyricTypefaceResolver {
         result?.getString(CustomFontContract.EXTRA_VERSION)
     }.getOrNull()
 
-    private fun loadViaProvider(context: Context, version: String): Typeface? = runCatching {
-        val target = File(context.cacheDir, "custom_font_$version.ttf")
+    /**
+     * 经 Provider 取流并缓存到 [cacheContext] 自己的 cacheDir(SystemUI 侧即 SystemUI 缓存),
+     * 文件名带版本号,字体更新后自然失效;同时清掉同前缀的历史副本避免无限增长。
+     */
+    private fun loadViaProvider(
+        cacheContext: Context,
+        family: String,
+        id: String,
+        version: String
+    ): Typeface? = runCatching {
+        val safeVersion = version.filter { it.isLetterOrDigit() || it == '_' || it == '-' }
+        val target = File(cacheContext.cacheDir, "$CUSTOM_CACHE_PREFIX${id}_$safeVersion.ttf")
         if (!target.exists()) {
-            context.contentResolver.openInputStream(customFontUri())?.use { input ->
-                target.outputStream().use { input.copyTo(it) }
-            } ?: return null
+            val copied = runCatching {
+                cacheContext.contentResolver
+                    .openInputStream(CustomFontContract.customFontUri(family))?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    } ?: false
+            }.getOrDefault(false)
+            if (!copied) return@runCatching null
+            pruneStaleCopies(cacheContext, target.name)
         }
         Typeface.createFromFile(target)
     }.getOrNull()
 
-    private fun customFontUri(): Uri = Uri.parse(
-        "content://${BuildConfig.APPLICATION_ID}${CustomFontContract.AUTHORITY_SUFFIX}/${CustomFontContract.PATH_FONT}"
-    )
+    private fun pruneStaleCopies(cacheContext: Context, keepName: String) {
+        runCatching {
+            cacheContext.cacheDir.listFiles()
+                ?.filter { it.isFile && it.name.startsWith(CUSTOM_CACHE_PREFIX) && it.name != keepName }
+                ?.forEach { it.delete() }
+        }
+    }
 
     private fun fallbackTypeface(family: String, weight: String): Typeface {
         val fallback = if (family == "apple") "sans-serif" else "sans-serif-medium"
@@ -114,12 +157,6 @@ object LyricTypefaceResolver {
         weight == "Bold" -> "fonts/sf-pro-display-bold.ttf"
         else -> "fonts/spotifymix-medium.ttf"
     }
-}
 
-object CustomFontContract {
-    const val AUTHORITY_SUFFIX = ".customfont"
-    const val PATH_FONT = "font"
-    const val FONT_RELATIVE_PATH = "custom_fonts/custom.ttf"
-    const val METHOD_VERSION = "font_version"
-    const val EXTRA_VERSION = "version"
+    private const val CUSTOM_CACHE_PREFIX = "custom_font_"
 }

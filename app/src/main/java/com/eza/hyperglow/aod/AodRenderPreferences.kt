@@ -2,6 +2,7 @@ package com.eza.hyperglow.aod
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.producer.LyricSource
 
 data class AodRenderConfig(
@@ -156,10 +157,16 @@ internal fun normalizeAodTextSize(value: String?): String = when (value) {
     else -> "normal"
 }
 
-internal fun normalizeAodFontFamily(value: String?): String = when (value) {
-    "noto" -> "noto"
-    "spotify" -> "spotify"
-    "apple" -> "apple"
+/**
+ * 字体族归一化。必须对自身输出幂等:同一函数也用于 wire 快照的拒收校验
+ * (`snapshot.fontFamily != normalizeAodFontFamily(...)` 即整帧拒收),任何
+ * 被放行的取值都要原样通过。[CustomFontContract.isCustomFontFamily] 负责
+ * `custom`/`custom:<id>` 的 id 白名单校验。
+ */
+internal fun normalizeAodFontFamily(value: String?): String = when {
+    value == "noto" || value == "spotify" || value == "apple" -> value
+    value == "noto-sc" -> "noto-sc"
+    value != null && CustomFontContract.isCustomFontFamily(value) -> value
     else -> "spotify"
 }
 

@@ -7,10 +7,16 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import com.eza.hyperglow.AppLog
-import com.eza.hyperglow.root.aod.CustomFontContract
+import com.eza.hyperglow.customization.CustomFontContract
 import java.io.File
 import java.io.FileNotFoundException
 
+/**
+ * 把已导入的自定义字体以只读方式交给 SystemUI 进程。
+ *
+ * 应用私有目录是 `0700`,SystemUI 既读不到字体本体,也写不进应用 cacheDir,
+ * 因此取流与版本查询都必须走这里;字体按 id 寻址(`/font/<id>`),历史单槽 `/font/custom`。
+ */
 class CustomFontProvider : ContentProvider() {
 
     override fun onCreate(): Boolean = true
@@ -22,7 +28,7 @@ class CustomFontProvider : ContentProvider() {
             throw FileNotFoundException("unauthorized")
         }
         if (mode != "r") throw FileNotFoundException("read-only")
-        val file = fontFile()
+        val file = fontFile(uri.lastPathSegment)
         if (!file.isFile) throw FileNotFoundException("not imported")
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
@@ -34,16 +40,22 @@ class CustomFontProvider : ContentProvider() {
             return Bundle.EMPTY
         }
         if (method != CustomFontContract.METHOD_VERSION) return Bundle.EMPTY
-        val file = fontFile()
+        val file = fontFile(arg)
         if (!file.isFile) return Bundle.EMPTY
         return Bundle().apply {
             putString(CustomFontContract.EXTRA_VERSION, "${file.lastModified()}_${file.length()}")
         }
     }
 
-    private fun fontFile(): File {
+    /**
+     * id 一律过 [CustomFontContract.sanitizeFontId];空/非法 id 回落到历史单槽,
+     * 避免 `../` 之类的路径片段被拼进私有目录。
+     */
+    private fun fontFile(requestedId: String?): File {
         val host = context ?: return File("")
-        return File(host.filesDir, CustomFontContract.FONT_RELATIVE_PATH)
+        val id = CustomFontContract.sanitizeFontId(requestedId)
+            ?: CustomFontContract.FAMILY_CUSTOM
+        return CustomFontContract.fontFile(host.filesDir, id)
     }
 
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?,

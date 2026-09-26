@@ -1,6 +1,7 @@
 package com.eza.hyperglow.ui
 
 import android.graphics.Typeface
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
@@ -15,11 +16,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,11 +45,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import com.eza.hyperglow.customization.CustomFontContract
+import com.eza.hyperglow.customization.CustomFontStore
 import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
-import com.eza.hyperglow.root.aod.CustomFontContract
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.projection.LyricRuby
@@ -54,7 +60,6 @@ import com.eza.hyperglow.root.surface.PlacementEnvironment
 import com.eza.hyperglow.root.surface.PlacementRect
 import com.eza.hyperglow.root.surface.ResolvedPlacement
 import com.eza.hyperglow.root.surface.WidgetMeasurement
-import java.io.File
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -179,33 +184,39 @@ internal fun LyricLayoutScreen(
         activeChoice = AodChoice(kind, values, current, onSelect)
     }
 
-    var customFontAvailable by remember {
-        mutableStateOf(File(context.filesDir, CustomFontContract.FONT_RELATIVE_PATH).isFile)
-    }
+    // 已导入字体清单:每次导入只新增一条,不再覆盖上一个(旧行为是固定单槽 custom.ttf)。
+    var customFonts by remember { mutableStateOf(CustomFontStore.list(context)) }
     val fontImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val imported = runCatching {
             val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
-                input.readNBytes(MAX_CUSTOM_FONT_BYTES + 1)
+                input.readNBytes(CustomFontContract.MAX_FONT_BYTES + 1)
             } ?: error("Font file unavailable")
-            if (bytes.size > MAX_CUSTOM_FONT_BYTES || !hasFontMagic(bytes)) error("Invalid font file")
-            val target = File(context.filesDir, CustomFontContract.FONT_RELATIVE_PATH)
-            target.parentFile?.mkdirs()
-            target.writeBytes(bytes)
+            val entry = CustomFontStore.import(
+                fontRoot = context.filesDir,
+                bytes = bytes,
+                displayName = queryDisplayName(context, uri),
+                nowMs = System.currentTimeMillis()
+            ) ?: error("Invalid font file")
+            val target = CustomFontContract.fontFile(context.filesDir, entry.id)
             runCatching { Typeface.createFromFile(target) }.getOrElse {
-                target.delete()
+                CustomFontStore.delete(context.filesDir, entry.id)
                 error("Font file unreadable")
             }
-        }.isSuccess
-        if (imported) {
+            entry
+        }.getOrNull()
+        if (imported != null) {
             LyricTypefaceResolver.invalidateCustomCache()
-            customFontAvailable = true
-            updateSelected { it.copy(fontFamily = LyricTypefaceResolver.FAMILY_CUSTOM) }
+            customFonts = CustomFontStore.list(context)
+            updateSelected {
+                it.copy(fontFamily = CustomFontContract.customFontFamily(imported.id))
+            }
         }
         Toast.makeText(
             context,
             context.getString(
-                if (imported) R.string.toast_custom_font_imported else R.string.toast_custom_font_invalid
+                if (imported != null) R.string.toast_custom_font_imported
+                else R.string.toast_custom_font_invalid
             ),
             Toast.LENGTH_LONG
         ).show()
@@ -464,7 +475,15 @@ internal fun LyricLayoutScreen(
                                 add("spotify")
                                 add("apple")
                                 add(LyricTypefaceResolver.FAMILY_NOTO_SC)
-                                if (customFontAvailable) add(LyricTypefaceResolver.FAMILY_CUSTOM)
+                                customFonts.forEach {
+                                    add(CustomFontContract.customFontFamily(it.id))
+                                }
+                                // 兼容历史单槽令牌:字体已被直接删除时仍让当前选择可见可改。
+                                if (selectedProfile.fontFamily == LyricTypefaceResolver.FAMILY_CUSTOM &&
+                                    customFonts.none { it.id == LyricTypefaceResolver.FAMILY_CUSTOM }
+                                ) {
+                                    add(LyricTypefaceResolver.FAMILY_CUSTOM)
+                                }
                             },
                             selectedProfile.fontFamily
                         ) { value -> updateSelected { it.copy(fontFamily = value) } }
@@ -626,21 +645,29 @@ internal fun LyricLayoutScreen(
     }
 
     activeChoice?.let { selected ->
-        WindowDialog(
-            title = stringResource(selected.kind.titleRes),
-            show = true,
-            onDismissRequest = { activeChoice = null }
-        ) {
-            Column {
-                selected.values.forEach { value ->
-                    RadioButtonPreference(
-                        choiceDisplayLabel(context, selected.kind, value),
-                        selected.current == value,
-                        {
-                            selected.onSelect(value)
-                            activeChoice = null
-                        }
-                    )
+        if (selected.kind == AodChoiceKind.FONT) {
+            FontChoiceDialog(
+                selected = selected,
+                customNames = customFonts.associate { it.id to it.name },
+                onDismiss = { activeChoice = null }
+            )
+        } else {
+            WindowDialog(
+                title = stringResource(selected.kind.titleRes),
+                show = true,
+                onDismissRequest = { activeChoice = null }
+            ) {
+                Column {
+                    selected.values.forEach { value ->
+                        RadioButtonPreference(
+                            choiceDisplayLabel(context, selected.kind, value),
+                            selected.current == value,
+                            {
+                                selected.onSelect(value)
+                                activeChoice = null
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -832,19 +859,70 @@ private val DEMO_LINES = listOf(
 /** How long each demo line stays on screen before cycling to the next. */
 internal const val DEMO_LINE_SWITCH_MS = 2_500L
 
-private const val MAX_CUSTOM_FONT_BYTES = 30 * 1024 * 1024
+/** SAF 文档选择器里取原始文件名,作为字体展示名;取不到时由存储层回落到 id。 */
+private fun queryDisplayName(
+    context: android.content.Context,
+    uri: android.net.Uri
+): String? = runCatching {
+    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+}.getOrNull()
 
-private fun hasFontMagic(bytes: ByteArray): Boolean {
-    if (bytes.size < 4) return false
-    val ttf = bytes[0] == 0x00.toByte() && bytes[1] == 0x01.toByte() &&
-        bytes[2] == 0x00.toByte() && bytes[3] == 0x00.toByte()
-    val otf = bytes[0] == 0x4F.toByte() && bytes[1] == 0x54.toByte() &&
-        bytes[2] == 0x54.toByte() && bytes[3] == 0x4F.toByte()
-    val ttc = bytes[0] == 0x74.toByte() && bytes[1] == 0x74.toByte() &&
-        bytes[2] == 0x63.toByte() && bytes[3] == 0x66.toByte()
-    val macTrueType = bytes[0] == 0x74.toByte() && bytes[1] == 0x72.toByte() &&
-        bytes[2] == 0x75.toByte() && bytes[3] == 0x65.toByte()
-    return ttf || otf || ttc || macTrueType
+/**
+ * 字体选择对话框:每个候选行下方给出中英文混排预览("[font_preview_sample]",
+ * 中文 + 拉丁 + 数字),用该项真实解析出的 Typeface 渲染 —— 所见即实机所得。
+ * 已导入的自定义字体一并列出,导入多个不再互相覆盖。
+ */
+@Composable
+private fun FontChoiceDialog(
+    selected: AodChoice,
+    customNames: Map<String, String>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    WindowDialog(
+        title = stringResource(selected.kind.titleRes),
+        show = true,
+        onDismissRequest = onDismiss
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 460.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            selected.values.forEach { value ->
+                Column {
+                    RadioButtonPreference(
+                        choiceDisplayLabel(context, AodChoiceKind.FONT, value, customNames),
+                        selected.current == value,
+                        {
+                            selected.onSelect(value)
+                            onDismiss()
+                        }
+                    )
+                    FontPreviewLine(value)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FontPreviewLine(family: String) {
+    val context = LocalContext.current
+    val typeface = remember(family) {
+        LyricTypefaceResolver.resolve(context, family, "Regular")
+    }
+    Text(
+        text = stringResource(R.string.font_preview_sample),
+        fontFamily = FontFamily(typeface),
+        fontSize = 16.sp,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 24.dp, end = 20.dp, bottom = 10.dp)
+    )
 }
 
 @Composable
@@ -969,7 +1047,8 @@ private fun effectiveTextSizePercent(profile: SurfaceProfile): Int = when (profi
 private fun choiceDisplayLabel(
     context: android.content.Context,
     kind: AodChoiceKind,
-    value: String
+    value: String,
+    customFontNames: Map<String, String> = emptyMap()
 ): String = when (kind) {
     AodChoiceKind.POSITION -> context.getString(when (value) {
         "below_stock_clock" -> R.string.option_below_clock
@@ -1005,14 +1084,18 @@ private fun choiceDisplayLabel(
     } else {
         value
     }
-    AodChoiceKind.FONT -> context.getString(when (value) {
-        "noto" -> R.string.option_noto_sans
-        "spotify" -> R.string.option_spotify_mix
-        "apple" -> R.string.option_sf_pro_display
-        LyricTypefaceResolver.FAMILY_NOTO_SC -> R.string.option_noto_sans_sc
-        LyricTypefaceResolver.FAMILY_CUSTOM -> R.string.option_custom_font
-        else -> R.string.option_noto_sans
-    })
+    AodChoiceKind.FONT -> CustomFontContract.fontIdOf(value)
+        ?.let { id ->
+            customFontNames[id]?.takeIf { it.isNotBlank() }
+                ?: context.getString(R.string.option_custom_font)
+        }
+        ?: context.getString(when (value) {
+            "noto" -> R.string.option_noto_sans
+            "spotify" -> R.string.option_spotify_mix
+            "apple" -> R.string.option_sf_pro_display
+            LyricTypefaceResolver.FAMILY_NOTO_SC -> R.string.option_noto_sans_sc
+            else -> R.string.option_noto_sans
+        })
     AodChoiceKind.TEXT_BRIGHTNESS -> context.getString(
         if (value == "dimmed") R.string.option_dimmed else R.string.option_default
     )

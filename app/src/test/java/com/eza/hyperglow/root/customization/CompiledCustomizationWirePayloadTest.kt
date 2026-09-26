@@ -172,6 +172,54 @@ class CompiledCustomizationWirePayloadTest {
     }
 
     @Test
+    fun customFontFamilyRoundTripsWithoutValidateMutation() {
+        // 自定义字体令牌若被 SystemUI 校验器改写,CompiledCustomizationBundleCodec 会以
+        // validate_rewrote_fields 整包拒收 —— 表现即"字体只在预览生效、实机不变"。
+        val document = SceneCompiler.safeDefaultDocument().copy(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(fontFamily = "custom:legacy"),
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(fontFamily = "custom:yzzqdbtb")
+            )
+        )
+        val configuration = SceneCompiler.compile(document)
+
+        assertEquals(
+            "custom:yzzqdbtb",
+            configuration.profiles.getValue(SceneCompiler.SURFACE_AOD).fontFamily
+        )
+        val payload = CompiledCustomizationBundleCodec.toWirePayload(configuration, userId = 10)
+        val rejections = ArrayList<String>()
+        val parsed = CompiledCustomizationBundleCodec.fromWirePayload(
+            payload,
+            expectedUserId = 10,
+            onReject = { rejections += it }
+        )
+
+        assertTrue("payload rejected: $rejections", rejections.isEmpty())
+        assertEquals(configuration, parsed)
+        assertEquals(
+            "custom:legacy",
+            parsed?.profiles?.get(SceneCompiler.SURFACE_LOCKSCREEN)?.fontFamily
+        )
+    }
+
+    @Test
+    fun unsafeFontFamilyTokenIsNormalizedAtCompileTime() {
+        val document = SceneCompiler.safeDefaultDocument().copy(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(fontFamily = "custom:../escape"),
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(fontFamily = "custom:../escape")
+            )
+        )
+        val configuration = SceneCompiler.compile(document)
+
+        assertEquals(
+            "spotify",
+            configuration.profiles.getValue(SceneCompiler.SURFACE_AOD).fontFamily
+        )
+    }
+
+    @Test
     fun rejectionReasonsClassifyEachFailurePath() {
         val configuration = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
         val payload = CompiledCustomizationBundleCodec.toWirePayload(configuration, userId = 10)

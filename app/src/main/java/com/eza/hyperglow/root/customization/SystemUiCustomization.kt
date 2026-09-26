@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.customization
 import android.os.Bundle
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
+import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.WidgetSpec
 import com.eza.hyperglow.customization.normalizeCardAlpha
@@ -129,7 +130,9 @@ internal object SystemUiCustomizationValidator {
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",
             textSizeCustom = profile.textSizeCustom.coerceIn(50, 200),
-            fontFamily = profile.fontFamily.takeIf { it in FONT_FAMILIES } ?: "spotify",
+            fontFamily = profile.fontFamily.takeIf {
+                it in FONT_FAMILIES || CustomFontContract.isCustomFontFamily(it)
+            } ?: "spotify",
             animation = when {
                 aod && profile.animation != "Minimal" -> "Gradient"
                 profile.animation in ANIMATIONS -> profile.animation
