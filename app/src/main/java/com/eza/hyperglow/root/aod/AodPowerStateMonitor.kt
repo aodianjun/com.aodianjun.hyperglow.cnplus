@@ -65,7 +65,10 @@ internal object AodPowerStateMonitor {
     @Synchronized
     fun attach(context: Context) {
         if (attached) return
-        val app = context.applicationContext
+        // 宿主包 context 可能没有 Application 对象,applicationContext 属性返回 null
+        // (真机 NPE 根因,同 AodLyricClient 的回退形态):回落 context 本身,
+        // registerReceiver/getSystemService 用普通 context 照常可用。
+        val app = context.applicationContext ?: context
         val battery = readBatteryState(app)
         batteryPercent = battery.first
         charging = battery.second

@@ -102,6 +102,39 @@ class ArchitectureGuardTest {
         assertTrue("render-math literals in PreviewComponents: $hit", hit.isEmpty())
     }
 
+    @Test
+    fun systemUiHostContextApplicationAlwaysFallsBack() {
+        // SystemUI 侧 root/** 拿到的是宿主包 context,宿主 Application 对象可能不存在,
+        // applicationContext 会返回 null(真机 NPE:AodPowerStateMonitor.attach 炸掉
+        // buildSurface,息屏歌词 surface 整段空白):凡取 applicationContext 必须 ?: 回退。
+        val base = mainSourceDir() ?: return
+        val rootDir = File(base, "root")
+        assumeTrue("scope root exists", rootDir.isDirectory)
+        val marker = Regex("""\.applicationContext(?!\s*\?:)""")
+        val violations = mutableListOf<String>()
+        for (file in kotlinSources(rootDir)) {
+            val text = runCatching { file.readText() }.getOrNull() ?: continue
+            if (marker.containsMatchIn(text)) {
+                violations += file.relativeTo(base).invariantSeparatorsPath
+            }
+        }
+        assertTrue("root applicationContext without ?: fallback in: $violations", violations.isEmpty())
+    }
+
+    @Test
+    fun powerMonitorAttachNeverAbortsSurfaceBuild() {
+        // 省电降帧是纯优化:AodPowerStateMonitor.attach 失败不得中断 AOD surface 构建
+        // (真机 NPE 曾致息屏整段空白),必须 runCatching 隔离、失败仅降级 saver。
+        val base = mainSourceDir() ?: return
+        val controller = File(base, "root/aod/AodSurfaceController.kt")
+        assertTrue("root/aod/AodSurfaceController.kt exists", controller.isFile)
+        val marker = Regex("""runCatching\s*\{\s*AodPowerStateMonitor\.attach\(""")
+        assertTrue(
+            "AodPowerStateMonitor.attach must be wrapped in runCatching",
+            marker.containsMatchIn(controller.readText())
+        )
+    }
+
     // --- helpers ---
 
     private fun mainSourceDir(): File? {

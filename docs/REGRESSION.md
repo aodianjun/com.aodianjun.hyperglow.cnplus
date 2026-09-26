@@ -36,6 +36,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
 
 | Date | Version | Area | Result | Device + SystemUI/AOD | Evidence | Notes |
 |---|---|---|---|---|---|---|
+| 2026-09-26 | 0.3.116 (143) | AOD wake and keepalive | fail | Redmi K80 Pro (`miro`) / DEV-2327.0.0.1-03022115 (22327001) | trace-observed | AOD lyrics surface never attaches on doze: `AodPowerStateMonitor.attach` NPE (null `applicationContext` in the host package context) aborts `buildSurface`, `Attach failed` on every screen-off (regression since 0.3.114 / #72). Fix (context fallback + attach isolation) lands with this entry; update to pass + device-verified after hardware re-check. |
 
 ## Known unverified paths
 
@@ -45,6 +46,10 @@ and (b) unverified paths stay explicit instead of silently assumed.
   path (preview-device font unification) — pending a hardware smoke check after merge.
 - Line breaking/row metrics after the shared `LyricLayoutEngine` extraction (verbatim algorithm
   move) — pending a hardware smoke check of lyric wrapping/line spacing after merge.
+- AOD surface attach resilience fix (power-monitor `attach` null-context fallback + runCatching
+  isolation, ArchitectureGuardTest-guarded) — pending a hardware smoke check: screen-off must show
+  lyrics and `adb logcat -s HyperGlow` must show `Power state monitor attached` with no
+  `Attach failed`.
 - "Second line as secondary text" auxiliary presentation (`secondaryNextLine` switch: next lyric
   line drawn with secondary-text styling, replacing the standalone next-line row) — pending a
   hardware smoke check after merge.
@@ -95,12 +100,14 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 
 | 日期 | 版本 | 领域 | 结果 | 设备 + SystemUI/AOD | 证据 | 备注 |
 |---|---|---|---|---|---|---|
+| 2026-09-26 | 0.3.116 (143) | AOD 唤醒与 keepalive | fail | Redmi K80 Pro (`miro`) / DEV-2327.0.0.1-03022115 (22327001) | trace-observed | 息屏时 AOD 歌词 surface 从未挂载：`AodPowerStateMonitor.attach` NPE（宿主包 context 的 `applicationContext` 为 null）炸掉 `buildSurface`，每次息屏 `Attach failed`（0.3.114 / #72 引入的回归）。修复（context 回退 + attach 隔离）随本条目落地；真机复验后更新为 pass + device-verified。 |
 
 ## 已知未验证路径
 
 - AOD 上逐帧 60 FPS 动画（`docs/ARCHITECTURE.md`："remains unverified and is not a contract"）。
 - 实机 `custom`/`noto-sc` 字体经统一 `LyricTypefaceResolver` 路径渲染（预览/实机字体同源）——合并后待真机冒烟确认。
 - 共享 `LyricLayoutEngine` 抽取后的断行/行距（算法逐字迁移）——合并后待真机冒烟歌词折行与行距无回归。
+- AOD surface 挂载韧性修复（power monitor `attach` 空 context 回退 + runCatching 隔离，ArchitectureGuardTest 守卫）——合并后待真机冒烟：息屏必须显示歌词，`adb logcat -s HyperGlow` 出现 `Power state monitor attached` 且无 `Attach failed`。
 - 「辅助文字显示第二行歌词」呈现（`secondaryNextLine` 开关：下一行歌词按辅助文字样式绘制并取代独立下一行行）——合并后待真机冒烟确认。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
