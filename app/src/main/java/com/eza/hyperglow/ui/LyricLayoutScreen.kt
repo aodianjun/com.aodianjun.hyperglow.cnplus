@@ -62,7 +62,6 @@ import com.eza.hyperglow.customization.METADATA_SEPARATORS
 import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
-import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.customization.metadataSeparatorText
 import com.eza.hyperglow.customization.normalizeArtworkShape
@@ -283,8 +282,7 @@ internal fun LyricLayoutScreen(
                     profile = compiledPreviewProfile,
                     scenario = editorState.selectedSurface,
                     metadataParts = editorState.document.metadataParts,
-                    metadataSeparator = editorState.document.metadataSeparator,
-                    artwork = artworkDisplayConfig(editorState.document)
+                    metadataSeparator = editorState.document.metadataSeparator
                 )
             }
             LazyColumn(
@@ -503,29 +501,29 @@ internal fun LyricLayoutScreen(
                         }
                         // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 旋转(仅圆形)。
                         SwitchPreference(
-                            editorState.document.artworkVisible,
-                            { visible -> updateDocument { it.copy(artworkVisible = visible) } },
+                            selectedProfile.artworkVisible,
+                            { visible -> updateSelected { it.copy(artworkVisible = visible) } },
                             stringResource(R.string.setting_show_song_artwork)
                         )
-                        if (editorState.document.artworkVisible) {
+                        if (selectedProfile.artworkVisible) {
                             AodChoiceRow(
                                 AodChoiceKind.SONG_ARTWORK_SHAPE,
-                                editorState.document.artworkShape
+                                selectedProfile.artworkShape
                             ) {
                                 openChoice(
                                     AodChoiceKind.SONG_ARTWORK_SHAPE,
                                     ARTWORK_SHAPES,
-                                    editorState.document.artworkShape
+                                    selectedProfile.artworkShape
                                 ) { value ->
-                                    updateDocument {
+                                    updateSelected {
                                         it.copy(artworkShape = normalizeArtworkShape(value))
                                     }
                                 }
                             }
-                            if (editorState.document.artworkShape == ARTWORK_SHAPE_CIRCLE) {
+                            if (selectedProfile.artworkShape == ARTWORK_SHAPE_CIRCLE) {
                                 SwitchPreference(
-                                    editorState.document.artworkSpin,
-                                    { spin -> updateDocument { it.copy(artworkSpin = spin) } },
+                                    selectedProfile.artworkSpin,
+                                    { spin -> updateSelected { it.copy(artworkSpin = spin) } },
                                     stringResource(R.string.setting_song_artwork_spin)
                                 )
                             }

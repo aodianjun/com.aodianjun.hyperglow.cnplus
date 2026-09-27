@@ -108,16 +108,20 @@ and (b) unverified paths stay explicit instead of silently assumed.
   not "no track". Note: intentional behavior change — a stale paused preferred state now yields
   to another source that is playing and has lyric content (it still never yields to a
   content-less source).
-- Song artwork display (document-level `artworkVisible` / `artworkShape` / `artworkSpin`, shared
-  by both surfaces): the verified current-playing-music-software album art (playing media session,
-  package + track identity match against the displayed song; stale playback-window art rejected)
-  shows in one slot immediately left of the song-info block, square or circle, with optional
-  circle-only uniform rotation (12s/turn, same cadence gates as timed lyrics) — pending a hardware
-  smoke check after merge: toggle off shows no artwork; with a song playing in the music app the
-  artwork appears left of song info and is that song's cover (pause/switch tracks updates it);
-  a non-playing or mismatched session shows nothing; circle clips round and spins only when the
-  rotation switch is on (square never spins); layout keeps the group aligned at each song-info
-  alignment and hidden surfaces draw no spin frames (power gates).
+- Song artwork display (per-surface `artworkVisible` / `artworkShape` / `artworkSpin` on each
+  surface profile — lockscreen and AOD configure them independently; documents saved before the
+  move seed both profiles once from the stored global values): the verified
+  current-playing-music-software album art (playing media session, package + track identity match
+  against the displayed song; stale playback-window art rejected) shows in one slot immediately
+  left of the song-info block, square or circle, with optional circle-only uniform rotation
+  (12s/turn, same cadence gates as timed lyrics) — pending a hardware smoke check after merge:
+  toggle off shows no artwork; with a song playing in the music app the artwork appears left of
+  song info and is that song's cover (pause/switch tracks updates it); a non-playing or mismatched
+  session shows nothing; circle clips round and spins only when the rotation switch is on (square
+  never spins); layout keeps the group aligned at each song-info alignment and hidden surfaces
+  draw no spin frames (power gates); toggling artwork on one surface leaves the other surface's
+  artwork setting (toggle/shape/rotation) untouched, and switching the appearance editor between
+  lockscreen and AOD shows each surface's own values.
 - HyperLyric line-change preset replication (all 25 presets selectable under the line transition
   option under their original ids, plus the compatibility short names `Fade left`/`Landing`/
   `Slide swap` which normalize to the matching preset ids: sequential out-then-in switching with
@@ -206,7 +210,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   播放」显示曲目而非「暂无曲目」且播放中持续跟随；暂停后 AOD 保持冻结歌词行并显示已暂停，
   而不是「暂无曲目」。注意：有意行为变更——首选源冻结暂停时会把位置让给「在播且有内容」
   的其他源（仍然绝不让位给无歌词内容的源）。
-- 歌曲图片显示(文档级 `artworkVisible`/`artworkShape`/`artworkSpin`,息屏与锁屏共用):经校对的「当前播放的音乐软件」专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致;系统播放窗口滞留的旧封面拒收)显示在歌曲信息块左侧单槽,方形/圆形可选,圆形可选匀速旋转(12 秒/圈,与逐字歌词共用节拍门)——合并后待真机冒烟:开关关闭无封面;音乐 App 播放时封面出现在歌曲信息左侧且是当前歌曲的封面(暂停/切歌随之更新);非在播或曲目不匹配的会话不显示;圆形为圆形裁切且仅旋转开关打开时旋转(方形恒不旋转);各歌曲信息对齐下「图片+文本」成组落位不散架;隐藏 surface 不起旋转帧(功耗门控)。
+- 歌曲图片显示(per-surface `artworkVisible`/`artworkShape`/`artworkSpin`,锁屏与息屏各自独立;旧文档的文档级全局值在首次读取时一次性播种到两个曲面):经校对的「当前播放的音乐软件」专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致;系统播放窗口滞留的旧封面拒收)显示在歌曲信息块左侧单槽,方形/圆形可选,圆形可选匀速旋转(12 秒/圈,与逐字歌词共用节拍门)——合并后待真机冒烟:开关关闭无封面;音乐 App 播放时封面出现在歌曲信息左侧且是当前歌曲的封面(暂停/切歌随之更新);非在播或曲目不匹配的会话不显示;圆形为圆形裁切且仅旋转开关打开时旋转(方形恒不旋转);各歌曲信息对齐下「图片+文本」成组落位不散架;隐藏 surface 不起旋转帧(功耗门控);锁屏与息屏的图片开关/形状/旋转互不联动(改一边另一边不变)。
 - HyperLyric 换行预设全量复刻(换行动画选项内 25 个预设按原 id 列出,另有兼容短名
   `Fade left`/`Landing`/`Slide swap` 归一到对应预设 id:序列式退场→换字→进场,各档运动/
   缓动/时长与 HyperLyric `YoYoPresets` + daimajia 2.4 逐项一致——1/4 宽高淡出漂移、整宽高

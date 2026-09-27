@@ -1,10 +1,11 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
+import com.eza.hyperglow.customization.ARTWORK_SHAPE_SQUARE
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.customization.WidgetSpec
-import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricWord
@@ -270,7 +271,7 @@ class AodCanvasLayoutTest {
     }
 
     @Test
-    fun canvasContentCarriesArtworkDisplayConfigAndFrame() {
+    fun canvasContentCarriesPerSurfaceArtworkConfigAndFrame() {
         val snapshot = LyricSnapshot(
             original = "line",
             metadata = "Song · Artist",
@@ -279,20 +280,38 @@ class AodCanvasLayoutTest {
         )
         val compiled = SceneCompiler.compile(
             CustomizationDocument(
-                artworkVisible = true,
-                artworkShape = com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE,
-                artworkSpin = true
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        artworkVisible = true,
+                        artworkShape = ARTWORK_SHAPE_CIRCLE,
+                        artworkSpin = true
+                    )
+                )
             )
         )
 
-        val content = snapshot.toAodCanvasContent(artwork = artworkDisplayConfig(compiled))
+        // 歌曲图片为 per-surface:锁屏开圆形旋转、息屏默认关,两面互不影响。
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        val content = snapshot.toAodCanvasContent(lockscreen)
         assertEquals(true, content.artworkVisible)
-        assertEquals(com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE, content.artworkShape)
+        assertEquals(ARTWORK_SHAPE_CIRCLE, content.artworkShape)
         assertEquals(true, content.artworkSpin)
         assertEquals("com.music.player|song|artist", content.artworkKey)
         assertTrue(content.artworkJpeg.contentEquals(byteArrayOf(1, 2, 3)))
 
-        // 显示门槛 = ArtworkDisplayConfig.visible(渲染侧再叠帧非空);帧恒随快照透传,
+        val aod = snapshot.toAodCanvasContent(
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        )
+        assertEquals(false, aod.artworkVisible)
+        assertTrue(aod.artworkJpeg.contentEquals(byteArrayOf(1, 2, 3)))
+
+        // 方形下残留 spin=true 不生效(渲染/预览统一读生效值)。
+        val square = snapshot.toAodCanvasContent(
+            lockscreen.copy(artworkShape = ARTWORK_SHAPE_SQUARE)
+        )
+        assertEquals(false, square.artworkSpin)
+
+        // 显示门槛 = profile 的 artworkVisible(渲染侧再叠帧非空);帧恒随快照透传,
         // 默认配置只关显示不丢帧(曲目帧与显示开关解耦)。
         val defaults = snapshot.toAodCanvasContent()
         assertEquals(false, defaults.artworkVisible)

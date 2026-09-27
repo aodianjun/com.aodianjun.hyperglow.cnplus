@@ -144,4 +144,30 @@ class SongMetadataComposeTest {
         assertEquals(false, ArtworkDisplayConfig().visible)
         assertEquals(ARTWORK_SHAPE_SQUARE, ArtworkDisplayConfig().shape)
     }
+
+    @Test
+    fun artworkDisplayConfigReadsPerSurfaceProfile() {
+        val compiled = SceneCompiler.compile(
+            SceneCompiler.safeDefaultDocument().copy(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        artworkVisible = true,
+                        artworkShape = ARTWORK_SHAPE_CIRCLE,
+                        artworkSpin = true
+                    )
+                )
+            )
+        )
+        // 息屏开、锁屏关:显示配置各读自己的 profile,不再由文档级全局配置派生。
+        val aod = artworkDisplayConfig(compiled.profiles.getValue(SceneCompiler.SURFACE_AOD))
+        assertEquals(true, aod.visible)
+        assertEquals(ARTWORK_SHAPE_CIRCLE, aod.shape)
+        assertEquals(true, aod.spins)
+
+        val lockscreen = artworkDisplayConfig(
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        )
+        assertEquals(false, lockscreen.visible)
+        assertEquals(false, lockscreen.spins)
+    }
 }

@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
+import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.aod.enterTransitionMs
@@ -183,7 +184,7 @@ internal fun AppearanceLivePreview(
     scenario: String,
     metadataParts: String,
     metadataSeparator: String,
-    artwork: ArtworkDisplayConfig = ArtworkDisplayConfig(),
+    artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     modifier: Modifier = Modifier
 ) {
     val live = collectLiveSnapshot(metadataParts, metadataSeparator)
@@ -219,7 +220,7 @@ internal fun LyricPreviewCard(
     metadataParts: String,
     metadataSeparator: String,
     modifier: Modifier,
-    artwork: ArtworkDisplayConfig = ArtworkDisplayConfig()
+    artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile)
 ) {
     Card(modifier = modifier) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
@@ -255,7 +256,7 @@ private fun LyricPreviewSurface(
     live: LyricSnapshot?,
     metadataParts: String,
     metadataSeparator: String,
-    artwork: ArtworkDisplayConfig = ArtworkDisplayConfig(),
+    artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。

@@ -17,7 +17,6 @@ import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.customization.CompiledCustomization
-import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
@@ -696,10 +695,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         if (!layoutSurface(root, burnInContainer, directSurface)) return
         lyricCanvas?.setContent(
-                    resolvedSnapshot.toAodCanvasContent(
-                        effectiveAodProfile(),
-                        artworkDisplayConfig(customization)
-                    )
+                    resolvedSnapshot.toAodCanvasContent(effectiveAodProfile())
                 )
         lastRenderContent = renderContent
         lyricCanvas?.visibility = if (demo) View.GONE else View.VISIBLE
@@ -1549,10 +1545,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     !it.metadata.startsWith("AOD DEMO")
                 }?.let {
                     lyricCanvas?.setContent(
-                        it.toAodCanvasContent(
-                            nextRuntimeProfile,
-                            artworkDisplayConfig(customization)
-                        )
+                        it.toAodCanvasContent(nextRuntimeProfile)
                     )
                     lastRenderContent = it.renderContent()
                 }
@@ -1639,10 +1632,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             lyricCanvas?.visibility != View.VISIBLE
         ) {
             lyricCanvas?.setContent(
-                    snapshot.toAodCanvasContent(
-                        effectiveAodProfile(),
-                        artworkDisplayConfig(customization)
-                    )
+                    snapshot.toAodCanvasContent(effectiveAodProfile())
                 )
             lyricCanvas?.visibility = View.VISIBLE
         }

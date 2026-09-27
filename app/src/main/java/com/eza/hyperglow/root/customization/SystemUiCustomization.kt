@@ -60,6 +60,9 @@ internal object SystemUiCustomizationValidator {
                 collisionPolicy = rawLockscreen.collisionPolicy,
                 widgets = rawLockscreen.widgets,
                 metadataVisible = rawLockscreen.metadataVisible,
+                artworkVisible = rawLockscreen.artworkVisible,
+                artworkShape = rawLockscreen.artworkShape,
+                artworkSpin = rawLockscreen.artworkSpin,
                 backgroundStyle = rawLockscreen.backgroundStyle,
                 cardAlpha = rawLockscreen.cardAlpha,
                 cardColor = rawLockscreen.cardColor
@@ -83,9 +86,6 @@ internal object SystemUiCustomizationValidator {
                 pauseLingerMs = normalizePauseLingerMs(configuration.pauseLingerMs),
                 metadataParts = normalizeMetadataParts(configuration.metadataParts),
                 metadataSeparator = normalizeMetadataSeparator(configuration.metadataSeparator),
-                artworkVisible = configuration.artworkVisible,
-                artworkShape = normalizeArtworkShape(configuration.artworkShape),
-                artworkSpin = configuration.artworkSpin,
                 profiles = profiles
             )
         )
@@ -139,6 +139,9 @@ internal object SystemUiCustomizationValidator {
             metadataSizePercent = profile.metadataSizePercent.coerceIn(50, 200),
             metadataAlignment = profile.metadataAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             nextLineAlignment = profile.nextLineAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
+            artworkVisible = profile.artworkVisible,
+            artworkShape = normalizeArtworkShape(profile.artworkShape),
+            artworkSpin = profile.artworkSpin,
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",
             textSizeCustom = profile.textSizeCustom.coerceIn(50, 200),

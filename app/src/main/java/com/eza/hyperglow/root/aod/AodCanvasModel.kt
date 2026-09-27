@@ -74,7 +74,7 @@ internal data class AodCanvasContent(
     val artworkJpeg: ByteArray = ByteArray(0),
     /** 封面稳定键;空串=无封面,画布按帧缓存解码位图。 */
     val artworkKey: String = "",
-    /** 歌曲图片显示开关(外观文档全局配置,见 ArtworkDisplayConfig)。 */
+    /** 歌曲图片显示开关(per-surface profile 配置,见 ArtworkDisplayConfig)。 */
     val artworkVisible: Boolean = false,
     /** 歌曲图片形状 token(square/circle),见 [com.eza.hyperglow.customization.ARTWORK_SHAPES]。 */
     val artworkShape: String = "square",

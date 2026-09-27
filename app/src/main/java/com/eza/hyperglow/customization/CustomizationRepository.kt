@@ -162,7 +162,31 @@ object CustomizationRepository {
                 else -> return null
             }
         }
-        return migrated
+        return seedArtworkLegacyCarriers(migrated)
+    }
+
+    /**
+     * 歌曲图片三项从文档级下沉到 per-surface(锁屏/息屏各自独立)的一次性播种:
+     * 旧文档里文档级载体非空时,把旧值复制进两个曲面 profile,并清空载体
+     * (回写文档时不再携带,保证只播种一次)。新文档载体为 null,原样返回。
+     */
+    private fun seedArtworkLegacyCarriers(document: CustomizationDocument): CustomizationDocument {
+        val legacyVisible = document.artworkVisible
+        val legacyShape = document.artworkShape
+        val legacySpin = document.artworkSpin
+        if (legacyVisible == null && legacyShape == null && legacySpin == null) return document
+        return document.copy(
+            artworkVisible = null,
+            artworkShape = null,
+            artworkSpin = null,
+            profiles = document.profiles.mapValues { (_, profile) ->
+                profile.copy(
+                    artworkVisible = legacyVisible ?: profile.artworkVisible,
+                    artworkShape = legacyShape ?: profile.artworkShape,
+                    artworkSpin = legacySpin ?: profile.artworkSpin
+                )
+            }
+        )
     }
 
     internal fun canonicalizeDocument(document: CustomizationDocument): CustomizationDocument? {
@@ -176,9 +200,6 @@ object CustomizationRepository {
             linkSurfaces = compiled.linkSurfaces,
             metadataParts = compiled.metadataParts,
             metadataSeparator = compiled.metadataSeparator,
-            artworkVisible = compiled.artworkVisible,
-            artworkShape = compiled.artworkShape,
-            artworkSpin = compiled.artworkSpin,
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to compiled.profiles
                     .getValue(SceneCompiler.SURFACE_LOCKSCREEN)
@@ -223,6 +244,9 @@ object CustomizationRepository {
         metadataSizePercent = metadataSizePercent,
         metadataAlignment = metadataAlignment,
         nextLineAlignment = nextLineAlignment,
+        artworkVisible = artworkVisible,
+        artworkShape = artworkShape,
+        artworkSpin = artworkSpin,
         rubyVisible = rubyVisible,
         weight = weight,
         textSize = textSize,
