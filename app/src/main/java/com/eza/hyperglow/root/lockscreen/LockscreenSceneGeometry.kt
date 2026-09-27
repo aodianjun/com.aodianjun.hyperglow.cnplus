@@ -103,7 +103,8 @@ internal fun lockscreenCardRegionAfterNotifications(
 internal fun estimatedLockscreenSceneHeight(
     profile: CompiledSurfaceProfile,
     density: Float,
-    fontScale: Float = 1f
+    fontScale: Float = 1f,
+    metadataExtraLines: Int = 0
 ): Float {
     val textScale = textSizeModeMultiplier(profile.textSize, profile.textSizeCustom) *
         fontScale.coerceIn(0.8f, 1.5f)
@@ -115,7 +116,11 @@ internal fun estimatedLockscreenSceneHeight(
     }) + if (profile.secondaryNextLine) 1 else 0
     val metadataHeight = if (profile.metadataVisible &&
         profile.widgets.any { it.type == "metadata" }
-    ) metadataWidgetHeightDp(profile.metadataSizePercent) else 0f
+    ) {
+        metadataWidgetHeightDp(profile.metadataSizePercent, metadataExtraLines)
+    } else {
+        0f
+    }
     val progressHeight = if (profile.widgets.any { it.type == "media_progress" }) {
         PROGRESS_HEIGHT_DP + PROGRESS_GAP_DP
     } else {

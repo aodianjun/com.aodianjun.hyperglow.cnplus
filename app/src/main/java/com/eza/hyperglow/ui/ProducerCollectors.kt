@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
+import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.LyricSource
@@ -67,16 +68,25 @@ internal fun collectConnection(source: LyricSource): androidx.compose.runtime.St
  * 当前歌词源上报的 [LyricProducerState],映射成预览所需的 [LyricSnapshot]。无实时数据时返回
  * null,由调用方回退到静态示例快照。
  *
+ * 歌曲信息按 [metadataParts]/[metadataSeparator](外观文档全局配置)用与实机投影层相同的
+ * [composeSongMetadata] 组装,保证预览与实机所见即所得。
+ *
  * 注意:不从这里读 SystemUiLyricProjection —— 那是 SystemUI 侧投影,app 进程内并不保证
  * 被喂入实时快照,会导致预览不更新。
  */
 @Composable
-internal fun collectLiveSnapshot(): LyricSnapshot? {
+internal fun collectLiveSnapshot(
+    metadataParts: String,
+    metadataSeparator: String
+): LyricSnapshot? {
     val active by collectActiveState()
-    return active?.toPreviewSnapshot()
+    return active?.toPreviewSnapshot(metadataParts, metadataSeparator)
 }
 
-private fun LyricProducerState.toPreviewSnapshot(): LyricSnapshot = LyricSnapshot(
+private fun LyricProducerState.toPreviewSnapshot(
+    metadataParts: String,
+    metadataSeparator: String
+): LyricSnapshot = LyricSnapshot(
     revision = sequence,
     trackGeneration = generation.toLong(),
     updatedAtElapsedMs = sampledAtElapsedMs,
@@ -85,10 +95,13 @@ private fun LyricProducerState.toPreviewSnapshot(): LyricSnapshot = LyricSnapsho
     romanized = romanizedLine,
     translated = translatedLine,
     nextLine = nextLine,
-    metadata = listOfNotNull(
-        title.takeIf { it.isNotBlank() },
-        artist.takeIf { it.isNotBlank() }
-    ).joinToString(" · ").ifBlank { "HyperGlow" },
+    metadata = composeSongMetadata(
+        title = title,
+        artist = artist,
+        album = album,
+        parts = metadataParts,
+        separator = metadataSeparator
+    ).ifBlank { "HyperGlow" },
     alignedRight = alignedRight,
     lineLevelSync = words == null,
     lineStartMs = lineStartMs,

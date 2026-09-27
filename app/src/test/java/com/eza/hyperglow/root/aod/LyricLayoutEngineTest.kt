@@ -107,13 +107,32 @@ class LyricLayoutEngineTest {
     }
 
     @Test
-    fun metadataSplitsOnSeparatorAndCapsTwoLines() {
-        val lines = layoutMetadataLines(
-            text = "Song Title · The Artist Name",
+    fun metadataSplitsOnLineBreaksAndCapsThreeLines() {
+        // 换行分隔符:每个切片一行;歌名/歌手/专辑最多 MAX_METADATA_LAYOUT_LINES(3) 行。
+        // 宽度 100f 保证每个切片(最长 "Artist"=60f)放得下一行,不触发超宽 token 切片。
+        val three = layoutMetadataLines(
+            text = "Song\nArtist\nAlbum",
             metrics = mono(),
-            availableWidth = 50f
+            availableWidth = 100f
         )
-        assertEquals(listOf("Song", "Title"), lines.map { it.text })
-        assertTrue(lines.size <= MAX_SECONDARY_LAYOUT_LINES)
+        assertEquals(listOf("Song", "Artist", "Album"), three.map { it.text })
+        val four = layoutMetadataLines(
+            text = "One\nTwo\nThree\nFour",
+            metrics = mono(),
+            availableWidth = 100f
+        )
+        assertEquals(MAX_METADATA_LAYOUT_LINES, four.size)
+        assertTrue(four.size <= MAX_METADATA_LAYOUT_LINES)
+    }
+
+    @Test
+    fun metadataInlineMiddleDotIsNotALineBoundary() {
+        // 行内分隔符可能含 '·'(如 " · "),不再被当作行边界;放得下时保持单行。
+        val lines = layoutMetadataLines(
+            text = "Song · Artist",
+            metrics = mono(),
+            availableWidth = 200f
+        )
+        assertEquals(listOf("Song · Artist"), lines.map { it.text })
     }
 }

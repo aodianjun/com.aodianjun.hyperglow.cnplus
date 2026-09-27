@@ -26,6 +26,9 @@ internal const val LYRIC_WORD_GAP_DP = 8f
 /** 副文本(音标/翻译/下一行)与歌曲信息的最大换行行数。 */
 internal const val MAX_SECONDARY_LAYOUT_LINES = 2
 
+/** 歌曲信息切片上限:歌名/歌手/专辑各占一行时最多 3 行。 */
+internal const val MAX_METADATA_LAYOUT_LINES = 3
+
 /** 行块上方留白(dp):主歌词行/副文本行/下一行(歌曲信息为 0)。 */
 internal const val ROW_GAP_BEFORE_ORIGINAL_DP = 8f
 internal const val ROW_GAP_BEFORE_SECONDARY_DP = 2f
@@ -166,20 +169,21 @@ internal fun layoutSecondaryLines(
 }
 
 /**
- * 歌曲信息(歌名/歌手)专用换行(与实机 wrapMetadataText 同算法):按 '·'/换行拆段,
- * 单行放不下就 token 换行,合计最多 [MAX_SECONDARY_LAYOUT_LINES] 行(不受歌词偏好门控)。
+ * 歌曲信息(歌名/歌手/专辑)专用换行:切片已由投影层按配置的分隔符组装 —— 换行分隔符下
+ * 每个切片一行;行内分隔符(如 " · ")自身可能含 `·`,因此只按硬换行拆段,不再把 `·` 当
+ * 行边界。单行放不下就 token 换行,合计最多 [MAX_METADATA_LAYOUT_LINES] 行(不受歌词偏好门控)。
  */
 internal fun layoutMetadataLines(
     text: String,
     metrics: TextMeasurePort,
     availableWidth: Float
 ): List<LyricLayoutTextLine> {
-    val segments = text.split('\n', '·')
+    val segments = text.split('\n')
     val out = ArrayList<LyricLayoutTextLine>()
     for (segment in segments) {
         val clean = segment.trim()
         if (clean.isEmpty()) continue
-        if (out.size >= MAX_SECONDARY_LAYOUT_LINES) break
+        if (out.size >= MAX_METADATA_LAYOUT_LINES) break
         if (metrics.measure(clean) <= availableWidth) {
             out += LyricLayoutTextLine(clean, metrics.measure(clean))
             continue
@@ -191,7 +195,7 @@ internal fun layoutMetadataLines(
             tokens.map(metrics.measure),
             metrics.measure(" "),
             availableWidth,
-            (MAX_SECONDARY_LAYOUT_LINES - out.size).coerceAtLeast(1)
+            (MAX_METADATA_LAYOUT_LINES - out.size).coerceAtLeast(1)
         )
         out += wrapped.map { line -> LyricLayoutTextLine(line, metrics.measure(line)) }
     }

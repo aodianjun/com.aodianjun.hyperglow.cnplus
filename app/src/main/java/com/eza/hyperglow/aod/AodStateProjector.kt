@@ -1,7 +1,10 @@
 package com.eza.hyperglow.aod
 
 import com.eza.hyperglow.customization.CompiledCustomization
+import com.eza.hyperglow.customization.METADATA_PARTS_DEFAULT
+import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.producer.LyricKind
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricLayoutGroup
@@ -76,11 +79,14 @@ internal fun projectToDisplay(
     }
     val presentable = hasActiveLine || fallbackLine != null
 
-    // --- 元数据 ---
-    val metadata = listOf(state.title, state.artist)
-        .filter { it.isNotBlank() }
-        .joinToString("\n")
-        .replace('·', '\n')
+    // --- 元数据（歌名/歌手/专辑按配置选择切片、按配置分隔符组装；`·` 仍是切片边界）---
+    val metadata = composeSongMetadata(
+        title = state.title,
+        artist = state.artist,
+        album = state.album,
+        parts = compiled?.metadataParts ?: METADATA_PARTS_DEFAULT,
+        separator = compiled?.metadataSeparator ?: METADATA_SEPARATOR_NEWLINE
+    )
 
     // --- 引导大元数据状态（原 project() 的 lyricState 四分支）---
     val lyricState = when {

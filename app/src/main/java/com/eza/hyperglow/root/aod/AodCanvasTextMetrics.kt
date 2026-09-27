@@ -88,8 +88,12 @@ internal fun secondaryTranslationTextSizeSp(baseSp: Float): Float =
 /** 下一行歌词字号(sp):固定 15sp,不随字号档位缩放。 */
 internal fun nextLineTextSizeSp(): Float = 15f
 
-internal fun metadataWidgetHeightDp(percent: Int): Float =
-    22f + 14f * metadataTextSizeMultiplier(percent)
+/**
+ * 元数据小部件的静态高度预算(dp)。基准为历史两行预算;[extraLines] 为超出两行的
+ * 切片行数(歌名/歌手/专辑换行分隔符下选满 3 部分时为 1),每行按一行等比高度追加。
+ */
+internal fun metadataWidgetHeightDp(percent: Int, extraLines: Int = 0): Float =
+    22f + 14f * metadataTextSizeMultiplier(percent) * (1 + extraLines.coerceAtLeast(0))
 
 internal fun originalLineBaseline(
     rowBaseline: Float,

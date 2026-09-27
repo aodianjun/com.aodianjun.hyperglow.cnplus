@@ -8,6 +8,10 @@ data class CustomizationDocument(
     val id: String = "default_continuity",
     val name: String = "Seamless Default",
     val linkSurfaces: Boolean = false,
+    /** 歌曲信息显示部分(歌名/歌手/专辑),见 [METADATA_PARTS] 与 [normalizeMetadataParts];全局生效,同时作用于息屏与锁屏。 */
+    val metadataParts: String = METADATA_PARTS_DEFAULT,
+    /** 歌曲信息分隔符 token,见 [METADATA_SEPARATORS];全局生效,同时作用于息屏与锁屏。 */
+    val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
     val profiles: Map<String, SurfaceProfile> = emptyMap()
 )
 
@@ -90,6 +94,10 @@ data class CompiledCustomization(
     val hash: String,
     val sourceId: String,
     val linkSurfaces: Boolean,
+    /** 歌曲信息显示部分(歌名/歌手/专辑);全局生效,同时作用于息屏与锁屏,由 [CustomizationDocument.metadataParts] 编译而来。 */
+    val metadataParts: String = METADATA_PARTS_DEFAULT,
+    /** 歌曲信息分隔符 token;全局生效,由 [CustomizationDocument.metadataSeparator] 编译而来。 */
+    val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
     val profiles: Map<String, CompiledSurfaceProfile>,
     val pauseLingerMs: Long = 5_000L,
     /** 暂停时显示歌曲信息、歌词:App 端运行时开关,随配置下发到 SystemUI,同时作用于息屏与锁屏驻留。 */
@@ -212,4 +220,82 @@ internal fun normalizeLineTransition(value: String): String =
 internal fun resolveLineTransition(profileValue: String?, sourceValue: String): String = when {
     profileValue == null || profileValue == LINE_TRANSITION_AUTO -> sourceValue
     else -> profileValue
+}
+
+// --- 歌曲信息切片:显示部分与分隔符 ---
+
+/** 歌曲信息切片部分 token。 */
+const val METADATA_PART_TITLE = "title"
+const val METADATA_PART_ARTIST = "artist"
+const val METADATA_PART_ALBUM = "album"
+
+/** 部分的规范顺序(显示顺序恒为该顺序,与选择顺序无关)。 */
+val METADATA_PARTS = listOf(METADATA_PART_TITLE, METADATA_PART_ARTIST, METADATA_PART_ALBUM)
+
+const val METADATA_PARTS_DEFAULT = "title,artist"
+
+/** 每个切片独立成行(历史默认行为)。 */
+const val METADATA_SEPARATOR_NEWLINE = "newline"
+
+/** 歌曲信息分隔符 token 词表;"newline" 为换行,其余为行内分隔符(见 [metadataSeparatorText])。 */
+val METADATA_SEPARATORS = listOf(
+    METADATA_SEPARATOR_NEWLINE,
+    "dot",
+    "hyphen",
+    "pipe",
+    "dunhao",
+    "slash"
+)
+
+/** 分隔符 token 对应的连接文本;"newline" 产出换行符,由画布按行切片。 */
+internal fun metadataSeparatorText(value: String): String = when (value) {
+    "dot" -> " · "
+    "hyphen" -> " - "
+    "pipe" -> " | "
+    "dunhao" -> "、"
+    "slash" -> " / "
+    else -> "\n"
+}
+
+internal fun normalizeMetadataParts(value: String?): String {
+    val requested = value?.split(',')?.map { it.trim() }?.toSet().orEmpty()
+    val parts = METADATA_PARTS.filter { it in requested }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(",") ?: METADATA_PARTS_DEFAULT
+}
+
+internal fun normalizeMetadataSeparator(value: String?): String =
+    value?.takeIf { it in METADATA_SEPARATORS } ?: METADATA_SEPARATOR_NEWLINE
+
+/**
+ * 歌曲信息组装:按 [parts](歌名/歌手/专辑,恒按 [METADATA_PARTS] 规范顺序)取切片,
+ * 以 [separator] 连接。每个部分文本内的 `·` 仍视作切片边界(历史行为:部分音源把
+ * 「歌名·歌手」塞进单字段);切片两端空白裁剪,空切片丢弃。
+ * separator 为 [METADATA_SEPARATOR_NEWLINE] 时切片各占一行,否则全部内联到一行。
+ */
+internal fun composeSongMetadata(
+    title: String,
+    artist: String,
+    album: String,
+    parts: String,
+    separator: String
+): String {
+    val source = mapOf(
+        METADATA_PART_TITLE to title,
+        METADATA_PART_ARTIST to artist,
+        METADATA_PART_ALBUM to album
+    )
+    val slices = normalizeMetadataParts(parts).split(',')
+        .flatMap { source.getValue(it).split('·') }
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+    return slices.joinToString(metadataSeparatorText(normalizeMetadataSeparator(separator)))
+}
+
+/**
+ * 组装后歌曲信息相对「两行」静态预算的额外行数:换行分隔符下选满 3 部分需要 3 行;
+ * 行内分隔符按单行预算(超宽自动折行属于渲染期行为,不计入静态预算)。
+ */
+internal fun metadataExpectedExtraLines(parts: String, separator: String): Int {
+    if (normalizeMetadataSeparator(separator) != METADATA_SEPARATOR_NEWLINE) return 0
+    return (normalizeMetadataParts(parts).split(',').size - 2).coerceAtLeast(0)
 }

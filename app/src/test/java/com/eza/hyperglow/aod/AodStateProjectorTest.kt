@@ -127,7 +127,8 @@ class AodStateProjectorTest {
         generation: Int = 1,
         trackUri: String = "spotify:track:abc",
         title: String = "Title",
-        artist: String = "Artist"
+        artist: String = "Artist",
+        album: String = ""
     ) = LyricProducerState(
         producerId = producerId,
         generation = generation,
@@ -136,7 +137,7 @@ class AodStateProjectorTest {
         trackUri = trackUri,
         title = title,
         artist = artist,
-        album = "",
+        album = album,
         imageId = "",
         line = line,
         romanizedLine = romanizedLine,
@@ -161,7 +162,11 @@ class AodStateProjectorTest {
         language = language
     )
 
-    private fun project(state: LyricProducerState, now: Long = 0L): AodDisplayState =
+    private fun project(
+        state: LyricProducerState,
+        now: Long = 0L,
+        compiled: CompiledCustomization? = this.compiled
+    ): AodDisplayState =
         projectToDisplay(
             state = state,
             now = now,
@@ -622,5 +627,67 @@ class AodStateProjectorTest {
         assertFalse(shouldKeepAodAliveFor(false, true, true, true, true))
         assertFalse(shouldKeepAodAliveFor(true, false, true, true, true))
         assertFalse(shouldKeepAodAliveFor(true, true, false, true, true))
+    }
+
+    // --- 歌曲信息切片:显示部分与分隔符(文档级全局配置)---
+
+    @Test
+    fun metadataComposesTitleAndArtistWithNewlineByDefault() {
+        val s = state(
+            lyricKind = LyricKind.NONE,
+            hasTimedLyrics = false,
+            title = "蝴蝶",
+            artist = "洛天依"
+        )
+        assertEquals("蝴蝶\n洛天依", project(s).metadata)
+    }
+
+    @Test
+    fun metadataHonorsConfiguredPartsAndSeparator() {
+        val s = state(
+            lyricKind = LyricKind.NONE,
+            hasTimedLyrics = false,
+            title = "Song",
+            artist = "Artist",
+            album = "Album"
+        )
+        val out = project(
+            s,
+            compiled = compiled.copy(
+                metadataParts = "title,artist,album",
+                metadataSeparator = "dot"
+            )
+        )
+        assertEquals("Song · Artist · Album", out.metadata)
+    }
+
+    @Test
+    fun metadataPartSelectionDropsUnselectedAndBlankParts() {
+        val s = state(
+            lyricKind = LyricKind.NONE,
+            hasTimedLyrics = false,
+            title = "Song",
+            artist = "Artist",
+            album = "Album"
+        )
+        assertEquals(
+            "Album",
+            project(s, compiled = compiled.copy(metadataParts = "album")).metadata
+        )
+        assertEquals(
+            "Song\nAlbum",
+            project(s, compiled = compiled.copy(metadataParts = "title,album")).metadata
+        )
+        // 未选部分即使有值也不参与组装;历史 jammed「歌名·歌手」仍按切片边界拆开。
+        val jammed = state(
+            lyricKind = LyricKind.NONE,
+            hasTimedLyrics = false,
+            title = "Song·Artist",
+            artist = ""
+        )
+        assertEquals(
+            "Song\nArtist",
+            project(jammed, compiled = compiled.copy(metadataParts = "title")).metadata
+        )
     }
 }

@@ -13,6 +13,7 @@ import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.root.aod.AodLyricCanvasView
 import com.eza.hyperglow.root.aod.AodCanvasVerticalAlignment
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
@@ -575,14 +576,22 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val measured = pendingSnapshot?.toAodCanvasContent(profile)
             ?.copy(metadataVisible = metadataBudgeted)
             ?.let { canvas.measureContentStack(it, measureContentWidth) }
+        val metadataExtraLines = customization?.let {
+            metadataExpectedExtraLines(it.metadataParts, it.metadataSeparator)
+        } ?: 0
         val metadataHeight = when {
             !metadataBudgeted -> 0f
             measured != null -> measured.metadataRowHeightPx
-            else -> metadataWidgetHeightDp(profile.metadataSizePercent) * density
+            else -> metadataWidgetHeightDp(profile.metadataSizePercent, metadataExtraLines) * density
         }
         val desiredHeight = adaptiveLockscreenSceneHeight(
             measuredContentStackPx = measured?.stackHeightPx ?: 0f,
-            estimatedSceneHeightPx = estimatedLockscreenSceneHeight(profile, density, fontScale),
+            estimatedSceneHeightPx = estimatedLockscreenSceneHeight(
+                profile,
+                density,
+                fontScale,
+                metadataExtraLines
+            ),
             progressHeightWithGapPx = progressHeightWithGap,
             cardVerticalPaddingPx = verticalInset * 2f,
             maximumPx = host.height * profile.maxHeightFraction
