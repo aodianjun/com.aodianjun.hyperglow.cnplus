@@ -9,6 +9,9 @@ import org.junit.Test
  * curves (issue #68 换行动画) — and for the frame recipes ([lineTransitionExitFrame] /
  * [lineTransitionEnterFrame]) shared by preview (PreviewComponents) and device
  * (AodLyricCanvasView). Any numeric drift changes both surfaces at once.
+ * Also covers the HyperLyric-referenced sequential modes (`Fade left` / `Landing` /
+ * `Slide swap`): per-mode durations, phase mapping and the referenced curves
+ * (OvershootInterpolator / QuintEaseOut / FastOutLinearIn).
  */
 class AodCanvasTransitionTest {
 
@@ -183,15 +186,128 @@ class AodCanvasTransitionTest {
         for (unknown in listOf("", "slow", "Warp")) {
             assertEquals(1f, lineTransitionDurationScale(unknown), 1e-6f)
         }
-        // 基准 210/130ms 不动;快/慢档按倍率换算且入场始终长于退场(总长由入场决定)。
-        assertEquals(210L, enterTransitionMs("Normal"))
-        assertEquals(130L, exitTransitionMs("Normal"))
-        assertEquals(315L, enterTransitionMs("Slow"))
-        assertEquals(195L, exitTransitionMs("Slow"))
-        assertEquals(126L, enterTransitionMs("Fast"))
-        assertEquals(78L, exitTransitionMs("Fast"))
+        // 历史档基准 210/130ms 不动;快/慢档按倍率换算且入场始终长于退场(总长由入场决定)。
+        assertEquals(210L, enterTransitionMs("Fade up", "Normal"))
+        assertEquals(130L, exitTransitionMs("Fade up", "Normal"))
+        assertEquals(315L, enterTransitionMs("Fade up", "Slow"))
+        assertEquals(195L, exitTransitionMs("Fade up", "Slow"))
+        assertEquals(126L, enterTransitionMs("Fade up", "Fast"))
+        assertEquals(78L, exitTransitionMs("Fade up", "Fast"))
         for (speed in listOf("Slow", "Normal", "Fast")) {
-            assertTrue(enterTransitionMs(speed) > exitTransitionMs(speed))
+            assertTrue(enterTransitionMs("Fade up", speed) > exitTransitionMs("Fade up", speed))
         }
+    }
+
+    @Test
+    fun hyperlyricModesUseSequentialDurationsScaledBySpeed() {
+        // 参考 HyperLyric 档基准:退场 300ms;入场 Fade left/Slide swap 450ms、Landing 700ms。
+        assertEquals(450L, enterTransitionMs("Fade left", "Normal"))
+        assertEquals(300L, exitTransitionMs("Fade left", "Normal"))
+        assertEquals(700L, enterTransitionMs("Landing", "Normal"))
+        assertEquals(300L, exitTransitionMs("Landing", "Normal"))
+        assertEquals(450L, enterTransitionMs("Slide swap", "Normal"))
+        assertEquals(300L, exitTransitionMs("Slide swap", "Normal"))
+        // 速档等比缩放同样作用于参考档。
+        assertEquals(675L, enterTransitionMs("Fade left", "Slow"))
+        assertEquals(450L, exitTransitionMs("Fade left", "Slow"))
+        assertEquals(270L, enterTransitionMs("Fade left", "Fast"))
+        assertEquals(180L, exitTransitionMs("Fade left", "Fast"))
+        assertEquals(1050L, enterTransitionMs("Landing", "Slow"))
+        assertEquals(420L, enterTransitionMs("Landing", "Fast"))
+        // 参考档序列相位;历史档叠加(总长=较长者)。
+        assertTrue(isSequentialLineTransition("Fade left"))
+        assertTrue(isSequentialLineTransition("Landing"))
+        assertTrue(isSequentialLineTransition("Slide swap"))
+        for (mode in listOf("Fade up", "Crossfade", "Slide up", "Slide left", "Zoom", "None")) {
+            assertTrue(!isSequentialLineTransition(mode))
+        }
+        assertEquals(750L, lineTransitionTotalMs("Fade left", "Normal"))
+        assertEquals(1000L, lineTransitionTotalMs("Landing", "Normal"))
+        assertEquals(750L, lineTransitionTotalMs("Slide swap", "Normal"))
+        assertEquals(210L, lineTransitionTotalMs("Fade up", "Normal"))
+    }
+
+    @Test
+    fun sequentialPhasesKeepEnterHiddenUntilExitCompletes() {
+        // 序列档:退场期间入场进度恒 0(新行层不可见),退场完成后才推进入场。
+        assertEquals(0f, lineTransitionEnterProgress(0L, "Fade left", "Normal"), 1e-6f)
+        assertEquals(0f, lineTransitionEnterProgress(150L, "Fade left", "Normal"), 1e-6f)
+        assertEquals(0f, lineTransitionEnterProgress(300L, "Fade left", "Normal"), 1e-6f)
+        assertEquals(0.5f, lineTransitionEnterProgress(300L + 225L, "Fade left", "Normal"), 1e-6f)
+        assertEquals(1f, lineTransitionEnterProgress(750L, "Fade left", "Normal"), 1e-6f)
+        // 退场进度独立推进,与历史档同式。
+        assertEquals(0.5f, lineTransitionExitProgress(150L, "Fade left", "Normal"), 1e-6f)
+        assertEquals(1f, lineTransitionExitProgress(300L, "Fade left", "Normal"), 1e-6f)
+        // 历史档退场/入场共用 elapsed 叠加(入场与退场同时推进)。
+        assertTrue(lineTransitionEnterProgress(150L, "Fade up", "Normal") > 0f)
+    }
+
+    @Test
+    fun hyperlyricFrameRecipesMatchReferencedMotion() {
+        val width = 200f
+        // Fade left 退场(daimajia FadeOutLeft 同参):淡出并左移 1/4 行块宽。
+        val exitMid = lineTransitionExitFrame("Fade left", 0.5f, width)
+        assertEquals(0.5f, exitMid.alpha, 1e-6f)
+        assertEquals(-25f, exitMid.translateXDp, 1e-6f)
+        assertEquals(0f, exitMid.translateYDp, 1e-6f)
+        assertEquals(1f, exitMid.scale, 1e-6f)
+        // Landing 退场与 Fade left 同配方。
+        assertEquals(exitMid, lineTransitionExitFrame("Landing", 0.5f, width))
+        // Slide swap 退场(daimajia SlideOutLeft 同参):淡出并整宽滑出。
+        val slideExit = lineTransitionExitFrame("Slide swap", 0.5f, width)
+        assertEquals(0.5f, slideExit.alpha, 1e-6f)
+        assertEquals(-100f, slideExit.translateXDp, 1e-6f)
+
+        // Fade left 入场(daimajia FadeInRight 同参):自 1/4 宽右侧淡入。
+        val enterStart = lineTransitionEnterFrame("Fade left", 0f, width)
+        assertEquals(0f, enterStart.alpha, 1e-6f)
+        assertEquals(50f, enterStart.translateXDp, 1e-6f)
+        val enterEnd = lineTransitionEnterFrame("Fade left", 1f, width)
+        assertEquals(1f, enterEnd.alpha, 1e-6f)
+        assertEquals(0f, enterEnd.translateXDp, 1e-6f)
+        // 过冲进度短暂 >1:位移越过落位点向左、alpha 钳 1。
+        val overshoot = lineTransitionEnterFrame("Fade left", 1.1f, width)
+        assertEquals(1f, overshoot.alpha, 1e-6f)
+        assertEquals(-5f, overshoot.translateXDp, 1e-6f)
+
+        // Landing 入场(LandingSoft 同参):自 1.2 收落至 1 并淡入。
+        assertEquals(1.2f, lineTransitionEnterFrame("Landing", 0f, width).scale, 1e-6f)
+        assertEquals(1f, lineTransitionEnterFrame("Landing", 1f, width).scale, 1e-6f)
+        assertEquals(0f, lineTransitionEnterFrame("Landing", 0f, width).alpha, 1e-6f)
+        assertEquals(1f, lineTransitionEnterFrame("Landing", 1f, width).alpha, 1e-6f)
+
+        // Slide swap 入场(daimajia SlideInRight 同参):自整宽右侧滑入。
+        val swapStart = lineTransitionEnterFrame("Slide swap", 0f, width)
+        assertEquals(0f, swapStart.alpha, 1e-6f)
+        assertEquals(200f, swapStart.translateXDp, 1e-6f)
+        assertEquals(0f, lineTransitionEnterFrame("Slide swap", 1f, width).translateXDp, 1e-6f)
+    }
+
+    @Test
+    fun hyperlyricEasingsMatchReferencedCurves() {
+        // 过冲(Android OvershootInterpolator 同式):端点钉死、中后段越过 1 再回落。
+        assertEquals(0f, overshootEase(0f, 1.6f), 1e-6f)
+        assertEquals(1f, overshootEase(1f, 1.6f), 1e-6f)
+        assertEquals(1.059375f, overshootEase(0.75f, 1.6f), 1e-4f)
+        assertTrue(overshootEase(0.85f, 1.6f) > 1f)
+        // 五次方缓出(Glider QuintEaseOut 同式):0.5 处恰为 1-0.5⁵。
+        assertEquals(0f, quintOutEase(0f), 1e-6f)
+        assertEquals(1f, quintOutEase(1f), 1e-6f)
+        assertEquals(0.96875f, quintOutEase(0.5f), 1e-6f)
+        // FastOutLinearIn:cubic-bezier(0.4,0,1,1),端点钉死、中段低于线性(加速离场)。
+        assertEquals(0f, fastOutLinearInEase(0f), 1e-4f)
+        assertEquals(1f, fastOutLinearInEase(1f), 1e-4f)
+        assertTrue(fastOutLinearInEase(0.5f) < 0.5f)
+        assertTrue(fastOutLinearInEase(0.5f) > 0.25f)
+        // 分派:历史档沿用原曲线,参考档走各自同源曲线。
+        assertEquals(transitionExitEasing(0.4f), lineTransitionExitEasing("Fade up", 0.4f), 1e-6f)
+        assertEquals(transitionEnterEasing(0.4f), lineTransitionEnterEasing("Fade up", 0.4f), 1e-6f)
+        assertEquals(overshootEase(0.4f, 1.6f), lineTransitionEnterEasing("Fade left", 0.4f), 1e-6f)
+        assertEquals(quintOutEase(0.4f), lineTransitionEnterEasing("Landing", 0.4f), 1e-6f)
+        assertEquals(
+            fastOutLinearInEase(0.4f),
+            lineTransitionExitEasing("Slide swap", 0.4f),
+            1e-6f
+        )
     }
 }

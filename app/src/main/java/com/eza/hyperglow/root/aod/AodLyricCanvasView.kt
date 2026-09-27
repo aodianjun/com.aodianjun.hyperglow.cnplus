@@ -225,7 +225,7 @@ internal class AodLyricCanvasView(
             if (exitSnapshot != null && isExitTransitionExpired(
                     transitionStartedAt,
                     SystemClock.elapsedRealtime(),
-                    enterTransitionMs(content.lineTransitionSpeed)
+                    lineTransitionTotalMs(content.transitionMode, content.lineTransitionSpeed)
                 )
             ) {
                 transitionStartedAt = 0L
@@ -724,14 +724,16 @@ internal class AodLyricCanvasView(
             return
         }
         val elapsed = (SystemClock.elapsedRealtime() - transitionStartedAt).coerceAtLeast(0L)
-        // 速率档只缩放时长(见 lineTransitionDurationScale),缓动/帧配方不变。
-        val exitProgress =
-            (elapsed / exitTransitionMs(content.lineTransitionSpeed).toFloat()).coerceIn(0f, 1f)
-        val enterProgress =
-            (elapsed / enterTransitionMs(content.lineTransitionSpeed).toFloat()).coerceIn(0f, 1f)
-        // 行块换行用缓动:旧行加速上滑离场、新行减速上滑落位;元数据淡出仍走线性。
-        val exitEased = transitionExitEasing(exitProgress)
-        val enterEased = transitionEnterEasing(enterProgress)
+        val transitionMode = content.transitionMode
+        val transitionSpeed = content.lineTransitionSpeed
+        // 速率档只缩放时长(见 lineTransitionDurationScale),缓动/帧配方不变;
+        // 参考 HyperLyric 的序列档(Fade left/Landing/Slide swap)退场完成后再入场。
+        val exitProgress = lineTransitionExitProgress(elapsed, transitionMode, transitionSpeed)
+        val enterProgress = lineTransitionEnterProgress(elapsed, transitionMode, transitionSpeed)
+        // 行块换行用缓动:历史档旧行加速上滑离场、新行减速上滑落位,参考档过冲/柔落;
+        // 元数据淡出仍走线性。
+        val exitEased = lineTransitionExitEasing(transitionMode, exitProgress)
+        val enterEased = lineTransitionEnterEasing(transitionMode, enterProgress)
         val metadataMorph = shouldMorphSongChangeMetadata(
             previousOriginal = snapshot.content.original,
             previousMetadata = snapshot.content.metadata,
@@ -752,15 +754,22 @@ internal class AodLyricCanvasView(
         } else {
             drawMetadata(canvas, layout)
         }
+        // 参考档位移以行块宽为基准(Fade 族 1/4 宽、Slide swap 整宽),历史档忽略该参数。
+        val blockWidthDp = (ow - padLeft - padRight) / density
         drawRows(
             canvas,
             snapshot.layout,
             snapshot.content,
-            lineTransitionExitFrame(content.transitionMode, exitEased),
+            lineTransitionExitFrame(transitionMode, exitEased, blockWidthDp),
             snapshot.renderStyle,
             skipOriginal = metadataMorph
         )
-        drawRows(canvas, layout, content, lineTransitionEnterFrame(content.transitionMode, enterEased))
+        drawRows(
+            canvas,
+            layout,
+            content,
+            lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp)
+        )
         if (enterProgress >= 1f) {
             transitionStartedAt = 0L
             exitSnapshot = null
