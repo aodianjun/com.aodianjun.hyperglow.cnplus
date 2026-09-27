@@ -1592,4 +1592,60 @@ class LyriconLyricProducerTest {
             producer.state.value!!.positionMs < 6_000L
         )
     }
+
+    // --- Watchdog playing signal & subscribe-time silence baseline (0.3.120 regression:
+    //     the whole callback path died right after subscribe — isPlayingState froze at false
+    //     and no position callback ever arrived, so both rebuild watchdogs stayed blind) ---
+
+    @Test
+    fun watchdogPlaying_frozenStateButSessionPlaying_countsAsPlaying() {
+        assertTrue(watchdogPlaying(statePlaying = false, sessionPlaying = true))
+    }
+
+    @Test
+    fun watchdogPlaying_frozenStateAndUnknownSession_countsAsNotPlaying() {
+        assertFalse(watchdogPlaying(statePlaying = false, sessionPlaying = null))
+    }
+
+    @Test
+    fun watchdogPlaying_eitherSignalCountsAsPlaying() {
+        assertTrue(watchdogPlaying(statePlaying = true, sessionPlaying = null))
+        assertTrue(watchdogPlaying(statePlaying = true, sessionPlaying = false))
+        assertFalse(watchdogPlaying(statePlaying = false, sessionPlaying = false))
+    }
+
+    @Test
+    fun watchdog_rebuildsWhenCallbackPathDeadFromSubscribeWhileSessionPlaying() {
+        // 0.3.120 真机链:订阅成功后 onPositionChanged/onPlaybackStateChanged 全聋——
+        // 静默基线停在订阅时刻、isPlayingState 冻结 false,MediaSession 兜底观测到在播。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.subscriber = unusedSubscriber
+        producer.activeProviderPackage = "com.netease.cloudmusic"
+        producer.sessionPlayingObserved = true
+        producer.isPlayingState = false
+        producer.lastPositionCallbackElapsedMs = 10_000L // start() 在订阅时刻建立的基线
+
+        clockValue = 10_000L + LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS + 1_000L
+        producer.maybeResubscribeOnPositionSilence()
+
+        assertEquals(clockValue, producer.lastForcedResubscribeElapsedMs)
+    }
+
+    @Test
+    fun watchdog_noRebuildWhileSessionPaused() {
+        // 真暂停:MediaSession 也报告非播放——不得重建(位置流安静是预期行为)。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.subscriber = unusedSubscriber
+        producer.activeProviderPackage = "com.netease.cloudmusic"
+        producer.sessionPlayingObserved = false
+        producer.isPlayingState = false
+        producer.lastPositionCallbackElapsedMs = 10_000L
+
+        clockValue = 10_000L + LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS + 1_000L
+        producer.maybeResubscribeOnPositionSilence()
+
+        assertEquals(0L, producer.lastForcedResubscribeElapsedMs)
+    }
 }

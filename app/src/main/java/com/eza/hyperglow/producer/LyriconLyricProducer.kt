@@ -66,7 +66,7 @@ class LyriconLyricProducer(
     internal val mutableState = MutableStateFlow<LyricProducerState?>(null)
     override val state: StateFlow<LyricProducerState?> = mutableState.asStateFlow()
 
-    private var subscriber: LyriconSubscriber? = null
+    internal var subscriber: LyriconSubscriber? = null
     internal var contextRef: Context? = null
     private var started = false
 
@@ -77,7 +77,12 @@ class LyriconLyricProducer(
     // watchdog the only recovery was an app restart. The watchdog force-rebuilds the active
     // player subscription, mirroring SuperLyricLyricProducer's FORCE_RE_REGISTER pattern.
     @Volatile internal var lastPositionCallbackElapsedMs: Long = -1L
-    @Volatile private var lastForcedResubscribeElapsedMs: Long = 0L
+    @Volatile internal var lastForcedResubscribeElapsedMs: Long = 0L
+    /**
+     * MediaSession 观测到的播放态(null=未知)。回调链死亡时 onPlaybackStateChanged 不再来,
+     * isPlayingState 会冻结在 false —— 看门狗以本观测兜底(见 [watchdogPlaying])。
+     */
+    @Volatile internal var sessionPlayingObserved: Boolean? = null
     private val watchdogScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // --- Song-feed watchdog (issue #64) ---
@@ -238,6 +243,9 @@ class LyriconLyricProducer(
         sub.addConnectionListener(connectionListener)
         val subscribed = sub.subscribeActivePlayer(playerListener)
         AppLog.i("LyriconLyricProducer", "start: subscribeActivePlayer=$subscribed")
+        // 位置静默看门狗的基线:即使从未收到过 onPositionChanged,静默时长也从订阅时刻
+        // 起算(0.3.120 真机:订阅后回调链全聋,基线停在 -1 使看门狗短路,永不重建)。
+        lastPositionCallbackElapsedMs = clock()
         refreshRenderModes()
         sub.register()
         AppLog.i("LyriconLyricProducer", "start: registered with central service")
@@ -382,6 +390,32 @@ class LyriconLyricProducer(
     }
 
     /**
+     * 刷新 MediaSession 播放态观测(看门狗兜底依据,见 [watchdogPlaying])。优先读活动
+     * provider 的会话;provider 未知/会话查不到时,仅在已有曲目时退化为「任意活跃会话
+     * 在播」,避免无歌时因其他应用在播而误触发重建。
+     */
+    private fun refreshSessionPlaying() {
+        val pkg = activeProviderPackage
+        val state = if (pkg != null) readActivePlayerPlaybackState(pkg) else null
+        sessionPlayingObserved = when {
+            state != null -> classifyActivePlayerPlayback(state) == ActivePlayerPlayback.PLAYING
+            currentSong != null -> anySessionPlaying()
+            else -> null
+        }
+    }
+
+    /** True when any active MediaSession is playing (bounded fallback for [refreshSessionPlaying]). */
+    private fun anySessionPlaying(): Boolean {
+        val manager = mediaSessionManager ?: return false
+        val component = notificationListenerComponent ?: return false
+        return runCatching {
+            manager.getActiveSessions(component).any {
+                classifyActivePlayerPlayback(it.playbackState?.state) == ActivePlayerPlayback.PLAYING
+            }
+        }.getOrDefault(false)
+    }
+
+    /**
      * Watchdog loop: rebuild the active-player subscription when the ~60 Hz position feed goes
      * silent while playing. See [shouldForceResubscribePositionFeed] for the decision rule and
      * [maybeResubscribeOnPositionSilence] for the recovery action.
@@ -389,6 +423,7 @@ class LyriconLyricProducer(
     private suspend fun positionWatchdogLoop() {
         while (watchdogScope.isActive) {
             delay(POSITION_WATCHDOG_POLL_MS)
+            refreshSessionPlaying()
             maybeResubscribeOnPositionSilence()
             maybeResubscribeOnSongFeed()
         }
@@ -399,7 +434,7 @@ class LyriconLyricProducer(
      * listener, which re-arms the SDK's internal poller/callback registration. Idempotent-safe
      * via the cooldown in the decision function; failures are logged and retried after cooldown.
      */
-    private fun maybeResubscribeOnPositionSilence() {
+    internal fun maybeResubscribeOnPositionSilence() {
         if (subscriber == null) return
         val last = lastPositionCallbackElapsedMs
         if (last < 0L) return // never saw a position callback: nothing to compare yet
@@ -407,7 +442,7 @@ class LyriconLyricProducer(
         val silenceMs = now - last
         if (!shouldForceResubscribePositionFeed(
                 silenceMs = silenceMs,
-                playing = isPlayingState,
+                playing = watchdogPlaying(isPlayingState, sessionPlayingObserved),
                 sinceLastAttemptMs = now - lastForcedResubscribeElapsedMs
             )
         ) {
@@ -424,7 +459,7 @@ class LyriconLyricProducer(
      * SDK 位置通道活着)+ 歌曲缺席超阈值(或 provider 切换后等歌超宽限)+ 冷却期外。
      * 强制重建订阅后 SDK 会对当前在播歌曲补发 onSongChanged,与重启等效(见 #56)。
      */
-    private fun maybeResubscribeOnSongFeed() {
+    internal fun maybeResubscribeOnSongFeed() {
         if (subscriber == null) return
         val now = clock()
         val songAbsentMs = songAbsentSinceMs.let { if (it < 0L) -1L else now - it }
@@ -432,7 +467,7 @@ class LyriconLyricProducer(
         val positionAdvancing = lastAdvancingPositionClockMs >= 0L &&
             now - lastAdvancingPositionClockMs < SONG_FEED_POSITION_FRESH_MS
         if (!shouldForceResubscribeSongFeed(
-                playing = isPlayingState,
+                playing = watchdogPlaying(isPlayingState, sessionPlayingObserved),
                 songAbsentMs = songAbsentMs,
                 providerSyncPendingMs = providerPendingMs,
                 positionAdvancing = positionAdvancing,
@@ -464,6 +499,8 @@ class LyriconLyricProducer(
             sub.unsubscribeActivePlayer(playerListener)
             sub.subscribeActivePlayer(playerListener)
         }.onFailure { AppLog.w("LyriconLyricProducer", "forced resubscribe failed", it) }
+        // 重建后静默基线从本次订阅起算(与 start 一致)。
+        lastPositionCallbackElapsedMs = clock()
     }
 
     /**

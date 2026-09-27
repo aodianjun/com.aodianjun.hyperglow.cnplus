@@ -49,3 +49,14 @@ internal fun shouldForceResubscribeSongFeed(
     val providerSyncStale = providerSyncPendingMs > LyriconLyricProducer.PROVIDER_SYNC_GRACE_MS
     return songMissing || providerSyncStale
 }
+
+/**
+ * 看门狗的「在播」判定。回调链死亡时 `onPlaybackStateChanged` 不再来,
+ * [LyriconLyricProducer.isPlayingState] 会冻结在 false,两个重建看门狗就都成了盲区
+ * (0.3.120 真机:订阅后回调全聋、playing 冻结,看门狗永不触发,只能重启 app)。因此以
+ * MediaSession 观测到的真实播放态兜底:任一为在播即视为在播;会话未知(null)不改变结论。
+ */
+internal fun watchdogPlaying(
+    statePlaying: Boolean,
+    sessionPlaying: Boolean?
+): Boolean = statePlaying || sessionPlaying == true
