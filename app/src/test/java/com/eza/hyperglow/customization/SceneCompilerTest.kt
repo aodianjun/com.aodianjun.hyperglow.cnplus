@@ -822,4 +822,84 @@ class SceneCompilerTest {
         assertEquals("title,album", validated?.metadataParts)
         assertEquals("dot", validated?.metadataSeparator)
     }
+
+    @Test
+    fun artworkSettingsArePerSurfaceAcrossCompileValidateAndCanonicalize() {
+        val document = SceneCompiler.safeDefaultDocument().copy(
+            profiles = linkedMapOf(
+                SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                    artworkVisible = true,
+                    artworkShape = ARTWORK_SHAPE_CIRCLE,
+                    artworkSpin = true
+                ),
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(artworkVisible = false)
+            )
+        )
+        val compiled = SceneCompiler.compile(document)
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+
+        // per-surface:锁屏开(圆形旋转)、息屏关,互不联动。
+        assertEquals(true, lockscreen.artworkVisible)
+        assertEquals(ARTWORK_SHAPE_CIRCLE, lockscreen.artworkShape)
+        assertEquals(true, lockscreen.artworkSpin)
+        assertEquals(false, aod.artworkVisible)
+        assertEquals(ARTWORK_SHAPE_SQUARE, aod.artworkShape)
+        assertEquals(false, aod.artworkSpin)
+
+        // 校验器与编译同源归一(不改写),否则 wire 的 validate_rewrote_fields 会拒收。
+        assertEquals(compiled, SystemUiCustomizationValidator.validate(compiled))
+
+        // 回写文档(defaults→canonical)后两面仍各自独立,文档级迁移载体保持清空。
+        val canonical = CustomizationRepository.canonicalizeDocument(document)!!
+        assertEquals(
+            true,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkVisible
+        )
+        assertEquals(
+            false,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_AOD).artworkVisible
+        )
+        assertNull(canonical.artworkVisible)
+        assertNull(canonical.artworkShape)
+        assertNull(canonical.artworkSpin)
+    }
+
+    @Test
+    fun legacyDocumentLevelArtworkSeedsBothSurfacesOnce() {
+        // 旧版(文档级)三项全局设置:首次读取播种到两个曲面,载体清空后不再播种。
+        val legacy = SceneCompiler.safeDefaultDocument().copy(
+            artworkVisible = true,
+            artworkShape = ARTWORK_SHAPE_CIRCLE,
+            artworkSpin = true
+        )
+        val migrated = CustomizationRepository.migrateDocument(legacy)!!
+        listOf(SceneCompiler.SURFACE_LOCKSCREEN, SceneCompiler.SURFACE_AOD).forEach { surface ->
+            val profile = migrated.profiles.getValue(surface)
+            assertEquals(true, profile.artworkVisible)
+            assertEquals(ARTWORK_SHAPE_CIRCLE, profile.artworkShape)
+            assertEquals(true, profile.artworkSpin)
+        }
+        assertNull(migrated.artworkVisible)
+        assertNull(migrated.artworkShape)
+        assertNull(migrated.artworkSpin)
+
+        // 已播种文档(载体为空)二次迁移原样通过,不覆盖用户后续的 per-surface 选择。
+        val diverged = migrated.copy(
+            profiles = migrated.profiles + (
+                SceneCompiler.SURFACE_AOD to migrated.profiles
+                    .getValue(SceneCompiler.SURFACE_AOD)
+                    .copy(artworkVisible = false)
+                )
+        )
+        val reloaded = CustomizationRepository.migrateDocument(diverged)!!
+        assertEquals(
+            false,
+            reloaded.profiles.getValue(SceneCompiler.SURFACE_AOD).artworkVisible
+        )
+        assertEquals(
+            true,
+            reloaded.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkVisible
+        )
+    }
 }

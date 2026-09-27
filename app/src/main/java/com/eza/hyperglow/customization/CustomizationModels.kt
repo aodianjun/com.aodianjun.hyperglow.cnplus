@@ -12,12 +12,17 @@ data class CustomizationDocument(
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 歌曲信息分隔符 token,见 [METADATA_SEPARATORS];全局生效,同时作用于息屏与锁屏。 */
     val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
-    /** 歌曲图片显示开关:歌曲信息左侧显示系统播放窗口的专辑图(经包名/曲目校对,见 SongArtworkRepository);全局生效,同时作用于息屏与锁屏。 */
-    val artworkVisible: Boolean = false,
-    /** 歌曲图片形状 token,见 [ARTWORK_SHAPES];全局生效。 */
-    val artworkShape: String = ARTWORK_SHAPE_SQUARE,
-    /** 圆形歌曲图片是否旋转;仅 [artworkShape] 为 [ARTWORK_SHAPE_CIRCLE] 时生效(设置界面同样只在圆形下露出),全局生效。 */
-    val artworkSpin: Boolean = false,
+    /**
+     * 旧版歌曲图片显示开关(文档级全局)。歌曲图片自本版起为 per-surface 设置,由
+     * [SurfaceProfile.artworkVisible]/[SurfaceProfile.artworkShape]/[SurfaceProfile.artworkSpin]
+     * 分别承载(锁屏与息屏各自独立);本字段仅作旧文档迁移载体:读取时一次性播种到两个曲面,
+     * 回写文档时清空(见 CustomizationRepository.migrateDocument)。
+     */
+    val artworkVisible: Boolean? = null,
+    /** 旧版歌曲图片形状 token,见 [ARTWORK_SHAPES];仅作旧文档迁移载体,见 [artworkVisible]。 */
+    val artworkShape: String? = null,
+    /** 旧版圆形歌曲图片旋转开关;仅作旧文档迁移载体,见 [artworkVisible]。 */
+    val artworkSpin: Boolean? = null,
     val profiles: Map<String, SurfaceProfile> = emptyMap()
 )
 
@@ -58,6 +63,12 @@ data class SurfaceProfile(
      * 独立下一行行)共用。
      */
     val nextLineAlignment: String = "auto",
+    /** 歌曲图片显示开关:歌曲信息左侧显示系统播放窗口的专辑图(经包名/曲目校对,见 SongArtworkRepository);每个 surface 独立设置,锁屏与息屏互不联动。 */
+    val artworkVisible: Boolean = false,
+    /** 歌曲图片形状 token,见 [ARTWORK_SHAPES];每个 surface 独立设置。 */
+    val artworkShape: String = ARTWORK_SHAPE_SQUARE,
+    /** 圆形歌曲图片是否旋转;仅 [artworkShape] 为 [ARTWORK_SHAPE_CIRCLE] 时生效(设置界面同样只在圆形下露出),每个 surface 独立设置。 */
+    val artworkSpin: Boolean = false,
     val rubyVisible: Boolean = true,
     val weight: String = "Medium",
     val textSize: String = "normal",
@@ -106,12 +117,6 @@ data class CompiledCustomization(
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 歌曲信息分隔符 token;全局生效,由 [CustomizationDocument.metadataSeparator] 编译而来。 */
     val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
-    /** 歌曲图片显示开关;全局生效,由 [CustomizationDocument.artworkVisible] 编译而来。 */
-    val artworkVisible: Boolean = false,
-    /** 歌曲图片形状 token,见 [ARTWORK_SHAPES];全局生效,由 [CustomizationDocument.artworkShape] 编译而来。 */
-    val artworkShape: String = ARTWORK_SHAPE_SQUARE,
-    /** 圆形歌曲图片是否旋转;仅 [artworkShape] 为 [ARTWORK_SHAPE_CIRCLE] 时生效,由 [CustomizationDocument.artworkSpin] 编译而来。 */
-    val artworkSpin: Boolean = false,
     val profiles: Map<String, CompiledSurfaceProfile>,
     val pauseLingerMs: Long = 5_000L,
     /** 暂停时显示歌曲信息、歌词:App 端运行时开关,随配置下发到 SystemUI,同时作用于息屏与锁屏驻留。 */
@@ -188,7 +193,13 @@ data class CompiledSurfaceProfile(
     /** 歌曲信息对齐,见 [SurfaceProfile.metadataAlignment]。 */
     val metadataAlignment: String = "auto",
     /** 第二行歌词对齐,见 [SurfaceProfile.nextLineAlignment]。 */
-    val nextLineAlignment: String = "auto"
+    val nextLineAlignment: String = "auto",
+    /** 歌曲图片显示开关,见 [SurfaceProfile.artworkVisible];每个 surface 独立承载。 */
+    val artworkVisible: Boolean = false,
+    /** 歌曲图片形状 token,见 [ARTWORK_SHAPES];由 [SurfaceProfile.artworkShape] 编译而来。 */
+    val artworkShape: String = ARTWORK_SHAPE_SQUARE,
+    /** 圆形歌曲图片旋转开关;仅圆形生效,由 [SurfaceProfile.artworkSpin] 编译而来。 */
+    val artworkSpin: Boolean = false
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1
@@ -380,7 +391,7 @@ internal fun metadataExpectedExtraLines(parts: String, separator: String): Int {
 /** 方形歌曲图片(默认):直角矩形裁切,不旋转。 */
 const val ARTWORK_SHAPE_SQUARE = "square"
 
-/** 圆形歌曲图片:圆形裁切,可选旋转(见 [CustomizationDocument.artworkSpin])。 */
+/** 圆形歌曲图片:圆形裁切,可选旋转(见 [SurfaceProfile.artworkSpin])。 */
 const val ARTWORK_SHAPE_CIRCLE = "circle"
 
 /** 歌曲图片形状 token 词表。 */
@@ -397,8 +408,9 @@ internal fun effectiveArtworkSpin(shape: String, spin: Boolean): Boolean =
     spin && normalizeArtworkShape(shape) == ARTWORK_SHAPE_CIRCLE
 
 /**
- * 歌曲图片显示配置(渲染/预览的统一入口):由外观文档/编译配置派生,渲染侧与
- * Compose 预览共用,保证所见即所得。[spins] 为旋转生效值(仅圆形可转)。
+ * 歌曲图片显示配置(渲染/预览的统一入口):由 surface profile 派生(per-surface,
+ * 锁屏与息屏各读自己的 profile),渲染侧与 Compose 预览共用,保证所见即所得。
+ * [spins] 为旋转生效值(仅圆形可转)。
  */
 internal data class ArtworkDisplayConfig(
     val visible: Boolean = false,
@@ -409,16 +421,9 @@ internal data class ArtworkDisplayConfig(
         get() = effectiveArtworkSpin(shape, spin)
 }
 
-internal fun artworkDisplayConfig(document: CustomizationDocument): ArtworkDisplayConfig =
+internal fun artworkDisplayConfig(profile: CompiledSurfaceProfile?): ArtworkDisplayConfig =
     ArtworkDisplayConfig(
-        visible = document.artworkVisible,
-        shape = normalizeArtworkShape(document.artworkShape),
-        spin = document.artworkSpin
-    )
-
-internal fun artworkDisplayConfig(compiled: CompiledCustomization?): ArtworkDisplayConfig =
-    ArtworkDisplayConfig(
-        visible = compiled?.artworkVisible == true,
-        shape = normalizeArtworkShape(compiled?.artworkShape),
-        spin = compiled?.artworkSpin == true
+        visible = profile?.artworkVisible == true,
+        shape = normalizeArtworkShape(profile?.artworkShape),
+        spin = profile?.artworkSpin == true
     )

@@ -34,6 +34,9 @@ object SceneCompiler {
                 collisionPolicy = lockscreenSource.collisionPolicy,
                 widgets = lockscreenSource.widgets,
                 metadataVisible = lockscreenSource.metadataVisible,
+                artworkVisible = lockscreenSource.artworkVisible,
+                artworkShape = lockscreenSource.artworkShape,
+                artworkSpin = lockscreenSource.artworkSpin,
                 backgroundStyle = lockscreenSource.backgroundStyle,
                 cardAlpha = lockscreenSource.cardAlpha,
                 cardColor = lockscreenSource.cardColor
@@ -48,9 +51,6 @@ object SceneCompiler {
             linkSurfaces = source.linkSurfaces,
             metadataParts = normalizeMetadataParts(source.metadataParts),
             metadataSeparator = normalizeMetadataSeparator(source.metadataSeparator),
-            artworkVisible = source.artworkVisible,
-            artworkShape = normalizeArtworkShape(source.artworkShape),
-            artworkSpin = source.artworkSpin,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: compileSafeDefault()
@@ -109,9 +109,6 @@ object SceneCompiler {
             linkSurfaces = safe.linkSurfaces,
             metadataParts = normalizeMetadataParts(safe.metadataParts),
             metadataSeparator = normalizeMetadataSeparator(safe.metadataSeparator),
-            artworkVisible = safe.artworkVisible,
-            artworkShape = normalizeArtworkShape(safe.artworkShape),
-            artworkSpin = safe.artworkSpin,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: error("Safe customization exceeds hard limit")
@@ -169,6 +166,9 @@ object SceneCompiler {
             metadataSizePercent = profile.metadataSizePercent.coerceIn(50, 200),
             metadataAlignment = profile.metadataAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             nextLineAlignment = profile.nextLineAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
+            artworkVisible = profile.artworkVisible,
+            artworkShape = normalizeArtworkShape(profile.artworkShape),
+            artworkSpin = profile.artworkSpin,
             rubyVisible = profile.rubyVisible,
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",

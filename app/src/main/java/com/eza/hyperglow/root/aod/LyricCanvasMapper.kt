@@ -2,12 +2,14 @@ package com.eza.hyperglow.root.aod
 
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
+import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.projection.LyricSnapshot
 
+/** 映射到画布内容;[artwork] 默认取自 [profile](per-surface 歌曲图片配置),可显式覆盖。 */
 internal fun LyricSnapshot.toAodCanvasContent(
     profile: CompiledSurfaceProfile? = null,
-    artwork: ArtworkDisplayConfig = ArtworkDisplayConfig()
+    artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile)
 ): AodCanvasContent = AodCanvasContent(
     trackGeneration = trackGeneration,
     metadata = metadata,
