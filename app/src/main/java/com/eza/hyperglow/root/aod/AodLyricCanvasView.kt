@@ -63,6 +63,7 @@ internal class AodLyricCanvasView(
         lineSyncFillMode = "Top to bottom",
         overflowMode = "Wrap",
         transitionMode = "Fade up",
+        lineTransitionSpeed = "Normal",
         fontFamily = "noto",
         alignmentMode = "auto",
         metadataVisible = true,
@@ -224,7 +225,7 @@ internal class AodLyricCanvasView(
             if (exitSnapshot != null && isExitTransitionExpired(
                     transitionStartedAt,
                     SystemClock.elapsedRealtime(),
-                    ENTER_TRANSITION_MS
+                    enterTransitionMs(content.lineTransitionSpeed)
                 )
             ) {
                 transitionStartedAt = 0L
@@ -723,8 +724,11 @@ internal class AodLyricCanvasView(
             return
         }
         val elapsed = (SystemClock.elapsedRealtime() - transitionStartedAt).coerceAtLeast(0L)
-        val exitProgress = (elapsed / EXIT_TRANSITION_MS.toFloat()).coerceIn(0f, 1f)
-        val enterProgress = (elapsed / ENTER_TRANSITION_MS.toFloat()).coerceIn(0f, 1f)
+        // 速率档只缩放时长(见 lineTransitionDurationScale),缓动/帧配方不变。
+        val exitProgress =
+            (elapsed / exitTransitionMs(content.lineTransitionSpeed).toFloat()).coerceIn(0f, 1f)
+        val enterProgress =
+            (elapsed / enterTransitionMs(content.lineTransitionSpeed).toFloat()).coerceIn(0f, 1f)
         // 行块换行用缓动:旧行加速上滑离场、新行减速上滑落位;元数据淡出仍走线性。
         val exitEased = transitionExitEasing(exitProgress)
         val enterEased = transitionEnterEasing(enterProgress)

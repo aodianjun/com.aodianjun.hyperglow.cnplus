@@ -59,6 +59,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,8 +68,8 @@ import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.resolveLineTransition
-import com.eza.hyperglow.root.aod.ENTER_TRANSITION_MS
-import com.eza.hyperglow.root.aod.EXIT_TRANSITION_MS
+import com.eza.hyperglow.root.aod.enterTransitionMs
+import com.eza.hyperglow.root.aod.exitTransitionMs
 import com.eza.hyperglow.root.aod.LineTransitionFrame
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
@@ -399,26 +400,15 @@ private fun LyricPreviewSurface(
                             Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp)
                         )
                     }
-                    PreviewAnimatedLyric(
-                        layout = mainLayout,
-                        text = snapshot.original,
-                        lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
-                        color = lyricColor,
-                        glowColor = glowColor,
-                        glowEnabled = profile.glow == "On",
-                        modifier = Modifier.padding(top = ROW_GAP_BEFORE_ORIGINAL_DP.dp)
-                    )
+                    // 行块(主行+辅助文字+下一行)整体参与换行动画:旧行块 exit 帧退场、
+                    // 新行块 enter 帧进场,与实机 drawRows 单层语义一致,辅助文字随主行换行。
+                    val blockRows = ArrayList<PreviewBlockRow>(secondaryRows.size + 1)
                     secondaryRows.forEach { row ->
-                        PreviewSecondaryRow(
+                        blockRows += PreviewBlockRow(
                             row = row,
                             color = secondaryColor,
-                            typeface = regularTypeface,
-                            availableWidthPx = availablePx,
-                            preferredLines = mainLayout.lines.size,
-                            wrap = profile.overflow == "Wrap",
-                            adaptiveSectioning = profile.adaptiveSectioning,
-                            textAlign = textAlign,
-                            modifier = Modifier.padding(top = ROW_GAP_BEFORE_SECONDARY_DP.dp)
+                            align = textAlign,
+                            gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp
                         )
                     }
                     // 下一行歌词呈现与实机同源(secondLinePresentation):「辅助文字显示第二行歌词」
@@ -429,38 +419,41 @@ private fun LyricPreviewSurface(
                         showNext,
                         snapshot.nextLine.isNotBlank()
                     )) {
-                        SecondLinePresentation.AS_SECONDARY -> PreviewSecondaryRow(
+                        SecondLinePresentation.AS_SECONDARY -> blockRows += PreviewBlockRow(
                             row = PreviewSecondaryLine(
                                 snapshot.nextLine,
                                 secondaryReadingTextSizeSp(baseSp).sp,
                                 italic = false
                             ),
                             color = nextLineSecondaryColor,
-                            typeface = regularTypeface,
-                            availableWidthPx = availablePx,
-                            preferredLines = mainLayout.lines.size,
-                            wrap = profile.overflow == "Wrap",
-                            adaptiveSectioning = profile.adaptiveSectioning,
-                            textAlign = nextLineAlign,
-                            modifier = Modifier.padding(top = ROW_GAP_BEFORE_NEXT_LINE_DP.dp)
+                            align = nextLineAlign,
+                            gapAbove = ROW_GAP_BEFORE_NEXT_LINE_DP.dp
                         )
-                        SecondLinePresentation.STANDALONE -> PreviewSecondaryRow(
+                        SecondLinePresentation.STANDALONE -> blockRows += PreviewBlockRow(
                             row = PreviewSecondaryLine(
                                 snapshot.nextLine,
                                 nextLineTextSizeSp().sp,
                                 italic = false
                             ),
                             color = nextLineColor,
-                            typeface = regularTypeface,
-                            availableWidthPx = availablePx,
-                            preferredLines = mainLayout.lines.size,
-                            wrap = profile.overflow == "Wrap",
-                            adaptiveSectioning = profile.adaptiveSectioning,
-                            textAlign = nextLineAlign,
-                            modifier = Modifier.padding(top = ROW_GAP_BEFORE_NEXT_LINE_DP.dp)
+                            align = nextLineAlign,
+                            gapAbove = ROW_GAP_BEFORE_NEXT_LINE_DP.dp
                         )
                         SecondLinePresentation.NONE -> Unit
                     }
+                    PreviewAnimatedRowBlock(
+                        block = PreviewRowBlock(mainLayout, snapshot.original, blockRows),
+                        lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
+                        lineTransitionSpeed = profile.lineTransitionSpeed,
+                        color = lyricColor,
+                        glowColor = glowColor,
+                        glowEnabled = profile.glow == "On",
+                        regularTypeface = regularTypeface,
+                        availableWidthPx = availablePx,
+                        wrap = profile.overflow == "Wrap",
+                        adaptiveSectioning = profile.adaptiveSectioning,
+                        modifier = Modifier.padding(top = ROW_GAP_BEFORE_ORIGINAL_DP.dp)
+                    )
                     if (showMetadata && profile.metadataAnchor == "bottom") {
                         PreviewMetaLine(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
@@ -741,119 +734,150 @@ private fun buildPreviewMainLayout(
 }
 
 /**
+ * 行块一代内容:主行 + 辅助文字行 + 下一行行。换行过渡以整块为单位冻结/进出,
+ * 与实机 drawRows「一块图层包全部行」同语义 —— 辅助文字随主行一起换行。
+ */
+private class PreviewRowBlock(
+    val main: PreviewMainLayout,
+    val mainText: String,
+    val rows: List<PreviewBlockRow>
+)
+
+/** 行块内副行(辅助文字/下一行)的渲染参数,随所属行块一起冻结。 */
+private class PreviewBlockRow(
+    val row: PreviewSecondaryLine,
+    val color: ComposeColor,
+    val align: TextAlign,
+    val gapAbove: Dp
+)
+
+/**
  * 主页预览的歌词主体渲染:行布局来自共享 LyricLayoutEngine(与实机断行一致),
  * 绘制委托 LyricGlowRenderer(实机 AOD/锁屏同源)—— dim 底、光晕、扫光带(缓动/
  * 光带占比/渐变 stops)全部单点定义,预览即实机效果。进度为演示扫光(0→1 循环)。
- * 演示行循环切换时,旧行/新行的过渡帧取自共享纯函数 [lineTransitionExitFrame] /
+ * 演示行循环切换时,旧行块/新行块的过渡帧取自共享纯函数 [lineTransitionExitFrame] /
  * [lineTransitionEnterFrame](与实机同源),层变换由 graphicsLayer 施加,预览不另写动画公式;
- * 线性时间轴先过 #68 缓动再查帧,与 AodLyricCanvasView 完全一致。
+ * 线性时间轴先过 #68 缓动再查帧,与 AodLyricCanvasView 完全一致。时长按「动画速率」档
+ * 缩放(见 [enterTransitionMs] / [exitTransitionMs]),与实机同一速率语义。
  */
 @Composable
-private fun PreviewAnimatedLyric(
-    layout: PreviewMainLayout,
-    text: String,
+private fun PreviewAnimatedRowBlock(
+    block: PreviewRowBlock,
     lineTransition: String,
+    lineTransitionSpeed: String,
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
+    regularTypeface: Typeface,
+    availableWidthPx: Int,
+    wrap: Boolean,
+    adaptiveSectioning: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val density = LocalDensity.current
-
-    // 逐条演示行播放时,进度从 0 扫到 1,驱动扫光。
+    // 逐条演示行播放时,进度从 0 扫到 1,驱动主行扫光。
     val progress = remember { Animatable(0f) }
-    LaunchedEffect(layout) {
+    LaunchedEffect(block.main) {
         progress.snapTo(0f)
         progress.animateTo(1f, tween(DEMO_LINE_SWITCH_MS.toInt(), easing = LinearEasing))
     }
     // 在组合作用域读取进度,保证每次动画变化都会重绘 Canvas。
     val progressValue = progress.value
 
-    // 换行动画演示:演示行文本变化时冻结旧行按 exit 帧退场、新行按 enter 帧进场。
-    // 帧配方与时长常量来自 root.aod 共享实现,与 AodLyricCanvasView 同源;
-    // 仅重排(字体/字号/宽度)不触发过渡,退场冻结的是切换前实际可见的布局。
-    var settledText by remember { mutableStateOf(text) }
-    var stableLayout by remember { mutableStateOf(layout) }
-    var exitingLayout by remember { mutableStateOf<PreviewMainLayout?>(null) }
+    // 换行动画演示:演示行文本变化时冻结旧行块按 exit 帧退场、新行块按 enter 帧进场。
+    // 帧配方与速率语义来自 root.aod 共享实现,与 AodLyricCanvasView 同源;
+    // 仅重排(字体/字号/宽度)不触发过渡,退场冻结的是切换前实际可见的行块。
+    var settledText by remember { mutableStateOf(block.mainText) }
+    var stableBlock by remember { mutableStateOf(block) }
+    var exitingBlock by remember { mutableStateOf<PreviewRowBlock?>(null) }
     val enterFrameProgress = remember { Animatable(1f) }
     val exitFrameProgress = remember { Animatable(1f) }
     SideEffect {
-        if (text == settledText) stableLayout = layout
+        if (block.mainText == settledText) stableBlock = block
     }
-    LaunchedEffect(text) {
-        if (text == settledText) return@LaunchedEffect
-        val previous = stableLayout
-        settledText = text
+    LaunchedEffect(block.mainText) {
+        if (block.mainText == settledText) return@LaunchedEffect
+        val previous = stableBlock
+        settledText = block.mainText
         if (lineTransition == "None") {
-            exitingLayout = null
+            exitingBlock = null
             enterFrameProgress.snapTo(1f)
             exitFrameProgress.snapTo(1f)
         } else {
-            exitingLayout = previous
+            exitingBlock = previous
             enterFrameProgress.snapTo(0f)
             exitFrameProgress.snapTo(0f)
             coroutineScope {
                 launch {
                     exitFrameProgress.animateTo(
-                        1f, tween(EXIT_TRANSITION_MS.toInt(), easing = LinearEasing)
+                        1f,
+                        tween(exitTransitionMs(lineTransitionSpeed).toInt(), easing = LinearEasing)
                     )
                 }
                 enterFrameProgress.animateTo(
-                    1f, tween(ENTER_TRANSITION_MS.toInt(), easing = LinearEasing)
+                    1f,
+                    tween(enterTransitionMs(lineTransitionSpeed).toInt(), easing = LinearEasing)
                 )
             }
-            exitingLayout = null
+            exitingBlock = null
         }
     }
     // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方。
     val exitFrame = lineTransitionExitFrame(lineTransition, transitionExitEasing(exitFrameProgress.value))
     val enterFrame = lineTransitionEnterFrame(lineTransition, transitionEnterEasing(enterFrameProgress.value))
 
-    Box(Modifier.fillMaxWidth().height(with(density) { layout.blockHeight.toDp() })) {
-        val previous = exitingLayout
+    Box(modifier.fillMaxWidth()) {
+        val previous = exitingBlock
         if (previous != null && exitFrame.alpha > 0f) {
-            PreviewMainLayer(
-                layout = previous,
-                progress = 1f,
+            PreviewRowBlockLayer(
+                block = previous,
+                sweepProgress = 1f,
+                frame = exitFrame,
                 color = color,
                 glowColor = glowColor,
                 glowEnabled = glowEnabled,
-                frame = exitFrame,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(with(density) { previous.blockHeight.toDp() })
+                regularTypeface = regularTypeface,
+                availableWidthPx = availableWidthPx,
+                wrap = wrap,
+                adaptiveSectioning = adaptiveSectioning,
+                modifier = Modifier.fillMaxWidth()
             )
         }
-        PreviewMainLayer(
-            layout = layout,
-            progress = progressValue,
+        PreviewRowBlockLayer(
+            block = block,
+            sweepProgress = progressValue,
+            frame = enterFrame,
             color = color,
             glowColor = glowColor,
             glowEnabled = glowEnabled,
-            frame = enterFrame,
-            modifier = Modifier.fillMaxWidth().height(with(density) { layout.blockHeight.toDp() })
+            regularTypeface = regularTypeface,
+            availableWidthPx = availableWidthPx,
+            wrap = wrap,
+            adaptiveSectioning = adaptiveSectioning,
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
 
 /**
- * 主歌词单层绘制:按 [layout] 行基线画 LyricGlowRow,发光/扫光委托 LyricGlowRenderer;
- * 换行过渡的 alpha/位移/缩放由共享 [LineTransitionFrame] 通过 graphicsLayer 施加
- * (缩放锚点默认层中心,与实机 drawRows 的内容框中心一致)。
+ * 行块单层绘制:主行 LyricGlowRow + 辅助文字行 + 下一行行,整块共用一个 graphicsLayer
+ * (alpha/位移/缩放一次施加,缩放锚点默认块中心,与实机 drawRows 的内容框中心一致)。
+ * 旧行块按 exit 帧、新行块按 enter 帧各自成层叠加,与实机同构。
  */
 @Composable
-private fun PreviewMainLayer(
-    layout: PreviewMainLayout,
-    progress: Float,
+private fun PreviewRowBlockLayer(
+    block: PreviewRowBlock,
+    sweepProgress: Float,
+    frame: LineTransitionFrame,
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
-    frame: LineTransitionFrame,
+    regularTypeface: Typeface,
+    availableWidthPx: Int,
+    wrap: Boolean,
+    adaptiveSectioning: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val glowArgb = glowColor.toArgb()
-    val sungArgb = color.copy(alpha = 1f).toArgb()
-    Canvas(
+    Column(
         modifier.graphicsLayer {
             alpha = frame.alpha
             translationX = frame.translateXDp.dp.toPx()
@@ -862,6 +886,50 @@ private fun PreviewMainLayer(
             scaleY = frame.scale
         }
     ) {
+        val density = LocalDensity.current
+        PreviewMainLayer(
+            layout = block.main,
+            progress = sweepProgress,
+            color = color,
+            glowColor = glowColor,
+            glowEnabled = glowEnabled,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(with(density) { block.main.blockHeight.toDp() })
+        )
+        block.rows.forEach { item ->
+            PreviewSecondaryRow(
+                row = item.row,
+                color = item.color,
+                typeface = regularTypeface,
+                availableWidthPx = availableWidthPx,
+                preferredLines = block.main.lines.size,
+                wrap = wrap,
+                adaptiveSectioning = adaptiveSectioning,
+                textAlign = item.align,
+                modifier = Modifier.padding(top = item.gapAbove)
+            )
+        }
+    }
+}
+
+/**
+ * 主歌词单层绘制:按 [layout] 行基线画 LyricGlowRow,发光/扫光委托 LyricGlowRenderer。
+ * 换行过渡的 alpha/位移/缩放在行块层([PreviewRowBlockLayer])统一施加,
+ * 主行不再单独套层,保证辅助文字与主行同层进退。
+ */
+@Composable
+private fun PreviewMainLayer(
+    layout: PreviewMainLayout,
+    progress: Float,
+    color: ComposeColor,
+    glowColor: ComposeColor,
+    glowEnabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val glowArgb = glowColor.toArgb()
+    val sungArgb = color.copy(alpha = 1f).toArgb()
+    Canvas(modifier) {
         val rows = ArrayList<LyricGlowRow>(layout.lines.size)
         layout.lines.forEachIndexed { index, line ->
             val baseline = layout.baselines[index]

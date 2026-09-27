@@ -9,6 +9,26 @@ internal const val ENTER_TRANSITION_MS = 210L
 /** 换行动画退场时长。 */
 internal const val EXIT_TRANSITION_MS = 130L
 
+/**
+ * 换行动画速率档 → 时长倍率:Slow 1.5×、Fast 0.6×、Normal/未知 1×。
+ * 只等比缩放 [ENTER_TRANSITION_MS] / [EXIT_TRANSITION_MS](见 [enterTransitionMs] /
+ * [exitTransitionMs]),帧配方与缓动曲线不动;速率词表见
+ * [com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS],预览与实机共用这一份倍率。
+ */
+internal fun lineTransitionDurationScale(speed: String): Float = when (speed) {
+    "Slow" -> 1.5f
+    "Fast" -> 0.6f
+    else -> 1f
+}
+
+/** 速档缩放后的入场时长(慢速 315ms / 正常 210ms / 快速 126ms)。 */
+internal fun enterTransitionMs(speed: String): Long =
+    (ENTER_TRANSITION_MS * lineTransitionDurationScale(speed)).toLong()
+
+/** 速档缩放后的退场时长(慢速 195ms / 正常 130ms / 快速 78ms)。 */
+internal fun exitTransitionMs(speed: String): Long =
+    (EXIT_TRANSITION_MS * lineTransitionDurationScale(speed)).toLong()
+
 // 各换行动画模式的运动参数(dp / 缩放比),预览与实机共用这一份配方。
 private const val FADE_UP_DP = 14f
 private const val SLIDE_DP = 28f

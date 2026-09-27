@@ -173,4 +173,25 @@ class AodCanvasTransitionTest {
         assertEquals(false, shouldStartLineTransition(true, "Slide up", handoffActive = true))
         assertEquals(false, shouldStartLineTransition(false, "Zoom", handoffActive = false))
     }
+
+    @Test
+    fun speedScalesDurationsWithoutTouchingFrames() {
+        // 速率档只等比缩放时长:Slow 1.5×、Fast 0.6×、Normal/未知 1×。
+        assertEquals(1.5f, lineTransitionDurationScale("Slow"), 1e-6f)
+        assertEquals(1f, lineTransitionDurationScale("Normal"), 1e-6f)
+        assertEquals(0.6f, lineTransitionDurationScale("Fast"), 1e-6f)
+        for (unknown in listOf("", "slow", "Warp")) {
+            assertEquals(1f, lineTransitionDurationScale(unknown), 1e-6f)
+        }
+        // 基准 210/130ms 不动;快/慢档按倍率换算且入场始终长于退场(总长由入场决定)。
+        assertEquals(210L, enterTransitionMs("Normal"))
+        assertEquals(130L, exitTransitionMs("Normal"))
+        assertEquals(315L, enterTransitionMs("Slow"))
+        assertEquals(195L, exitTransitionMs("Slow"))
+        assertEquals(126L, enterTransitionMs("Fast"))
+        assertEquals(78L, exitTransitionMs("Fast"))
+        for (speed in listOf("Slow", "Normal", "Fast")) {
+            assertTrue(enterTransitionMs(speed) > exitTransitionMs(speed))
+        }
+    }
 }

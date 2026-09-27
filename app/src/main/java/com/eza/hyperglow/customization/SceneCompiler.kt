@@ -185,6 +185,7 @@ object SceneCompiler {
             lineSyncFillMode = normalizeLineSyncFillMode(profile.lineSyncFillMode),
             overflow = if (profile.overflow == "Clip") "Clip" else "Wrap",
             lineTransition = normalizeLineTransition(profile.lineTransition),
+            lineTransitionSpeed = normalizeLineTransitionSpeed(profile.lineTransitionSpeed),
             adaptiveSectioning = profile.adaptiveSectioning,
             palette = palette,
             backgroundStyle = when {

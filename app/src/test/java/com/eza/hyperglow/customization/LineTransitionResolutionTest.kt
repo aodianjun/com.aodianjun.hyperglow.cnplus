@@ -9,6 +9,8 @@ import org.junit.Test
  * - [resolveLineTransition] "Auto"/缺省跟随歌词源,显式选择一票否决源偏好。
  * 二者分别被 SceneCompiler / SystemUiCustomizationValidator 与 LyricCanvasMapper /
  * LyriconRenderModeMapping 使用,是"设置即所得"与"跟随源"两种语义的唯一裁决点。
+ * 速率档 [normalizeLineTransitionSpeed] 同层:词表校验、未知值兜底
+ * [LINE_TRANSITION_SPEED_NORMAL];速率是纯视觉偏好,无"跟随源"语义。
  */
 class LineTransitionResolutionTest {
 
@@ -19,6 +21,16 @@ class LineTransitionResolutionTest {
         }
         for (unknown in listOf("Diagonal", "slide", "none", "")) {
             assertEquals(LINE_TRANSITION_AUTO, normalizeLineTransition(unknown))
+        }
+    }
+
+    @Test
+    fun normalizeLineTransitionSpeedKeepsVocabularyAndFallsBackToNormal() {
+        for (speed in LINE_TRANSITION_SPEEDS) {
+            assertEquals(speed, normalizeLineTransitionSpeed(speed))
+        }
+        for (unknown in listOf("slow", "Instant", "1.5x", "")) {
+            assertEquals(LINE_TRANSITION_SPEED_NORMAL, normalizeLineTransitionSpeed(unknown))
         }
     }
 

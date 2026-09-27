@@ -378,6 +378,7 @@
     <string name="option_none">無</string>
     <string name="option_top_to_bottom">從上到下</string>
     <string name="choice_line_transition">換行動畫</string>
+    <string name="choice_line_transition_speed">動畫速率</string>
     <string name="option_auto_follow_source">跟隨源</string>
     <string name="option_fade_up">淡入上移</string>
     <string name="option_crossfade">交叉淡化</string>

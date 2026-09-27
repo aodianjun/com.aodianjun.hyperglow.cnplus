@@ -68,6 +68,17 @@ and (b) unverified paths stay explicit instead of silently assumed.
   content hugs its rows without a large empty gap (scrim follows), tall multi-row content no longer
   clips at the bottom, and the height setting still caps at its fraction. Note: the home preview
   keeps its proportional scenario placement (it is a placement mock, not a measurement).
+- Line transition animation speed (`lineTransitionSpeed`: `Normal`/`Slow`/`Fast`, rendered directly
+  below the line transition option; durations scale the 130/210 ms base by 1.0/1.5/0.6 while frame
+  recipes and easing stay untouched, unknown values normalize to `Normal`) — pending a hardware
+  smoke check after merge: the three settings are visibly distinct on a real line change and match
+  the expected durations (Slow ≈ 195/315 ms, Fast ≈ 78/126 ms), with no change to motion paths.
+- Line transition coverage of the auxiliary text (the main lyric, transliteration/translation rows
+  and the next-line row now transition as one row block in the home preview, matching the device
+  `drawRows` single-layer semantics that already animated the whole block; previously only the
+  preview popped the auxiliary rows instantly) — pending a hardware smoke check after merge: on a
+  device line change the auxiliary text fades/moves together with the main line instead of popping,
+  and the preview shows the same block transition.
 - Song info content and separator (`metadataParts` / `metadataSeparator`, document-level,
   shared by both surfaces): choose which slices show (title/artist/album, always in canonical
   order) and the joining separator (`newline` = one slice per line, the historical default, or
@@ -168,6 +179,12 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
+- 换行动画速率（`lineTransitionSpeed`：`Normal`/`Slow`/`Fast`，位于换行动画选项正下方；时长按
+  130/210ms 基准 ×1.0/×1.5/×0.6，帧配方与缓动不变，未知值规范化为 `Normal`）——合并后待真机
+  冒烟：三档换行时长肉眼可辨且与设置一致（Slow ≈ 195/315ms、Fast ≈ 78/126ms），运动轨迹不变。
+- 换行动画覆盖辅助文字（主歌词、音标/翻译辅助行与下一行歌词在主页预览中整块同层进退，与实机
+  `drawRows` 单层语义对齐——实机本就整块过渡，此前仅预览对辅助行瞬切）——合并后待真机冒烟：
+  实机换行时辅助文字随主行一起淡入淡出/位移而非瞬切，预览呈现与实机一致。
 - 歌曲信息内容与分隔符（`metadataParts`/`metadataSeparator`，文档级全局，息屏与锁屏共用）：可选显示哪些切片（歌名/歌手/专辑，恒按规范顺序）与连接分隔符（`newline` 每切片一行=历史默认，或 ` · ` 等行内连接）；画布歌曲信息只按硬换行拆行且最多 3 行（原 2 行），高度预算随切片行数追加——合并后待真机冒烟：默认「歌名/歌手+换行」与历史一致、选满 3 部分各占一行不裁切、行内分隔符保持单行。
 - 预览卡片自适应高度（`LyricPreviewCard` / `AppearanceLivePreview` 面板高度随歌词内容增长，取代固定 150/180dp，钳制在 120-420dp；同一配置生效期间保持已见最大内容高度，演示行循环/逐行折行变化不会让卡片高度来回呼吸）——仅应用内预览改动，不涉及 SystemUI/AOD surface；待真机看一眼：大字号 + 副文本/下一行/歌曲信息全开时内容不再被裁切，周围布局不跳动。
 - 导入字体按内置样式展示名字（字体选择行摘要与对话框显示字体 name 表真名、导入文件名兜底，不再显示「自定义字体」泛称；导入支持一次多选批量且全部保留）——合并后待真机冒烟：一次导入多个字体全部保留，对话框与设置摘要行各自显示自己的字体名。

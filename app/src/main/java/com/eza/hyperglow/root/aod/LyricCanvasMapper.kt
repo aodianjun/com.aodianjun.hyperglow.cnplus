@@ -61,6 +61,8 @@ internal fun LyricSnapshot.toAodCanvasContent(
     overflowMode = profile?.overflow ?: overflowMode,
     // 换行动画:profile 显式选择优先("Auto" 时沿用歌词源偏好,见 resolveLineTransition)。
     transitionMode = resolveLineTransition(profile?.lineTransition, transitionMode),
+    // 换行动画速率:纯视觉偏好,无源偏好语义,缺省 Normal(基准时长)。
+    lineTransitionSpeed = profile?.lineTransitionSpeed ?: "Normal",
     fontFamily = profile?.fontFamily ?: fontFamily,
     alignmentMode = profile?.alignment ?: alignmentMode,
     metadataVisible = profile?.metadataVisible ?: metadataVisible,

@@ -398,6 +398,23 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun lineTransitionSpeedMapsFromProfileAndDefaultsToNormal() {
+        val on = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(lineTransitionSpeed = "Slow")
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val snapshot = LyricSnapshot(original = "current")
+
+        assertEquals("Slow", snapshot.toAodCanvasContent(on).lineTransitionSpeed)
+        // 无 profile 时默认 Normal(基准时长),既有呈现零变化。
+        assertEquals("Normal", snapshot.toAodCanvasContent(null).lineTransitionSpeed)
+        assertEquals("Normal", snapshot.toAodCanvasContent().lineTransitionSpeed)
+    }
+
+    @Test
     fun rowAlignmentsMapFromProfileAndDefaultToAuto() {
         val profile = SceneCompiler.compile(
             CustomizationDocument(
