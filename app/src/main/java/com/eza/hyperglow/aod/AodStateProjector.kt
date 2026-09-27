@@ -51,7 +51,9 @@ internal fun projectToDisplay(
     compiled: CompiledCustomization?,
     metadataIntroPolicy: SongMetadataIntroPolicy,
     powerSessionPolicy: AodPowerSessionPolicy,
-    userId: Int
+    userId: Int,
+    artworkJpeg: ByteArray = ByteArray(0),
+    artworkKey: String = ""
 ): AodDisplayState {
     val position = projectedPosition(state, now)
 
@@ -245,7 +247,9 @@ internal fun projectToDisplay(
         alignmentMode = prefs.alignment,
         metadataVisible = aodProfile?.metadataVisible ?: (prefs.metadataVisible != "hide"),
         metadataAnchor = prefs.metadataAnchor,
-        adaptiveSectioning = prefs.adaptiveSectioning
+        adaptiveSectioning = prefs.adaptiveSectioning,
+        artworkJpeg = artworkJpeg,
+        artworkKey = artworkKey
     )
 }
 

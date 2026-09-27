@@ -16,15 +16,16 @@ class SurfacePolicyResolverTest {
 
         assertTrue(policy.fullAodSupported)
         assertTrue(policy.videoDepthSupported)
-        assertFalse(policy.artworkAllowed)
+        // 歌曲图片有界渲染器已落地(校对取图 + 有界 JPEG + 左置单槽),AOD 与锁屏同放行。
+        assertTrue(policy.artworkAllowed)
         assertFalse(policy.progressAllowed)
     }
 
     @Test
-    fun lockscreenArtworkStaysDisabledUntilBoundedProviderExists() {
+    fun lockscreenArtworkAllowedWithBoundedProvider() {
         val policy = SurfacePolicyResolver.resolve(LyricSurfaceKind.LOCKSCREEN)
 
-        assertFalse(policy.artworkAllowed)
+        assertTrue(policy.artworkAllowed)
         assertTrue(policy.progressAllowed)
     }
 }

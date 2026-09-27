@@ -251,7 +251,83 @@ class AodStateWireCodecTest {
         assertEquals(exact, AodStateWireCodec.decode(envelope))
         assertTrue(requireNotNull(envelope.body).size <= AodStateWireLimits.MAX_ENCODED_BODY_BYTES)
         assertEquals(48 * 1024, AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES)
-        assertEquals(64 * 1024, AodStateWireLimits.MAX_ENCODED_BODY_BYTES)
+        // 编码体上限 = 文本聚合预算 + 歌曲图片 JPEG 预算 + 结构开销(两账分计)。
+        assertEquals(96 * 1024, AodStateWireLimits.MAX_ENCODED_BODY_BYTES)
+        assertEquals(24 * 1024, AodStateWireLimits.MAX_ARTWORK_BYTES)
+        assertEquals(
+            com.eza.hyperglow.producer.MAX_ARTWORK_JPEG_BYTES,
+            AodStateWireLimits.MAX_ARTWORK_BYTES
+        )
+    }
+
+    @Test
+    fun artworkFrameRoundTripsWithContentEquality() {
+        val jpegBytes = ByteArray(64) { it.toByte() }
+        val message = snapshotMessage(
+            value = snapshotValue(
+                artworkJpeg = ArtworkJpeg(jpegBytes.copyOf()),
+                artworkKey = "com.music.player|song|artist"
+            )
+        )
+        val envelope = requireNotNull(AodStateWireCodec.encode(message))
+        val decoded = AodStateWireCodec.decode(envelope)
+
+        assertEquals(message, decoded)
+        // 同帧不同实例必须相等(按内容比较):wire 快照整对象相等是回环/去重判定的基石。
+        assertEquals(ArtworkJpeg(jpegBytes.copyOf()), ArtworkJpeg(jpegBytes.copyOf()))
+        assertEquals(
+            ArtworkJpeg(jpegBytes.copyOf()).hashCode(),
+            ArtworkJpeg(jpegBytes.copyOf()).hashCode()
+        )
+        assertFalse(ArtworkJpeg(byteArrayOf(1, 2, 3)) == ArtworkJpeg(byteArrayOf(1, 2, 4)))
+    }
+
+    @Test
+    fun oversizeHalfOrUntrimmedArtworkFailsClosed() {
+        // 超限 JPEG:直接拒绝出包(有界渲染器契约)。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue(
+                        artworkJpeg = ArtworkJpeg(ByteArray(AodStateWireLimits.MAX_ARTWORK_BYTES + 1)),
+                        artworkKey = "key"
+                    )
+                )
+            )
+        )
+        // 半截帧:有图无键 / 有键无图,一律拒收。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(value = snapshotValue(artworkJpeg = ArtworkJpeg(byteArrayOf(1))))
+            )
+        )
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(value = snapshotValue(artworkKey = "key"))
+            )
+        )
+        // 规范键必须 trim 后原样:带首尾空白拒收。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue(
+                        artworkJpeg = ArtworkJpeg(byteArrayOf(1)),
+                        artworkKey = " key "
+                    )
+                )
+            )
+        )
+        // 键超长拒收。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue(
+                        artworkJpeg = ArtworkJpeg(byteArrayOf(1)),
+                        artworkKey = "k".repeat(AodStateWireLimits.MAX_ARTWORK_KEY_CHARS + 1)
+                    )
+                )
+            )
+        )
     }
 
     @Test
@@ -285,7 +361,9 @@ class AodStateWireCodecTest {
         words: List<AodStateWireWord> = emptyList(),
         ruby: List<AodStateWireRuby> = emptyList(),
         layoutGroups: List<AodStateWireLayoutGroup> = emptyList(),
-        weight: String = "Medium"
+        weight: String = "Medium",
+        artworkJpeg: ArtworkJpeg = ArtworkJpeg.EMPTY,
+        artworkKey: String = ""
     ) = AodStateWireSnapshot(
         trackGeneration = 12L,
         aodEnabled = true,
@@ -335,6 +413,8 @@ class AodStateWireCodecTest {
         alignmentMode = "auto",
         metadataVisible = true,
         metadataAnchor = "top",
-        adaptiveSectioning = true
+        adaptiveSectioning = true,
+        artworkJpeg = artworkJpeg,
+        artworkKey = artworkKey
     )
 }

@@ -16,9 +16,15 @@ internal object AodStateWireLimits {
     const val MAX_RUBY = 128
     const val MAX_LAYOUT_GROUPS = 256
     const val MAX_AGGREGATE_TEXT_UTF8_BYTES = 48 * 1024
-    const val MAX_ENCODED_BODY_BYTES = 64 * 1024
+    // 编码体上限 = 文本聚合预算 48KB + 歌曲图片 JPEG 预算 24KB + 结构开销余量。
+    // 不含封面时文本上限行为不变;含封面时两账分计,任一超限都拒收整包。
+    const val MAX_ENCODED_BODY_BYTES = 96 * 1024
     const val MAX_MEDIA_DURATION_MS = 24L * 60L * 60L * 1000L
     const val MAX_PLAYBACK_SPEED = 4f
+    const val MAX_ARTWORK_KEY_CHARS = 64
+
+    /** 歌曲图片 JPEG 上限:与 producer.MAX_ARTWORK_JPEG_BYTES 同源(取图侧编码上限)。 */
+    const val MAX_ARTWORK_BYTES = com.eza.hyperglow.producer.MAX_ARTWORK_JPEG_BYTES
 }
 
 internal object AodStateWireContract {
@@ -51,6 +57,29 @@ internal data class AodStateWireLayoutGroup(
     val keepTogether: Boolean,
     val confidence: Double
 )
+
+/**
+ * 歌曲图片 JPEG 帧字节的按内容比较包装:wire 快照依赖 data class 整对象相等做回环/
+ * 去重判定,裸 ByteArray 的 equals 只按引用比较会让「同帧不同实例」误判为不同;
+ * 包装后相等性与帧内容一致,与实例无关。
+ */
+internal class ArtworkJpeg(val bytes: ByteArray) {
+    val size: Int
+        get() = bytes.size
+
+    fun isEmpty(): Boolean = bytes.isEmpty()
+
+    override fun equals(other: Any?): Boolean =
+        other is ArtworkJpeg && other.bytes.contentEquals(bytes)
+
+    override fun hashCode(): Int = bytes.contentHashCode()
+
+    override fun toString(): String = "ArtworkJpeg(${bytes.size} bytes)"
+
+    companion object {
+        val EMPTY = ArtworkJpeg(ByteArray(0))
+    }
+}
 
 internal data class AodStateWireSnapshot(
     val trackGeneration: Long,
@@ -102,7 +131,14 @@ internal data class AodStateWireSnapshot(
     val alignmentMode: String,
     val metadataVisible: Boolean,
     val metadataAnchor: String,
-    val adaptiveSectioning: Boolean
+    val adaptiveSectioning: Boolean,
+    /**
+     * 歌曲图片帧(有界 JPEG,空=无封面):仅经包名/曲目校对的「当前播放的音乐软件」
+     * 封面会走到这里(见 SongArtworkRepository),校对不过就是空——不显示,不显示错的图。
+     */
+    val artworkJpeg: ArtworkJpeg = ArtworkJpeg.EMPTY,
+    /** 封面稳定键(包名+曲目身份),渲染侧按帧缓存解码位图;空串=无封面。 */
+    val artworkKey: String = ""
 )
 
 internal sealed interface AodStateWireMessage {
@@ -330,6 +366,9 @@ internal object AodStateWireCodec {
                     output.writeStrictBoolean(group.keepTogether)
                     output.writeDouble(group.confidence)
                 }
+                output.writeInt(snapshot.artworkJpeg.size)
+                output.write(snapshot.artworkJpeg.bytes)
+                output.writeBoundedString(snapshot.artworkKey)
             }
             bytes.toByteArray().takeIf {
                 it.isNotEmpty() && it.size <= AodStateWireLimits.MAX_ENCODED_BODY_BYTES
@@ -467,6 +506,21 @@ internal object AodStateWireCodec {
                     confidence = input.readDouble()
                 )
             }
+            val artworkSize = input.readInt()
+            if (artworkSize < 0 ||
+                artworkSize > AodStateWireLimits.MAX_ARTWORK_BYTES ||
+                artworkSize > input.available()
+            ) return null
+            val artworkBytes = ByteArray(artworkSize)
+            input.readFully(artworkBytes)
+            val artworkJpeg = ArtworkJpeg(artworkBytes)
+            // 封面键走独立预算:不占文本聚合预算(编码侧 fitAodEnhancementBudget 不为它
+            // 留头寸),仅按字符上限+UTF-8 预算自检,两端口径一致。
+            val artworkKey = input.readBoundedString(
+                AodStateWireLimits.MAX_ARTWORK_KEY_CHARS,
+                allowEmpty = true,
+                budget = Utf8Budget()
+            ) ?: return null
             if (input.available() != 0) return null
             AodStateWireSnapshot(
                 trackGeneration = trackGeneration,
@@ -518,7 +572,9 @@ internal object AodStateWireCodec {
                 alignmentMode = alignmentMode,
                 metadataVisible = metadataVisible,
                 metadataAnchor = metadataAnchor,
-                adaptiveSectioning = adaptiveSectioning
+                adaptiveSectioning = adaptiveSectioning,
+                artworkJpeg = artworkJpeg,
+                artworkKey = artworkKey
             ).takeIf(::isValidSnapshot)
         } catch (_: Exception) {
             null
@@ -618,6 +674,14 @@ internal object AodStateWireCodec {
                 group.confidence !in 0.0..1.0
             ) return false
         }
+        // 歌曲图片:有界 JPEG + 规范键;图与键必须同有同无(半截帧拒收)。键走独立预算
+        // (与 decode 侧一致,不占文本聚合预算)。
+        if (snapshot.artworkJpeg.size > AodStateWireLimits.MAX_ARTWORK_BYTES ||
+            (snapshot.artworkJpeg.isEmpty() != snapshot.artworkKey.isEmpty()) ||
+            snapshot.artworkKey != snapshot.artworkKey.trim() ||
+            snapshot.artworkKey.length > AodStateWireLimits.MAX_ARTWORK_KEY_CHARS ||
+            !Utf8Budget().accept(snapshot.artworkKey, AodStateWireLimits.MAX_ARTWORK_KEY_CHARS, true)
+        ) return false
         return true
     }
 
@@ -692,7 +756,9 @@ internal object AodStateWireCodec {
     }
 
     private const val BODY_MAGIC = 0x414F4453
-    private const val BODY_VERSION = 2
+
+    /** v3:快照尾部追加歌曲图片帧(有界 JPEG + 稳定键)。 */
+    private const val BODY_VERSION = 3
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

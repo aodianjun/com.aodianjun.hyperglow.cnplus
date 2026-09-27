@@ -1,11 +1,13 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.projection.LyricSnapshot
 
 internal fun LyricSnapshot.toAodCanvasContent(
-    profile: CompiledSurfaceProfile? = null
+    profile: CompiledSurfaceProfile? = null,
+    artwork: ArtworkDisplayConfig = ArtworkDisplayConfig()
 ): AodCanvasContent = AodCanvasContent(
     trackGeneration = trackGeneration,
     metadata = metadata,
@@ -69,5 +71,10 @@ internal fun LyricSnapshot.toAodCanvasContent(
     showNextLine = profile?.showNextLine ?: false,
     secondaryNextLine = profile?.secondaryNextLine ?: false,
     metadataAlignment = profile?.metadataAlignment ?: "auto",
-    nextLineAlignment = profile?.nextLineAlignment ?: "auto"
+    nextLineAlignment = profile?.nextLineAlignment ?: "auto",
+    artworkJpeg = artworkJpeg,
+    artworkKey = artworkKey,
+    artworkVisible = artwork.visible,
+    artworkShape = artwork.shape,
+    artworkSpin = artwork.spins
 )

@@ -48,6 +48,9 @@ object SceneCompiler {
             linkSurfaces = source.linkSurfaces,
             metadataParts = normalizeMetadataParts(source.metadataParts),
             metadataSeparator = normalizeMetadataSeparator(source.metadataSeparator),
+            artworkVisible = source.artworkVisible,
+            artworkShape = normalizeArtworkShape(source.artworkShape),
+            artworkSpin = source.artworkSpin,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: compileSafeDefault()
@@ -106,6 +109,9 @@ object SceneCompiler {
             linkSurfaces = safe.linkSurfaces,
             metadataParts = normalizeMetadataParts(safe.metadataParts),
             metadataSeparator = normalizeMetadataSeparator(safe.metadataSeparator),
+            artworkVisible = safe.artworkVisible,
+            artworkShape = normalizeArtworkShape(safe.artworkShape),
+            artworkSpin = safe.artworkSpin,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: error("Safe customization exceeds hard limit")

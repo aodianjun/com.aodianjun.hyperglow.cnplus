@@ -93,7 +93,11 @@ internal data class LyricSnapshot(
     val alignmentMode: String = "auto",
     val metadataVisible: Boolean = true,
     val metadataAnchor: String = "top",
-    val adaptiveSectioning: Boolean = true
+    val adaptiveSectioning: Boolean = true,
+    /** 歌曲图片帧(有界 JPEG,空数组=无封面):经包名/曲目校对的当前播放音乐软件封面。 */
+    val artworkJpeg: ByteArray = ByteArray(0),
+    /** 封面稳定键(包名+曲目身份);空串=无封面,渲染侧按帧缓存解码位图。 */
+    val artworkKey: String = ""
 ) {
     fun renderContent(): LyricRenderContent = LyricRenderContent(
         trackGeneration,
@@ -127,7 +131,8 @@ internal data class LyricSnapshot(
         alignmentMode,
         metadataVisible,
         metadataAnchor,
-        adaptiveSectioning
+        adaptiveSectioning,
+        artworkKey
     )
 }
 
@@ -163,7 +168,12 @@ internal data class LyricRenderContent(
     val alignmentMode: String,
     val metadataVisible: Boolean,
     val metadataAnchor: String,
-    val adaptiveSectioning: Boolean
+    val adaptiveSectioning: Boolean,
+    /**
+     * 变更指纹只带封面键不带 JPEG 字节:每次 wire 解码都会产出新 ByteArray,
+     * 按内容比对会让逐帧重渲染判定失效,按键比对则同帧重播仍是「无变化」。
+     */
+    val artworkKey: String = ""
 )
 
 internal data class LyricKeepAliveSignal(
@@ -342,6 +352,15 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
     }.toList()
     val position = snapshot.positionMs.coerceAtLeast(0L)
     val duration = snapshot.durationMs.coerceAtLeast(0L)
+    // 歌曲图片:超限/半截帧整帧丢弃(与投影侧 normalizeAodDisplayState 同 fail-closed 口径)。
+    val artworkJpeg = snapshot.artworkJpeg.takeIf {
+        it.isNotEmpty() && it.size <= AodStateWireLimits.MAX_ARTWORK_BYTES
+    } ?: ByteArray(0)
+    val artworkKey = if (artworkJpeg.isEmpty()) {
+        ""
+    } else {
+        snapshot.artworkKey.trim().take(AodStateWireLimits.MAX_ARTWORK_KEY_CHARS)
+    }
     return snapshot.copy(
         revision = snapshot.revision.coerceAtLeast(0L),
         trackGeneration = snapshot.trackGeneration.coerceAtLeast(0L),
@@ -379,7 +398,9 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
         words = words,
         ruby = ruby,
         layoutGroups = layoutGroups,
-        textSizeCustom = snapshot.textSizeCustom.coerceIn(0, 500)
+        textSizeCustom = snapshot.textSizeCustom.coerceIn(0, 500),
+        artworkJpeg = artworkJpeg,
+        artworkKey = artworkKey
     )
 }
 
@@ -463,7 +484,9 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             alignmentMode = value.alignmentMode,
             metadataVisible = value.metadataVisible,
             metadataAnchor = value.metadataAnchor,
-            adaptiveSectioning = value.adaptiveSectioning
+            adaptiveSectioning = value.adaptiveSectioning,
+            artworkJpeg = value.artworkJpeg.bytes,
+            artworkKey = value.artworkKey
         )
     )
     is AodStateWireMessage.Hidden -> LyricProjectionMessage.Snapshot(

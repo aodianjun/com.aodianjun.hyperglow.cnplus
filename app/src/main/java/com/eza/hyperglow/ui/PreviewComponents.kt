@@ -6,8 +6,13 @@ import android.text.TextPaint
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -15,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +28,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,10 +40,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -51,6 +63,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
+import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
+import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.aod.ENTER_TRANSITION_MS
@@ -68,6 +82,9 @@ import com.eza.hyperglow.root.aod.METADATA_LYRIC_GAP_DP
 import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_NEXT_LINE_DP
 import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_ORIGINAL_DP
 import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_SECONDARY_DP
+import com.eza.hyperglow.root.aod.ARTWORK_SPIN_PERIOD_MS
+import com.eza.hyperglow.root.aod.artworkLeadingPx
+import com.eza.hyperglow.root.aod.artworkSidePx
 import com.eza.hyperglow.root.aod.baseTextSizeSp
 import com.eza.hyperglow.root.aod.layoutMetadataLines
 import com.eza.hyperglow.root.aod.layoutOriginalLines
@@ -163,6 +180,7 @@ internal fun AppearanceLivePreview(
     scenario: String,
     metadataParts: String,
     metadataSeparator: String,
+    artwork: ArtworkDisplayConfig = ArtworkDisplayConfig(),
     modifier: Modifier = Modifier
 ) {
     val live = collectLiveSnapshot(metadataParts, metadataSeparator)
@@ -172,6 +190,7 @@ internal fun AppearanceLivePreview(
         live = live,
         metadataParts = metadataParts,
         metadataSeparator = metadataSeparator,
+        artwork = artwork,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -196,7 +215,8 @@ internal fun LyricPreviewCard(
     live: LyricSnapshot?,
     metadataParts: String,
     metadataSeparator: String,
-    modifier: Modifier
+    modifier: Modifier,
+    artwork: ArtworkDisplayConfig = ArtworkDisplayConfig()
 ) {
     Card(modifier = modifier) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
@@ -213,6 +233,7 @@ internal fun LyricPreviewCard(
                 live = live,
                 metadataParts = metadataParts,
                 metadataSeparator = metadataSeparator,
+                artwork = artwork,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -231,10 +252,23 @@ private fun LyricPreviewSurface(
     live: LyricSnapshot?,
     metadataParts: String,
     metadataSeparator: String,
+    artwork: ArtworkDisplayConfig = ArtworkDisplayConfig(),
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
     val snapshot = live ?: collectDemoSnapshot(scenario, metadataParts, metadataSeparator)
+    // 歌曲图片(与实机同一几何公式):实时快照带已校对封面帧则显示真帧;演示态显示
+    // 生成占位图,便于调形状/旋转开关所见即所得;实时无帧=不显示(与实机 fail-closed 一致)。
+    // 只在歌曲信息行可见且文本非空时露出(与实机「图片随歌曲信息行」同一门槛)。
+    val previewArtwork = if (!artwork.visible || !profile.metadataVisible ||
+        snapshot.metadata.isBlank()
+    ) {
+        null
+    } else if (live != null) {
+        previewArtworkFromSnapshot(snapshot, artwork)
+    } else {
+        PreviewArtwork(artwork.shape, artwork.spins, image = null, placeholder = true)
+    }
     // 颜色与实机同源:统一走 resolveAodPalette(dimmed 预设/自定义字体颜色 hex token 一处解析)
     val resolvedColors = resolveAodPalette(profile.palette)
     // 主行取色与实机 drawOriginalGlowBlock 调用一致:已唱/底色走 sungText,光晕走 glow token。
@@ -361,6 +395,7 @@ private fun LyricPreviewSurface(
                         PreviewMetaLine(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
                             regularTypeface, availablePx, metadataAlign,
+                            previewArtwork,
                             Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp)
                         )
                     }
@@ -430,6 +465,7 @@ private fun LyricPreviewSurface(
                         PreviewMetaLine(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
                             regularTypeface, availablePx, metadataAlign,
+                            previewArtwork,
                             Modifier.padding(top = METADATA_LYRIC_GAP_DP.dp)
                         )
                     }
@@ -439,6 +475,41 @@ private fun LyricPreviewSurface(
     }
 }
 
+/** 预览侧歌曲图片呈现参数:形状/旋转生效值 + 解码后的帧(或演示占位)。 */
+private data class PreviewArtwork(
+    val shape: String,
+    val spin: Boolean,
+    val image: ImageBitmap?,
+    val placeholder: Boolean
+)
+
+/**
+ * 实时快照的封面帧:已校对帧按 key 解码一次(remember 键),无帧返回 null(不显示,
+ * 与实机 fail-closed 一致);坏帧解码失败同样不显示。
+ */
+@Composable
+private fun previewArtworkFromSnapshot(
+    snapshot: LyricSnapshot,
+    artwork: ArtworkDisplayConfig
+): PreviewArtwork? {
+    if (snapshot.artworkKey.isBlank() || snapshot.artworkJpeg.isEmpty()) return null
+    val image = remember(snapshot.artworkKey) {
+        runCatching {
+            val bitmap = android.graphics.BitmapFactory.decodeByteArray(
+                snapshot.artworkJpeg,
+                0,
+                snapshot.artworkJpeg.size
+            )
+            bitmap?.asImageBitmap()
+        }.getOrNull()
+    } ?: return null
+    return PreviewArtwork(artwork.shape, artwork.spins, image, placeholder = false)
+}
+
+/**
+ * 歌曲信息行:歌曲图片显示时按「图片槽+间距+文本块」成组布局(几何公式与实机
+ * wrapMetadataText 同源),[textAlign] 作用于整组——图片恒在文本块左侧。
+ */
 @Composable
 private fun PreviewMetaLine(
     text: String,
@@ -447,30 +518,105 @@ private fun PreviewMetaLine(
     typeface: Typeface,
     availableWidthPx: Int,
     textAlign: TextAlign,
+    artwork: PreviewArtwork?,
     modifier: Modifier = Modifier
 ) {
     val size = previewMetadataTextSizeSp(sizePercent)
-    val sizePx = with(LocalDensity.current) { size.toPx() }
+    val density = LocalDensity.current
+    val sizePx = with(density) { size.toPx() }
+    val leadingPx = if (artwork != null) artworkLeadingPx(sizePx, density.density) else 0f
     // 换行与实机 layoutMetadataLines 同算法:切片/折行后最多 MAX_METADATA_LAYOUT_LINES 行,溢出丢弃(无省略号)。
-    val lines = remember(text, sizePx, typeface, availableWidthPx) {
+    val lines = remember(text, sizePx, typeface, availableWidthPx, leadingPx) {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = sizePx
             this.typeface = typeface
         }
-        layoutMetadataLines(text, paint, availableWidthPx.toFloat())
+        layoutMetadataLines(text, paint, (availableWidthPx - leadingPx).coerceAtLeast(1f))
     }
-    Column(modifier.fillMaxWidth()) {
-        lines.forEach { line ->
-            Text(
-                line.text,
-                fontSize = size,
-                fontFamily = FontFamily(typeface),
-                color = color,
-                textAlign = textAlign,
-                maxLines = 1,
-                overflow = TextOverflow.Clip,
-                modifier = Modifier.fillMaxWidth()
+    val groupArrangement = when (textAlign) {
+        TextAlign.Center -> Arrangement.Center
+        TextAlign.End -> Arrangement.End
+        else -> Arrangement.Start
+    }
+    Row(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = groupArrangement,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (artwork != null) {
+            PreviewArtworkBox(
+                artwork,
+                side = with(density) { artworkSidePx(sizePx).toDp() },
+                contentDescription = text
             )
+            Spacer(Modifier.width(com.eza.hyperglow.root.aod.ARTWORK_TEXT_GAP_DP.dp))
+        }
+        Column(Modifier.width(IntrinsicSize.Max)) {
+            lines.forEach { line ->
+                Text(
+                    line.text,
+                    fontSize = size,
+                    fontFamily = FontFamily(typeface),
+                    color = color,
+                    textAlign = textAlign,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 歌曲图片方框:方形=矩形裁切,圆形=圆形裁切;圆形开旋转时匀速自转
+ * (周期与实机 artworkSpinDegrees 同源,[ARTWORK_SPIN_PERIOD_MS])。
+ * 演示态用渐变占位图(音符字形),仅预览可见,不代表真实封面。
+ */
+@Composable
+private fun PreviewArtworkBox(
+    artwork: PreviewArtwork,
+    side: androidx.compose.ui.unit.Dp,
+    contentDescription: String
+) {
+    val shape = if (artwork.shape == ARTWORK_SHAPE_CIRCLE) CircleShape else RectangleShape
+    val rotation = if (artwork.spin) {
+        val transition = rememberInfiniteTransition(label = "artwork-spin")
+        val degrees by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                tween(ARTWORK_SPIN_PERIOD_MS.toInt(), easing = LinearEasing),
+                RepeatMode.Restart
+            ),
+            label = "artwork-spin-degrees"
+        )
+        degrees
+    } else {
+        0f
+    }
+    Box(
+        Modifier
+            .size(side)
+            .rotate(rotation)
+            .clip(shape)
+            .background(ComposeColor(0xFF2A2A32))
+    ) {
+        if (artwork.image != null) {
+            Image(
+                bitmap = artwork.image,
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (artwork.placeholder) {
+            Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "♪",
+                    color = ComposeColor(0xFFB9BDC7),
+                    fontSize = with(LocalDensity.current) { (side.toPx() * 0.42f).toSp() }
+                )
+            }
         }
     }
 }

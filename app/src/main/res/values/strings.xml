@@ -298,6 +298,9 @@
     <string name="choice_song_info_position">Song info position</string>
     <string name="setting_song_info_size">Song info size</string>
     <string name="setting_song_info_parts">Song info content</string>
+    <string name="setting_show_song_artwork">Show song artwork</string>
+    <string name="setting_song_artwork_spin">Rotate song artwork</string>
+    <string name="choice_song_artwork_shape">Song artwork shape</string>
     <string name="choice_song_info_separator">Song info separator</string>
     <string name="choice_text_weight">Text weight</string>
     <string name="choice_text_size">Text size</string>
@@ -348,6 +351,8 @@
     <string name="option_song_info_part_artist">Artist</string>
     <string name="option_song_info_part_album">Album</string>
     <string name="option_song_info_separator_newline">New line</string>
+    <string name="option_song_artwork_shape_square">Square</string>
+    <string name="option_song_artwork_shape_circle">Circle</string>
     <string name="option_no_limit">No limit</string>
     <string name="option_noto_sans">Noto Sans</string>
     <string name="option_spotify_mix">Spotify Mix</string>

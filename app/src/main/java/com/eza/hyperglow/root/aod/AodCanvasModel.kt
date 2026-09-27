@@ -67,7 +67,17 @@ internal data class AodCanvasContent(
     /** 歌曲信息对齐(auto/start/center/end),auto 跟随主对齐解析;见 SurfaceProfile.metadataAlignment。 */
     val metadataAlignment: String = "auto",
     /** 第二行歌词对齐(auto/start/center/end),auto 跟随主对齐解析;见 SurfaceProfile.nextLineAlignment。 */
-    val nextLineAlignment: String = "auto"
+    val nextLineAlignment: String = "auto",
+    /** 歌曲图片帧(有界 JPEG,空数组=无封面);仅经包名/曲目校对的封面非空。 */
+    val artworkJpeg: ByteArray = ByteArray(0),
+    /** 封面稳定键;空串=无封面,画布按帧缓存解码位图。 */
+    val artworkKey: String = "",
+    /** 歌曲图片显示开关(外观文档全局配置,见 ArtworkDisplayConfig)。 */
+    val artworkVisible: Boolean = false,
+    /** 歌曲图片形状 token(square/circle),见 [com.eza.hyperglow.customization.ARTWORK_SHAPES]。 */
+    val artworkShape: String = "square",
+    /** 圆形歌曲图片是否旋转;仅圆形生效(见 ArtworkDisplayConfig.spins)。 */
+    val artworkSpin: Boolean = false
 )
 
 /** 下一行歌词的呈现方式;同一行只会以其中一种形态出现,不叠加。 */

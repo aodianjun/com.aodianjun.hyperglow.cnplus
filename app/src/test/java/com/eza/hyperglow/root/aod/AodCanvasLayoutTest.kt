@@ -4,6 +4,7 @@ import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.customization.WidgetSpec
+import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricWord
@@ -249,6 +250,58 @@ class AodCanvasLayoutTest {
 
         assertEquals(160, snapshot.toAodCanvasContent(profile).metadataSizePercent)
         assertEquals(100, snapshot.toAodCanvasContent(null).metadataSizePercent)
+    }
+
+    @Test
+    fun artworkGeometryScalesWithMetadataTextSize() {
+        // 槽边长 = 歌曲信息字号 × 1.6;前置宽度 = 槽 + 6dp 间距(实机与预览同源)。
+        assertEquals(16f, artworkSidePx(10f), 0.0001f)
+        assertEquals(32f, artworkSidePx(20f), 0.0001f)
+        assertEquals(16f + 6f * 2f, artworkLeadingPx(10f, 2f), 0.0001f)
+    }
+
+    @Test
+    fun artworkSpinAdvancesContinuouslyOnlyWhenEnabled() {
+        assertEquals(0f, artworkSpinDegrees(false, 12_345L), 0.0001f)
+        assertEquals(0f, artworkSpinDegrees(true, 0L), 0.0001f)
+        assertEquals(180f, artworkSpinDegrees(true, ARTWORK_SPIN_PERIOD_MS / 2), 0.0001f)
+        val next = artworkSpinDegrees(true, ARTWORK_SPIN_PERIOD_MS / 2 + 16L)
+        assertTrue(next > 180f && next < 360f)
+    }
+
+    @Test
+    fun canvasContentCarriesArtworkDisplayConfigAndFrame() {
+        val snapshot = LyricSnapshot(
+            original = "line",
+            metadata = "Song · Artist",
+            artworkJpeg = byteArrayOf(1, 2, 3),
+            artworkKey = "com.music.player|song|artist"
+        )
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                artworkVisible = true,
+                artworkShape = com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE,
+                artworkSpin = true
+            )
+        )
+
+        val content = snapshot.toAodCanvasContent(artwork = artworkDisplayConfig(compiled))
+        assertEquals(true, content.artworkVisible)
+        assertEquals(com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE, content.artworkShape)
+        assertEquals(true, content.artworkSpin)
+        assertEquals("com.music.player|song|artist", content.artworkKey)
+        assertTrue(content.artworkJpeg.contentEquals(byteArrayOf(1, 2, 3)))
+
+        // 显示门槛 = ArtworkDisplayConfig.visible(渲染侧再叠帧非空);帧恒随快照透传,
+        // 默认配置只关显示不丢帧(曲目帧与显示开关解耦)。
+        val defaults = snapshot.toAodCanvasContent()
+        assertEquals(false, defaults.artworkVisible)
+        assertTrue(defaults.artworkJpeg.contentEquals(byteArrayOf(1, 2, 3)))
+
+        // 无帧快照 + 默认配置:无封面可显(校对不过=无帧)。
+        val bare = LyricSnapshot(original = "line", metadata = "Song · Artist").toAodCanvasContent()
+        assertEquals(false, bare.artworkVisible)
+        assertEquals(0, bare.artworkJpeg.size)
     }
 
     @Test
