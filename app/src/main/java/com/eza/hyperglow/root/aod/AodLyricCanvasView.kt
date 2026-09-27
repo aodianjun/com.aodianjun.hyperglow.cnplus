@@ -4,8 +4,10 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Camera
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -754,13 +756,14 @@ internal class AodLyricCanvasView(
         } else {
             drawMetadata(canvas, layout)
         }
-        // 参考档位移以行块宽为基准(Fade 族 1/4 宽、Slide swap 整宽),历史档忽略该参数。
+        // 参考档位移以行块内容框为基准(Fade 族 1/4 宽高、Slide 族整宽高),历史档忽略该参数。
         val blockWidthDp = (ow - padLeft - padRight) / density
+        val blockHeightDp = (oh - padTop - padBottom) / density
         drawRows(
             canvas,
             snapshot.layout,
             snapshot.content,
-            lineTransitionExitFrame(transitionMode, exitEased, blockWidthDp),
+            lineTransitionExitFrame(transitionMode, exitEased, blockWidthDp, blockHeightDp),
             snapshot.renderStyle,
             skipOriginal = metadataMorph
         )
@@ -768,7 +771,7 @@ internal class AodLyricCanvasView(
             canvas,
             layout,
             content,
-            lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp)
+            lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp, blockHeightDp)
         )
         if (enterProgress >= 1f) {
             transitionStartedAt = 0L
@@ -795,18 +798,32 @@ internal class AodLyricCanvasView(
         content = drawContent
         layout = drawLayout
         val layer = if (frame.alpha < 1f || frame.translateXDp != 0f ||
-            frame.translateYDp != 0f || frame.scale != 1f
+            frame.translateYDp != 0f || frame.scale != 1f ||
+            frame.rotationDeg != 0f || frame.rotationXDeg != 0f || frame.rotationYDeg != 0f
         ) {
             val save = canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * frame.alpha).toInt())
             canvas.translate(frame.translateXDp * density, frame.translateYDp * density)
+            val pivotX = (padLeft + (ow - padRight)) / 2f
+            val pivotY = (padTop + (oh - padBottom)) / 2f
             if (frame.scale != 1f) {
                 // 放缩绕内容框中心,保证 Zoom 模式收放不偏离版面锚点。
-                canvas.scale(
-                    frame.scale,
-                    frame.scale,
-                    (padLeft + (ow - padRight)) / 2f,
-                    (padTop + (oh - padBottom)) / 2f
-                )
+                canvas.scale(frame.scale, frame.scale, pivotX, pivotY)
+            }
+            if (frame.rotationDeg != 0f) {
+                // 平面旋转同样绕内容框中心(旋转档)。
+                canvas.rotate(frame.rotationDeg, pivotX, pivotY)
+            }
+            if (frame.rotationXDeg != 0f || frame.rotationYDeg != 0f) {
+                // 翻转档:Camera 透视等价于 View/graphicsLayer 的 rotationX/Y
+                // (Camera 坐标 Y 向上、屏幕 Y 向下,故取负号对齐语义)。
+                val camera = Camera()
+                val matrix = Matrix()
+                camera.rotateX(-frame.rotationXDeg)
+                camera.rotateY(-frame.rotationYDeg)
+                camera.getMatrix(matrix)
+                matrix.preTranslate(-pivotX, -pivotY)
+                matrix.postTranslate(pivotX, pivotY)
+                canvas.concat(matrix)
             }
             save
         } else canvas.save()

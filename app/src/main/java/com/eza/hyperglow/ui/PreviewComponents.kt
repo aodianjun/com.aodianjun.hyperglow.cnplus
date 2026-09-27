@@ -828,12 +828,22 @@ private fun PreviewAnimatedRowBlock(
             exitingBlock = null
         }
     }
-    // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方;参考档位移以行块宽为基准。
+    // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方;参考档位移以行块
+    // 宽高为基准(高度取主行块高度近似,实机为内容裁剪框高)。
     val blockWidthDp = with(LocalDensity.current) { availableWidthPx.toDp().value }
-    val exitFrame =
-        lineTransitionExitFrame(lineTransition, lineTransitionExitEasing(lineTransition, exitFrameProgress.value), blockWidthDp)
-    val enterFrame =
-        lineTransitionEnterFrame(lineTransition, lineTransitionEnterEasing(lineTransition, enterFrameProgress.value), blockWidthDp)
+    val blockHeightDp = with(LocalDensity.current) { block.main.blockHeight.toDp().value }
+    val exitFrame = lineTransitionExitFrame(
+        lineTransition,
+        lineTransitionExitEasing(lineTransition, exitFrameProgress.value),
+        blockWidthDp,
+        blockHeightDp
+    )
+    val enterFrame = lineTransitionEnterFrame(
+        lineTransition,
+        lineTransitionEnterEasing(lineTransition, enterFrameProgress.value),
+        blockWidthDp,
+        blockHeightDp
+    )
 
     Box(modifier.fillMaxWidth()) {
         val previous = exitingBlock
@@ -894,6 +904,9 @@ private fun PreviewRowBlockLayer(
             translationY = frame.translateYDp.dp.toPx()
             scaleX = frame.scale
             scaleY = frame.scale
+            rotationZ = frame.rotationDeg
+            rotationX = frame.rotationXDeg
+            rotationY = frame.rotationYDeg
         }
     ) {
         val density = LocalDensity.current

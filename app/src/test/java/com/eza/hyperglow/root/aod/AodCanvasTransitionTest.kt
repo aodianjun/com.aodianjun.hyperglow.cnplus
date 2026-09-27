@@ -1,5 +1,6 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -299,6 +300,10 @@ class AodCanvasTransitionTest {
         assertEquals(1f, fastOutLinearInEase(1f), 1e-4f)
         assertTrue(fastOutLinearInEase(0.5f) < 0.5f)
         assertTrue(fastOutLinearInEase(0.5f) > 0.25f)
+        // FastOutSlowIn:cubic-bezier(0.4,0,0.2,1),端点钉死、中段高于线性(减速落位)。
+        assertEquals(0f, fastOutSlowInEase(0f), 1e-4f)
+        assertEquals(1f, fastOutSlowInEase(1f), 1e-4f)
+        assertTrue(fastOutSlowInEase(0.5f) > 0.5f)
         // 分派:历史档沿用原曲线,参考档走各自同源曲线。
         assertEquals(transitionExitEasing(0.4f), lineTransitionExitEasing("Fade up", 0.4f), 1e-6f)
         assertEquals(transitionEnterEasing(0.4f), lineTransitionEnterEasing("Fade up", 0.4f), 1e-6f)
@@ -309,5 +314,81 @@ class AodCanvasTransitionTest {
             lineTransitionExitEasing("Slide swap", 0.4f),
             1e-6f
         )
+        assertEquals(
+            fastOutSlowInEase(0.4f),
+            lineTransitionEnterEasing("flip_out_x_flip_in_x", 0.4f),
+            1e-6f
+        )
+    }
+
+    @Test
+    fun hyperlyricPresetTableCoversVocabulary() {
+        // 25 个预设全部入表;词表除历史档/Auto/None 外都有配方,有序列式相位。
+        assertEquals(25, LINE_TRANSITION_PRESETS.size)
+        val legacy = setOf("Auto", "Fade up", "Crossfade", "Slide up", "Slide left", "Zoom", "None")
+        for (mode in LINE_TRANSITION_MODES) {
+            val preset = lineTransitionPreset(mode)
+            assertTrue(mode, mode in legacy || preset != null)
+            if (preset != null) {
+                assertTrue(mode, isSequentialLineTransition(mode))
+                assertTrue(mode, preset.outMs > 0 && preset.inMs > 0)
+            }
+        }
+    }
+
+    @Test
+    fun hyperlyricTechniqueKeyframesMatchReferencedAnimators() {
+        val w = 200f
+        val h = 100f
+        // FLIP_IN_X(daimajia rotationX 90→-15→15→0 + alpha 0.25→0.5→0.75→1)
+        val flipStart = lineTransitionEnterFrame("flip_out_x_flip_in_x", 0f, w, h)
+        assertEquals(90f, flipStart.rotationXDeg, 1e-4f)
+        assertEquals(0.25f, flipStart.alpha, 1e-4f)
+        val flipMid = lineTransitionEnterFrame("flip_out_x_flip_in_x", 0.5f, w, h)
+        assertEquals(0f, flipMid.rotationXDeg, 1e-4f)
+        assertEquals(0.625f, flipMid.alpha, 1e-4f)
+        // FLIP_OUT_X(rotationX 0→90)与 ROTATE_OUT/ROTATE_IN(rotation 0→200 / -200→0)
+        assertEquals(45f, lineTransitionExitFrame("flip_out_x_flip_in_x", 0.5f, w, h).rotationXDeg, 1e-4f)
+        assertEquals(100f, lineTransitionExitFrame("rotate_out_rotate_in", 0.5f, w, h).rotationDeg, 1e-4f)
+        assertEquals(-100f, lineTransitionEnterFrame("rotate_out_rotate_in", 0.5f, w, h).rotationDeg, 1e-4f)
+        // ZOOM_OUT 关键帧(alpha 1→0→0、scale 1→0.3→0):中点 alpha 已收 0、scale 0.3
+        val zoomOutMid = lineTransitionExitFrame("zoom_out_zoom_in", 0.5f, w, h)
+        assertEquals(0f, zoomOutMid.alpha, 1e-4f)
+        assertEquals(0.3f, zoomOutMid.scale, 1e-4f)
+        assertEquals(0.45f, lineTransitionEnterFrame("zoom_out_zoom_in", 0f, w, h).scale, 1e-4f)
+        // ZOOM_IN_RIGHT 关键帧(tx 宽→-16dp→0、scale 0.1→0.475→1、alpha 0→1→1)
+        val zirStart = lineTransitionEnterFrame("fade_out_left_zoom_in_right", 0f, w, h)
+        assertEquals(200f, zirStart.translateXDp, 1e-4f)
+        assertEquals(0.1f, zirStart.scale, 1e-4f)
+        val zirMid = lineTransitionEnterFrame("fade_out_left_zoom_in_right", 0.5f, w, h)
+        assertEquals(-16f, zirMid.translateXDp, 1e-4f)
+        assertEquals(0.475f, zirMid.scale, 1e-4f)
+        assertEquals(1f, zirMid.alpha, 1e-4f)
+        // 柔缓着陆(scale 1.2→1)与 Fade 族 1/4 高度位移(FADE_OUT_UP ty=−h/4)
+        assertEquals(1.2f, lineTransitionEnterFrame("slide_out_left_landing", 0f, w, h).scale, 1e-4f)
+        assertEquals(-25f, lineTransitionExitFrame("fade_out_up_fade_in_up", 1f, w, h).translateYDp, 1e-4f)
+        // Y 翻转走 rotationY 通道,X 通道保持 0
+        val flipY = lineTransitionEnterFrame("flip_out_y_flip_in_y", 0f, w, h)
+        assertEquals(90f, flipY.rotationYDeg, 1e-4f)
+        assertEquals(0f, flipY.rotationXDeg, 1e-4f)
+    }
+
+    @Test
+    fun hyperlyricPresetDurationsFollowTableAndSpeedScale() {
+        // 表内代表档:出场 200/250/300、入场 300/400/450/600/700,速档同比缩放。
+        assertEquals(300L, exitTransitionMs("fade_out_fade_in", "Normal"))
+        assertEquals(300L, enterTransitionMs("fade_out_fade_in", "Normal"))
+        assertEquals(250L, exitTransitionMs("fade_out_left_zoom_in_right", "Normal"))
+        assertEquals(600L, enterTransitionMs("fade_out_left_zoom_in_right", "Normal"))
+        assertEquals(200L, exitTransitionMs("rotate_out_rotate_in", "Normal"))
+        assertEquals(600L, enterTransitionMs("rotate_out_rotate_in", "Normal"))
+        assertEquals(700L, enterTransitionMs("slide_out_left_landing", "Normal"))
+        assertEquals(450L, enterTransitionMs("slide_out_left_slide_in_right", "Normal"))
+        assertEquals(450L, exitTransitionMs("flip_out_x_flip_in_x", "Slow"))
+        assertEquals(270L, enterTransitionMs("flip_out_x_flip_in_x", "Fast"))
+        for ((id, preset) in LINE_TRANSITION_PRESETS) {
+            assertTrue(id, preset.outMs > 0 && preset.inMs > 0)
+            assertEquals(id, preset.outMs + preset.inMs, lineTransitionTotalMs(id, "Normal"))
+        }
     }
 }
