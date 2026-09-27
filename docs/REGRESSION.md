@@ -74,6 +74,12 @@ and (b) unverified paths stay explicit instead of silently assumed.
   pending a hardware smoke check after merge: the default title/artist + newline looks unchanged,
   three selected parts each get their own unclipped line, and an inline separator keeps the row on
   a single line.
+- Preview card adaptive height (`LyricPreviewCard` / `AppearanceLivePreview` surfaces grow with
+  their lyric content instead of fixed 150/180dp boxes, clamped to 120-420dp, and hold the
+  tallest content seen while the same profile is active so demo/live line re-wrapping does not
+  make the card breathe) — app-preview-only change, no SystemUI/AOD surface involvement; pending
+  a quick on-device look that large text sizes plus secondary/next-line/metadata rows are no
+  longer clipped and the surrounding layout stays put.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -134,6 +140,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
 - 歌曲信息内容与分隔符（`metadataParts`/`metadataSeparator`，文档级全局，息屏与锁屏共用）：可选显示哪些切片（歌名/歌手/专辑，恒按规范顺序）与连接分隔符（`newline` 每切片一行=历史默认，或 ` · ` 等行内连接）；画布歌曲信息只按硬换行拆行且最多 3 行（原 2 行），高度预算随切片行数追加——合并后待真机冒烟：默认「歌名/歌手+换行」与历史一致、选满 3 部分各占一行不裁切、行内分隔符保持单行。
+- 预览卡片自适应高度（`LyricPreviewCard` / `AppearanceLivePreview` 面板高度随歌词内容增长，取代固定 150/180dp，钳制在 120-420dp；同一配置生效期间保持已见最大内容高度，演示行循环/逐行折行变化不会让卡片高度来回呼吸）——仅应用内预览改动，不涉及 SystemUI/AOD surface；待真机看一眼：大字号 + 副文本/下一行/歌曲信息全开时内容不再被裁切，周围布局不跳动。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

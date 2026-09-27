@@ -192,4 +192,30 @@ class CustomizationPreviewTest {
         // 非法值按 auto 处理。
         assertEquals(TextAlign.End, previewRowTextAlign("bogus", "end", false))
     }
+
+    @Test
+    fun previewCardHeightAdaptsToContentWithinBounds() {
+        // 内容有多高卡片就多高:主字号 xlarge + 副文本/下一行/歌曲信息全部开启时
+        // 内容可远超旧固定高度(150/180dp),自适应后不再裁切。
+        assertEquals(200f, previewCardHeightDp(PREVIEW_CARD_MIN_HEIGHT_DP, 200f), 0.001f)
+        assertEquals(400f, previewCardHeightDp(PREVIEW_CARD_MIN_HEIGHT_DP, 400f), 0.001f)
+        // 不足下限保持卡片形(纯主行小内容不至于塌成一条)。
+        assertEquals(PREVIEW_CARD_MIN_HEIGHT_DP, previewCardHeightDp(0f, 60f), 0.001f)
+        // 超过上限封顶,防止极端字号组合把主页/设置页其余内容挤出屏幕。
+        assertEquals(PREVIEW_CARD_MAX_HEIGHT_DP, previewCardHeightDp(0f, 900f), 0.001f)
+    }
+
+    @Test
+    fun previewCardHeightStaysStableWhileContentWrappingFluctuates() {
+        // 同一配置内取已见最大内容高度:演示行循环/逐行播放时折行数在 1~2 行之间变化,
+        // 直接跟随会让卡片高度来回呼吸、推动下方内容上下跳动。
+        var height = previewCardHeightDp(PREVIEW_CARD_MIN_HEIGHT_DP, 180f)
+        assertEquals(180f, height, 0.001f)
+        height = previewCardHeightDp(height, 150f)
+        assertEquals(180f, height, 0.001f)
+        height = previewCardHeightDp(height, 210f)
+        assertEquals(210f, height, 0.001f)
+        // 配置/换歌重置为下限后重新随内容收缩(remember 键变化即重置)。
+        assertEquals(150f, previewCardHeightDp(PREVIEW_CARD_MIN_HEIGHT_DP, 150f), 0.001f)
+    }
 }
