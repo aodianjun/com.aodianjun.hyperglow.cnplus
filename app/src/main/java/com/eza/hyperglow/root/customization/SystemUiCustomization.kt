@@ -10,6 +10,8 @@ import com.eza.hyperglow.customization.normalizeCardAlpha
 import com.eza.hyperglow.customization.normalizeCardColor
 import com.eza.hyperglow.customization.normalizeLineTransition
 import com.eza.hyperglow.customization.normalizeLyricLineLimit
+import com.eza.hyperglow.customization.normalizeMetadataParts
+import com.eza.hyperglow.customization.normalizeMetadataSeparator
 import com.eza.hyperglow.aod.normalizePauseLingerMs
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
 import com.eza.hyperglow.root.surface.SurfacePolicyResolver
@@ -77,6 +79,8 @@ internal object SystemUiCustomizationValidator {
                 hash = "",
                 sourceId = normalizeIdentifier(configuration.sourceId),
                 pauseLingerMs = normalizePauseLingerMs(configuration.pauseLingerMs),
+                metadataParts = normalizeMetadataParts(configuration.metadataParts),
+                metadataSeparator = normalizeMetadataSeparator(configuration.metadataSeparator),
                 profiles = profiles
             )
         )

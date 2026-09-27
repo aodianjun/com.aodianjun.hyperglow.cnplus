@@ -138,9 +138,11 @@ internal fun AppearancePreviewHeader(
 internal fun AppearanceLivePreview(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
     scenario: String,
+    metadataParts: String,
+    metadataSeparator: String,
     modifier: Modifier = Modifier
 ) {
-    val live = collectLiveSnapshot()
+    val live = collectLiveSnapshot(metadataParts, metadataSeparator)
     Box(
         modifier
             .fillMaxWidth()
@@ -149,7 +151,13 @@ internal fun AppearanceLivePreview(
             .clip(RoundedCornerShape(16.dp))
             .background(ComposeColor(0xFF0B0B0F))
     ) {
-        LyricPreviewSurface(profile = profile, scenario = scenario, live = live)
+        LyricPreviewSurface(
+            profile = profile,
+            scenario = scenario,
+            live = live,
+            metadataParts = metadataParts,
+            metadataSeparator = metadataSeparator
+        )
     }
 }
 
@@ -165,6 +173,8 @@ internal fun LyricPreviewCard(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
     scenario: String,
     live: LyricSnapshot?,
+    metadataParts: String,
+    metadataSeparator: String,
     modifier: Modifier
 ) {
     Card(modifier = modifier) {
@@ -186,7 +196,9 @@ internal fun LyricPreviewCard(
                 LyricPreviewSurface(
                     profile = profile,
                     scenario = scenario,
-                    live = live
+                    live = live,
+                    metadataParts = metadataParts,
+                    metadataSeparator = metadataSeparator
                 )
             }
         }
@@ -197,13 +209,15 @@ internal fun LyricPreviewCard(
 private fun LyricPreviewSurface(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
     scenario: String,
-    live: LyricSnapshot?
+    live: LyricSnapshot?,
+    metadataParts: String,
+    metadataSeparator: String
 ) {
     // 预览卡片空间有限,直接在卡片内水平居中、垂直居中渲染歌词块,忽略真实曲面上的
     // 时钟/通知等占位偏移——否则息屏(AOD)歌词会按真实布局被挤到卡片顶部一小条,
     // 大字号下一行就被裁掉,看起来像被遮挡。这样无论字号多大都完整可见。
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
-    val snapshot = live ?: collectDemoSnapshot(scenario)
+    val snapshot = live ?: collectDemoSnapshot(scenario, metadataParts, metadataSeparator)
     // 颜色与实机同源:统一走 resolveAodPalette(dimmed 预设/自定义字体颜色 hex token 一处解析)
     val resolvedColors = resolveAodPalette(profile.palette)
     // 主行取色与实机 drawOriginalGlowBlock 调用一致:已唱/底色走 sungText,光晕走 glow token。
@@ -392,7 +406,7 @@ private fun PreviewMetaLine(
 ) {
     val size = previewMetadataTextSizeSp(sizePercent)
     val sizePx = with(LocalDensity.current) { size.toPx() }
-    // 换行与实机 wrapMetadataText 同算法:最多 2 行,溢出丢弃(无省略号)。
+    // 换行与实机 layoutMetadataLines 同算法:切片/折行后最多 MAX_METADATA_LAYOUT_LINES 行,溢出丢弃(无省略号)。
     val lines = remember(text, sizePx, typeface, availableWidthPx) {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = sizePx

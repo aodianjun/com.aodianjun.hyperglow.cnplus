@@ -47,11 +47,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.CustomFontStore
+import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
+import com.eza.hyperglow.customization.METADATA_PART_ALBUM
+import com.eza.hyperglow.customization.METADATA_PART_ARTIST
+import com.eza.hyperglow.customization.METADATA_PART_TITLE
+import com.eza.hyperglow.customization.METADATA_SEPARATORS
+import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
+import com.eza.hyperglow.customization.composeSongMetadata
+import com.eza.hyperglow.customization.metadataSeparatorText
+import com.eza.hyperglow.customization.normalizeMetadataParts
+import com.eza.hyperglow.customization.normalizeMetadataSeparator
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.projection.LyricRuby
@@ -95,6 +105,7 @@ internal fun LyricLayoutScreen(
     }
     var activeChoice by remember { mutableStateOf<AodChoice?>(null) }
     var activeColorPicker by remember { mutableStateOf<PaletteColor?>(null) }
+    var activePartsEditor by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -168,6 +179,16 @@ internal fun LyricLayoutScreen(
 
     fun updateSelected(updateProfile: (SurfaceProfile) -> SurfaceProfile) {
         saveEditor(editorState.updateSelected(updateProfile))
+    }
+
+    /** 更新文档级(全局,两个曲面共用)设置,如歌曲信息切片选择与分隔符。 */
+    fun updateDocument(update: (CustomizationDocument) -> CustomizationDocument) {
+        saveEditor(
+            CustomizationEditorState(
+                update(editorState.document),
+                editorState.selectedSurface
+            )
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -260,7 +281,9 @@ internal fun LyricLayoutScreen(
             AnimatedVisibility(visible = !previewCollapsed) {
                 AppearanceLivePreview(
                     profile = compiledPreviewProfile,
-                    scenario = editorState.selectedSurface
+                    scenario = editorState.selectedSurface,
+                    metadataParts = editorState.document.metadataParts,
+                    metadataSeparator = editorState.document.metadataSeparator
                 )
             }
             LazyColumn(
@@ -455,6 +478,28 @@ internal fun LyricLayoutScreen(
                                 }
                             }
                         )
+                        ArrowPreference(
+                            title = stringResource(R.string.setting_song_info_parts),
+                            summary = metadataPartsDisplayLabel(
+                                context,
+                                editorState.document.metadataParts
+                            ),
+                            onClick = { activePartsEditor = true }
+                        )
+                        AodChoiceRow(
+                            AodChoiceKind.SONG_INFO_SEPARATOR,
+                            editorState.document.metadataSeparator
+                        ) {
+                            openChoice(
+                                AodChoiceKind.SONG_INFO_SEPARATOR,
+                                METADATA_SEPARATORS,
+                                editorState.document.metadataSeparator
+                            ) { value ->
+                                updateDocument {
+                                    it.copy(metadataSeparator = normalizeMetadataSeparator(value))
+                                }
+                            }
+                        }
                     }
                     AodChoiceRow(AodChoiceKind.TEXT_WEIGHT, selectedProfile.weight) {
                         openChoice(
@@ -722,6 +767,44 @@ internal fun LyricLayoutScreen(
         )
     }
 
+    if (activePartsEditor) {
+        WindowDialog(
+            title = stringResource(R.string.setting_song_info_parts),
+            show = true,
+            onDismissRequest = { activePartsEditor = false }
+        ) {
+            Column {
+                val parts = normalizeMetadataParts(editorState.document.metadataParts)
+                    .split(',')
+                    .toSet()
+                listOf(
+                    METADATA_PART_TITLE to R.string.option_song_info_part_title,
+                    METADATA_PART_ARTIST to R.string.option_song_info_part_artist,
+                    METADATA_PART_ALBUM to R.string.option_song_info_part_album
+                ).forEach { (part, labelRes) ->
+                    SwitchPreference(
+                        parts.contains(part),
+                        { enabled ->
+                            val next = parts.toMutableSet()
+                            if (enabled) {
+                                next += part
+                            } else if (next.size > 1) {
+                                // 至少保留一个部分;全部关闭时回落默认组合。
+                                next -= part
+                            }
+                            updateDocument {
+                                it.copy(
+                                    metadataParts = normalizeMetadataParts(next.joinToString(","))
+                                )
+                            }
+                        },
+                        stringResource(labelRes)
+                    )
+                }
+            }
+        }
+    }
+
     if (showResetDialog) {
         WindowDialog(
             title = stringResource(R.string.dialog_reset_title),
@@ -771,14 +854,16 @@ internal fun resolvePreviewPlacement(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
     scenario: String,
     width: Float,
-    height: Float
+    height: Float,
+    metadataExtraLines: Int = 0
 ): ResolvedPlacement {
     val environment = previewEnvironment(scenario, width, height)
     val metadataHeight = if (profile.metadataVisible &&
         profile.widgets.any { it.type == "metadata" }
     ) {
         height * 0.10f *
-            (metadataWidgetHeightDp(profile.metadataSizePercent) / metadataWidgetHeightDp(100))
+            (metadataWidgetHeightDp(profile.metadataSizePercent, metadataExtraLines) /
+                metadataWidgetHeightDp(100))
     } else 0f
     val progressHeight = if (profile.widgets.any { it.type == "media_progress" }) {
         height * 0.05f
@@ -826,7 +911,11 @@ internal fun previewEnvironment(
  * starts feeding `arbiter.active`, the preview switches to the live snapshot instead.
  */
 @Composable
-internal fun collectDemoSnapshot(scenario: String): LyricSnapshot {
+internal fun collectDemoSnapshot(
+    scenario: String,
+    metadataParts: String,
+    metadataSeparator: String
+): LyricSnapshot {
     var index by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -845,7 +934,13 @@ internal fun collectDemoSnapshot(scenario: String): LyricSnapshot {
         translated = line.translated,
         // 演示快照携带下一行文本,让「显示下一行歌词」与「辅助文字显示第二行歌词」在预览可见。
         nextLine = DEMO_LINES[(index + 1) % DEMO_LINES.size].original,
-        metadata = "蝴蝶 · 洛天依",
+        metadata = composeSongMetadata(
+            title = "蝴蝶",
+            artist = "洛天依",
+            album = "专辑示例",
+            parts = metadataParts,
+            separator = metadataSeparator
+        ),
         lineLevelSync = true,
         lineStartMs = 0,
         lineEndMs = DEMO_LINE_SWITCH_MS,
@@ -1111,6 +1206,7 @@ private fun choiceDisplayLabel(
     AodChoiceKind.SONG_INFO_POSITION -> context.getString(
         if (value == "bottom") R.string.option_bottom else R.string.option_top
     )
+    AodChoiceKind.SONG_INFO_SEPARATOR -> metadataSeparatorDisplayLabel(context, value)
     AodChoiceKind.LYRIC_LINES -> if (value == "0") {
         context.getString(R.string.option_no_limit)
     } else {
@@ -1200,6 +1296,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     LONG_LINES(R.string.choice_long_lines),
     LYRIC_LINES(R.string.choice_lyric_lines),
     SONG_INFO_POSITION(R.string.choice_song_info_position),
+    SONG_INFO_SEPARATOR(R.string.choice_song_info_separator),
     TEXT_WEIGHT(R.string.choice_text_weight),
     TEXT_SIZE(R.string.choice_text_size),
     FONT(R.string.choice_font),
@@ -1243,4 +1340,27 @@ internal fun withMetadataVisible(profile: SurfaceProfile, visible: Boolean): Sur
         )
     }
     return profile.copy(metadataVisible = visible, widgets = widgets)
+}
+
+/** 歌曲信息内容行摘要:已选部分按规范顺序以 " · " 连接,如「歌名 · 歌手」。 */
+internal fun metadataPartsDisplayLabel(
+    context: android.content.Context,
+    parts: String
+): String = normalizeMetadataParts(parts).split(',').joinToString(" · ") { part ->
+    context.getString(
+        when (part) {
+            METADATA_PART_ARTIST -> R.string.option_song_info_part_artist
+            METADATA_PART_ALBUM -> R.string.option_song_info_part_album
+            else -> R.string.option_song_info_part_title
+        }
+    )
+}
+
+/** 分隔符选项标签:换行显示本地化文案,行内分隔符直接显示分隔符字面量。 */
+internal fun metadataSeparatorDisplayLabel(
+    context: android.content.Context,
+    value: String
+): String = when (normalizeMetadataSeparator(value)) {
+    METADATA_SEPARATOR_NEWLINE -> context.getString(R.string.option_song_info_separator_newline)
+    else -> metadataSeparatorText(value)
 }

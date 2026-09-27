@@ -46,6 +46,8 @@ object SceneCompiler {
             hash = "",
             sourceId = normalizeId(source.id),
             linkSurfaces = source.linkSurfaces,
+            metadataParts = normalizeMetadataParts(source.metadataParts),
+            metadataSeparator = normalizeMetadataSeparator(source.metadataSeparator),
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: compileSafeDefault()
@@ -97,12 +99,14 @@ object SceneCompiler {
         val lockscreen = compileProfile(SURFACE_LOCKSCREEN, safe.profiles.getValue(SURFACE_LOCKSCREEN))
         val aod = compileProfile(SURFACE_AOD, safe.profiles.getValue(SURFACE_AOD))
         val base = CompiledCustomization(
-            CURRENT_CUSTOMIZATION_VERSION,
-            1L,
-            "safe",
-            safe.id,
-            safe.linkSurfaces,
-            linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
+            version = CURRENT_CUSTOMIZATION_VERSION,
+            revision = 1L,
+            hash = "safe",
+            sourceId = safe.id,
+            linkSurfaces = safe.linkSurfaces,
+            metadataParts = normalizeMetadataParts(safe.metadataParts),
+            metadataSeparator = normalizeMetadataSeparator(safe.metadataSeparator),
+            profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: error("Safe customization exceeds hard limit")
     }

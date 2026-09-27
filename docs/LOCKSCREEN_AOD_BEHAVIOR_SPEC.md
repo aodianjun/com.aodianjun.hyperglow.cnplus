@@ -344,7 +344,14 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   optional-row removal, bounded minimum size, and fail-closed placement remain authoritative.
 - Each surface profile stores metadata size from 50% to 200% and ruby-reading visibility. Ruby is
   shown by default and, when disabled, reserves no drawing or layout height.
-- During the generation-bound song intro, matching one-line title/artist text suppresses the duplicate
+- Song info content is a document-level setting shared by both surfaces: which slices to show
+  (title, artist, album) and the separator between them. Slices render in canonical title → artist
+  → album order regardless of selection order; unselected and blank slices are dropped; `·` inside
+  a slice still marks a slice boundary. The separator is either `newline` (one slice per line, the
+  historical default) or an inline join (` · `, ` - `, ` | `, `、`, ` / `). The canvas splits the
+  assembled metadata into lines on line breaks only — never on the separator text — and never
+  renders more than three metadata lines. Unknown parts/separator values normalize to the defaults.
+- During the generation-bound song intro, matching one-line song-info text suppresses the duplicate
   metadata row and morphs into the persistent metadata position and size after three seconds.
   Incompatible or wrapped geometry uses bounded crossfade. Neither path changes whole-surface alpha,
   the keepalive brightness policy, or placement authority.

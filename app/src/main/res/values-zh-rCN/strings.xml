@@ -296,6 +296,8 @@
     <string name="setting_show_song_info">显示歌曲信息</string>
     <string name="choice_song_info_position">歌曲信息位置</string>
     <string name="setting_song_info_size">歌曲信息大小</string>
+    <string name="setting_song_info_parts">歌曲信息内容</string>
+    <string name="choice_song_info_separator">歌曲信息分隔符</string>
     <string name="choice_text_weight">文字粗细</string>
     <string name="choice_text_size">字号</string>
     <string name="setting_lyric_size">歌词大小</string>
@@ -341,6 +343,10 @@
     <string name="option_end">末端</string>
     <string name="option_top">顶部</string>
     <string name="option_bottom">底部</string>
+    <string name="option_song_info_part_title">歌名</string>
+    <string name="option_song_info_part_artist">歌手</string>
+    <string name="option_song_info_part_album">专辑</string>
+    <string name="option_song_info_separator_newline">换行</string>
     <string name="option_no_limit">不限制</string>
     <string name="option_noto_sans">Noto Sans</string>
     <string name="option_spotify_mix">Spotify Mix</string>

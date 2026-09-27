@@ -17,6 +17,7 @@ import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.customization.CompiledCustomization
+import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.root.capability.XiaomiCapability
@@ -1472,7 +1473,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val metadataHeight = if (layoutProfile.metadataVisible &&
             layoutProfile.widgets.any { it.type == "metadata" }
         ) {
-            metadataWidgetHeightDp(layoutProfile.metadataSizePercent) * density
+            val extraLines = customization?.let {
+                metadataExpectedExtraLines(it.metadataParts, it.metadataSeparator)
+            } ?: 0
+            metadataWidgetHeightDp(layoutProfile.metadataSizePercent, extraLines) * density
         } else {
             0f
         }

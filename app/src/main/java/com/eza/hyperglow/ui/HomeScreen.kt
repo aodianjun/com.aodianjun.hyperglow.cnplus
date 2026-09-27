@@ -301,7 +301,10 @@ internal fun HomeScreen(
                         // 读取上面的 customizationDocument State:配置一变化该 item 即重绘,
                         // 保证两个预览始终跟随当前外观设置(在"外观"编辑器里改完即生效)。
                         val compiled = SceneCompiler.compile(customizationDocument)
-                        val previewLive = collectLiveSnapshot()
+                        val previewLive = collectLiveSnapshot(
+                            customizationDocument.metadataParts,
+                            customizationDocument.metadataSeparator
+                        )
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -318,6 +321,8 @@ internal fun HomeScreen(
                                     profile = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
                                     scenario = "Lockscreen · notifications",
                                     live = previewLive,
+                                    metadataParts = customizationDocument.metadataParts,
+                                    metadataSeparator = customizationDocument.metadataSeparator,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 LyricPreviewCard(
@@ -325,6 +330,8 @@ internal fun HomeScreen(
                                     profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
                                     scenario = "Full AOD",
                                     live = previewLive,
+                                    metadataParts = customizationDocument.metadataParts,
+                                    metadataSeparator = customizationDocument.metadataSeparator,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }

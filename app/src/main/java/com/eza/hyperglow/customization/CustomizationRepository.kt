@@ -174,6 +174,8 @@ object CustomizationRepository {
             id = compiled.sourceId,
             name = migrated.name.trim().take(100).ifBlank { "Customization" },
             linkSurfaces = compiled.linkSurfaces,
+            metadataParts = compiled.metadataParts,
+            metadataSeparator = compiled.metadataSeparator,
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to compiled.profiles
                     .getValue(SceneCompiler.SURFACE_LOCKSCREEN)

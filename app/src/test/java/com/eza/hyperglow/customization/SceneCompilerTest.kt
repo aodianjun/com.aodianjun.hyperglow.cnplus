@@ -744,4 +744,27 @@ class SceneCompilerTest {
         assertEquals(150f, resolved.contentRect?.height)
         assertEquals(listOf("lyrics"), resolved.visibleWidgets.map { it.type })
     }
+
+    @Test
+    fun metadataPartsAndSeparatorCompileThroughAndNormalize() {
+        val document = SceneCompiler.safeDefaultDocument().copy(
+            metadataParts = "album,title,bogus",
+            metadataSeparator = "dot"
+        )
+        val compiled = SceneCompiler.compile(document)
+        assertEquals("title,album", compiled.metadataParts)
+        assertEquals("dot", compiled.metadataSeparator)
+
+        val invalid = SceneCompiler.compile(
+            document.copy(metadataParts = "bogus", metadataSeparator = "unknown")
+        )
+        assertEquals(METADATA_PARTS_DEFAULT, invalid.metadataParts)
+        assertEquals(METADATA_SEPARATOR_NEWLINE, invalid.metadataSeparator)
+
+        // SystemUI 侧校验同样收敛新字段,防止越界配置经 wire 落地。
+        val validated = SystemUiCustomizationValidator.validate(compiled)
+        assertNotNull(validated)
+        assertEquals("title,album", validated?.metadataParts)
+        assertEquals("dot", validated?.metadataSeparator)
+    }
 }
