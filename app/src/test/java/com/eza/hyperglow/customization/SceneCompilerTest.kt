@@ -284,8 +284,8 @@ class SceneCompilerTest {
                 )
             )!!.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition
         )
-        // 词表内其余可选项逐一原样通过
-        for (mode in listOf("Fade up", "Crossfade", "Slide up", "Zoom", "None")) {
+        // 词表内其余可选项逐一原样通过(含参考 HyperLyric 的序列档)
+        for (mode in listOf("Fade up", "Crossfade", "Slide up", "Zoom", "Fade left", "Landing", "Slide swap", "None")) {
             assertEquals(
                 mode,
                 SystemUiCustomizationValidator.validate(

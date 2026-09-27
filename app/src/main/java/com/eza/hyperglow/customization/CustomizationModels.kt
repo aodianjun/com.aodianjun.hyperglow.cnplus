@@ -214,7 +214,12 @@ internal fun normalizeLyricLineLimit(value: Int): Int = when (value) {
 /** 换行动画的「跟随音源」哨兵值:不覆盖歌词源自带的过渡偏好。 */
 const val LINE_TRANSITION_AUTO = "Auto"
 
-/** 画布换行动画词表(与 AodStateWire.transitionMode 同词表);"Auto" 仅存在于 profile 层。 */
+/**
+ * 画布换行动画词表(profile 可选集);"Auto" 仅存在于 profile 层。
+ * AodStateWire.transitionMode 只会产出历史档,未知值 fail-safe `Fade up`,不受新增档影响。
+ * `Fade left` / `Landing` / `Slide swap` 参考 HyperLyric「歌词切换动画」预设:
+ * 退场→换字→进场的序列式过渡(见 root.aod 帧配方与时长)。
+ */
 val LINE_TRANSITION_MODES = listOf(
     LINE_TRANSITION_AUTO,
     "Fade up",
@@ -222,6 +227,9 @@ val LINE_TRANSITION_MODES = listOf(
     "Slide up",
     "Slide left",
     "Zoom",
+    "Fade left",
+    "Landing",
+    "Slide swap",
     "None"
 )
 

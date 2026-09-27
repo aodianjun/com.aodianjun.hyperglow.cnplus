@@ -385,6 +385,9 @@
     <string name="option_slide_up">上滑</string>
     <string name="option_slide_left">左滑</string>
     <string name="option_zoom">縮放</string>
+    <string name="option_fade_left">左隱右現</string>
+    <string name="option_landing">柔緩著陸</string>
+    <string name="option_slide_swap">左出右入</string>
 
     <string name="toast_systemui_restarted">重啟完成。未在運行的進程將在下次啟動時生效。</string>
     <string name="toast_systemui_restart_failed">重啟失敗。請檢查 Root 權限。</string>

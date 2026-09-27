@@ -1314,6 +1314,9 @@ private fun choiceDisplayLabel(
         "Slide up" -> R.string.option_slide_up
         "Slide left" -> R.string.option_slide_left
         "Zoom" -> R.string.option_zoom
+        "Fade left" -> R.string.option_fade_left
+        "Landing" -> R.string.option_landing
+        "Slide swap" -> R.string.option_slide_swap
         "None" -> R.string.option_none
         else -> R.string.option_auto_follow_source
     })

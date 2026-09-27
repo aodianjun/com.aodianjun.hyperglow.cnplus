@@ -109,11 +109,13 @@ import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
 import com.eza.hyperglow.root.aod.textSizeModeMultiplier
-import com.eza.hyperglow.root.aod.transitionEnterEasing
-import com.eza.hyperglow.root.aod.transitionExitEasing
+import com.eza.hyperglow.root.aod.isSequentialLineTransition
+import com.eza.hyperglow.root.aod.lineTransitionEnterEasing
+import com.eza.hyperglow.root.aod.lineTransitionExitEasing
 import com.eza.hyperglow.root.lockscreen.cardColorRgb
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
@@ -803,6 +805,8 @@ private fun PreviewAnimatedRowBlock(
             enterFrameProgress.snapTo(1f)
             exitFrameProgress.snapTo(1f)
         } else {
+            val exitMs = exitTransitionMs(lineTransition, lineTransitionSpeed)
+            val enterMs = enterTransitionMs(lineTransition, lineTransitionSpeed)
             exitingBlock = previous
             enterFrameProgress.snapTo(0f)
             exitFrameProgress.snapTo(0f)
@@ -810,20 +814,26 @@ private fun PreviewAnimatedRowBlock(
                 launch {
                     exitFrameProgress.animateTo(
                         1f,
-                        tween(exitTransitionMs(lineTransitionSpeed).toInt(), easing = LinearEasing)
+                        tween(exitMs.toInt(), easing = LinearEasing)
                     )
                 }
+                // 参考 HyperLyric 序列档:退场完成后再播入场(与实机 enterElapsed 同语义);
+                // 历史档退场/入场叠加,无延迟。
+                if (isSequentialLineTransition(lineTransition)) delay(exitMs)
                 enterFrameProgress.animateTo(
                     1f,
-                    tween(enterTransitionMs(lineTransitionSpeed).toInt(), easing = LinearEasing)
+                    tween(enterMs.toInt(), easing = LinearEasing)
                 )
             }
             exitingBlock = null
         }
     }
-    // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方。
-    val exitFrame = lineTransitionExitFrame(lineTransition, transitionExitEasing(exitFrameProgress.value))
-    val enterFrame = lineTransitionEnterFrame(lineTransition, transitionEnterEasing(enterFrameProgress.value))
+    // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方;参考档位移以行块宽为基准。
+    val blockWidthDp = with(LocalDensity.current) { availableWidthPx.toDp().value }
+    val exitFrame =
+        lineTransitionExitFrame(lineTransition, lineTransitionExitEasing(lineTransition, exitFrameProgress.value), blockWidthDp)
+    val enterFrame =
+        lineTransitionEnterFrame(lineTransition, lineTransitionEnterEasing(lineTransition, enterFrameProgress.value), blockWidthDp)
 
     Box(modifier.fillMaxWidth()) {
         val previous = exitingBlock
