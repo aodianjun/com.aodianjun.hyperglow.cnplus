@@ -69,6 +69,8 @@ import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.resolveLineTransition
+import com.eza.hyperglow.root.aod.AodCanvasRuby
+import com.eza.hyperglow.root.aod.edgeSafeAlignedStart
 import com.eza.hyperglow.root.aod.enterTransitionMs
 import com.eza.hyperglow.root.aod.exitTransitionMs
 import com.eza.hyperglow.root.aod.LineTransitionFrame
@@ -92,7 +94,6 @@ import com.eza.hyperglow.root.aod.duetAlignedRight
 import com.eza.hyperglow.root.aod.layoutMetadataLines
 import com.eza.hyperglow.root.aod.layoutOriginalLines
 import com.eza.hyperglow.root.aod.layoutSecondaryLines
-import com.eza.hyperglow.root.aod.lineStartX
 import com.eza.hyperglow.root.aod.lineTransitionEnterFrame
 import com.eza.hyperglow.root.aod.lineTransitionExitFrame
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
@@ -101,7 +102,12 @@ import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
+import com.eza.hyperglow.root.aod.resolvedLineSyncFillMode
 import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
+import com.eza.hyperglow.root.aod.rubyReservation
+import com.eza.hyperglow.root.aod.rubySpanGeometry
+import com.eza.hyperglow.root.aod.rubyTextSizePx
+import com.eza.hyperglow.root.aod.lineStartX
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import com.eza.hyperglow.root.aod.secondLineColorArgb
@@ -111,7 +117,9 @@ import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
 import com.eza.hyperglow.root.aod.textSizeModeMultiplier
+import com.eza.hyperglow.root.aod.visualExtents
 import com.eza.hyperglow.root.aod.isSequentialLineTransition
+import com.eza.hyperglow.root.aod.END_EDGE_SAFETY_DP
 import com.eza.hyperglow.root.aod.lineTransitionEnterEasing
 import com.eza.hyperglow.root.aod.lineTransitionExitEasing
 import com.eza.hyperglow.root.lockscreen.cardColorRgb
@@ -261,7 +269,7 @@ private fun LyricPreviewSurface(
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
-    val snapshot = live ?: collectDemoSnapshot(scenario, metadataParts, metadataSeparator)
+    val snapshot = live ?: collectDemoSnapshot(metadataParts, metadataSeparator)
     // 歌曲图片(与实机同一几何公式):实时快照带已校对封面帧则显示真帧;演示态显示
     // 生成占位图,便于调形状/旋转开关所见即所得;实时无帧=不显示(与实机 fail-closed 一致)。
     // 只在歌曲信息行可见且文本非空时露出(与实机「图片随歌曲信息行」同一门槛)。
@@ -291,6 +299,9 @@ private fun LyricPreviewSurface(
     val nextLineSecondaryColor = ComposeColor(
         secondLineColorArgb(SecondLinePresentation.AS_SECONDARY, resolvedColors)
     ).copy(alpha = previewSecondaryAlpha(profile.secondaryTextBright))
+    // 注音颜色与实机 drawRuby 同源:取辅助文字色,亮度恒按「亮」档绘制(实机注音不随
+    // 「明亮辅助文字」开关变化),注音绘制在基线上方。
+    val rubyColor = ComposeColor(resolvedColors.secondaryText).copy(alpha = steadyTextAlpha(1f))
     // 字号与实机 setContent 同源:随行长自适应基准 × 字号档倍率(AodCanvasTextMetrics 共享公式)。
     val baseSp = previewBaseTextSizeSp(snapshot.original, profile.textSize, profile.textSizeCustom)
     val textSize = baseSp.sp
@@ -318,6 +329,22 @@ private fun LyricPreviewSurface(
     val showMetadata = profile.metadataVisible
     val showNext = profile.showNextLine
     val secondaryRows = previewSecondaryLines(profile, snapshot, baseSp)
+    // 注音内容:关闭开关时不注入(与实机 LyricCanvasMapper 的 rubyVisible 门控同源),
+    // 开启时按快照的 ruby 段绘制 —— 预览与实机同受该开关控制。
+    val previewRuby = remember(profile.rubyVisible, snapshot.ruby) {
+        if (profile.rubyVisible) {
+            snapshot.ruby.map { AodCanvasRuby(it.start, it.end, it.reading) }
+        } else {
+            emptyList()
+        }
+    }
+    // 生效进度效果:与实机 drawOriginal 的 Minimal 分支 / effectiveLineSyncFillMode 同源。
+    // Minimal=静态全亮(无扫光/发光);行级同步时按配置的四种进度效果;否则整块连续横扫。
+    val previewFillMode = when {
+        profile.animation == "Minimal" -> "None"
+        snapshot.lineLevelSync -> resolvedLineSyncFillMode(true, profile.lineSyncFillMode)
+        else -> LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
+    }
 
     // 预览卡片高度自适应:面板高度贴合歌词内容(钳制见 previewCardHeightDp),大字号/多行
     // 内容不再被固定高度裁掉。高度取本配置下的已见最大内容高度——演示行循环/逐行播放时
@@ -378,13 +405,15 @@ private fun LyricPreviewSurface(
                 // 换行/测量全部委托 LyricLayoutEngine(与实机同源):断行点、行数上限、
                 // Clip 语义一致;预览只负责卡片内的居中摆放。
                 val mainLayout = remember(
-                    snapshot.original, textSize, lyricTypeface, availablePx,
-                    profile.lyricLineLimit, profile.overflow, profile.adaptiveSectioning
+                    snapshot.original, textSize, lyricTypeface, regularTypeface, previewRuby,
+                    availablePx, profile.lyricLineLimit, profile.overflow, profile.adaptiveSectioning
                 ) {
                     buildPreviewMainLayout(
                         text = snapshot.original,
                         textSizePx = with(density) { textSize.toPx() },
                         typeface = lyricTypeface,
+                        rubyTypeface = regularTypeface,
+                        ruby = previewRuby,
                         availableWidthPx = availablePx.toFloat(),
                         lineLimit = profile.lyricLineLimit,
                         wrap = profile.overflow == "Wrap",
@@ -454,6 +483,8 @@ private fun LyricPreviewSurface(
                         color = lyricColor,
                         glowColor = glowColor,
                         glowEnabled = profile.glow == "On",
+                        fillMode = previewFillMode,
+                        rubyColor = rubyColor,
                         regularTypeface = regularTypeface,
                         availableWidthPx = availablePx,
                         wrap = profile.overflow == "Wrap",
@@ -684,13 +715,33 @@ private class PreviewMainLayout(
     val baselines: List<Float>,
     val startsX: List<Float>,
     val blockHeight: Float,
-    val paint: TextPaint
+    val paint: TextPaint,
+    /** 注音行绘制参数(与实机 rubyPaint 同字号/字型);关闭注音时无任何 placements。 */
+    val rubyPaint: TextPaint,
+    val rubyLines: List<PreviewRubyLine>
+)
+
+/** 预览一行注音:落位于主行基线之上,[placements] 为各注音段的中心 X 与文本。 */
+private class PreviewRubyLine(
+    val startX: Float,
+    val baseline: Float,
+    val placements: List<PreviewRubyPlacement>
+)
+
+/** 预览单个注音段:[rubyCenterX] 相对行首 X,与实机 drawRuby 同一落位公式。 */
+private class PreviewRubyPlacement(
+    val reading: String,
+    val rubyCenterX: Float,
+    val spanX: Float,
+    val spanWidth: Float
 )
 
 private fun buildPreviewMainLayout(
     text: String,
     textSizePx: Float,
     typeface: Typeface,
+    rubyTypeface: Typeface,
+    ruby: List<AodCanvasRuby>,
     availableWidthPx: Float,
     lineLimit: Int,
     wrap: Boolean,
@@ -701,6 +752,12 @@ private fun buildPreviewMainLayout(
     val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = textSizePx
         this.typeface = typeface
+    }
+    // 注音 paint 与实机 applyContentStyle 同源:字号走共享纯函数 rubyTextSizePx,
+    // 字型取同族 Regular。
+    val rubyPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = rubyTextSizePx(textSizePx)
+        this.typeface = rubyTypeface
     }
     // 与实机 buildOriginalLayout 同一引擎入口(预览无词/音标时退化为整段折行)。
     val result: LyricLayoutResult = layoutOriginalLines(
@@ -716,27 +773,113 @@ private fun buildPreviewMainLayout(
         adaptiveSectioning = adaptiveSectioning
     )
     val fm = paint.fontMetrics
+    val rubyFm = rubyPaint.fontMetrics
     val lineHeight = fm.descent - fm.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density
     val lineGap = LYRIC_LINE_GAP_DP * density
+    // 注音几何与实机 assignRuby/drawRuby 同源:逐行求解注音段落位与占高,基线整体下移
+    // 让出注音带(首行从 0 起算,故块顶恰为注音带顶)。关闭注音时 ruby 为空,
+    // 各几何退化为无注音时的原状。
     val baselines = ArrayList<Float>(result.lines.size)
     val startsX = ArrayList<Float>(result.lines.size)
-    var top = 0f
+    val rubyLines = ArrayList<PreviewRubyLine>(result.lines.size)
+    var precedingRuby = 0f
+    var index = 0
     result.lines.forEach { line ->
-        baselines += top - fm.ascent
-        startsX += lineStartX(
-            text = line.text,
-            textWidth = line.width,
-            paint = paint,
-            alignment = alignment,
-            canvasWidth = availableWidthPx,
-            padLeft = 0f,
-            padRight = 0f,
-            density = density
-        )
-        top += lineHeight + lineGap
+        val placements = previewRubyPlacements(line, text.length, ruby, paint, rubyPaint)
+        val rubyHeight = if (placements.isEmpty()) {
+            0f
+        } else {
+            rubyReservation(paint.textSize, rubyFm.ascent)
+        }
+        val lineBaseline =
+            -fm.ascent + index * lineHeight + precedingRuby + rubyHeight + index * lineGap
+        baselines += lineBaseline
+        // 对齐 X 与实机 assignRuby 同源:无注音段时直接用共享 lineStartX;有注音段时把
+        // 注音 span 外沿并入文本视觉外沿后按 alignment 解析(与实机 assignRuby 同一公式)。
+        val startX = if (placements.isEmpty()) {
+            lineStartX(
+                text = line.text,
+                textWidth = line.width,
+                paint = paint,
+                alignment = alignment,
+                canvasWidth = availableWidthPx,
+                padLeft = 0f,
+                padRight = 0f,
+                density = density
+            )
+        } else {
+            val visual = visualExtents(line.text, paint, line.width)
+            val visualLeft = minOf(visual.first, placements.minOfOrNull { it.spanX } ?: visual.first)
+            val visualRight =
+                maxOf(visual.second, placements.maxOfOrNull { it.spanX + it.spanWidth } ?: visual.second)
+            edgeSafeAlignedStart(
+                canvasWidth = availableWidthPx,
+                paddingLeft = 0f,
+                paddingRight = 0f,
+                visualLeft = visualLeft,
+                visualRight = visualRight,
+                alignment = alignment,
+                safetyInset = if (alignment == "end") END_EDGE_SAFETY_DP * density else 0f
+            )
+        }
+        startsX += startX
+        // 注音基线 = 主行基线 + 主行 ascent - (注音占高 + 注音 ascent) - 注音 descent
+        // (与实机 drawRuby 同一公式)。
+        val rubyBaseline = if (placements.isEmpty()) {
+            0f
+        } else {
+            lineBaseline + fm.ascent - (rubyHeight + rubyFm.ascent) - rubyFm.descent
+        }
+        rubyLines += PreviewRubyLine(startX, rubyBaseline, placements)
+        precedingRuby += rubyHeight
+        index++
     }
-    val blockHeight = originalRowHeight(lineHeight, result.lines.size.coerceAtLeast(1), 0f, lineGap)
-    return PreviewMainLayout(result.lines, baselines, startsX, blockHeight, paint)
+    val blockHeight = originalRowHeight(
+        lineHeight,
+        result.lines.size.coerceAtLeast(1),
+        precedingRuby,
+        lineGap
+    )
+    return PreviewMainLayout(result.lines, baselines, startsX, blockHeight, paint, rubyPaint, rubyLines)
+}
+
+/**
+ * 预览一行的注音段落位(与实机 assignRuby 无词分支同源):按行字符区间裁剪与行相交的
+ * ruby 段,以主行字体的前缀宽/段宽求 span 几何,返回注音中心 X 与 span 外沿。
+ * 行无字符区间(词行布局空回退)时不注入,与实机一致。
+ */
+private fun previewRubyPlacements(
+    line: LyricLayoutLine,
+    textLength: Int,
+    ruby: List<AodCanvasRuby>,
+    paint: TextPaint,
+    rubyPaint: TextPaint
+): List<PreviewRubyPlacement> {
+    val lineStart = line.charStart ?: return emptyList()
+    val lineEnd = line.charEnd ?: return emptyList()
+    return ruby.asSequence()
+        .filter {
+            it.start >= 0 && it.end > it.start && it.end <= textLength &&
+                it.start < lineEnd && it.end > lineStart
+        }
+        .sortedBy { it.start }
+        .mapNotNull { segment ->
+            val baseStart = maxOf(segment.start, lineStart)
+            val baseEnd = minOf(segment.end, lineEnd)
+            val localStart = (baseStart - lineStart).coerceIn(0, line.text.length)
+            val localEnd = (baseEnd - lineStart).coerceIn(localStart, line.text.length)
+            if (localStart >= localEnd) return@mapNotNull null
+            val baseX = paint.measureText(line.text, 0, localStart)
+            val baseWidth = paint.measureText(line.text, localStart, localEnd)
+            val geometry = rubySpanGeometry(baseX, baseWidth, rubyPaint.measureText(segment.reading))
+            PreviewRubyPlacement(
+                reading = segment.reading,
+                rubyCenterX = geometry.rubyCenterX,
+                spanX = geometry.spanX,
+                spanWidth = geometry.spanWidth
+            )
+        }
+        .toList()
 }
 
 /**
@@ -774,6 +917,8 @@ private fun PreviewAnimatedRowBlock(
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
+    fillMode: String,
+    rubyColor: ComposeColor,
     regularTypeface: Typeface,
     availableWidthPx: Int,
     wrap: Boolean,
@@ -859,6 +1004,8 @@ private fun PreviewAnimatedRowBlock(
                 color = color,
                 glowColor = glowColor,
                 glowEnabled = glowEnabled,
+                fillMode = fillMode,
+                rubyColor = rubyColor,
                 regularTypeface = regularTypeface,
                 availableWidthPx = availableWidthPx,
                 wrap = wrap,
@@ -873,6 +1020,8 @@ private fun PreviewAnimatedRowBlock(
             color = color,
             glowColor = glowColor,
             glowEnabled = glowEnabled,
+            fillMode = fillMode,
+            rubyColor = rubyColor,
             regularTypeface = regularTypeface,
             availableWidthPx = availableWidthPx,
             wrap = wrap,
@@ -895,6 +1044,8 @@ private fun PreviewRowBlockLayer(
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
+    fillMode: String,
+    rubyColor: ComposeColor,
     regularTypeface: Typeface,
     availableWidthPx: Int,
     wrap: Boolean,
@@ -920,6 +1071,8 @@ private fun PreviewRowBlockLayer(
             color = color,
             glowColor = glowColor,
             glowEnabled = glowEnabled,
+            fillMode = fillMode,
+            rubyColor = rubyColor,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(with(density) { block.main.blockHeight.toDp() })
@@ -952,11 +1105,32 @@ private fun PreviewMainLayer(
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
+    fillMode: String,
+    rubyColor: ComposeColor,
     modifier: Modifier = Modifier
 ) {
     val glowArgb = glowColor.toArgb()
     val sungArgb = color.copy(alpha = 1f).toArgb()
+    val rubyArgb = rubyColor.toArgb()
     Canvas(modifier) {
+        // 注音先于主行绘制(与实机 drawOriginalGlowBlock 顺序一致):注音带位于主行基线
+        // 上方,与主行字形不重叠;注音关闭时 placements 为空,无操作。
+        if (layout.rubyLines.any { it.placements.isNotEmpty() }) {
+            layout.rubyPaint.color = rubyArgb
+            drawIntoCanvas { canvas ->
+                layout.rubyLines.forEach { rubyLine ->
+                    if (rubyLine.placements.isEmpty()) return@forEach
+                    rubyLine.placements.forEach { placement ->
+                        canvas.nativeCanvas.drawText(
+                            placement.reading,
+                            rubyLine.startX + placement.rubyCenterX,
+                            rubyLine.baseline,
+                            layout.rubyPaint
+                        )
+                    }
+                }
+            }
+        }
         val rows = ArrayList<LyricGlowRow>(layout.lines.size)
         layout.lines.forEachIndexed { index, line ->
             val baseline = layout.baselines[index]
@@ -973,7 +1147,8 @@ private fun PreviewMainLayer(
                 progress = progress,
                 sungColor = sungArgb,
                 glowColor = glowArgb,
-                glowEnabled = glowEnabled
+                glowEnabled = glowEnabled,
+                fillMode = fillMode
             )
         }
     }

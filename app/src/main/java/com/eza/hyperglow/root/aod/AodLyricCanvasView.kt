@@ -989,7 +989,7 @@ internal class AodLyricCanvasView(
         romanizedPaint.textSize = secondaryReadingTextSizeSp(baseSp) * scaledDensity
         translatedPaint.textSize = secondaryTranslationTextSizeSp(baseSp) * scaledDensity
         nextLinePaint.textSize = nextLineTextSizeSp() * scaledDensity
-        rubyPaint.textSize = originalPaint.textSize * 0.46f
+        rubyPaint.textSize = rubyTextSizePx(originalPaint.textSize)
     }
 
     private fun captureRenderStyle(): RenderStyleSnapshot = RenderStyleSnapshot(

@@ -953,7 +953,6 @@ internal fun previewEnvironment(
  */
 @Composable
 internal fun collectDemoSnapshot(
-    scenario: String,
     metadataParts: String,
     metadataSeparator: String
 ): LyricSnapshot {
@@ -989,36 +988,44 @@ internal fun collectDemoSnapshot(
         positionMs = ((index * DEMO_LINE_SWITCH_MS).toFloat()).toLong(),
         sampledAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
         words = emptyList(),
-        ruby = if (scenario == "Long/ruby/translated") {
-            listOf(LyricRuby(0, 3, "kore wa"))
-        } else {
-            emptyList()
-        }
+        // 演示快照携带注音:让「注音」开关在无实时歌词时也能在预览里看出效果
+        // (实机仅在 rubyVisible == false 时清空,见 LyricCanvasMapper)。
+        ruby = line.ruby
     )
 }
 
-private class DemoLine(val original: String, val romanized: String, val translated: String)
+private class DemoLine(
+    val original: String,
+    val romanized: String,
+    val translated: String,
+    /** 演示注音段(与首词拼音对齐):让「注音」开关在无实时歌词时也能在预览里看出效果。 */
+    val ruby: List<LyricRuby>
+)
 
 private val DEMO_LINES = listOf(
     DemoLine(
         "你说你来到这世界的那天 神给了每个人快乐入场券",
         "nǐ shuō nǐ lái dào zhè shìjiè de nà tiān",
-        "You said the day you came to this world, heaven gave everyone a ticket to joy"
+        "You said the day you came to this world, heaven gave everyone a ticket to joy",
+        listOf(LyricRuby(0, 3, "nǐ shuō nǐ"))
     ),
     DemoLine(
         "那一只蝴蝶 拼了命破茧 却没有漂亮的鳞片",
         "nà yī zhī húdié pīn le mìng pò jiǎn",
-        "That butterfly bursts its cocoon with all its might, yet bears no pretty scales"
+        "That butterfly bursts its cocoon with all its might, yet bears no pretty scales",
+        listOf(LyricRuby(0, 3, "nà yī zhī"))
     ),
     DemoLine(
         "走吧 就算我们无法让大雨停下",
         "zǒu ba jiùsuàn wǒmen wúfǎ ràng dàyǔ tíng xià",
-        "Let's go, even if we can't make the heavy rain stop"
+        "Let's go, even if we can't make the heavy rain stop",
+        listOf(LyricRuby(0, 2, "zǒu ba"))
     ),
     DemoLine(
         "你我生来时就注定 天真而伟大",
         "nǐ wǒ shēnglái shí jiù zhùdìng tiānzhēn ér wěidà",
-        "You and I are destined from birth to be innocent and great"
+        "You and I are destined from birth to be innocent and great",
+        listOf(LyricRuby(0, 3, "nǐ wǒ shēng"))
     )
 )
 

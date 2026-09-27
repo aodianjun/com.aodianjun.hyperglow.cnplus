@@ -24,6 +24,9 @@ internal fun normalizeAodOverflow(mode: String): String =
 internal fun rubyReservation(baseTextSizePx: Float, rubyAscent: Float): Float =
     -rubyAscent + baseTextSizePx * 0.12f
 
+/** 注音字号 = 主歌词字号 × 比例(实机 setContent 与预览共用同一纯函数,杜绝两套换算漂移)。 */
+internal fun rubyTextSizePx(baseTextSizePx: Float): Float = baseTextSizePx * 0.46f
+
 internal fun rubySpanGeometry(
     baseX: Float,
     baseWidth: Float,
