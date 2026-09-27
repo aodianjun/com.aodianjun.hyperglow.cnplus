@@ -3,6 +3,7 @@ package com.eza.hyperglow.ui
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.TextPaint
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -15,9 +16,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -101,6 +103,27 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
+ * 预览卡片高度自适应范围(dp):内容有多高卡片就多高。内容不足下限时保持卡片形,
+ * 超过上限时封顶,防止极端字号组合把主页/设置页其余内容挤出屏幕。
+ */
+internal const val PREVIEW_CARD_MIN_HEIGHT_DP = 120f
+
+internal const val PREVIEW_CARD_MAX_HEIGHT_DP = 420f
+
+/**
+ * 预览卡片高度自适应:内容有多高卡片就多高,钳制在 [PREVIEW_CARD_MIN_HEIGHT_DP]..
+ * [PREVIEW_CARD_MAX_HEIGHT_DP](下限保持卡片形,上限防止极端字号把页面其余内容挤出屏幕)。
+ *
+ * 同一配置内取已见最大内容高度([previousContentDp] 与 [measuredContentDp] 取大):演示行
+ * 循环/逐行播放时折行数变化,直接跟随会让卡片高度来回呼吸、推动下方内容上下跳动;
+ * 取已见最大值则配置不变期间高度稳定。配置变化或换歌时调用方重置 [previousContentDp]
+ * (remember 键),卡片随即重新随内容收缩。
+ */
+internal fun previewCardHeightDp(previousContentDp: Float, measuredContentDp: Float): Float =
+    maxOf(previousContentDp, measuredContentDp)
+        .coerceIn(PREVIEW_CARD_MIN_HEIGHT_DP, PREVIEW_CARD_MAX_HEIGHT_DP)
+
+/**
  * 悬浮预览的标题栏:整行可点击切换展开/折叠。折叠后预览让位给设置列表,
  * 便于长列表快速调整;展开时调节下方选项效果实时可见。
  */
@@ -143,22 +166,16 @@ internal fun AppearanceLivePreview(
     modifier: Modifier = Modifier
 ) {
     val live = collectLiveSnapshot(metadataParts, metadataSeparator)
-    Box(
-        modifier
+    LyricPreviewSurface(
+        profile = profile,
+        scenario = scenario,
+        live = live,
+        metadataParts = metadataParts,
+        metadataSeparator = metadataSeparator,
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .height(150.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(ComposeColor(0xFF0B0B0F))
-    ) {
-        LyricPreviewSurface(
-            profile = profile,
-            scenario = scenario,
-            live = live,
-            metadataParts = metadataParts,
-            metadataSeparator = metadataSeparator
-        )
-    }
+    )
 }
 
 /**
@@ -166,6 +183,10 @@ internal fun AppearanceLivePreview(
  * stylized lyric block using the compiled [profile] (text size/weight/alignment, secondary text,
  * metadata, card background, next line) placed via [resolvePreviewPlacement], so the home page
  * gives a quick visual sense of how the lockscreen / AOD lyric control looks.
+ *
+ * The surface height adapts to the rendered content ([PREVIEW_CARD_MIN_HEIGHT_DP]..
+ * [PREVIEW_CARD_MAX_HEIGHT_DP]): large text sizes and extra rows grow the card instead of being
+ * clipped by a fixed box.
  */
 @Composable
 internal fun LyricPreviewCard(
@@ -186,36 +207,32 @@ internal fun LyricPreviewCard(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
             Spacer(Modifier.height(8.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(ComposeColor(0xFF0B0B0F))
-            ) {
-                LyricPreviewSurface(
-                    profile = profile,
-                    scenario = scenario,
-                    live = live,
-                    metadataParts = metadataParts,
-                    metadataSeparator = metadataSeparator
-                )
-            }
+            LyricPreviewSurface(
+                profile = profile,
+                scenario = scenario,
+                live = live,
+                metadataParts = metadataParts,
+                metadataSeparator = metadataSeparator,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
 
+/**
+ * 深色预览面板 + 歌词内容。高度自适应内容(上下限见 [PREVIEW_CARD_MIN_HEIGHT_DP] /
+ * [PREVIEW_CARD_MAX_HEIGHT_DP]),大字号/多行不再被固定高度裁掉;「card」背景铺满面板,
+ * 歌词块在面板内水平居中、垂直居中。
+ */
 @Composable
 private fun LyricPreviewSurface(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
     scenario: String,
     live: LyricSnapshot?,
     metadataParts: String,
-    metadataSeparator: String
+    metadataSeparator: String,
+    modifier: Modifier = Modifier
 ) {
-    // 预览卡片空间有限,直接在卡片内水平居中、垂直居中渲染歌词块,忽略真实曲面上的
-    // 时钟/通知等占位偏移——否则息屏(AOD)歌词会按真实布局被挤到卡片顶部一小条,
-    // 大字号下一行就被裁掉,看起来像被遮挡。这样无论字号多大都完整可见。
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
     val snapshot = live ?: collectDemoSnapshot(scenario, metadataParts, metadataSeparator)
     // 颜色与实机同源:统一走 resolveAodPalette(dimmed 预设/自定义字体颜色 hex token 一处解析)
@@ -261,15 +278,33 @@ private fun LyricPreviewSurface(
     val showNext = profile.showNextLine
     val secondaryRows = previewSecondaryLines(profile, snapshot, baseSp)
 
+    // 预览卡片高度自适应:面板高度贴合歌词内容(钳制见 previewCardHeightDp),大字号/多行
+    // 内容不再被固定高度裁掉。高度取本配置下的已见最大内容高度——演示行循环/逐行播放时
+    // 折行数变化,直接跟随会让卡片高度来回呼吸、推动下方内容上下跳动;配置或曲目变化时
+    // remember 键重置,卡片随即重新随当前内容收缩。歌词块在面板内水平居中、垂直居中,
+    // 忽略真实曲面上的时钟/通知等占位偏移——否则息屏(AOD)歌词会按真实布局被挤到面板
+    // 顶部一小条,大字号下一行就被裁掉,看起来像被遮挡。
+    val density = LocalDensity.current
+    var stableContentDp by remember(profile, scenario, snapshot.trackGeneration, density.density) {
+        mutableStateOf(PREVIEW_CARD_MIN_HEIGHT_DP)
+    }
+    var measuredWidthPx by remember(profile, scenario, snapshot.trackGeneration, density.density) {
+        mutableStateOf(0)
+    }
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier
+            .animateContentSize()
+            .heightIn(min = stableContentDp.dp, max = PREVIEW_CARD_MAX_HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(ComposeColor(0xFF0B0B0F)),
         contentAlignment = Alignment.Center
     ) {
-        // 锁屏卡片背景(息屏强制无卡片背景),按宽度占比居中显示。
+        // 锁屏卡片背景(息屏强制无卡片背景)。卡片背景铺满面板,面板高度随歌词内容自适应,
+        // 与实机卡片背景(AdaptiveLyricCardBackgroundView)随内容收缩的语义一致。
         if (profile.backgroundStyle == "card") {
             Box(
                 Modifier
-                    .fillMaxSize()
+                    .matchParentSize()
                     .padding(4.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(previewCardColor(profile.cardColor, profile.cardAlpha))
@@ -277,6 +312,17 @@ private fun LyricPreviewSurface(
         }
         Column(
             modifier = Modifier
+                .onSizeChanged { size ->
+                    // 宽度变化(转屏/窗口)会改变折行结果,高度从下限重新累计。
+                    if (size.width != measuredWidthPx) {
+                        measuredWidthPx = size.width
+                        stableContentDp = PREVIEW_CARD_MIN_HEIGHT_DP
+                    }
+                    stableContentDp = previewCardHeightDp(
+                        stableContentDp,
+                        with(density) { size.height.toDp().value }
+                    )
+                }
                 .fillMaxWidth(profile.widthFraction)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalAlignment = when (textAlign) {
@@ -287,7 +333,6 @@ private fun LyricPreviewSurface(
             verticalArrangement = Arrangement.Center
         ) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val density = LocalDensity.current
                 val availablePx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
                 // 换行/测量全部委托 LyricLayoutEngine(与实机同源):断行点、行数上限、
                 // Clip 语义一致;预览只负责卡片内的居中摆放。
