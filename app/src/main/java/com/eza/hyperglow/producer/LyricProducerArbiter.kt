@@ -151,13 +151,20 @@ class LyricProducerArbiter(
         var lastActiveSignature: String? = null
         while (scope.isActive) {
             val next = computeActiveOnce()
-            // Only write on actual change to avoid redundant StateFlow emissions.
+            // Only write on actual change to avoid redundant StateFlow emissions; a cleared
+            // active must also be re-published even when the signature is unchanged
+            // (stale-sweep may have cleared a frozen state; see shouldPublishActive).
             val sig = next?.let { "${it.producerId}:${it.generation}:${it.sequence}" }
-            if (sig != lastActiveSignature) {
-                AppLog.i(
-                    "LyricProducerArbiter",
-                    "active changed: ${lastActiveSignature ?: "null"} -> ${sig ?: "null"}"
-                )
+            if (shouldPublishActive(sig, lastActiveSignature, mutableActive.value == null)) {
+                if (sig == lastActiveSignature) {
+                    // staleSweep 清空后签名未变(冻结态):必须补发,否则 active 永久卡死在 null。
+                    AppLog.i("LyricProducerArbiter", "active re-published after clear: $sig")
+                } else {
+                    AppLog.i(
+                        "LyricProducerArbiter",
+                        "active changed: ${lastActiveSignature ?: "null"} -> ${sig ?: "null"}"
+                    )
+                }
                 mutableActive.value = next
                 lastActiveSignature = sig
             }
@@ -185,16 +192,26 @@ class LyricProducerArbiter(
             val preferredUsable = (preferredConn == ProducerConnection.CONNECTED ||
                 preferredConn == ProducerConnection.RECONNECTED) &&
                 preferredState != null &&
-                (!isStale(preferredState) || !preferredState.playing)
+                !isFaulted(preferredState)
                 // 暂停时位置流天然静默(state.playing=false):冻结状态仍有效,不应判 stale
                 // 后 fallback 到无歌词行源把 AOD 歌词清掉。播放中静默(stale+playing)仍
                 // 走 fallback,交给 LyriconLyricProducer 的 watchdog 重建订阅。
+                // (故障谓词与 staleSweepLoop 的清空条件同源,见 isFaulted。)
             if (preferredUsable) {
                 // 首选源可用。若它只带行级歌词（无词级时间戳），却存在另一个已连接、非 stale
                 // 且带词级时间戳的源（如 SuperLyric 的逐字卡拉OK），优先切到带词级数据的源，
                 // 避免"普通 LRC 无词级时间→单词动画缺失"的时有时无。有词级数据时仍用首选源。
                 val timed = timedState()
-                if (timed != null && !hasWordTiming(preferredState)) timed else preferredState
+                when {
+                    timed != null && !hasWordTiming(preferredState) -> timed
+                    // 冻结态让位:首选源只是「暂停不算故障」而保持可用时,若另一个源正在播放且
+                    // 带歌词内容,让位给它 —— 0.3.120 真机:Lyricon 回调链死亡后冻结态长期
+                    // 霸占首选位,SuperLyric 逐句收词却永远上不了屏(「当前歌词源暂无曲目」
+                    // 常驻)。只让位给「在播且有内容」的源:暂停时的冻结歌词保持显示,绝不
+                    // 让位给无歌词内容的源把 AOD 歌词清掉(暂停保留语义的初衷)。
+                    isStale(preferredState) -> fresherPlayingContentState(pref) ?: preferredState
+                    else -> preferredState
+                }
             } else {
                 // Preferred disconnected/stale/no-state: fall back.
                 val reason = when {
@@ -320,11 +337,14 @@ class LyricProducerArbiter(
         (now - state.receivedAtElapsedMs) / 1000L
 
     private fun staleSweepLoop() = scope.launch {
-        // Independently clear `active` if the currently-forwarded state goes stale between
-        // arbitration ticks (e.g. producer stopped emitting but didn't disconnect).
+        // Independently clear `active` when the currently-forwarded state is faulted between
+        // arbitration ticks (e.g. producer stopped emitting mid-playback and didn't
+        // disconnect). Fault semantics match the selector's usability rule (isFaulted): a
+        // paused frozen state is not faulted and must stay forwarded — clearing it here while
+        // the selector still deems it usable dead-locks active=null (0.3.120 device capture).
         while (scope.isActive) {
             val current = mutableActive.value
-            if (current != null && isStale(current)) {
+            if (current != null && isFaulted(current)) {
                 AppLog.i("LyricProducerArbiter", "active state went stale, clearing")
                 mutableActive.value = null
             }
@@ -340,6 +360,31 @@ class LyricProducerArbiter(
         val now = clock()
         return now - state.receivedAtElapsedMs > state.staleAfterMs
     }
+    /**
+     * 「故障」谓词(选源与 staleSweep 共用):播放中的 stale 才算故障;暂停时位置流天然
+     * 静默,冻结状态仍有效(保持 AOD 歌词)。清空方与保留方必须同一谓词——语义不一致会
+     * 造成 active 死锁:sweep 清掉一个选源仍视为可用的冻结态后,sig 去重让它永远不被
+     * 重新发布(0.3.120 真机「当前歌词源暂无曲目」常驻)。
+     */
+    internal fun isFaulted(state: LyricProducerState): Boolean = isStale(state) && state.playing
+
+    /**
+     * 冻结态让位候选:另一个已连接、非 stale、确实在播且带歌词内容(词级时间戳或非空
+     * 歌词行)的源状态;无则 null。「带内容」门槛延续暂停保留语义的初衷——绝不让位给
+     * 无歌词内容的源把 AOD 歌词清掉。
+     */
+    private fun fresherPlayingContentState(excluded: LyricSource): LyricProducerState? =
+        LyricSource.entries.firstNotNullOfOrNull { source ->
+            if (source == excluded) return@firstNotNullOfOrNull null
+            val p = producer(source) ?: return@firstNotNullOfOrNull null
+            val conn = p.connection.value
+            if (conn != ProducerConnection.CONNECTED &&
+                conn != ProducerConnection.RECONNECTED
+            ) return@firstNotNullOfOrNull null
+            val st = p.state.value ?: return@firstNotNullOfOrNull null
+            if (isStale(st) || !st.playing) return@firstNotNullOfOrNull null
+            st.takeIf { it.hasTimedLyrics || it.line.isNotBlank() }
+        }
 
     companion object {
         /** How often the arbitration loop re-evaluates which producer is active. */
@@ -348,3 +393,13 @@ class LyricProducerArbiter(
         private const val STALE_SWEEP_TICK_MS = 500L
     }
 }
+
+/**
+ * 仲裁发布判定:签名变化即发布;staleSweep 清空后(active 为 null)即使签名未变也必须
+ * 补发,否则冻结态永远回不来——0.3.120 真机「当前歌词源暂无曲目」常驻的死锁面之一。
+ */
+internal fun shouldPublishActive(
+    nextSignature: String?,
+    lastSignature: String?,
+    activeIsNull: Boolean
+): Boolean = nextSignature != lastSignature || (activeIsNull && nextSignature != null)
