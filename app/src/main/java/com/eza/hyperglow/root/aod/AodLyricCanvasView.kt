@@ -759,25 +759,83 @@ internal class AodLyricCanvasView(
         // 参考档位移以行块内容框为基准(Fade 族 1/4 宽高、Slide 族整宽高),历史档忽略该参数。
         val blockWidthDp = (ow - padLeft - padRight) / density
         val blockHeightDp = (oh - padTop - padBottom) / density
-        drawRows(
-            canvas,
-            snapshot.layout,
-            snapshot.content,
-            lineTransitionExitFrame(transitionMode, exitEased, blockWidthDp, blockHeightDp),
-            snapshot.renderStyle,
-            skipOriginal = metadataMorph
-        )
-        drawRows(
-            canvas,
-            layout,
-            content,
-            lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp, blockHeightDp)
-        )
+        val promoteOffsetPx = nextLinePromoteOffsetPx(snapshot)
+        if (promoteOffsetPx != null) {
+            // 顺次换行三段式(旧第二行 == 新第一行):旧第一行组(原文+音标+翻译)独自按
+            // 退场动画离场;新第一行组自旧第二行位置平移接替(晋升帧,纯位移);新第二行
+            // 独自按入场动画出现。「向上渐隐&向上渐现」这类成对档的退场半档只作用于
+            // 旧第一行、入场半档只作用于新第二行,不再整块同帧移动,同文本不再双层重叠。
+            drawRows(
+                canvas,
+                snapshot.layout,
+                snapshot.content,
+                lineTransitionExitFrame(transitionMode, exitEased, blockWidthDp, blockHeightDp),
+                snapshot.renderStyle,
+                skipOriginal = metadataMorph,
+                rowFilter = { it != RowKind.NEXT_LINE }
+            )
+            if (enterProgress <= 0f) {
+                // 序列档退场期间旧第二行以第二行样式原地静候;退场完成后才换为新
+                // 第一行组自其位置晋升(起步位移恰等于其基线差,换位无跳变)。
+                drawRows(
+                    canvas,
+                    snapshot.layout,
+                    snapshot.content,
+                    LineTransitionFrame(alpha = 1f),
+                    snapshot.renderStyle,
+                    rowFilter = { it == RowKind.NEXT_LINE }
+                )
+            } else {
+                drawRows(
+                    canvas,
+                    layout,
+                    content,
+                    lineTransitionPromoteFrame(promoteOffsetPx / density, enterEased),
+                    rowFilter = { it != RowKind.NEXT_LINE }
+                )
+            }
+            drawRows(
+                canvas,
+                layout,
+                content,
+                lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp, blockHeightDp),
+                rowFilter = { it == RowKind.NEXT_LINE }
+            )
+        } else {
+            drawRows(
+                canvas,
+                snapshot.layout,
+                snapshot.content,
+                lineTransitionExitFrame(transitionMode, exitEased, blockWidthDp, blockHeightDp),
+                snapshot.renderStyle,
+                skipOriginal = metadataMorph
+            )
+            drawRows(
+                canvas,
+                layout,
+                content,
+                lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp, blockHeightDp)
+            )
+        }
         if (enterProgress >= 1f) {
             transitionStartedAt = 0L
             exitSnapshot = null
             contentBoundsChangedListener?.invoke()
         }
+    }
+
+    /**
+     * 顺次换行的晋升位移:旧第二行(NEXT_LINE)文本与新第一行一致时,返回新第一行组
+     * 需自旧第二行位置平移上来的像素距离(基线差,恒为正);非顺次(seek/源修正文本)、
+     * 无第二行或无新原文行时返回 null,退回整块同层进退场。
+     */
+    private fun nextLinePromoteOffsetPx(snapshot: CanvasSnapshot): Float? {
+        if (!shouldPromoteNextLine(snapshot.content.nextLine, content.original)) return null
+        val oldNextLine = snapshot.layout.rows.firstOrNull { it.row.kind == RowKind.NEXT_LINE }
+            ?: return null
+        val newOriginal = layout.rows.firstOrNull { it.row.kind == RowKind.ORIGINAL }
+            ?: return null
+        return oldNextLine.baseline - newOriginal.baseline
     }
 
     private fun drawRows(
@@ -786,10 +844,12 @@ internal class AodLyricCanvasView(
         drawContent: AodCanvasContent,
         frame: LineTransitionFrame,
         renderStyle: RenderStyleSnapshot? = null,
-        skipOriginal: Boolean = false
+        skipOriginal: Boolean = false,
+        rowFilter: (RowKind) -> Boolean = { true }
     ) {
         if (frame.alpha <= 0f || drawLayout.rows.none {
-                it.row.kind != RowKind.METADATA && (!skipOriginal || it.row.kind != RowKind.ORIGINAL)
+                rowFilter(it.row.kind) && it.row.kind != RowKind.METADATA &&
+                    (!skipOriginal || it.row.kind != RowKind.ORIGINAL)
             }
         ) return
         val savedContent = content
@@ -839,12 +899,15 @@ internal class AodLyricCanvasView(
             drawContent.lineStartMs,
             drawContent.lineEndMs
         )
-        if (sharedLineLevelSweep) {
-            drawSharedLineLevelRows(canvas, drawLayout.rows)
+        val filteredRows = drawLayout.rows.filter { rowFilter(it.row.kind) }
+        // 行级同步共享扫光路径以原文行为锚:过滤后不含原文行(如仅绘制第二行)时
+        // 退回逐行绘制,否则 drawSharedLineLevelRows 找不到锚行整层静默。
+        if (sharedLineLevelSweep && filteredRows.any { it.row.kind == RowKind.ORIGINAL }) {
+            drawSharedLineLevelRows(canvas, filteredRows)
         } else {
             var rowIndex = 0
-            while (rowIndex < drawLayout.rows.size) {
-                val row = drawLayout.rows[rowIndex]
+            while (rowIndex < filteredRows.size) {
+                val row = filteredRows[rowIndex]
                 when (row.row.kind) {
                     RowKind.METADATA -> Unit
                     RowKind.ORIGINAL -> if (!skipOriginal) drawOriginal(canvas, row.baseline)

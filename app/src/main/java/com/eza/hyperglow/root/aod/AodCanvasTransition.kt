@@ -339,6 +339,23 @@ internal fun lineTransitionEnterFrame(
 }
 
 /**
+ * 下一行晋升判定:顺次换行(旧第二行文本与新第一行一致)时,旧第二行不随第一行退场,
+ * 而是由新第一行组自其位置平移接替([lineTransitionPromoteFrame]);
+ * 文本不一致(seek/源修正)或无第二行时退回整块同层进退场。
+ */
+internal fun shouldPromoteNextLine(snapshotNextLine: String, nextOriginal: String): Boolean =
+    snapshotNextLine.isNotBlank() && snapshotNextLine == nextOriginal
+
+/**
+ * 晋升帧(progress 0→1,走入场相位):新第一行组自旧第二行位置(offsetDp,向下为正)
+ * 平移至自身落位——纯位移、alpha 恒 1,与退场/入场动画区分(如「向上渐隐」只作用于
+ * 旧第一行、「向上渐现」只作用于新第二行)。progress 为已缓动入场进度,钳制 0..1:
+ * 过冲缓动的越过量只作用于入场层,晋升不回弹,避免顶入刚离场的区域。
+ */
+internal fun lineTransitionPromoteFrame(offsetDp: Float, progress: Float): LineTransitionFrame =
+    LineTransitionFrame(alpha = 1f, translateYDp = offsetDp * (1f - progress.coerceIn(0f, 1f)))
+
+/**
  * 技术 → 帧:daimajia 各动画器的关键帧逐项展开([p] 为已缓动进度,可 >1 过冲外插)。
  * ObjectAnimator 多值语义 = 均匀分段关键帧([sample]);位移 dp 以行块宽/高为基准。
  */

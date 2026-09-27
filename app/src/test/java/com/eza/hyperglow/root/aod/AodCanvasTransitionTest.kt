@@ -337,6 +337,38 @@ class AodCanvasTransitionTest {
     }
 
     @Test
+    fun nextLinePromotionRequiresMatchingSequentialTexts() {
+        // 顺次换行(旧第二行 == 新第一行)才晋升;空文本/不一致(seek/源修正)退回整块进退场。
+        assertTrue(shouldPromoteNextLine("下一行", "下一行"))
+        assertTrue(!shouldPromoteNextLine("", "下一行"))
+        assertTrue(!shouldPromoteNextLine("下一行", ""))
+        assertTrue(!shouldPromoteNextLine("", ""))
+        assertTrue(!shouldPromoteNextLine("旧第二行", "新第一行"))
+    }
+
+    @Test
+    fun promoteFrameIsPureTranslationThatSettlesAtOrigin() {
+        // 晋升帧:自 offset 起步平移归零,alpha 恒 1、无缩放/旋转/横移。
+        assertEquals(
+            LineTransitionFrame(alpha = 1f, translateYDp = 40f),
+            lineTransitionPromoteFrame(40f, 0f)
+        )
+        assertEquals(
+            LineTransitionFrame(alpha = 1f, translateYDp = 20f),
+            lineTransitionPromoteFrame(40f, 0.5f)
+        )
+        assertEquals(LineTransitionFrame(alpha = 1f), lineTransitionPromoteFrame(40f, 1f))
+        assertEquals(LineTransitionFrame(alpha = 1f), lineTransitionPromoteFrame(0f, 0.5f))
+    }
+
+    @Test
+    fun promoteFrameClampsProgressWithoutOvershoot() {
+        // 进度钳制 0..1:过冲缓动的越过量只作用于入场层,晋升不回弹。
+        assertEquals(lineTransitionPromoteFrame(40f, 0f), lineTransitionPromoteFrame(40f, -0.3f))
+        assertEquals(lineTransitionPromoteFrame(40f, 1f), lineTransitionPromoteFrame(40f, 1.2f))
+    }
+
+    @Test
     fun hyperlyricTechniqueKeyframesMatchReferencedAnimators() {
         val w = 200f
         val h = 100f
