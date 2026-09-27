@@ -13,6 +13,24 @@ internal fun splitContinuousFill(progress: Float, lineWidths: List<Float>): List
 }
 
 /**
+ * 横向进度档的行进度解析(与 LyricGlowRenderer.fillMode 同源,纯函数可单测):
+ * - "Left to right (main only)"(行级):按累计宽度把整块进度分摊到各行 —— 各行依次
+ *   从左到右扫光(ARCHITECTURE「行级的从左到右近似」);
+ * - "Left to right (whole block)"(整块兼容):所有可见行同时以同一进度 X 方向扫描。
+ * 其余取值(旧词表/未知值)落入行级逐行推进,与上游归一一致。
+ */
+internal fun horizontalRowProgress(
+    fillMode: String,
+    eased: Float,
+    lineWidths: List<Float>
+): List<Float> =
+    if (fillMode == LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK) {
+        lineWidths.map { eased }
+    } else {
+        splitContinuousFill(eased, lineWidths)
+    }
+
+/**
  * 是否走共享 LyricGlowRenderer 预览管线:
  * 行级同步源、无词级时间源、或开启发光 —— 与预览同源渲染;
  * 仅"逐字时间源 + 关闭发光 + 非行级同步"保留逐字卡拉OK路径。

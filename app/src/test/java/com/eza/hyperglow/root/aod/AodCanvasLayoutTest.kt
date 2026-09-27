@@ -78,6 +78,39 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun mainOnlyHorizontalSweepDistributesProgressLineByLine() {
+        // 「逐行扫光」回归守卫:Left to right (main only) 必须按累计宽度逐行推进,
+        // 各行依次从左到右扫光——不能退化成所有行同时扫描。
+        assertEquals(
+            listOf(1f, 1f / 3f),
+            horizontalRowProgress("Left to right (main only)", 0.5f, listOf(100f, 300f))
+        )
+        // 剩余取值(旧词表/未知值)与上游归一一致,落入行级逐行推进。
+        assertEquals(
+            listOf(1f, 1f / 3f),
+            horizontalRowProgress("Left to right (sentence)", 0.5f, listOf(100f, 300f))
+        )
+        assertEquals(
+            listOf(1f, 1f / 3f),
+            horizontalRowProgress("bogus", 0.5f, listOf(100f, 300f))
+        )
+    }
+
+    @Test
+    fun wholeBlockHorizontalSweepDrivesAllRowsSimultaneously() {
+        // 整块兼容模式:所有可见行以同一 X 进度同时扫描,不按行分摊。
+        val widths = listOf(100f, 300f, 200f)
+        assertEquals(
+            listOf(0.25f, 0.25f, 0.25f),
+            horizontalRowProgress("Left to right (whole block)", 0.25f, widths)
+        )
+        assertEquals(
+            listOf(1f, 1f, 1f),
+            horizontalRowProgress("Left to right (whole block)", 1f, widths)
+        )
+    }
+
+    @Test
     fun paletteHexTokensResolveToOpaqueColors() {
         // "#RRGGBB" 自定义字体颜色 → 不透明 ARGB
         val warm = resolveAodPalette(mapOf("primaryText" to "#FFD9A0", "glow" to "#FFD9A0"))

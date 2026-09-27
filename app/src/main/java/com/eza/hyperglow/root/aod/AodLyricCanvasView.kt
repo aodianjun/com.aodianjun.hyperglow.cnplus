@@ -875,7 +875,7 @@ internal class AodLyricCanvasView(
         )
     }
 
-    /** 生效进度效果:仅行级同步时按配置解析;逐字时间源路径保持整块连续横向扫光。 */
+    /** 生效进度效果:仅行级同步时按配置解析;逐字时间源路径保持整块同时横向扫光。 */
     private fun effectiveLineSyncFillMode(): String =
         if (content.lineLevelSync) {
             resolvedLineSyncFillMode(true, content.lineSyncFillMode)

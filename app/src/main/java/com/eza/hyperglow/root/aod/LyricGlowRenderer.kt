@@ -109,9 +109,10 @@ internal object LyricGlowRenderer {
             return
         }
 
-        // "Left to right (main only)": 每行各自从左到右同时推进(不按行宽分摊);
-        // "Left to right (whole block)": 整块连续推进,按行宽把进度分摊到各行(默认)。
-        val rowProgress = if (fillMode == "Left to right (main only)") {
+        // "Left to right (main only)": 行级逐行扫光 —— 按顺序遍历各行累计宽度,各行依次
+        // 从左到右扫光(与 ARCHITECTURE「行级的从左到右近似」一致);
+        // "Left to right (whole block)": 整块兼容模式 —— 所有可见行同时 X 方向扫描。
+        val rowProgress = if (fillMode == "Left to right (whole block)") {
             rows.map { eased }
         } else {
             splitContinuousFill(eased, rows.map { it.width })

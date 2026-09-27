@@ -61,8 +61,8 @@ internal fun hasActiveCanvasTiming(
 
 /**
  * 行级同步下的生效进度效果词表。四种取值各自对应一种真实渲染(见 LyricGlowRenderer.fillMode):
- * "None" 静态全亮、"Top to bottom" 纵向推进、"Left to right (main only)" 逐行独立横向扫光、
- * "Left to right (whole block)" 整块连续横向扫光。仅把旧词表/未知值归一到主行水平扫光,
+ * "None" 静态全亮、"Top to bottom" 纵向推进、"Left to right (main only)" 逐行依次横向扫光、
+ * "Left to right (whole block)" 整块同时横向扫光。仅把旧词表/未知值归一到主行水平扫光,
  * 不再把"None"/"Top to bottom"吞掉(否则选项形同虚设)。
  */
 internal fun resolvedLineSyncFillMode(lineLevelSync: Boolean, configuredMode: String): String =
