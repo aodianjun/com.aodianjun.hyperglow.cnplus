@@ -1348,4 +1348,69 @@ class AodCanvasLayoutTest {
             0.0001f
         )
     }
+
+    @Test
+    fun metadataBandGrowsToArtworkSlotAndCentersTextBlock() {
+        // 带高 = max(文本块高, 图片槽边长):文本块在带内垂直居中,歌词从带沿让出 gap,
+        // 图片槽与文本块同心中线(实机不再把图片画低/被内容框裁切)。
+        val ascent = -12f
+        val descent = 4f
+        val lineHeight = descent - ascent // 16f
+        val block = metadataBlockHeightPx(2, lineHeight, ascent, descent)
+        assertEquals(32f, block, 0.0001f)
+        assertEquals(16f, metadataBlockHeightPx(1, lineHeight, ascent, descent), 0.0001f)
+        val side = 40f
+
+        // 顶部锚点:带 [8, 48] 高 40 > 块 32,块顶 = 8 + (40-32)/2 = 12,首行基线 24。
+        val top = metadataLayoutBounds(
+            "top", 360f, 8f, 8f, ascent, descent, 10f,
+            blockHeight = block, bandHeight = side
+        )
+        assertEquals(24f, top.metadataBaseline, 0.0001f)
+        assertEquals(58f, top.lyricStart, 0.0001f)
+        // 图片中心 = 文本视觉中线 = 带中心(8 + 40/2 = 28)。
+        assertEquals(28f, metadataTextCenterY(24f, 24f + lineHeight, ascent, descent), 0.0001f)
+        assertEquals(8f + side / 2f, metadataTextCenterY(24f, 24f + lineHeight, ascent, descent), 0.0001f)
+
+        // 底部锚点:带 [312, 352],末行基线 344,歌词终点 = 带顶 - gap = 302。
+        val bottom = metadataLayoutBounds(
+            "bottom", 360f, 8f, 8f, ascent, descent, 10f,
+            blockHeight = block, bandHeight = side
+        )
+        assertEquals(344f, bottom.metadataBaseline, 0.0001f)
+        assertEquals(302f, bottom.lyricEnd, 0.0001f)
+        assertEquals(332f, metadataTextCenterY(328f, 344f, ascent, descent), 0.0001f)
+        assertEquals(312f + side / 2f, metadataTextCenterY(328f, 344f, ascent, descent), 0.0001f)
+    }
+
+    @Test
+    fun metadataBandFallsBackToLegacyGeometryWithoutTallerArtwork() {
+        // 图片关闭 / 图片不高于文本块:带几何退化到历史公式(逐值等价)。
+        val legacy = metadataLayoutBounds("top", 360f, 8f, 8f, -12f, 4f, 10f)
+        val withBlock = metadataLayoutBounds(
+            "top", 360f, 8f, 8f, -12f, 4f, 10f,
+            blockHeight = metadataBlockHeightPx(1, 16f, -12f, 4f), bandHeight = 16f
+        )
+        assertEquals(legacy.metadataBaseline, withBlock.metadataBaseline, 0.0001f)
+        assertEquals(legacy.lyricStart, withBlock.lyricStart, 0.0001f)
+        assertEquals(legacy.lyricEnd, withBlock.lyricEnd, 0.0001f)
+
+        val legacyBottom = metadataLayoutBounds("bottom", 360f, 8f, 8f, -12f, 4f, 10f)
+        val bottomWithBlock = metadataLayoutBounds(
+            "bottom", 360f, 8f, 8f, -12f, 4f, 10f,
+            blockHeight = metadataBlockHeightPx(1, 16f, -12f, 4f), bandHeight = 16f
+        )
+        assertEquals(legacyBottom.metadataBaseline, bottomWithBlock.metadataBaseline, 0.0001f)
+        assertEquals(legacyBottom.lyricEnd, bottomWithBlock.lyricEnd, 0.0001f)
+    }
+
+    @Test
+    fun metadataTextCenterSitsAboveBaselineMidpoint() {
+        // 文本视觉中线 = 基线中点 + (ascent + descent)/2;ascent 为负,故中线在基线中点之上。
+        // (回归守卫:此前实机写成 `- (descent + ascent)/2`,图片被画低约 0.7×字号。)
+        assertEquals(-4f, metadataTextCenterY(0f, 0f, -12f, 4f), 0.0001f)
+        assertEquals(100f, metadataTextCenterY(100f, 116f, -16f, 0f), 0.0001f)
+        // ascent + descent == 0 时中线与基线中点重合(与符号无关的退化点)。
+        assertEquals(0f, metadataTextCenterY(0f, 0f, -8f, 8f), 0.0001f)
+    }
 }
