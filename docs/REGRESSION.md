@@ -80,6 +80,11 @@ and (b) unverified paths stay explicit instead of silently assumed.
   make the card breathe) — app-preview-only change, no SystemUI/AOD surface involvement; pending
   a quick on-device look that large text sizes plus secondary/next-line/metadata rows are no
   longer clipped and the surrounding layout stays put.
+- Imported font display names in the built-in style (the font choice row summary and dialog show
+  the font's real name from its `name` table with the imported file name as fallback, instead of
+  the generic "Custom font" label; import now accepts multi-select batch and keeps every font) —
+  pending a hardware smoke check after merge: importing several fonts keeps them all listed with
+  their own names on both the choice dialog and the settings summary row.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -141,6 +146,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
 - 歌曲信息内容与分隔符（`metadataParts`/`metadataSeparator`，文档级全局，息屏与锁屏共用）：可选显示哪些切片（歌名/歌手/专辑，恒按规范顺序）与连接分隔符（`newline` 每切片一行=历史默认，或 ` · ` 等行内连接）；画布歌曲信息只按硬换行拆行且最多 3 行（原 2 行），高度预算随切片行数追加——合并后待真机冒烟：默认「歌名/歌手+换行」与历史一致、选满 3 部分各占一行不裁切、行内分隔符保持单行。
 - 预览卡片自适应高度（`LyricPreviewCard` / `AppearanceLivePreview` 面板高度随歌词内容增长，取代固定 150/180dp，钳制在 120-420dp；同一配置生效期间保持已见最大内容高度，演示行循环/逐行折行变化不会让卡片高度来回呼吸）——仅应用内预览改动，不涉及 SystemUI/AOD surface；待真机看一眼：大字号 + 副文本/下一行/歌曲信息全开时内容不再被裁切，周围布局不跳动。
+- 导入字体按内置样式展示名字（字体选择行摘要与对话框显示字体 name 表真名、导入文件名兜底，不再显示「自定义字体」泛称；导入支持一次多选批量且全部保留）——合并后待真机冒烟：一次导入多个字体全部保留，对话框与设置摘要行各自显示自己的字体名。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

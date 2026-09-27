@@ -92,6 +92,100 @@ internal data class CustomFontEntry(
 internal data class CustomFontIndex(val fonts: List<CustomFontEntry> = emptyList())
 
 /**
+ * 从字体容器(TTF/OTF/TTC)的 `name` 表读取字体真名,让导入字体与内置字体一样按名字展示,
+ * 而不是「自定义字体」泛称。纯 JVM 解析便于单测;解析失败返回 null,由调用方回落
+ * 导入文件名/通用文案。
+ *
+ * 记录选择:nameID 1(家族名)优先于 4(全名)——与内置项「Noto Sans」「SF Pro Display」
+ * 同为家族名风格;语言偏好 zh-CN → en-US → 其它 Windows → Unicode → Mac。
+ */
+internal object CustomFontNameReader {
+    private const val TAG_NAME = 0x6E616D65L // 'name'
+    private const val MAGIC_SFNT = 0x00010000L
+    private const val MAGIC_TRUE = 0x74727565L // 'true'
+    private const val MAGIC_OTTO = 0x4F54544FL // 'OTTO'
+    private const val MAGIC_TTCF = 0x74746366L // 'ttcf'
+    private const val NAME_ID_FAMILY = 1
+    private const val NAME_ID_FULL = 4
+
+    fun readDisplayName(bytes: ByteArray): String? {
+        val base = tableBase(bytes) ?: return null
+        val numTables = u16(bytes, base + 4) ?: return null
+        var nameStart = -1
+        for (i in 0 until numTables) {
+            val record = base + 12 + i * 16
+            if (u32(bytes, record) == TAG_NAME) {
+                nameStart = u32(bytes, record + 8)?.toInt() ?: return null
+                break
+            }
+        }
+        if (nameStart < 0) return null
+        val count = u16(bytes, nameStart + 2) ?: return null
+        val stringOffset = u16(bytes, nameStart + 4) ?: return null
+        var best: String? = null
+        var bestScore = Int.MAX_VALUE
+        for (i in 0 until count) {
+            val record = nameStart + 6 + i * 12
+            val platform = u16(bytes, record) ?: break
+            val language = u16(bytes, record + 4) ?: break
+            val nameId = u16(bytes, record + 6) ?: break
+            if (nameId != NAME_ID_FAMILY && nameId != NAME_ID_FULL) continue
+            val length = u16(bytes, record + 8) ?: break
+            val offset = u16(bytes, record + 10) ?: break
+            val start = nameStart + stringOffset + offset
+            if (start < 0 || start + length > bytes.size) continue
+            val text = decodeName(bytes, start, length, platform) ?: continue
+            val entryScore = score(platform, language, nameId)
+            if (entryScore < bestScore) {
+                bestScore = entryScore
+                best = text
+            }
+        }
+        return best
+    }
+
+    /** TTC 容器取第一个字体的表目录偏移;单字体直接用 0;都不是则返回 null。 */
+    private fun tableBase(bytes: ByteArray): Int? = when (u32(bytes, 0)) {
+        MAGIC_SFNT, MAGIC_TRUE, MAGIC_OTTO -> 0
+        MAGIC_TTCF -> u32(bytes, 12)?.toInt()
+        else -> null
+    }
+
+    private fun score(platform: Int, language: Int, nameId: Int): Int =
+        languageRank(platform, language) * 2 + if (nameId == NAME_ID_FAMILY) 0 else 1
+
+    private fun languageRank(platform: Int, language: Int): Int = when {
+        platform == 3 && language == 0x804 -> 0 // Windows 简体中文
+        platform == 3 && language == 0x409 -> 1 // Windows en-US
+        platform == 3 -> 2
+        platform == 0 -> 3 // Unicode 平台
+        else -> 4 // Mac 等
+    }
+
+    private fun decodeName(bytes: ByteArray, start: Int, length: Int, platform: Int): String? {
+        val charset = if (platform == 0 || platform == 3) Charsets.UTF_16BE else Charsets.ISO_8859_1
+        val text = runCatching { String(bytes, start, length, charset) }.getOrNull() ?: return null
+        return text.filter { it.code >= 0x20 }
+            .trim()
+            .take(48)
+            .takeIf { it.isNotBlank() }
+    }
+
+    private fun u16(bytes: ByteArray, at: Int): Int? {
+        if (at < 0 || at + 2 > bytes.size) return null
+        return ((bytes[at].toInt() and 0xFF) shl 8) or (bytes[at + 1].toInt() and 0xFF)
+    }
+
+    private fun u32(bytes: ByteArray, at: Int): Long? {
+        if (at < 0 || at + 4 > bytes.size) return null
+        return ((bytes[at].toLong() and 0xFF) shl 24) or
+            ((bytes[at + 1].toLong() and 0xFF) shl 16) or
+            ((bytes[at + 2].toLong() and 0xFF) shl 8) or
+            (bytes[at + 3].toLong() and 0xFF)
+    }
+}
+
+/**
  * 已导入自定义字体的清单(多字体保留)。
  *
  * 历史行为是固定单槽 `custom_fonts/custom.ttf`:再导入一次就覆盖上一个,用户侧表现为
@@ -175,8 +269,20 @@ internal object CustomFontStore {
     /** 字体 id → 展示名;空 id/空名回落到通用文案由界面层处理。 */
     fun displayName(fontRoot: File, family: String?): String? {
         val id = CustomFontContract.fontIdOf(family) ?: return null
-        return list(fontRoot).firstOrNull { it.id == id }?.name?.takeIf { it.isNotBlank() }
+        return list(fontRoot).firstOrNull { it.id == id }?.let { label(fontRoot, it) }
     }
+
+    /**
+     * 展示名:字体文件 name 表真名优先(与内置字体同风格),导入文件名兜底;
+     * 都解析不出时返回 null,由界面回落「自定义字体」通用文案。
+     */
+    fun label(fontRoot: File, entry: CustomFontEntry): String? =
+        runCatching {
+            CustomFontNameReader.readDisplayName(
+                CustomFontContract.fontFile(fontRoot, entry.id).readBytes()
+            )
+        }.getOrNull()
+            ?: entry.name.takeIf { it.isNotBlank() }
 
     /** 导入文件是否为可识别的字体容器(TTF/OTF/TTC/旧 Mac trueType)。 */
     fun hasFontMagic(bytes: ByteArray): Boolean {
