@@ -7,10 +7,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import com.eza.hyperglow.customization.composeSongMetadata
+import com.eza.hyperglow.producer.ArtworkFrame
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.LyricSource
 import com.eza.hyperglow.producer.ProducerConnection
+import com.eza.hyperglow.producer.SongArtworkRepository
+import com.eza.hyperglow.producer.isSameTrackIdentity
 import com.eza.hyperglow.root.projection.LyricLayoutGroup
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
@@ -69,7 +72,8 @@ internal fun collectConnection(source: LyricSource): androidx.compose.runtime.St
  * null,由调用方回退到静态示例快照。
  *
  * 歌曲信息按 [metadataParts]/[metadataSeparator](外观文档全局配置)用与实机投影层相同的
- * [composeSongMetadata] 组装,保证预览与实机所见即所得。
+ * [composeSongMetadata] 组装,保证预览与实机所见即所得。歌曲图片同样与实机同源:
+ * 订阅 [SongArtworkRepository.current](出帧后驱动重组),取与当前曲目同曲的已校对帧。
  *
  * 注意:不从这里读 SystemUiLyricProjection —— 那是 SystemUI 侧投影,app 进程内并不保证
  * 被喂入实时快照,会导致预览不更新。
@@ -80,13 +84,20 @@ internal fun collectLiveSnapshot(
     metadataSeparator: String
 ): LyricSnapshot? {
     val active by collectActiveState()
-    return active?.toPreviewSnapshot(metadataParts, metadataSeparator)
+    // 封面帧出帧后驱动重组(帧到达前字段为空,预览不显示,与实机 fail-closed 一致)。
+    val artworkFrame by SongArtworkRepository.current.collectAsState()
+    return active?.toPreviewSnapshot(metadataParts, metadataSeparator, artworkFrame)
 }
 
 private fun LyricProducerState.toPreviewSnapshot(
     metadataParts: String,
-    metadataSeparator: String
-): LyricSnapshot = LyricSnapshot(
+    metadataSeparator: String,
+    artworkFrame: ArtworkFrame?
+): LyricSnapshot {
+    val frame = artworkFrame?.takeIf {
+        isSameTrackIdentity(title, artist, it.title, it.artist)
+    }
+    return LyricSnapshot(
     revision = sequence,
     trackGeneration = generation.toLong(),
     updatedAtElapsedMs = sampledAtElapsedMs,
@@ -124,8 +135,11 @@ private fun LyricProducerState.toPreviewSnapshot(
     ruby = ruby.map { LyricRuby(it.start, it.end, it.reading) },
     layoutGroups = layoutGroups.map {
         LyricLayoutGroup(it.start, it.end, it.kind, it.keepTogether, it.confidence)
-    }
-)
+    },
+    artworkJpeg = frame?.jpeg ?: ByteArray(0),
+    artworkKey = frame?.key ?: ""
+    )
+}
 
 // 判断模块当前是否处于可用的运行状态(与 runtimeProfileAvailable 一致)。
 internal fun resolveModuleWorking(state: XiaomiRuntimeSupportState): Boolean =

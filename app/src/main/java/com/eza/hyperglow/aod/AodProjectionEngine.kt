@@ -10,6 +10,7 @@ import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
+import com.eza.hyperglow.producer.SongArtworkRepository
 import com.eza.hyperglow.root.projection.currentProcessUserId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +119,13 @@ object AodProjectionEngine {
     private var scheduler: Job? = null
     private var transitionKeepAlive: Job? = null
     private var fallbackSession: FallbackRefreshSession? = null
+
+    init {
+        // 歌曲图片异步补帧:出帧时把帧挂到同曲目已发布快照上重播(见 AodStateBridge.publishArtwork)。
+        SongArtworkRepository.onFrameReady = { trackGeneration, frame ->
+            AodStateBridge.publishArtwork(trackGeneration, frame.jpeg, frame.key)
+        }
+    }
     private var releaseJob: Job? = null
     private var pauseConfirmJob: Job? = null
     private var pendingPauseSession: ProjectionSessionIdentity? = null
@@ -382,6 +390,21 @@ object AodProjectionEngine {
         // 插件富化在投影前同步查表:无插件结果时原样返回同一实例(保持下方
         // isCurrentActive 的引用相等校验),有结果时仅覆盖内容字段。
         val effectiveState = PluginPipeline.enrich(state)
+        // 歌曲图片:显示开关打开时按曲目拉取已校对封面帧(包名/曲目校对不过=无封面)。
+        // 取图为异步,本次投影先带已有帧,出帧后经 onFrameReady 补挂重播。
+        val artwork = if (compiled?.artworkVisible == true) {
+            appContext?.let { context ->
+                SongArtworkRepository.ensure(
+                    context,
+                    trackGeneration(effectiveState),
+                    effectiveState.title,
+                    effectiveState.artist
+                )
+            }
+            SongArtworkRepository.frameFor(effectiveState.title, effectiveState.artist)
+        } else {
+            null
+        }
         val projectedState = projectToDisplay(
             state = effectiveState,
             now = now,
@@ -389,7 +412,9 @@ object AodProjectionEngine {
             compiled = compiled,
             metadataIntroPolicy = metadataIntroPolicy,
             powerSessionPolicy = powerSessionPolicy,
-            userId = currentProcessUserId()
+            userId = currentProcessUserId(),
+            artworkJpeg = artwork?.jpeg ?: ByteArray(0),
+            artworkKey = artwork?.key ?: ""
         )
         if (!publicationGuard.canPublish(
                 token = publicationToken,

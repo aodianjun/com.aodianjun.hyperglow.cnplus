@@ -55,12 +55,16 @@ import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import com.eza.hyperglow.customization.METADATA_PART_ALBUM
 import com.eza.hyperglow.customization.METADATA_PART_ARTIST
 import com.eza.hyperglow.customization.METADATA_PART_TITLE
+import com.eza.hyperglow.customization.ARTWORK_SHAPES
+import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.METADATA_SEPARATORS
 import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
+import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.customization.metadataSeparatorText
+import com.eza.hyperglow.customization.normalizeArtworkShape
 import com.eza.hyperglow.customization.normalizeMetadataParts
 import com.eza.hyperglow.customization.normalizeMetadataSeparator
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
@@ -278,7 +282,8 @@ internal fun LyricLayoutScreen(
                     profile = compiledPreviewProfile,
                     scenario = editorState.selectedSurface,
                     metadataParts = editorState.document.metadataParts,
-                    metadataSeparator = editorState.document.metadataSeparator
+                    metadataSeparator = editorState.document.metadataSeparator,
+                    artwork = artworkDisplayConfig(editorState.document)
                 )
             }
             LazyColumn(
@@ -493,6 +498,35 @@ internal fun LyricLayoutScreen(
                                 updateDocument {
                                     it.copy(metadataSeparator = normalizeMetadataSeparator(value))
                                 }
+                            }
+                        }
+                        // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 旋转(仅圆形)。
+                        SwitchPreference(
+                            editorState.document.artworkVisible,
+                            { visible -> updateDocument { it.copy(artworkVisible = visible) } },
+                            stringResource(R.string.setting_show_song_artwork)
+                        )
+                        if (editorState.document.artworkVisible) {
+                            AodChoiceRow(
+                                AodChoiceKind.SONG_ARTWORK_SHAPE,
+                                editorState.document.artworkShape
+                            ) {
+                                openChoice(
+                                    AodChoiceKind.SONG_ARTWORK_SHAPE,
+                                    ARTWORK_SHAPES,
+                                    editorState.document.artworkShape
+                                ) { value ->
+                                    updateDocument {
+                                        it.copy(artworkShape = normalizeArtworkShape(value))
+                                    }
+                                }
+                            }
+                            if (editorState.document.artworkShape == ARTWORK_SHAPE_CIRCLE) {
+                                SwitchPreference(
+                                    editorState.document.artworkSpin,
+                                    { spin -> updateDocument { it.copy(artworkSpin = spin) } },
+                                    stringResource(R.string.setting_song_artwork_spin)
+                                )
                             }
                         }
                     }
@@ -1232,6 +1266,13 @@ private fun choiceDisplayLabel(
         if (value == "bottom") R.string.option_bottom else R.string.option_top
     )
     AodChoiceKind.SONG_INFO_SEPARATOR -> metadataSeparatorDisplayLabel(context, value)
+    AodChoiceKind.SONG_ARTWORK_SHAPE -> context.getString(
+        if (value == ARTWORK_SHAPE_CIRCLE) {
+            R.string.option_song_artwork_shape_circle
+        } else {
+            R.string.option_song_artwork_shape_square
+        }
+    )
     AodChoiceKind.LYRIC_LINES -> if (value == "0") {
         context.getString(R.string.option_no_limit)
     } else {
@@ -1322,6 +1363,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     LYRIC_LINES(R.string.choice_lyric_lines),
     SONG_INFO_POSITION(R.string.choice_song_info_position),
     SONG_INFO_SEPARATOR(R.string.choice_song_info_separator),
+    SONG_ARTWORK_SHAPE(R.string.choice_song_artwork_shape),
     TEXT_WEIGHT(R.string.choice_text_weight),
     TEXT_SIZE(R.string.choice_text_size),
     FONT(R.string.choice_font),

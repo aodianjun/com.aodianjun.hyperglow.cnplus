@@ -95,6 +95,32 @@ internal fun nextLineTextSizeSp(): Float = 15f
 internal fun metadataWidgetHeightDp(percent: Int, extraLines: Int = 0): Float =
     22f + 14f * metadataTextSizeMultiplier(percent) * (1 + extraLines.coerceAtLeast(0))
 
+// --- 歌曲图片几何(实机 AodLyricCanvasView 与预览 PreviewComponents 同源) ---
+
+/** 歌曲图片槽边长系数:随歌曲信息字号缩放(1.6 倍字号)。 */
+internal const val ARTWORK_SIDE_TEXT_RATIO = 1.6f
+
+/** 歌曲图片与信息文本之间的间距(dp)。 */
+internal const val ARTWORK_TEXT_GAP_DP = 6f
+
+/** 圆形封面匀速旋转一圈的时长(ms),实机与预览同源。 */
+internal const val ARTWORK_SPIN_PERIOD_MS = 12_000L
+
+/** 歌曲图片槽边长(px):歌曲信息字号 × [ARTWORK_SIDE_TEXT_RATIO],随字号百分比同步缩放。 */
+internal fun artworkSidePx(metadataTextSizePx: Float): Float =
+    metadataTextSizePx * ARTWORK_SIDE_TEXT_RATIO
+
+/** 歌曲图片+信息文本组的前置宽度(px):图片槽 + 间距,文本块整体右移该值让出左槽。 */
+internal fun artworkLeadingPx(metadataTextSizePx: Float, density: Float): Float =
+    artworkSidePx(metadataTextSizePx) + ARTWORK_TEXT_GAP_DP * density
+
+/** 圆形封面旋转角(度):按经过时间匀速推进,跨帧连续;非圆形/未开旋转传 0。 */
+internal fun artworkSpinDegrees(spin: Boolean, nowElapsedMs: Long): Float {
+    if (!spin) return 0f
+    val period = ARTWORK_SPIN_PERIOD_MS.toFloat()
+    return ((nowElapsedMs % ARTWORK_SPIN_PERIOD_MS) * 360f / period) % 360f
+}
+
 internal fun originalLineBaseline(
     rowBaseline: Float,
     lineIndex: Int,

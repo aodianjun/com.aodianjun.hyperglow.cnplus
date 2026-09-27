@@ -43,6 +43,7 @@ import com.eza.hyperglow.aod.XiaomiCapabilityStore
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiProfileState
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -323,6 +324,7 @@ internal fun HomeScreen(
                                     live = previewLive,
                                     metadataParts = customizationDocument.metadataParts,
                                     metadataSeparator = customizationDocument.metadataSeparator,
+                                    artwork = artworkDisplayConfig(customizationDocument),
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 LyricPreviewCard(
@@ -332,6 +334,7 @@ internal fun HomeScreen(
                                     live = previewLive,
                                     metadataParts = customizationDocument.metadataParts,
                                     metadataSeparator = customizationDocument.metadataSeparator,
+                                    artwork = artworkDisplayConfig(customizationDocument),
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }

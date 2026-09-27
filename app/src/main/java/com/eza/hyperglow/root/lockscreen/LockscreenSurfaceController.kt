@@ -11,6 +11,7 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.customization.CompiledCustomization
+import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
@@ -483,7 +484,12 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             if (!wasVisible || renderContent != lastRenderContent ||
                 renderProfile != lastRenderedProfile
             ) {
-                canvas.setContent(eligibleSnapshot.toAodCanvasContent(renderProfile))
+                canvas.setContent(
+                    eligibleSnapshot.toAodCanvasContent(
+                        renderProfile,
+                        artworkDisplayConfig(customization)
+                    )
+                )
                 lastRenderContent = renderContent
                 lastRenderedProfile = renderProfile
             }

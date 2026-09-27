@@ -176,6 +176,9 @@ object CustomizationRepository {
             linkSurfaces = compiled.linkSurfaces,
             metadataParts = compiled.metadataParts,
             metadataSeparator = compiled.metadataSeparator,
+            artworkVisible = compiled.artworkVisible,
+            artworkShape = compiled.artworkShape,
+            artworkSpin = compiled.artworkSpin,
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to compiled.profiles
                     .getValue(SceneCompiler.SURFACE_LOCKSCREEN)

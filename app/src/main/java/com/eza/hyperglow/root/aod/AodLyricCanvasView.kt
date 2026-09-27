@@ -2,9 +2,13 @@ package com.eza.hyperglow.root.aod
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.SystemClock
@@ -12,6 +16,7 @@ import android.view.View
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
+import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.root.HookLogger
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -178,6 +183,9 @@ internal class AodLyricCanvasView(
         context.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_IGNORE_SECURITY)
     }.getOrNull()
     private val metadataPaint = paint(14f, 0xB3FFFFFF.toInt(), Typeface.NORMAL)
+    private val artworkPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private var artworkBitmap: Bitmap? = null
+    private var artworkBitmapKey = ""
     private val originalPaint = paint(27f, Color.WHITE, Typeface.NORMAL)
     private val romanizedPaint = paint(17f, Color.WHITE, Typeface.NORMAL)
     private val translatedPaint = paint(17f, Color.WHITE, Typeface.ITALIC)
@@ -287,6 +295,7 @@ internal class AodLyricCanvasView(
             transitionStartedAt = 0L
         }
         this.content = nextContent
+        syncArtworkBitmap()
         timingEffectEnabled = hasActiveCanvasTiming(
             nextContent.lineLevelSync,
             nextContent.lineSyncFillMode,
@@ -959,6 +968,107 @@ internal class AodLyricCanvasView(
         alignment = style.alignment
     }
 
+    // --- 歌曲图片(歌曲信息左侧):槽位/解码/绘制,几何公式同源 AodCanvasTextMetrics ---
+
+    /** 槽位判定(布局期,与解码结果无关):显示开关 + 帧非空即在歌曲信息左侧预留图片槽。 */
+    private fun artworkSlotActive(content: AodCanvasContent): Boolean =
+        content.artworkVisible && content.artworkJpeg.isNotEmpty() && content.artworkKey.isNotEmpty()
+
+    /** 帧按 key 解码缓存;换帧重解,残帧/坏帧一律清空(fail-closed:不显示错的图)。 */
+    private fun syncArtworkBitmap() {
+        val key = content.artworkKey
+        if (key.isEmpty() || content.artworkJpeg.isEmpty()) {
+            artworkBitmap = null
+            artworkBitmapKey = ""
+            return
+        }
+        if (key == artworkBitmapKey && artworkBitmap != null) return
+        val decoded = runCatching {
+            BitmapFactory.decodeByteArray(content.artworkJpeg, 0, content.artworkJpeg.size)
+        }.getOrNull()
+        artworkBitmap = decoded
+        artworkBitmapKey = if (decoded != null) key else ""
+    }
+
+    /** 圆形+旋转开启时需要持续帧推进旋转角(受同一可见性/节拍门控,隐藏即停)。 */
+    private fun artworkSpinActive(): Boolean =
+        artworkSlotActive(content) && content.artworkShape == ARTWORK_SHAPE_CIRCLE &&
+            content.artworkSpin && artworkBitmap != null
+
+    /** 歌曲信息行基线(锚点感知):底部锚点向上排,顶部锚点向下排(与 drawMetadata 同式)。 */
+    private fun metadataLineBaseline(metadata: PositionedRow, index: Int): Float =
+        if (content.metadataAnchor == "bottom") {
+            metadata.baseline - (metadata.row.lines.size - 1 - index) * metadata.row.lineHeight
+        } else {
+            metadata.baseline + index * metadata.row.lineHeight
+        }
+
+    /**
+     * 图片槽矩形:恒在歌曲信息文本块左侧(wrapMetadataText 的组布局已为文本块让出
+     * 前置宽度),垂直居中于文本块(首末行基线中点为文本中线)。无有效帧返回 null。
+     */
+    private fun metadataArtworkRect(metadata: PositionedRow): RectF? {
+        val bitmap = artworkBitmap ?: return null
+        if (bitmap.isRecycled || !artworkSlotActive(content)) return null
+        val lines = metadata.row.lines
+        if (lines.isEmpty()) return null
+        val leading = artworkLeadingPx(metadata.row.paint.textSize, density)
+        val blockWidth = lines.maxOf { it.width }
+        val groupWidth = leading + blockWidth
+        val groupLeft = alignedStart(
+            groupWidth,
+            alignmentFor(content, RowKind.METADATA),
+            0f,
+            groupWidth
+        )
+        val side = artworkSidePx(metadata.row.paint.textSize)
+        val midBaseline = (
+            metadataLineBaseline(metadata, 0) +
+                metadataLineBaseline(metadata, lines.size - 1)
+            ) / 2f
+        val metrics = metadata.row.paint.fontMetrics
+        val textMiddleY = midBaseline - (metrics.descent + metrics.ascent) / 2f
+        val top = textMiddleY - side / 2f
+        return RectF(groupLeft, top, groupLeft + side, top + side)
+    }
+
+    /**
+     * 绘制歌曲图片:方形=矩形裁切;圆形=圆形裁切。旋转只对圆形生效(配置层已把
+     * 方形的 spin 归零),角速度与预览同源(artworkSpinDegrees)。中心裁切填满方槽。
+     */
+    private fun drawArtwork(canvas: Canvas, rect: RectF, alpha: Float) {
+        val bitmap = artworkBitmap ?: return
+        if (bitmap.isRecycled) return
+        canvas.save()
+        val clip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        canvas.clipRect(clip[0], clip[1], clip[2], clip[3])
+        if (content.artworkShape == ARTWORK_SHAPE_CIRCLE) {
+            canvas.clipPath(Path().apply { addOval(rect, Path.Direction.CW) })
+        }
+        if (content.artworkSpin) {
+            canvas.rotate(
+                artworkSpinDegrees(true, SystemClock.elapsedRealtime()),
+                rect.centerX(),
+                rect.centerY()
+            )
+        }
+        artworkPaint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
+        val scale = max(
+            rect.width() / bitmap.width.toFloat(),
+            rect.height() / bitmap.height.toFloat()
+        )
+        val drawWidth = bitmap.width * scale
+        val drawHeight = bitmap.height * scale
+        val destination = RectF(
+            rect.centerX() - drawWidth / 2f,
+            rect.centerY() - drawHeight / 2f,
+            rect.centerX() + drawWidth / 2f,
+            rect.centerY() + drawHeight / 2f
+        )
+        canvas.drawBitmap(bitmap, null, destination, artworkPaint)
+        canvas.restore()
+    }
+
     private fun drawMetadata(
         canvas: Canvas,
         drawLayout: LayoutState,
@@ -973,13 +1083,14 @@ internal class AodLyricCanvasView(
         canvas.clipRect(metadataClip[0], metadataClip[1], metadataClip[2], metadataClip[3])
         metadata.row.paint.color = resolvedPalette.metadataText
         metadata.row.paint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
+        // 歌曲图片画在文本下层、文本块左侧。离场帧(renderStyle!=null)不画旧图:
+        // 曲目不变的换行过渡走整帧 alpha=1(见 drawOrientedContent),图片不随行闪。
+        if (renderStyle == null) {
+            metadataArtworkRect(metadata)?.let { drawArtwork(canvas, it, alpha) }
+        }
         metadata.row.lines.forEachIndexed { index, line ->
             // 底部锚点时行向上排（末行贴近屏幕底），顶部锚点向下排。
-            val lineBaseline = if (content.metadataAnchor == "bottom") {
-                metadata.baseline - (metadata.row.lines.size - 1 - index) * metadata.row.lineHeight
-            } else {
-                metadata.baseline + index * metadata.row.lineHeight
-            }
+            val lineBaseline = metadataLineBaseline(metadata, index)
             canvas.drawText(
                 line.text,
                 line.startX,
@@ -1663,7 +1774,9 @@ internal class AodLyricCanvasView(
         windowVisible = windowVisibility == VISIBLE,
         aggregatedVisible = aggregatedVisible && isShown,
         effectiveAlpha = effectiveAlpha(),
-        timedOrTransitionActive = timingEffectActive() || exitSnapshot != null,
+        // 圆形封面旋转与行级时间轴/过渡同待遇:驱动帧循环推进旋转角,隐藏即停。
+        timedOrTransitionActive = timingEffectActive() || exitSnapshot != null ||
+            artworkSpinActive(),
         handoffActive = handoffActive,
         verifiedDozeHost = useDozeHandlerCadence
     )
@@ -1837,18 +1950,43 @@ internal class AodLyricCanvasView(
     /**
      * 歌曲信息（歌名/歌手）专用换行：委托 LyricLayoutEngine.layoutMetadataLines
      * (与预览同源,最多 MAX_SECONDARY_LAYOUT_LINES 行);定位 X 按 metadata 对齐解析。
+     *
+     * 歌曲图片槽:图片显示时文本可用宽先扣掉前置宽度(槽+间距,公式同源
+     * AodCanvasTextMetrics),[alignment] 作用于「图片+文本块」整组——图片恒在
+     * 文本块左侧,组按行对齐落位;文本块内部各行按块宽继续对齐。
      */
     private fun wrapMetadataText(
         content: AodCanvasContent,
         text: String,
         paint: Paint,
         availableWidth: Float
-    ): List<TextLine> =
-        layoutMetadataLines(
+    ): List<TextLine> {
+        val lineAlignment = alignmentFor(content, RowKind.METADATA)
+        val leading = if (artworkSlotActive(content)) {
+            artworkLeadingPx(paint.textSize, density)
+        } else {
+            0f
+        }
+        val lines = layoutMetadataLines(
             text = text,
             paint = paint,
-            availableWidth = availableWidth
-        ).map { textLine(it.text, it.width, paint, alignmentFor(content, RowKind.METADATA)) }
+            availableWidth = (availableWidth - leading).coerceAtLeast(1f)
+        )
+        if (leading <= 0f) {
+            return lines.map { textLine(it.text, it.width, paint, lineAlignment) }
+        }
+        val blockWidth = lines.maxOfOrNull { it.width } ?: 0f
+        val groupWidth = leading + blockWidth
+        val groupLeft = alignedStart(groupWidth, lineAlignment, 0f, groupWidth)
+        return lines.map { line ->
+            val inBlock = when (lineAlignment) {
+                Alignment.CENTER -> (blockWidth - line.width) / 2f
+                Alignment.END -> blockWidth - line.width
+                else -> 0f
+            }
+            TextLine(line.text, line.width, groupLeft + leading + inBlock)
+        }
+    }
 
     private fun textLine(
         text: String,

@@ -64,7 +64,11 @@ data class AodDisplayState(
     val alignmentMode: String = "auto",
     val metadataVisible: Boolean = true,
     val metadataAnchor: String = "top",
-    val adaptiveSectioning: Boolean = true
+    val adaptiveSectioning: Boolean = true,
+    /** 歌曲图片帧(有界 JPEG,空数组=无封面),经包名/曲目校对后才会非空;见 SongArtworkRepository。 */
+    val artworkJpeg: ByteArray = ByteArray(0),
+    /** 封面稳定键(包名+曲目身份);空串=无封面,渲染侧按帧缓存解码位图。 */
+    val artworkKey: String = ""
 )
 
 data class AodDisplayWord(
@@ -208,6 +212,32 @@ object AodStateBridge {
 
     @Synchronized
     fun hasVisibleState(): Boolean = latestMessage is AodStateWireMessage.Snapshot
+
+    /**
+     * 歌曲图片出帧后的补挂:封面是异步取图,首次发布快照时可能还没有帧。帧到达后若仍是
+     * 同一曲目([trackGeneration] 匹配),把帧挂到已发布的快照上重播一次;曲目已切换则
+     * 丢弃(新曲目的封面由新发布流程携带)。保持 revision 不变、只推进 updatedAt,
+     * 消费侧按「同 revision 更新鲜」放行(见 SystemUiLyricProjection 的新鲜度门)。
+     */
+    @Synchronized
+    fun publishArtwork(trackGeneration: Long, artworkJpeg: ByteArray, artworkKey: String) {
+        if (trackGeneration <= 0L || artworkJpeg.isEmpty()) return
+        if (artworkJpeg.size > AodStateWireLimits.MAX_ARTWORK_BYTES) return
+        val key = artworkKey.normalizeAodWireText(AodStateWireLimits.MAX_ARTWORK_KEY_CHARS)
+        if (key.isEmpty()) return
+        val current = latestMessage as? AodStateWireMessage.Snapshot ?: return
+        if (current.value.trackGeneration != trackGeneration) return
+        if (current.value.artworkKey == key) return
+        val updated = current.copy(
+            updatedAtElapsedMs = SystemClock.elapsedRealtime(),
+            value = current.value.copy(artworkJpeg = ArtworkJpeg(artworkJpeg), artworkKey = key)
+        )
+        val envelope = AodStateWireCodec.encode(updated) ?: return
+        latestMessage = updated
+        latest = AodStateWireBundleCodec.toBundle(envelope)
+        lastPublished = lastPublished?.copy(artworkJpeg = artworkJpeg, artworkKey = key)
+        broadcast(latest)
+    }
 
     private fun broadcast(state: Bundle) {
         val count = callbacks.beginBroadcast()
@@ -380,6 +410,15 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         ruby = ruby,
         groups = layoutGroups
     )
+    // 歌曲图片:超限/半截帧整帧丢弃(fail-closed:宁可不显示,不显示超界或残缺帧)。
+    val artworkJpeg = state.artworkJpeg.takeIf {
+        it.isNotEmpty() && it.size <= AodStateWireLimits.MAX_ARTWORK_BYTES
+    } ?: ByteArray(0)
+    val artworkKey = if (artworkJpeg.isEmpty()) {
+        ""
+    } else {
+        state.artworkKey.normalizeAodWireText(AodStateWireLimits.MAX_ARTWORK_KEY_CHARS)
+    }
     return state.copy(
         visible = effectiveVisible,
         pauseRetentionEligible = state.pauseRetentionEligible &&
@@ -432,7 +471,9 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         transitionMode = normalizeAodTransition(state.transitionMode.trim()),
         fontFamily = normalizeAodFontFamily(state.fontFamily),
         alignmentMode = normalizeAodAlignment(state.alignmentMode),
-        metadataAnchor = normalizeAodMetadataAnchor(state.metadataAnchor)
+        metadataAnchor = normalizeAodMetadataAnchor(state.metadataAnchor),
+        artworkJpeg = artworkJpeg,
+        artworkKey = artworkKey
     )
 }
 
@@ -528,7 +569,9 @@ private fun AodDisplayState.toWireMessage(
             alignmentMode = alignmentMode,
             metadataVisible = metadataVisible,
             metadataAnchor = metadataAnchor,
-            adaptiveSectioning = adaptiveSectioning
+            adaptiveSectioning = adaptiveSectioning,
+            artworkJpeg = ArtworkJpeg(artworkJpeg),
+            artworkKey = artworkKey
         )
     )
 }

@@ -6,6 +6,7 @@ import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.WidgetSpec
+import com.eza.hyperglow.customization.normalizeArtworkShape
 import com.eza.hyperglow.customization.normalizeCardAlpha
 import com.eza.hyperglow.customization.normalizeCardColor
 import com.eza.hyperglow.customization.normalizeLineTransition
@@ -81,6 +82,9 @@ internal object SystemUiCustomizationValidator {
                 pauseLingerMs = normalizePauseLingerMs(configuration.pauseLingerMs),
                 metadataParts = normalizeMetadataParts(configuration.metadataParts),
                 metadataSeparator = normalizeMetadataSeparator(configuration.metadataSeparator),
+                artworkVisible = configuration.artworkVisible,
+                artworkShape = normalizeArtworkShape(configuration.artworkShape),
+                artworkSpin = configuration.artworkSpin,
                 profiles = profiles
             )
         )

@@ -17,6 +17,7 @@ import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.customization.CompiledCustomization
+import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
@@ -694,7 +695,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             return
         }
         if (!layoutSurface(root, burnInContainer, directSurface)) return
-        lyricCanvas?.setContent(resolvedSnapshot.toAodCanvasContent(effectiveAodProfile()))
+        lyricCanvas?.setContent(
+                    resolvedSnapshot.toAodCanvasContent(
+                        effectiveAodProfile(),
+                        artworkDisplayConfig(customization)
+                    )
+                )
         lastRenderContent = renderContent
         lyricCanvas?.visibility = if (demo) View.GONE else View.VISIBLE
         spicyAnimationView?.visibility = if (demo) View.VISIBLE else View.GONE
@@ -1542,7 +1548,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 latestSnapshot?.takeIf {
                     !it.metadata.startsWith("AOD DEMO")
                 }?.let {
-                    lyricCanvas?.setContent(it.toAodCanvasContent(nextRuntimeProfile))
+                    lyricCanvas?.setContent(
+                        it.toAodCanvasContent(
+                            nextRuntimeProfile,
+                            artworkDisplayConfig(customization)
+                        )
+                    )
                     lastRenderContent = it.renderContent()
                 }
             }
@@ -1627,7 +1638,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (visible && !snapshot.metadata.startsWith("AOD DEMO") &&
             lyricCanvas?.visibility != View.VISIBLE
         ) {
-            lyricCanvas?.setContent(snapshot.toAodCanvasContent(effectiveAodProfile()))
+            lyricCanvas?.setContent(
+                    snapshot.toAodCanvasContent(
+                        effectiveAodProfile(),
+                        artworkDisplayConfig(customization)
+                    )
+                )
             lyricCanvas?.visibility = View.VISIBLE
         }
         if (visible && initialRevealPending && !handoffActive) {

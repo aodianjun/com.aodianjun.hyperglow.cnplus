@@ -351,6 +351,19 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   historical default) or an inline join (` · `, ` - `, ` | `, `、`, ` / `). The canvas splits the
   assembled metadata into lines on line breaks only — never on the separator text — and never
   renders more than three metadata lines. Unknown parts/separator values normalize to the defaults.
+- Song artwork is a document-level setting shared by both surfaces (show toggle, square/circle
+  shape, circle-only rotation). When shown, exactly one artwork slot sits immediately left of the
+  song-info block: the slot side is 1.6× the metadata text size with a 6dp gap, and the row's
+  alignment resolves the artwork+text group as one unit while lines inside the text block keep
+  their own alignment. Frames are fail-closed: only the album art of the verified current playing
+  music software's current track (a playing media session whose package and track identity match
+  the displayed song) is ever shown — stale playback-window art, other packages, or ambiguous
+  matches display nothing. Frames are bounded (≤ 24 KiB JPEG from a ≤ 192px downsample) and
+  decoded once per frame key. Square shape never rotates; circle rotation is a uniform 12s/turn
+  spin driven by the same effective-cadence gates as timed lyrics (no frames while the surface is
+  hidden). Unknown shape values normalize to square; rotation applies only to circle. Privacy:
+  artwork bytes never leave the device and are excluded from diagnostics; power: static artwork
+  adds no per-frame work and the spin stops with the existing cadence gates.
 - During the generation-bound song intro, matching one-line song-info text suppresses the duplicate
   metadata row and morphs into the persistent metadata position and size after three seconds.
   Incompatible or wrapped geometry uses bounded crossfade. Neither path changes whole-surface alpha,
@@ -366,8 +379,11 @@ Enabled fixed registry:
 - media_progress on lockscreen only.
 
 Artwork accent, status text, spacer, and divider remain rejected until each has a real bounded
-renderer, placement contract, privacy/power analysis, and device evidence. AOD progress/artwork
-remain sanitized out.
+renderer, placement contract, privacy/power analysis, and device evidence. Song artwork (the
+metadata-companion image described above) is the one accepted artwork form: it ships with a
+bounded renderer (24 KiB JPEG cap, single left-of-song-info slot), a placement contract, and a
+privacy/power analysis. AOD progress remains sanitized out; song artwork rides the wire as a
+bounded frame and is hidden whenever verification fails.
 
 AOD policy may further reduce luminance, bright area, animation, artwork, component count, or scene
 size regardless of user/imported values.
@@ -551,6 +567,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
+- 歌曲图片为文档级全局设置,两面共用(显示开关、方形/圆形形状、仅圆形可选旋转)。开启时歌曲信息块左侧恰好一个图片槽:槽边长为歌曲信息字号的 1.6 倍、与文本间距 6dp,行级对齐把「图片+文本块」当整组落位,文本块内各行仍按各自对齐排布。取图 fail-closed:只显示经校对的「当前播放的音乐软件」当前曲目的专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致)——系统播放窗口滞留的旧封面、其他包、或歧义命中一律不显示。封面帧有界(源图降采样至 ≤192px 后压成 ≤24KiB JPEG),按帧键解码一次。方形不旋转;圆形旋转为匀速 12 秒/圈,与逐字歌词共用有效节拍门(隐藏即停帧)。未知形状值归一为方形;旋转仅圆形生效。隐私:封面字节不出设备、不入诊断;功耗:静态封面不增加逐帧开销,旋转随既有节拍门停止。
 - 在绑定 generation 的歌曲 intro 期间，匹配的单行标题/艺术家文本会抑制重复的元数据行，并在三秒后形变为持久的元数据位置与大小。不兼容或换行的几何使用有界交叉淡化。两条路径都不改变整个 surface 的 alpha、keepalive 亮度策略或位置权威。
 - 导入的数据不能指定类、资源、方法、路径、URL、命令或外部位图来源。
 - 重置会恢复内置安全 profile。
@@ -561,7 +578,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - metadata；
 - 仅锁屏的 media_progress。
 
-artwork 强调色、状态文本、占位符（spacer）与分隔线，在各自拥有真实的有限渲染器、放置契约、隐私/功耗分析与设备证据之前，仍然被拒绝。AOD 进度/作品图仍然被清除出去。
+artwork 强调色、状态文本、占位符（spacer）与分隔线，在各自拥有真实的有限渲染器、放置契约、隐私/功耗分析与设备证据之前，仍然被拒绝。歌曲图片(上文元数据伴生图)是唯一被放行的图片形态:自带有限渲染器(24KiB JPEG 上限、歌曲信息左侧单槽)、放置契约与隐私/功耗分析。AOD 进度仍然被清除出去;歌曲图片以有界帧随 wire 传输,校对不过即不显示。
 
 无论用户/导入值如何，AOD 策略都可以进一步降低亮度、亮区面积、动画、作品图、组件数量或场景大小。
 

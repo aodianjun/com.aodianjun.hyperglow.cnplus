@@ -136,7 +136,7 @@ X sweep across every visible lyric row. Word/syllable timing remains unchanged.
   current session. Each Binder connection receives state first, then document, once; normal service
   process death uses Android's existing automatic reconnect without creating a duplicate bind.
   Explicit clear, generation retirement, and disable discard both retained payloads.
-- App-to-SystemUI lyric state keeps the `onState(Bundle)` ABI but carries a versioned scalar envelope; full snapshots use one encoded body bounded to 48 KiB aggregate UTF-8 text and 64 KiB encoded bytes. Hidden and keepalive messages remain scalar-only.
+- App-to-SystemUI lyric state keeps the `onState(Bundle)` ABI but carries a versioned scalar envelope; full snapshots use one encoded body bounded to 48 KiB aggregate UTF-8 text, plus a separately bounded 24 KiB song-artwork JPEG frame (carried only when package/track-verified; empty otherwise), within a 96 KiB encoded-bytes ceiling. Hidden and keepalive messages remain scalar-only.
 - The scalar envelope carries Spotify `playbackActive` explicitly. Power policy never infers pause
   from lyric visibility, media rows, another media player, or renderer state.
 - A SystemUI user switch clears cached state, rejects old-user payloads, and rebinds the app service
@@ -385,7 +385,7 @@ profile 开关只选择亮色或暗色呈现，从不改变时序节奏。行级
 - 生产者为当前会话至多保留一份受限的不可变状态和一份压缩文档。每个 Binder 连接先接收一次
   状态，再接收一次文档；正常的服务进程死亡走 Android 既有的自动重连，不会产生重复绑定。
   显式清除、generation 退役与禁用操作都会丢弃这两份保留的载荷。
-- App 到 SystemUI 的歌词状态保留 `onState(Bundle)` ABI，但携带版本化的标量信封；完整 snapshot 使用单一编码体，限制为 UTF-8 文本合计 48 KiB、编码后 64 KiB。隐藏与 keepalive 消息保持纯标量。
+- App 到 SystemUI 的歌词状态保留 `onState(Bundle)` ABI，但携带版本化的标量信封；完整 snapshot 使用单一编码体，限制为 UTF-8 文本合计 48 KiB，另加单独限额的歌曲图片 JPEG 帧 24 KiB（仅包名/曲目校对通过时携带，否则为空），编码后总上限 96 KiB。隐藏与 keepalive 消息保持纯标量。
 - 标量信封显式携带 Spotify 的 `playbackActive`。电源策略绝不会从歌词可见性、媒体行、其他媒体
   播放器或渲染器状态推断暂停。
 - SystemUI 用户切换会清除缓存状态、拒绝旧用户载荷，并使用选定的 Android `UserHandle` 重新绑定

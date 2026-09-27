@@ -118,4 +118,30 @@ class SongMetadataComposeTest {
             composeSongMetadata("Song", "Artist", "Album", "title,unknown,artist", "bogus")
         )
     }
+
+    @Test
+    fun normalizeArtworkShapeRejectsUnknownTokens() {
+        assertEquals(ARTWORK_SHAPE_SQUARE, normalizeArtworkShape(ARTWORK_SHAPE_SQUARE))
+        assertEquals(ARTWORK_SHAPE_CIRCLE, normalizeArtworkShape(ARTWORK_SHAPE_CIRCLE))
+        assertEquals(ARTWORK_SHAPE_SQUARE, normalizeArtworkShape("oval"))
+        assertEquals(ARTWORK_SHAPE_SQUARE, normalizeArtworkShape(null))
+    }
+
+    @Test
+    fun artworkSpinOnlyEvertsForCircleShape() {
+        // 旋转仅圆形生效:方形下残留的 spin=true 不生效,渲染/预览统一读生效值。
+        assertEquals(true, effectiveArtworkSpin(ARTWORK_SHAPE_CIRCLE, true))
+        assertEquals(false, effectiveArtworkSpin(ARTWORK_SHAPE_CIRCLE, false))
+        assertEquals(false, effectiveArtworkSpin(ARTWORK_SHAPE_SQUARE, true))
+        assertEquals(false, effectiveArtworkSpin(ARTWORK_SHAPE_SQUARE, false))
+    }
+
+    @Test
+    fun artworkDisplayConfigDerivesEffectiveSpin() {
+        assertEquals(true, ArtworkDisplayConfig(true, ARTWORK_SHAPE_CIRCLE, true).spins)
+        assertEquals(false, ArtworkDisplayConfig(true, ARTWORK_SHAPE_SQUARE, true).spins)
+        assertEquals(false, ArtworkDisplayConfig(true, ARTWORK_SHAPE_CIRCLE, false).spins)
+        assertEquals(false, ArtworkDisplayConfig().visible)
+        assertEquals(ARTWORK_SHAPE_SQUARE, ArtworkDisplayConfig().shape)
+    }
 }
