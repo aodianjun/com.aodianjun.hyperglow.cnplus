@@ -46,6 +46,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import com.eza.hyperglow.customization.CustomFontContract
+import com.eza.hyperglow.customization.CustomFontEntry
 import com.eza.hyperglow.customization.CustomFontStore
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.CustomizationEditorState
@@ -206,38 +207,32 @@ internal fun LyricLayoutScreen(
         activeChoice = AodChoice(kind, values, current, onSelect)
     }
 
-    // 已导入字体清单:每次导入只新增一条,不再覆盖上一个(旧行为是固定单槽 custom.ttf)。
+    // 已导入字体清单:每次导入只新增一条,不再覆盖上一个(旧行为是固定单槽 custom.ttf);
+    // 导入支持一次多选批量落盘。
     var customFonts by remember { mutableStateOf(CustomFontStore.list(context)) }
-    val fontImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val imported = runCatching {
-            val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
-                input.readNBytes(CustomFontContract.MAX_FONT_BYTES + 1)
-            } ?: error("Font file unavailable")
-            val entry = CustomFontStore.import(
-                fontRoot = context.filesDir,
-                bytes = bytes,
-                displayName = queryDisplayName(context, uri),
-                nowMs = System.currentTimeMillis()
-            ) ?: error("Invalid font file")
-            val target = CustomFontContract.fontFile(context.filesDir, entry.id)
-            runCatching { Typeface.createFromFile(target) }.getOrElse {
-                CustomFontStore.delete(context.filesDir, entry.id)
-                error("Font file unreadable")
-            }
-            entry
-        }.getOrNull()
-        if (imported != null) {
+    // 展示名与内置字体同风格:字体文件 name 表真名优先,导入文件名兜底,
+    // 不再显示「自定义字体」泛称(仅解析不出时才回落该文案)。
+    val customFontNames = remember(customFonts) {
+        customFonts.associate { entry ->
+            entry.id to (CustomFontStore.label(context.filesDir, entry) ?: "")
+        }
+    }
+    val fontImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<android.net.Uri>? ->
+        if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        val imported = uris.mapNotNull { importCustomFontFromUri(context, it) }
+        if (imported.isNotEmpty()) {
             LyricTypefaceResolver.invalidateCustomCache()
             customFonts = CustomFontStore.list(context)
             updateSelected {
-                it.copy(fontFamily = CustomFontContract.customFontFamily(imported.id))
+                it.copy(fontFamily = CustomFontContract.customFontFamily(imported.last().id))
             }
         }
         Toast.makeText(
             context,
             context.getString(
-                if (imported != null) R.string.toast_custom_font_imported
+                if (imported.isNotEmpty()) R.string.toast_custom_font_imported
                 else R.string.toast_custom_font_invalid
             ),
             Toast.LENGTH_LONG
@@ -535,7 +530,7 @@ internal fun LyricLayoutScreen(
                             }
                         }
                     )
-                    AodChoiceRow(AodChoiceKind.FONT, selectedProfile.fontFamily) {
+                    AodChoiceRow(AodChoiceKind.FONT, selectedProfile.fontFamily, customFontNames) {
                         openChoice(
                             AodChoiceKind.FONT,
                             buildList {
@@ -546,11 +541,10 @@ internal fun LyricLayoutScreen(
                                 customFonts.forEach {
                                     add(CustomFontContract.customFontFamily(it.id))
                                 }
-                                // 兼容历史单槽令牌:字体已被直接删除时仍让当前选择可见可改。
-                                if (selectedProfile.fontFamily == LyricTypefaceResolver.FAMILY_CUSTOM &&
-                                    customFonts.none { it.id == LyricTypefaceResolver.FAMILY_CUSTOM }
-                                ) {
-                                    add(LyricTypefaceResolver.FAMILY_CUSTOM)
+                                // 当前选中的自定义字体(含历史单槽)已被删除时仍列出,保证可见可改。
+                                val currentId = CustomFontContract.fontIdOf(selectedProfile.fontFamily)
+                                if (currentId != null && customFonts.none { it.id == currentId }) {
+                                    add(CustomFontContract.customFontFamily(currentId))
                                 }
                             },
                             selectedProfile.fontFamily
@@ -723,7 +717,7 @@ internal fun LyricLayoutScreen(
         if (selected.kind == AodChoiceKind.FONT) {
             FontChoiceDialog(
                 selected = selected,
-                customNames = customFonts.associate { it.id to it.name },
+                customNames = customFontNames,
                 onDismiss = { activeChoice = null }
             )
         } else {
@@ -996,9 +990,35 @@ private fun queryDisplayName(
 }.getOrNull()
 
 /**
+ * 导入单个字体文档:读流 → 落盘登记 → 用真实 Typeface 校验可读性,不可读立即回滚删除。
+ * 批量导入逐个调用,单个失败不影响其它。
+ */
+private fun importCustomFontFromUri(
+    context: android.content.Context,
+    uri: android.net.Uri
+): CustomFontEntry? = runCatching {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+        input.readNBytes(CustomFontContract.MAX_FONT_BYTES + 1)
+    } ?: error("Font file unavailable")
+    val entry = CustomFontStore.import(
+        fontRoot = context.filesDir,
+        bytes = bytes,
+        displayName = queryDisplayName(context, uri),
+        nowMs = System.currentTimeMillis()
+    ) ?: error("Invalid font file")
+    val target = CustomFontContract.fontFile(context.filesDir, entry.id)
+    runCatching { Typeface.createFromFile(target) }.getOrElse {
+        CustomFontStore.delete(context.filesDir, entry.id)
+        error("Font file unreadable")
+    }
+    entry
+}.getOrNull()
+
+/**
  * 字体选择对话框:每个候选行下方给出中英文混排预览("[font_preview_sample]",
  * 中文 + 拉丁 + 数字),用该项真实解析出的 Typeface 渲染 —— 所见即实机所得。
- * 已导入的自定义字体一并列出,导入多个不再互相覆盖。
+ * 已导入的自定义字体与内置字体同列同款:按字体真名展示(name 表优先,导入文件名兜底),
+ * 批量导入多个互不覆盖。
  */
 @Composable
 private fun FontChoiceDialog(
@@ -1051,11 +1071,16 @@ private fun FontPreviewLine(family: String) {
 }
 
 @Composable
-private fun AodChoiceRow(kind: AodChoiceKind, value: String, onClick: () -> Unit) {
+private fun AodChoiceRow(
+    kind: AodChoiceKind,
+    value: String,
+    customFontNames: Map<String, String> = emptyMap(),
+    onClick: () -> Unit
+) {
     val context = LocalContext.current
     ArrowPreference(
         title = stringResource(kind.titleRes),
-        summary = choiceDisplayLabel(context, kind, value),
+        summary = choiceDisplayLabel(context, kind, value, customFontNames),
         onClick = onClick
     )
 }
