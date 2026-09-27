@@ -18,6 +18,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
 - Brightness and battery protection (brightness clamp, session deadline, pause release)
 - Pause retention (frozen snapshot retention window)
 - Position anchoring (clock anchor stabilization, stock settle drift)
+- Lyric source arbitration (producer staleness rules, fallback takeover, Lyricon feed recovery)
 - Landscape rotation (canvas rotation, logical frame, surface rect swap)
 
 ## Entry format
@@ -37,6 +38,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
 | Date | Version | Area | Result | Device + SystemUI/AOD | Evidence | Notes |
 |---|---|---|---|---|---|---|
 | 2026-09-26 | 0.3.116 (143) | AOD wake and keepalive | fail | Redmi K80 Pro (`miro`) / DEV-2327.0.0.1-03022115 (22327001) | trace-observed | AOD lyrics surface never attaches on doze: `AodPowerStateMonitor.attach` NPE (null `applicationContext` in the host package context) aborts `buildSurface`, `Attach failed` on every screen-off (regression since 0.3.114 / #72). Fix (context fallback + attach isolation) lands with this entry; update to pass + device-verified after hardware re-check. |
+| 2026-09-27 | 0.3.120 (147) | Lyric source arbitration | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | Home "Now playing" stuck on "No track from the active source yet" while music played: the Lyricon callback path silently died after the 0.3.120 install restart (position/playback callbacks never arrived, `isPlayingState` froze at false), both rebuild watchdogs stayed blind (gated on the frozen playing flag and a never-saw-callback baseline), and the arbiter dead-locked `active=null` (stale-sweep cleared a state the selector still deemed usable; signature dedup never re-published). Follow-up: this fix. |
 
 ## Known unverified paths
 
@@ -80,6 +82,16 @@ and (b) unverified paths stay explicit instead of silently assumed.
   make the card breathe) — app-preview-only change, no SystemUI/AOD surface involvement; pending
   a quick on-device look that large text sizes plus secondary/next-line/metadata rows are no
   longer clipped and the surrounding layout stays put.
+- Lyric source deadlock recovery (arbiter stale-sweep shares the selector's fault predicate and
+  re-publishes a cleared active state; Lyricon watchdogs rebuild the subscription from a
+  subscribe-time silence baseline with the MediaSession playback state as the playing signal;
+  a stale frozen preferred state yields to a fresher source that is playing and carries lyric
+  content) — pending a hardware smoke check after merge: with the lyric source on Lyricon, play
+  a song in NetEase and confirm the home "Now playing" row shows the track (not "no track")
+  and keeps following while playing; pause keeps the frozen lyric line on AOD and shows paused,
+  not "no track". Note: intentional behavior change — a stale paused preferred state now yields
+  to another source that is playing and has lyric content (it still never yields to a
+  content-less source).
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -109,6 +121,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 亮度与电池保护（亮度钳制、会话时长上限、暂停释放）
 - Pause 保留（冻结快照保留窗口）
 - 位置锚定（时钟锚点稳定、stock settle 漂移）
+- 歌词源仲裁（生产者 staleness 谓词、回退接管、Lyricon 供数恢复）
 - 横屏旋转（画布旋转、逻辑帧、surface rect 交换）
 
 ## 条目格式
@@ -128,6 +141,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 | 日期 | 版本 | 领域 | 结果 | 设备 + SystemUI/AOD | 证据 | 备注 |
 |---|---|---|---|---|---|---|
 | 2026-09-26 | 0.3.116 (143) | AOD 唤醒与 keepalive | fail | Redmi K80 Pro (`miro`) / DEV-2327.0.0.1-03022115 (22327001) | trace-observed | 息屏时 AOD 歌词 surface 从未挂载：`AodPowerStateMonitor.attach` NPE（宿主包 context 的 `applicationContext` 为 null）炸掉 `buildSurface`，每次息屏 `Attach failed`（0.3.114 / #72 引入的回归）。修复（context 回退 + attach 隔离）随本条目落地；真机复验后更新为 pass + device-verified。 |
+| 2026-09-27 | 0.3.120 (147) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | 播放中主页「正在播放」常驻「当前歌词源暂无曲目。」：0.3.120 装机重启后 Lyricon 回调链静默死亡（位置/播放状态回调不再到达，`isPlayingState` 冻结 false），两个重建看门狗均为盲区（以冻结的 playing 与「从未收到回调」基线为条件），仲裁器 active 死锁在 null（staleSweep 清掉选源仍视为可用的状态，sig 去重后永不重发）。后续：本修复。 |
 
 ## 已知未验证路径
 
@@ -141,6 +155,12 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
 - 歌曲信息内容与分隔符（`metadataParts`/`metadataSeparator`，文档级全局，息屏与锁屏共用）：可选显示哪些切片（歌名/歌手/专辑，恒按规范顺序）与连接分隔符（`newline` 每切片一行=历史默认，或 ` · ` 等行内连接）；画布歌曲信息只按硬换行拆行且最多 3 行（原 2 行），高度预算随切片行数追加——合并后待真机冒烟：默认「歌名/歌手+换行」与历史一致、选满 3 部分各占一行不裁切、行内分隔符保持单行。
 - 预览卡片自适应高度（`LyricPreviewCard` / `AppearanceLivePreview` 面板高度随歌词内容增长，取代固定 150/180dp，钳制在 120-420dp；同一配置生效期间保持已见最大内容高度，演示行循环/逐行折行变化不会让卡片高度来回呼吸）——仅应用内预览改动，不涉及 SystemUI/AOD surface；待真机看一眼：大字号 + 副文本/下一行/歌曲信息全开时内容不再被裁切，周围布局不跳动。
+- 歌词源死锁恢复（staleSweep 与选源共用同一故障谓词、清空后强制补发；Lyricon 看门狗以
+  订阅时刻为静默基线并以 MediaSession 真实播放态兜底重建订阅；冻结的暂停态让位给正在播放
+  且带歌词内容的更新鲜源）——合并后待真机冒烟：歌词源选 Lyricon，网易云放歌，主页「正在
+  播放」显示曲目而非「暂无曲目」且播放中持续跟随；暂停后 AOD 保持冻结歌词行并显示已暂停，
+  而不是「暂无曲目」。注意：有意行为变更——首选源冻结暂停时会把位置让给「在播且有内容」
+  的其他源（仍然绝不让位给无歌词内容的源）。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

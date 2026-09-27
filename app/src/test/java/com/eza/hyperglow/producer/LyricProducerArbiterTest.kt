@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -30,7 +32,8 @@ class LyricProducerArbiterTest {
         producers.associateBy { it.id }
 
     private fun state(
-        producerId: String, receivedAt: Long, generation: Int = 1, playing: Boolean = true
+        producerId: String, receivedAt: Long, generation: Int = 1, playing: Boolean = true,
+        line: String? = null
     ) = LyricProducerState(
         producerId = producerId,
         generation = generation,
@@ -38,7 +41,7 @@ class LyricProducerArbiterTest {
         status = "ready",
         trackUri = "spotify:track:$producerId",
         title = producerId, artist = "", album = "", imageId = "",
-        line = "lyric-$producerId", romanizedLine = "", translatedLine = "",
+        line = line ?: "lyric-$producerId", romanizedLine = "", translatedLine = "",
         lineIndex = 0, positionMs = 0L, durationMs = 180_000L,
         sampledAtElapsedMs = receivedAt, speed = 1f, playing = playing,
         receivedAtElapsedMs = receivedAt, words = null, renderModes = renderModes()
@@ -504,24 +507,30 @@ class LyricProducerArbiterTest {
     }
 
     /**
+    /**
      * Regression: a paused producer stops receiving position callbacks by design, so its state
      * goes stale after STALE_AFTER_MS even though the frozen lyric line is still valid. The
      * arbiter must keep forwarding that frozen state instead of falling back to a source with
      * no lyric line (which clears the AOD lyric). Preferred is SPICY here to prove the
      * exemption is source-agnostic.
+     *
+     * 0.3.120 起让位规则收窄为「只让位给在播且带歌词内容的源」:无内容回退源仍被本例
+     * 拦截;在播且有内容的更新鲜源接管见 pausedStalePreferred_yieldsToFresherPlayingSourceWithContent。
+     */
      */
     @Test
-    fun pausedStalePreferred_keepsFrozenState_insteadOfFallback() {
+    fun pausedStalePreferred_keepsFrozenState_insteadOfContentlessFallback() {
         val spicy = FakeProducer(
             LyricSource.SPICY, ProducerConnection.CONNECTED,
             state("spicy", 0L, playing = false)
         )
+        // Fresh fallback source WITHOUT lyric content (blank line, no word timing).
         val lyricon = FakeProducer(
-            LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", 4_500L)
+            LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", 4_500L, line = "")
         )
         val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
 
-        // Paused 5s (stale by 2s): frozen state must win, not the fresh lyricon fallback.
+        // Paused 5s (stale by 2s): frozen state must win, not the content-less fallback.
         val active = arbiter.computeActiveOnce()
 
         assertEquals("spicy", active?.producerId)
@@ -573,5 +582,83 @@ class LyricProducerArbiterTest {
         arbiter.setPreference(LyricSource.LYRICON)
 
         assertNull(arbiter.computeActiveOnce())
+    }
+
+    // --- 0.3.120 真机回归(「当前歌词源暂无曲目」常驻):冻结态让位 + 清空/补发死锁面 ---
+
+    @Test
+    fun pausedStalePreferred_yieldsToFresherPlayingSourceWithContent() {
+        // 首选源(Lyricon)回调链死亡后冻结在暂停态;另一个源(SuperLyric)正在逐句收词
+        // (在播+有内容)—— 必须接管,否则 AOD/概览永远停在「暂无曲目」。
+        val spicy = FakeProducer(
+            LyricSource.SPICY, ProducerConnection.CONNECTED,
+            state("spicy", 0L, playing = false)
+        )
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", 4_500L)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
+
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("lyricon", active?.producerId)
+        assertEquals(LyricSource.LYRICON, arbiter.activeSource.value)
+    }
+
+    @Test
+    fun pausedStalePreferred_keepsFrozenState_whenOtherSourceNotPlaying() {
+        // 候选源虽新鲜但不在播(例如另一个暂停中的源):不接管,冻结歌词保持显示。
+        val spicy = FakeProducer(
+            LyricSource.SPICY, ProducerConnection.CONNECTED,
+            state("spicy", 0L, playing = false)
+        )
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 4_500L, playing = false)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
+
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("spicy", active?.producerId)
+    }
+
+    @Test
+    fun isFaulted_staleWhilePlaying_isFault() {
+        val arbiter = LyricProducerArbiter(arbiterMap()) { 5_000L }
+        assertTrue(arbiter.isFaulted(state("x", 0L, playing = true)))
+    }
+
+    @Test
+    fun isFaulted_staleWhilePaused_isNotFault() {
+        val arbiter = LyricProducerArbiter(arbiterMap()) { 5_000L }
+        assertFalse(arbiter.isFaulted(state("x", 0L, playing = false)))
+    }
+
+    @Test
+    fun isFaulted_freshState_isNotFault() {
+        val arbiter = LyricProducerArbiter(arbiterMap()) { 5_000L }
+        assertFalse(arbiter.isFaulted(state("x", 4_900L, playing = true)))
+    }
+
+    @Test
+    fun shouldPublishActive_signatureChanged_publishes() {
+        assertTrue(shouldPublishActive("a:1:2", "a:1:1", activeIsNull = false))
+    }
+
+    @Test
+    fun shouldPublishActive_unchangedSignatureAndActiveLive_doesNotRepublish() {
+        assertFalse(shouldPublishActive("a:1:1", "a:1:1", activeIsNull = false))
+    }
+
+    @Test
+    fun shouldPublishActive_clearedActive_republishesEvenWhenSignatureUnchanged() {
+        // staleSweep 清空后冻结态签名未变:必须补发,否则 active 永久卡死在 null。
+        assertTrue(shouldPublishActive("a:1:1", "a:1:1", activeIsNull = true))
+    }
+
+    @Test
+    fun shouldPublishActive_clearedActiveWithNullNext_staysSilent() {
+        assertFalse(shouldPublishActive(null, null, activeIsNull = true))
     }
 }
