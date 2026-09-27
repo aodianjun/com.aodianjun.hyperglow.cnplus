@@ -87,7 +87,7 @@ object PluginSongBridge {
                     begin = row.startMs,
                     end = row.endMs,
                     duration = (row.endMs - row.startMs).coerceAtLeast(0L),
-                    isAlignedRight = false,
+                    isAlignedRight = row.alignedRight,
                     metadata = PluginMetadata(values = mapOf(META_ROLE to row.role)),
                     text = row.text,
                     words = row.words?.takeIf { it.isNotEmpty() }?.map { word ->
@@ -136,6 +136,11 @@ object PluginSongBridge {
             enriched = enriched.copy(
                 romanizedLine = keepUnlessBlank(active.roma, enriched.romanizedLine)
             )
+        }
+        // 对唱左右分侧:插件显式声明改了该字段才覆盖(未声明时保留生产者自己的
+        // 演唱者身份推导结果,见 producer/resolveDuetAlignment)。
+        if (PluginLyricField.IS_ALIGNED_RIGHT in patched.changedLyricFields) {
+            enriched = enriched.copy(alignedRight = active.isAlignedRight)
         }
         if (PluginLyricField.WORDS in patched.changedLyricFields) {
             val patchedWords = active.words?.map { word ->

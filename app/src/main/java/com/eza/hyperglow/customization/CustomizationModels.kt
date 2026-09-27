@@ -69,6 +69,12 @@ data class SurfaceProfile(
     val artworkShape: String = ARTWORK_SHAPE_SQUARE,
     /** 圆形歌曲图片是否旋转;仅 [artworkShape] 为 [ARTWORK_SHAPE_CIRCLE] 时生效(设置界面同样只在圆形下露出),每个 surface 独立设置。 */
     val artworkSpin: Boolean = false,
+    /**
+     * 对唱分侧:开启时按行级 `alignedRight`(歌词源显式值,或由演唱者身份元数据推导,
+     * 见 [com.eza.hyperglow.producer.resolveDuetAlignment])把该行画到左/右一侧;
+     * 关闭时忽略分侧、全部行按 [alignment] 解析。主对齐为显式 start/center/end 时本开关无效果。
+     */
+    val duetAlignment: Boolean = true,
     val rubyVisible: Boolean = true,
     val weight: String = "Medium",
     val textSize: String = "normal",
@@ -199,7 +205,9 @@ data class CompiledSurfaceProfile(
     /** 歌曲图片形状 token,见 [ARTWORK_SHAPES];由 [SurfaceProfile.artworkShape] 编译而来。 */
     val artworkShape: String = ARTWORK_SHAPE_SQUARE,
     /** 圆形歌曲图片旋转开关;仅圆形生效,由 [SurfaceProfile.artworkSpin] 编译而来。 */
-    val artworkSpin: Boolean = false
+    val artworkSpin: Boolean = false,
+    /** 对唱分侧,见 [SurfaceProfile.duetAlignment]。 */
+    val duetAlignment: Boolean = true
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1

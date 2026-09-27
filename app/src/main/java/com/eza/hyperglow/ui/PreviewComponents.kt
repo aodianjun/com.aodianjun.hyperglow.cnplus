@@ -88,6 +88,7 @@ import com.eza.hyperglow.root.aod.ARTWORK_SPIN_PERIOD_MS
 import com.eza.hyperglow.root.aod.artworkLeadingPx
 import com.eza.hyperglow.root.aod.artworkSidePx
 import com.eza.hyperglow.root.aod.baseTextSizeSp
+import com.eza.hyperglow.root.aod.duetAlignedRight
 import com.eza.hyperglow.root.aod.layoutMetadataLines
 import com.eza.hyperglow.root.aod.layoutOriginalLines
 import com.eza.hyperglow.root.aod.layoutSecondaryLines
@@ -306,12 +307,14 @@ private fun LyricPreviewSurface(
         if (profile.fontFamily == "auto") Typeface.create("sans-serif", Typeface.NORMAL)
         else LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular")
     }
-    val textAlign = previewRowTextAlign("auto", profile.alignment, snapshot.alignedRight)
+    // 对唱分侧门控(与实机 LyricCanvasMapper 同源):关闭时忽略行级 alignedRight。
+    val alignedRight = duetAlignedRight(snapshot.alignedRight, profile.duetAlignment)
+    val textAlign = previewRowTextAlign("auto", profile.alignment, alignedRight)
     // 行级独立对齐(与实机 alignmentFor 同源):歌曲信息/第二行歌词各自解析。
     val metadataAlign =
-        previewRowTextAlign(profile.metadataAlignment, profile.alignment, snapshot.alignedRight)
+        previewRowTextAlign(profile.metadataAlignment, profile.alignment, alignedRight)
     val nextLineAlign =
-        previewRowTextAlign(profile.nextLineAlignment, profile.alignment, snapshot.alignedRight)
+        previewRowTextAlign(profile.nextLineAlignment, profile.alignment, alignedRight)
     val showMetadata = profile.metadataVisible
     val showNext = profile.showNextLine
     val secondaryRows = previewSecondaryLines(profile, snapshot, baseSp)

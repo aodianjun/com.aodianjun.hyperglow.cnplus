@@ -126,6 +126,14 @@ internal fun resolveRowAlignmentMode(
     else -> resolveAlignmentMode(mainAlignment, alignedRight)
 }
 
+/**
+ * 对唱分侧门控(实机 [LyricSnapshot.toAodCanvasContent] 与预览同源):
+ * 关闭时忽略行级 alignedRight,全部行按主对齐解析;开启时保留源显式值与演唱者身份推导结果
+ * (见 [com.eza.hyperglow.producer.resolveDuetAlignment])。
+ */
+internal fun duetAlignedRight(alignedRight: Boolean, duetAlignment: Boolean): Boolean =
+    alignedRight && duetAlignment
+
 internal data class AodCanvasLineIdentity(
     val trackGeneration: Long,
     val lineStartMs: Long,

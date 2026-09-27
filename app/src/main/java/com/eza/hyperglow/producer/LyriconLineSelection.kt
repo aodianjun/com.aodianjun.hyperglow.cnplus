@@ -265,8 +265,9 @@ internal fun LyriconLyricProducer.emit() {
         words = cachedWords,
         renderModes = renderModesSnapshot,
         lyricKind = lyricKind,
-        // Lyricon carries no alignment / ruby / layout-group concepts; defaults are correct.
-        alignedRight = false,
+        // 对唱左右分侧:按演唱者身份解析(见 resolveDuetAlignment),源显式值优先;
+        // 是否真正按右对齐绘制由渲染侧的「对唱分侧」开关决定。
+        alignedRight = activeAlignedRight(currentLineIndex),
         lineStartMs = line?.begin ?: 0L,
         lineEndMs = line?.end ?: 0L,
         ruby = emptyList(),

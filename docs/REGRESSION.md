@@ -137,6 +137,12 @@ and (b) unverified paths stay explicit instead of silently assumed.
   their reference animations with the old line leaving first and the new one settling after; flip
   direction matches the app preview; the speed setting scales these presets too; `Fade up` is
   unchanged.
+- Duet left/right split (`duetAlignment`, per surface, default on): a line whose source flag
+  (`alignedRight` / `isAlignedRight`) or singer-identity metadata marks the later singer's side
+  draws on the right; turning the switch off resolves every line from the main alignment instead.
+  Songs whose lyric source carries no singer info are unchanged — pending a hardware smoke check
+  after merge: a duet song tagged with two singers alternates left/right, turning the switch off
+  lefts everything, and translation / next-line rows are unaffected.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -222,6 +228,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   全量预设且标签为 HyperLyric 式命名;抽查数档(左右淡隐、柔缓着陆、滑出滑入、X/Y 翻转、
   旋转、缩放)观感与参考动画一致(旧行先离场、新行收位);翻转方向与应用内预览一致;速率档
   对预设同样生效;`Fade up` 与历史一致。
+- 对唱分侧（`duetAlignment`，每 surface 独立，默认开启）：源显式标记（`alignedRight`/`isAlignedRight`）或演唱者身份元数据判为后位歌手的行绘制在右侧；关闭开关后所有行按主对齐解析。歌词源不带演唱者信息的曲目零变化——合并后待真机冒烟：歌词源标注了两位演唱者的对唱歌曲左右交替、关闭开关后全部居左、翻译/下一行行不受影响。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

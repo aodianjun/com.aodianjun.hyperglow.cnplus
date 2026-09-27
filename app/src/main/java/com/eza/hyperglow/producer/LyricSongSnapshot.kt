@@ -28,6 +28,9 @@ data class LyricSongSnapshot(
 /**
  * 快照中的一行。[role] 沿用 Spicy 的行角色词汇（LEAD/伴奏等），桥接时进
  * PluginLyricLine.metadata——插件链回向选活动行复刻同一语义。
+ *
+ * [alignedRight] 是对唱左右分侧的载体（源显式值或演唱者身份推导结果，见
+ * [resolveDuetAlignment]）；桥接时进 PluginLyricLine.isAlignedRight，使插件链能读到并对齐回写。
  */
 data class LyricSongRow(
     val startMs: Long,
@@ -36,5 +39,6 @@ data class LyricSongRow(
     val translation: String = "",
     val roma: String = "",
     val words: List<LyricWord>? = null,
-    val role: String = "LEAD"
+    val role: String = "LEAD",
+    val alignedRight: Boolean = false
 )

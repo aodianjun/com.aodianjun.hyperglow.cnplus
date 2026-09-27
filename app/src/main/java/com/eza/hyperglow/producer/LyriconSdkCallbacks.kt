@@ -92,6 +92,9 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             }
             currentLineIndex = -1
             cachedWords = null
+            // 对唱左右分侧快照随歌重算(身份排序依赖整首出现顺序,不能按单行现算);
+            // 无歌词时空数组,emit() 侧按越界回落到未分侧。
+            refreshDuetAlignment(lyrics.orEmpty())
             // issue #56:区分「真的切歌」与「(重)连后 SDK 补发的当前歌」。冷启动/重连后 SDK
             // 会对正在播放的歌回调一次 onSongChanged —— 此时位置可能已到歌中途;若按切歌处理
             // (归零 + 关闸),首个真实位置会被合理性门控当旧时间线残留拒绝,歌词从第 1 句重新
