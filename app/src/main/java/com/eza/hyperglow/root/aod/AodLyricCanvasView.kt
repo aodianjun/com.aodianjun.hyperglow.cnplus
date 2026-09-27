@@ -1052,12 +1052,15 @@ internal class AodLyricCanvasView(
             groupWidth
         )
         val side = artworkSidePx(metadata.row.paint.textSize)
-        val midBaseline = (
-            metadataLineBaseline(metadata, 0) +
-                metadataLineBaseline(metadata, lines.size - 1)
-            ) / 2f
         val metrics = metadata.row.paint.fontMetrics
-        val textMiddleY = midBaseline - (metrics.descent + metrics.ascent) / 2f
+        // 图片槽与文本块同心中线:文本视觉中线 = 首末行基线中点 + (ascent + descent)/2
+        // (纯函数与预览 Row 居中同源;此前这里符号写反,图片整体低于文本约 0.7×字号)。
+        val textMiddleY = metadataTextCenterY(
+            metadataLineBaseline(metadata, 0),
+            metadataLineBaseline(metadata, lines.size - 1),
+            metrics.ascent,
+            metrics.descent
+        )
         val top = textMiddleY - side / 2f
         return RectF(groupLeft, top, groupLeft + side, top + side)
     }
@@ -1252,13 +1255,22 @@ internal class AodLyricCanvasView(
             hasTimedWords
         )
         if (content.metadataVisible && content.metadata.isNotBlank() && !metadataPlaceholder) {
-            rows += rowWithLines(
+            val metadataRow = rowWithLines(
                 RowKind.METADATA,
                 content.metadata,
                 metadataPaint,
                 0f,
                 wrapMetadataText(content, content.metadata, metadataPaint, availableWidth)
             )
+            // 图片槽高于文本块时行高按槽边长记账:自适应卡片高度与元数据组件预算都吃这行实测高,
+            // 否则图片会被卡片/内容框裁掉(与预览「行高取文本与图片的大者」同语义)。
+            rows += if (artworkSlotActive(content)) {
+                metadataRow.copy(
+                    height = max(metadataRow.height, artworkSidePx(metadataPaint.textSize))
+                )
+            } else {
+                metadataRow
+            }
         }
         if (content.original.isNotBlank()) {
             val metrics = originalPaint.fontMetrics
@@ -1383,24 +1395,34 @@ internal class AodLyricCanvasView(
                 "bottom" -> "bottom"
                 else -> "top"
             }
+            val metadataMetrics = metadata.paint.fontMetrics
             val metadataBounds = metadataLayoutBounds(
                 anchor,
                 oh.toFloat(),
                 padTop.toFloat(),
                 padBottom.toFloat(),
-                metadata.paint.fontMetrics.ascent,
-                metadata.paint.fontMetrics.descent,
-                METADATA_LYRIC_GAP_DP * density
+                metadataMetrics.ascent,
+                metadataMetrics.descent,
+                METADATA_LYRIC_GAP_DP * density,
+                // 带高 = max(文本块高, 图片槽边长):文本块在带内居中,歌词从带沿让出(见纯函数 KDoc)。
+                blockHeight = metadataBlockHeightPx(
+                    metadata.lines.size,
+                    metadata.lineHeight,
+                    metadataMetrics.ascent,
+                    metadataMetrics.descent
+                ),
+                bandHeight = if (artworkSlotActive(content)) {
+                    artworkSidePx(metadata.paint.textSize)
+                } else {
+                    0f
+                }
             )
             val metadataBaseline = metadataBounds.metadataBaseline
             positioned += PositionedRow(metadata, metadataBaseline, false)
             val lyricRows = rows.filterNot { it.kind == RowKind.METADATA }
-            val gap = METADATA_LYRIC_GAP_DP * density
-            // 元数据被换行成多行时，其实际占高超过单行基线；歌词起点需按多出的高度避让。
-            val metadataExtraHeight = (metadata.lines.size - 1).coerceAtLeast(0) *
-                metadata.lineHeight
+            // 多行文本块与图片槽的高度差已由带几何吸收(lyricStart/lyricEnd 从带沿让出 gap)。
             if (anchor == "bottom") {
-                var bottom = metadataBounds.lyricEnd - metadataExtraHeight
+                var bottom = metadataBounds.lyricEnd
                 lyricRows.asReversed().forEach { row ->
                     bottom -= row.height
                     positioned += PositionedRow(row, bottom - row.paint.fontMetrics.ascent, true)
@@ -1408,7 +1430,7 @@ internal class AodLyricCanvasView(
                 }
                 positioned.sortBy { it.baseline }
             } else {
-                var top = metadataBounds.lyricStart + metadataExtraHeight
+                var top = metadataBounds.lyricStart
                 lyricRows.forEach { row ->
                     top += row.gapBefore
                     positioned += PositionedRow(row, top - row.paint.fontMetrics.ascent, true)

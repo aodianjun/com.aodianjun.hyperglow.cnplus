@@ -44,6 +44,35 @@ internal fun rubySpanGeometry(
 internal fun rubyTopShift(rubyClipTop: Float, paddingTop: Float): Float =
     max(0f, paddingTop - rubyClipTop)
 
+/**
+ * 元数据文本块的视觉高(px):首末行基线间距 + (descent - ascent)。与 [metadataTextCenterY]
+ * 同一文本盒定义,图片槽记账/歌词避让共用。
+ */
+internal fun metadataBlockHeightPx(
+    lineCount: Int,
+    lineHeight: Float,
+    ascent: Float,
+    descent: Float
+): Float = (lineCount - 1).coerceAtLeast(0) * lineHeight + (descent - ascent)
+
+/**
+ * 元数据文本块的垂直中心(px):首末行基线中点 + (ascent + descent) / 2。
+ * ascent 为负,故中线落在基线中点之上(文本的视觉中线);歌曲图片槽与文本块同心中线。
+ * (经典居中式的反向求解:由基线求盒中心是 `+`,由中心求基线才是 `-`。)
+ */
+internal fun metadataTextCenterY(
+    firstBaseline: Float,
+    lastBaseline: Float,
+    ascent: Float,
+    descent: Float
+): Float = (firstBaseline + lastBaseline) / 2f + (ascent + descent) / 2f
+
+/**
+ * 元数据带几何:带高默认等于文本块高;歌曲图片槽激活时取「块高 vs 槽边长」的大者
+ * (与预览歌曲信息 Row 的 CenterVertically 同语义),文本块在带内垂直居中,图片与文本
+ * 同心中线,歌词从带沿外让出 [gap] —— 图片高于文本块时既不被内容裁剪框切掉、也不压歌词。
+ * [blockHeight] / [bandHeight] <= 0 时分别退化为单行块高 / 等于块高(图片关闭时行为不变)。
+ */
 internal fun metadataLayoutBounds(
     anchor: String,
     height: Float,
@@ -51,17 +80,20 @@ internal fun metadataLayoutBounds(
     paddingBottom: Float,
     metadataAscent: Float,
     metadataDescent: Float,
-    gap: Float
+    gap: Float,
+    blockHeight: Float = 0f,
+    bandHeight: Float = 0f
 ): MetadataLayoutBounds {
-    val metadataBaseline = if (anchor == "bottom") {
-        height - paddingBottom - metadataDescent
-    } else {
-        paddingTop - metadataAscent
-    }
+    val block = if (blockHeight > 0f) blockHeight else metadataDescent - metadataAscent
+    val band = max(block, if (bandHeight > 0f) bandHeight else block)
     return if (anchor == "bottom") {
-        MetadataLayoutBounds(metadataBaseline, paddingTop, metadataBaseline + metadataAscent - gap)
+        val bandBottom = height - paddingBottom
+        // 底部锚点时 metadataBaseline 是末行基线(见 metadataLineBaseline)。
+        val metadataBaseline = bandBottom - (band - block) / 2f - metadataDescent
+        MetadataLayoutBounds(metadataBaseline, paddingTop, bandBottom - band - gap)
     } else {
-        MetadataLayoutBounds(metadataBaseline, metadataBaseline + metadataDescent + gap, height - paddingBottom)
+        val metadataBaseline = paddingTop + (band - block) / 2f - metadataAscent
+        MetadataLayoutBounds(metadataBaseline, paddingTop + band + gap, height - paddingBottom)
     }
 }
 
