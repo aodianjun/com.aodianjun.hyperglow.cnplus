@@ -118,13 +118,18 @@ and (b) unverified paths stay explicit instead of silently assumed.
   a non-playing or mismatched session shows nothing; circle clips round and spins only when the
   rotation switch is on (square never spins); layout keeps the group aligned at each song-info
   alignment and hidden surfaces draw no spin frames (power gates).
-- HyperLyric-referenced line-change modes (`Fade left` / `Landing` / `Slide swap` under the line
-  transition option: sequential out-then-in switching with the referenced motion — quarter-width
-  fade drift with overshoot settle 1.6, soft landing from scale 1.2 with quintic ease-out, full-width
-  slide swap with overshoot settle 2.0; per-mode bases 300/450 ms and 300/700 ms scaled by the speed
-  setting; historical modes stay pixel-identical) — pending a hardware smoke check after merge: each
-  mode's look matches its reference preset (the old line leaves first, then the new one lands with
-  the overshoot/soft settle), the speed setting scales these modes too, and `Fade up` is unchanged.
+- HyperLyric line-change preset replication (all 25 presets selectable under the line transition
+  option under their original ids, plus the compatibility short names `Fade left`/`Landing`/
+  `Slide swap` which normalize to the matching preset ids: sequential out-then-in switching with
+  per-preset motion/easing/durations kept identical to HyperLyric `YoYoPresets` + daimajia 2.4 —
+  quarter-width fade drifts, full-width/height slides, flips and rotations about the content
+  center, zoom/landing keyframes, overshoot settles; bases 200/250/300 ms out and 300–700 ms in,
+  scaled by the speed setting; historical modes stay pixel-identical) — pending a hardware smoke
+  check after merge: the option lists the full preset set with HyperLyric-style labels; spot-check
+  several presets (fade left/right, soft landing, slide swap, flip X/Y, rotate, zoom) look like
+  their reference animations with the old line leaving first and the new one settling after; flip
+  direction matches the app preview; the speed setting scales these presets too; `Fade up` is
+  unchanged.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -202,11 +207,14 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   而不是「暂无曲目」。注意：有意行为变更——首选源冻结暂停时会把位置让给「在播且有内容」
   的其他源（仍然绝不让位给无歌词内容的源）。
 - 歌曲图片显示(文档级 `artworkVisible`/`artworkShape`/`artworkSpin`,息屏与锁屏共用):经校对的「当前播放的音乐软件」专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致;系统播放窗口滞留的旧封面拒收)显示在歌曲信息块左侧单槽,方形/圆形可选,圆形可选匀速旋转(12 秒/圈,与逐字歌词共用节拍门)——合并后待真机冒烟:开关关闭无封面;音乐 App 播放时封面出现在歌曲信息左侧且是当前歌曲的封面(暂停/切歌随之更新);非在播或曲目不匹配的会话不显示;圆形为圆形裁切且仅旋转开关打开时旋转(方形恒不旋转);各歌曲信息对齐下「图片+文本」成组落位不散架;隐藏 surface 不起旋转帧(功耗门控)。
-- 参考 HyperLyric 的换行动画档(`Fade left`/`Landing`/`Slide swap`,位于换行动画选项内:序列式
-  退场→换字→进场,运动依次为 1/4 行块宽淡出漂移+过冲落位 1.6、自 1.2 柔缓着陆(五次方缓出)、
-  整宽滑出滑入+过冲落位 2.0;基准 300/450 与 300/700ms 随动画速率档缩放;历史档保持逐像素
-  不变)——合并后待真机冒烟:各档观感与参考预设一致(旧行先离场、新行带过冲/柔落收位),
-  速率档对新档同样生效,`Fade up` 与历史一致。
+- HyperLyric 换行预设全量复刻(换行动画选项内 25 个预设按原 id 列出,另有兼容短名
+  `Fade left`/`Landing`/`Slide swap` 归一到对应预设 id:序列式退场→换字→进场,各档运动/
+  缓动/时长与 HyperLyric `YoYoPresets` + daimajia 2.4 逐项一致——1/4 宽高淡出漂移、整宽高
+  滑出滑入、绕内容中心翻转/旋转、缩放/着陆关键帧、过冲落位;基准退场 200/250/300ms、
+  入场 300–700ms,随动画速率档缩放;历史档保持逐像素不变)——合并后待真机冒烟:选项列出
+  全量预设且标签为 HyperLyric 式命名;抽查数档(左右淡隐、柔缓着陆、滑出滑入、X/Y 翻转、
+  旋转、缩放)观感与参考动画一致(旧行先离场、新行收位);翻转方向与应用内预览一致;速率档
+  对预设同样生效;`Fade up` 与历史一致。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

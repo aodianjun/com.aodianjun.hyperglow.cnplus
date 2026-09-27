@@ -284,8 +284,8 @@ class SceneCompilerTest {
                 )
             )!!.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition
         )
-        // 词表内其余可选项逐一原样通过(含参考 HyperLyric 的序列档)
-        for (mode in listOf("Fade up", "Crossfade", "Slide up", "Zoom", "Fade left", "Landing", "Slide swap", "None")) {
+        // 词表内可选项逐一原样通过(历史档 + HyperLyric 预设 id;"Slide left" 上面已验)
+        for (mode in LINE_TRANSITION_MODES.filter { it != LINE_TRANSITION_AUTO && it != "Slide left" }) {
             assertEquals(
                 mode,
                 SystemUiCustomizationValidator.validate(
@@ -294,6 +294,25 @@ class SceneCompilerTest {
                             SceneCompiler.SURFACE_AOD to compiled.profiles
                                 .getValue(SceneCompiler.SURFACE_AOD)
                                 .copy(lineTransition = mode)
+                            )
+                    )
+                )!!.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition
+            )
+        }
+        // #95 短名档归一到同配方预设 id(compile 与 validate 同规则,wire 不触发重写拒收)
+        for ((alias, canonicalId) in mapOf(
+            "Fade left" to "fade_out_left_fade_in_right",
+            "Landing" to "fade_out_left_landing",
+            "Slide swap" to "slide_out_left_slide_in_right"
+        )) {
+            assertEquals(
+                canonicalId,
+                SystemUiCustomizationValidator.validate(
+                    compiled.copy(
+                        profiles = compiled.profiles + (
+                            SceneCompiler.SURFACE_AOD to compiled.profiles
+                                .getValue(SceneCompiler.SURFACE_AOD)
+                                .copy(lineTransition = alias)
                             )
                     )
                 )!!.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransition

@@ -1317,6 +1317,31 @@ private fun choiceDisplayLabel(
         "Fade left" -> R.string.option_fade_left
         "Landing" -> R.string.option_landing
         "Slide swap" -> R.string.option_slide_swap
+        "fade_out_fade_in" -> R.string.option_anim_fade
+        "fade_out_up_fade_in_up" -> R.string.option_anim_fade_up
+        "fade_out_down_fade_in_down" -> R.string.option_anim_fade_down
+        "fade_out_left_fade_in_right" -> R.string.option_anim_fade_left_right
+        "fade_out_left_fade_in_up" -> R.string.option_anim_fade_left_up
+        "fade_out_left_zoom_in" -> R.string.option_anim_fade_left_zoom
+        "fade_out_left_landing" -> R.string.option_anim_fade_left_landing
+        "fade_out_right_fade_in_left" -> R.string.option_anim_fade_right_left
+        "fade_out_right_fade_in_up" -> R.string.option_anim_fade_right_up
+        "fade_out_right_zoom_in" -> R.string.option_anim_fade_right_zoom
+        "fade_out_right_landing" -> R.string.option_anim_fade_right_landing_focus
+        "fade_out_left_zoom_in_right" -> R.string.option_anim_fade_left_zoom_right
+        "fade_out_right_zoom_in_left" -> R.string.option_anim_fade_right_zoom_left
+        "slide_out_left_slide_in_right" -> R.string.option_anim_slide_left_right
+        "slide_out_left_fade_in_up" -> R.string.option_anim_slide_left_up
+        "slide_out_left_zoom_in" -> R.string.option_anim_slide_left_zoom
+        "slide_out_left_landing" -> R.string.option_anim_slide_left_landing
+        "slide_out_right_slide_in_left" -> R.string.option_anim_slide_right_left
+        "slide_out_right_fade_in_up" -> R.string.option_anim_slide_right_up
+        "slide_out_right_zoom_in" -> R.string.option_anim_slide_right_zoom
+        "slide_out_right_landing" -> R.string.option_anim_slide_right_landing
+        "flip_out_x_flip_in_x" -> R.string.option_anim_flip_x
+        "flip_out_y_flip_in_y" -> R.string.option_anim_flip_y
+        "rotate_out_rotate_in" -> R.string.option_anim_rotate
+        "zoom_out_zoom_in" -> R.string.option_anim_zoom_switch
         "None" -> R.string.option_none
         else -> R.string.option_auto_follow_source
     })

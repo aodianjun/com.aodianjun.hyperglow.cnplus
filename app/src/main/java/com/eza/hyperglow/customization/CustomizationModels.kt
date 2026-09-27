@@ -217,8 +217,8 @@ const val LINE_TRANSITION_AUTO = "Auto"
 /**
  * 画布换行动画词表(profile 可选集);"Auto" 仅存在于 profile 层。
  * AodStateWire.transitionMode 只会产出历史档,未知值 fail-safe `Fade up`,不受新增档影响。
- * `Fade left` / `Landing` / `Slide swap` 参考 HyperLyric「歌词切换动画」预设:
- * 退场→换字→进场的序列式过渡(见 root.aod 帧配方与时长)。
+ * 小写 snake_case 档为 HyperLyric(limczhh/HyperLyric)「歌词切换动画」预设 id 原名复刻
+ * (25 个,退场→换字→进场序列,配方见 root.aod LINE_TRANSITION_PRESETS);历史档保持不变。
  */
 val LINE_TRANSITION_MODES = listOf(
     LINE_TRANSITION_AUTO,
@@ -227,14 +227,48 @@ val LINE_TRANSITION_MODES = listOf(
     "Slide up",
     "Slide left",
     "Zoom",
-    "Fade left",
-    "Landing",
-    "Slide swap",
+    "fade_out_fade_in",
+    "fade_out_up_fade_in_up",
+    "fade_out_down_fade_in_down",
+    "fade_out_left_fade_in_right",
+    "fade_out_left_fade_in_up",
+    "fade_out_left_zoom_in",
+    "fade_out_left_landing",
+    "fade_out_right_fade_in_left",
+    "fade_out_right_fade_in_up",
+    "fade_out_right_zoom_in",
+    "fade_out_right_landing",
+    "fade_out_left_zoom_in_right",
+    "fade_out_right_zoom_in_left",
+    "slide_out_left_slide_in_right",
+    "slide_out_left_fade_in_up",
+    "slide_out_left_zoom_in",
+    "slide_out_left_landing",
+    "slide_out_right_slide_in_left",
+    "slide_out_right_fade_in_up",
+    "slide_out_right_zoom_in",
+    "slide_out_right_landing",
+    "flip_out_x_flip_in_x",
+    "flip_out_y_flip_in_y",
+    "rotate_out_rotate_in",
+    "zoom_out_zoom_in",
     "None"
 )
 
-internal fun normalizeLineTransition(value: String): String =
-    value.takeIf { it in LINE_TRANSITION_MODES } ?: LINE_TRANSITION_AUTO
+/**
+ * #95 短名档的规范别名:与对应 HyperLyric 预设同配方,归一到预设 id 避免词表重复;
+ * 只在 profile 层归一,wire 词表不受影响。
+ */
+private val LINE_TRANSITION_ALIASES = mapOf(
+    "Fade left" to "fade_out_left_fade_in_right",
+    "Landing" to "fade_out_left_landing",
+    "Slide swap" to "slide_out_left_slide_in_right"
+)
+
+internal fun normalizeLineTransition(value: String): String {
+    val canonical = LINE_TRANSITION_ALIASES[value] ?: value
+    return canonical.takeIf { it in LINE_TRANSITION_MODES } ?: LINE_TRANSITION_AUTO
+}
 
 /** 换行动画速率档默认值:保持基准时长(退场 130ms / 入场 210ms)。 */
 const val LINE_TRANSITION_SPEED_NORMAL = "Normal"

@@ -35,6 +35,17 @@ class LineTransitionResolutionTest {
     }
 
     @Test
+    fun normalizeLineTransitionAliasesLegacyShortNamesToPresets() {
+        // #95 短名档与对应 HyperLyric 预设同配方,归一到预设 id;预设 id 幂等。
+        assertEquals("fade_out_left_fade_in_right", normalizeLineTransition("Fade left"))
+        assertEquals("fade_out_left_landing", normalizeLineTransition("Landing"))
+        assertEquals("slide_out_left_slide_in_right", normalizeLineTransition("Slide swap"))
+        for (id in listOf("fade_out_left_fade_in_right", "flip_out_x_flip_in_x", "zoom_out_zoom_in")) {
+            assertEquals(id, normalizeLineTransition(id))
+        }
+    }
+
+    @Test
     fun resolveLineTransitionAutoDefersToSourceAndExplicitChoiceWins() {
         // "Auto" / 缺省 → 跟随歌词源
         assertEquals("Crossfade", resolveLineTransition(LINE_TRANSITION_AUTO, "Crossfade"))

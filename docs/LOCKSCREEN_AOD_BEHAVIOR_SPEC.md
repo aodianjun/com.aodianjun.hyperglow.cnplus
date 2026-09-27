@@ -328,37 +328,48 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   right-aligns right-to-left lyrics); explicit values align that row independently of the main
   lyric. Both second-line presentations (secondary-text form and standalone next-line row) share the
   one second-line alignment choice.
-- Line-change animation is selectable per surface profile from a fixed vocabulary: `Auto`, `Fade up`,
-  `Crossfade`, `Slide up`, `Slide left`, `Zoom`, `Fade left`, `Landing`, `Slide swap`, or `None`. `Auto`
-  keeps the lyric source's own preference; any explicit choice overrides the source preference,
-  including `None`. `None` performs no line enter/exit animation. `Fade up` is the historical default
-  and must remain pixel-identical to it. A transition draws the frozen outgoing rows against the
-  incoming rows: for the historical modes the outgoing layer completes in 130 ms and the incoming
-  layer in 210 ms from one elapsed anchor (the two overlap), and motion is limited to fade,
-  upward/leftward translation, and content-centered zoom scale. The row layer covers the whole lyric
-  block: the main lyric, the auxiliary text (transliteration/translation), and the next-line row enter
-  and leave in one layer, and the auxiliary text changes lines together with the main lyric rather
-  than popping instantly. Exit and enter progress each pass through a cubic curve (ease-in on exit,
-  ease-out on enter) before frame recipes are sampled; the metadata fade stays linear. The modes
-  `Fade left`, `Landing`, and `Slide swap` reference HyperLyric's line-change presets and switch
-  sequentially: the outgoing rows finish first (300 ms) and the incoming rows then play (450 ms;
-  `Landing` 700 ms). Motion there is relative to the row-block width — `Fade left` fades out drifting
-  left by a quarter of the width and fades in from a quarter of the width to the right with an
-  overshoot settle (Android `OvershootInterpolator` 1.6); `Landing` fades out the same way and lands
-  from scale 1.2 down to 1 with quintic ease-out (Glider `QuintEaseOut`); `Slide swap` slides the
-  block fully out to the left and fully in from the right with an overshoot settle
-  (Android `OvershootInterpolator` 2.0). For these modes the exit curve is `FastOutLinearIn` and the
-  enter curve is the referenced overshoot / quintic curve; travel may momentarily pass the settle
-  position while alpha stays clamped at 1. Unknown profile values normalize to `Auto`; legacy
-  lowercase source aliases `continuity`, `crossfade`, and `none` map to `Fade up`, `Crossfade`, and
-  `None`, and an unknown wire value is fail-safe `Fade up` — never a novel animation.
+- Line-change animation is selectable per surface profile from a fixed vocabulary: `Auto`, the
+  historical modes `Fade up`, `Crossfade`, `Slide up`, `Slide left`, `Zoom`, the 25 HyperLyric
+  line-change presets by their original ids (`fade_out_fade_in`, `fade_out_up_fade_in_up`,
+  `fade_out_down_fade_in_down`, `fade_out_left_fade_in_right`, `fade_out_left_fade_in_up`,
+  `fade_out_left_zoom_in`, `fade_out_left_landing`, `fade_out_right_fade_in_left`,
+  `fade_out_right_fade_in_up`, `fade_out_right_zoom_in`, `fade_out_right_landing`,
+  `fade_out_left_zoom_in_right`, `fade_out_right_zoom_in_left`, `slide_out_left_slide_in_right`,
+  `slide_out_left_fade_in_up`, `slide_out_left_zoom_in`, `slide_out_left_landing`,
+  `slide_out_right_slide_in_left`, `slide_out_right_fade_in_up`, `slide_out_right_zoom_in`,
+  `slide_out_right_landing`, `flip_out_x_flip_in_x`, `flip_out_y_flip_in_y`,
+  `rotate_out_rotate_in`, `zoom_out_zoom_in`), or `None`. `Auto` keeps the lyric source's own
+  preference; any explicit choice overrides the source preference, including `None`. `None`
+  performs no line enter/exit animation. `Fade up` is the historical default and must remain
+  pixel-identical to it. A transition draws the frozen outgoing rows against the incoming rows;
+  for the historical modes the outgoing layer completes in 130 ms and the incoming layer in 210 ms
+  from one elapsed anchor (the two overlap), and motion is limited to fade, upward/leftward
+  translation, and content-centered zoom scale. The row layer covers the whole lyric block: the
+  main lyric, the auxiliary text (transliteration/translation), and the next-line row enter and
+  leave in one layer, and the auxiliary text changes lines together with the main lyric rather
+  than popping instantly. Exit and enter progress each pass through a cubic curve (ease-in on
+  exit, ease-out on enter) before frame recipes are sampled; the metadata fade stays linear. The
+  HyperLyric presets replicate the reference implementation (HyperLyric `YoYoPresets` with
+  daimajia AndroidAnimations 2.4) as sequential out-then-in switching: the outgoing rows finish
+  first (200/250/300 ms per preset) and the incoming rows then play (300–700 ms per preset).
+  Their per-preset motion is kept identical to the reference — fade drift at a quarter of the
+  row-block width/height, full-width/height slides, flips and rotations about the content center,
+  zoom/landing keyframes; per-preset easing likewise (exit `FastOutLinearIn`; enter
+  `OvershootInterpolator` 1.0–2.0, `QuintEaseOut`, or `FastOutSlowIn`); travel may momentarily
+  pass the settle position while alpha stays clamped at 1. `Fade left`, `Landing`, and
+  `Slide swap` are compatibility short names for `fade_out_left_fade_in_right`,
+  `fade_out_left_landing`, and `slide_out_left_slide_in_right` and normalize to those ids.
+  Animation speed only scales the per-mode durations. Unknown profile values normalize to `Auto`;
+  legacy lowercase source aliases `continuity`, `crossfade`, and `none` map to `Fade up`,
+  `Crossfade`, and `None`, and an unknown wire value is fail-safe `Fade up` — never a novel
+  animation.
 - Line-change animation speed is selectable per surface profile from a fixed vocabulary: `Slow`,
   `Normal`, or `Fast`. Speed only scales the line-change exit/enter durations (historical base
-  130/210 ms; `Slow` is 1.5× duration, `Fast` is 0.6×, `Normal` keeps the base — the HyperLyric-
-  referenced modes scale their own 300/450 ms and 300/700 ms bases the same way) and never changes
-  frame recipes, easing curves, or motion parameters; with `None` animation there is no animation for
-  speed to act on. Speed is a pure visual preference with no follow-source semantics. Unknown profile
-  values normalize to `Normal`.
+  130/210 ms; `Slow` is 1.5× duration, `Fast` is 0.6×, `Normal` keeps the base — the HyperLyric
+  presets scale their own 200/250/300 ms and 300–700 ms bases the same way) and never changes
+  frame recipes, easing curves, or motion parameters; with `None` animation there is no animation
+  for speed to act on. Speed is a pure visual preference with no follow-source semantics. Unknown
+  profile values normalize to `Normal`.
 - Main lyrics accept a per-surface wrap limit of 1, 2, 3, 4, 5, or no user limit. Text size up to 200%
   must use the selected limit rather than the old fixed three-line ceiling. Safe-area geometry,
   optional-row removal, bounded minimum size, and fail-closed placement remain authoritative.
@@ -574,8 +585,8 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 锁屏显示动画将完整卡片容器作为一个整体。文本、自适应背景、描边与媒体进度共享同一 alpha 与向上平移时间线。
 
 ## 声明式自定义
-- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、`Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom`、`Fade left`、`Landing`、`Slide swap` 或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认，必须与历史效果逐像素一致。过渡将冻结的旧行层与新行层叠加渲染：历史档退场层在 130 毫秒内完成、入场层在 210 毫秒内完成，二者共用同一 elapsed 锚点叠加进行；运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放。行层覆盖整块歌词行：主歌词、辅助文字（音标/翻译）与下一行歌词同层进退，辅助文字随主歌词一起换行，不得单独瞬切。退场/入场进度先经 cubic 缓动（退场 easeIn、入场 easeOut）再查帧配方，元数据淡出保持线性。`Fade left`、`Landing`、`Slide swap` 参考 HyperLyric 的换行预设，为序列式过渡：旧行退场完成（300 毫秒）后新行才入场（450 毫秒；`Landing` 为 700 毫秒），运动以行块宽为基准——`Fade left` 淡出左移 1/4 行块宽、自右侧 1/4 宽淡入并过冲落位（Android `OvershootInterpolator` 1.6）；`Landing` 同式淡出、自 1.2 收落至 1 柔缓着陆（Glider `QuintEaseOut`）；`Slide swap` 整宽滑出左侧、整宽自右滑入并过冲落位（`OvershootInterpolator` 2.0）。参考档退场缓动为 `FastOutLinearIn`，入场缓动为对应过冲/五次方曲线，位移可短暂越过落位点、alpha 钳制 1。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
-- 换行动画速率可在每个 surface profile 中从固定词表选择：`Slow`、`Normal` 或 `Fast`。速率只等比缩放换行动画的退场/入场时长（历史档基准 130/210 毫秒；`Slow` 为 1.5 倍时长，`Fast` 为 0.6 倍时长，`Normal` 保持基准；参考 HyperLyric 档的 300/450 与 300/700 毫秒基准同比缩放），不改变帧配方、缓动曲线与运动参数；`None` 换行动画下无动画，速率无从生效。速率是纯视觉偏好，没有「跟随源」语义。profile 未知值规范化为 `Normal`。
+- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、历史档 `Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom`、HyperLyric 换行预设 25 档（沿用原 id：`fade_out_fade_in`、`fade_out_up_fade_in_up`、`fade_out_down_fade_in_down`、`fade_out_left_fade_in_right`、`fade_out_left_fade_in_up`、`fade_out_left_zoom_in`、`fade_out_left_landing`、`fade_out_right_fade_in_left`、`fade_out_right_fade_in_up`、`fade_out_right_zoom_in`、`fade_out_right_landing`、`fade_out_left_zoom_in_right`、`fade_out_right_zoom_in_left`、`slide_out_left_slide_in_right`、`slide_out_left_fade_in_up`、`slide_out_left_zoom_in`、`slide_out_left_landing`、`slide_out_right_slide_in_left`、`slide_out_right_fade_in_up`、`slide_out_right_zoom_in`、`slide_out_right_landing`、`flip_out_x_flip_in_x`、`flip_out_y_flip_in_y`、`rotate_out_rotate_in`、`zoom_out_zoom_in`）或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认，必须与历史效果逐像素一致。过渡将冻结的旧行层与新行层叠加渲染：历史档退场层在 130 毫秒内完成、入场层在 210 毫秒内完成，二者共用同一 elapsed 锚点叠加进行；运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放。行层覆盖整块歌词行：主歌词、辅助文字（音标/翻译）与下一行歌词同层进退，辅助文字随主歌词一起换行，不得单独瞬切。退场/入场进度先经 cubic 缓动（退场 easeIn、入场 easeOut）再查帧配方，元数据淡出保持线性。HyperLyric 预设档复刻参考实现（HyperLyric `YoYoPresets` 与 daimajia AndroidAnimations 2.4）的序列式过渡：旧行退场完成（各档 200/250/300 毫秒）后新行才入场（各档 300–700 毫秒）；运动逐项对齐参考实现——Fade 族按行块宽（高）的 1/4 淡出漂移/淡入、Slide 族整宽（高）滑出滑入、翻转/旋转绕内容中心、缩放/着陆关键帧；缓动逐项对齐（退场 `FastOutLinearIn`；入场 `OvershootInterpolator` 1.0–2.0、`QuintEaseOut` 或 `FastOutSlowIn`）；位移可短暂越过落位点、alpha 钳制 1。`Fade left`、`Landing`、`Slide swap` 为 `fade_out_left_fade_in_right`、`fade_out_left_landing`、`slide_out_left_slide_in_right` 的兼容短名，归一到对应预设 id。动画速率只缩放各档时长。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
+- 换行动画速率可在每个 surface profile 中从固定词表选择：`Slow`、`Normal` 或 `Fast`。速率只等比缩放换行动画的退场/入场时长（历史档基准 130/210 毫秒；`Slow` 为 1.5 倍时长，`Fast` 为 0.6 倍时长，`Normal` 保持基准；HyperLyric 预设档的 200/250/300 与 300–700 毫秒基准同比缩放），不改变帧配方、缓动曲线与运动参数；`None` 换行动画下无动画，速率无从生效。速率是纯视觉偏好，没有「跟随源」语义。profile 未知值规范化为 `Normal`。
 
 - 文档是带版本的数据，而不是插件。
 - 应用进程编译执行迁移、规范化、能力过滤、限制与稳定的 revision 哈希。SystemUI 会再次校验。
