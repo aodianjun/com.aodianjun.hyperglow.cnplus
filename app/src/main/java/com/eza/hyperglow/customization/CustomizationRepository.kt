@@ -233,6 +233,7 @@ object CustomizationRepository {
         lineSyncFillMode = lineSyncFillMode,
         overflow = overflow,
         lineTransition = lineTransition,
+        lineTransitionSpeed = lineTransitionSpeed,
         adaptiveSectioning = adaptiveSectioning,
         palette = palette,
         backgroundStyle = backgroundStyle,

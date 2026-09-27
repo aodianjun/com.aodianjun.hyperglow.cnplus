@@ -554,7 +554,8 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 锁屏显示动画将完整卡片容器作为一个整体。文本、自适应背景、描边与媒体进度共享同一 alpha 与向上平移时间线。
 
 ## 声明式自定义
-- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、`Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom` 或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认，必须与历史效果逐像素一致。过渡将冻结的旧行层与新行层叠加渲染：退场层在 130 毫秒内完成、入场层在 210 毫秒内完成，二者共用同一 elapsed 锚点；运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放。退场/入场进度先经 cubic 缓动（退场 easeIn、入场 easeOut）再查帧配方，元数据淡出保持线性。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
+- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、`Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom` 或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认，必须与历史效果逐像素一致。过渡将冻结的旧行层与新行层叠加渲染：退场层在 130 毫秒内完成、入场层在 210 毫秒内完成，二者共用同一 elapsed 锚点；运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放。行层覆盖整块歌词行：主歌词、辅助文字（音标/翻译）与下一行歌词同层进退，辅助文字随主歌词一起换行，不得单独瞬切。退场/入场进度先经 cubic 缓动（退场 easeIn、入场 easeOut）再查帧配方，元数据淡出保持线性。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
+- 换行动画速率可在每个 surface profile 中从固定词表选择：`Slow`、`Normal` 或 `Fast`。速率只等比缩放换行动画的退场/入场时长（基准 130/210 毫秒；`Slow` 为 1.5 倍时长，`Fast` 为 0.6 倍时长，`Normal` 保持基准），不改变帧配方、缓动曲线与运动参数；`None` 换行动画下无动画，速率无从生效。速率是纯视觉偏好，没有「跟随源」语义。profile 未知值规范化为 `Normal`。
 
 - 文档是带版本的数据，而不是插件。
 - 应用进程编译执行迁移、规范化、能力过滤、限制与稳定的 revision 哈希。SystemUI 会再次校验。

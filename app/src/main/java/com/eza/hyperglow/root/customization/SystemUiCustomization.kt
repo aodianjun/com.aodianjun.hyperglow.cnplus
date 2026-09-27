@@ -10,6 +10,7 @@ import com.eza.hyperglow.customization.normalizeArtworkShape
 import com.eza.hyperglow.customization.normalizeCardAlpha
 import com.eza.hyperglow.customization.normalizeCardColor
 import com.eza.hyperglow.customization.normalizeLineTransition
+import com.eza.hyperglow.customization.normalizeLineTransitionSpeed
 import com.eza.hyperglow.customization.normalizeLyricLineLimit
 import com.eza.hyperglow.customization.normalizeMetadataParts
 import com.eza.hyperglow.customization.normalizeMetadataSeparator
@@ -153,6 +154,7 @@ internal object SystemUiCustomizationValidator {
             lineSyncFillMode = normalizeLineSyncFillMode(profile.lineSyncFillMode),
             overflow = if (profile.overflow == "Clip") "Clip" else "Wrap",
             lineTransition = normalizeLineTransition(profile.lineTransition),
+            lineTransitionSpeed = normalizeLineTransitionSpeed(profile.lineTransitionSpeed),
             backgroundStyle = if (!aod && profile.backgroundStyle == "card") "card" else "none",
             cardAlpha = normalizeCardAlpha(profile.cardAlpha),
             cardColor = normalizeCardColor(profile.cardColor),

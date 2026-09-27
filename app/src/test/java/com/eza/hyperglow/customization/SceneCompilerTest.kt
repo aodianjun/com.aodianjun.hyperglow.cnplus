@@ -314,6 +314,42 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun lineTransitionSpeedCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 换行动画速率必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返
+        // (compile -> toSurfaceProfile 逐字段重建):任一环节漏字段都会让设置保存后
+        // 弹回 Normal(逐字段重建映射的经典回归面)。
+        val document = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(lineTransitionSpeed = "Fast")
+            )
+        )
+        val compiled = SceneCompiler.compile(document).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("Fast", compiled.lineTransitionSpeed)
+
+        val validated = SystemUiCustomizationValidator.validate(SceneCompiler.compile(document))!!
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("Fast", validated.lineTransitionSpeed)
+
+        val canonical = CustomizationRepository.canonicalizeDocument(document)!!
+        assertEquals("Fast", canonical.profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransitionSpeed)
+        // 默认文档保持 Normal:不改变既有用户的速率。
+        assertEquals(
+            LINE_TRANSITION_SPEED_NORMAL,
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).lineTransitionSpeed
+        )
+        // 非法值兜底 Normal,与 normalizeLineTransitionSpeed 一致(不引入非法词进 SystemUI)。
+        val dirty = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(lineTransitionSpeed = "warp")
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals(LINE_TRANSITION_SPEED_NORMAL, dirty.lineTransitionSpeed)
+    }
+
+    @Test
     fun schemaRejectsOversizeAndExecutableReferencesButIgnoresUnknownFields() {
         assertNull(SceneCompiler.decodeDocument("x".repeat(SceneCompiler.MAX_CONFIG_BYTES + 1)))
         assertNull(SceneCompiler.decodeDocument("""{"version":1,"name":"file:///tmp/x"}"""))

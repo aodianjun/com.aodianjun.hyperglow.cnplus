@@ -69,6 +69,8 @@ data class SurfaceProfile(
     val overflow: String = "Wrap",
     /** 换行动画,见 [LINE_TRANSITION_MODES]。"Auto"=跟随歌词源自身的偏好。 */
     val lineTransition: String = LINE_TRANSITION_AUTO,
+    /** 换行动画速率,见 [LINE_TRANSITION_SPEEDS];等比缩放退场/入场时长,不改帧配方。 */
+    val lineTransitionSpeed: String = LINE_TRANSITION_SPEED_NORMAL,
     val adaptiveSectioning: Boolean = true,
     val palette: Map<String, String> = emptyMap(),
     val backgroundStyle: String = "auto",
@@ -166,6 +168,8 @@ data class CompiledSurfaceProfile(
     val overflow: String,
     /** 换行动画,见 [LINE_TRANSITION_MODES];由 [SurfaceProfile.lineTransition] 编译而来。 */
     val lineTransition: String = LINE_TRANSITION_AUTO,
+    /** 换行动画速率,见 [LINE_TRANSITION_SPEEDS];由 [SurfaceProfile.lineTransitionSpeed] 编译而来。 */
+    val lineTransitionSpeed: String = LINE_TRANSITION_SPEED_NORMAL,
     val adaptiveSectioning: Boolean,
     val palette: Map<String, String>,
     val backgroundStyle: String = "none",
@@ -223,6 +227,23 @@ val LINE_TRANSITION_MODES = listOf(
 
 internal fun normalizeLineTransition(value: String): String =
     value.takeIf { it in LINE_TRANSITION_MODES } ?: LINE_TRANSITION_AUTO
+
+/** 换行动画速率档默认值:保持基准时长(退场 130ms / 入场 210ms)。 */
+const val LINE_TRANSITION_SPEED_NORMAL = "Normal"
+
+/**
+ * 换行动画速率词表:Slow / Normal / Fast。只等比缩放退场/入场时长
+ * (见 root.aod lineTransitionDurationScale),不动帧配方与缓动曲线;
+ * "None" 换行动画下无动画,速率无从生效。无"跟随源"语义——速率是纯视觉偏好。
+ */
+val LINE_TRANSITION_SPEEDS = listOf(
+    LINE_TRANSITION_SPEED_NORMAL,
+    "Slow",
+    "Fast"
+)
+
+internal fun normalizeLineTransitionSpeed(value: String): String =
+    value.takeIf { it in LINE_TRANSITION_SPEEDS } ?: LINE_TRANSITION_SPEED_NORMAL
 
 /**
  * 换行动画解析:profile 显式选择优先于歌词源偏好(设置即所得),`"Auto"` 沿用源值。

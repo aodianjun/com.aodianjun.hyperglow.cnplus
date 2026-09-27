@@ -52,6 +52,7 @@ import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
+import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
 import com.eza.hyperglow.customization.METADATA_PART_ALBUM
 import com.eza.hyperglow.customization.METADATA_PART_ARTIST
 import com.eza.hyperglow.customization.METADATA_PART_TITLE
@@ -623,6 +624,13 @@ internal fun LyricLayoutScreen(
                             LINE_TRANSITION_MODES,
                             selectedProfile.lineTransition
                         ) { value -> updateSelected { it.copy(lineTransition = value) } }
+                    }
+                    AodChoiceRow(AodChoiceKind.LINE_TRANSITION_SPEED, selectedProfile.lineTransitionSpeed) {
+                        openChoice(
+                            AodChoiceKind.LINE_TRANSITION_SPEED,
+                            LINE_TRANSITION_SPEEDS,
+                            selectedProfile.lineTransitionSpeed
+                        ) { value -> updateSelected { it.copy(lineTransitionSpeed = value) } }
                     }
                     AodChoiceRow(AodChoiceKind.TEXT_BRIGHTNESS, palettePresetName(selectedProfile.palette)) {
                         openChoice(
@@ -1309,6 +1317,11 @@ private fun choiceDisplayLabel(
         "None" -> R.string.option_none
         else -> R.string.option_auto_follow_source
     })
+    AodChoiceKind.LINE_TRANSITION_SPEED -> context.getString(when (value) {
+        "Slow" -> R.string.option_slow
+        "Fast" -> R.string.option_fast
+        else -> R.string.option_normal
+    })
     AodChoiceKind.TRANSITION_SPEED -> context.getString(when (value) {
         "200" -> R.string.option_fast
         "500" -> R.string.option_slow
@@ -1371,6 +1384,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     GLOW(R.string.choice_glow),
     LINE_PROGRESS(R.string.choice_line_progress_effect),
     LINE_TRANSITION(R.string.choice_line_transition),
+    LINE_TRANSITION_SPEED(R.string.choice_line_transition_speed),
     TEXT_BRIGHTNESS(R.string.choice_text_brightness),
     TRANSITION_SPEED(R.string.choice_scene_transition_speed),
     CARD_COLOR(R.string.choice_card_color)

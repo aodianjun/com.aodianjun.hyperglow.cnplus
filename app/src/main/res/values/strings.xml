@@ -405,6 +405,7 @@
     <string name="option_none">None</string>
     <string name="option_top_to_bottom">Top to bottom</string>
     <string name="choice_line_transition">Line change animation</string>
+    <string name="choice_line_transition_speed">Animation speed</string>
     <string name="option_auto_follow_source">Follow source</string>
     <string name="option_fade_up">Fade up</string>
     <string name="option_crossfade">Crossfade</string>
