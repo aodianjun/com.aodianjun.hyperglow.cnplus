@@ -286,6 +286,8 @@
     <string name="choice_song_info_alignment">歌曲信息对齐</string>
     <string name="choice_second_line_alignment">第二行歌词对齐</string>
     <string name="choice_secondary_text">辅助文字</string>
+    <string name="setting_duet_alignment">对唱左右分侧</string>
+    <string name="summary_duet_alignment">对唱歌词按演唱者分居左右两侧;演唱者信息须由歌词源提供。仅当对齐为「自动」时生效。</string>
     <string name="setting_bright_secondary_text">高亮辅助文字</string>
     <string name="setting_secondary_next_line">辅助文字显示第二行歌词</string>
     <string name="setting_show_furigana">显示振假名</string>

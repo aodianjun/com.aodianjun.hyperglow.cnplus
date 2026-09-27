@@ -328,6 +328,15 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   right-aligns right-to-left lyrics); explicit values align that row independently of the main
   lyric. Both second-line presentations (secondary-text form and standalone next-line row) share the
   one second-line alignment choice.
+- Duet left/right split is a per-surface switch (default on). When it is on, a line whose per-line
+  `alignedRight` is set draws on the right side; when it is off, every line resolves from the main
+  alignment instead. The per-line side comes from the lyric source: an explicit per-line flag (Spicy
+  `alignedRight`, Lyricon `isAlignedRight`, plugin `isAlignedRight`) always wins, otherwise it is
+  derived from per-line singer-identity metadata (`agent` / `amll:agent` / `vocal` / `amll:vocal`,
+  plus the type keys `amll:agent-type` / `agent:type` / `agentType` / `vocal:type`) — the first
+  singer stays left and later singers go right; with explicit types, `group` stays left while `other`
+  starts right and flips on each singer change. Songs without singer metadata keep the plain
+  main-alignment behaviour.
 - Line-change animation is selectable per surface profile from a fixed vocabulary: `Auto`, the
   historical modes `Fade up`, `Crossfade`, `Slide up`, `Slide left`, `Zoom`, the 25 HyperLyric
   line-change presets by their original ids (`fade_out_fade_in`, `fade_out_up_fade_in_up`,
@@ -604,6 +613,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；开启时取代独立的下一行歌词行而不与之叠加，关闭时独立下一行呈现保持不变。
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
+- 对唱分侧是每个 surface 独立的开关（默认开启）。开启时，行级 `alignedRight` 置位的行绘制在右侧；关闭时忽略该位，所有行按主对齐解析。行级分侧位来源于歌词源：源显式标记（Spicy `alignedRight`、Lyricon `isAlignedRight`、插件 `isAlignedRight`）恒优先，否则由行级演唱者身份元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal`，类型键 `amll:agent-type`/`agent:type`/`agentType`/`vocal:type`）推导——首位歌手居左、其余居右；带显式类型时 `group` 恒左、`other` 起右并随歌手切换翻转。无演唱者信息的曲目保持纯主对齐行为。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
 - 歌曲图片为 per-surface 设置,锁屏与息屏各自独立(显示开关、方形/圆形形状、仅圆形可选旋转);旧文档中存的文档级全局值在首次读取时一次性播种到两个曲面。开启时歌曲信息块左侧恰好一个图片槽:槽边长为歌曲信息字号的 1.6 倍、与文本间距 6dp,行级对齐把「图片+文本块」当整组落位,文本块内各行仍按各自对齐排布。图片带高取「歌曲信息文本块高」与「图片槽边长」的较大者:图片高于文本块时带高随图片增长、文本块在带内垂直居中,图片不被内容裁剪框/锁屏卡片裁切,带高计入卡片实测高与歌曲信息组件预算;图片与文本块共用同一视觉中线(首末行基线中点 + (ascent + descent)/2,而非裸基线中点)。取图 fail-closed:只显示经校对的「当前播放的音乐软件」当前曲目的专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致)——系统播放窗口滞留的旧封面、其他包、或歧义命中一律不显示。封面帧有界(源图降采样至 ≤192px 后压成 ≤24KiB JPEG),按帧键解码一次。方形不旋转;圆形旋转为匀速 12 秒/圈,与逐字歌词共用有效节拍门(隐藏即停帧)。未知形状值归一为方形;旋转仅圆形生效。隐私:封面字节不出设备、不入诊断;功耗:静态封面不增加逐帧开销,旋转随既有节拍门停止。

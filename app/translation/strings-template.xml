@@ -283,6 +283,8 @@
     <string name="choice_song_info_alignment">Song info alignment</string>
     <string name="choice_second_line_alignment">Second line alignment</string>
     <string name="choice_secondary_text">Secondary text</string>
+    <string name="setting_duet_alignment">Duet left/right split</string>
+    <string name="summary_duet_alignment">Place duet lines on the left/right side by singer; singer info must come from the lyric source. Only applies when alignment is Automatic.</string>
     <string name="setting_bright_secondary_text">Bright secondary text</string>
     <string name="setting_secondary_next_line">Show second line as secondary text</string>
     <string name="setting_show_furigana">Show furigana</string>

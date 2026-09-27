@@ -690,6 +690,32 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun duetAlignmentCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 对唱分侧开关必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返
+        // (compile -> toSurfaceProfile):关闭状态是「与默认不同」的值,漏字段会被
+        // 逐字段重建映射静默弹回默认(开启),这正是 secondaryNextLine 的经典回归面。
+        val off = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(duetAlignment = false)
+            )
+        )
+        assertFalse(SceneCompiler.compile(off).profiles.getValue(SceneCompiler.SURFACE_AOD).duetAlignment)
+        assertFalse(
+            SystemUiCustomizationValidator.validate(SceneCompiler.compile(off))!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).duetAlignment
+        )
+        assertFalse(
+            CustomizationRepository.canonicalizeDocument(off)!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).duetAlignment
+        )
+        // 默认文档保持开启:对唱分侧是既有 alignedRight 渲染语义的默认延续。
+        assertTrue(
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).duetAlignment
+        )
+    }
+
+    @Test
     fun systemUiValidatorResetsInvalidCardColorToDefault() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(

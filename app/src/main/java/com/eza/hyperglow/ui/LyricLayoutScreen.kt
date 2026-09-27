@@ -368,6 +368,13 @@ internal fun LyricLayoutScreen(
                             selectedProfile.alignment
                         ) { value -> updateSelected { it.copy(alignment = value) } }
                     }
+                    // 对唱分侧:仅在主对齐为「自动」时可感知(显式对齐整体覆盖分侧结果)。
+                    SwitchPreference(
+                        selectedProfile.duetAlignment,
+                        { enabled -> updateSelected { it.copy(duetAlignment = enabled) } },
+                        stringResource(R.string.setting_duet_alignment),
+                        summary = stringResource(R.string.summary_duet_alignment)
+                    )
                     AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
                         openChoice(
                             AodChoiceKind.SECONDARY_TEXT,

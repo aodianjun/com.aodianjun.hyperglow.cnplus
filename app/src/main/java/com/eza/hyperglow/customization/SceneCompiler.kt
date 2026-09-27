@@ -169,6 +169,7 @@ object SceneCompiler {
             artworkVisible = profile.artworkVisible,
             artworkShape = normalizeArtworkShape(profile.artworkShape),
             artworkSpin = profile.artworkSpin,
+            duetAlignment = profile.duetAlignment,
             rubyVisible = profile.rubyVisible,
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",

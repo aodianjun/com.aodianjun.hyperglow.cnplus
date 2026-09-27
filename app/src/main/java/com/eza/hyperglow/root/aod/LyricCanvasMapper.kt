@@ -17,7 +17,8 @@ internal fun LyricSnapshot.toAodCanvasContent(
     romanized = romanized,
     translated = translated,
     nextLine = nextLine,
-    alignedRight = alignedRight,
+    // 对唱分侧门控:关闭时忽略行级 alignedRight(源显式与身份推导一并忽略),全部按主对齐解析。
+    alignedRight = duetAlignedRight(alignedRight, profile?.duetAlignment ?: true),
     lineLevelSync = lineLevelSync,
     lineStartMs = lineStartMs,
     lineEndMs = lineEndMs,

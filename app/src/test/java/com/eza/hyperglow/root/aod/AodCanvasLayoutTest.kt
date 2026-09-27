@@ -455,6 +455,44 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun duetAlignmentGatesLineSideAndDefaultsToOn() {
+        val off = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(duetAlignment = false)
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val on = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(duetAlignment = true)
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val split = LyricSnapshot(original = "current", alignedRight = true)
+
+        // 开启(或无 profile 的默认)时保留行级分侧;关闭时整行回落主对齐解析。
+        assertTrue(split.toAodCanvasContent(on).alignedRight)
+        assertTrue(split.toAodCanvasContent(null).alignedRight)
+        assertFalse(split.toAodCanvasContent(off).alignedRight)
+        // 门控只做减法:未分侧的行在任何开关下都保持未分侧。
+        assertFalse(
+            LyricSnapshot(original = "current", alignedRight = false)
+                .toAodCanvasContent(on).alignedRight
+        )
+    }
+
+    @Test
+    fun duetAlignedRightOnlyGatesTheLineSideBit() {
+        // 真值表:开关关闭时忽略行级 alignedRight,开启时原样透传。
+        assertTrue(duetAlignedRight(alignedRight = true, duetAlignment = true))
+        assertFalse(duetAlignedRight(alignedRight = true, duetAlignment = false))
+        assertFalse(duetAlignedRight(alignedRight = false, duetAlignment = true))
+        assertFalse(duetAlignedRight(alignedRight = false, duetAlignment = false))
+    }
+
+    @Test
     fun resolveRowAlignmentModeExplicitOverridesAndAutoFollowsMain() {
         // 显式 start/center/end 直接生效,不受主对齐影响。
         assertEquals("start", resolveRowAlignmentMode("start", "end", false))

@@ -119,6 +119,13 @@ class LyriconLyricProducer(
     @Volatile internal var cachedWords: List<LyricWord>? = null
     @Volatile internal var renderModesSnapshot: ProducerRenderModes = defaultRenderModes()
 
+    // --- 对唱左右分侧快照(切歌时重算,见 refreshDuetAlignment) ---
+    /**
+     * 按演唱者身份解析后的逐行右对齐(源显式值优先,见 [resolveDuetAlignment])。
+     * 是否生效由渲染侧的「对唱分侧」开关决定(见 root/aod/duetAlignedRight)。
+     */
+    @Volatile internal var duetResolvedAlignedRight: BooleanArray? = null
+
     // --- Position extrapolation state ---
     // When the player process is frozen by MIUI screen-off, the shared-memory position stops
     // updating but onPositionChanged keeps firing at ~60 Hz with the same stalled value. To keep
@@ -295,6 +302,7 @@ class LyriconLyricProducer(
         navigator = null
         currentLineIndex = -1
         cachedWords = null
+        duetResolvedAlignedRight = null
         currentPositionMs = 0L
         lastRealPositionMs = 0L
         lastRealPositionUpdateMs = -1L
@@ -519,14 +527,16 @@ class LyriconLyricProducer(
             trackUri = "lyricon:${song.id ?: song.name}",
             durationMs = song.duration,
             rows = LyricTimelineSanitizer.sanitizeSnapshotRows(
-                lines.map { line ->
+                lines.mapIndexed { index, line ->
                     LyricSongRow(
                         startMs = line.begin,
                         endMs = line.end,
                         text = line.text.orEmpty(),
                         translation = line.translation.orEmpty(),
                         roma = line.roma.orEmpty(),
-                        words = line.toLyricWords()?.takeIf { it.isNotEmpty() }
+                        words = line.toLyricWords()?.takeIf { it.isNotEmpty() },
+                        // 对唱分侧随行进入插件链(见 activeAlignedRight)。
+                        alignedRight = activeAlignedRight(index)
                     )
                 }
             )
