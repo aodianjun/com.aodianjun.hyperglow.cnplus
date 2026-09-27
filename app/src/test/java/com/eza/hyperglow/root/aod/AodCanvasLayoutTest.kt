@@ -172,13 +172,13 @@ class AodCanvasLayoutTest {
             "Left to right (main only)",
             resolvedLineSyncFillMode(true, "Left to right (main only)")
         )
-        // 行级同步时固定水平扫光：None / Top to bottom 也归一到主行水平扫光（与预览一致）
+        // 四种取值各自生效:None/Top to bottom 不再被吞掉(否则选项形同虚设)。
         assertEquals(
-            "Left to right (main only)",
+            "None",
             resolvedLineSyncFillMode(true, "None")
         )
         assertEquals(
-            "Left to right (main only)",
+            "Top to bottom",
             resolvedLineSyncFillMode(true, "Top to bottom")
         )
         assertEquals(
@@ -1002,8 +1002,8 @@ class AodCanvasLayoutTest {
 
         assertTrue(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, words))
         assertTrue(hasActiveCanvasTiming(true, "Top to bottom", 1_000L, 2_000L, emptyList()))
-        // None / Top to bottom 在行级同步时归一为水平扫光，不再禁用时序
-        assertTrue(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words))
+        // None 在行级同步下真正关闭进度时序(不再被归一到水平扫光而失效)。
+        assertFalse(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, emptyList()))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, words, speed = 0f))
     }

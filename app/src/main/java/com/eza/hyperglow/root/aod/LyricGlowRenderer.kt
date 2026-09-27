@@ -49,28 +49,73 @@ internal object LyricGlowRenderer {
         progress: Float,
         sungColor: Int,
         glowColor: Int,
-        glowEnabled: Boolean
+        glowEnabled: Boolean,
+        fillMode: String = FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
     ) {
         if (rows.isEmpty()) return
         val fm = paint.fontMetrics
         val haloRadius = paint.textSize * HALO_RADIUS_FRACTION
         // 行首/行尾 easeInOut 减速:与预览演示的扫光节奏一致。
-        val rowProgress = splitContinuousFill(
-            easeInOutCubic(progress.coerceIn(0f, 1f)),
-            rows.map { it.width }
-        )
-
-        // Pass 1: 未唱 dim 底 —— sung 色 30% 不透明度整块绘制(alpha 内嵌于 color)
+        val eased = easeInOutCubic(progress.coerceIn(0f, 1f))
         val dimColor = Color.argb(
             DIM_BASE_ALPHA,
             Color.red(sungColor),
             Color.green(sungColor),
             Color.blue(sungColor)
         )
+
+        // "None": 关闭进度效果 —— 整块静态全亮(不画 dim 底/光晕/扫光),
+        // 与实机 Minimal 静态分支同观感;选项不再是摆设。
+        if (fillMode == "None") {
+            paint.shader = null
+            paint.setShadowLayer(0f, 0f, 0f, 0)
+            paint.color = sungColor
+            paint.alpha = 255
+            rows.forEach { it.drawText(canvas, paint) }
+            return
+        }
+
+        // Pass 1: 未唱 dim 底 —— sung 色 30% 不透明度整块绘制(alpha 内嵌于 color)
         paint.shader = null
         paint.setShadowLayer(0f, 0f, 0f, 0)
         paint.color = dimColor
         rows.forEach { it.drawText(canvas, paint) }
+
+        // "Top to bottom": 横向推进边自上而下扫过整块,边以上已亮、以下保持 dim 底。
+        // 纵向几何唯一取共享纯函数 sharedBlockClipBottom,与预览同源。
+        if (fillMode == "Top to bottom") {
+            val blockTop = rows.minOf { it.baseline + fm.ascent } - haloRadius
+            val blockBottom = rows.maxOf { it.baseline + fm.descent } + haloRadius
+            val edge = sharedBlockClipBottom(eased, blockTop, blockBottom)
+            val clipLeft = rows.minOf { it.left } - haloRadius
+            val clipRight = rows.maxOf { it.left + it.width } + haloRadius
+            if (glowEnabled) {
+                val glowSave = canvas.save()
+                canvas.clipRect(clipLeft, blockTop, clipRight, edge)
+                paint.color = sungColor
+                paint.alpha = 255
+                paint.setShadowLayer(haloRadius, 0f, 0f, glowColor)
+                rows.forEach { it.drawText(canvas, paint) }
+                paint.setShadowLayer(0f, 0f, 0f, 0)
+                canvas.restoreToCount(glowSave)
+            }
+            val litSave = canvas.save()
+            canvas.clipRect(clipLeft, blockTop, clipRight, edge)
+            paint.shader = null
+            paint.color = sungColor
+            paint.alpha = 255
+            rows.forEach { it.drawText(canvas, paint) }
+            canvas.restoreToCount(litSave)
+            return
+        }
+
+        // "Left to right (main only)": 每行各自从左到右同时推进(不按行宽分摊);
+        // "Left to right (whole block)": 整块连续推进,按行宽把进度分摊到各行(默认)。
+        val rowProgress = if (fillMode == "Left to right (main only)") {
+            rows.map { eased }
+        } else {
+            splitContinuousFill(eased, rows.map { it.width })
+        }
 
         // Pass 2: 光晕层 —— clip 到该行已扫区域,sung 文字 + glow 色阴影
         if (glowEnabled) {
@@ -119,6 +164,9 @@ internal object LyricGlowRenderer {
             paint.shader = null
         }
     }
+
+    /** 进度效果词表的默认值(整块连续横向扫光):空串/未知值均落此档。 */
+    const val FILL_LEFT_TO_RIGHT_WHOLE_BLOCK = "Left to right (whole block)"
 }
 
 /** easeInOut 三次缓动(与预览演示扫光同曲线):两端减速,中段加速。纯函数,可单测。 */

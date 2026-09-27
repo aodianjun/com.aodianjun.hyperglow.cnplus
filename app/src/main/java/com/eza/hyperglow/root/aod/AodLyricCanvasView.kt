@@ -866,8 +866,22 @@ internal class AodLyricCanvasView(
         drawOriginalRubyRows(canvas, original.baseline, bright = true)
         // 主行发光统一委托共享渲染核心 LyricGlowRenderer —— 与预览(PreviewAnimatedLyric)
         // 同一份配方:dim 底、光晕、easeInOut 扫光带,杜绝行级同步路径另走一套旧实现。
-        drawOriginalGlowBlock(canvas, original.baseline, layout.original, lineProgress())
+        drawOriginalGlowBlock(
+            canvas,
+            original.baseline,
+            layout.original,
+            lineProgress(),
+            effectiveLineSyncFillMode()
+        )
     }
+
+    /** 生效进度效果:仅行级同步时按配置解析;逐字时间源路径保持整块连续横向扫光。 */
+    private fun effectiveLineSyncFillMode(): String =
+        if (content.lineLevelSync) {
+            resolvedLineSyncFillMode(true, content.lineSyncFillMode)
+        } else {
+            LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
+        }
 
     private fun drawSecondaryRowsStatic(
         canvas: Canvas,
@@ -1566,7 +1580,13 @@ internal class AodLyricCanvasView(
         }
         // 行级歌词(无逐字时间戳,LRC):同样统一走共享渲染管线,与预览同源。
         if (!originalLayout.timed) {
-            drawOriginalGlowBlock(canvas, baseline, originalLayout, lineProgress())
+            drawOriginalGlowBlock(
+                canvas,
+                baseline,
+                originalLayout,
+                lineProgress(),
+                effectiveLineSyncFillMode()
+            )
             return
         }
         // 逐字卡拉OK路径：仅"逐字时间源 + 关闭发光 + 非行级同步"保留，
@@ -1605,7 +1625,8 @@ internal class AodLyricCanvasView(
         canvas: Canvas,
         baseline: Float,
         originalLayout: OriginalLayout,
-        progress: Float
+        progress: Float,
+        fillMode: String = LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
     ) {
         val lines = originalLayout.lines
         val glowRows = ArrayList<LyricGlowRow>(lines.size)
@@ -1643,7 +1664,8 @@ internal class AodLyricCanvasView(
             progress = progress,
             sungColor = resolvedPalette.sungText,
             glowColor = resolvedPalette.glow,
-            glowEnabled = content.glowMode != "Off"
+            glowEnabled = content.glowMode != "Off",
+            fillMode = fillMode
         )
         if (outerClip != -1) canvas.restoreToCount(outerClip)
     }
