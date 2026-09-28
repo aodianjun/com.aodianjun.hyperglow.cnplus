@@ -1,5 +1,6 @@
 package com.eza.hyperglow.producer
 
+import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.customization.CustomizationRepository
 import io.github.proify.lyricon.lyric.model.RichLyricLine
 
@@ -46,16 +47,27 @@ internal fun LyriconLyricProducer.refreshDuetAlignment(lyrics: List<RichLyricLin
         )
     }
     duetResolvedAlignedRight = resolveDuetAlignment(metadataLines, enabled = true).toBooleanArray()
+    var markerFallbackRows = 0
     val markerLines = lyrics.map { line ->
         val marker = parseDuetMarker(line.text.orEmpty())
+        val metadataId = duetAgentId(line.metadata)
+        val agentId = metadataId ?: marker?.let(::duetMarkerAgentId)
+        if (metadataId == null && agentId != null) markerFallbackRows++
         DuetLine(
-            agentId = duetAgentId(line.metadata) ?: marker?.let(::duetMarkerAgentId),
+            agentId = agentId,
             agentType = duetAgentType(line.metadata),
             sourceAlignedRight = line.isAlignedRight
         )
     }
-    duetMarkerResolvedAlignedRight =
-        resolveDuetAlignment(markerLines, enabled = true).toBooleanArray()
+    val markerResolved = resolveDuetAlignment(markerLines, enabled = true).toBooleanArray()
+    duetMarkerResolvedAlignedRight = markerResolved
+    // 一行日志/次重算(切歌或设置变更,非逐帧):真机排障区分「无身份输入」与「已分侧」。
+    AppLog.i(
+        "LyriconDuetAlignment",
+        "refresh: rows=${lyrics.size} identityRows=${markerLines.count { it.agentId != null }} " +
+            "markerFallback=$markerFallbackRows rightRows=${markerResolved.count { it }} " +
+            "markersEnabled=$duetMarkersEnabled"
+    )
 }
 
 /**

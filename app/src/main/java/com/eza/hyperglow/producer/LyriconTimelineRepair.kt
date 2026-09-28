@@ -1,5 +1,6 @@
 package com.eza.hyperglow.producer
 
+import com.eza.hyperglow.AppLog
 import io.github.proify.lyricon.lyric.model.RichLyricLine
 
 /**
@@ -76,6 +77,10 @@ internal object LyriconTimelineRepair {
         if (lines.isEmpty()) return lines
         val grossCount = lines.count { grossWindowMs(it.text, it.end - it.begin) }
         var changed = false
+        var wordAnchored = 0
+        var clamped = 0
+        var wordsDropped = 0
+        var grossUntouched = 0
         val out = ArrayList<RichLyricLine>(lines.size)
         for (index in lines.indices) {
             val line = lines[index]
@@ -90,6 +95,7 @@ internal object LyriconTimelineRepair {
             val wordsPlausible = words.isNotEmpty() &&
                 wordSpanMs <= estimated * WORD_ANCHOR_MULTIPLIER + WORD_SPREAD_SLACK_MS
             if (wordsPlausible) {
+                wordAnchored++
                 val begin = words.minOf { it.begin }
                 val end = maxOf(begin + 1L, words.maxOf { it.end })
                 if (begin == line.begin && end == line.end) {
@@ -114,14 +120,25 @@ internal object LyriconTimelineRepair {
             } else {
                 line.begin
             }
+            if (repairedBegin != line.begin) clamped++
             // 假词级恒丢(不显示假逐字);钳制被护栏跳过时整行零变化,原样透传。
             val repairedWords = if (words.isEmpty()) line.words else null
+            if (repairedWords !== line.words) wordsDropped++
             if (repairedBegin == line.begin && repairedWords === line.words) {
+                grossUntouched++
                 out += line
             } else {
                 out += line.copy(begin = repairedBegin, words = repairedWords)
                 changed = true
             }
+        }
+        // 一行日志/首歌(非逐帧):真机排障区分「数据没有损坏行」与「有损坏但护栏跳过钳制」。
+        if (grossCount > 0) {
+            AppLog.i(
+                "LyriconTimelineRepair",
+                "repair: rows=${lines.size} gross=$grossCount wordAnchored=$wordAnchored " +
+                    "clamped=$clamped wordsDropped=$wordsDropped grossUntouched=$grossUntouched"
+            )
         }
         if (!changed) return lines
         return out.sortedBy { it.begin }
