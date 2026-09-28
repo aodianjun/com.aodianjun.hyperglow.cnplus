@@ -549,4 +549,23 @@
     <string name="label_root_permission">Root permission</string>
     <string name="summary_root_permission_granted">Root access granted</string>
     <string name="summary_root_permission_denied">Tap to grant root access</string>
+<string name="section_app_appearance">App appearance</string>
+    <string name="setting_theme_mode">Theme mode</string>
+    <string name="option_theme_system">Follow system</string>
+    <string name="option_theme_light">Light</string>
+    <string name="option_theme_dark">Dark</string>
+    <string name="setting_theme_color">Theme color</string>
+    <string name="option_theme_color_dynamic">From wallpaper</string>
+    <string name="option_theme_color_custom">Custom</string>
+    <string name="setting_background_image">Background image</string>
+    <string name="background_image_set">Set</string>
+    <string name="background_image_unset">Not set</string>
+    <string name="setting_background_dim">Background dim</string>
+    <string name="action_pick_background_image">Choose image</string>
+    <string name="action_remove_background_image">Remove image</string>
+    <string name="toast_background_image_failed">Could not use this image</string>
+    <string name="setting_system_bar_icons">System bar icons</string>
+    <string name="option_bar_icons_auto">Automatic</string>
+    <string name="option_bar_icons_light">Light icons</string>
+    <string name="option_bar_icons_dark">Dark icons</string>
 </resources>

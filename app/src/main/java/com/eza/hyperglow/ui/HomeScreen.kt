@@ -73,7 +73,8 @@ internal fun HomeScreen(
     onOpenDiagnostics: () -> Unit,
     onOpenLyricLayout: (String) -> Unit,
     onOpenPlugins: () -> Unit,
-    onOpenAodBehavior: () -> Unit
+    onOpenAodBehavior: () -> Unit,
+    onOpenAppAppearance: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -237,6 +238,7 @@ internal fun HomeScreen(
     }
 
     Scaffold(
+        containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
                 title = stringResource(R.string.app_name),
@@ -450,6 +452,15 @@ internal fun HomeScreen(
                                     currentUiLanguage(context)
                                 ),
                                 onClick = { showLanguageDialog = true }
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_app_appearance)) }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.section_app_appearance),
+                                onClick = onOpenAppAppearance
                             )
                         }
                     }
