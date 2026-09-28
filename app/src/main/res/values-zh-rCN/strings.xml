@@ -233,9 +233,10 @@
     <string name="toast_config_import_invalid">配置文件无效或已损坏</string>
 
     <string name="dialog_restart_systemui_title">重启挂钩进程？</string>
-    <string name="dialog_restart_systemui_summary">选择要重启的挂钩进程。系统界面进程同时承载锁屏与锁屏编辑；android（system_server）进程无法单独重启，只能整机重启。重启期间屏幕、状态栏和息屏显示可能短暂消失。需要 Root 权限。</string>
+    <string name="dialog_restart_systemui_summary">选择要重启的挂钩进程。系统界面进程同时承载锁屏与锁屏编辑；android（system_server）进程无法单独重启，只能整机重启。重启 HyperGlow 会重新加载插件与设置，并自动重新打开应用。重启期间屏幕、状态栏和息屏显示可能短暂消失。需要 Root 权限。</string>
     <string name="dialog_restart_target_systemui">系统界面（含锁屏）</string>
     <string name="dialog_restart_target_aod">息屏显示进程（com.miui.aod）</string>
+    <string name="dialog_restart_target_hyperglow">HyperGlow 应用（本应用）</string>
     <string name="toast_restart_no_target">请至少选择一个进程</string>
     <string name="option_follow_xiaomi">跟随小米</string>
     <string name="dialog_pause_summary">同时应用于息屏和锁屏歌词。</string>

@@ -233,9 +233,10 @@
     <string name="toast_config_imported">Config imported</string>
     <string name="toast_config_import_invalid">Invalid or corrupt config file</string>
     <string name="dialog_restart_systemui_title">Restart hooked processes?</string>
-    <string name="dialog_restart_systemui_summary">Choose which hooked processes to restart. The System UI process also hosts the lock screen and its editor; the android (system_server) process can only be restarted by rebooting the device. The screen, status bar, and AOD may briefly disappear. Root access is required.</string>
+    <string name="dialog_restart_systemui_summary">Choose which hooked processes to restart. The System UI process also hosts the lock screen and its editor; the android (system_server) process can only be restarted by rebooting the device. Restarting HyperGlow reloads plugins and settings and reopens the app automatically. The screen, status bar, and AOD may briefly disappear. Root access is required.</string>
     <string name="dialog_restart_target_systemui">System UI (lock screen included)</string>
     <string name="dialog_restart_target_aod">AOD process (com.miui.aod)</string>
+    <string name="dialog_restart_target_hyperglow">HyperGlow app (this app)</string>
     <string name="toast_restart_no_target">Select at least one process</string>
     <string name="option_follow_xiaomi">Follow Xiaomi</string>
     <string name="dialog_pause_summary">Applies to both AOD and lock screen lyrics.</string>

@@ -62,6 +62,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
   song info row to follow the lyric direction (previously pinned to start), and the home preview
   secondary/metadata rows now honor row alignment like the device does (previously always start).
 - Top-right restart entry on the home app bar (quick restart button replacing the former runtime-status list row, same restart dialog and ShellUtils path) — pending a hardware smoke check after merge: the icon opens the target dialog and the confirmed restart brings SystemUI/AOD back.
+- Restart dialog gains the HyperGlow app itself as a third target (`dialog_restart_target_hyperglow`, off by default; ShellUtils kills the app process last and the root script relaunches `MainActivity`) — pending a hardware smoke check after merge: checking only this option reopens the app automatically and reloads plugins.
 - Adaptive lockscreen card height (the scene rect measures the content row stack at the resolved
   content width and sizes to it; the height setting is now the upper bound and the settings estimate
   only backs pre-content placement) — pending a hardware smoke check after merge: short one-line
@@ -203,6 +204,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 「辅助文字显示第二行歌词」呈现（`secondaryNextLine` 开关：下一行歌词按辅助文字样式绘制并取代独立下一行行；两种形态颜色均走「下一行颜色」设置）——合并后待真机冒烟确认。
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
+- 重启对话框新增第三个重启目标 HyperGlow 应用本身（`dialog_restart_target_hyperglow`，默认关闭；ShellUtils 最后杀本应用进程，root 脚本拉回 `MainActivity`）——合并后待真机冒烟：仅勾选该项应用自动重启并重新打开，插件重载。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
 - 换行动画速率（`lineTransitionSpeed`：`Normal`/`Slow`/`Fast`，位于换行动画选项正下方；时长按
   130/210ms 基准 ×1.0/×1.5/×0.6，帧配方与缓动不变，未知值规范化为 `Normal`）——合并后待真机
