@@ -79,7 +79,11 @@ internal data class AodCanvasContent(
     /** 歌曲图片形状 token(square/circle),见 [com.eza.hyperglow.customization.ARTWORK_SHAPES]。 */
     val artworkShape: String = "square",
     /** 圆形歌曲图片是否旋转;仅圆形生效(见 ArtworkDisplayConfig.spins)。 */
-    val artworkSpin: Boolean = false
+    val artworkSpin: Boolean = false,
+    /** 暂停驻留期间是否继续旋转(见 SurfaceProfile.artworkSpinWhenPaused)。 */
+    val artworkSpinWhenPaused: Boolean = false,
+    /** 当前快照是否为暂停驻留的冻结帧(pauseRetentionEligible):为真时旋转默认停。 */
+    val playbackPaused: Boolean = false
 )
 
 /** 下一行歌词的呈现方式;同一行只会以其中一种形态出现,不叠加。 */

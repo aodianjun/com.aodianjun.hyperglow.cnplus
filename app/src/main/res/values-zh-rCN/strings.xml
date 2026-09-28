@@ -314,6 +314,7 @@
     <string name="setting_song_info_parts">歌曲信息内容</string>
     <string name="setting_show_song_artwork">显示歌曲图片</string>
     <string name="setting_song_artwork_spin">旋转歌曲图片</string>
+<string name="setting_song_artwork_spin_paused">音乐暂停时继续旋转</string>
     <string name="choice_song_artwork_shape">歌曲图片形状</string>
     <string name="choice_song_info_separator">歌曲信息分隔符</string>
     <string name="choice_text_weight">文字粗细</string>

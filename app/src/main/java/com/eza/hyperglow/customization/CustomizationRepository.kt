@@ -247,6 +247,7 @@ object CustomizationRepository {
         artworkVisible = artworkVisible,
         artworkShape = artworkShape,
         artworkSpin = artworkSpin,
+        artworkSpinWhenPaused = artworkSpinWhenPaused,
         duetAlignment = duetAlignment,
         rubyVisible = rubyVisible,
         weight = weight,

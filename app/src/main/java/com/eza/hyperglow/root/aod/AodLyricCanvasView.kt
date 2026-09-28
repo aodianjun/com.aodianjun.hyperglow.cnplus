@@ -189,6 +189,8 @@ internal class AodLyricCanvasView(
     private val artworkPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var artworkBitmap: Bitmap? = null
     private var artworkBitmapKey = ""
+    /** 暂停停转时冻结的旋转角:节拍门停后偶发重绘不推进角度,恢复播放前保持停转时刻画面。 */
+    private var lastArtworkSpinAngle = 0f
     private val originalPaint = paint(27f, Color.WHITE, Typeface.NORMAL)
     private val romanizedPaint = paint(17f, Color.WHITE, Typeface.NORMAL)
     private val translatedPaint = paint(17f, Color.WHITE, Typeface.ITALIC)
@@ -1034,10 +1036,14 @@ internal class AodLyricCanvasView(
         artworkBitmapKey = if (decoded != null) key else ""
     }
 
-    /** 圆形+旋转开启时需要持续帧推进旋转角(受同一可见性/节拍门控,隐藏即停)。 */
+    /** 圆形+旋转开启时需要持续帧推进旋转角(受同一可见性/节拍门控,隐藏即停;暂停默认停)。 */
     private fun artworkSpinActive(): Boolean =
         artworkSlotActive(content) && content.artworkShape == ARTWORK_SHAPE_CIRCLE &&
-            content.artworkSpin && artworkBitmap != null
+            artworkSpinEffective(
+                content.artworkSpin,
+                content.artworkSpinWhenPaused,
+                content.playbackPaused
+            ) && artworkBitmap != null
 
     /** 歌曲信息行基线(锚点感知):底部锚点向上排,顶部锚点向下排(与 drawMetadata 同式)。 */
     private fun metadataLineBaseline(metadata: PositionedRow, index: Int): Float =
@@ -1093,11 +1099,18 @@ internal class AodLyricCanvasView(
             canvas.clipPath(Path().apply { addOval(rect, Path.Direction.CW) })
         }
         if (content.artworkSpin) {
-            canvas.rotate(
-                artworkSpinDegrees(true, SystemClock.elapsedRealtime()),
-                rect.centerX(),
-                rect.centerY()
-            )
+            val angle = if (
+                artworkSpinEffective(content.artworkSpin, content.artworkSpinWhenPaused, content.playbackPaused)
+            ) {
+                artworkSpinDegrees(true, SystemClock.elapsedRealtime())
+                    .also { lastArtworkSpinAngle = it }
+            } else {
+                // 暂停停转:冻结在停转时刻的角度(节拍门已停,偶发重绘不推进)。
+                lastArtworkSpinAngle
+            }
+            if (angle != 0f) canvas.rotate(angle, rect.centerX(), rect.centerY())
+        } else {
+            lastArtworkSpinAngle = 0f
         }
         artworkPaint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
         val scale = max(

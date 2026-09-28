@@ -1484,4 +1484,42 @@ class AodCanvasLayoutTest {
         // ascent + descent == 0 时中线与基线中点重合(与符号无关的退化点)。
         assertEquals(0f, metadataTextCenterY(0f, 0f, -8f, 8f), 0.0001f)
     }
+
+    @Test
+    fun canvasContentCarriesPauseSpinGate() {
+        // 暂停驻留快照与 per-surface 开关透传:artworkSpinEffective 同时驱动节拍门与绘制角。
+        val snapshot = LyricSnapshot(original = "line", pauseRetentionEligible = true)
+        val profile = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        artworkVisible = true,
+                        artworkShape = ARTWORK_SHAPE_CIRCLE,
+                        artworkSpin = true,
+                        artworkSpinWhenPaused = true
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val content = snapshot.toAodCanvasContent(profile)
+        assertTrue(content.playbackPaused)
+        assertTrue(content.artworkSpinWhenPaused)
+        assertTrue(
+            artworkSpinEffective(content.artworkSpin, content.artworkSpinWhenPaused, content.playbackPaused)
+        )
+
+        // 暂停 + 未开「音乐暂停时继续旋转」:停转(节拍门随之停,绘制角冻结)。
+        assertFalse(artworkSpinEffective(true, false, true))
+        // 播放中:旋转照常,与该开关无关。
+        assertTrue(artworkSpinEffective(true, false, false))
+        // 旋转总开关关:恒停。
+        assertFalse(artworkSpinEffective(false, true, false))
+
+        // 无 profile:开关缺省关;暂停标记随快照透传,与 profile 无关。
+        val bare = snapshot.toAodCanvasContent(null)
+        assertFalse(bare.artworkSpinWhenPaused)
+        assertTrue(bare.playbackPaused)
+        val live = LyricSnapshot(original = "line").toAodCanvasContent(profile)
+        assertFalse(live.playbackPaused)
+    }
 }

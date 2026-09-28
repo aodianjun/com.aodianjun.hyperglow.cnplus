@@ -63,6 +63,7 @@ internal object SystemUiCustomizationValidator {
                 artworkVisible = rawLockscreen.artworkVisible,
                 artworkShape = rawLockscreen.artworkShape,
                 artworkSpin = rawLockscreen.artworkSpin,
+                artworkSpinWhenPaused = rawLockscreen.artworkSpinWhenPaused,
                 backgroundStyle = rawLockscreen.backgroundStyle,
                 cardAlpha = rawLockscreen.cardAlpha,
                 cardColor = rawLockscreen.cardColor

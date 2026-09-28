@@ -156,6 +156,13 @@ internal fun artworkSpinDegrees(spin: Boolean, nowElapsedMs: Long): Float {
     return ((nowElapsedMs % ARTWORK_SPIN_PERIOD_MS) * 360f / period) % 360f
 }
 
+/**
+ * 旋转生效值(实机节拍门与绘制共用):旋转开关开启即转;音乐暂停驻留期间默认停转
+ * (驻留期无逐帧开销),仅 [SurfaceProfile.artworkSpinWhenPaused] 开启的曲面继续旋转。
+ */
+internal fun artworkSpinEffective(spin: Boolean, spinWhenPaused: Boolean, playbackPaused: Boolean): Boolean =
+    spin && (!playbackPaused || spinWhenPaused)
+
 internal fun originalLineBaseline(
     rowBaseline: Float,
     lineIndex: Int,
