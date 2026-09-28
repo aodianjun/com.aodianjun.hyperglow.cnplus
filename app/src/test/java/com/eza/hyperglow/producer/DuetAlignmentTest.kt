@@ -3,6 +3,7 @@ package com.eza.hyperglow.producer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -210,5 +211,77 @@ class DuetAlignmentTest {
         assertFalse(resolved[0])
         assertTrue(resolved[1])
         assertFalse(resolved[2])
+    }
+
+    // --- 对唱文本标记(（男）/（女）/（合）)识别 ---
+
+    @Test
+    fun duetMarkerParsesLeadingTokens() {
+        assertEquals(
+            DuetMarker("女", "男共女的事总有人偏私"),
+            parseDuetMarker("（女） 男共女的事总有人偏私")
+        )
+        assertEquals(
+            DuetMarker("男", "男共女的事深究无意义"),
+            parseDuetMarker("（男）男共女的事深究无意义")
+        )
+        assertEquals(DuetMarker("合", "如讲起恋爱这课题"), parseDuetMarker("（合）如讲起恋爱这课题"))
+        // 半角括号同样识别。
+        assertEquals(DuetMarker("女", "谁亦说得易"), parseDuetMarker("(女) 谁亦说得易"))
+    }
+
+    @Test
+    fun duetMarkerIgnoresInlineAndBareMarkerLines() {
+        // 标记只认行首;纯标记行保留原样(不产出空行)。
+        assertNull(parseDuetMarker("恋爱不见得（男）叫人坐不安"))
+        assertNull(parseDuetMarker("（男）"))
+        assertNull(parseDuetMarker("（女）   "))
+        assertNull(parseDuetMarker("普通歌词"))
+    }
+
+    @Test
+    fun stripDuetMarkerIsIdempotent() {
+        val stripped = stripDuetMarker("（女） 男共女的事总有人偏私")
+        assertEquals("男共女的事总有人偏私", stripped)
+        assertEquals(stripped, stripDuetMarker(stripped))
+        assertEquals("普通歌词", stripDuetMarker("普通歌词"))
+    }
+
+    @Test
+    fun stripDuetMarkerWordsDropsOrTrimsLeadingMarkerWord() {
+        val words = listOf(
+            LyricWord("（女）男共女", "", 0L, 100L, boundaryAfter = false),
+            LyricWord("的事", "", 100L, 200L, boundaryAfter = false)
+        )
+        val stripped = stripDuetMarkerWords(words)
+        assertEquals(2, stripped.size)
+        assertEquals("男共女", stripped[0].text)
+        // 首词整词就是标记 → 移除该词。
+        val markerOnly = listOf(
+            LyricWord("（女）", "", 0L, 100L, boundaryAfter = false),
+            LyricWord("的事", "", 100L, 200L, boundaryAfter = false)
+        )
+        assertEquals(listOf("的事"), stripDuetMarkerWords(markerOnly).map { it.text })
+        // 无标记词表返回输入实例。
+        val plain = listOf(LyricWord("的事", "", 0L, 100L, boundaryAfter = false))
+        assertSame(plain, stripDuetMarkerWords(plain))
+    }
+
+    @Test
+    fun markerIdentityFeedsNoTypeAlignment() {
+        // 标记 → 身份(男/女 交替,合 不参与):与元数据身份同走 resolveDuetAlignment。
+        val lines = listOf(
+            line(duetMarkerAgentId(parseDuetMarker("（女） 男共女的事")!!)),
+            line(duetMarkerAgentId(parseDuetMarker("（男） 男共女的事深究")!!)),
+            line(duetMarkerAgentId(parseDuetMarker("（合） 如讲起恋爱")!!)),
+            line(duetMarkerAgentId(parseDuetMarker("（男） 谁亦有本事")!!))
+        )
+        assertEquals(listOf(false, true, false, true), resolveDuetAlignment(lines, enabled = true))
+    }
+
+    @Test
+    fun chorusMarkerProducesNoIdentity() {
+        assertNull(duetMarkerAgentId(DuetMarker("合", "如讲起恋爱这课题")))
+        assertEquals("男", duetMarkerAgentId(DuetMarker("男", "其实有些事")))
     }
 }

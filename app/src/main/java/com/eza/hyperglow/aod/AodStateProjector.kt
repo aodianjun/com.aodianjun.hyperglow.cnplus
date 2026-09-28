@@ -10,6 +10,8 @@ import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricLayoutGroup
 import com.eza.hyperglow.producer.LyricRuby
 import com.eza.hyperglow.producer.LyricWord
+import com.eza.hyperglow.producer.stripDuetMarker
+import com.eza.hyperglow.producer.stripDuetMarkerWords
 
 /**
  * 播放中无歌词 / 纯音乐 / 间奏时的占位符。用 🎶 明确表示「音乐正在播放」，
@@ -76,9 +78,12 @@ internal fun projectToDisplay(
     val hasTimedLyrics = state.hasTimedLyrics
     // 原 fallbackLine 条件：!unsynced && !noLyrics && document == null && status == "ready" && it.isNotBlank()
     // document==null 对应 producer 无行级数据（lyricKind==NONE 但 line 非空 → 生产者塞了无时序一行）。
+    // 对唱标记(（男）/（女）/（合))识别:文档级开关开启时显示侧隐去行首标记文本,
+    // 词表同步剥离(逐字卡拉OK按词绘制,不同步会残留标记);关闭则原样显示。幂等。
+    val duetMarkers = compiled?.duetMarkers != false
     val fallbackLine = state.line.takeIf {
         !extrapolationInvalid && !unsynced && !noLyrics && kind == LyricKind.NONE && state.status == "ready" && it.isNotBlank()
-    }
+    }?.let { if (duetMarkers) stripDuetMarker(it) else it }
     val presentable = hasActiveLine || fallbackLine != null
 
     // --- 元数据（歌名/歌手/专辑按配置选择切片、按配置分隔符组装；`·` 仍是切片边界）---
@@ -111,6 +116,7 @@ internal fun projectToDisplay(
 
     // --- 原文/罗马音/翻译（原 project() 的 original/romanized/translated 分支）---
     val presentedLineText = state.line.takeIf { hasActiveLine && !showLargeMetadata }
+        ?.let { if (duetMarkers) stripDuetMarker(it) else it }
     // 中文歌被错误标注日语假名注音(网易云常见:中文歌词配日语 furigana/罗马音),AOD 上
     // 显示出来既难看又误导。语言为 zh 且 ruby 注音含假名时,拒绝整行的 ruby/罗马音
     // (上游 8422d78)。
@@ -132,7 +138,11 @@ internal fun projectToDisplay(
         state.romanizedLine
     }
     val translated = if (showLargeMetadata || unsynced || noLyrics) "" else state.translatedLine
-    val nextLine = if (showLargeMetadata || unsynced || noLyrics) "" else state.nextLine
+    val nextLine = if (showLargeMetadata || unsynced || noLyrics) {
+        ""
+    } else {
+        state.nextLine.let { if (duetMarkers) stripDuetMarker(it) else it }
+    }
 
     // --- 渲染模式（原 project() 从 state.liveCard* + prefs 混合取，现统一从 renderModes 取）---
     // 原 project() 里 weight/textSize/textSizeCustom/secondaryMode/animationMode/glowMode/
@@ -169,7 +179,11 @@ internal fun projectToDisplay(
     // --- per-word（透传真实词级数据）---
     // 真实词级时间戳随 words 下发：统一扫光管线以其计算整块进度（无行级时间时），
     // 逐字卡拉OK路径（逐字源+关闭发光）以逐词时间驱动缩放/渐变。
-    val effectiveWords = if (showLargeMetadata || !hasActiveLine) emptyList() else state.words.orEmpty()
+    val effectiveWords = if (showLargeMetadata || !hasActiveLine) {
+        emptyList()
+    } else {
+        state.words.orEmpty().let { if (duetMarkers) stripDuetMarkerWords(it) else it }
+    }
 
     // --- 行级同步标志（统一走整行水平扫光）---
     // 有活动歌词行时一律行级同步，以整行水平扫光为主要效果；

@@ -62,7 +62,6 @@ and (b) unverified paths stay explicit instead of silently assumed.
   song info row to follow the lyric direction (previously pinned to start), and the home preview
   secondary/metadata rows now honor row alignment like the device does (previously always start).
 - Top-right restart entry on the home app bar (quick restart button replacing the former runtime-status list row, same restart dialog and ShellUtils path) — pending a hardware smoke check after merge: the icon opens the target dialog and the confirmed restart brings SystemUI/AOD back.
-- Restart dialog gains the HyperGlow app itself as a third target (`dialog_restart_target_hyperglow`, off by default; ShellUtils kills the app process last and the root script relaunches `MainActivity`) — pending a hardware smoke check after merge: checking only this option reopens the app automatically and reloads plugins.
 - Adaptive lockscreen card height (the scene rect measures the content row stack at the resolved
   content width and sizes to it; the height setting is now the upper bound and the settings estimate
   only backs pre-content placement) — pending a hardware smoke check after merge: short one-line
@@ -146,7 +145,6 @@ and (b) unverified paths stay explicit instead of silently assumed.
   Songs whose lyric source carries no singer info are unchanged — pending a hardware smoke check
   after merge: a duet song tagged with two singers alternates left/right, turning the switch off
   lefts everything, and translation / next-line rows are unaffected.
-- Log retention and clear-logs entries on the diagnostics card ("Log retention" 1/3/7/15/30 days, and a destructive-confirmed "Clear logs" action that deletes both mirror files; expired mirror lines are pruned at process start, on retention change and at rotation) — pending a hardware smoke check after merge: changing the retention takes effect immediately, and after clearing `diagnostic-trace.log*` is gone while a fresh logging session starts a new file.
 - Lyricon position-feed log/state churn fix (a repeated position callback within the writer's
   ~40 ms update cadence no longer trips stall extrapolation: below the 500 ms floor the last
   real position is held and no state is emitted; the arbiter logs "active changed" only when
@@ -156,6 +154,18 @@ and (b) unverified paths stay explicit instead of silently assumed.
   `position stalled/resumed` (~45 lines/s) and per-frame arbiter `active changed` lines;
   genuine screen-off stalls still extrapolate and log once, and line changes / source
   switches still log.
+- Duet marker recognition (`duetMarkers`, document-level, default on): leading （男）/（女）/（合）
+  markers are hidden from display and, when the source carries no singer metadata, drive the duet
+  left/right split (first marker singer left, the rest right, in order of appearance); turning it
+  off shows raw marker text and keeps markers out of the split.
+  Ingest timeline repair (gap-swallowing line windows re-anchored / suspect word timing dropped)
+  and cross-producer seek forwarding land together — pending a hardware smoke check after merge:
+  a Netease duet song (e.g. 讲男讲女) splits left/right by the （男）/（女） markers with clean text
+  and lines appear at their sung times (no early next-line), the switch restores raw markers, and
+  dragging the seek bar moves the lyric immediately. The clamp is deliberately conservative
+  (isolated long-window rows stay untouched, so genuine held notes are safe): also confirm a slow
+  ballad's held final note still enters at its real start, and an English/melisma song shows no
+  late-clamped lines.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -216,7 +226,6 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 「辅助文字显示第二行歌词」呈现（`secondaryNextLine` 开关：下一行歌词按辅助文字样式绘制并取代独立下一行行；两种形态颜色均走「下一行颜色」设置）——合并后待真机冒烟确认。
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
-- 重启对话框新增第三个重启目标 HyperGlow 应用本身（`dialog_restart_target_hyperglow`，默认关闭；ShellUtils 最后杀本应用进程，root 脚本拉回 `MainActivity`）——合并后待真机冒烟：仅勾选该项应用自动重启并重新打开，插件重载。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
 - 换行动画速率（`lineTransitionSpeed`：`Normal`/`Slow`/`Fast`，位于换行动画选项正下方；时长按
   130/210ms 基准 ×1.0/×1.5/×0.6，帧配方与缓动不变，未知值规范化为 `Normal`）——合并后待真机
@@ -243,8 +252,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   旋转、缩放)观感与参考动画一致(旧行先离场、新行收位);翻转方向与应用内预览一致;速率档
   对预设同样生效;`Fade up` 与历史一致。
 - 对唱分侧（`duetAlignment`，每 surface 独立，默认开启）：源显式标记（`alignedRight`/`isAlignedRight`）或演唱者身份元数据判为后位歌手的行绘制在右侧；关闭开关后所有行按主对齐解析。歌词源不带演唱者信息的曲目零变化——合并后待真机冒烟：歌词源标注了两位演唱者的对唱歌曲左右交替、关闭开关后全部居左、翻译/下一行行不受影响。
-- 日志保留期限与清日志（诊断设置卡新增「日志保留期限」1/3/7/15/30 天档与「清除日志」动作：超期镜像行在启动/改期限/轮转时清理，清日志经确认后删除两个镜像文件）——合并后待真机冒烟：改保留期限立即生效，清除后 `diagnostic-trace.log*` 不再存在，重新记日志会开新文件。
 - Lyricon 位置通道日志/状态刷屏修复（写入端 ~40ms 更新节奏内的重复位置回调不再触发停滞外推：低于 500ms 下限保持最后真实位置且不发状态；仲裁器仅在来源身份（源+歌曲代）真变时才记「active changed」，同源例行转发不再逐帧刷日志）——合并后待真机冒烟：开诊断日志播歌，`diagnostic-trace.log` 不再被逐帧 `position stalled/resumed`（约 45 行/秒）与逐帧 `active changed` 刷满轮转；真实息屏停滞仍外推且各记一条，换行/换源日志保留。
+- 识别对唱标记（`duetMarkers`，文档级全局，默认开启）：行首（男）/（女）/（合）标记被隐去并（无元数据时）驱动对唱左右分侧（按标记出现顺序，先出现者居左）；关闭后原样显示标记、标记不参与分侧。同行落地 ingest 时间轴修复（间隙吞进行窗向词对齐/钳制、可疑词级降级）与跨源 seek 转发——合并后待真机冒烟：网易云对唱曲（如《讲男讲女》）按（男）/（女）出现顺序左右分侧且文本无标记、逐句起唱点正确（下一句不再提前上屏）、关闭开关恢复原样标记、拖动进度条歌词立即跟手。钳制刻意保守（孤立长窗行原样保留，真实长音安全）：另验慢歌收尾长音按真实起唱点上屏、英文/拉长音歌曲无误钳。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

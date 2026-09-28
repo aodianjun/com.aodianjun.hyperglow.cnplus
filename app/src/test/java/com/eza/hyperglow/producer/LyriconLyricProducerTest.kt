@@ -1679,4 +1679,40 @@ class LyriconLyricProducerTest {
 
         assertEquals(0L, producer.lastForcedResubscribeElapsedMs)
     }
+
+    // --- 对唱标记识别开关(P2)与跨源 seek 转发(P3)---
+
+    @Test
+    fun duetMarkerGateSelectsBetweenMarkerAndMetadataAlignment() {
+        // 标记版:（女）先出现居左、（男）居右;关闭标记识别后无身份输入 → 全部按源值(居左)。
+        producer.playerListener.onSongChanged(markerDuetSong())
+        assertTrue(producer.duetMarkersEnabled)
+        assertFalse(producer.activeAlignedRight(0))
+        assertTrue(producer.activeAlignedRight(1))
+        producer.duetMarkersEnabled = false
+        assertFalse(producer.activeAlignedRight(0))
+        assertFalse(producer.activeAlignedRight(1))
+    }
+
+    @Test
+    fun externalSeekLocatesTheActiveLineImmediately() {
+        // 跨源 seek 转发与 onSeekTo 同一处理:位置直接落定、活动行立即重选。
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.onExternalSeek(3_600L)
+        val state = producer.state.value!!
+        assertEquals(3_600L, state.positionMs)
+        assertEquals("second", state.line)
+        assertEquals(1, state.lineIndex)
+    }
+
+    private fun markerDuetSong(): Song = Song(
+        id = "song-duet",
+        name = "Duet Song",
+        artist = "A/B",
+        duration = 20_000L,
+        lyrics = listOf(
+            line(1_000, 3_000, "（女） 第一句"),
+            line(3_000, 5_000, "（男） 第二句")
+        )
+    )
 }

@@ -1,6 +1,7 @@
 package com.eza.hyperglow.producer
 
 import android.content.Context
+import com.eza.hyperglow.customization.CustomizationRepository
 
 /**
  * Process-wide holder for the [LyricProducerArbiter] and its two producers.
@@ -26,6 +27,7 @@ import android.content.Context
 object LyricProducers {
     @Volatile private var instance: LyricProducerArbiter? = null
     @Volatile private var lyricInfoProducer: LyricInfoLyricProducer? = null
+    @Volatile private var registeredProducers: List<LyricProducer> = emptyList()
 
     val arbiter: LyricProducerArbiter
         get() = instance ?: error("LyricProducers not started; call start(context) first")
@@ -37,6 +39,7 @@ object LyricProducers {
         val lyricon = LyriconLyricProducer()
         val superLyric = SuperLyricLyricProducer()
         val lyricInfo = LyricInfoLyricProducer()
+        val producers = listOf<LyricProducer>(spicy, lyricon, superLyric, lyricInfo)
         val arbiter = LyricProducerArbiter(
             mapOf(
                 LyricSource.SPICY to spicy,
@@ -48,6 +51,10 @@ object LyricProducers {
         arbiter.start(context.applicationContext)
         instance = arbiter
         lyricInfoProducer = lyricInfo
+        registeredProducers = producers
+        // 文档保存/导入/重置 → 生产者侧派生缓存(对唱标记开关/分侧快照/渲染模式)即刻重算,
+        // 不必等下次切歌(见 LyriconLyricProducer.onCustomizationChanged)。
+        CustomizationRepository.onChange = { onCustomizationChanged() }
     }
 
     /** Test/preview accessor; returns null before [start]. */
@@ -59,5 +66,23 @@ object LyricProducers {
      */
     fun onLyricInfoListenerConnected() {
         lyricInfoProducer?.onListenerConnected()
+    }
+
+    /**
+     * 跨源 seek 转发(见 [LyricProducer.onExternalSeek]):[from] 检测到拖动进度条后,
+     * 其余生产者立即采用该权威位置跟手——各位置源独立,不转发的一方要等自己的残值
+     * 拒绝窗/冻结源恢复才追上(2026-09-28 真机实测滞后 14s)。
+     */
+    fun notifyExternalSeek(from: LyricSource, positionMs: Long) {
+        registeredProducers.forEach { producer ->
+            if (producer.id != from) producer.onExternalSeek(positionMs)
+        }
+    }
+
+    /** 外部设置变更(文档保存/导入/重置)时通知生产者刷新派生缓存。 */
+    fun onCustomizationChanged() {
+        registeredProducers.forEach { producer ->
+            (producer as? LyriconLyricProducer)?.onCustomizationChanged()
+        }
     }
 }

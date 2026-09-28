@@ -690,4 +690,33 @@ class AodStateProjectorTest {
             project(jammed, compiled = compiled.copy(metadataParts = "title")).metadata
         )
     }
+
+    // --- 对唱标记(（男）/（女）/（合）)剥离(文档级 duetMarkers)---
+
+    @Test
+    fun duetMarkerStripsLineNextLineAndLeadingWordByDefault() {
+        val s = state(
+            line = "（女） 男共女的事总有人偏私",
+            lineIndex = 0,
+            words = listOf(
+                LyricWord("（女）男共女", "", 0L, 1_000L, false),
+                LyricWord("的事", "", 1_000L, 2_000L, false)
+            )
+        ).copy(nextLine = "（男） 男共女的事深究无意义")
+        val out = project(s)
+
+        assertEquals("男共女的事总有人偏私", out.original)
+        assertEquals("男共女的事深究无意义", out.nextLine)
+        assertEquals(listOf("男共女", "的事"), out.words.map { it.text })
+    }
+
+    @Test
+    fun duetMarkersOffKeepsRawMarkerText() {
+        val s = state(line = "（女） 男共女的事总有人偏私", lineIndex = 0)
+            .copy(nextLine = "（男） 下一句")
+        val out = project(s, compiled = compiled.copy(duetMarkers = false))
+
+        assertEquals("（女） 男共女的事总有人偏私", out.original)
+        assertEquals("（男） 下一句", out.nextLine)
+    }
 }

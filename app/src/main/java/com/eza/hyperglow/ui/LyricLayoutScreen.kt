@@ -283,7 +283,8 @@ internal fun LyricLayoutScreen(
                     profile = compiledPreviewProfile,
                     scenario = editorState.selectedSurface,
                     metadataParts = editorState.document.metadataParts,
-                    metadataSeparator = editorState.document.metadataSeparator
+                    metadataSeparator = editorState.document.metadataSeparator,
+                    duetMarkers = editorState.document.duetMarkers
                 )
             }
             LazyColumn(
@@ -375,6 +376,13 @@ internal fun LyricLayoutScreen(
                         { enabled -> updateSelected { it.copy(duetAlignment = enabled) } },
                         stringResource(R.string.setting_duet_alignment),
                         summary = stringResource(R.string.summary_duet_alignment)
+                    )
+                    // 识别对唱标记(文档级全局):标记是内容级解释,息屏与锁屏同源生效。
+                    SwitchPreference(
+                        editorState.document.duetMarkers,
+                        { enabled -> updateDocument { it.copy(duetMarkers = enabled) } },
+                        stringResource(R.string.setting_duet_markers),
+                        summary = stringResource(R.string.summary_duet_markers)
                     )
                     AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
                         openChoice(

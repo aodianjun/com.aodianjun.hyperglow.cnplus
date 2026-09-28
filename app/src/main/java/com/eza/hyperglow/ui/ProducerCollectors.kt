@@ -14,6 +14,8 @@ import com.eza.hyperglow.producer.LyricSource
 import com.eza.hyperglow.producer.ProducerConnection
 import com.eza.hyperglow.producer.SongArtworkRepository
 import com.eza.hyperglow.producer.isSameTrackIdentity
+import com.eza.hyperglow.producer.stripDuetMarker
+import com.eza.hyperglow.producer.stripDuetMarkerWords
 import com.eza.hyperglow.root.projection.LyricLayoutGroup
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
@@ -81,17 +83,19 @@ internal fun collectConnection(source: LyricSource): androidx.compose.runtime.St
 @Composable
 internal fun collectLiveSnapshot(
     metadataParts: String,
-    metadataSeparator: String
+    metadataSeparator: String,
+    duetMarkers: Boolean = true
 ): LyricSnapshot? {
     val active by collectActiveState()
     // 封面帧出帧后驱动重组(帧到达前字段为空,预览不显示,与实机 fail-closed 一致)。
     val artworkFrame by SongArtworkRepository.current.collectAsState()
-    return active?.toPreviewSnapshot(metadataParts, metadataSeparator, artworkFrame)
+    return active?.toPreviewSnapshot(metadataParts, metadataSeparator, duetMarkers, artworkFrame)
 }
 
 private fun LyricProducerState.toPreviewSnapshot(
     metadataParts: String,
     metadataSeparator: String,
+    duetMarkers: Boolean,
     artworkFrame: ArtworkFrame?
 ): LyricSnapshot {
     val frame = artworkFrame?.takeIf {
@@ -102,10 +106,10 @@ private fun LyricProducerState.toPreviewSnapshot(
     trackGeneration = generation.toLong(),
     updatedAtElapsedMs = sampledAtElapsedMs,
     visible = true,
-    original = line,
+    original = if (duetMarkers) stripDuetMarker(line) else line,
     romanized = romanizedLine,
     translated = translatedLine,
-    nextLine = nextLine,
+    nextLine = if (duetMarkers) stripDuetMarker(nextLine) else nextLine,
     metadata = composeSongMetadata(
         title = title,
         artist = artist,
@@ -121,7 +125,7 @@ private fun LyricProducerState.toPreviewSnapshot(
     positionMs = positionMs,
     sampledAtElapsedMs = sampledAtElapsedMs,
     speed = speed,
-    words = (words ?: emptyList()).map {
+    words = (if (duetMarkers) stripDuetMarkerWords(words ?: emptyList()) else words ?: emptyList()).map {
         LyricWord(
             text = it.text,
             romanized = it.romanized,

@@ -716,6 +716,19 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun duetMarkersCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 「识别对唱标记」是文档级全局开关:关闭状态是「与默认不同」的值,必须穿过
+        // compile、SystemUI 二次校验与仓库 canonicalize 逐字段重建往返,漏字段会被
+        // 静默弹回默认(开启)。
+        val off = CustomizationDocument(duetMarkers = false)
+        assertFalse(SceneCompiler.compile(off).duetMarkers)
+        assertFalse(SystemUiCustomizationValidator.validate(SceneCompiler.compile(off))!!.duetMarkers)
+        assertFalse(CustomizationRepository.canonicalizeDocument(off)!!.duetMarkers)
+        // 默认文档保持开启(标记识别即对唱特性在真实内容上的输入形态)。
+        assertTrue(SceneCompiler.compile(SceneCompiler.safeDefaultDocument()).duetMarkers)
+    }
+
+    @Test
     fun systemUiValidatorResetsInvalidCardColorToDefault() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(
