@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.eza.hyperglow.R
@@ -51,7 +52,7 @@ internal fun LiveStatusSection() {
 
 /**
  * Lyric source card: shows the selected source and its connection state, with a tap target
- * to switch between Spicy EX and Lyricon.
+ * to switch between the supported lyric sources.
  */
 @Composable
 internal fun LyricSourceSection(onOpenSourceDialog: () -> Unit) {
@@ -248,7 +249,7 @@ internal fun LyricSourcePickerDialog(onDismiss: () -> Unit) {
         show = true,
         onDismissRequest = onDismiss
     ) {
-        Column {
+        Column(Modifier.dialogScrollable()) {
             LyricSource.entries.forEach { source ->
                 RadioButtonPreference(
                     lyricSourceLabel(context, source),

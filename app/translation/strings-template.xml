@@ -57,10 +57,10 @@
     <string name="action_report_problem">Report a problem</string>
     <string name="action_restart_systemui">Restart hooked processes</string>
     <string name="setting_experimental_mode">Experimental mode</string>
-    <string name="summary_experimental_mode">This System UI version is not verified, but the required symbols were detected. Enable to unlock AOD and lock screen configuration at your own risk — surface hooks may not behave correctly on unverified builds.</string>
+    <string name="summary_experimental_mode">Symbols were detected, but this System UI version is unverified. Enable at your own risk.</string>
     <string name="summary_experimental_mode_on">Unverified profile unlocked via experimental mode. Surface behavior is not guaranteed.</string>
     <string name="setting_aod_rotate_with_device">Rotate AOD canvas with device</string>
-    <string name="summary_aod_rotate_with_device">Rotate lyrics to landscape when device is tilted</string>
+    <string name="summary_aod_rotate_with_device">Rotates the lyric canvas to landscape when the device is tilted. Independent of the "Hide stock AOD content" setting.</string>
     <string name="setting_aod_rotation_mode">Rotation mode</string>
     <string name="option_aod_rotation_auto">Auto (follow device tilt)</string>
     <string name="option_aod_rotation_landscape">Landscape</string>
@@ -68,14 +68,14 @@
     <string name="setting_aod_rotation_settle">Rotation settle time</string>
     <string name="rotation_settle_ms">%1$d ms</string>
     <string name="setting_aod_landscape_scale">Landscape text scale</string>
-    <string name="summary_aod_landscape_scale">Scale factor for lyrics while rotated to landscape (50%%–200%%).</string>
+    <string name="summary_aod_landscape_scale" formatted="false">Scale factor for lyrics while rotated to landscape (50%–200%).</string>
     <string name="setting_aod_landscape_anchor">Landscape vertical anchor</string>
-    <string name="summary_aod_landscape_anchor">Vertical anchor of the lyric block while rotated (0%% top, 100%% bottom).</string>
+    <string name="summary_aod_landscape_anchor" formatted="false">Vertical anchor of the lyric block while rotated (0% top, 100% bottom).</string>
     <string name="setting_aod_padding_portrait_x">Portrait horizontal padding</string>
     <string name="setting_aod_padding_portrait_y">Portrait vertical padding</string>
     <string name="setting_aod_padding_landscape_x">Landscape horizontal padding</string>
     <string name="setting_aod_padding_landscape_y">Landscape vertical padding</string>
-    <string name="summary_aod_padding">Inset padding from each edge, as a percentage of the canvas (0–20%%).</string>
+    <string name="summary_aod_padding" formatted="false">Inset padding from each edge, as a percentage of the canvas (0–20%).</string>
     <string name="setting_aod_landscape_hide_stock">Hide stock AOD content in landscape</string>
     <string name="summary_aod_landscape_hide_stock">While lyrics rotate to landscape, force-hide Xiaomi\'s stock AOD elements (clock, weather); they reappear automatically when the device returns to portrait. Requires rotation to be enabled.</string>
     <string name="setting_aod_landscape_fullscreen">Full-screen lyrics in landscape</string>
@@ -83,7 +83,7 @@
     <string name="setting_aod_debug_show_canvas_frame">Show AOD canvas frame (debug)</string>
     <string name="summary_aod_debug_show_canvas_frame">Draw the canvas boundary (red) and content area (green) on the AOD for layout debugging. Turn off after debugging.</string>
     <string name="setting_suppress_stock_aod">Hide stock AOD content</string>
-    <string name="summary_suppress_stock_aod">Force-hide Xiaomi\'s stock AOD elements while lyrics are shown</string>
+    <string name="summary_suppress_stock_aod">While the full-screen lyric canvas is shown, force-hide Xiaomi\'s stock AOD elements (clock, weather). Independent of the "Rotate AOD canvas with device" setting.</string>
 
     <string name="section_lyric_source">Lyrics source</string>
     <string name="lyric_source_spicy">Spicy EX</string>
@@ -114,7 +114,7 @@
     <string name="source_status_disconnected">Disconnected</string>
     <string name="source_status_connect_timeout">Connection timed out</string>
     <string name="source_status_unavailable_api">Unavailable (requires Android 8.1+)</string>
-    <string name="dialog_lyric_source_summary">Pick which provider feeds lyrics to AOD and the lock screen. The other source is used as an automatic fallback.</string>
+    <string name="dialog_lyric_source_summary">Pick which provider feeds lyrics to AOD and the lock screen. Other connected sources are tried in order as automatic fallbacks.</string>
 
     <string name="action_save">Save</string>
     <string name="action_uninstall">Uninstall</string>
@@ -192,7 +192,7 @@
     <string name="setting_pause_show_content">Show song info and lyrics while paused</string>
     <string name="summary_pause_show_content">When off, pausing immediately clears song info and lyrics on the AOD and lock screen. When on, they stay for the duration set in "%1$s".</string>
     <string name="setting_aod_clock_follow">Follow system clock in real time</string>
-    <string name="summary_aod_clock_follow">When enabled, lyric placement follows the real system clock position directly, avoiding stale/lagging layout and overlap when the clock moves down. When disabled, anchored anti-oscillation is used.</string>
+    <string name="summary_aod_clock_follow">When enabled, lyrics follow the system clock\'s live position. When disabled, the clock is pinned in place.</string>
     <string name="setting_aod_clock_image">AOD clock or image</string>
     <string name="setting_aod_clock_y_offset">Clock vertical offset</string>
     <string name="summary_aod_clock_y_offset">Moves the pinned system clock vertically when "Follow system clock in real time" is off (negative moves up, positive moves down).</string>
@@ -206,7 +206,7 @@
     <string name="refresh_rate_cap_hz">%1$d Hz</string>
     <string name="setting_aod_brightness_custom">Custom brightness</string>
     <string name="summary_aod_brightness_custom_off">Off: boost brightness automatically per scene to a readable level.</string>
-    <string name="summary_aod_brightness_custom_on">On: use a fixed custom brightness for AOD lyrics. Adjust with the slider below.</string>
+    <string name="summary_aod_brightness_custom_on">On: use a fixed custom brightness for AOD lyrics. Adjust with the "Custom brightness level" slider.</string>
     <string name="setting_aod_brightness_level">Custom brightness level</string>
     <string name="summary_aod_brightness_level">Fixed brightness applied while lyrics are shown on AOD (10–255).</string>
     <string name="section_lockscreen_behavior">Lock screen behavior</string>
@@ -232,7 +232,7 @@
     <string name="setting_import_config">Import config</string>
     <string name="summary_import_config">Restore all settings from a JSON file. Some interface settings may require restarting the app to take full effect.</string>
     <string name="setting_reset_defaults">Restore default settings</string>
-    <string name="summary_reset_defaults">Reset all options on this page to their built-in defaults. Appearance and lyric layout are not affected.</string>
+    <string name="summary_reset_defaults">Reset all options on this page to their built-in defaults.</string>
     <string name="dialog_reset_defaults_title">Restore default settings?</string>
     <string name="dialog_reset_defaults_summary">Every option on this page will be reset to its default value. Appearance and lyric layout customizations are kept. The page reloads afterwards.</string>
     <string name="toast_config_exported">Config exported</string>
@@ -240,7 +240,7 @@
     <string name="toast_config_imported">Config imported</string>
     <string name="toast_config_import_invalid">Invalid or corrupt config file</string>
     <string name="dialog_restart_systemui_title">Restart hooked processes?</string>
-    <string name="dialog_restart_systemui_summary">Choose which hooked processes to restart. The System UI process also hosts the lock screen and its editor; the android (system_server) process can only be restarted by rebooting the device. Restarting HyperGlow reloads plugins and settings and reopens the app automatically. The screen, status bar, and AOD may briefly disappear. Root access is required.</string>
+    <string name="dialog_restart_systemui_summary">Choose which hooked processes to restart. Root is required; the screen, status bar, and AOD may briefly disappear.</string>
     <string name="dialog_restart_target_systemui">System UI (lock screen included)</string>
     <string name="dialog_restart_target_aod">AOD process (com.miui.aod)</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow app (this app)</string>
@@ -571,4 +571,12 @@
     <string name="option_bar_icons_auto">Automatic</string>
     <string name="option_bar_icons_light">Light icons</string>
     <string name="option_bar_icons_dark">Dark icons</string>
+    <string name="action_back">Back</string>
+    <string name="title_aod_behavior_settings">AOD behavior settings</string>
+    <string name="diagnostic_preview_section_raw">Raw diagnostics</string>
+    <string name="diagnostic_preview_events">Diagnostic events and logs</string>
+    <string name="diagnostic_preview_crash">Crash excerpt</string>
+    <string name="diagnostic_preview_lsposed">LSPosed module lines</string>
+    <string name="diagnostic_preview_settings">Runtime settings</string>
+    <string name="diagnostic_preview_empty">(empty)</string>
 </resources>

@@ -52,7 +52,7 @@
     <string name="action_report_problem">报告问题</string>
     <string name="action_restart_systemui">重启挂钩进程</string>
     <string name="setting_experimental_mode">实验模式</string>
-    <string name="summary_experimental_mode">此系统界面版本未经验证，但所需符号已检测到。开启后将解锁 AOD 与锁屏配置，风险自负 —— 未验证版本上的 surface hook 行为可能异常。</string>
+    <string name="summary_experimental_mode">所需符号已检测到,但此 System UI 版本未经验证。开启即风险自负。</string>
     <string name="summary_experimental_mode_on">已通过实验模式解锁未验证配置。Surface 行为不作保证。</string>
 
     <string name="section_lyric_source">歌词源</string>
@@ -71,7 +71,7 @@
     <string name="source_status_disconnected">未连接</string>
     <string name="source_status_connect_timeout">连接超时</string>
     <string name="source_status_unavailable_api">不可用（需 Android 8.1 及以上）</string>
-    <string name="dialog_lyric_source_summary">选择为息屏和锁屏提供歌词的来源。另一个来源会作为自动回退使用。</string>
+    <string name="dialog_lyric_source_summary">选择为息屏和锁屏提供歌词的来源。其他已连接的来源会按顺序自动回退。</string>
 
     <string name="action_save">保存</string>
     <string name="action_uninstall">卸载</string>
@@ -165,7 +165,7 @@
     <string name="setting_pause_show_content">暂停时显示歌曲信息、歌词</string>
     <string name="summary_pause_show_content">关闭后，音乐暂停时立即清除息屏与锁屏上的歌曲信息、歌词；开启后，按「%1$s」的时长保留。</string>
     <string name="setting_aod_clock_follow">实时跟随系统时钟</string>
-    <string name="summary_aod_clock_follow">开启后歌词位置直接跟随系统时钟的真实移动,避免时钟快移时歌词布局滞后错位与重叠。关闭(锚定)时,系统时钟位置会被钉住、不随防烧屏抖动下移,且时钟保持可见。建议在时钟下移时开启。</string>
+    <string name="summary_aod_clock_follow">开启后歌词位置实时跟随系统时钟;关闭后系统时钟被钉在原位。</string>
     <string name="setting_aod_clock_image">息屏时钟或图片</string>
     <string name="setting_aod_clock_y_offset">时钟垂直偏移</string>
     <string name="summary_aod_clock_y_offset">在关闭「实时跟随系统时钟」时,垂直移动被钉住的系统时钟(负值上移、正值下移)。</string>
@@ -179,13 +179,13 @@
     <string name="refresh_rate_cap_hz">%1$d Hz</string>
     <string name="setting_aod_brightness_custom">自定义亮度</string>
     <string name="summary_aod_brightness_custom_off">关闭:按场景自动把息屏亮度提升到可读级别。</string>
-    <string name="summary_aod_brightness_custom_on">开启:息屏歌词使用固定的自定义亮度。用下方滑块调节。</string>
+    <string name="summary_aod_brightness_custom_on">开启:息屏歌词使用固定的自定义亮度。用「自定义亮度档位」滑块调节。</string>
     <string name="setting_aod_brightness_level">自定义亮度档位</string>
     <string name="summary_aod_brightness_level">息屏歌词显示时使用的固定亮度(10-255)。</string>
     <string name="setting_suppress_stock_aod">隐藏系统息屏内容</string>
-    <string name="summary_suppress_stock_aod">自绘全屏歌词画布显示时,强制隐藏小米系统息屏元素(时钟/天气等)。与下方旋转开关互相独立。</string>
+    <string name="summary_suppress_stock_aod">自绘全屏歌词画布显示时,强制隐藏小米系统息屏元素(时钟/天气等)。与「息屏画布随设备旋转」设置相互独立。</string>
     <string name="setting_aod_rotate_with_device">息屏画布随设备旋转</string>
-    <string name="summary_aod_rotate_with_device">设备侧放时把歌词画布旋转到横屏。与上方隐藏系统内容开关互相独立。</string>
+    <string name="summary_aod_rotate_with_device">设备侧放时把歌词画布旋转到横屏。与「隐藏系统息屏内容」设置相互独立。</string>
 
     <string name="setting_aod_rotation_mode">旋转模式</string>
     <string name="option_aod_rotation_auto">自动(随设备倾斜角)</string>
@@ -194,14 +194,14 @@
     <string name="setting_aod_rotation_settle">旋转稳定时间</string>
     <string name="rotation_settle_ms">%1$d 毫秒</string>
     <string name="setting_aod_landscape_scale">横屏歌词缩放</string>
-    <string name="summary_aod_landscape_scale">旋转到横屏时歌词的缩放倍数(50%%-200%%)。</string>
+    <string name="summary_aod_landscape_scale" formatted="false">旋转到横屏时歌词的缩放倍数(50%-200%)。</string>
     <string name="setting_aod_landscape_anchor">横屏垂直锚点</string>
-    <string name="summary_aod_landscape_anchor">旋转时歌词块的垂直锚点(0%%为顶部,100%%为底部)。</string>
+    <string name="summary_aod_landscape_anchor" formatted="false">旋转时歌词块的垂直锚点(0%为顶部,100%为底部)。</string>
     <string name="setting_aod_padding_portrait_x">竖屏水平内边距</string>
     <string name="setting_aod_padding_portrait_y">竖屏垂直内边距</string>
     <string name="setting_aod_padding_landscape_x">横屏水平内边距</string>
     <string name="setting_aod_padding_landscape_y">横屏垂直内边距</string>
-    <string name="summary_aod_padding">各边缘的内边距,以画布宽高的百分比计算(0%%-20%%)。</string>
+    <string name="summary_aod_padding" formatted="false">各边缘的内边距,以画布宽高的百分比计算(0%-20%)。</string>
     <string name="setting_aod_landscape_hide_stock">横屏时隐藏系统息屏内容</string>
     <string name="summary_aod_landscape_hide_stock">歌词旋转到横屏时,强制隐藏小米系统自带的息屏元素(时钟、天气);切回竖屏后自动恢复显示。</string>
     <string name="setting_aod_landscape_fullscreen">横屏歌词全屏化</string>
@@ -231,7 +231,7 @@
     <string name="setting_import_config">导入配置</string>
     <string name="summary_import_config">从 JSON 文件恢复所有设置。部分界面设置可能需要重启应用后完全生效。</string>
     <string name="setting_reset_defaults">恢复默认设置</string>
-    <string name="summary_reset_defaults">将本页所有设置项恢复为内置默认值，不影响外观与歌词布局。</string>
+    <string name="summary_reset_defaults">将本页所有选项重置为内置默认值。</string>
     <string name="dialog_reset_defaults_title">恢复默认设置？</string>
     <string name="dialog_reset_defaults_summary">本页全部设置项将被恢复为默认值，外观与歌词布局的自定义保持不变。完成后页面会自动刷新。</string>
     <string name="toast_config_exported">配置已导出</string>
@@ -240,7 +240,7 @@
     <string name="toast_config_import_invalid">配置文件无效或已损坏</string>
 
     <string name="dialog_restart_systemui_title">重启挂钩进程？</string>
-    <string name="dialog_restart_systemui_summary">选择要重启的挂钩进程。系统界面进程同时承载锁屏与锁屏编辑；android（system_server）进程无法单独重启，只能整机重启。重启 HyperGlow 会重新加载插件与设置，并自动重新打开应用。重启期间屏幕、状态栏和息屏显示可能短暂消失。需要 Root 权限。</string>
+    <string name="dialog_restart_systemui_summary">选择要重启的挂钩进程。需要 Root 权限;重启期间屏幕、状态栏和息屏显示可能短暂消失。</string>
     <string name="dialog_restart_target_systemui">系统界面（含锁屏）</string>
     <string name="dialog_restart_target_aod">息屏显示进程（com.miui.aod）</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow 应用（本应用）</string>
@@ -580,4 +580,12 @@
     <string name="option_bar_icons_auto">自动</string>
     <string name="option_bar_icons_light">浅色图标</string>
     <string name="option_bar_icons_dark">深色图标</string>
+    <string name="action_back">返回</string>
+    <string name="title_aod_behavior_settings">息屏行为设置</string>
+    <string name="diagnostic_preview_section_raw">原始诊断数据</string>
+    <string name="diagnostic_preview_events">诊断事件与日志</string>
+    <string name="diagnostic_preview_crash">崩溃摘录</string>
+    <string name="diagnostic_preview_lsposed">LSPosed 模块日志</string>
+    <string name="diagnostic_preview_settings">运行时设置</string>
+    <string name="diagnostic_preview_empty">(空)</string>
 </resources>

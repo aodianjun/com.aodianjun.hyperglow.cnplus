@@ -51,7 +51,7 @@
     <string name="action_report_problem">報告問題</string>
     <string name="action_restart_systemui">重啟掛鉤進程</string>
     <string name="setting_experimental_mode">實驗模式</string>
-    <string name="summary_experimental_mode">此係統界面版本未經驗證，但所需符號已檢測到。開啟後將解鎖 AOD 與鎖屏配置，風險自負 —— 未驗證版本上的 surface hook 行為可能異常。</string>
+    <string name="summary_experimental_mode">所需符號已檢測到，但此 System UI 版本未經驗證。開啟即風險自負。</string>
     <string name="summary_experimental_mode_on">已通過實驗模式解鎖未驗證配置。Surface 行為不作保證。</string>
 
     <string name="section_lyric_source">歌詞源</string>
@@ -70,7 +70,7 @@
     <string name="source_status_disconnected">未連接</string>
     <string name="source_status_connect_timeout">連接超時</string>
     <string name="source_status_unavailable_api">不可用（需 Android 8.1 及以上）</string>
-    <string name="dialog_lyric_source_summary">選擇為息屏和鎖屏提供歌詞的來源。另一個來源會作為自動回退使用。</string>
+    <string name="dialog_lyric_source_summary">選擇為息屏和鎖屏提供歌詞的來源。其他已連接的來源會按順序自動回退。</string>
 
     <string name="action_save">儲存</string>
     <string name="action_uninstall">解除安裝</string>
@@ -164,7 +164,7 @@
     <string name="setting_pause_show_content">暫停時顯示歌曲資訊、歌詞</string>
     <string name="summary_pause_show_content">關閉後，音樂暫停時立即清除息屏與鎖屏上的歌曲資訊、歌詞；開啟後，按「%1$s」的時長保留。</string>
     <string name="setting_aod_clock_follow">即時跟隨系統時鐘</string>
-    <string name="summary_aod_clock_follow">開啟後歌詞位置直接跟隨系統時鐘的真實移動,避免時鐘快移時歌詞佈局滯後錯位與重疊。關閉(錨定)時,系統時鐘位置會被釘住、不隨防燒屏抖動下移,且時鐘保持可見。建議在時鐘下移時開啟。</string>
+    <string name="summary_aod_clock_follow">開啟後歌詞位置即時跟隨系統時鐘;關閉後系統時鐘被釘在原位。</string>
     <string name="setting_aod_clock_image">息屏時鐘或圖片</string>
     <string name="setting_aod_clock_y_offset">時鐘垂直偏移</string>
     <string name="summary_aod_clock_y_offset">在關閉「即時跟隨系統時鐘」時,垂直移動被釘住的系統時鐘(負值上移、正值下移)。</string>
@@ -177,9 +177,9 @@
     <string name="refresh_rate_cap_follow">跟隨預設 (60 fps)</string>
     <string name="refresh_rate_cap_hz">%1$d Hz</string>
     <string name="setting_suppress_stock_aod">隱藏系統息屏內容</string>
-    <string name="summary_suppress_stock_aod">自繪全螢幕歌詞畫布顯示時，強制隱藏小米系統息屏元素（時鐘/天氣等）。與下方旋轉開關互相獨立。</string>
+    <string name="summary_suppress_stock_aod">自繪全螢幕歌詞畫布顯示時，強制隱藏小米系統息屏元素（時鐘/天氣等）。與「息屏畫布隨設備旋轉」設置相互獨立。</string>
     <string name="setting_aod_rotate_with_device">息屏畫布隨設備旋轉</string>
-    <string name="summary_aod_rotate_with_device">設備側放時把歌詞畫布旋轉到橫屏。與上方隱藏系統內容開關互相獨立。</string>
+    <string name="summary_aod_rotate_with_device">設備側放時把歌詞畫布旋轉到橫屏。與「隱藏系統息屏內容」設置相互獨立。</string>
 
     <string name="section_lockscreen_behavior">鎖屏行為</string>
     <string name="setting_keep_lockscreen_awake">保持鎖屏喚醒</string>
@@ -204,7 +204,7 @@
     <string name="setting_import_config">導入配置</string>
     <string name="summary_import_config">從 JSON 文件恢復所有設置。部分界面設置可能需要重啟應用後完全生效。</string>
     <string name="setting_reset_defaults">恢復默認設置</string>
-    <string name="summary_reset_defaults">將本頁所有設置項恢復為內置默認值，不影響外觀與歌詞佈局。</string>
+    <string name="summary_reset_defaults">將本頁所有選項重置為內建預設值。</string>
     <string name="dialog_reset_defaults_title">恢復默認設置？</string>
     <string name="dialog_reset_defaults_summary">本頁全部設置項將被恢復為默認值，外觀與歌詞佈局的自定義保持不變。完成後頁面會自動刷新。</string>
     <string name="toast_config_exported">配置已導出</string>
@@ -213,7 +213,7 @@
     <string name="toast_config_import_invalid">配置文件無效或已損壞</string>
 
     <string name="dialog_restart_systemui_title">重啟掛鉤進程？</string>
-    <string name="dialog_restart_systemui_summary">選擇要重啟的掛鉤進程。系統界面進程同時承載鎖屏與鎖屏編輯；android（system_server）進程無法單獨重啟，只能整機重啟。重啟 HyperGlow 會重新載入插件與設置，並自動重新開啟應用程式。重啟期間屏幕、狀態欄和息屏顯示可能短暫消失。需要 Root 權限。</string>
+    <string name="dialog_restart_systemui_summary">選擇要重啟的掛鉤進程。需要 Root 權限；重啟期間屏幕、狀態欄和息屏顯示可能短暫消失。</string>
     <string name="dialog_restart_target_systemui">系統界面（含鎖屏）</string>
     <string name="dialog_restart_target_aod">息屏顯示進程（com.miui.aod）</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow 應用程式（本應用程式）</string>
@@ -554,4 +554,12 @@
     <string name="option_bar_icons_auto">自動</string>
     <string name="option_bar_icons_light">淺色圖示</string>
     <string name="option_bar_icons_dark">深色圖示</string>
+    <string name="action_back">返回</string>
+    <string name="title_aod_behavior_settings">息屏行為設置</string>
+    <string name="diagnostic_preview_section_raw">原始診斷數據</string>
+    <string name="diagnostic_preview_events">診斷事件與日誌</string>
+    <string name="diagnostic_preview_crash">崩潰摘錄</string>
+    <string name="diagnostic_preview_lsposed">LSPosed 模組日誌</string>
+    <string name="diagnostic_preview_settings">運行時設置</string>
+    <string name="diagnostic_preview_empty">(空)</string>
 </resources>

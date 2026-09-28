@@ -81,12 +81,15 @@ import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.ColorPicker
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
@@ -262,7 +265,10 @@ internal fun LyricLayoutScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Text("←")
+                        Icon(
+                            MiuixIcons.Back,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
                     }
                 }
             )
@@ -1107,7 +1113,7 @@ private fun FontChoiceDialog(
         Column(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = 460.dp)
+                .heightIn(max = dialogContentMaxHeight())
                 .verticalScroll(rememberScrollState())
         ) {
             selected.values.forEach { value ->
@@ -1232,7 +1238,7 @@ private fun TextSizePreference(
                 minHeight = 48.dp,
                 minWidth = 48.dp
             ) {
-                Text("−", fontSize = 24.sp)
+                Text("−", fontSize = 28.sp)
             }
             Spacer(Modifier.width(12.dp))
             Text(

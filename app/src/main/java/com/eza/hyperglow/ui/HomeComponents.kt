@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -197,7 +198,9 @@ private fun HomeUpdateRow(checking: Boolean, onClick: () -> Unit) {
 @Composable
 private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Modifier) {
     val statusColor = if (working) ComposeColor(0xFF36D167) else ComposeColor(0xFFFF5A52)
-    val statusBackground = if (working) ComposeColor(0xFFDFFAE4) else ComposeColor(0xFFFFE5E3)
+    // 语义色只做点缀:背景在主题 surface 上低透明度混合,深浅模式下都不出现整块刺眼浅色;
+    // 文字走主题 onSurface,深色模式自动反相。
+    val statusBackground = lerp(MiuixTheme.colorScheme.surface, statusColor, 0.12f)
     Card(
         modifier = modifier,
         colors = CardDefaults.defaultColors(color = statusBackground)
@@ -220,7 +223,7 @@ private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Mod
                     stringResource(if (working) R.string.home_working else R.string.home_not_working),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = ComposeColor(0xFF101010),
+                    color = MiuixTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -228,7 +231,7 @@ private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Mod
                     supportLabel,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = ComposeColor(0xFF2F3A32).copy(alpha = 0.78f),
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 2.dp),
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
