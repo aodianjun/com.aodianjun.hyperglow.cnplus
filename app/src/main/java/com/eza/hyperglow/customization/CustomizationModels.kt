@@ -69,6 +69,8 @@ data class SurfaceProfile(
     val artworkShape: String = ARTWORK_SHAPE_SQUARE,
     /** 圆形歌曲图片是否旋转;仅 [artworkShape] 为 [ARTWORK_SHAPE_CIRCLE] 时生效(设置界面同样只在圆形下露出),每个 surface 独立设置。 */
     val artworkSpin: Boolean = false,
+    /** 音乐暂停驻留期间圆形封面是否继续旋转;仅 [artworkSpin] 开启时有意义。默认关(暂停即停转,驻留期无逐帧开销)。 */
+    val artworkSpinWhenPaused: Boolean = false,
     /**
      * 对唱分侧:开启时按行级 `alignedRight`(歌词源显式值,或由演唱者身份元数据推导,
      * 见 [com.eza.hyperglow.producer.resolveDuetAlignment])把该行画到左/右一侧;
@@ -206,6 +208,8 @@ data class CompiledSurfaceProfile(
     val artworkShape: String = ARTWORK_SHAPE_SQUARE,
     /** 圆形歌曲图片旋转开关;仅圆形生效,由 [SurfaceProfile.artworkSpin] 编译而来。 */
     val artworkSpin: Boolean = false,
+    /** 暂停驻留期间是否继续旋转,由 [SurfaceProfile.artworkSpinWhenPaused] 编译而来。 */
+    val artworkSpinWhenPaused: Boolean = false,
     /** 对唱分侧,见 [SurfaceProfile.duetAlignment]。 */
     val duetAlignment: Boolean = true
 )

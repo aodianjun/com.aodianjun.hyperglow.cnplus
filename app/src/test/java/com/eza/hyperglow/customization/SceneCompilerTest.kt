@@ -856,7 +856,8 @@ class SceneCompilerTest {
                 SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
                     artworkVisible = true,
                     artworkShape = ARTWORK_SHAPE_CIRCLE,
-                    artworkSpin = true
+                    artworkSpin = true,
+                    artworkSpinWhenPaused = true
                 ),
                 SceneCompiler.SURFACE_AOD to SurfaceProfile(artworkVisible = false)
             )
@@ -869,7 +870,9 @@ class SceneCompilerTest {
         assertEquals(true, lockscreen.artworkVisible)
         assertEquals(ARTWORK_SHAPE_CIRCLE, lockscreen.artworkShape)
         assertEquals(true, lockscreen.artworkSpin)
+        assertEquals(true, lockscreen.artworkSpinWhenPaused)
         assertEquals(false, aod.artworkVisible)
+        assertEquals(false, aod.artworkSpinWhenPaused)
         assertEquals(ARTWORK_SHAPE_SQUARE, aod.artworkShape)
         assertEquals(false, aod.artworkSpin)
 
@@ -881,6 +884,10 @@ class SceneCompilerTest {
         assertEquals(
             true,
             canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkVisible
+        )
+        assertEquals(
+            true,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkSpinWhenPaused
         )
         assertEquals(
             false,

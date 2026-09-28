@@ -81,5 +81,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     artworkKey = artworkKey,
     artworkVisible = artwork.visible,
     artworkShape = artwork.shape,
-    artworkSpin = artwork.spins
+    artworkSpin = artwork.spins,
+    artworkSpinWhenPaused = profile?.artworkSpinWhenPaused ?: false,
+    playbackPaused = pauseRetentionEligible
 )

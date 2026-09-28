@@ -534,6 +534,15 @@ internal fun LyricLayoutScreen(
                                     { spin -> updateSelected { it.copy(artworkSpin = spin) } },
                                     stringResource(R.string.setting_song_artwork_spin)
                                 )
+                                if (selectedProfile.artworkSpin) {
+                                    SwitchPreference(
+                                        selectedProfile.artworkSpinWhenPaused,
+                                        { enabled ->
+                                            updateSelected { it.copy(artworkSpinWhenPaused = enabled) }
+                                        },
+                                        stringResource(R.string.setting_song_artwork_spin_paused)
+                                    )
+                                }
                             }
                         }
                     }

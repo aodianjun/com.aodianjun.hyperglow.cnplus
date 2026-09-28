@@ -37,6 +37,7 @@ object SceneCompiler {
                 artworkVisible = lockscreenSource.artworkVisible,
                 artworkShape = lockscreenSource.artworkShape,
                 artworkSpin = lockscreenSource.artworkSpin,
+                artworkSpinWhenPaused = lockscreenSource.artworkSpinWhenPaused,
                 backgroundStyle = lockscreenSource.backgroundStyle,
                 cardAlpha = lockscreenSource.cardAlpha,
                 cardColor = lockscreenSource.cardColor
@@ -169,6 +170,7 @@ object SceneCompiler {
             artworkVisible = profile.artworkVisible,
             artworkShape = normalizeArtworkShape(profile.artworkShape),
             artworkSpin = profile.artworkSpin,
+            artworkSpinWhenPaused = profile.artworkSpinWhenPaused,
             duetAlignment = profile.duetAlignment,
             rubyVisible = profile.rubyVisible,
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
