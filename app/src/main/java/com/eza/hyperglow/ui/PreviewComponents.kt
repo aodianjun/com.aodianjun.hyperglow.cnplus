@@ -97,6 +97,7 @@ import com.eza.hyperglow.root.aod.layoutSecondaryLines
 import com.eza.hyperglow.root.aod.lineTransitionEnterFrame
 import com.eza.hyperglow.root.aod.lineTransitionExitFrame
 import com.eza.hyperglow.root.aod.lineTransitionPromoteFrame
+import com.eza.hyperglow.root.aod.promoteTransitionMs
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.originalRowHeight
@@ -925,8 +926,9 @@ private class PreviewBlockRow(
  * graphicsLayer 施加,预览不另写动画公式;线性时间轴先过 #68 缓动再查帧,与
  * AodLyricCanvasView 完全一致。时长按「动画速率」档缩放(见 [enterTransitionMs] /
  * [exitTransitionMs]),与实机同一速率语义。顺次换行(旧第二行 == 新第一行)按
- * 三段式分层:旧第一行组退场、新第一行组自旧第二行位置晋升接替、新第二行入场;
- * 非顺次换行退回整块同层进退,均与实机 drawOrientedContent 同构。
+ * 三段式严格串行(退场→晋升→入场,互不重叠):旧第一行组先独自退场、新第一行组
+ * 再自旧第二行位置晋升接替、新第二行最后入场;非顺次换行退回整块同层进退,
+ * 均与实机 drawOrientedContent 同构。
  */
 @Composable
 private fun PreviewAnimatedRowBlock(
@@ -961,6 +963,7 @@ private fun PreviewAnimatedRowBlock(
     var exitingBlock by remember { mutableStateOf<PreviewRowBlock?>(null) }
     val enterFrameProgress = remember { Animatable(1f) }
     val exitFrameProgress = remember { Animatable(1f) }
+    val promoteFrameProgress = remember { Animatable(1f) }
     val density = LocalDensity.current
     // 第一行组(主行+辅助文字)实测高度:晋升位移锚点 = 旧第二行行顶位置(组高 + 行距)。
     var line1GroupHeightPx by remember { mutableStateOf(0) }
@@ -976,15 +979,21 @@ private fun PreviewAnimatedRowBlock(
             exitingBlock = null
             enterFrameProgress.snapTo(1f)
             exitFrameProgress.snapTo(1f)
+            promoteFrameProgress.snapTo(1f)
         } else {
             val exitMs = exitTransitionMs(lineTransition, lineTransitionSpeed)
             val enterMs = enterTransitionMs(lineTransition, lineTransitionSpeed)
+            // 顺次换行判定与实机 shouldPromoteNextLine 同源:晋升路径走退场→晋升→入场
+            // 严格串行(与 lineTransitionPromotePhases 同一时间轴),三段互不重叠。
+            val willPromote = previous.nextLineRow != null &&
+                shouldPromoteNextLine(previous.nextLineRow.row.text, block.mainText)
             // 此刻实测组高仍属旧行块,冻结为晋升起点(新旧组高通常一致,重测亦近似)。
             promoteStartOffsetPx = line1GroupHeightPx +
                 with(density) { previous.nextLineRow?.gapAbove?.toPx() ?: 0f }
             exitingBlock = previous
             enterFrameProgress.snapTo(0f)
             exitFrameProgress.snapTo(0f)
+            promoteFrameProgress.snapTo(0f)
             coroutineScope {
                 launch {
                     exitFrameProgress.animateTo(
@@ -992,9 +1001,22 @@ private fun PreviewAnimatedRowBlock(
                         tween(exitMs.toInt(), easing = LinearEasing)
                     )
                 }
-                // 参考 HyperLyric 序列档:退场完成后再播入场(与实机 enterElapsed 同语义);
-                // 历史档退场/入场叠加,无延迟。
-                if (isSequentialLineTransition(lineTransition)) delay(exitMs)
+                when {
+                    willPromote -> {
+                        val promoteMs = promoteTransitionMs(lineTransition, lineTransitionSpeed)
+                        launch {
+                            delay(exitMs)
+                            promoteFrameProgress.animateTo(
+                                1f,
+                                tween(promoteMs.toInt(), easing = LinearEasing)
+                            )
+                        }
+                        delay(exitMs + promoteMs)
+                    }
+                    // 参考 HyperLyric 序列档:退场完成后再播入场(与实机 enterElapsed 同语义);
+                    // 历史档退场/入场叠加,无延迟。
+                    isSequentialLineTransition(lineTransition) -> delay(exitMs)
+                }
                 enterFrameProgress.animateTo(
                     1f,
                     tween(enterMs.toInt(), easing = LinearEasing)
@@ -1004,11 +1026,13 @@ private fun PreviewAnimatedRowBlock(
         }
     }
     // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方;参考档位移以行块
-    // 宽高为基准(高度取主行块高度近似,实机为内容裁剪框高)。
+    // 宽高为基准(高度取主行块高度近似,实机为内容裁剪框高)。晋升段独立相位,
+    // 与实机 lineTransitionPromotePhases 的退场→晋升→入场串行时间轴一致。
     val blockWidthDp = with(density) { availableWidthPx.toDp().value }
     val blockHeightDp = with(density) { block.main.blockHeight.toDp().value }
     val exitEased = lineTransitionExitEasing(lineTransition, exitFrameProgress.value)
     val enterEased = lineTransitionEnterEasing(lineTransition, enterFrameProgress.value)
+    val promoteEased = lineTransitionEnterEasing(lineTransition, promoteFrameProgress.value)
     val exitFrame = lineTransitionExitFrame(lineTransition, exitEased, blockWidthDp, blockHeightDp)
     val enterFrame = lineTransitionEnterFrame(lineTransition, enterEased, blockWidthDp, blockHeightDp)
 
@@ -1020,9 +1044,9 @@ private fun PreviewAnimatedRowBlock(
         val promote = previous != null && previousNextLineRow != null &&
             shouldPromoteNextLine(previousNextLineRow.row.text, block.mainText)
         if (promote && previous != null) {
-            // 序列档退场期间(入场进度未起步)旧第二行以第二行样式原地静候,
-            // 与实机 promote 分支的静候层一致;退场完成后由晋升层自其位置接替。
-            val waiting = enterFrameProgress.value <= 0f
+            // 退场/晋升未起步期间旧第二行以第二行样式原地静候(与实机 promote 分支的
+            // 静候层一致);退场完成后由晋升层自其位置接替,晋升到位后新第二行才入场。
+            val waiting = promoteFrameProgress.value <= 0f
             Column(Modifier.fillMaxWidth()) {
                 if (exitFrame.alpha > 0f) {
                     PreviewRowBlockLayer(
@@ -1066,7 +1090,7 @@ private fun PreviewAnimatedRowBlock(
                         sweepProgress = progressValue,
                         frame = lineTransitionPromoteFrame(
                             promoteStartOffsetPx / density.density,
-                            enterEased
+                            promoteEased
                         ).let { if (waiting) it.copy(alpha = 0f) else it },
                         color = color,
                         glowColor = glowColor,

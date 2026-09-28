@@ -356,6 +356,48 @@ internal fun lineTransitionPromoteFrame(offsetDp: Float, progress: Float): LineT
     LineTransitionFrame(alpha = 1f, translateYDp = offsetDp * (1f - progress.coerceIn(0f, 1f)))
 
 /**
+ * 晋升段基准时长:取入场基准时长(档的运动节奏一致,速率档同倍率缩放)。
+ * 顺次换行的三段严格串行时间轴为 退场(exitMs) → 晋升(promoteMs) → 入场(enterMs),
+ * 三段互不重叠——旧第一行组先独自完成退场动画,第二行再平移接替其位置,
+ * 最后新第二行才播入场动画出现(「向上渐隐&向上渐现」等成对档的退场半档只落在
+ * 旧第一行、入场半档只落在新第二行)。
+ */
+internal fun promoteTransitionMs(mode: String, speed: String): Long =
+    enterTransitionMs(mode, speed)
+
+/**
+ * 顺次换行三段式(退场→晋升→入场)的各段进度,全部钳制 0..1 且严格串行:
+ * 退场未结束时晋升/入场恒 0;晋升未结束时入场恒 0。与历史档的叠加语义、
+ * 序列档的两段语义都不同——仅用于旧第二行 == 新第一行的晋升路径
+ * ([shouldPromoteNextLine]),其余换行仍走 [lineTransitionExitProgress] /
+ * [lineTransitionEnterProgress]。
+ */
+internal data class LineTransitionPromotePhases(
+    val exit: Float,
+    val promote: Float,
+    val enter: Float
+)
+
+internal fun lineTransitionPromotePhases(
+    elapsedMs: Long,
+    mode: String,
+    speed: String
+): LineTransitionPromotePhases {
+    val exitMs = exitTransitionMs(mode, speed)
+    val promoteMs = promoteTransitionMs(mode, speed)
+    val enterMs = enterTransitionMs(mode, speed)
+    return LineTransitionPromotePhases(
+        exit = (elapsedMs / exitMs.toFloat()).coerceIn(0f, 1f),
+        promote = ((elapsedMs - exitMs) / promoteMs.toFloat()).coerceIn(0f, 1f),
+        enter = ((elapsedMs - exitMs - promoteMs) / enterMs.toFloat()).coerceIn(0f, 1f)
+    )
+}
+
+/** 顺次换行三段式总时长(退场+晋升+入场),冻结旧层的清理与帧过期判定按此收口。 */
+internal fun lineTransitionPromoteTotalMs(mode: String, speed: String): Long =
+    exitTransitionMs(mode, speed) + promoteTransitionMs(mode, speed) + enterTransitionMs(mode, speed)
+
+/**
  * 技术 → 帧:daimajia 各动画器的关键帧逐项展开([p] 为已缓动进度,可 >1 过冲外插)。
  * ObjectAnimator 多值语义 = 均匀分段关键帧([sample]);位移 dp 以行块宽/高为基准。
  */

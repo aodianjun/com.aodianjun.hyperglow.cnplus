@@ -369,6 +369,86 @@ class AodCanvasTransitionTest {
     }
 
     @Test
+    fun promotePhasesAreStrictlySequentialForHistoricalModes() {
+        // 历史档(上滑):退场 130ms → 晋升 210ms → 入场 210ms,总 550ms,三段互不重叠。
+        val exitMs = exitTransitionMs("Slide up", "Normal")
+        val promoteMs = promoteTransitionMs("Slide up", "Normal")
+        val enterMs = enterTransitionMs("Slide up", "Normal")
+        assertEquals(130L, exitMs)
+        assertEquals(210L, promoteMs)
+        assertEquals(210L, enterMs)
+
+        // 退场半程:晋升/入场恒 0(旧第一行独自退场,第二行静候)。
+        lineTransitionPromotePhases(exitMs / 2, "Slide up", "Normal").let { phases ->
+            assertEquals(0.5f, phases.exit, 1e-3f)
+            assertEquals(0f, phases.promote, 1e-6f)
+            assertEquals(0f, phases.enter, 1e-6f)
+        }
+        // 晋升半程:退场已收口,入场仍未起步(第二行独自平移接替)。
+        lineTransitionPromotePhases(exitMs + promoteMs / 2, "Slide up", "Normal").let { phases ->
+            assertEquals(1f, phases.exit, 1e-6f)
+            assertEquals(0.5f, phases.promote, 1e-3f)
+            assertEquals(0f, phases.enter, 1e-6f)
+        }
+        // 入场半程:退场/晋升都已收口(新第二行独自入场)。
+        lineTransitionPromotePhases(exitMs + promoteMs + enterMs / 2, "Slide up", "Normal")
+            .let { phases ->
+                assertEquals(1f, phases.exit, 1e-6f)
+                assertEquals(1f, phases.promote, 1e-6f)
+                assertEquals(0.5f, phases.enter, 1e-3f)
+            }
+        // 总时长收口:三段全部完成,帧过期判定按此清理冻结层。
+        lineTransitionPromotePhases(
+            lineTransitionPromoteTotalMs("Slide up", "Normal"), "Slide up", "Normal"
+        ).let { phases ->
+            assertEquals(1f, phases.exit, 1e-6f)
+            assertEquals(1f, phases.promote, 1e-6f)
+            assertEquals(1f, phases.enter, 1e-6f)
+        }
+    }
+
+    @Test
+    fun promotePhasesAreStrictlySequentialForPresetModes() {
+        // 预设档(向上渐隐&向上渐现):退场 300ms → 晋升 450ms → 入场 450ms;
+        // 渐隐半档只落在退场段、渐现半档只落在入场段,晋升段独立于两者。
+        val exitMs = exitTransitionMs("fade_out_up_fade_in_up", "Normal")
+        val promoteMs = promoteTransitionMs("fade_out_up_fade_in_up", "Normal")
+        val enterMs = enterTransitionMs("fade_out_up_fade_in_up", "Normal")
+        assertEquals(300L, exitMs)
+        assertEquals(450L, promoteMs)
+        assertEquals(450L, enterMs)
+
+        lineTransitionPromotePhases(exitMs + promoteMs - 1, "fade_out_up_fade_in_up", "Normal")
+            .let { phases ->
+                assertEquals(1f, phases.exit, 1e-6f)
+                assertTrue(phases.promote > 0f && phases.promote < 1f)
+                assertEquals(0f, phases.enter, 1e-6f)
+            }
+    }
+
+    @Test
+    fun promoteTotalScalesWithSpeedAndMatchesPhaseSum() {
+        for (mode in listOf("Fade up", "Slide up", "fade_out_up_fade_in_up", "fade_out_left_landing")) {
+            for (speed in listOf("Slow", "Normal", "Fast")) {
+                val sum = exitTransitionMs(mode, speed) +
+                    promoteTransitionMs(mode, speed) +
+                    enterTransitionMs(mode, speed)
+                assertEquals(sum, lineTransitionPromoteTotalMs(mode, speed))
+                assertEquals(enterTransitionMs(mode, speed), promoteTransitionMs(mode, speed))
+            }
+        }
+        // 速率档只缩放时长:Slow 1.5×、Fast 0.6×(与两段语义同一倍率)。
+        assertEquals(
+            (lineTransitionPromoteTotalMs("Slide up", "Normal") * 1.5f).toLong(),
+            lineTransitionPromoteTotalMs("Slide up", "Slow")
+        )
+        assertEquals(
+            (lineTransitionPromoteTotalMs("Slide up", "Normal") * 0.6f).toLong(),
+            lineTransitionPromoteTotalMs("Slide up", "Fast")
+        )
+    }
+
+    @Test
     fun hyperlyricTechniqueKeyframesMatchReferencedAnimators() {
         val w = 200f
         val h = 100f

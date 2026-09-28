@@ -224,10 +224,11 @@ internal class AodLyricCanvasView(
                 return
             }
             recordDozeCadenceCallback()
-            if (exitSnapshot != null && isExitTransitionExpired(
+            val pendingSnapshot = exitSnapshot
+            if (pendingSnapshot != null && isExitTransitionExpired(
                     transitionStartedAt,
                     SystemClock.elapsedRealtime(),
-                    lineTransitionTotalMs(content.transitionMode, content.lineTransitionSpeed)
+                    activeTransitionTotalMs(pendingSnapshot)
                 )
             ) {
                 transitionStartedAt = 0L
@@ -760,23 +761,30 @@ internal class AodLyricCanvasView(
         val blockWidthDp = (ow - padLeft - padRight) / density
         val blockHeightDp = (oh - padTop - padBottom) / density
         val promoteOffsetPx = nextLinePromoteOffsetPx(snapshot)
-        if (promoteOffsetPx != null) {
-            // 顺次换行三段式(旧第二行 == 新第一行):旧第一行组(原文+音标+翻译)独自按
-            // 退场动画离场;新第一行组自旧第二行位置平移接替(晋升帧,纯位移);新第二行
-            // 独自按入场动画出现。「向上渐隐&向上渐现」这类成对档的退场半档只作用于
-            // 旧第一行、入场半档只作用于新第二行,不再整块同帧移动,同文本不再双层重叠。
+        val transitionFinished = if (promoteOffsetPx != null) {
+            // 顺次换行三段式(旧第二行 == 新第一行),退场→晋升→入场严格串行、互不重叠:
+            // 旧第一行组(原文+音标+翻译)先独自按退场动画离场;期间旧第二行原地静候;
+            // 退场结束后新第一行组自旧第二行位置平移接替(晋升帧,纯位移);晋升到位后
+            // 新第二行才独自按入场动画出现。「向上渐隐&向上渐现」这类成对档的退场半档
+            // 只作用于旧第一行、入场半档只作用于新第二行,不再整块同帧移动、不再重叠。
+            val phases = lineTransitionPromotePhases(elapsed, transitionMode, transitionSpeed)
             drawRows(
                 canvas,
                 snapshot.layout,
                 snapshot.content,
-                lineTransitionExitFrame(transitionMode, exitEased, blockWidthDp, blockHeightDp),
+                lineTransitionExitFrame(
+                    transitionMode,
+                    lineTransitionExitEasing(transitionMode, phases.exit),
+                    blockWidthDp,
+                    blockHeightDp
+                ),
                 snapshot.renderStyle,
                 skipOriginal = metadataMorph,
                 rowFilter = { it != RowKind.NEXT_LINE }
             )
-            if (enterProgress <= 0f) {
-                // 序列档退场期间旧第二行以第二行样式原地静候;退场完成后才换为新
-                // 第一行组自其位置晋升(起步位移恰等于其基线差,换位无跳变)。
+            if (phases.promote <= 0f) {
+                // 退场期间旧第二行以第二行样式原地静候;退场完成后才换为新第一行组
+                // 自其位置晋升(起步位移恰等于其基线差,换位无跳变)。
                 drawRows(
                     canvas,
                     snapshot.layout,
@@ -790,7 +798,10 @@ internal class AodLyricCanvasView(
                     canvas,
                     layout,
                     content,
-                    lineTransitionPromoteFrame(promoteOffsetPx / density, enterEased),
+                    lineTransitionPromoteFrame(
+                        promoteOffsetPx / density,
+                        lineTransitionEnterEasing(transitionMode, phases.promote)
+                    ),
                     rowFilter = { it != RowKind.NEXT_LINE }
                 )
             }
@@ -798,9 +809,15 @@ internal class AodLyricCanvasView(
                 canvas,
                 layout,
                 content,
-                lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp, blockHeightDp),
+                lineTransitionEnterFrame(
+                    transitionMode,
+                    lineTransitionEnterEasing(transitionMode, phases.enter),
+                    blockWidthDp,
+                    blockHeightDp
+                ),
                 rowFilter = { it == RowKind.NEXT_LINE }
             )
+            phases.enter >= 1f
         } else {
             drawRows(
                 canvas,
@@ -816,13 +833,25 @@ internal class AodLyricCanvasView(
                 content,
                 lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp, blockHeightDp)
             )
+            enterProgress >= 1f
         }
-        if (enterProgress >= 1f) {
+        if (transitionFinished) {
             transitionStartedAt = 0L
             exitSnapshot = null
             contentBoundsChangedListener?.invoke()
         }
     }
+
+    /**
+     * 当前过渡的收口总时长:顺次换行(晋升路径)为退场+晋升+入场三段串行,
+     * 其余换行为 [lineTransitionTotalMs] 的两段/叠加语义。
+     */
+    private fun activeTransitionTotalMs(snapshot: CanvasSnapshot): Long =
+        if (nextLinePromoteOffsetPx(snapshot) != null) {
+            lineTransitionPromoteTotalMs(content.transitionMode, content.lineTransitionSpeed)
+        } else {
+            lineTransitionTotalMs(content.transitionMode, content.lineTransitionSpeed)
+        }
 
     /**
      * 顺次换行的晋升位移:旧第二行(NEXT_LINE)文本与新第一行一致时,返回新第一行组
