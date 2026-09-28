@@ -149,6 +149,11 @@ class LyricProducerArbiter(
         // We re-read .value on each tick rather than combine() to keep the staleness check
         // time-aware (combine would not re-emit purely due to elapsed time).
         var lastActiveSignature: String? = null
+        // 来源身份(producerId:generation):生产者每次发射都递增 sequence(位置推进),
+        // 签名随之变化——若按签名记切换日志,同一生产者的例行转发也会每秒刷数十行
+        // "active changed"(2026-09-28 真机:3.5 分钟 1731 行,冲垮 logcat 与
+        // diagnostic-trace.log 的取证历史)。只有身份变化(换源/换歌)才算切换事件。
+        var lastActiveIdentity: String? = null
         while (scope.isActive) {
             val next = computeActiveOnce()
             // Only write on actual change to avoid redundant StateFlow emissions; a cleared
@@ -156,10 +161,11 @@ class LyricProducerArbiter(
             // (stale-sweep may have cleared a frozen state; see shouldPublishActive).
             val sig = next?.let { "${it.producerId}:${it.generation}:${it.sequence}" }
             if (shouldPublishActive(sig, lastActiveSignature, mutableActive.value == null)) {
+                val identity = next?.let { "${it.producerId}:${it.generation}" }
                 if (sig == lastActiveSignature) {
                     // staleSweep 清空后签名未变(冻结态):必须补发,否则 active 永久卡死在 null。
                     AppLog.i("LyricProducerArbiter", "active re-published after clear: $sig")
-                } else {
+                } else if (identity != lastActiveIdentity) {
                     AppLog.i(
                         "LyricProducerArbiter",
                         "active changed: ${lastActiveSignature ?: "null"} -> ${sig ?: "null"}"
@@ -167,6 +173,7 @@ class LyricProducerArbiter(
                 }
                 mutableActive.value = next
                 lastActiveSignature = sig
+                lastActiveIdentity = identity
             }
             delay(ARBITRATION_TICK_MS)
         }

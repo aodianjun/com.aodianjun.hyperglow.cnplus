@@ -623,6 +623,19 @@ class LyriconLyricProducer(
         internal const val EXTRAPOLATION_RESUME_TOLERANCE_MS = 300L
 
         /**
+         * Minimum silence from the last REAL position update before a repeated
+         * (same-value) position callback counts as a writer stall and extrapolation
+         * engages. The SDK re-delivers the last written value between writer updates
+         * (on-device 2026-09-28: writes every ~40 ms, a duplicate ~20 ms after each);
+         * without this floor every duplicate tripped stall->extrapolate->resume within
+         * a single frame - two Info logs and two state emissions per real update
+         * (~45 log lines/s rotating diagnostic-trace.log away within minutes).
+         * Genuine stalls (Doze writer freeze) persist for seconds, far above this
+         * floor, so stall recovery is unchanged.
+         */
+        internal const val STALL_EXTRAPOLATION_MIN_MS = 500L
+
+        /**
          * issue #11: tolerance for the post-song-change plausibility bound — covers song-change
          * detection lag (SDK poll interval) and position base timestamp skew. Must stay well
          * below the typical old-timeline residual offset (≈ the previous song's duration) so

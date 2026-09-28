@@ -10,7 +10,9 @@ import io.github.proify.lyricon.subscriber.SubscriberInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -491,6 +493,35 @@ class LyriconLyricProducerTest {
         assertEquals(1, state.lineIndex)
         assertEquals("second", state.line)
         assertEquals(3_500L, state.positionMs)
+    }
+
+    @Test
+    fun positionDuplicate_withinStallFloor_holdsPositionWithoutStateEmission() {
+        // The SDK re-delivers the last written value between writer updates (~40 ms cadence
+        // on device). Below STALL_EXTRAPOLATION_MIN_MS a duplicate is not a stall:
+        // extrapolation must not engage and no fresh state may be emitted (a fresh state
+        // would only bump the sequence so the arbiter re-logs the same producer as
+        // "active changed" every frame).
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(2_000L) // line 0, real
+        val before = producer.state.value!!
+
+        clockValue = 10_040L
+        producer.playerListener.onPositionChanged(2_000L) // duplicate, 40 ms later
+
+        assertSame(before, producer.state.value)
+        assertFalse(producer.extrapolating)
+        assertEquals(2_000L, before.positionMs)
+
+        // The next real update still emits a fresh state and wins over the held position.
+        clockValue = 10_080L
+        producer.playerListener.onPositionChanged(2_080L)
+        assertNotSame(before, producer.state.value)
+        assertEquals(2_080L, producer.state.value!!.positionMs)
     }
 
     @Test

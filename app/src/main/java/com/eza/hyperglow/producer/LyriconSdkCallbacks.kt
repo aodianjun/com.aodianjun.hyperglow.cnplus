@@ -391,7 +391,20 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 // while within the song (Doze writer freeze, playback active), and only declare
                 // the writer dead (mark position unknown) once past the song end or without a
                 // known duration.
-                advanceExtrapolation(now, "position stalled")
+                //
+                // The SDK also re-delivers the last written value between writer updates
+                // (on-device 2026-09-28: writes every ~40 ms, a duplicate ~20 ms after each).
+                // Below [LyriconLyricProducer.STALL_EXTRAPOLATION_MIN_MS] the repeat is not a
+                // stall: hold the last real position and skip the state emission — nothing
+                // observable changed, and a fresh state would only bump the sequence so the
+                // arbiter re-logs the same producer as "active changed" every frame. Genuine
+                // stalls (Doze writer freeze) persist for seconds, far above the floor.
+                val sinceRealMs = now - lastRealPositionClockMs
+                if (sinceRealMs >= LyriconLyricProducer.STALL_EXTRAPOLATION_MIN_MS) {
+                    advanceExtrapolation(now, "position stalled")
+                    recomputeAndEmit()
+                }
+                return
             }
             recomputeAndEmit()
         }
