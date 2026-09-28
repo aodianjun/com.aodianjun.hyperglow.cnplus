@@ -985,8 +985,9 @@ private fun PreviewAnimatedRowBlock(
             val enterMs = enterTransitionMs(lineTransition, lineTransitionSpeed)
             // 顺次换行判定与实机 shouldPromoteNextLine 同源:晋升路径走退场→晋升→入场
             // 严格串行(与 lineTransitionPromotePhases 同一时间轴),三段互不重叠。
-            val willPromote = previous.nextLineRow != null &&
-                shouldPromoteNextLine(previous.nextLineRow.row.text, block.mainText)
+            val exitingNextLineRow = previous.nextLineRow
+            val willPromote = exitingNextLineRow != null &&
+                shouldPromoteNextLine(exitingNextLineRow.row.text, block.mainText)
             // 此刻实测组高仍属旧行块,冻结为晋升起点(新旧组高通常一致,重测亦近似)。
             promoteStartOffsetPx = line1GroupHeightPx +
                 with(density) { previous.nextLineRow?.gapAbove?.toPx() ?: 0f }
