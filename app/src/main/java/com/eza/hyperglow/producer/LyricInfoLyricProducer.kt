@@ -311,6 +311,10 @@ class LyricInfoLyricProducer(
                     "LyricInfoLyricProducer",
                     "seek detected: position=${ps.position} playing=$playing"
                 )
+                // 跨源 seek 转发:其他生产者的独立位置源可能整段冻结/漏发 onSeekTo
+                // (2026-09-28 真机实测拖动进度条后歌词 14s 不跟手),先观测到的一方
+                // 把权威位置递过去立即跟手(见 LyricProducers.notifyExternalSeek)。
+                LyricProducers.notifyExternalSeek(LyricSource.LYRICINFO, ps.position)
             }
             lastRealPositionMs = ps.position
             currentPositionMs = ps.position

@@ -126,6 +126,16 @@ class LyriconLyricProducer(
      */
     @Volatile internal var duetResolvedAlignedRight: BooleanArray? = null
 
+    /**
+     * 标记识别版分侧快照(元数据身份缺失时以行首「（男）/（女）/（合）」文本标记兜底),
+     * 与 [duetResolvedAlignedRight] 同时机重算;[activeAlignedRight] 按
+     * [duetMarkersEnabled] 在两套之间选用。
+     */
+    @Volatile internal var duetMarkerResolvedAlignedRight: BooleanArray? = null
+
+    /** 文档级「识别对唱标记」开关缓存(见 refreshDuetMarkerPolicy);默认开启。 */
+    @Volatile internal var duetMarkersEnabled: Boolean = true
+
     // --- Position extrapolation state ---
     // When the player process is frozen by MIUI screen-off, the shared-memory position stops
     // updating but onPositionChanged keeps firing at ~60 Hz with the same stalled value. To keep
@@ -284,6 +294,11 @@ class LyriconLyricProducer(
         AppLog.i("LyriconLyricProducer", "stop: done")
     }
 
+    /** 跨源 seek 转发入口(见 LyricProducer.onExternalSeek):与 onSeekTo 同一处理。 */
+    override fun onExternalSeek(positionMs: Long) {
+        applySeek(positionMs)
+    }
+
     /** Issue #27: a brand-new provider/song re-arms the stop detector. */
     internal fun resetStopDetection() {
         stopConverged = false
@@ -303,6 +318,7 @@ class LyriconLyricProducer(
         currentLineIndex = -1
         cachedWords = null
         duetResolvedAlignedRight = null
+        duetMarkerResolvedAlignedRight = null
         currentPositionMs = 0L
         lastRealPositionMs = 0L
         lastRealPositionUpdateMs = -1L

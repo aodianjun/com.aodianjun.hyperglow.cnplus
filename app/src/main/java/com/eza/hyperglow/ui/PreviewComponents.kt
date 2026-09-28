@@ -193,10 +193,11 @@ internal fun AppearanceLivePreview(
     scenario: String,
     metadataParts: String,
     metadataSeparator: String,
+    duetMarkers: Boolean = true,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     modifier: Modifier = Modifier
 ) {
-    val live = collectLiveSnapshot(metadataParts, metadataSeparator)
+    val live = collectLiveSnapshot(metadataParts, metadataSeparator, duetMarkers)
     LyricPreviewSurface(
         profile = profile,
         scenario = scenario,

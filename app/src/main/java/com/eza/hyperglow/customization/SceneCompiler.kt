@@ -52,6 +52,7 @@ object SceneCompiler {
             linkSurfaces = source.linkSurfaces,
             metadataParts = normalizeMetadataParts(source.metadataParts),
             metadataSeparator = normalizeMetadataSeparator(source.metadataSeparator),
+            duetMarkers = source.duetMarkers,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: compileSafeDefault()
@@ -110,6 +111,7 @@ object SceneCompiler {
             linkSurfaces = safe.linkSurfaces,
             metadataParts = normalizeMetadataParts(safe.metadataParts),
             metadataSeparator = normalizeMetadataSeparator(safe.metadataSeparator),
+            duetMarkers = safe.duetMarkers,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: error("Safe customization exceeds hard limit")

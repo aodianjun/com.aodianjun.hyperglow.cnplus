@@ -127,3 +127,63 @@ private fun alignTypedAgents(lines: List<DuetLine>): List<Boolean> {
         line.sourceAlignedRight || right
     }
 }
+
+// --- 对唱文本标记(（男）/（女）/（合）)识别 ---
+//
+// 网易云等源的对唱信息以行首文本标记承载(实测《讲男讲女》《男左女右》),不是
+// agent/amll:agent 元数据键;没有标记识别时 resolveDuetAlignment 拿不到身份输入,
+// 分侧不生效。标记识别(文档级开关 duetMarkers)把标记翻译成演唱者身份喂给分侧推导,
+// 并在显示侧剥离标记文本。与元数据身份并存:元数据恒优先,标记只作无元数据时的兜底。
+
+/** 行首对唱标记的匹配(全/半角括号 + 男/女/合 + 其后空白,空白含在剥离范围内)。 */
+internal val DUET_MARKER_PREFIX = Regex("^[(（]\\s*(男|女|合)\\s*[)）]\\s*")
+
+/** 合唱标记词:不作为演唱者身份参与交替(与 HyperLyric `group` 恒左同视)。 */
+internal const val DUET_MARKER_TOKEN_CHORUS = "合"
+
+/** 识别出的行首对唱标记。[text] 为剥离标记(含其后空白)后的行文本。 */
+internal data class DuetMarker(
+    val token: String,
+    val text: String
+)
+
+/**
+ * 解析行首对唱标记:命中返回标记与剥离后的行文本;未命中返回 null。
+ * 剥离后文本为空(纯标记行)也返回 null——保留原样显示,不产出空行。
+ */
+internal fun parseDuetMarker(raw: String): DuetMarker? {
+    val match = DUET_MARKER_PREFIX.find(raw) ?: return null
+    val stripped = raw.substring(match.value.length)
+    if (stripped.isBlank()) return null
+    return DuetMarker(token = match.groupValues[1], text = stripped)
+}
+
+/** 剥离行首对唱标记(幂等:未带标记的文本原样返回)。 */
+internal fun stripDuetMarker(raw: String): String =
+    parseDuetMarker(raw)?.text ?: raw
+
+/**
+ * 剥离词表中作为行首标记出现的部分:首词以标记起头时剥掉标记前缀,剥空则移除该词。
+ * 词表与行文本必须同源处理,否则逐字卡拉OK路径(按词绘制)会残留/错位标记。
+ * 无变化时返回输入实例。
+ */
+internal fun stripDuetMarkerWords(words: List<LyricWord>): List<LyricWord> {
+    val first = words.firstOrNull() ?: return words
+    val match = DUET_MARKER_PREFIX.find(first.text) ?: return words
+    val stripped = first.text.substring(match.value.length)
+    if (stripped == first.text) return words
+    val out = words.toMutableList()
+    if (stripped.isBlank()) {
+        out.removeAt(0)
+    } else {
+        out[0] = first.copy(text = stripped)
+    }
+    return out
+}
+
+/**
+ * 标记 → 演唱者身份(分侧推导的兜底输入,元数据身份恒优先):男/女 各为一个身份,
+ * 「合」不参与交替故不产出身份(该行保持源值)。
+ */
+internal fun duetMarkerAgentId(marker: DuetMarker): String? =
+    marker.token.takeIf { it != DUET_MARKER_TOKEN_CHORUS }

@@ -337,6 +337,23 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   singer stays left and later singers go right; with explicit types, `group` stays left while `other`
   starts right and flips on each singer change. Songs without singer metadata keep the plain
   main-alignment behaviour.
+- Duet marker recognition is a document-level switch (default on). When it is on, a leading
+  （男）/（女）/（合） text marker on a lyric line is recognized as singer identity: the marker text is
+  hidden on screen (main line, next line and the karaoke word list alike) and, where line metadata
+  carries no singer identity, feeds the duet left/right derivation above; （合） never alternates and
+  keeps the source side. When it is off, lines display as-is and markers take no part in the split.
+  Explicit per-line sides still win in either state.
+- The producer ingest repairs implausible line windows before selection and rendering: a lyric row
+  whose window far exceeds the plausible singing span of its text (gap-swallowing artifacts of
+  synthesized word timing, observed seconds off on real tracks) has its window re-anchored to its
+  words when the word timing is plausible, otherwise suspect word timing is dropped to line-level
+  fill and a head-attached window starts at `end - estimated sing duration`. Normal rows are
+  untouched. The head clamp only engages when a track shows at least two damaged rows (real damage
+  is systemic, while a genuine held note is an isolated long window); an isolated long-window row
+  keeps its exact original window. Estimation ignores leading duet markers, which are not sung.
+- A seek observed by one producer is forwarded to the others (`onExternalSeek`), so a producer
+  whose own position source froze or dropped its seek callback snaps to the authoritative
+  position at once instead of lagging behind.
 - Line-change animation is selectable per surface profile from a fixed vocabulary: `Auto`, the
   historical modes `Fade up`, `Crossfade`, `Slide up`, `Slide left`, `Zoom`, the 25 HyperLyric
   line-change presets by their original ids (`fade_out_fade_in`, `fade_out_up_fade_in_up`,
@@ -617,6 +634,9 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；开启时取代独立的下一行歌词行而不与之叠加，关闭时独立下一行呈现保持不变。
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
 - 对唱分侧是每个 surface 独立的开关（默认开启）。开启时，行级 `alignedRight` 置位的行绘制在右侧；关闭时忽略该位，所有行按主对齐解析。行级分侧位来源于歌词源：源显式标记（Spicy `alignedRight`、Lyricon `isAlignedRight`、插件 `isAlignedRight`）恒优先，否则由行级演唱者身份元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal`，类型键 `amll:agent-type`/`agent:type`/`agentType`/`vocal:type`）推导——首位歌手居左、其余居右；带显式类型时 `group` 恒左、`other` 起右并随歌手切换翻转。无演唱者信息的曲目保持纯主对齐行为。
+- 识别对唱标记是文档级全局开关（默认开启）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。
+- 生产者 ingest 在选行/渲染之前修复明显失真的行窗口：行窗远大于文本可唱时长的行（逐字合成把乐器间隙吞进行窗的产物，真机实测单行偏差可达十余秒），词级跨距可信时行窗向词对齐，否则丢弃可疑词级、回退行级填充，头部贴附的行窗从 `end-估时` 起算。正常行零变化。行首钳制仅在全曲出现至少两个损坏行时启用（真实损坏是整首系统性的，真实长音则是孤立的长窗行）；孤立长窗行保持原有行窗不变。估时忽略行首对唱标记——标记不发声。
+- 任一生产者观测到 seek 时跨源转发给其他生产者（`onExternalSeek`），位置源冻结/漏发 seek 回调的生产者立即落到权威位置，不再滞后。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
 - 歌曲图片为 per-surface 设置,锁屏与息屏各自独立(显示开关、方形/圆形形状、仅圆形可选旋转);旧文档中存的文档级全局值在首次读取时一次性播种到两个曲面。开启时歌曲信息块左侧恰好一个图片槽:槽边长为歌曲信息字号的 1.6 倍、与文本间距 6dp,行级对齐把「图片+文本块」当整组落位,文本块内各行仍按各自对齐排布。图片带高取「歌曲信息文本块高」与「图片槽边长」的较大者:图片高于文本块时带高随图片增长、文本块在带内垂直居中,图片不被内容裁剪框/锁屏卡片裁切,带高计入卡片实测高与歌曲信息组件预算;图片与文本块共用同一视觉中线(首末行基线中点 + (ascent + descent)/2,而非裸基线中点)。音乐暂停驻留期间圆形封面默认停转(暂停期无逐帧开销),仅「音乐暂停时继续旋转」打开的曲面继续旋转。取图 fail-closed:只显示经校对的「当前播放的音乐软件」当前曲目的专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致)——系统播放窗口滞留的旧封面、其他包、或歧义命中一律不显示。封面帧有界(源图降采样至 ≤192px 后压成 ≤24KiB JPEG),按帧键解码一次。方形不旋转;圆形旋转为匀速 12 秒/圈,与逐字歌词共用有效节拍门(隐藏即停帧)。未知形状值归一为方形;旋转仅圆形生效。隐私:封面字节不出设备、不入诊断;功耗:静态封面不增加逐帧开销,旋转随既有节拍门停止(隐藏,或暂停且未开「音乐暂停时继续旋转」)。

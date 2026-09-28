@@ -312,7 +312,8 @@ internal fun HomeScreen(
                         val compiled = SceneCompiler.compile(customizationDocument)
                         val previewLive = collectLiveSnapshot(
                             customizationDocument.metadataParts,
-                            customizationDocument.metadataSeparator
+                            customizationDocument.metadataSeparator,
+                            customizationDocument.duetMarkers
                         )
                         Column(
                             modifier = Modifier.fillMaxWidth(),

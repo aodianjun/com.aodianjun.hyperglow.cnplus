@@ -194,4 +194,12 @@ interface LyricProducer {
      * 复杂的解析必须在状态更新时完成。
      */
     fun fullSongSnapshot(): LyricSongSnapshot? = null
+
+    /**
+     * 其他生产者检测到 seek 时的跨源转发(见 [LyricProducers.notifyExternalSeek])。
+     * 各生产者的位置源彼此独立(如 Lyricon 共享内存 vs LyricInfo MediaSession),一方先
+     * 观测到拖动进度条时应让其余生产者立即跟手,而不是各等各的残值拒绝窗/冻结源恢复
+     * (2026-09-28 真机实测可滞后十余秒)。默认无操作;有 seek 语义的实现覆写。
+     */
+    fun onExternalSeek(positionMs: Long) {}
 }

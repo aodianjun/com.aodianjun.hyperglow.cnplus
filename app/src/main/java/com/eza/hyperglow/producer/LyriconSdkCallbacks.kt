@@ -78,13 +78,23 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             // normalize() deep-copies and sorts lyrics by begin (asc, required by TimingNavigator),
             // dropping invalid lines. Safe to call on the SDK's instance (it doesn't mutate it).
             val normalized = song.normalize()
-            currentSong = normalized
+            // P0 时间轴可信化(2026-09-28 真机「时间轴对不上」定论):逐字合成/强制对齐会把
+            // 乐器间隙吞进行窗(实测下一句提前 15s 上屏)、把假词级时间铺满间隙,这里在
+            // 选行/分侧/快照同源消费之前修复(只动明显损坏的行,见 LyriconTimelineRepair)。
+            val sourceLyrics = normalized.lyrics
+            val repairedLyrics = LyriconTimelineRepair.repair(sourceLyrics.orEmpty())
+            val current = if (sourceLyrics != null && repairedLyrics !== sourceLyrics) {
+                normalized.copy(lyrics = repairedLyrics)
+            } else {
+                normalized
+            }
+            currentSong = current
             // issue #64:歌曲通道恢复 —— 结束缺席纪元与 provider 等歌宽限,复位去重日志。
             songAbsentSinceMs = -1L
             providerSyncPendingSinceMs = -1L
             noSongDropLogged = false
             generation++
-            val lyrics = normalized.lyrics
+            val lyrics = current.lyrics
             navigator = if (!lyrics.isNullOrEmpty()) {
                 TimingNavigator(lyrics.toTypedArray())
             } else {
@@ -411,34 +421,7 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
 
         override fun onSeekTo(position: Long) {
             AppLog.i("LyriconLyricProducer", "onSeekTo: pos=${position}ms old=${lastRealPositionMs}ms")
-            val now = clock()
-            // Record the pre-seek position so onPositionChanged can reject the stale shared-memory
-            // value that lingers right after the seek (old != seek target would otherwise be
-            // accepted as a "real" update and snap the active line back to the old position).
-            seekRejectPositionMs = lastRealPositionMs
-            seekClockMs = now
-            lastRealPositionMs = position
-            lastRealPositionClockMs = now
-            lastRealPositionUpdateMs = now
-            currentPositionMs = position
-            extrapolating = false
-            // A seek is a deliberate position change — the position is known again.
-            positionUnknown = false
-            // A seek is a deliberate position change — clear residual filtering so the new
-            // position is accepted even if it coincidentally matches the previous song's last.
-            previousSongLastPositionMs = -1L
-            // A seek also invalidates any pre-pause stale rejection (issue #10): the seek
-            // target is the new authoritative position.
-            pauseStaleRejectMs = -1L
-            // A seek is a deliberate, authoritative position: open the post-song-change gate
-            // (issue #11) — the seek target defines the timeline from here on.
-            songStartGateOpen = true
-            gateRejectLogged = false
-            // Seek invalidates the navigator's sequential cache (playback jumped).
-            navigator?.resetCache()
-            currentLineIndex = -1
-            cachedWords = null
-            recomputeAndEmit()
+            applySeek(position)
         }
 
         override fun onDisplayTranslationChanged(isDisplayTranslation: Boolean) {
@@ -452,3 +435,40 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             AppLog.i("LyriconLyricProducer", "onDisplayRomaChanged: $isDisplayRoma (ignored, owned by HyperGlow)")
         }
     }
+
+/**
+ * Seek 统一处理:SDK 的 onSeekTo 与其他生产者转发的跨源 seek([LyricProducer.onExternalSeek])
+ * 共用同一入口。跨源转发的意义:各位置源独立,Lyricon 共享内存可能整段冻结、onSeekTo 不来
+ * (2026-09-28 真机实测拖动进度条后歌词 14s 不跟手,而 LyricInfo 的 SeekDetector 当场测到),
+ * 由先观测到的一方把权威位置递过来立即跟手。
+ */
+internal fun LyriconLyricProducer.applySeek(position: Long) {
+    val now = clock()
+    // Record the pre-seek position so onPositionChanged can reject the stale shared-memory
+    // value that lingers right after the seek (old != seek target would otherwise be
+    // accepted as a "real" update and snap the active line back to the old position).
+    seekRejectPositionMs = lastRealPositionMs
+    seekClockMs = now
+    lastRealPositionMs = position
+    lastRealPositionClockMs = now
+    lastRealPositionUpdateMs = now
+    currentPositionMs = position
+    extrapolating = false
+    // A seek is a deliberate position change — the position is known again.
+    positionUnknown = false
+    // A seek is a deliberate position change — clear residual filtering so the new
+    // position is accepted even if it coincidentally matches the previous song's last.
+    previousSongLastPositionMs = -1L
+    // A seek also invalidates any pre-pause stale rejection (issue #10): the seek
+    // target is the new authoritative position.
+    pauseStaleRejectMs = -1L
+    // A seek is a deliberate, authoritative position: open the post-song-change gate
+    // (issue #11) — the seek target defines the timeline from here on.
+    songStartGateOpen = true
+    gateRejectLogged = false
+    // Seek invalidates the navigator's sequential cache (playback jumped).
+    navigator?.resetCache()
+    currentLineIndex = -1
+    cachedWords = null
+    recomputeAndEmit()
+}

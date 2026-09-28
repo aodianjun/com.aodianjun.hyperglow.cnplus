@@ -22,6 +22,13 @@ object CustomizationRepository {
     private var cachedLegacyConfig: AodRenderConfig? = null
     private var cachedCompiled: CompiledCustomization? = null
 
+    /**
+     * 文档保存/导入/重置成功后的回调(生产者侧派生缓存刷新,见 LyricProducers.onCustomizationChanged)。
+     * 只读挂点:由生产者侧注册,避免 customization → producer 的包依赖。
+     */
+    @Volatile
+    var onChange: (() -> Unit)? = null
+
     @Synchronized
     fun loadDocument(context: Context): CustomizationDocument {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -95,7 +102,9 @@ object CustomizationRepository {
             .putString(KEY_DOCUMENT, encoded)
             .putInt(KEY_MIGRATION_VERSION, CURRENT_CUSTOMIZATION_VERSION)
         if (previous != null) editor.putString(KEY_PREVIOUS_DOCUMENT, previous)
-        return editor.commit()
+        val saved = editor.commit()
+        if (saved) runCatching { onChange?.invoke() }
+        return saved
     }
 
     @Synchronized
@@ -200,6 +209,7 @@ object CustomizationRepository {
             linkSurfaces = compiled.linkSurfaces,
             metadataParts = compiled.metadataParts,
             metadataSeparator = compiled.metadataSeparator,
+            duetMarkers = compiled.duetMarkers,
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to compiled.profiles
                     .getValue(SceneCompiler.SURFACE_LOCKSCREEN)

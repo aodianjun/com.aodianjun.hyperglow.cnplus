@@ -13,6 +13,13 @@ data class CustomizationDocument(
     /** 歌曲信息分隔符 token,见 [METADATA_SEPARATORS];全局生效,同时作用于息屏与锁屏。 */
     val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
     /**
+     * 识别对唱标记:行首「（男）/（女）/（合）」文本标记被识别为演唱者身份——显示时
+     * 隐去标记文本,并作为对唱左右分侧的身份输入(元数据身份恒优先,
+     * 见 [com.eza.hyperglow.producer.resolveDuetAlignment]);关闭则原样显示、标记不参与分侧。
+     * 全局生效(内容级解释,同时作用于息屏与锁屏)。
+     */
+    val duetMarkers: Boolean = true,
+    /**
      * 旧版歌曲图片显示开关(文档级全局)。歌曲图片自本版起为 per-surface 设置,由
      * [SurfaceProfile.artworkVisible]/[SurfaceProfile.artworkShape]/[SurfaceProfile.artworkSpin]
      * 分别承载(锁屏与息屏各自独立);本字段仅作旧文档迁移载体:读取时一次性播种到两个曲面,
@@ -125,6 +132,8 @@ data class CompiledCustomization(
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 歌曲信息分隔符 token;全局生效,由 [CustomizationDocument.metadataSeparator] 编译而来。 */
     val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
+    /** 识别对唱标记;全局生效,由 [CustomizationDocument.duetMarkers] 编译而来。 */
+    val duetMarkers: Boolean = true,
     val profiles: Map<String, CompiledSurfaceProfile>,
     val pauseLingerMs: Long = 5_000L,
     /** 暂停时显示歌曲信息、歌词:App 端运行时开关,随配置下发到 SystemUI,同时作用于息屏与锁屏驻留。 */
