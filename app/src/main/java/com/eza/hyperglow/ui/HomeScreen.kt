@@ -79,6 +79,7 @@ internal fun HomeScreen(
     var showRestartDialog by remember { mutableStateOf(false) }
     var restartSystemUiTarget by remember { mutableStateOf(true) }
     var restartAodTarget by remember { mutableStateOf(true) }
+    var restartHyperglowTarget by remember { mutableStateOf(false) }
     var showPauseLingerDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showSourceDialog by remember { mutableStateOf(false) }
@@ -752,6 +753,11 @@ internal fun HomeScreen(
                     { enabled -> restartAodTarget = enabled },
                     stringResource(R.string.dialog_restart_target_aod)
                 )
+                SwitchPreference(
+                    restartHyperglowTarget,
+                    { enabled -> restartHyperglowTarget = enabled },
+                    stringResource(R.string.dialog_restart_target_hyperglow)
+                )
                 androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
                     TextButton(
                         text = stringResource(R.string.action_cancel),
@@ -764,7 +770,7 @@ internal fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),
                         onClick = {
-                            if (!restartSystemUiTarget && !restartAodTarget) {
+                            if (!restartSystemUiTarget && !restartAodTarget && !restartHyperglowTarget) {
                                 Toast.makeText(
                                     context,
                                     context.getString(R.string.toast_restart_no_target),
@@ -777,7 +783,8 @@ internal fun HomeScreen(
                                 showRestartResult(
                                     ShellUtils.restartHookedProcesses(
                                         systemUi = restartSystemUiTarget,
-                                        miuiAod = restartAodTarget
+                                        miuiAod = restartAodTarget,
+                                        hyperglowApp = restartHyperglowTarget
                                     )
                                 )
                             }
