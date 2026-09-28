@@ -41,6 +41,13 @@
     <string name="label_diagnostic_logging">Diagnostic logging</string>
     <string name="summary_diagnostic_logging_available">Can reduce performance.</string>
     <string name="summary_diagnostic_logging_unavailable">This build does not include diagnostic logging.</string>
+    <string name="setting_log_retention">Log retention</string>
+    <string name="action_clear_logs">Clear logs</string>
+    <string name="dialog_clear_logs_title">Clear logs?</string>
+    <string name="dialog_clear_logs_summary">Delete the diagnostic log files on this device? This cannot be undone.</string>
+    <string name="toast_logs_cleared">Logs cleared</string>
+    <string name="toast_logs_clear_failed">Failed to clear logs</string>
+
     <string name="action_send_compatibility_report">Send compatibility report</string>
     <string name="action_report_problem">Report a problem</string>
     <string name="action_restart_systemui">Restart hooked processes</string>
@@ -269,6 +276,11 @@
     <string name="duration_1_hour">1 hour</string>
     <string name="duration_2_hours">2 hours</string>
     <string name="duration_indefinitely">Indefinitely</string>
+    <string name="duration_1_day">1 day</string>
+    <string name="duration_3_days">3 days</string>
+    <string name="duration_7_days">7 days</string>
+    <string name="duration_15_days">15 days</string>
+    <string name="duration_30_days">30 days</string>
     <string name="pattern_keep_top">Keep at top</string>
     <string name="pattern_keep_bottom">Keep at bottom</string>
     <string name="pattern_six_positions">Six positions</string>

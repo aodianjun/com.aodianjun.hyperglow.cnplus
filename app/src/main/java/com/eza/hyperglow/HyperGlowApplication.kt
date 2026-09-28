@@ -15,6 +15,9 @@ class HyperGlowApplication : Application() {
         DiagnosticDraftStore.load(this)
         DiagnosticLoggingRuntime.setEnabled(DiagnosticLoggingPreferences.read(this))
         DiagnosticTraceFile.setDirectory(filesDir.takeIf { DiagnosticLoggingRuntime.enabled })
+        // 保留期限在进程启动即修剪:日志关闭时也清理上次会话遗留的镜像。
+        DiagnosticTraceFile.setRetentionDays(DiagnosticLoggingPreferences.readRetentionDays(this))
+        DiagnosticTraceFile.prune(filesDir)
         // 空镜像和从未打开的镜像无法区分;空闲进程在播放开始前一行都不会写。
         AppLog.i(
             "Diagnostics",

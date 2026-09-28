@@ -54,4 +54,76 @@ class DiagnosticTraceFileTest {
         DiagnosticTraceFile.setDirectory(null)
         assertEquals("", DiagnosticTraceFile.readForReport(0L))
     }
+
+    @Test
+    fun pruneDropsLinesOlderThanTheRetentionCutoff() {
+        val dir = Files.createTempDirectory("hyperglow-trace").toFile()
+        try {
+            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US)
+            val oldMs = format.parse("2026-09-01T10:00:00.000")!!.time
+            val recentMs = format.parse("2026-09-27T10:00:00.000")!!.time
+            val nowMs = format.parse("2026-09-28T10:00:00.000")!!.time
+            File(dir, DiagnosticTraceFile.ROTATED_FILE_NAME).writeText(
+                "${format.format(oldMs)} I [Area] stale-rotated\n"
+            )
+            File(dir, DiagnosticTraceFile.FILE_NAME).writeText(
+                "${format.format(oldMs)} I [Area] stale-current\n" +
+                    "${format.format(recentMs)} I [Area] fresh\n" +
+                    "not a trace line\n"
+            )
+            DiagnosticTraceFile.setRetentionDays(7)
+
+            DiagnosticTraceFile.prune(dir, nowMs)
+
+            assertFalse(File(dir, DiagnosticTraceFile.ROTATED_FILE_NAME).exists())
+            val kept = File(dir, DiagnosticTraceFile.FILE_NAME).readText()
+            assertTrue(kept.contains("fresh"))
+            assertFalse(kept.contains("stale-current"))
+            assertFalse(kept.contains("not a trace line"))
+        } finally {
+            DiagnosticTraceFile.setRetentionDays(DiagnosticTraceFile.DEFAULT_RETENTION_DAYS)
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun clearRemovesBothTraceFiles() {
+        val dir = Files.createTempDirectory("hyperglow-trace").toFile()
+        try {
+            File(dir, DiagnosticTraceFile.FILE_NAME).writeText("x\n")
+            File(dir, DiagnosticTraceFile.ROTATED_FILE_NAME).writeText("y\n")
+
+            assertTrue(DiagnosticTraceFile.clear(dir))
+
+            assertFalse(File(dir, DiagnosticTraceFile.FILE_NAME).exists())
+            assertFalse(File(dir, DiagnosticTraceFile.ROTATED_FILE_NAME).exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun logRetentionNormalizationSnapsToAllowedDays() {
+        assertEquals(1, normalizeLogRetentionDays(-3))
+        assertEquals(1, normalizeLogRetentionDays(1))
+        assertEquals(3, normalizeLogRetentionDays(5))
+        assertEquals(7, normalizeLogRetentionDays(7))
+        assertEquals(15, normalizeLogRetentionDays(20))
+        assertEquals(30, normalizeLogRetentionDays(99))
+    }
+
+    @Test
+    fun retentionCutoffMovesBackWholeDays() {
+        val nowMs = 1_000_000_000_000L
+
+        assertEquals(nowMs - 7L * 24 * 60 * 60 * 1000, logRetentionCutoffMs(nowMs, 7))
+        assertEquals(nowMs - 30L * 24 * 60 * 60 * 1000, logRetentionCutoffMs(nowMs, 99))
+    }
+
+    @Test
+    fun unparseableTimestampsAreNeverRetained() {
+        assertFalse(shouldRetainTraceLine(null, 0L))
+        assertFalse(shouldRetainTraceLine(10L, 20L))
+        assertTrue(shouldRetainTraceLine(20L, 20L))
+    }
 }

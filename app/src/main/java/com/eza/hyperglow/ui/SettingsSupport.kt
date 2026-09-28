@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.R
+import com.eza.hyperglow.normalizeLogRetentionDays
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import kotlinx.serialization.json.*
 import java.net.HttpURLConnection
@@ -246,3 +247,14 @@ internal fun aodRefreshRateCapLabel(context: android.content.Context, value: Int
     } else {
         context.getString(R.string.refresh_rate_cap_hz, value)
     }
+
+internal fun logRetentionLabel(context: android.content.Context, value: Int): String =
+    context.getString(
+        when (normalizeLogRetentionDays(value)) {
+            1 -> R.string.duration_1_day
+            3 -> R.string.duration_3_days
+            15 -> R.string.duration_15_days
+            30 -> R.string.duration_30_days
+            else -> R.string.duration_7_days
+        }
+    )

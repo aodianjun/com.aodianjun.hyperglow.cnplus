@@ -86,6 +86,17 @@ is explicitly fixed and allowlisted.
 Known URI, URL, credential, and throwable-message patterns are redacted from captured lines.
 Screenshots may be attached manually to the separately opened public GitHub issue when useful.
 
+## Log retention and clearing
+
+The App-process log mirror (`diagnostic-trace.log` plus one rotated generation) is written only
+while diagnostic logging is on and stays bounded by its size cap. A user-configurable retention
+period (1/3/7/15/30 days, default 7) additionally drops mirrored lines older than the cutoff;
+pruning runs at process start, when the retention setting changes, and at rotation, so a
+disabled toggle does not leave stale sessions on the device. "Clear logs" deletes both mirror
+files after a destructive confirmation; it leaves the logging toggle and SystemUI-side hook
+logs untouched, and a guided capture still in progress then reports only what is logged after
+the clearing.
+
 ## Guided capture
 
 Capture stores wall and elapsed start times plus the previous diagnostic-logging state. It enables
@@ -215,6 +226,14 @@ Wi-Fi SSID、完整的已安装应用清单、自定义文档、任意文件、�
 LSPosed 日志。上述进程/框架凭据是显式固定且在白名单内的。
 已知的 URI、URL、凭据与 throwable 消息模式会从采集的行中脱敏。
 截图可在单独打开的公开 GitHub issue 中按需手动附加。
+
+## 日志保留与清除
+
+App 进程日志镜像（`diagnostic-trace.log` 加一次轮转）只在诊断日志开启期间写入并受容量
+上限约束。用户可配置保留期限（1/3/7/15/30 天，默认 7 天），超过截止点的镜像行会被清理；
+清理在进程启动、保留期限变更与轮转时执行，因此关闭开关也不会把旧会话留在设备上。
+「清除日志」经破坏性确认后删除两个镜像文件；不动日志开关与 SystemUI 侧 hook 日志，
+采集进行中执行清除后报告的镜像段只含清除之后的行。
 
 ## 引导采集
 

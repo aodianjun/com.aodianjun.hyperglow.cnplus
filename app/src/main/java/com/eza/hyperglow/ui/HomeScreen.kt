@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.DiagnosticLoggingPreferences
+import com.eza.hyperglow.LOG_RETENTION_DAYS
 import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.launch
 import com.eza.hyperglow.aod.AodLyricBridgeService
@@ -80,6 +81,8 @@ internal fun HomeScreen(
     var restartSystemUiTarget by remember { mutableStateOf(true) }
     var restartAodTarget by remember { mutableStateOf(true) }
     var showPauseLingerDialog by remember { mutableStateOf(false) }
+    var showLogRetentionDialog by remember { mutableStateOf(false) }
+    var showClearLogsDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showSourceDialog by remember { mutableStateOf(false) }
     var showResetDefaultsDialog by remember { mutableStateOf(false) }
@@ -195,6 +198,9 @@ internal fun HomeScreen(
     var pauseShowContent by remember { mutableStateOf(initialConfig.pauseShowContent) }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
+    }
+    var logRetentionDays by remember {
+        mutableStateOf(DiagnosticLoggingPreferences.readRetentionDays(context))
     }
     var persistentNotification by remember {
         mutableStateOf(initialConfig.persistentNotification)
@@ -366,6 +372,15 @@ internal fun HomeScreen(
                                     stringResource(R.string.summary_diagnostic_logging_unavailable)
                                 },
                                 enabled = BuildConfig.TRACE_LOGGING_AVAILABLE
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_log_retention),
+                                summary = logRetentionLabel(context, logRetentionDays),
+                                onClick = { showLogRetentionDialog = true }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.action_clear_logs),
+                                onClick = { showClearLogsDialog = true }
                             )
                             ArrowPreference(
                                 title = if (supportState == XiaomiRuntimeSupportState.NO_SYSTEM_UI_REPORT ||
@@ -803,6 +818,67 @@ internal fun HomeScreen(
                         {
                             if (updatePauseLinger(context, value)) pauseLingerMs = value
                             showPauseLingerDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showLogRetentionDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_log_retention),
+            show = true,
+            onDismissRequest = { showLogRetentionDialog = false }
+        ) {
+            Column {
+                LOG_RETENTION_DAYS.forEach { value ->
+                    RadioButtonPreference(
+                        logRetentionLabel(context, value),
+                        logRetentionDays == value,
+                        {
+                            if (updateLogRetentionDays(context, value)) logRetentionDays = value
+                            showLogRetentionDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showClearLogsDialog) {
+        WindowDialog(
+            title = stringResource(R.string.dialog_clear_logs_title),
+            summary = stringResource(R.string.dialog_clear_logs_summary),
+            show = true,
+            onDismissRequest = { showClearLogsDialog = false }
+        ) {
+            Column {
+                androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        text = stringResource(R.string.action_cancel),
+                        modifier = Modifier.weight(1f),
+                        onClick = { showClearLogsDialog = false }
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    TextButton(
+                        text = stringResource(R.string.action_clear_logs),
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                        onClick = {
+                            showClearLogsDialog = false
+                            val cleared = clearDiagnosticLogs(context)
+                            Toast.makeText(
+                                context,
+                                context.getString(
+                                    if (cleared) {
+                                        R.string.toast_logs_cleared
+                                    } else {
+                                        R.string.toast_logs_clear_failed
+                                    }
+                                ),
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     )
                 }

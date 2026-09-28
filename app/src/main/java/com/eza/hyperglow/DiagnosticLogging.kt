@@ -27,6 +27,7 @@ internal object DiagnosticLoggingRuntime {
 internal object DiagnosticLoggingPreferences {
     private const val PREFS = "diagnostics"
     private const val KEY_DIAGNOSTIC_LOGGING = "diagnostic_logging"
+    private const val KEY_LOG_RETENTION_DAYS = "log_retention_days"
 
     fun read(context: Context): Boolean = diagnosticLoggingEnabled(
         available = BuildConfig.TRACE_LOGGING_AVAILABLE,
@@ -41,6 +42,17 @@ internal object DiagnosticLoggingPreferences {
                 KEY_DIAGNOSTIC_LOGGING,
                 diagnosticLoggingEnabled(BuildConfig.TRACE_LOGGING_AVAILABLE, enabled)
             )
+            .commit()
+
+    fun readRetentionDays(context: Context): Int = normalizeLogRetentionDays(
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_LOG_RETENTION_DAYS, DiagnosticTraceFile.DEFAULT_RETENTION_DAYS)
+    )
+
+    fun writeRetentionDays(context: Context, days: Int): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_LOG_RETENTION_DAYS, normalizeLogRetentionDays(days))
             .commit()
 }
 
