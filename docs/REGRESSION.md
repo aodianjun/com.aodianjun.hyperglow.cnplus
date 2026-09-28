@@ -145,6 +145,15 @@ and (b) unverified paths stay explicit instead of silently assumed.
   after merge: a duet song tagged with two singers alternates left/right, turning the switch off
   lefts everything, and translation / next-line rows are unaffected.
 - Log retention and clear-logs entries on the diagnostics card ("Log retention" 1/3/7/15/30 days, and a destructive-confirmed "Clear logs" action that deletes both mirror files; expired mirror lines are pruned at process start, on retention change and at rotation) — pending a hardware smoke check after merge: changing the retention takes effect immediately, and after clearing `diagnostic-trace.log*` is gone while a fresh logging session starts a new file.
+- Lyricon position-feed log/state churn fix (a repeated position callback within the writer's
+  ~40 ms update cadence no longer trips stall extrapolation: below the 500 ms floor the last
+  real position is held and no state is emitted; the arbiter logs "active changed" only when
+  the producer identity (source + song generation) actually changes, so routine same-source
+  forwards are silent) — pending a hardware smoke check after merge: with diagnostic logging
+  enabled and a song playing, `diagnostic-trace.log` no longer fills with per-frame
+  `position stalled/resumed` (~45 lines/s) and per-frame arbiter `active changed` lines;
+  genuine screen-off stalls still extrapolate and log once, and line changes / source
+  switches still log.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -233,6 +242,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   对预设同样生效;`Fade up` 与历史一致。
 - 对唱分侧（`duetAlignment`，每 surface 独立，默认开启）：源显式标记（`alignedRight`/`isAlignedRight`）或演唱者身份元数据判为后位歌手的行绘制在右侧；关闭开关后所有行按主对齐解析。歌词源不带演唱者信息的曲目零变化——合并后待真机冒烟：歌词源标注了两位演唱者的对唱歌曲左右交替、关闭开关后全部居左、翻译/下一行行不受影响。
 - 日志保留期限与清日志（诊断设置卡新增「日志保留期限」1/3/7/15/30 天档与「清除日志」动作：超期镜像行在启动/改期限/轮转时清理，清日志经确认后删除两个镜像文件）——合并后待真机冒烟：改保留期限立即生效，清除后 `diagnostic-trace.log*` 不再存在，重新记日志会开新文件。
+- Lyricon 位置通道日志/状态刷屏修复（写入端 ~40ms 更新节奏内的重复位置回调不再触发停滞外推：低于 500ms 下限保持最后真实位置且不发状态；仲裁器仅在来源身份（源+歌曲代）真变时才记「active changed」，同源例行转发不再逐帧刷日志）——合并后待真机冒烟：开诊断日志播歌，`diagnostic-trace.log` 不再被逐帧 `position stalled/resumed`（约 45 行/秒）与逐帧 `active changed` 刷满轮转；真实息屏停滞仍外推且各记一条，换行/换源日志保留。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
