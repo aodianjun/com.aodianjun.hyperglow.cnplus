@@ -36,10 +36,25 @@ which rules are easy to miss.
 - **Proprietary research stays out of the public tree.** Device logs, JADX output, and captures
   belong under the ignored `research/` directory (STYLE_GUIDE §12).
 - **Upstream (`amarinne/hyperglow`) is ported by hand**, evaluated per commit and recorded in
-  `UPSTREAM_SYNC.md`; direct merges are not possible. The `.github/workflows/upstream-scan.yml`
+  `UPSTREAM_SYNC.md`: every evaluated item lands in exactly one of two tables — **Synced /
+  Included** or **Not Synced / Excluded** (with a reason and the upstream commit date),
+  so a re-check never re-reads old evaluations. Direct merges are not possible. The
+  `.github/workflows/upstream-scan.yml`
   workflow only *reports* new upstream commits when triggered manually (no automatic schedule) —
   the baseline in `.github/upstream-baseline.txt` is advanced by a human PR after the port is
   recorded.
+- **User-visible strings are contract-tested.** Every key in
+  `app/src/main/res/values/strings.xml` must also exist in
+  `app/src/main/res/values-zh-rCN/strings.xml` and `app/translation/strings-template.xml`
+  (`UiStringsContractTest`); `values-zh-rTW` is a best-effort subset. Add the key in all three
+  contract files in the same PR — a missing translation is a red CI, not a follow-up.
+- **`plugins/api` is a frozen copy of HyperLyric's plugin contract.** Precompiled HyperLyric
+  plugin ZIPs load without recompiling only because `PluginApi.kt` stays byte-identical to
+  upstream's public declarations — no renames, reorders, removals or additions. Comment
+  and formatting edits are fine; declaration changes require the upstream contract to change
+  first. The fingerprint in `plugins/api/api-contract.fingerprint` is enforced in CI
+  (`python3 plugins/api/check-api-fingerprint.py`; `--emit` prints the current hash) —
+  update the golden value only against upstream, never to silence a rename.
 
 ## CI and releases
 
@@ -84,9 +99,19 @@ reports are triaged against `docs/DEVICE_COMPAT_MATRIX.md`.
   功能；绝不猜测、不泄露内容、不改原生 UI（STYLE_GUIDE §3）。
 - **专有研究不进公开树。** 设备日志、JADX 输出与临时采集放在被忽略的 `research/` 目录
   （STYLE_GUIDE §12）。
-- **上游（`amarinne/hyperglow`）按提交人工移植**，逐个评估并记录在 `UPSTREAM_SYNC.md`；无法直接
+- **上游（`amarinne/hyperglow`）按提交人工移植**，逐个评估并记录在 `UPSTREAM_SYNC.md`：每个已评估条目都恰落入「已同步 / 已包含」或
+  「未同步 / 未纳入」两表之一（附原因与上游提交日期），复查时不必重读旧评估。无法直接
   merge。`.github/workflows/upstream-scan.yml` 只负责*报告*新上游提交（仅手动触发，无定时自动
   运行）——`.github/upstream-baseline.txt` 中的基线只在移植记录完成后由人工 PR 推进。
+- **用户可见文案受契约测试约束。** `app/src/main/res/values/strings.xml` 中的每个键都必须同时
+  出现在 `app/src/main/res/values-zh-rCN/strings.xml` 与
+  `app/translation/strings-template.xml`（`UiStringsContractTest` 校验）；`values-zh-rTW` 是尽力而为的子集。同一个 PR 里三份契约文件
+  一起加键——缺翻译是 CI 红灯，不是「以后再补」。
+- **`plugins/api` 是 HyperLyric 插件契约的冻结副本。** 预编译插件 ZIP 免重编译加载，全靠
+  `PluginApi.kt` 的公开声明与上游逐字节一致——不得改名、重排、删除或新增。注释与格式改动无妨；
+  声明变更必须先等上游契约变更。`plugins/api/api-contract.fingerprint` 中的指纹由 CI 强制
+  （`python3 plugins/api/check-api-fingerprint.py`；`--emit` 打印当前哈希）——只在跟随上游时
+  更新金标值，绝不用它掩盖改名。
 
 ## CI 与发版
 
