@@ -24,6 +24,9 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 - Line-, word- and syllable-synchronized karaoke.
 - Transliteration, translation and romaji where the source provides them (Spicy EX Full,
   Lyricon, LyricInfo translation/romaji lanes).
+- Configurable line-transition animations: 30 built-in exit/enter presets (fade, slide, zoom,
+  flip, rotate, etc.) plus an Auto mode that follows the lyric source, with Slow/Normal/Fast
+  speed tiers.
 - HyperLyric-compatible plugins (e.g. AI translation) with an in-app management screen; the
   plugin chain currently processes Spicy EX full-song lyrics.
 
@@ -66,6 +69,9 @@ APK from [Releases](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/
 > Tested on Redmi K80 Pro.
 > Will eat battery.
 > `Raise to show AOD` requires the system **Raise to wake** option enabled.
+
+> [!TIP]
+> If lyrics, the capability report or AOD behavior look wrong, check [FAQ.md](FAQ.md) first.
 
 ## Build
 
@@ -110,6 +116,10 @@ before opening a pull request:
 - [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —
   several hardening pieces in the lyric ingestion path (translation lane alignment, word-timing
   repair, text sanitization, opening-metadata cleanup) are adapted from its implementation.
+- [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics) — the
+  lyric timeline-normalization pass (word-timing alignment, overlap arbitration) follows ideas
+  and thresholds published by AMLL; ideas and thresholds only, no code from its AGPL codebase
+  is used.
 - [LuckyPray/DexKit](https://github.com/LuckyPray/DexKit) — runtime Dex symbol resolution behind
   the capability probes.
 - [miuix](https://github.com/miuix-kotlin/miuix) — the Compose UI library the entire settings
@@ -137,6 +147,7 @@ before opening a pull request:
   - **LyricInfo**（向受支持应用的媒体会话元数据注入 elrc/lrc 歌词）。
 - 支持逐行、逐词、逐音节同步的卡拉OK。
 - 音译、翻译与罗马音随歌词源提供（Spicy EX Full、Lyricon、LyricInfo 的翻译/罗马音 lane）。
+- 可配置的换行动画：内置 30 种退场/进场预设（淡入淡出、滑动、缩放、翻转、旋转等），另有跟随歌词源的 Auto 档，速率支持 Slow/Normal/Fast 三档。
 - HyperLyric 兼容插件（如 AI 翻译）与应用内插件管理页；插件链当前处理 Spicy EX 整首歌词。
 
 - AOD 时钟位置、锚定式时钟定位与防烧屏位移。
@@ -177,6 +188,9 @@ before opening a pull request:
 > 会比较耗电。
 > `拿起显示 AOD` 需要系统开启 **抬起唤醒** 选项。
 
+> [!TIP]
+> 如果歌词、能力报告或 AOD 行为异常，先查阅 [FAQ.md](FAQ.md)。
+
 ## 构建
 
 需要 JDK 21 与 Android SDK。无需任何凭据或账号 —— 所有依赖均从 Google 的 Maven 仓库和 Maven Central 解析。
@@ -203,6 +217,7 @@ JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 - [amarinne/hyperglow](https://github.com/amarinne/hyperglow) —— 本 CN+ 重打包版所基于的上游项目。
 - [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) —— HyperGlow 改编借鉴其代码的参考项目，本 fork 沿用了该代码。
 - [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —— 歌词摄取路径的多项加固（翻译 lane 对齐、词级时间轴修复、文本清洗、开头元数据清理）改编自其实现。
+- [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics) —— 歌词时间轴规整（词级对齐、重叠仲裁）借鉴了 AMLL 公开的思路与阈值；仅借鉴思路与阈值，未使用其（AGPL）代码。
 - [LuckyPray/DexKit](https://github.com/LuckyPray/DexKit) —— 能力探测背后的运行期 Dex 符号解析。
 - [miuix](https://github.com/miuix-kotlin/miuix) —— 整个设置界面所基于的 Compose UI 组件库。
 - 让这一切成为可能的歌词源：[Spicy EX](https://github.com/amarinne/spicy-ex)、
