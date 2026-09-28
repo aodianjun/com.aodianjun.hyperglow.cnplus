@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,16 +79,16 @@ internal fun HomeScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var showRestartDialog by remember { mutableStateOf(false) }
-    var restartSystemUiTarget by remember { mutableStateOf(true) }
-    var restartAodTarget by remember { mutableStateOf(true) }
-    var restartHyperglowTarget by remember { mutableStateOf(false) }
-    var showPauseLingerDialog by remember { mutableStateOf(false) }
-    var showLogRetentionDialog by remember { mutableStateOf(false) }
-    var showClearLogsDialog by remember { mutableStateOf(false) }
-    var showLanguageDialog by remember { mutableStateOf(false) }
-    var showSourceDialog by remember { mutableStateOf(false) }
-    var showResetDefaultsDialog by remember { mutableStateOf(false) }
+    var showRestartDialog by rememberSaveable { mutableStateOf(false) }
+    var restartSystemUiTarget by rememberSaveable { mutableStateOf(true) }
+    var restartAodTarget by rememberSaveable { mutableStateOf(true) }
+    var restartHyperglowTarget by rememberSaveable { mutableStateOf(false) }
+    var showPauseLingerDialog by rememberSaveable { mutableStateOf(false) }
+    var showLogRetentionDialog by rememberSaveable { mutableStateOf(false) }
+    var showClearLogsDialog by rememberSaveable { mutableStateOf(false) }
+    var showLanguageDialog by rememberSaveable { mutableStateOf(false) }
+    var showSourceDialog by rememberSaveable { mutableStateOf(false) }
+    var showResetDefaultsDialog by rememberSaveable { mutableStateOf(false) }
     val selectedTab = SettingsTab.entries.firstOrNull { it.name == selectedTabName }
         ?: SettingsTab.OVERVIEW
     val selectedTabIndex = SettingsTab.entries.indexOf(selectedTab)
@@ -562,7 +563,7 @@ internal fun HomeScreen(
                     item {
                         SettingsCard {
                             ArrowPreference(
-                                title = stringResource(R.string.section_aod_behavior),
+                                title = stringResource(R.string.title_aod_behavior_settings),
                                 summary = stringResource(R.string.summary_aod_behavior_entry),
                                 onClick = onOpenAodBehavior,
                                 enabled = aodSupported
@@ -709,7 +710,7 @@ internal fun HomeScreen(
             show = true,
             onDismissRequest = { showLanguageDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 UiLanguage.entries.forEach { language ->
                     RadioButtonPreference(
                         uiLanguageLabel(context, language),
@@ -829,7 +830,7 @@ internal fun HomeScreen(
             show = true,
             onDismissRequest = { showPauseLingerDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 PAUSE_LINGER_OPTIONS.forEach { value ->
                     RadioButtonPreference(
                         pauseLingerLabel(context, value),
@@ -850,7 +851,7 @@ internal fun HomeScreen(
             show = true,
             onDismissRequest = { showLogRetentionDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 LOG_RETENTION_DAYS.forEach { value ->
                     RadioButtonPreference(
                         logRetentionLabel(context, value),

@@ -64,6 +64,7 @@ import com.eza.hyperglow.diagnostics.utf8Size
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -72,6 +73,8 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextFieldDefaults
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -175,7 +178,12 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
             TopAppBar(
                 title = stringResource(R.string.action_report_problem),
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Text("←") }
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            MiuixIcons.Back,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
+                    }
                 }
             )
         }
@@ -576,30 +584,37 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
             show = true,
             onDismissRequest = { showPreviewDialog = false }
         ) {
-            LazyColumn(modifier = Modifier.heightIn(max = 520.dp)) {
+            LazyColumn(modifier = Modifier.heightIn(max = dialogContentMaxHeight())) {
                 if (readablePreview == null) {
                     item { DiagnosticPreviewText(previewJson) }
                 } else {
                     item { DiagnosticPreviewText(readablePreview.reportJson) }
-                    item { DiagnosticPreviewHeading("rawDiagnostics") }
+                    item {
+                        DiagnosticPreviewHeading(
+                            stringResource(R.string.diagnostic_preview_section_raw)
+                        )
+                    }
                     item {
                         DiagnosticPreviewBlock(
-                            "diagnosticEventsAndLogs",
+                            stringResource(R.string.diagnostic_preview_events),
                             readablePreview.diagnosticEventsAndLogs
                         )
                     }
                     item {
-                        DiagnosticPreviewBlock("crashExcerpt", readablePreview.crashExcerpt)
+                        DiagnosticPreviewBlock(
+                            stringResource(R.string.diagnostic_preview_crash),
+                            readablePreview.crashExcerpt
+                        )
                     }
                     item {
                         DiagnosticPreviewBlock(
-                            "lsposedModuleLines",
+                            stringResource(R.string.diagnostic_preview_lsposed),
                             readablePreview.lsposedModuleLines
                         )
                     }
                     item {
                         DiagnosticPreviewBlock(
-                            "runtimeSettings",
+                            stringResource(R.string.diagnostic_preview_settings),
                             readablePreview.runtimeSettingsJson
                         )
                     }
@@ -620,10 +635,11 @@ private fun DiagnosticPreviewHeading(text: String) {
 
 @Composable
 private fun DiagnosticPreviewBlock(label: String, value: String) {
+    val emptyLabel = stringResource(R.string.diagnostic_preview_empty)
     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
         Text(text = label, fontSize = 11.sp)
         Text(
-            text = value.ifEmpty { "(empty)" },
+            text = value.ifEmpty { emptyLabel },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp)

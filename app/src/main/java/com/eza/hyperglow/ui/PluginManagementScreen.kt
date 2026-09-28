@@ -52,6 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -59,6 +60,8 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
@@ -147,7 +150,12 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
             TopAppBar(
                 title = stringResource(R.string.plugin_management_title),
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Text("←") }
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            MiuixIcons.Back,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
+                    }
                 }
             )
         }

@@ -11,6 +11,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -22,11 +23,13 @@ import com.eza.hyperglow.aod.MAX_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import kotlin.math.roundToInt
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
@@ -91,12 +94,12 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
     var aodDebugShowCanvasFrame by remember { mutableStateOf(initialConfig.aodDebugShowCanvasFrame) }
     var aodRefreshRateCap by remember { mutableStateOf(initialConfig.aodRefreshRateCap) }
 
-    var showKeepAwakeDurationDialog by remember { mutableStateOf(false) }
-    var showBurnInPatternDialog by remember { mutableStateOf(false) }
-    var showBurnInIntervalDialog by remember { mutableStateOf(false) }
-    var showRotationModeDialog by remember { mutableStateOf(false) }
-    var showRotationSettleDialog by remember { mutableStateOf(false) }
-    var showRefreshRateCapDialog by remember { mutableStateOf(false) }
+    var showKeepAwakeDurationDialog by rememberSaveable { mutableStateOf(false) }
+    var showBurnInPatternDialog by rememberSaveable { mutableStateOf(false) }
+    var showBurnInIntervalDialog by rememberSaveable { mutableStateOf(false) }
+    var showRotationModeDialog by rememberSaveable { mutableStateOf(false) }
+    var showRotationSettleDialog by rememberSaveable { mutableStateOf(false) }
+    var showRefreshRateCapDialog by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(onBack = onBack)
 
@@ -106,7 +109,12 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
             TopAppBar(
                 title = stringResource(R.string.section_aod_behavior),
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Text("←") }
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            MiuixIcons.Back,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
+                    }
                 }
             )
         }
@@ -494,7 +502,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
             show = true,
             onDismissRequest = { showKeepAwakeDurationDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 KEEP_AWAKE_DURATIONS.forEach { value ->
                     RadioButtonPreference(
                         keepAwakeDurationLabel(context, value),
@@ -515,7 +523,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
             show = true,
             onDismissRequest = { showBurnInPatternDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 RadioButtonPreference(
                     stringResource(R.string.option_follow_xiaomi),
                     !positionFollowing,
@@ -556,7 +564,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
             show = true,
             onDismissRequest = { showBurnInIntervalDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 BURN_IN_INTERVALS.forEach { value ->
                     RadioButtonPreference(
                         burnInIntervalLabel(context, value),
@@ -578,7 +586,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
             show = true,
             onDismissRequest = { showRefreshRateCapDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 AOD_REFRESH_RATE_CAPS.forEach { value ->
                     RadioButtonPreference(
                         aodRefreshRateCapLabel(context, value),
@@ -599,7 +607,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
             show = true,
             onDismissRequest = { showRotationModeDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 AOD_ROTATION_MODES.forEach { mode ->
                     RadioButtonPreference(
                         aodRotationModeOptionLabel(context, mode),
@@ -620,7 +628,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
             show = true,
             onDismissRequest = { showRotationSettleDialog = false }
         ) {
-            Column {
+            Column(Modifier.dialogScrollable()) {
                 AOD_ROTATION_SETTLES.forEach { ms ->
                     RadioButtonPreference(
                         aodRotationSettleLabel(context, ms),
