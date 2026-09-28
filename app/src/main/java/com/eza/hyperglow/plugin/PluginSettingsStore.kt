@@ -11,8 +11,8 @@ import com.lidesheng.hyperlyric.plugin.api.PluginConfig
  * 与 HyperLyric 的存储语义一致：
  * - 插件经 [PluginConfig] 只读访问（onLoad/onConfigChanged 时取快照）；
  * - 宿主 UI 直接读写（设置页渲染、激活开关）；
- * - `backup=false` 的键不参与配置导出（当前导出仅覆盖 `aod_render`，插件设置
- *   存独立文件天然隔离，后续若做统一备份再按该标记过滤）。
+ * - `backup=false` 的键不参与配置导出/导入（统一配置备份已落地，导出采集
+ *   [readAll] 并按该标记过滤，导入写回前同样过滤，见 ConfigBackupCodec）。
  */
 object PluginSettingsStore {
     private const val TAG = "PluginSettings"
@@ -64,6 +64,29 @@ object PluginSettingsStore {
     fun clear(context: Context, pluginId: String) {
         prefs(context, pluginId).edit().clear().apply()
         AppLog.i(TAG, "cleared settings for $pluginId")
+    }
+
+    /**
+     * 统一配置备份用：读出该插件全部设置项（SharedPreferences 原生值）。
+     * 值类型只有 Boolean/Int/Long/Float/String/Set\<String\> 六种，由备份编解码器
+     * 按原生类型落盘（数字带类型标签），不在此处猜类型。
+     */
+    fun readAll(context: Context, pluginId: String): Map<String, Any?> =
+        prefs(context, pluginId).all
+
+    /** 统一配置备份用：按值的原生类型写回一项设置；不支持的类型静默丢弃。 */
+    fun writeValue(context: Context, pluginId: String, key: String, value: Any) {
+        val editor = prefs(context, pluginId).edit()
+        when (value) {
+            is Boolean -> editor.putBoolean(key, value)
+            is Int -> editor.putInt(key, value)
+            is Long -> editor.putLong(key, value)
+            is Float -> editor.putFloat(key, value)
+            is String -> editor.putString(key, value)
+            is Set<*> -> editor.putStringSet(key, value.filterIsInstance<String>().toSet())
+            else -> return
+        }
+        editor.apply()
     }
 
     /** 插件激活判定：manifest 声明了 activationSettingKey 则读该键，未声明视为始终激活。 */

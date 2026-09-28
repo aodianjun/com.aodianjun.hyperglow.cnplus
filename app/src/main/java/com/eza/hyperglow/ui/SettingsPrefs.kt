@@ -10,6 +10,10 @@ import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.plugin.PluginInstaller
+import com.eza.hyperglow.plugin.PluginRuntime
+import com.eza.hyperglow.plugin.PluginSettingsStore
+import com.eza.hyperglow.plugin.isValidPluginId
 import com.eza.hyperglow.root.projection.currentProcessUserId
 
 private fun applyDocumentToLegacyPreferences(
@@ -148,12 +152,14 @@ internal fun publishRuntimeConfiguration(context: android.content.Context) {
     )
 }
 
-internal const val MAX_CONFIG_FILE_BYTES = 512 * 1024
+/** 与 [ConfigBackupCodec.MAX_BYTES] 同源,避免导入预检与编解码上限漂移。 */
+internal const val MAX_CONFIG_FILE_BYTES = ConfigBackupCodec.MAX_BYTES
 
 internal fun exportAllConfig(context: android.content.Context): String =
     ConfigBackupCodec.encode(
         AodRenderPreferences.read(context),
-        CustomizationRepository.loadDocument(context)
+        CustomizationRepository.loadDocument(context),
+        collectSideSettings(context)
     )
 
 internal fun importAllConfig(context: android.content.Context, raw: String): Boolean {
@@ -161,7 +167,77 @@ internal fun importAllConfig(context: android.content.Context, raw: String): Boo
     if (result !is ConfigBackupDecodeResult.Success) return false
     if (!configBackupWritePreferences(context, result.preferences)) return false
     val document = result.customizationDocument
-    return document == null || CustomizationRepository.saveDocument(context, document)
+    if (document != null && !CustomizationRepository.saveDocument(context, document)) return false
+    applySideSettings(context, result.sideSettings)
+    return true
+}
+
+/** 补充设置面的导出采集;每项都取当前生效值,导出文件自成完整状态。 */
+private fun collectSideSettings(context: android.content.Context): ConfigBackupSideSettings =
+    ConfigBackupSideSettings(
+        lyricSource = AodRenderPreferences.readLyricSource(context),
+        appUiAppearance = loadAppUiAppearance(context),
+        uiLanguage = currentUiLanguage(context),
+        diagnosticLogging = DiagnosticLoggingPreferences.read(context),
+        logRetentionDays = DiagnosticLoggingPreferences.readRetentionDays(context),
+        pluginSettings = collectPluginSettingsBackup(context)
+    )
+
+/**
+ * 应用补充设置面。各字段为 null 表示旧备份未含该键,保持现状;
+ * 非 null 则整体应用。资源文件(背景图)不随备份流动,见内联注释。
+ */
+private fun applySideSettings(context: android.content.Context, side: ConfigBackupSideSettings) {
+    side.lyricSource?.let { AodRenderPreferences.writeLyricSource(context, it) }
+    side.appUiAppearance?.let { appearance ->
+        // 背景图片是资源文件、不进备份 JSON:目标设备没有该文件时不能留下
+        // "有背景"的悬空标记,否则各屏透明容器透出空底。
+        val restored =
+            if (appearance.hasBackgroundImage && !appBackgroundImageFile(context).isFile) {
+                appearance.copy(hasBackgroundImage = false, backgroundImageMtime = 0L)
+            } else {
+                appearance
+            }
+        updateAppUiAppearance(context, restored)
+    }
+    side.uiLanguage?.let { setUiLanguage(context, it) }
+    side.diagnosticLogging?.let { updateDiagnosticLogging(context, it) }
+    side.logRetentionDays?.let { updateLogRetentionDays(context, it) }
+    side.pluginSettings?.let { applyPluginSettingsBackup(context, it) }
+}
+
+/** 导出采集:已安装插件的全部设置,manifest 标记 `backup=false` 的键两头都不流动。 */
+private fun collectPluginSettingsBackup(
+    context: android.content.Context
+): Map<String, Map<String, Any?>> =
+    PluginInstaller.installed(context).associate { manifest ->
+        val excluded = manifest.settings.filterNot { it.backup }.mapTo(HashSet()) { it.key }
+        manifest.id to PluginSettingsStore.readAll(context, manifest.id)
+            .filterKeys { it !in excluded }
+    }
+
+/**
+ * 导入写回:覆盖语义,只写载荷里列出的键;插件未安装也照写,后装插件即拾取。
+ * 写入后按设置页同路径发 onConfigChanged,让已加载插件即时刷新快照。
+ */
+private fun applyPluginSettingsBackup(
+    context: android.content.Context,
+    settings: Map<String, Map<String, Any?>>
+) {
+    val manifests = PluginInstaller.installed(context).associateBy { it.id }
+    settings.forEach { (pluginId, values) ->
+        // 编解码器已按白名单过滤,这里再挡一道:插件 id 参与 prefs 文件名。
+        if (!isValidPluginId(pluginId)) return@forEach
+        var changed = false
+        values.forEach { (key, value) ->
+            if (value == null) return@forEach
+            val declared = manifests[pluginId]?.settings?.firstOrNull { it.key == key }
+            if (declared != null && !declared.backup) return@forEach
+            PluginSettingsStore.writeValue(context, pluginId, key, value)
+            changed = true
+        }
+        if (changed) PluginRuntime.notifyConfigChanged(pluginId)
+    }
 }
 
 private fun configBackupWritePreferences(

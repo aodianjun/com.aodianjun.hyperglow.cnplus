@@ -85,6 +85,21 @@ Network access is used only for an explicit diagnostic upload.
 
 No. Any diagnostic report upload requires your manual confirmation.
 
+### What does config backup include?
+
+**Export config** writes every app setting into one JSON file: render preferences (AOD and lock
+screen appearance and behavior), the lyric layout document, the lyrics source choice, app theme
+and background dim, the interface language, diagnostic logging preferences, and settings of
+installed plugins (keys a plugin declares as `backup=false` are skipped).
+
+**Import config** restores exactly what the file contains; settings absent from an older file are
+left untouched.
+
+Resource files are not embedded in the JSON: custom fonts, the app background image, and plugin
+installations need to be moved over manually. Until a custom font file is imported on the target
+device its selection falls back to a built-in font; the background image toggle resets itself when
+the image file is missing.
+
 ---
 
 # 中文 / Chinese
@@ -170,3 +185,14 @@ Spicy EX 使用单独的、仅限 Spotify 的作用域。
 ### 诊断数据会自动上传吗？
 
 不会。任何诊断报告的上传都需要您手动确认。
+
+### 配置备份包含哪些内容？
+
+**导出配置**会把全部应用设置写入一个 JSON 文件：渲染偏好（息屏与锁屏的外观与行为）、
+歌词布局文档、歌词源选择、应用主题与背景压暗、界面语言、诊断日志偏好，以及已安装插件的
+设置（插件标记为 `backup=false` 的键不参与）。
+
+**导入配置**只恢复文件里实际包含的内容；旧文件没有的设置项保持现状、不会被清成默认值。
+
+资源文件不进 JSON：自定义字体、应用背景图片、插件安装包需要手动迁移。目标设备上
+自定义字体文件缺失时，该字体选择会回退到内置字体；背景图片缺失时背景开关会自动复位。
