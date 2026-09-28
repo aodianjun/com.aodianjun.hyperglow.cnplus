@@ -144,6 +144,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
   Songs whose lyric source carries no singer info are unchanged — pending a hardware smoke check
   after merge: a duet song tagged with two singers alternates left/right, turning the switch off
   lefts everything, and translation / next-line rows are unaffected.
+- Log retention and clear-logs entries on the diagnostics card ("Log retention" 1/3/7/15/30 days, and a destructive-confirmed "Clear logs" action that deletes both mirror files; expired mirror lines are pruned at process start, on retention change and at rotation) — pending a hardware smoke check after merge: changing the retention takes effect immediately, and after clearing `diagnostic-trace.log*` is gone while a fresh logging session starts a new file.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -231,6 +232,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   旋转、缩放)观感与参考动画一致(旧行先离场、新行收位);翻转方向与应用内预览一致;速率档
   对预设同样生效;`Fade up` 与历史一致。
 - 对唱分侧（`duetAlignment`，每 surface 独立，默认开启）：源显式标记（`alignedRight`/`isAlignedRight`）或演唱者身份元数据判为后位歌手的行绘制在右侧；关闭开关后所有行按主对齐解析。歌词源不带演唱者信息的曲目零变化——合并后待真机冒烟：歌词源标注了两位演唱者的对唱歌曲左右交替、关闭开关后全部居左、翻译/下一行行不受影响。
+- 日志保留期限与清日志（诊断设置卡新增「日志保留期限」1/3/7/15/30 天档与「清除日志」动作：超期镜像行在启动/改期限/轮转时清理，清日志经确认后删除两个镜像文件）——合并后待真机冒烟：改保留期限立即生效，清除后 `diagnostic-trace.log*` 不再存在，重新记日志会开新文件。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

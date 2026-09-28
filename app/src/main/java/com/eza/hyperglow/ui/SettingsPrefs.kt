@@ -1,6 +1,8 @@
 package com.eza.hyperglow.ui
 
 import androidx.compose.foundation.layout.offset
+import com.eza.hyperglow.DiagnosticLoggingPreferences
+import com.eza.hyperglow.DiagnosticTraceFile
 import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.setDiagnosticLogging
 import com.eza.hyperglow.aod.AodRenderConfig
@@ -342,3 +344,13 @@ internal fun updateDiagnosticLogging(
     context: android.content.Context,
     enabled: Boolean
 ): Boolean = setDiagnosticLogging(context, enabled)
+
+internal fun updateLogRetentionDays(context: android.content.Context, days: Int): Boolean {
+    if (!DiagnosticLoggingPreferences.writeRetentionDays(context, days)) return false
+    DiagnosticTraceFile.setRetentionDays(DiagnosticLoggingPreferences.readRetentionDays(context))
+    DiagnosticTraceFile.prune(context.applicationContext.filesDir)
+    return true
+}
+
+internal fun clearDiagnosticLogs(context: android.content.Context): Boolean =
+    DiagnosticTraceFile.clear(context.applicationContext.filesDir)

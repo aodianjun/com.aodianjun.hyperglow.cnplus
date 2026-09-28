@@ -41,6 +41,13 @@
     <string name="label_diagnostic_logging">诊断日志</string>
     <string name="summary_diagnostic_logging_available">可能降低性能。</string>
     <string name="summary_diagnostic_logging_unavailable">此构建不包含诊断日志。</string>
+    <string name="setting_log_retention">日志保留期限</string>
+    <string name="action_clear_logs">清除日志</string>
+    <string name="dialog_clear_logs_title">清除日志？</string>
+    <string name="dialog_clear_logs_summary">删除本设备上的诊断日志文件？此操作无法撤销。</string>
+    <string name="toast_logs_cleared">日志已清除</string>
+    <string name="toast_logs_clear_failed">清除日志失败</string>
+
     <string name="action_send_compatibility_report">发送兼容性报告</string>
     <string name="action_report_problem">报告问题</string>
     <string name="action_restart_systemui">重启挂钩进程</string>
@@ -269,6 +276,11 @@
     <string name="duration_1_hour">1 小时</string>
     <string name="duration_2_hours">2 小时</string>
     <string name="duration_indefinitely">无限期</string>
+    <string name="duration_1_day">1 天</string>
+    <string name="duration_3_days">3 天</string>
+    <string name="duration_7_days">7 天</string>
+    <string name="duration_15_days">15 天</string>
+    <string name="duration_30_days">30 天</string>
     <string name="pattern_keep_top">固定在顶部</string>
     <string name="pattern_keep_bottom">固定在底部</string>
     <string name="pattern_six_positions">六个位置</string>
