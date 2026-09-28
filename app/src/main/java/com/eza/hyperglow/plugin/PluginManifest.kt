@@ -49,7 +49,7 @@ data class PluginManifest(
      * （直接用于安装失败的 toast/日志）。
      */
     fun validate(): String? {
-        if (!id.matches(Regex("[a-z0-9_]+(\\.[a-z0-9_]+)+"))) {
+        if (!isValidPluginId(id)) {
             return "bad id: $id"
         }
         if (apiVersion > HYPERLYRIC_PLUGIN_API_VERSION) {
@@ -202,6 +202,15 @@ data class PluginSettingOptionData(
     fun localizedLabel(languageTag: String): String =
         localizedValue(languageTag, labelLocales, label)
 }
+
+/**
+ * 插件 id 白名单。id 会拼进 `plugin_settings_<id>` 的 SharedPreferences 文件名,
+ * 因此配置备份的导入路径也必须过同一校验(见 ConfigBackupCodec),防止载荷里的
+ * 越界 id 变成路径片段。
+ */
+internal val PLUGIN_ID_PATTERN = Regex("[a-z0-9_]+(\\.[a-z0-9_]+)+")
+
+internal fun isValidPluginId(id: String): Boolean = id.matches(PLUGIN_ID_PATTERN)
 
 /**
  * 语言标签匹配规则：完整匹配（zh-CN）→ 主语言匹配（zh）→ 默认值。

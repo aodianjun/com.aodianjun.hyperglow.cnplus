@@ -3,7 +3,10 @@ package com.eza.hyperglow.ui
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.producer.LyricSource
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfigBackupCodecTest {
@@ -26,6 +29,7 @@ class ConfigBackupCodecTest {
         adaptiveSectioning = false,
         keepAwake = false,
         aodClockFollow = true,
+        aodClockYOffset = 120,
         keepAwakeUnsynced = true,
         keepAwakeDurationMs = 300_000L,
         experimentalPositionFollowing = true,
@@ -55,12 +59,45 @@ class ConfigBackupCodecTest {
         aodCanvasPaddingLandscapeXPercent = 8.25f,
         aodCanvasPaddingLandscapeYPercent = 10f,
         aodBrightnessOverride = true,
-        aodBrightnessLevel = 73
+        aodBrightnessLevel = 73,
+        aodDebugShowCanvasFrame = true,
+        aodRefreshRateCap = 90
+    )
+
+    /** 每个补充设置面字段都取非默认值;插件值覆盖 SharedPreferences 全部六种原生类型。 */
+    private fun fullSideSettings() = ConfigBackupSideSettings(
+        lyricSource = LyricSource.LYRICON,
+        appUiAppearance = AppUiAppearance(
+            themeMode = AppThemeMode.DARK,
+            themeColorMode = AppThemeColorMode.CUSTOM,
+            themeColorArgb = 0xFF112233.toInt(),
+            hasBackgroundImage = true,
+            backgroundImageMtime = 42L,
+            backgroundDimPercent = 25,
+            systemBarIcons = AppSystemBarIcons.LIGHT
+        ),
+        uiLanguage = UiLanguage.SIMPLIFIED_CHINESE,
+        diagnosticLogging = true,
+        logRetentionDays = 15,
+        pluginSettings = mapOf(
+            "com.example.plugin" to mapOf(
+                "enabled" to true,
+                "title" to "hello",
+                "count" to 300_000_000,
+                "duration" to 300_000L,
+                "ratio" to 1.5f,
+                "tags" to setOf("a", "b")
+            )
+        )
     )
 
     @Test
     fun nonDefaultProfileRoundTripsFieldForField() {
-        val encoded = ConfigBackupCodec.encode(nonDefaultPreferences(), null)
+        val encoded = ConfigBackupCodec.encode(
+            nonDefaultPreferences(),
+            null,
+            ConfigBackupSideSettings()
+        )
 
         val result = ConfigBackupCodec.decode(encoded.toByteArray())
 
@@ -79,10 +116,162 @@ class ConfigBackupCodecTest {
         val document = SceneCompiler.safeDefaultDocument()
 
         val result = ConfigBackupCodec.decode(
-            ConfigBackupCodec.encode(AodRenderConfig(), document).toByteArray()
+            ConfigBackupCodec.encode(AodRenderConfig(), document, ConfigBackupSideSettings())
+                .toByteArray()
         )
 
         assertEquals(document, (result as ConfigBackupDecodeResult.Success).customizationDocument)
+    }
+
+    @Test
+    fun sideSettingsRoundTripFieldForField() {
+        val encoded = ConfigBackupCodec.encode(AodRenderConfig(), null, fullSideSettings())
+
+        val result = ConfigBackupCodec.decode(encoded.toByteArray())
+
+        assertEquals(fullSideSettings(), (result as ConfigBackupDecodeResult.Success).sideSettings)
+    }
+
+    @Test
+    fun pluginNumericValuesKeepTheirDeclaredTypes() {
+        // Int/Long/Float 在 JSON 里同形,还原时猜类型会复现 keepAwakeDurationMs 的
+        // ClassCastException;类型标签保证三种数字各回各位。
+        val result = ConfigBackupCodec.decode(
+            ConfigBackupCodec.encode(AodRenderConfig(), null, fullSideSettings()).toByteArray()
+        )
+
+        val values = (result as ConfigBackupDecodeResult.Success)
+            .sideSettings.pluginSettings!!.getValue("com.example.plugin")
+        assertTrue(values["count"] is Int)
+        assertTrue(values["duration"] is Long)
+        assertTrue(values["ratio"] is Float)
+        assertEquals(300_000_000, values["count"])
+        assertEquals(300_000L, values["duration"])
+        assertEquals(1.5f, values["ratio"])
+        assertTrue(values["tags"] is Set<*>)
+    }
+
+    @Test
+    fun oldBackupsWithoutSideKeysLeaveSurfacesUntouched() {
+        // 旧备份从未捕获过补充设置面:导入它不得把歌词源/外观/插件设置清成默认值,
+        // 这些键缺省时必须保持 null 由导入端维持现状。
+        val v1 = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": 1,
+              "renderPreferences": {
+                "${AodRenderPreferences.KEEP_AWAKE}": false
+              }
+            }
+        """.trimIndent()
+
+        val result = ConfigBackupCodec.decode(v1.toByteArray())
+
+        val side = (result as ConfigBackupDecodeResult.Success).sideSettings
+        assertNull(side.lyricSource)
+        assertNull(side.appUiAppearance)
+        assertNull(side.uiLanguage)
+        assertNull(side.diagnosticLogging)
+        assertNull(side.logRetentionDays)
+        assertNull(side.pluginSettings)
+        assertEquals(false, result.preferences.keepAwake)
+    }
+
+    @Test
+    fun absentSideKeysAreNull() {
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "lyricSource": "SPICY"
+            }
+        """.trimIndent()
+
+        val side = (ConfigBackupCodec.decode(payload.toByteArray())
+            as ConfigBackupDecodeResult.Success).sideSettings
+
+        assertEquals(LyricSource.SPICY, side.lyricSource)
+        assertNull(side.appUiAppearance)
+        assertNull(side.uiLanguage)
+        assertNull(side.diagnosticLogging)
+        assertNull(side.pluginSettings)
+    }
+
+    @Test
+    fun unknownEnumValuesFallBackToDefaultsNotRawStrings() {
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "lyricSource": "ALIEN",
+              "uiLanguage": "ALIEN"
+            }
+        """.trimIndent()
+
+        val side = (ConfigBackupCodec.decode(payload.toByteArray())
+            as ConfigBackupDecodeResult.Success).sideSettings
+
+        assertEquals(LyricSource.SPICY, side.lyricSource)
+        assertEquals(UiLanguage.SYSTEM, side.uiLanguage)
+    }
+
+    @Test
+    fun malformedSideValuesFallBackToSectionDefaults() {
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "appUiAppearance": {
+                "theme_mode": "ALIEN",
+                "theme_color_argb": "not-an-int",
+                "background_dim_percent": 250
+              },
+              "diagnostics": {
+                "diagnostic_logging": "yes",
+                "log_retention_days": "far"
+              }
+            }
+        """.trimIndent()
+
+        val side = (ConfigBackupCodec.decode(payload.toByteArray())
+            as ConfigBackupDecodeResult.Success).sideSettings
+
+        val appearance = side.appUiAppearance!!
+        assertEquals(AppThemeMode.SYSTEM, appearance.themeMode)
+        assertEquals(DEFAULT_THEME_COLOR_ARGB, appearance.themeColorArgb)
+        assertEquals(100, appearance.backgroundDimPercent)
+        assertEquals(false, side.diagnosticLogging)
+        assertEquals(7, side.logRetentionDays)
+    }
+
+    @Test
+    fun malformedPluginValuesAreDroppedKeyByKey() {
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "pluginSettings": {
+                "com.example.plugin": {
+                  "good": true,
+                  "bad_float": {"f": "abc"},
+                  "bad_tag": {"x": 1},
+                  "bad_pair": {"i": 1, "l": 2},
+                  "bad_array": [1, 2],
+                  "": 5
+                },
+                "../evil": {"k": true}
+              }
+            }
+        """.trimIndent()
+
+        val side = (ConfigBackupCodec.decode(payload.toByteArray())
+            as ConfigBackupDecodeResult.Success).sideSettings
+
+        // 形状不符的键逐个丢弃;id 越界(参与 prefs 文件名)的插件整体不进结果。
+        assertEquals(
+            mapOf("com.example.plugin" to mapOf<String, Any?>("good" to true)),
+            side.pluginSettings
+        )
     }
 
     @Test
@@ -90,7 +279,7 @@ class ConfigBackupCodecTest {
         val preferences = nonDefaultPreferences().copy(fontFamily = "100")
 
         val result = ConfigBackupCodec.decode(
-            ConfigBackupCodec.encode(preferences, null).toByteArray()
+            ConfigBackupCodec.encode(preferences, null, ConfigBackupSideSettings()).toByteArray()
         )
 
         assertEquals("100", (result as ConfigBackupDecodeResult.Success).preferences.fontFamily)
@@ -110,7 +299,6 @@ class ConfigBackupCodecTest {
               }
             }
         """.trimIndent()
-
         val withoutExtras = """
             {
               "format": "${ConfigBackupCodec.FORMAT}",
@@ -162,17 +350,20 @@ class ConfigBackupCodecTest {
     }
 
     @Test
-    fun unsupportedVersionIsRejected() {
-        val payload = """
-            {"format": "${ConfigBackupCodec.FORMAT}", "version": 999}
-        """.trimIndent()
+    fun unsupportedVersionsAreRejected() {
+        // 格式只做加法、版本号不抬;仍拒绝范围之外的版本,不猜未来格式。
+        for (version in listOf(0, 2, 999)) {
+            val payload = """
+                {"format": "${ConfigBackupCodec.FORMAT}", "version": $version}
+            """.trimIndent()
 
-        val result = ConfigBackupCodec.decode(payload.toByteArray())
+            val result = ConfigBackupCodec.decode(payload.toByteArray())
 
-        assertEquals(
-            ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.BAD_VERSION),
-            result
-        )
+            assertEquals(
+                ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.BAD_VERSION),
+                result
+            )
+        }
     }
 
     @Test

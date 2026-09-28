@@ -51,13 +51,15 @@ internal const val DEFAULT_THEME_COLOR_ARGB = 0xFF3482FF.toInt()
 internal const val DEFAULT_BACKGROUND_DIM_PERCENT = 45
 
 private const val APP_UI_PREFS = "app_ui_appearance"
-private const val KEY_THEME_MODE = "theme_mode"
-private const val KEY_THEME_COLOR_MODE = "theme_color_mode"
-private const val KEY_THEME_COLOR_ARGB = "theme_color_argb"
-private const val KEY_HAS_BACKGROUND_IMAGE = "has_background_image"
-private const val KEY_BACKGROUND_IMAGE_MTIME = "background_image_mtime"
-private const val KEY_BACKGROUND_DIM_PERCENT = "background_dim_percent"
-private const val KEY_SYSTEM_BAR_ICONS = "system_bar_icons"
+
+// 键名同时是配置备份的 appUiAppearance 段 schema(ConfigBackupCodec 读写),故为 internal。
+internal const val KEY_THEME_MODE = "theme_mode"
+internal const val KEY_THEME_COLOR_MODE = "theme_color_mode"
+internal const val KEY_THEME_COLOR_ARGB = "theme_color_argb"
+internal const val KEY_HAS_BACKGROUND_IMAGE = "has_background_image"
+internal const val KEY_BACKGROUND_IMAGE_MTIME = "background_image_mtime"
+internal const val KEY_BACKGROUND_DIM_PERCENT = "background_dim_percent"
+internal const val KEY_SYSTEM_BAR_ICONS = "system_bar_icons"
 
 internal const val APP_BACKGROUND_IMAGE_FILE = "app_background.jpg"
 private const val MAX_BACKGROUND_IMAGE_SIDE = 2160
