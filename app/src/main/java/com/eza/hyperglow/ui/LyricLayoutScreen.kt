@@ -252,6 +252,7 @@ internal fun LyricLayoutScreen(
     var previewCollapsed by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
+        containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
                 title = if (editorState.selectedSurface == SceneCompiler.SURFACE_AOD) {

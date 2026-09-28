@@ -532,4 +532,23 @@
     <string name="label_root_permission">Root 權限</string>
     <string name="summary_root_permission_granted">已授予 Root 權限</string>
     <string name="summary_root_permission_denied">點擊授予 Root 權限</string>
+<string name="section_app_appearance">應用外觀</string>
+    <string name="setting_theme_mode">主題模式</string>
+    <string name="option_theme_system">跟隨系統</string>
+    <string name="option_theme_light">淺色</string>
+    <string name="option_theme_dark">深色</string>
+    <string name="setting_theme_color">主題顏色</string>
+    <string name="option_theme_color_dynamic">動態取色</string>
+    <string name="option_theme_color_custom">自訂</string>
+    <string name="setting_background_image">背景圖片</string>
+    <string name="background_image_set">已設定</string>
+    <string name="background_image_unset">未設定</string>
+    <string name="setting_background_dim">背景遮罩</string>
+    <string name="action_pick_background_image">選取圖片</string>
+    <string name="action_remove_background_image">移除圖片</string>
+    <string name="toast_background_image_failed">無法使用該圖片</string>
+    <string name="setting_system_bar_icons">系統欄圖示</string>
+    <string name="option_bar_icons_auto">自動</string>
+    <string name="option_bar_icons_light">淺色圖示</string>
+    <string name="option_bar_icons_dark">深色圖示</string>
 </resources>

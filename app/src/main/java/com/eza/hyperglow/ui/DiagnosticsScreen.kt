@@ -10,7 +10,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,11 +33,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -68,6 +69,8 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.TextFieldDefaults
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
@@ -167,6 +170,7 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
     }
 
     Scaffold(
+        containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
                 title = stringResource(R.string.action_report_problem),
@@ -662,12 +666,19 @@ private fun DiagnosticDescriptionField(
             .padding(start = 14.dp, top = 12.dp, end = 14.dp, bottom = 34.dp)
             .alpha(if (enabled) 1f else 0.56f)
     ) {
-        BasicTextField(
+        TextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopStart),
+            insideMargin = DpSize(0.dp, 0.dp),
+            colors = TextFieldDefaults.textFieldColors(
+                backgroundColor = Color.Transparent,
+                labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            ),
+            label = stringResource(R.string.diagnostic_description),
+            useLabelAsPlaceholder = true,
             enabled = enabled,
             textStyle = TextStyle(
                 color = MiuixTheme.colorScheme.onSurfaceContainerHighest,
@@ -676,19 +687,7 @@ private fun DiagnosticDescriptionField(
             cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
             singleLine = false,
             minLines = 4,
-            maxLines = 10,
-            decorationBox = { input ->
-                Box {
-                    if (value.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.diagnostic_description),
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontSize = 16.sp
-                        )
-                    }
-                    input()
-                }
-            }
+            maxLines = 10
         )
         Text(
             text = stringResource(

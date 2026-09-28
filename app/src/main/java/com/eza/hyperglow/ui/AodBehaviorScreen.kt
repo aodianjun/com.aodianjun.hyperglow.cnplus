@@ -101,6 +101,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
 
     Scaffold(
+        containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
                 title = stringResource(R.string.section_aod_behavior),

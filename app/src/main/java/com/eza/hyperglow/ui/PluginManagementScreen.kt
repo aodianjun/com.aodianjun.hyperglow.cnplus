@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -58,6 +57,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
@@ -142,6 +142,7 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
 
     Scaffold(
+        containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
                 title = stringResource(R.string.plugin_management_title),
@@ -711,13 +712,16 @@ private fun PluginSettingEditDialog(
                 onDismissRequest = onDismiss
             ) {
                 Column {
-                    BasicTextField(
+                    TextField(
                         value = text,
                         onValueChange = { text = it },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         singleLine = true,
+                        label = setting.localizedEmptyValueSummary(languageTag)
+                            ?: stringResource(R.string.plugin_setting_empty_value),
+                        useLabelAsPlaceholder = true,
                         textStyle = TextStyle(
                             color = MiuixTheme.colorScheme.onSurfaceContainerHighest,
                             fontSize = 16.sp
@@ -727,19 +731,6 @@ private fun PluginSettingEditDialog(
                             KeyboardOptions(keyboardType = KeyboardType.Number)
                         } else {
                             KeyboardOptions.Default
-                        },
-                        decorationBox = { input ->
-                            androidx.compose.foundation.layout.Box {
-                                if (text.isEmpty()) {
-                                    Text(
-                                        text = setting.localizedEmptyValueSummary(languageTag)
-                                            ?: stringResource(R.string.plugin_setting_empty_value),
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        fontSize = 16.sp
-                                    )
-                                }
-                                input()
-                            }
                         }
                     )
                     Row(Modifier.fillMaxWidth()) {
