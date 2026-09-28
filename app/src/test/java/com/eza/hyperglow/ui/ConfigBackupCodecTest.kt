@@ -74,6 +74,7 @@ class ConfigBackupCodecTest {
             hasBackgroundImage = true,
             backgroundImageMtime = 42L,
             backgroundDimPercent = 25,
+            backgroundBlurPercent = 66,
             systemBarIcons = AppSystemBarIcons.LIGHT
         ),
         uiLanguage = UiLanguage.SIMPLIFIED_CHINESE,
@@ -224,7 +225,8 @@ class ConfigBackupCodecTest {
               "appUiAppearance": {
                 "theme_mode": "ALIEN",
                 "theme_color_argb": "not-an-int",
-                "background_dim_percent": 250
+                "background_dim_percent": 250,
+                "background_blur_percent": "far"
               },
               "diagnostics": {
                 "diagnostic_logging": "yes",
@@ -240,6 +242,7 @@ class ConfigBackupCodecTest {
         assertEquals(AppThemeMode.SYSTEM, appearance.themeMode)
         assertEquals(DEFAULT_THEME_COLOR_ARGB, appearance.themeColorArgb)
         assertEquals(100, appearance.backgroundDimPercent)
+        assertEquals(DEFAULT_BACKGROUND_BLUR_PERCENT, appearance.backgroundBlurPercent)
         assertEquals(false, side.diagnosticLogging)
         assertEquals(7, side.logRetentionDays)
     }

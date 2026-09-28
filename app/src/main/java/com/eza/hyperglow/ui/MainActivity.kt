@@ -30,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.BlurredEdgeTreatment
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -148,7 +150,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 背景图片层:图片铺满后叠遮罩保证可读性;无图片或解码失败时不绘制任何内容。 */
+/** 背景图片层:图片铺满并按设置模糊后叠遮罩保证可读性;无图片或解码失败时不绘制任何内容。 */
 @Composable
 private fun AppBackgroundLayer(
     appearance: AppUiAppearance,
@@ -164,7 +166,18 @@ private fun AppBackgroundLayer(
             bitmap = bitmap,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (appearance.backgroundBlurPercent > 0) {
+                        Modifier.blur(
+                            radius = backgroundBlurRadius(appearance.backgroundBlurPercent),
+                            edgeTreatment = BlurredEdgeTreatment.Unbounded
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
         )
         val dim = appearance.backgroundDimPercent / 100f
         if (dim > 0f) {

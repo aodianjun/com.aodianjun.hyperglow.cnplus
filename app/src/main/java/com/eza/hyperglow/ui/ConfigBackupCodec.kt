@@ -251,6 +251,7 @@ internal object ConfigBackupCodec {
             put(KEY_HAS_BACKGROUND_IMAGE, appearance.hasBackgroundImage)
             put(KEY_BACKGROUND_IMAGE_MTIME, appearance.backgroundImageMtime)
             put(KEY_BACKGROUND_DIM_PERCENT, appearance.backgroundDimPercent)
+            put(KEY_BACKGROUND_BLUR_PERCENT, appearance.backgroundBlurPercent)
             put(KEY_SYSTEM_BAR_ICONS, appearance.systemBarIcons.name)
         }
 
@@ -376,6 +377,7 @@ internal object ConfigBackupCodec {
         stored.boolean(KEY_HAS_BACKGROUND_IMAGE)?.let { values[KEY_HAS_BACKGROUND_IMAGE] = it }
         stored.long(KEY_BACKGROUND_IMAGE_MTIME)?.let { values[KEY_BACKGROUND_IMAGE_MTIME] = it }
         stored.int(KEY_BACKGROUND_DIM_PERCENT)?.let { values[KEY_BACKGROUND_DIM_PERCENT] = it }
+        stored.int(KEY_BACKGROUND_BLUR_PERCENT)?.let { values[KEY_BACKGROUND_BLUR_PERCENT] = it }
         stored.string(KEY_SYSTEM_BAR_ICONS)?.let { values[KEY_SYSTEM_BAR_ICONS] = it }
         return normalizeAppUiAppearance(values)
     }

@@ -1,48 +1,83 @@
 package com.eza.hyperglow.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.BlurredEdgeTreatment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.R
+import java.util.Locale
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.ColorPicker
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import top.yukonga.miuix.kmp.icon.extended.Back
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.RadioButtonPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
- * 应用外观子屏:主题模式/主题颜色/背景图片/系统栏图标。
- * 设置即时写入并即时生效,无需重启;背景图片由 [onAppearanceChanged] 通知宿主重绘。
+ * 应用外观子屏:主题模式/主题颜色/背景图片(变暗与模糊)/系统栏图标。
+ * 主题与系统栏即时写入并即时生效;背景图片与背景参数在弹窗内调整,
+ * 预览实时反映待应用效果,「保存」后写入并经 [onAppearanceChanged] 通知宿主重绘。
+ * 交互结构参照 HyperBackground(hyperbg)模块的背景设置:入口行 + 预览弹窗、
+ * 直接下拉选项、颜色行色块预览、恢复默认/保存成对操作。
  */
 @Composable
 internal fun AppAppearanceScreen(
@@ -51,11 +86,12 @@ internal fun AppAppearanceScreen(
 ) {
     val context = LocalContext.current
     var appearance by remember { mutableStateOf(loadAppUiAppearance(context)) }
-    var showThemeModeDialog by remember { mutableStateOf(false) }
-    var showThemeColorDialog by remember { mutableStateOf(false) }
     var showCustomColorDialog by remember { mutableStateOf(false) }
+    var pendingThemeColorArgb by remember { mutableStateOf(appearance.themeColorArgb) }
     var showBackgroundDialog by remember { mutableStateOf(false) }
-    var showBarIconsDialog by remember { mutableStateOf(false) }
+    var pendingBackgroundUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingBackgroundDim by remember { mutableStateOf(appearance.backgroundDimPercent) }
+    var pendingBackgroundBlur by remember { mutableStateOf(appearance.backgroundBlurPercent) }
 
     fun commit(next: AppUiAppearance) {
         if (updateAppUiAppearance(context, next)) {
@@ -67,21 +103,7 @@ internal fun AppAppearanceScreen(
     val pickImageLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        if (importAppBackgroundImage(context, uri)) {
-            commit(
-                appearance.copy(
-                    hasBackgroundImage = true,
-                    backgroundImageMtime = appBackgroundImageFile(context).lastModified()
-                )
-            )
-        } else {
-            android.widget.Toast.makeText(
-                context,
-                context.getString(R.string.toast_background_image_failed),
-                android.widget.Toast.LENGTH_LONG
-            ).show()
-        }
+        if (uri != null) pendingBackgroundUri = uri
     }
 
     BackHandler(onBack = onBack)
@@ -109,23 +131,51 @@ internal fun AppAppearanceScreen(
                 bottom = innerPadding.calculateBottomPadding() + 20.dp
             )
         ) {
-            item { SmallTitle(text = stringResource(R.string.setting_theme_mode)) }
+            item { SmallTitle(text = stringResource(R.string.section_appearance)) }
             item {
                 SettingsCard {
-                    ArrowPreference(
+                    OverlayDropdownPreference(
+                        items = AppThemeMode.entries.map { appThemeModeLabel(context, it) },
+                        selectedIndex = appearance.themeMode.ordinal,
                         title = stringResource(R.string.setting_theme_mode),
-                        summary = appThemeModeLabel(context, appearance.themeMode),
-                        onClick = { showThemeModeDialog = true }
+                        onSelectedIndexChange = { index ->
+                            commit(appearance.copy(themeMode = AppThemeMode.entries[index]))
+                        }
                     )
-                    ArrowPreference(
+                    OverlayDropdownPreference(
+                        items = AppThemeColorMode.entries.map { appThemeColorModeLabel(context, it) },
+                        selectedIndex = appearance.themeColorMode.ordinal,
                         title = stringResource(R.string.setting_theme_color),
-                        summary = appThemeColorModeLabel(context, appearance.themeColorMode),
-                        onClick = { showThemeColorDialog = true }
+                        onSelectedIndexChange = { index ->
+                            val mode = AppThemeColorMode.entries[index]
+                            commit(appearance.copy(themeColorMode = mode))
+                            if (mode == AppThemeColorMode.CUSTOM) {
+                                pendingThemeColorArgb = appearance.themeColorArgb
+                                showCustomColorDialog = true
+                            }
+                        }
                     )
-                    if (appearance.themeColorMode == AppThemeColorMode.CUSTOM) {
-                        ArrowPreference(
+                    AnimatedVisibility(
+                        visible = appearance.themeColorMode == AppThemeColorMode.CUSTOM,
+                        enter = expandVertically(animationSpec = tween(300)) +
+                            fadeIn(animationSpec = tween(220)),
+                        exit = shrinkVertically(animationSpec = tween(300)) +
+                            fadeOut(animationSpec = tween(180))
+                    ) {
+                        BasicComponent(
                             title = stringResource(R.string.dialog_pick_color),
-                            onClick = { showCustomColorDialog = true }
+                            summary = argbToColorToken(appearance.themeColorArgb),
+                            startAction = {
+                                ColorSwatch(
+                                    argb = appearance.themeColorArgb,
+                                    size = 24.dp,
+                                    modifier = Modifier.padding(end = 12.dp)
+                                )
+                            },
+                            onClick = {
+                                pendingThemeColorArgb = appearance.themeColorArgb
+                                showCustomColorDialog = true
+                            }
                         )
                     }
                 }
@@ -133,92 +183,37 @@ internal fun AppAppearanceScreen(
             item { SmallTitle(text = stringResource(R.string.setting_background_image)) }
             item {
                 SettingsCard {
-                    SwitchPreference(
-                        checked = appearance.hasBackgroundImage,
-                        onCheckedChange = { enabled ->
-                            if (!enabled) {
-                                commit(
-                                    appearance.copy(
-                                        hasBackgroundImage = false,
-                                        backgroundImageMtime = 0L
-                                    )
-                                )
-                            } else {
-                                showBackgroundDialog = true
-                            }
-                        },
+                    BasicComponent(
                         title = stringResource(R.string.setting_background_image),
                         summary = if (appearance.hasBackgroundImage) {
                             stringResource(R.string.background_image_set)
                         } else {
                             stringResource(R.string.background_image_unset)
-                        }
-                    )
-                    SliderPreference(
-                        value = appearance.backgroundDimPercent.toFloat(),
-                        onValueChange = { value ->
-                            commit(appearance.copy(backgroundDimPercent = value.toInt()))
                         },
-                        title = stringResource(R.string.setting_background_dim),
-                        valueText = appearance.backgroundDimPercent.toString() + "%",
-                        valueRange = 0f..100f,
-                        steps = 19,
-                        enabled = appearance.hasBackgroundImage
+                        endActions = {
+                            Icon(
+                                imageVector = MiuixIcons.Basic.ArrowRight,
+                                contentDescription = null
+                            )
+                        },
+                        onClick = {
+                            pendingBackgroundUri = null
+                            pendingBackgroundDim = appearance.backgroundDimPercent
+                            pendingBackgroundBlur = appearance.backgroundBlurPercent
+                            showBackgroundDialog = true
+                        }
                     )
                 }
             }
             item { SmallTitle(text = stringResource(R.string.setting_system_bar_icons)) }
             item {
                 SettingsCard {
-                    ArrowPreference(
+                    OverlayDropdownPreference(
+                        items = AppSystemBarIcons.entries.map { appSystemBarIconsLabel(context, it) },
+                        selectedIndex = appearance.systemBarIcons.ordinal,
                         title = stringResource(R.string.setting_system_bar_icons),
-                        summary = appSystemBarIconsLabel(context, appearance.systemBarIcons),
-                        onClick = { showBarIconsDialog = true }
-                    )
-                }
-            }
-        }
-    }
-
-    if (showThemeModeDialog) {
-        WindowDialog(
-            title = stringResource(R.string.setting_theme_mode),
-            show = true,
-            onDismissRequest = { showThemeModeDialog = false }
-        ) {
-            Column {
-                AppThemeMode.entries.forEach { mode ->
-                    RadioButtonPreference(
-                        appThemeModeLabel(context, mode),
-                        appearance.themeMode == mode,
-                        {
-                            commit(appearance.copy(themeMode = mode))
-                            showThemeModeDialog = false
-                        }
-                    )
-                }
-            }
-        }
-    }
-
-    if (showThemeColorDialog) {
-        WindowDialog(
-            title = stringResource(R.string.setting_theme_color),
-            show = true,
-            onDismissRequest = { showThemeColorDialog = false }
-        ) {
-            Column {
-                AppThemeColorMode.entries.forEach { mode ->
-                    RadioButtonPreference(
-                        appThemeColorModeLabel(context, mode),
-                        appearance.themeColorMode == mode,
-                        {
-                            val picked = appearance.copy(themeColorMode = mode)
-                            commit(picked)
-                            showThemeColorDialog = false
-                            if (mode == AppThemeColorMode.CUSTOM) {
-                                showCustomColorDialog = true
-                            }
+                        onSelectedIndexChange = { index ->
+                            commit(appearance.copy(systemBarIcons = AppSystemBarIcons.entries[index]))
                         }
                     )
                 }
@@ -227,104 +222,352 @@ internal fun AppAppearanceScreen(
     }
 
     if (showCustomColorDialog) {
-        var pendingArgb by remember {
-            mutableStateOf(appearance.themeColorArgb)
-        }
-        WindowDialog(
-            title = stringResource(R.string.dialog_pick_color),
-            show = true,
-            onDismissRequest = { showCustomColorDialog = false }
-        ) {
-            Column {
-                ColorPicker(
-                    color = Color(pendingArgb),
-                    onColorChanged = { color -> pendingArgb = color.toArgb() }
+        CustomThemeColorDialog(
+            pendingArgb = pendingThemeColorArgb,
+            onColorChange = { pendingThemeColorArgb = it },
+            onSave = {
+                commit(
+                    appearance.copy(
+                        themeColorMode = AppThemeColorMode.CUSTOM,
+                        themeColorArgb = pendingThemeColorArgb
+                    )
                 )
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                ) {
-                    TextButton(
-                        text = stringResource(R.string.action_cancel),
-                        modifier = Modifier.weight(1f),
-                        onClick = { showCustomColorDialog = false }
-                    )
-                    Spacer(Modifier.width(20.dp))
-                    TextButton(
-                        text = stringResource(R.string.action_save),
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
-                        onClick = {
-                            commit(
-                                appearance.copy(
-                                    themeColorMode = AppThemeColorMode.CUSTOM,
-                                    themeColorArgb = pendingArgb
-                                )
-                            )
-                            showCustomColorDialog = false
-                        }
-                    )
-                }
-            }
-        }
+                showCustomColorDialog = false
+            },
+            onDismiss = { showCustomColorDialog = false }
+        )
     }
 
     if (showBackgroundDialog) {
-        WindowDialog(
-            title = stringResource(R.string.setting_background_image),
-            show = true,
-            onDismissRequest = { showBackgroundDialog = false }
-        ) {
-            Column {
-                TextButton(
-                    text = stringResource(R.string.action_pick_background_image),
+        BackgroundImageDialog(
+            hasBackgroundImage = appearance.hasBackgroundImage,
+            backgroundImageMtime = appearance.backgroundImageMtime,
+            pendingUri = pendingBackgroundUri,
+            dimPercent = pendingBackgroundDim,
+            blurPercent = pendingBackgroundBlur,
+            darkTheme = isDarkTheme(appearance, isSystemInDarkTheme()),
+            onPickImage = { pickImageLauncher.launch("image/*") },
+            onDimChange = { pendingBackgroundDim = it },
+            onBlurChange = { pendingBackgroundBlur = it },
+            onRestoreDefault = {
+                showBackgroundDialog = false
+                pendingBackgroundUri = null
+                removeAppBackgroundImage(context)
+                commit(
+                    appearance.copy(
+                        hasBackgroundImage = false,
+                        backgroundImageMtime = 0L,
+                        backgroundDimPercent = DEFAULT_BACKGROUND_DIM_PERCENT,
+                        backgroundBlurPercent = DEFAULT_BACKGROUND_BLUR_PERCENT
+                    )
+                )
+            },
+            onSave = {
+                val picked = pendingBackgroundUri
+                val imported = picked == null || importAppBackgroundImage(context, picked)
+                if (imported) {
+                    val file = appBackgroundImageFile(context)
+                    commit(
+                        appearance.copy(
+                            hasBackgroundImage = file.isFile,
+                            backgroundImageMtime = file.lastModified(),
+                            backgroundDimPercent = pendingBackgroundDim,
+                            backgroundBlurPercent = pendingBackgroundBlur
+                        )
+                    )
+                    showBackgroundDialog = false
+                    pendingBackgroundUri = null
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        context.getString(R.string.toast_background_image_failed),
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            },
+            onDismiss = {
+                showBackgroundDialog = false
+                pendingBackgroundUri = null
+            }
+        )
+    }
+}
+
+/**
+ * 自定义主题色弹窗:色板取色,色块实时预览;拖动过程不落盘,
+ * 「保存」一次性写入,「取消」放弃本次调整。
+ */
+@Composable
+private fun CustomThemeColorDialog(
+    pendingArgb: Int,
+    onColorChange: (Int) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    WindowDialog(
+        title = stringResource(R.string.dialog_pick_color),
+        show = true,
+        onDismissRequest = onDismiss
+    ) {
+        Column {
+            Column(modifier = Modifier.dialogScrollable()) {
+                ColorPicker(
+                    color = Color(pendingArgb),
+                    onColorChanged = { onColorChange(it.toArgb()) }
+                )
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    onClick = {
-                        showBackgroundDialog = false
-                        pickImageLauncher.launch("image/*")
-                    }
-                )
-                if (appearance.hasBackgroundImage) {
-                    TextButton(
-                        text = stringResource(R.string.action_remove_background_image),
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            showBackgroundDialog = false
-                            removeAppBackgroundImage(context)
-                            commit(
-                                appearance.copy(
-                                    hasBackgroundImage = false,
-                                    backgroundImageMtime = 0L
-                                )
-                            )
-                        }
-                    )
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    ColorSwatch(argb = pendingArgb, size = 40.dp)
                 }
             }
-        }
-    }
-
-    if (showBarIconsDialog) {
-        WindowDialog(
-            title = stringResource(R.string.setting_system_bar_icons),
-            show = true,
-            onDismissRequest = { showBarIconsDialog = false }
-        ) {
-            Column {
-                AppSystemBarIcons.entries.forEach { icons ->
-                    RadioButtonPreference(
-                        appSystemBarIconsLabel(context, icons),
-                        appearance.systemBarIcons == icons,
-                        {
-                            commit(appearance.copy(systemBarIcons = icons))
-                            showBarIconsDialog = false
-                        }
-                    )
-                }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = onDismiss
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_save),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = onSave
+                )
             }
         }
     }
 }
+
+/**
+ * 背景图片弹窗:变暗/模糊实时作用于预览(所见即所得),点按预览换图;
+ * 「恢复默认」清除图片并复位参数,「保存」落盘图片并写入外观。
+ */
+@Composable
+private fun BackgroundImageDialog(
+    hasBackgroundImage: Boolean,
+    backgroundImageMtime: Long,
+    pendingUri: Uri?,
+    dimPercent: Int,
+    blurPercent: Int,
+    darkTheme: Boolean,
+    onPickImage: () -> Unit,
+    onDimChange: (Int) -> Unit,
+    onBlurChange: (Int) -> Unit,
+    onRestoreDefault: () -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val previewBitmap = remember(pendingUri, hasBackgroundImage, backgroundImageMtime) {
+        when {
+            pendingUri != null -> decodePreviewBitmap(context, pendingUri)
+            hasBackgroundImage -> loadAppBackgroundBitmap(context)
+            else -> null
+        }
+    }
+    val caption = when {
+        pendingUri != null ->
+            queryUriFileSize(context, pendingUri)?.let {
+                stringResource(R.string.background_image_size, humanFileSize(it))
+            } ?: stringResource(R.string.background_image_set)
+
+        hasBackgroundImage ->
+            stringResource(
+                R.string.background_image_size,
+                humanFileSize(appBackgroundImageFile(context).length())
+            )
+
+        else -> stringResource(R.string.background_image_unset)
+    }
+    val backgroundEditable = pendingUri != null || hasBackgroundImage
+    WindowDialog(
+        title = stringResource(R.string.setting_background_image),
+        show = true,
+        onDismissRequest = onDismiss
+    ) {
+        Column {
+            Column(
+                modifier = Modifier.dialogScrollable(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                BackgroundImagePreview(
+                    bitmap = previewBitmap,
+                    dimPercent = dimPercent,
+                    blurPercent = blurPercent,
+                    darkTheme = darkTheme,
+                    onClick = onPickImage
+                )
+                Text(
+                    text = caption,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp),
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+                SliderPreference(
+                    value = dimPercent.toFloat(),
+                    onValueChange = { onDimChange(it.toInt()) },
+                    title = stringResource(R.string.setting_background_dim),
+                    valueText = "$dimPercent%",
+                    valueRange = 0f..100f,
+                    steps = 19,
+                    enabled = backgroundEditable
+                )
+                SliderPreference(
+                    value = blurPercent.toFloat(),
+                    onValueChange = { onBlurChange(it.toInt()) },
+                    title = stringResource(R.string.setting_background_blur),
+                    valueText = "$blurPercent%",
+                    valueRange = 0f..100f,
+                    steps = 19,
+                    enabled = backgroundEditable
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                TextButton(
+                    text = stringResource(R.string.action_restore_default),
+                    modifier = Modifier.weight(1f),
+                    onClick = onRestoreDefault
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_save),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = onSave
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 背景弹窗内的实时预览:按待应用的图片/变暗/模糊渲染,点按换图。
+ * 高度取屏幕高度比例并夹在 150-260dp,宽度按 0.72 竖屏比例反推
+ * (勿改回「固定宽 + heightIn + aspectRatio」组合,约束不满足时高度兜底会失效)。
+ */
+@Composable
+private fun BackgroundImagePreview(
+    bitmap: Bitmap?,
+    dimPercent: Int,
+    blurPercent: Int,
+    darkTheme: Boolean,
+    onClick: () -> Unit
+) {
+    val previewHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.34f).coerceIn(150.dp, 260.dp)
+    Box(
+        modifier = Modifier
+            .height(previewHeight)
+            .aspectRatio(0.72f, matchHeightConstraintsFirst = true)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (blurPercent > 0) {
+                            Modifier.blur(
+                                radius = backgroundBlurRadius(blurPercent),
+                                edgeTreatment = BlurredEdgeTreatment.Unbounded
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
+            )
+            val dim = dimPercent / 100f
+            if (dim > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            (if (darkTheme) Color.Black else Color.White).copy(alpha = dim)
+                        )
+                )
+            }
+        } else {
+            Text(
+                text = stringResource(R.string.action_pick_background_image),
+                color = MiuixTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/** 圆角色块,展示颜色当前值;用于颜色行起始位与取色弹窗内预览。 */
+@Composable
+private fun ColorSwatch(argb: Int, size: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color(argb))
+    )
+}
+
+/**
+ * 从待应用 URI 解码预览图:先探边界再按最长边 [PREVIEW_MAX_SIDE] 抽样,
+ * 避免大图一次性解码把弹窗进程撑爆或 OOM。
+ */
+private fun decodePreviewBitmap(context: android.content.Context, uri: Uri): Bitmap? =
+    runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            null
+        } else {
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > PREVIEW_MAX_SIDE) {
+                sample *= 2
+            }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(
+                    it,
+                    null,
+                    BitmapFactory.Options().apply { inSampleSize = sample }
+                )
+            }
+        }
+    }.getOrNull()
+
+/** 文档提供方上报的文件大小;查不到返回 null,由调用方回退到「已设置」状态文案。 */
+private fun queryUriFileSize(context: android.content.Context, uri: Uri): Long? =
+    runCatching {
+        context.contentResolver
+            .query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else null
+                } else {
+                    null
+                }
+            }
+    }.getOrNull()
+
+private fun humanFileSize(bytes: Long): String = when {
+    bytes >= 1_048_576 -> String.format(Locale.US, "%.1f MB", bytes / 1_048_576f)
+    bytes >= 1_024 -> String.format(Locale.US, "%.1f KB", bytes / 1_024f)
+    else -> "$bytes B"
+}
+
+private const val PREVIEW_MAX_SIDE = 1080

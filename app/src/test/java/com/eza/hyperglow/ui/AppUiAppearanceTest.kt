@@ -16,6 +16,7 @@ class AppUiAppearanceTest {
         assertFalse(appearance.hasBackgroundImage)
         assertEquals(0L, appearance.backgroundImageMtime)
         assertEquals(DEFAULT_BACKGROUND_DIM_PERCENT, appearance.backgroundDimPercent)
+        assertEquals(DEFAULT_BACKGROUND_BLUR_PERCENT, appearance.backgroundBlurPercent)
         assertEquals(AppSystemBarIcons.AUTO, appearance.systemBarIcons)
     }
 
@@ -29,6 +30,7 @@ class AppUiAppearanceTest {
                 "has_background_image" to "yes",
                 "background_image_mtime" to "yesterday",
                 "background_dim_percent" to "not-an-int",
+                "background_blur_percent" to "not-an-int",
                 "system_bar_icons" to "ALIEN"
             )
         )
@@ -37,11 +39,12 @@ class AppUiAppearanceTest {
         assertEquals(DEFAULT_THEME_COLOR_ARGB, appearance.themeColorArgb)
         assertFalse(appearance.hasBackgroundImage)
         assertEquals(DEFAULT_BACKGROUND_DIM_PERCENT, appearance.backgroundDimPercent)
+        assertEquals(DEFAULT_BACKGROUND_BLUR_PERCENT, appearance.backgroundBlurPercent)
         assertEquals(AppSystemBarIcons.AUTO, appearance.systemBarIcons)
     }
 
     @Test
-    fun knownValuesAreKeptAndDimIsClamped() {
+    fun knownValuesAreKeptAndPercentFieldsAreClamped() {
         val appearance = normalizeAppUiAppearance(
             mapOf(
                 "theme_mode" to "DARK",
@@ -50,6 +53,7 @@ class AppUiAppearanceTest {
                 "has_background_image" to true,
                 "background_image_mtime" to 42L,
                 "background_dim_percent" to 250,
+                "background_blur_percent" to -5,
                 "system_bar_icons" to "LIGHT"
             )
         )
@@ -59,6 +63,7 @@ class AppUiAppearanceTest {
         assertTrue(appearance.hasBackgroundImage)
         assertEquals(42L, appearance.backgroundImageMtime)
         assertEquals(100, appearance.backgroundDimPercent)
+        assertEquals(0, appearance.backgroundBlurPercent)
         assertEquals(AppSystemBarIcons.LIGHT, appearance.systemBarIcons)
     }
 

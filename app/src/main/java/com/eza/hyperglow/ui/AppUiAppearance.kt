@@ -7,13 +7,15 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.eza.hyperglow.R
 import java.io.File
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.ThemeController
 
-/** 应用自身界面(设置 UI)的外观状态:主题、背景图片、系统栏图标。不参与 hook 端渲染配置。 */
+/** 应用自身界面(设置 UI)的外观状态:主题、背景图片(变暗/模糊)、系统栏图标。不参与 hook 端渲染配置。 */
 internal data class AppUiAppearance(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val themeColorMode: AppThemeColorMode = AppThemeColorMode.DEFAULT,
@@ -21,6 +23,7 @@ internal data class AppUiAppearance(
     val hasBackgroundImage: Boolean = false,
     val backgroundImageMtime: Long = 0L,
     val backgroundDimPercent: Int = DEFAULT_BACKGROUND_DIM_PERCENT,
+    val backgroundBlurPercent: Int = DEFAULT_BACKGROUND_BLUR_PERCENT,
     val systemBarIcons: AppSystemBarIcons = AppSystemBarIcons.AUTO
 )
 
@@ -49,6 +52,10 @@ internal enum class AppSystemBarIcons {
 
 internal const val DEFAULT_THEME_COLOR_ARGB = 0xFF3482FF.toInt()
 internal const val DEFAULT_BACKGROUND_DIM_PERCENT = 45
+internal const val DEFAULT_BACKGROUND_BLUR_PERCENT = 0
+
+/** 背景模糊 100% 对应的渲染半径;百分比线性折算,设置页与背景层共用同一映射。 */
+internal const val MAX_BACKGROUND_BLUR_DP = 25f
 
 private const val APP_UI_PREFS = "app_ui_appearance"
 
@@ -59,6 +66,7 @@ internal const val KEY_THEME_COLOR_ARGB = "theme_color_argb"
 internal const val KEY_HAS_BACKGROUND_IMAGE = "has_background_image"
 internal const val KEY_BACKGROUND_IMAGE_MTIME = "background_image_mtime"
 internal const val KEY_BACKGROUND_DIM_PERCENT = "background_dim_percent"
+internal const val KEY_BACKGROUND_BLUR_PERCENT = "background_blur_percent"
 internal const val KEY_SYSTEM_BAR_ICONS = "system_bar_icons"
 
 internal const val APP_BACKGROUND_IMAGE_FILE = "app_background.jpg"
@@ -87,6 +95,8 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
     val backgroundImageMtime = (values[KEY_BACKGROUND_IMAGE_MTIME] as? Long) ?: 0L
     val backgroundDimPercent = ((values[KEY_BACKGROUND_DIM_PERCENT] as? Int)
         ?: DEFAULT_BACKGROUND_DIM_PERCENT).coerceIn(0, 100)
+    val backgroundBlurPercent = ((values[KEY_BACKGROUND_BLUR_PERCENT] as? Int)
+        ?: DEFAULT_BACKGROUND_BLUR_PERCENT).coerceIn(0, 100)
     val systemBarIcons = AppSystemBarIcons.entries.firstOrNull { it.name == values[KEY_SYSTEM_BAR_ICONS] }
         ?: AppSystemBarIcons.AUTO
     return AppUiAppearance(
@@ -96,6 +106,7 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
         hasBackgroundImage = hasBackgroundImage,
         backgroundImageMtime = backgroundImageMtime,
         backgroundDimPercent = backgroundDimPercent,
+        backgroundBlurPercent = backgroundBlurPercent,
         systemBarIcons = systemBarIcons
     )
 }
@@ -117,6 +128,7 @@ internal fun updateAppUiAppearance(
             KEY_HAS_BACKGROUND_IMAGE to appearance.hasBackgroundImage,
             KEY_BACKGROUND_IMAGE_MTIME to appearance.backgroundImageMtime,
             KEY_BACKGROUND_DIM_PERCENT to appearance.backgroundDimPercent,
+            KEY_BACKGROUND_BLUR_PERCENT to appearance.backgroundBlurPercent,
             KEY_SYSTEM_BAR_ICONS to appearance.systemBarIcons.name
         )
     )
@@ -127,6 +139,7 @@ internal fun updateAppUiAppearance(
         .putBoolean(KEY_HAS_BACKGROUND_IMAGE, normalized.hasBackgroundImage)
         .putLong(KEY_BACKGROUND_IMAGE_MTIME, normalized.backgroundImageMtime)
         .putInt(KEY_BACKGROUND_DIM_PERCENT, normalized.backgroundDimPercent)
+        .putInt(KEY_BACKGROUND_BLUR_PERCENT, normalized.backgroundBlurPercent)
         .putString(KEY_SYSTEM_BAR_ICONS, normalized.systemBarIcons.name)
         .commit()
 }
@@ -181,6 +194,10 @@ internal fun applySystemBarIcons(
 
 internal fun appBackgroundImageFile(context: android.content.Context): File =
     File(context.filesDir, APP_BACKGROUND_IMAGE_FILE)
+
+/** 背景模糊百分比(0-100)换算成渲染半径;设置页预览与背景层共用同一映射,保证预览即所得。 */
+internal fun backgroundBlurRadius(percent: Int): Dp =
+    (percent.coerceIn(0, 100) / 100f * MAX_BACKGROUND_BLUR_DP).dp
 
 /**
  * 把所选图片解码后有界缩放(最长边不超过 [MAX_BACKGROUND_IMAGE_SIDE])转存为应用私有 JPEG。

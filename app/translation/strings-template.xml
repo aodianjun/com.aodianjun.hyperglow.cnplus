@@ -563,9 +563,11 @@
     <string name="setting_background_image">Background image</string>
     <string name="background_image_set">Set</string>
     <string name="background_image_unset">Not set</string>
+    <string name="background_image_size">Set (%1$s)</string>
     <string name="setting_background_dim">Background dim</string>
+    <string name="setting_background_blur">Background blur</string>
     <string name="action_pick_background_image">Choose image</string>
-    <string name="action_remove_background_image">Remove image</string>
+    <string name="action_restore_default">Restore default</string>
     <string name="toast_background_image_failed">Could not use this image</string>
     <string name="setting_system_bar_icons">System bar icons</string>
     <string name="option_bar_icons_auto">Automatic</string>
