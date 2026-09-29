@@ -108,6 +108,25 @@ class CustomizationPreviewTest {
     }
 
     @Test
+    fun parseHexColorInputAcceptsFlexibleHexCodes() {
+        // 取色弹窗的代码输入:允许省略 #、大小写混写、首尾空白;透明度按既有语义忽略。
+        assertEquals(0xFF66CCFF.toInt(), parseHexColorInput("#66CCFF"))
+        assertEquals(0xFF66CCFF.toInt(), parseHexColorInput("66ccff"))
+        assertEquals(0xFF66CCFF.toInt(), parseHexColorInput("  #66CCFF  "))
+        assertEquals(0xFFFF8800.toInt(), parseHexColorInput("#F80"))
+        assertEquals(0xFF00AABB.toInt(), parseHexColorInput("#CC00AABB"))
+    }
+
+    @Test
+    fun parseHexColorInputRejectsGarbage() {
+        assertNull(parseHexColorInput(""))
+        assertNull(parseHexColorInput("   "))
+        assertNull(parseHexColorInput("#GGHHII"))
+        assertNull(parseHexColorInput("#12345"))
+        assertNull(parseHexColorInput("reddish"))
+    }
+
+    @Test
     fun everyPaletteKeySurvivesSceneCompilation() {
         // 9 个语义色键全部通过编译白名单(SceneCompiler / SystemUi 两侧 SEMANTIC_COLORS)
         val palette = PaletteColor.entries.associate { it.token to "#123456" }

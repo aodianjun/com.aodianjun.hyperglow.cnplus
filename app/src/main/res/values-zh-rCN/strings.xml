@@ -397,6 +397,10 @@
     <string name="palette_surface_scrim">背景遮罩色</string>
     <string name="dialog_pick_color">选择颜色</string>
     <string name="action_reset_color">恢复默认颜色</string>
+    <string name="action_apply">应用</string>
+    <string name="color_hex_hint">颜色代码，如 #66CCFF</string>
+    <string name="color_hex_invalid">无效的颜色代码</string>
+    <string name="color_hex_edit_desc">输入颜色代码</string>
     <string name="option_left_to_right">从左到右</string>
     <string name="option_left_to_right_all">从左到右（所有行）</string>
     <string name="option_fast">快速</string>
