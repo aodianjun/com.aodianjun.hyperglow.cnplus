@@ -219,6 +219,19 @@ and (b) unverified paths stay explicit instead of silently assumed.
   (no SystemUI/AOD surface change) — pending a hardware smoke check after merge: in each dialog
   tapping the swatch opens the field, a typed code updates the swatch/picker/preview live and
   survives Save, a garbage code keeps the old color and shows the error text.
+- Line-change fade drift now uses the animated row block's own height (Fade-family basis fix,
+  device + preview): the Fade-family drift is a quarter of that layer's row-box bounds (main lyric
+  plus auxiliary and next-line rows, excluding the song-info row; the outgoing layer uses the old
+  block, the incoming layer the new one) instead of the canvas content clip frame. Measured on
+  hardware before the fix (`fade_out_up_fade_in_up`, Slow, AOD, 1080x2400): the outgoing line
+  travelled about 169 px — exactly a quarter of the ~677 px content clip frame, while the row block
+  is only ~200 px tall — sweeping across the song-info row, and the incoming line rose from the
+  same order of distance below; after the fix the same preset travels a quarter of the row block
+  (~50 px), which is the referenced `target.getHeight()/4`. Historical modes ignore the basis and
+  stay pixel-identical; the preview now measures each layer's block height instead of approximating
+  with the main row. Pending a hardware smoke check after merge: with `fade_out_up_fade_in_up`
+  (plus one other up/down preset) the outgoing line no longer crosses the song-info row, the
+  incoming line rises from a quarter of the block height, and the preview matches the device.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -338,6 +351,14 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   后点「应用」或回车即按与滑杆相同的路径写入；非法代码就地提示且不改动当前颜色。仅应用内改动
   （不涉及 SystemUI/AOD surface）——合并后待真机冒烟：三个取色弹窗点色块都能展开输入框、输入代码后
   色块/色板/预览同步更新且保存后保留、乱码代码保持原色并出现错误提示。
+- 换行淡出漂移基准改为行块自身高度（Fade 族基准修复，实机 + 预览）：Fade 族位移取该层行块自身
+  行盒包围盒高的 1/4（主歌词 + 辅助文字 + 下一行，不含歌曲信息行；退场层用旧行块、入场层用新行块），
+  不再取画布内容裁剪框。修复前真机实测（`fade_out_up_fade_in_up` + Slow，息屏，1080x2400）：旧行
+  上移约 169px——正是约 677px 内容裁剪框高的 1/4，而行块高只有约 200px——整块扫过歌曲信息行，
+  新行又从同量级的下方升起；修复后同档位移为行块高的 1/4（约 50px），与参考实现
+  `target.getHeight()/4` 一致。历史档不受影响（不读该参数），逐像素不变；预览改为测量各层行块
+  实测高，不再用主行高近似。合并后待真机冒烟：`fade_out_up_fade_in_up`（再加一档上下向预设）旧行
+  不再穿过歌曲信息行、新行自行块高 1/4 处升起，且预览与实机一致。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

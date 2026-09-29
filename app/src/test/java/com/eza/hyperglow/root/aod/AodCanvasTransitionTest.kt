@@ -391,4 +391,51 @@ class AodCanvasTransitionTest {
             assertEquals(id, preset.outMs + preset.inMs, lineTransitionTotalMs(id, "Normal"))
         }
     }
+
+    @Test
+    fun animatedBlockHeightUsesRowBlockSpanNotContentFrame() {
+        // 真机形状:歌曲信息行在顶(0..60),行块 = 主行 90..190 + 辅助行 200..260 + 下一行
+        // 270..330,画布内容裁剪框高 677。基准必须取行块自身跨度 240(= 1/4 位移 60),
+        // 而不是内容框高——后者把 Fade 族竖向漂移放大近 3 倍(旧行会整块扫过歌曲信息行)。
+        val rows = listOf(
+            AodCanvasRowBox(topPx = 0f, bottomPx = 60f, animated = false),
+            AodCanvasRowBox(topPx = 90f, bottomPx = 190f, animated = true),
+            AodCanvasRowBox(topPx = 200f, bottomPx = 260f, animated = true),
+            AodCanvasRowBox(topPx = 270f, bottomPx = 330f, animated = true)
+        )
+        assertEquals(240f, animatedBlockHeightPx(rows, fallbackPx = 677f), 1e-4f)
+        // Fade 族抬起量 = 行块高/4:退场向上、入场自下方升起(与 daimajia 同参)。
+        assertEquals(
+            -60f,
+            lineTransitionExitFrame("fade_out_up_fade_in_up", 1f, 200f, 240f).translateYDp,
+            1e-4f
+        )
+        assertEquals(
+            60f,
+            lineTransitionEnterFrame("fade_out_up_fade_in_up", 0f, 200f, 240f).translateYDp,
+            1e-4f
+        )
+    }
+
+    @Test
+    fun animatedBlockHeightFallsBackWhenNoAnimatedRows() {
+        // 空块 / 只有歌曲信息行 / 退化边界(高为 0)一律回落 fallback(内容框高),零除安全。
+        assertEquals(677f, animatedBlockHeightPx(emptyList(), fallbackPx = 677f), 1e-4f)
+        assertEquals(
+            677f,
+            animatedBlockHeightPx(
+                listOf(AodCanvasRowBox(topPx = 0f, bottomPx = 60f, animated = false)),
+                fallbackPx = 677f
+            ),
+            1e-4f
+        )
+        assertEquals(
+            677f,
+            animatedBlockHeightPx(
+                listOf(AodCanvasRowBox(topPx = 120f, bottomPx = 120f, animated = true)),
+                fallbackPx = 677f
+            ),
+            1e-4f
+        )
+    }
 }

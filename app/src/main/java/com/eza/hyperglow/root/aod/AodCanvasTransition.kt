@@ -259,6 +259,40 @@ private const val HYPER_NUDGE_DP = 16f
 private const val LANDING_SCALE_FROM = 1.2f
 
 /**
+ * 换行动画单行的边界(px):[topPx]/[bottomPx] 为行盒上下沿(与 [AodCanvasVerticalBounds]
+ * 同式:top = 基线 + ascent、bottom = top + 行高),[animated] 标记该行是否随换行进退
+ * (歌曲信息行恒 false)。
+ */
+internal data class AodCanvasRowBox(
+    val topPx: Float,
+    val bottomPx: Float,
+    val animated: Boolean
+)
+
+/**
+ * 换行动画的行块高度(px):参与换行的歌词行(主歌词 + 辅助文字 + 下一行)的包围盒高
+ * = max(bottomPx) − min(topPx)。
+ *
+ * 参考实现把位移施加在「歌词行视图」上(daimajia AndroidAnimations 2.4 各动画器的 target):
+ * Fade 族抬起量为 `target.getHeight()/4`、Slide 族整宽,基准是该视图自身尺寸,而不是渲染
+ * 画布的内容裁剪框——内容框按 surface 高度定高,可能远大于行块(行块只占其中几条行盒),
+ * 拿它当基准会把竖向漂移放大数倍(真机实测:内容框高约 677px → 漂移约 169px,而 1/4
+ * 行块高只有约 50px),表现为旧行整块扫过歌曲信息行、新行自数行之外升起。
+ * 空块或非法边界回落 [fallbackPx](调用方传内容框高),保持零除安全。
+ */
+internal fun animatedBlockHeightPx(rows: List<AodCanvasRowBox>, fallbackPx: Float): Float {
+    var top = Float.POSITIVE_INFINITY
+    var bottom = Float.NEGATIVE_INFINITY
+    rows.forEach { box ->
+        if (!box.animated) return@forEach
+        if (box.topPx < top) top = box.topPx
+        if (box.bottomPx > bottom) bottom = box.bottomPx
+    }
+    val height = if (top.isFinite() && bottom.isFinite() && bottom > top) bottom - top else 0f
+    return if (height > 0f) height else fallbackPx
+}
+
+/**
  * 换行动画单帧参数:alpha 直接作图层透明度;translate* 为 dp 位移(调用方乘 density);
  * scale 为绕内容中心的放缩比;rotation* 为绕内容中心的角度(度)。
  * 退场/入场共用同一数据形状,由方向不同的两个函数产出。
@@ -340,7 +374,8 @@ internal fun lineTransitionEnterFrame(
 
 /**
  * 技术 → 帧:daimajia 各动画器的关键帧逐项展开([p] 为已缓动进度,可 >1 过冲外插)。
- * ObjectAnimator 多值语义 = 均匀分段关键帧([sample]);位移 dp 以行块宽/高为基准。
+ * ObjectAnimator 多值语义 = 均匀分段关键帧([sample]);位移 dp 以该层行块自身宽/高为基准
+ * (见 [animatedBlockHeightPx]:退场层用旧行块、入场层用新行块)。
  */
 private fun techFrame(
     tech: LineTransitionTech,
