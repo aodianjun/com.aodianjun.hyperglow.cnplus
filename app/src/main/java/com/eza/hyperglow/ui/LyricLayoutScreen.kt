@@ -80,6 +80,7 @@ import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.ColorPicker
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -752,7 +753,13 @@ internal fun LyricLayoutScreen(
             }
             item { SmallTitle(text = stringResource(R.string.section_both_surfaces)) }
             item {
-                Card(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                    colors = CardDefaults.defaultColors(
+                        color = appCardContainerColor(),
+                        contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+                    )
+                ) {
                     Column {
                         ArrowPreference(
                             title = stringResource(R.string.action_import_appearance),

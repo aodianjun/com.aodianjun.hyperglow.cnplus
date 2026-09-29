@@ -553,6 +553,7 @@
     <string name="action_restore_default">恢復預設</string>
     <string name="toast_background_image_failed">無法使用該圖片</string>
     <string name="setting_system_bar_icons">系統欄圖示</string>
+    <string name="summary_system_bar_icons_system_managed">本機由系統依狀態欄後方的內容自動決定圖示顏色，此設定可能不生效。</string>
     <string name="setting_control_color">控制項顏色</string>
     <string name="setting_control_opacity">控制項不透明度</string>
     <string name="option_bar_icons_auto">自動</string>

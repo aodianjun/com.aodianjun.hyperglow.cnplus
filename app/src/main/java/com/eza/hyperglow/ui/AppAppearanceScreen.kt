@@ -231,6 +231,13 @@ internal fun AppAppearanceScreen(
                         items = AppSystemBarIcons.entries.map { appSystemBarIconsLabel(context, it) },
                         selectedIndex = appearance.systemBarIcons.ordinal,
                         title = stringResource(R.string.setting_system_bar_icons),
+                        // MIUI/HyperOS 上图标颜色由系统按状态栏背后的内容自动反色决定,显式设置会被压过;
+                        // 与其让用户反复调了没反应,不如就地说明(见 docs/REGRESSION.md 同日条目)。
+                        summary = if (isMiuiFamilySystem()) {
+                            stringResource(R.string.summary_system_bar_icons_system_managed)
+                        } else {
+                            null
+                        },
                         onSelectedIndexChange = { index ->
                             commit(appearance.copy(systemBarIcons = AppSystemBarIcons.entries[index]))
                         }
