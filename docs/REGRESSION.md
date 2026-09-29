@@ -172,12 +172,19 @@ and (b) unverified paths stay explicit instead of silently assumed.
   background image entry opens a picker dialog whose dim/blur sliders render live on the image
   preview with Restore default / Save as a paired commit; new `background_blur_percent` 0-100,
   default 0, config-backup round-tripped, rendered as a 0-25dp edge-unbounded blur on the app
-  background layer) — app-UI-only change, no SystemUI/AOD surface involvement; pending a hardware
+  background layer; while the background image is active every app surface turns translucent
+  glass — top bar lightest (70% surface), cards 82% surfaceContainer (status hero card follows
+  the card tier), floating nav most solid (93% surfaceContainerHighest) so it stays distinct
+  over the wallpaper; without a background image all surfaces keep the miuix opaque defaults) —
+  app-UI-only change, no SystemUI/AOD surface involvement; pending a hardware
   smoke check after merge: the three dropdown rows pick values in place and persist across
   re-entry, the custom-color row appears only under Custom and its dialog previews the picked
   color before Save, the background dialog shows the current or freshly picked image with dim and
   blur applied to the preview exactly as the app background will look, Save applies the blurred
-  background app-wide, and Restore default clears the image and resets both sliders.
+  background app-wide, and Restore default clears the image and resets both sliders; with the
+  background set the top bar is no longer an opaque black band, cards and the status hero card
+  read as glass over the wallpaper, and the floating nav stays clearly distinct from both the
+  wallpaper and the cards.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -269,10 +276,13 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 应用外观设置页重做并新增背景模糊（主题模式/主题颜色/系统栏图标改为行内下拉直接选、行上显示当前值；
   自定义颜色行带色块与 hex 值、弹窗内色板取色并有色块实时预览；背景图片入口打开预览弹窗，变暗/模糊
   滑杆实时作用于预览、「恢复默认/保存」成对提交；新增 `background_blur_percent` 0-100，默认 0，
-  随配置备份往返，按 0-25dp 无界边缘模糊渲染在应用背景层）——仅应用内改动，不涉及 SystemUI/AOD
-  surface；合并后待真机冒烟：三处下拉行就地选值且重进保留、自定义颜色行仅在「自定义」下出现且弹窗
+  随配置备份往返，按 0-25dp 无界边缘模糊渲染在应用背景层；背景图片生效时全部应用表面玻璃化——
+  顶栏最透（surface 70%）、卡片次之（surfaceContainer 82%，主页状态大卡随卡片档）、底部悬浮导航最实
+  （surfaceContainerHighest 93%）以保住壁纸上的区分度；未设背景图时全部维持 miuix 默认实色）——仅应用内改动，
+  不涉及 SystemUI/AOD surface；合并后待真机冒烟：三处下拉行就地选值且重进保留、自定义颜色行仅在「自定义」下出现且弹窗
   保存前可见所选颜色、背景弹窗预览与实际背景观感一致（变暗/模糊即时可见）、保存后应用背景即为模糊
-  效果、恢复默认清除图片并复位两根滑杆。
+  效果、恢复默认清除图片并复位两根滑杆；设背景后顶栏不再是一整块黑、卡片与主页状态大卡呈玻璃质感透出壁纸、
+  底部悬浮导航与壁纸/卡片都有明确区分。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

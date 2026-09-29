@@ -112,6 +112,7 @@ internal fun AppAppearanceScreen(
         containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
+                color = appTopBarColor(),
                 title = stringResource(R.string.section_app_appearance),
                 navigationIcon = {
                     IconButton(onClick = onBack) {

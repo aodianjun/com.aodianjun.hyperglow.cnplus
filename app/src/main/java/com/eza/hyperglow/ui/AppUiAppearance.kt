@@ -13,6 +13,7 @@ import androidx.core.view.WindowCompat
 import com.eza.hyperglow.R
 import java.io.File
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 
 /** 应用自身界面(设置 UI)的外观状态:主题、背景图片(变暗/模糊)、系统栏图标。不参与 hook 端渲染配置。 */
@@ -74,6 +75,40 @@ private const val MAX_BACKGROUND_IMAGE_SIDE = 2160
 
 /** 背景图片是否生效:各屏 Scaffold 据此改透明,让图片透出。 */
 internal val LocalAppBackgroundActive = staticCompositionLocalOf { false }
+
+// 背景图片生效时的玻璃化透明度:顶栏最透、卡片轻透、底部悬浮导航最实——
+// 三档让壁纸透出的同时拉开层次(导航与卡片明度/实度差异即区分度来源)。
+internal const val APP_GLASS_TOP_BAR_ALPHA = 0.7f
+internal const val APP_GLASS_CARD_ALPHA = 0.82f
+internal const val APP_GLASS_NAV_ALPHA = 0.93f
+
+/** 背景图片生效时把派生表面色玻璃化(叠加指定档透明度),否则原样返回(与 miuix 默认一致)。 */
+@Composable
+internal fun appGlassSurface(color: Color, alpha: Float = APP_GLASS_CARD_ALPHA): Color =
+    if (LocalAppBackgroundActive.current) {
+        color.copy(alpha = alpha)
+    } else {
+        color
+    }
+
+/** 设置卡片容器色;未启用背景时与 miuix CardDefaults 默认(surfaceContainer 实色)一致。 */
+@Composable
+internal fun appCardContainerColor(): Color =
+    appGlassSurface(MiuixTheme.colorScheme.surfaceContainer)
+
+/** 顶栏容器色(miuix TopAppBar 默认实色 surface,背景生效时轻透,不再是一整块黑)。 */
+@Composable
+internal fun appTopBarColor(): Color =
+    appGlassSurface(MiuixTheme.colorScheme.surface, APP_GLASS_TOP_BAR_ALPHA)
+
+/** 底部悬浮导航容器色:比卡片更实一档并抬高明度档位,保证壁纸上的区分度;未启用背景时用 miuix 默认。 */
+@Composable
+internal fun appNavBarColor(): Color =
+    if (LocalAppBackgroundActive.current) {
+        MiuixTheme.colorScheme.surfaceContainerHighest.copy(alpha = APP_GLASS_NAV_ALPHA)
+    } else {
+        MiuixTheme.colorScheme.surfaceContainer
+    }
 
 /** 背景图片生效时容器透明,否则维持 miuix 默认 surface 色。 */
 @Composable

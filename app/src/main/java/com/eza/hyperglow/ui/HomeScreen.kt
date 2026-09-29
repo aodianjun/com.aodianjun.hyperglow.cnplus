@@ -242,6 +242,7 @@ internal fun HomeScreen(
         containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
+                color = appTopBarColor(),
                 title = stringResource(R.string.app_name),
                 actions = {
                     IconButton(onClick = { showRestartDialog = true }) {
@@ -256,7 +257,7 @@ internal fun HomeScreen(
             )
         },
         bottomBar = {
-            FloatingNavigationBar {
+            FloatingNavigationBar(color = appNavBarColor()) {
                 FloatingNavigationBarItem(
                     selected = pagerState.currentPage == SettingsTab.OVERVIEW.ordinal,
                     onClick = {

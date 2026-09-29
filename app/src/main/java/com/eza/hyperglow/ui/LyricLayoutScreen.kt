@@ -258,6 +258,7 @@ internal fun LyricLayoutScreen(
         containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
+                color = appTopBarColor(),
                 title = if (editorState.selectedSurface == SceneCompiler.SURFACE_AOD) {
                     stringResource(R.string.title_aod_appearance)
                 } else {

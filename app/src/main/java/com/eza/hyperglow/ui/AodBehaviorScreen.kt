@@ -107,6 +107,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
         containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
+                color = appTopBarColor(),
                 title = stringResource(R.string.section_aod_behavior),
                 navigationIcon = {
                     IconButton(onClick = onBack) {

@@ -176,6 +176,7 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
         containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
+                color = appTopBarColor(),
                 title = stringResource(R.string.action_report_problem),
                 navigationIcon = {
                     IconButton(onClick = onBack) {

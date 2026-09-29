@@ -199,8 +199,8 @@ private fun HomeUpdateRow(checking: Boolean, onClick: () -> Unit) {
 private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Modifier) {
     val statusColor = if (working) ComposeColor(0xFF36D167) else ComposeColor(0xFFFF5A52)
     // 语义色只做点缀:背景在主题 surface 上低透明度混合,深浅模式下都不出现整块刺眼浅色;
-    // 文字走主题 onSurface,深色模式自动反相。
-    val statusBackground = lerp(MiuixTheme.colorScheme.surface, statusColor, 0.12f)
+    // 文字走主题 onSurface,深色模式自动反相。背景图片生效时随卡片玻璃化,让壁纸透出。
+    val statusBackground = appGlassSurface(lerp(MiuixTheme.colorScheme.surface, statusColor, 0.12f))
     Card(
         modifier = modifier,
         colors = CardDefaults.defaultColors(color = statusBackground)

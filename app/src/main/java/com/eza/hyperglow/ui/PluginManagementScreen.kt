@@ -148,6 +148,7 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
         containerColor = appSurfaceColor(),
         topBar = {
             TopAppBar(
+                color = appTopBarColor(),
                 title = stringResource(R.string.plugin_management_title),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
