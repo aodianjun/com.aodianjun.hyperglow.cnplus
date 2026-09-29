@@ -4,6 +4,7 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -283,9 +284,10 @@ internal fun applySystemBarIcons(
 /**
  * MIUI/HyperOS 的状态栏图标颜色由系统按状态栏背后的内容自动反色决定,会压过
  * WindowInsetsController 的外观请求(真机实测:标志位已下发到窗口管理器,同一标志在
- * 深色壁纸上仍渲染浅色图标,换成亮色背景后立刻变深色)。这里额外下发 MIUI 自己的
- * extraWindowAttributes 标志,以显式声明争取优先权;非 MIUI 或字段不存在时静默跳过,
- * 标准路径不受影响。结论去重后留一条日志,便于真机判断该通道是否可用。
+ * 深色壁纸上仍渲染浅色图标,换成亮色背景后立刻变深色)。这里额外尝试 MIUI 自己的
+ * extraWindowAttributes 标志争取优先权——类与常量在 HyperOS 3 上仍然存在,但入口方法
+ * Window.setExtraFlags(int, int) 已被移除,实测该通道当前不可用(结论去重后留一条日志,
+ * 便于将来在别的 MIUI 版本上复查);非 MIUI 或字段不存在时静默跳过,标准路径不受影响。
  */
 private fun applyMiuiStatusBarDarkMode(window: android.view.Window, darkIcons: Boolean) {
     val failure = runCatching {
@@ -309,6 +311,13 @@ private fun applyMiuiStatusBarDarkMode(window: android.view.Window, darkIcons: B
 
 /** 最近一次 MIUI 标志下发结论;去重,避免每次重组都写日志。 */
 private var lastMiuiFlagOutcome: String? = null
+
+/** MIUI/HyperOS 家族:状态栏图标颜色由系统按状态栏背后的内容自动决定,应用的深浅设置会被压过。 */
+internal fun isMiuiFamilySystem(): Boolean =
+    Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true) ||
+        Build.BRAND.equals("Xiaomi", ignoreCase = true) ||
+        Build.BRAND.equals("Redmi", ignoreCase = true) ||
+        Build.BRAND.equals("POCO", ignoreCase = true)
 
 internal fun appBackgroundImageFile(context: android.content.Context): File =
     File(context.filesDir, APP_BACKGROUND_IMAGE_FILE)

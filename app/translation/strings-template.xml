@@ -570,6 +570,7 @@
     <string name="action_restore_default">Restore default</string>
     <string name="toast_background_image_failed">Could not use this image</string>
     <string name="setting_system_bar_icons">System bar icons</string>
+    <string name="summary_system_bar_icons_system_managed">On this device the system picks the icon color from what sits behind the status bar, so this setting may have no effect.</string>
     <string name="setting_control_color">Control color</string>
     <string name="setting_control_opacity">Control opacity</string>
     <string name="option_bar_icons_auto">Automatic</string>
