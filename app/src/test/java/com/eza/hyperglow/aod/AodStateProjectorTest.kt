@@ -719,4 +719,31 @@ class AodStateProjectorTest {
         assertEquals("（女） 男共女的事总有人偏私", out.original)
         assertEquals("（男） 下一句", out.nextLine)
     }
+
+    @Test
+    fun sectionMarkerStripsLikeDuetMarkers() {
+        // 段落标记(（副歌）/（间奏）等)与对唱标记同源剥离:词表同步,逐字卡拉OK不残留标记。
+        val s = state(
+            line = "（副歌） 爱你一万年",
+            lineIndex = 0,
+            words = listOf(
+                LyricWord("（副歌）爱你", "", 0L, 1_000L, false),
+                LyricWord("一万年", "", 1_000L, 2_000L, false)
+            )
+        ).copy(nextLine = "（间奏） 轻快地弹奏")
+        val out = project(s)
+
+        assertEquals("爱你一万年", out.original)
+        assertEquals("轻快地弹奏", out.nextLine)
+        assertEquals(listOf("爱你", "一万年"), out.words.map { it.text })
+    }
+
+    @Test
+    fun sectionMarkerOffKeepsRawText() {
+        // 关闭「识别对唱标记」后段落标记同样原样显示(同一开关共管)。
+        val s = state(line = "（副歌） 爱你一万年", lineIndex = 0)
+        val out = project(s, compiled = compiled.copy(duetMarkers = false))
+
+        assertEquals("（副歌） 爱你一万年", out.original)
+    }
 }

@@ -284,4 +284,68 @@ class DuetAlignmentTest {
         assertNull(duetMarkerAgentId(DuetMarker("合", "如讲起恋爱这课题")))
         assertEquals("男", duetMarkerAgentId(DuetMarker("男", "其实有些事")))
     }
+
+    // --- 段落标记(（副歌）/（间奏）等)识别 ---
+
+    @Test
+    fun sectionMarkerStripsButProducesNoIdentity() {
+        // 段落标记只作显示剥离:不产出演唱者身份,对唱分侧零参与。
+        assertEquals(DuetMarker("副歌", "爱你一万年"), parseDuetMarker("（副歌）爱你一万年"))
+        assertNull(duetMarkerAgentId(parseDuetMarker("（副歌）爱你一万年")!!))
+        assertNull(duetMarkerAgentId(parseDuetMarker("（间奏）轻快地弹奏")!!))
+        assertEquals("爱你一万年", stripDuetMarker("（副歌）爱你一万年"))
+    }
+
+    @Test
+    fun sectionMarkerVocabularyCoversCommonLabels() {
+        for (token in listOf("前奏", "间奏", "尾奏", "主歌", "副歌", "桥段", "说唱", "旁白", "RAP", "Chorus")) {
+            assertEquals(DuetMarker(token, "词"), parseDuetMarker("（$token）词"))
+        }
+        // ASCII 词大小写不敏感。
+        assertEquals("词", stripDuetMarker("（rap）词"))
+    }
+
+    @Test
+    fun sectionMarkerDoesNotDisturbSingerAlternation() {
+        // 无类型分支:身份表只收演唱者标记,段落行无身份 → 保持源值且不进身份表。
+        // 纯标记行「（间奏）」parseDuetMarker 按既有规则返回 null(保留原样显示)→ 同样无身份。
+        val lines = listOf(
+            line(duetMarkerAgentId(parseDuetMarker("（女） 男共女的事")!!)),
+            line(duetMarkerAgentId(parseDuetMarker("（副歌） 合唱段落")!!)),
+            line(duetMarkerAgentId(parseDuetMarker("（男） 男共女的事深究")!!)),
+            line()
+        )
+        // 身份只有女/男:女(先现)居左、男居右;两行无身份保持源值(居左)。
+        assertEquals(listOf(false, false, true, false), resolveDuetAlignment(lines, enabled = true))
+    }
+
+    @Test
+    fun compositeAndStackedMarkersResolveAsOneRun() {
+        // 组内复合(男·RAP)与连写(男)(副歌)都剥成一串;身份取首个演唱者词。
+        assertEquals(DuetMarker("男", "说唱段"), parseDuetMarker("（男·RAP）说唱段"))
+        assertEquals("男", duetMarkerAgentId(parseDuetMarker("（男·RAP）说唱段")!!))
+        assertEquals(DuetMarker("男", "词"), parseDuetMarker("（男）（副歌）词"))
+        assertEquals("词", stripDuetMarker("（男）（副歌）词"))
+        // 序号粘合:副歌2 仍归一为副歌。
+        assertEquals(DuetMarker("副歌", "词"), parseDuetMarker("（副歌2）词"))
+    }
+
+    @Test
+    fun nonMarkerParenthesizedContentStaysRaw() {
+        // 词表外括号内容是歌词本身,不得误剥。
+        assertNull(parseDuetMarker("（爱你）一万年"))
+        assertEquals("（爱你）一万年", stripDuetMarker("（爱你）一万年"))
+        assertNull(parseDuetMarker("（男·爱你）一万年"))
+        // 纯标记行保留原样(不产出空行),段落标记同规则。
+        assertNull(parseDuetMarker("（副歌）"))
+        assertNull(parseDuetMarker("（男）（副歌）"))
+    }
+
+    @Test
+    fun pureSectionMarkerLineCountsZeroSingChars() {
+        // 纯标记行(（间奏）等)剥成空串:可唱估时 0 字,长间奏行窗不被误判成损坏行。
+        assertEquals("", stripDuetMarkerRun("（间奏）"))
+        assertEquals("", stripDuetMarkerRun("（男）（副歌）"))
+        assertEquals("爱你一万年", stripDuetMarkerRun("（副歌）爱你一万年"))
+    }
 }

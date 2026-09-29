@@ -78,7 +78,7 @@ internal fun projectToDisplay(
     val hasTimedLyrics = state.hasTimedLyrics
     // 原 fallbackLine 条件：!unsynced && !noLyrics && document == null && status == "ready" && it.isNotBlank()
     // document==null 对应 producer 无行级数据（lyricKind==NONE 但 line 非空 → 生产者塞了无时序一行）。
-    // 对唱标记(（男）/（女）/（合))识别:文档级开关开启时显示侧隐去行首标记文本,
+    // 行首标记(对唱（男）/（女）/（合）与段落（副歌）/（间奏）等)识别:文档级开关开启时显示侧隐去行首标记文本,
     // 词表同步剥离(逐字卡拉OK按词绘制,不同步会残留标记);关闭则原样显示。幂等。
     val duetMarkers = compiled?.duetMarkers != false
     val fallbackLine = state.line.takeIf {

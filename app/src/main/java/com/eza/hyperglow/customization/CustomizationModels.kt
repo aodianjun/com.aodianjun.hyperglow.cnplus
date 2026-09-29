@@ -13,9 +13,10 @@ data class CustomizationDocument(
     /** 歌曲信息分隔符 token,见 [METADATA_SEPARATORS];全局生效,同时作用于息屏与锁屏。 */
     val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
     /**
-     * 识别对唱标记:行首「（男）/（女）/（合）」文本标记被识别为演唱者身份——显示时
+     * 识别对唱标记:行首「（男）/（女）/（合）」演唱者标记被识别为演唱者身份——显示时
      * 隐去标记文本,并作为对唱左右分侧的身份输入(元数据身份恒优先,
-     * 见 [com.eza.hyperglow.producer.resolveDuetAlignment]);关闭则原样显示、标记不参与分侧。
+     * 见 [com.eza.hyperglow.producer.resolveDuetAlignment]);「（副歌）/（间奏）」等段落标记
+     * 同样隐去但不作身份、不参与分侧;关闭则原样显示、标记不参与分侧。
      * 全局生效(内容级解释,同时作用于息屏与锁屏)。
      */
     val duetMarkers: Boolean = true,
