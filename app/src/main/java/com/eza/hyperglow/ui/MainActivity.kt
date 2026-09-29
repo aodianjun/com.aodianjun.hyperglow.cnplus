@@ -45,6 +45,10 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 class MainActivity : ComponentActivity() {
+    /** 最近一次外观设置与解析后的深色状态:窗口重新获焦时据此再下发一次系统栏图标(见 [onWindowFocusChanged])。 */
+    private var lastAppearance: AppUiAppearance? = null
+    private var lastDarkTheme: Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
@@ -63,6 +67,8 @@ class MainActivity : ComponentActivity() {
             val controller = remember(appAppearance) { appThemeController(appAppearance) }
             val darkTheme = isDarkTheme(appAppearance, isSystemInDarkTheme())
             SideEffect {
+                lastAppearance = appAppearance
+                lastDarkTheme = darkTheme
                 applySystemBarIcons(this@MainActivity, appAppearance, darkTheme)
             }
             val layerBackdrop = rememberLayerBackdrop()
@@ -143,6 +149,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // MIUI 在窗口重新获焦时会按自己的规则重算状态栏图标颜色,这里按当前设置再下发一次(幂等)。
+        val appearance = lastAppearance ?: return
+        if (hasFocus) {
+            applySystemBarIcons(this, appearance, lastDarkTheme)
         }
     }
 

@@ -195,6 +195,20 @@ and (b) unverified paths stay explicit instead of silently assumed.
   fades from strong at the status bar to clear at its bottom edge, and picking a custom control
   color/opacity re-tints cards, top bar and nav immediately with readable text on light tints,
   while restore-default returns to theme surfaces.
+- **App-UI card glass wiring + system-bar icon follow-up (2026-09-29)** — three cards that were still plain
+  miuix surfaces now take the same glass tokens as `SettingsCard`: the home stat cards ("息屏歌词" /
+  "锁屏歌词"), the home "兼容性" card, and the "两个显示区域" (import/export/reset appearance) card at the
+  bottom of the AOD-appearance screen. Measured on hardware before the fix: with a custom control color the
+  top bar, status hero card, live-status card and floating nav re-tinted immediately while those three stayed
+  opaque, i.e. control color and control opacity had no effect on them. The system-bar icon setting was also
+  found inert on HyperOS: the appearance request does reach the window manager (verified through `dumpsys
+  window` `mLastAppearance`, which follows the setting), yet the rendered icon color follows the content behind
+  the status bar — swapping in a pure-white background flipped the icons dark while the theme stayed dark — so
+  the ROM's own auto-contrast wins over the request. The change additionally pushes MIUI's
+  `extraWindowAttributes` dark-mode flag and re-applies the appearance when the window regains focus; pending a
+  hardware smoke check: the three cards follow control color/opacity like every other surface, and "Dark icons"
+  takes effect over a dark background (if the ROM still overrides it, the setting is best-effort and should be
+  annotated in the UI rather than left silently inert).
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -298,6 +312,15 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   效果、恢复默认清除图片并复位两根滑杆；设背景后顶栏不再是一整块黑、卡片与主页状态大卡呈玻璃质感透出壁纸、
   底部悬浮导航与壁纸/卡片都有明确区分；应用栏呈单行紧凑形态（无大标题）且模糊从状态栏处最强、
   向底边渐隐；自定义控件颜色/不透明度后卡片、顶栏、导航立即变色且浅色下文字仍可读，恢复默认回到主题表面。
+- **应用内卡片玻璃化补齐 + 系统栏图标跟进（2026-09-29）** —— 三处此前仍是 miuix 实色的卡片改为与 `SettingsCard`
+  同一套玻璃化取色：主页「息屏歌词 / 锁屏歌词」两张统计卡、主页「兼容性」卡，以及息屏外观页底部「两个显示区域」
+  （导入 / 导出 / 重置外观）卡。修复前真机实测：设自定义控件颜色后顶栏、状态大卡、实时状态卡与悬浮导航立即变色，
+  而这三处保持不透明，即控件颜色与控件不透明度对它们完全无效。同时发现「系统栏图标」在 HyperOS 上不生效：外观请求
+  确实下发到了窗口管理器（`dumpsys window` 的 `mLastAppearance` 随设置变化），但实际图标颜色由状态栏背后的内容决定
+  ——换成纯白背景后图标立刻变深、而主题仍是深色——即被 ROM 自身的自动反色压过。本次改动额外下发 MIUI 的
+  `extraWindowAttributes` 深色标志，并在窗口重新获焦时按当前设置再下发一次；合并后待真机冒烟：三处卡片与其余控件
+  同样随控件颜色 / 不透明度变化，且「深色图标」在深色背景下确实生效（若 ROM 仍覆盖，则该设置属 best-effort，
+  应在界面上注明而不是放任它静默失效）。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

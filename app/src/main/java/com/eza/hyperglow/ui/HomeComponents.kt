@@ -117,7 +117,12 @@ internal fun HomeOverviewHero(
                 )
             }
         }
-        Card {
+        Card(
+            colors = CardDefaults.defaultColors(
+                color = appCardContainerColor(),
+                contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+            )
+        ) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 HomeInfoRow(stringResource(R.string.label_compatibility), supportLabel)
                 HomeInfoRow(
@@ -243,7 +248,13 @@ private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Mod
 
 @Composable
 private fun HomeStatCard(title: String, value: String, modifier: Modifier) {
-    Card(modifier.fillMaxWidth()) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(
+            color = appCardContainerColor(),
+            contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+        )
+    ) {
         Column(
             Modifier.fillMaxSize().padding(14.dp),
             horizontalAlignment = Alignment.Start,

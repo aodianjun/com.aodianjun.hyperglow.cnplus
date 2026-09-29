@@ -276,6 +276,24 @@ internal fun applySystemBarIcons(
     }
     controller.isAppearanceLightStatusBars = darkIcons
     controller.isAppearanceLightNavigationBars = darkIcons
+    applyMiuiStatusBarDarkMode(activity.window, darkIcons)
+}
+
+/**
+ * MIUI/HyperOS 的状态栏图标颜色由系统按状态栏背后的内容自动反色决定,会压过
+ * WindowInsetsController 的外观请求(真机实测:标志位已下发到窗口管理器,同一标志在
+ * 深色壁纸上仍渲染浅色图标,换成亮色背景后立刻变深色)。这里额外下发 MIUI 自己的
+ * extraWindowAttributes 标志,以显式声明争取优先权;非 MIUI 或字段不存在时静默跳过,
+ * 标准路径不受影响。
+ */
+private fun applyMiuiStatusBarDarkMode(window: android.view.Window, darkIcons: Boolean) {
+    runCatching {
+        val layoutParams = Class.forName("android.view.MiuiWindowManager\$LayoutParams")
+        val darkModeFlag = layoutParams.getField("EXTRA_FLAG_STATUS_BAR_DARK_MODE").getInt(layoutParams)
+        val intClass = Int::class.javaPrimitiveType ?: return@runCatching
+        val setExtraFlags = window.javaClass.getMethod("setExtraFlags", intClass, intClass)
+        setExtraFlags.invoke(window, if (darkIcons) darkModeFlag else 0, darkModeFlag)
+    }
 }
 
 internal fun appBackgroundImageFile(context: android.content.Context): File =
