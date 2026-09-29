@@ -21,6 +21,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun SettingsCard(content: @Composable () -> Unit) {
@@ -28,7 +30,11 @@ internal fun SettingsCard(content: @Composable () -> Unit) {
         modifier = Modifier
             .padding(horizontal = 12.dp)
             .padding(bottom = 8.dp)
-            .fillMaxWidth()
+            .fillMaxWidth(),
+        colors = CardDefaults.defaultColors(
+            color = appCardContainerColor(),
+            contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+        )
     ) {
         Column { content() }
     }

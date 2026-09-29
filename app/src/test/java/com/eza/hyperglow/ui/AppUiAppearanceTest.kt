@@ -16,6 +16,9 @@ class AppUiAppearanceTest {
         assertFalse(appearance.hasBackgroundImage)
         assertEquals(0L, appearance.backgroundImageMtime)
         assertEquals(DEFAULT_BACKGROUND_DIM_PERCENT, appearance.backgroundDimPercent)
+        assertEquals(DEFAULT_BACKGROUND_BLUR_PERCENT, appearance.backgroundBlurPercent)
+        assertEquals(null, appearance.controlColorArgb)
+        assertEquals(DEFAULT_CONTROL_OPACITY_PERCENT, appearance.controlOpacityPercent)
         assertEquals(AppSystemBarIcons.AUTO, appearance.systemBarIcons)
     }
 
@@ -29,6 +32,9 @@ class AppUiAppearanceTest {
                 "has_background_image" to "yes",
                 "background_image_mtime" to "yesterday",
                 "background_dim_percent" to "not-an-int",
+                "background_blur_percent" to "not-an-int",
+                "control_color_argb" to "not-an-int",
+                "control_opacity_percent" to "far",
                 "system_bar_icons" to "ALIEN"
             )
         )
@@ -37,11 +43,14 @@ class AppUiAppearanceTest {
         assertEquals(DEFAULT_THEME_COLOR_ARGB, appearance.themeColorArgb)
         assertFalse(appearance.hasBackgroundImage)
         assertEquals(DEFAULT_BACKGROUND_DIM_PERCENT, appearance.backgroundDimPercent)
+        assertEquals(DEFAULT_BACKGROUND_BLUR_PERCENT, appearance.backgroundBlurPercent)
+        assertEquals(null, appearance.controlColorArgb)
+        assertEquals(DEFAULT_CONTROL_OPACITY_PERCENT, appearance.controlOpacityPercent)
         assertEquals(AppSystemBarIcons.AUTO, appearance.systemBarIcons)
     }
 
     @Test
-    fun knownValuesAreKeptAndDimIsClamped() {
+    fun knownValuesAreKeptAndPercentFieldsAreClamped() {
         val appearance = normalizeAppUiAppearance(
             mapOf(
                 "theme_mode" to "DARK",
@@ -50,6 +59,9 @@ class AppUiAppearanceTest {
                 "has_background_image" to true,
                 "background_image_mtime" to 42L,
                 "background_dim_percent" to 250,
+                "background_blur_percent" to -5,
+                "control_color_argb" to 0xFF00FFAA.toInt(),
+                "control_opacity_percent" to 250,
                 "system_bar_icons" to "LIGHT"
             )
         )
@@ -59,6 +71,9 @@ class AppUiAppearanceTest {
         assertTrue(appearance.hasBackgroundImage)
         assertEquals(42L, appearance.backgroundImageMtime)
         assertEquals(100, appearance.backgroundDimPercent)
+        assertEquals(0, appearance.backgroundBlurPercent)
+        assertEquals(0xFF00FFAA.toInt(), appearance.controlColorArgb)
+        assertEquals(100, appearance.controlOpacityPercent)
         assertEquals(AppSystemBarIcons.LIGHT, appearance.systemBarIcons)
     }
 

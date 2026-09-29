@@ -23,13 +23,8 @@ import com.eza.hyperglow.aod.MAX_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import kotlin.math.roundToInt
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
@@ -106,16 +101,9 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
     Scaffold(
         containerColor = appSurfaceColor(),
         topBar = {
-            TopAppBar(
+            AppTopBar(
                 title = stringResource(R.string.section_aod_behavior),
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            MiuixIcons.Back,
-                            contentDescription = stringResource(R.string.action_back)
-                        )
-                    }
-                }
+                onBack = onBack
             )
         }
     ) { innerPadding ->

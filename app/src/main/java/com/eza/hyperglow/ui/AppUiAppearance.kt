@@ -7,13 +7,17 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.eza.hyperglow.R
 import java.io.File
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 
-/** 应用自身界面(设置 UI)的外观状态:主题、背景图片、系统栏图标。不参与 hook 端渲染配置。 */
+/** 应用自身界面(设置 UI)的外观状态:主题、背景图片(变暗/模糊)、控件颜色/不透明度、系统栏图标。不参与 hook 端渲染配置。 */
 internal data class AppUiAppearance(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val themeColorMode: AppThemeColorMode = AppThemeColorMode.DEFAULT,
@@ -21,6 +25,9 @@ internal data class AppUiAppearance(
     val hasBackgroundImage: Boolean = false,
     val backgroundImageMtime: Long = 0L,
     val backgroundDimPercent: Int = DEFAULT_BACKGROUND_DIM_PERCENT,
+    val backgroundBlurPercent: Int = DEFAULT_BACKGROUND_BLUR_PERCENT,
+    val controlColorArgb: Int? = null,
+    val controlOpacityPercent: Int = DEFAULT_CONTROL_OPACITY_PERCENT,
     val systemBarIcons: AppSystemBarIcons = AppSystemBarIcons.AUTO
 )
 
@@ -49,6 +56,10 @@ internal enum class AppSystemBarIcons {
 
 internal const val DEFAULT_THEME_COLOR_ARGB = 0xFF3482FF.toInt()
 internal const val DEFAULT_BACKGROUND_DIM_PERCENT = 45
+internal const val DEFAULT_BACKGROUND_BLUR_PERCENT = 0
+
+/** 背景模糊 100% 对应的渲染半径;百分比线性折算,设置页与背景层共用同一映射。 */
+internal const val MAX_BACKGROUND_BLUR_DP = 25f
 
 private const val APP_UI_PREFS = "app_ui_appearance"
 
@@ -59,13 +70,82 @@ internal const val KEY_THEME_COLOR_ARGB = "theme_color_argb"
 internal const val KEY_HAS_BACKGROUND_IMAGE = "has_background_image"
 internal const val KEY_BACKGROUND_IMAGE_MTIME = "background_image_mtime"
 internal const val KEY_BACKGROUND_DIM_PERCENT = "background_dim_percent"
+internal const val KEY_BACKGROUND_BLUR_PERCENT = "background_blur_percent"
+// 可空键:未设置时不落盘(恢复默认=移除),备份/读取缺键即回落主题默认色。
+internal const val KEY_CONTROL_COLOR_ARGB = "control_color_argb"
+internal const val KEY_CONTROL_OPACITY_PERCENT = "control_opacity_percent"
 internal const val KEY_SYSTEM_BAR_ICONS = "system_bar_icons"
+
+/** 控件玻璃化的默认不透明度:100% 即三档原生透明度(顶栏 0.7/卡片 0.82/导航 0.93)。 */
+internal const val DEFAULT_CONTROL_OPACITY_PERCENT = 100
 
 internal const val APP_BACKGROUND_IMAGE_FILE = "app_background.jpg"
 private const val MAX_BACKGROUND_IMAGE_SIDE = 2160
 
 /** 背景图片是否生效:各屏 Scaffold 据此改透明,让图片透出。 */
 internal val LocalAppBackgroundActive = staticCompositionLocalOf { false }
+
+/** 自定义控件颜色(null=跟随主题);MainActivity 从外观状态提供,卡片/顶栏/悬浮导航玻璃化时取用。 */
+internal val LocalAppControlColor = staticCompositionLocalOf { null as Color? }
+
+/** 控件玻璃化的不透明度系数(0..1,100%=三档原生透明度);MainActivity 从外观状态提供。 */
+internal val LocalAppControlOpacity = staticCompositionLocalOf { 1f }
+
+/** 背景图层的 backdrop 句柄:顶栏渐变模糊据此采样壁纸;未启用背景或未记录时为 null。 */
+internal val LocalAppLayerBackdrop = staticCompositionLocalOf { null as top.yukonga.miuix.kmp.blur.LayerBackdrop? }
+
+// 背景图片生效时的玻璃化透明度:顶栏最透、卡片轻透、底部悬浮导航最实——
+// 三档让壁纸透出的同时拉开层次(导航与卡片明度/实度差异即区分度来源)。
+internal const val APP_GLASS_TOP_BAR_ALPHA = 0.7f
+internal const val APP_GLASS_CARD_ALPHA = 0.82f
+internal const val APP_GLASS_NAV_ALPHA = 0.93f
+
+/**
+ * 表面玻璃化:背景图片生效、或用户设置了自定义控件颜色时,按档位透明度×不透明度系数着色
+ * (背景透出/页面底色透出);两者皆无时原样返回,维持 miuix 默认实色(默认用户零回归)。
+ */
+@Composable
+internal fun appGlassSurface(color: Color, alpha: Float = APP_GLASS_CARD_ALPHA): Color {
+    val effective = (alpha * LocalAppControlOpacity.current).coerceIn(0f, 1f)
+    return when {
+        LocalAppBackgroundActive.current || LocalAppControlColor.current != null ->
+            color.copy(alpha = effective)
+
+        else -> color
+    }
+}
+
+/** 设置卡片容器色:自定义控件颜色优先,否则主题 token;未启用背景时与 miuix CardDefaults 默认一致。 */
+@Composable
+internal fun appCardContainerColor(): Color =
+    appGlassSurface(LocalAppControlColor.current ?: MiuixTheme.colorScheme.surfaceContainer)
+
+/** 玻璃化表面的内容色:自定义控件颜色按亮度反转保证可读,未自定义时回落主题默认。 */
+@Composable
+internal fun appControlContentColor(fallback: Color): Color {
+    val custom = LocalAppControlColor.current ?: return fallback
+    return if (custom.luminance() > 0.5f) Color.Black else Color.White
+}
+
+/** 顶栏容器色(miuix TopAppBar 默认实色 surface,背景生效时轻透,不再是一整块黑)。 */
+@Composable
+internal fun appTopBarColor(): Color =
+    appGlassSurface(LocalAppControlColor.current ?: MiuixTheme.colorScheme.surface, APP_GLASS_TOP_BAR_ALPHA)
+
+/** 底部悬浮导航容器色:比卡片更实一档并抬高明度档位,保证壁纸上的区分度;未启用背景时用 miuix 默认。 */
+@Composable
+internal fun appNavBarColor(): Color {
+    val custom = LocalAppControlColor.current
+    if (custom == null && !LocalAppBackgroundActive.current) {
+        return MiuixTheme.colorScheme.surfaceContainer
+    }
+    return appGlassSurface(custom ?: MiuixTheme.colorScheme.surfaceContainerHighest, APP_GLASS_NAV_ALPHA)
+}
+
+/** 顶栏标题/返回图标色:自定义控件颜色按亮度反转,未自定义时回落 onSurface。 */
+@Composable
+internal fun appTopBarTitleColor(): Color =
+    appControlContentColor(MiuixTheme.colorScheme.onSurface)
 
 /** 背景图片生效时容器透明,否则维持 miuix 默认 surface 色。 */
 @Composable
@@ -87,6 +167,11 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
     val backgroundImageMtime = (values[KEY_BACKGROUND_IMAGE_MTIME] as? Long) ?: 0L
     val backgroundDimPercent = ((values[KEY_BACKGROUND_DIM_PERCENT] as? Int)
         ?: DEFAULT_BACKGROUND_DIM_PERCENT).coerceIn(0, 100)
+    val backgroundBlurPercent = ((values[KEY_BACKGROUND_BLUR_PERCENT] as? Int)
+        ?: DEFAULT_BACKGROUND_BLUR_PERCENT).coerceIn(0, 100)
+    val controlColorArgb = values[KEY_CONTROL_COLOR_ARGB] as? Int
+    val controlOpacityPercent = ((values[KEY_CONTROL_OPACITY_PERCENT] as? Int)
+        ?: DEFAULT_CONTROL_OPACITY_PERCENT).coerceIn(0, 100)
     val systemBarIcons = AppSystemBarIcons.entries.firstOrNull { it.name == values[KEY_SYSTEM_BAR_ICONS] }
         ?: AppSystemBarIcons.AUTO
     return AppUiAppearance(
@@ -96,6 +181,9 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
         hasBackgroundImage = hasBackgroundImage,
         backgroundImageMtime = backgroundImageMtime,
         backgroundDimPercent = backgroundDimPercent,
+        backgroundBlurPercent = backgroundBlurPercent,
+        controlColorArgb = controlColorArgb,
+        controlOpacityPercent = controlOpacityPercent,
         systemBarIcons = systemBarIcons
     )
 }
@@ -117,18 +205,29 @@ internal fun updateAppUiAppearance(
             KEY_HAS_BACKGROUND_IMAGE to appearance.hasBackgroundImage,
             KEY_BACKGROUND_IMAGE_MTIME to appearance.backgroundImageMtime,
             KEY_BACKGROUND_DIM_PERCENT to appearance.backgroundDimPercent,
+            KEY_BACKGROUND_BLUR_PERCENT to appearance.backgroundBlurPercent,
+            KEY_CONTROL_COLOR_ARGB to appearance.controlColorArgb,
+            KEY_CONTROL_OPACITY_PERCENT to appearance.controlOpacityPercent,
             KEY_SYSTEM_BAR_ICONS to appearance.systemBarIcons.name
         )
     )
-    return context.getSharedPreferences(APP_UI_PREFS, android.content.Context.MODE_PRIVATE).edit()
-        .putString(KEY_THEME_MODE, normalized.themeMode.name)
-        .putString(KEY_THEME_COLOR_MODE, normalized.themeColorMode.name)
-        .putInt(KEY_THEME_COLOR_ARGB, normalized.themeColorArgb)
-        .putBoolean(KEY_HAS_BACKGROUND_IMAGE, normalized.hasBackgroundImage)
-        .putLong(KEY_BACKGROUND_IMAGE_MTIME, normalized.backgroundImageMtime)
-        .putInt(KEY_BACKGROUND_DIM_PERCENT, normalized.backgroundDimPercent)
-        .putString(KEY_SYSTEM_BAR_ICONS, normalized.systemBarIcons.name)
-        .commit()
+    val editor = context.getSharedPreferences(APP_UI_PREFS, android.content.Context.MODE_PRIVATE).edit()
+    editor.putString(KEY_THEME_MODE, normalized.themeMode.name)
+    editor.putString(KEY_THEME_COLOR_MODE, normalized.themeColorMode.name)
+    editor.putInt(KEY_THEME_COLOR_ARGB, normalized.themeColorArgb)
+    editor.putBoolean(KEY_HAS_BACKGROUND_IMAGE, normalized.hasBackgroundImage)
+    editor.putLong(KEY_BACKGROUND_IMAGE_MTIME, normalized.backgroundImageMtime)
+    editor.putInt(KEY_BACKGROUND_DIM_PERCENT, normalized.backgroundDimPercent)
+    editor.putInt(KEY_BACKGROUND_BLUR_PERCENT, normalized.backgroundBlurPercent)
+    // 可空键:未设置即移除,让"恢复默认"真正回到主题默认色而不是残留旧值。
+    if (normalized.controlColorArgb != null) {
+        editor.putInt(KEY_CONTROL_COLOR_ARGB, normalized.controlColorArgb)
+    } else {
+        editor.remove(KEY_CONTROL_COLOR_ARGB)
+    }
+    editor.putInt(KEY_CONTROL_OPACITY_PERCENT, normalized.controlOpacityPercent)
+    editor.putString(KEY_SYSTEM_BAR_ICONS, normalized.systemBarIcons.name)
+    return editor.commit()
 }
 
 /** 外观状态到 miuix 主题控制器的映射:自定义/动态取色走 Monet 系列,默认配色保持原生浅/深色。 */
@@ -181,6 +280,10 @@ internal fun applySystemBarIcons(
 
 internal fun appBackgroundImageFile(context: android.content.Context): File =
     File(context.filesDir, APP_BACKGROUND_IMAGE_FILE)
+
+/** 背景模糊百分比(0-100)换算成渲染半径;设置页预览与背景层共用同一映射,保证预览即所得。 */
+internal fun backgroundBlurRadius(percent: Int): Dp =
+    (percent.coerceIn(0, 100) / 100f * MAX_BACKGROUND_BLUR_DP).dp
 
 /**
  * 把所选图片解码后有界缩放(最长边不超过 [MAX_BACKGROUND_IMAGE_SIDE])转存为应用私有 JPEG。

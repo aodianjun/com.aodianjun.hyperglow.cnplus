@@ -572,11 +572,15 @@
     <string name="setting_background_image">背景图片</string>
     <string name="background_image_set">已设置</string>
     <string name="background_image_unset">未设置</string>
+    <string name="background_image_size">已设置（%1$s）</string>
     <string name="setting_background_dim">背景遮罩</string>
+    <string name="setting_background_blur">背景模糊</string>
     <string name="action_pick_background_image">选择图片</string>
-    <string name="action_remove_background_image">移除图片</string>
+    <string name="action_restore_default">恢复默认</string>
     <string name="toast_background_image_failed">无法使用该图片</string>
     <string name="setting_system_bar_icons">系统栏图标</string>
+    <string name="setting_control_color">控件颜色</string>
+    <string name="setting_control_opacity">控件不透明度</string>
     <string name="option_bar_icons_auto">自动</string>
     <string name="option_bar_icons_light">浅色图标</string>
     <string name="option_bar_icons_dark">深色图标</string>
