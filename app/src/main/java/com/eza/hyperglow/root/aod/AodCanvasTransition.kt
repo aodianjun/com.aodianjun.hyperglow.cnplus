@@ -276,8 +276,8 @@ internal data class AodCanvasRowBox(
  * 参考实现把位移施加在「歌词行视图」上(daimajia AndroidAnimations 2.4 各动画器的 target):
  * Fade 族抬起量为 `target.getHeight()/4`、Slide 族整宽,基准是该视图自身尺寸,而不是渲染
  * 画布的内容裁剪框——内容框按 surface 高度定高,可能远大于行块(行块只占其中几条行盒),
- * 拿它当基准会把竖向漂移放大数倍(真机实测:内容框高约 677px → 漂移约 169px,而 1/4
- * 行块高只有约 50px),表现为旧行整块扫过歌曲信息行、新行自数行之外升起。
+ * 拿它当基准会把竖向漂移放大数倍(真机实测:内容框高约 677px → 漂移约 169px,而行块高
+  只有约 200px,1/4 约 50px),表现为旧行整块扫过歌曲信息行、新行自数行之外升起。
  * 空块或非法边界回落 [fallbackPx](调用方传内容框高),保持零除安全。
  */
 internal fun animatedBlockHeightPx(rows: List<AodCanvasRowBox>, fallbackPx: Float): Float {
