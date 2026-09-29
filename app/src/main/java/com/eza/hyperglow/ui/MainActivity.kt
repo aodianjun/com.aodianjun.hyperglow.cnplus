@@ -39,6 +39,9 @@ import androidx.compose.ui.platform.LocalContext
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.R
 import com.eza.hyperglow.aod.AodLyricBridgeService
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 class MainActivity : ComponentActivity() {
@@ -62,14 +65,19 @@ class MainActivity : ComponentActivity() {
             SideEffect {
                 applySystemBarIcons(this@MainActivity, appAppearance, darkTheme)
             }
+            val layerBackdrop = rememberLayerBackdrop()
             MiuixTheme(controller = controller) {
                 CompositionLocalProvider(
-                    LocalAppBackgroundActive provides appAppearance.hasBackgroundImage
+                    LocalAppBackgroundActive provides appAppearance.hasBackgroundImage,
+                    LocalAppControlColor provides appAppearance.controlColorArgb?.let { ComposeColor(it) },
+                    LocalAppControlOpacity provides appAppearance.controlOpacityPercent / 100f,
+                    LocalAppLayerBackdrop provides layerBackdrop
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         AppBackgroundLayer(
                             appearance = appAppearance,
-                            darkTheme = darkTheme
+                            darkTheme = darkTheme,
+                            layerBackdrop = layerBackdrop
                         )
                         var editingSurface by rememberSaveable { mutableStateOf<String?>(null) }
                         var selectedTabName by rememberSaveable {
@@ -150,18 +158,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 背景图片层:图片铺满并按设置模糊后叠遮罩保证可读性;无图片或解码失败时不绘制任何内容。 */
+/** 背景图片层:图片铺满并按设置模糊后叠遮罩保证可读性;无图片或解码失败时不绘制任何内容。
+ *  该层同时作为 backdrop 源被记录,供各屏顶栏的渐变模糊采样。 */
 @Composable
 private fun AppBackgroundLayer(
     appearance: AppUiAppearance,
-    darkTheme: Boolean
+    darkTheme: Boolean,
+    layerBackdrop: LayerBackdrop
 ) {
     if (!appearance.hasBackgroundImage) return
     val context = LocalContext.current
     val bitmap = remember(appearance.backgroundImageMtime) {
         loadAppBackgroundBitmap(context)?.asImageBitmap()
     } ?: return
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .layerBackdrop(layerBackdrop)
+    ) {
         Image(
             bitmap = bitmap,
             contentDescription = null,

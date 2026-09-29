@@ -175,7 +175,14 @@ and (b) unverified paths stay explicit instead of silently assumed.
   background layer; while the background image is active every app surface turns translucent
   glass — top bar lightest (70% surface), cards 82% surfaceContainer (status hero card follows
   the card tier), floating nav most solid (93% surfaceContainerHighest) so it stays distinct
-  over the wallpaper; without a background image all surfaces keep the miuix opaque defaults) —
+  over the wallpaper; without a background image all surfaces keep the miuix opaque defaults;
+  the app bar is a compact single line (status inset + 52dp, back/title/actions) replacing the
+  two-row large title, with a top-weighted progressive backdrop blur over the wallpaper plus a
+  fading scrim while the background is active (miuix-blur progressiveTextureBlur, degraded to
+  scrim-only when runtime shaders are unsupported); control color (custom tint on cards/top
+  bar/nav with luminance-inverted content colors, restore-default clears it) and control
+  opacity (0-100% scaling the glass tiers, default 100%) are user-configurable and
+  config-backup round-tripped) —
   app-UI-only change, no SystemUI/AOD surface involvement; pending a hardware
   smoke check after merge: the three dropdown rows pick values in place and persist across
   re-entry, the custom-color row appears only under Custom and its dialog previews the picked
@@ -184,7 +191,10 @@ and (b) unverified paths stay explicit instead of silently assumed.
   background app-wide, and Restore default clears the image and resets both sliders; with the
   background set the top bar is no longer an opaque black band, cards and the status hero card
   read as glass over the wallpaper, and the floating nav stays clearly distinct from both the
-  wallpaper and the cards.
+  wallpaper and the cards; the app bar renders as one compact line (no large title) whose blur
+  fades from strong at the status bar to clear at its bottom edge, and picking a custom control
+  color/opacity re-tints cards, top bar and nav immediately with readable text on light tints,
+  while restore-default returns to theme surfaces.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -278,11 +288,16 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   滑杆实时作用于预览、「恢复默认/保存」成对提交；新增 `background_blur_percent` 0-100，默认 0，
   随配置备份往返，按 0-25dp 无界边缘模糊渲染在应用背景层；背景图片生效时全部应用表面玻璃化——
   顶栏最透（surface 70%）、卡片次之（surfaceContainer 82%，主页状态大卡随卡片档）、底部悬浮导航最实
-  （surfaceContainerHighest 93%）以保住壁纸上的区分度；未设背景图时全部维持 miuix 默认实色）——仅应用内改动，
+  （surfaceContainerHighest 93%）以保住壁纸上的区分度；未设背景图时全部维持 miuix 默认实色；应用栏改为紧凑
+  单行（状态栏内边距 + 52dp，返回/标题/动作），背景生效时对壁纸做「上强下弱」渐进式 backdrop 模糊
+  （miuix-blur progressiveTextureBlur）叠加渐隐遮罩（RuntimeShader 不支持时退化为仅遮罩）；控件颜色
+  （卡片/顶栏/导航自定义着色，内容色按亮度反转，恢复默认清除）与控件不透明度（0-100% 缩放三档玻璃化，
+  默认 100%）可自定义并随配置备份往返）——仅应用内改动，
   不涉及 SystemUI/AOD surface；合并后待真机冒烟：三处下拉行就地选值且重进保留、自定义颜色行仅在「自定义」下出现且弹窗
   保存前可见所选颜色、背景弹窗预览与实际背景观感一致（变暗/模糊即时可见）、保存后应用背景即为模糊
   效果、恢复默认清除图片并复位两根滑杆；设背景后顶栏不再是一整块黑、卡片与主页状态大卡呈玻璃质感透出壁纸、
-  底部悬浮导航与壁纸/卡片都有明确区分。
+  底部悬浮导航与壁纸/卡片都有明确区分；应用栏呈单行紧凑形态（无大标题）且模糊从状态栏处最强、
+  向底边渐隐；自定义控件颜色/不透明度后卡片、顶栏、导航立即变色且浅色下文字仍可读，恢复默认回到主题表面。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

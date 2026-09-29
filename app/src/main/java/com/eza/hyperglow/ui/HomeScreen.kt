@@ -52,10 +52,10 @@ import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Refresh
@@ -241,8 +241,7 @@ internal fun HomeScreen(
     Scaffold(
         containerColor = appSurfaceColor(),
         topBar = {
-            TopAppBar(
-                color = appTopBarColor(),
+            AppTopBar(
                 title = stringResource(R.string.app_name),
                 actions = {
                     IconButton(onClick = { showRestartDialog = true }) {
@@ -250,7 +249,7 @@ internal fun HomeScreen(
                             imageVector = MiuixIcons.Regular.Refresh,
                             contentDescription =
                                 stringResource(R.string.action_restart_systemui),
-                            tint = MiuixTheme.colorScheme.onSurface
+                            tint = appTopBarTitleColor()
                         )
                     }
                 }
@@ -264,7 +263,11 @@ internal fun HomeScreen(
                         scope.launch { pagerState.animateScrollToPage(SettingsTab.OVERVIEW.ordinal) }
                     },
                     icon = MiuixIcons.Regular.Home,
-                    label = stringResource(R.string.nav_overview)
+                    label = stringResource(R.string.nav_overview),
+                    colors = NavigationBarDefaults.navigationBarItemColors(
+                        unselectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer),
+                        selectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+                    )
                 )
                 FloatingNavigationBarItem(
                     selected = pagerState.currentPage == SettingsTab.CONFIG.ordinal,
@@ -272,7 +275,11 @@ internal fun HomeScreen(
                         scope.launch { pagerState.animateScrollToPage(SettingsTab.CONFIG.ordinal) }
                     },
                     icon = MiuixIcons.Regular.Settings,
-                    label = stringResource(R.string.nav_settings)
+                    label = stringResource(R.string.nav_settings),
+                    colors = NavigationBarDefaults.navigationBarItemColors(
+                        unselectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer),
+                        selectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+                    )
                 )
             }
         }

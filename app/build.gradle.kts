@@ -148,6 +148,8 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.4")
+    // 背景生效时顶栏的渐变模糊(backdrop 渐进式纹理模糊,RuntimeShader 路径需 API 33+,与 minSdk 一致)。
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
     // DexKit — dynamic symbol resolution for Xiaomi symbols that get renamed across ROM

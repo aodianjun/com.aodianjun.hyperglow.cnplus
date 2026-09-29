@@ -58,15 +58,12 @@ import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.ColorPicker
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowRight
-import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -88,6 +85,8 @@ internal fun AppAppearanceScreen(
     var appearance by remember { mutableStateOf(loadAppUiAppearance(context)) }
     var showCustomColorDialog by remember { mutableStateOf(false) }
     var pendingThemeColorArgb by remember { mutableStateOf(appearance.themeColorArgb) }
+    var showControlColorDialog by remember { mutableStateOf(false) }
+    var pendingControlColorArgb by remember { mutableStateOf<Int?>(appearance.controlColorArgb) }
     var showBackgroundDialog by remember { mutableStateOf(false) }
     var pendingBackgroundUri by remember { mutableStateOf<Uri?>(null) }
     var pendingBackgroundDim by remember { mutableStateOf(appearance.backgroundDimPercent) }
@@ -111,17 +110,9 @@ internal fun AppAppearanceScreen(
     Scaffold(
         containerColor = appSurfaceColor(),
         topBar = {
-            TopAppBar(
-                color = appTopBarColor(),
+            AppTopBar(
                 title = stringResource(R.string.section_app_appearance),
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            MiuixIcons.Back,
-                            contentDescription = stringResource(R.string.action_back)
-                        )
-                    }
-                }
+                onBack = onBack
             )
         }
     ) { innerPadding ->
@@ -179,6 +170,33 @@ internal fun AppAppearanceScreen(
                             }
                         )
                     }
+                    BasicComponent(
+                        title = stringResource(R.string.setting_control_color),
+                        summary = appearance.controlColorArgb?.let { argbToColorToken(it) }
+                            ?: stringResource(R.string.option_default),
+                        startAction = {
+                            ColorSwatch(
+                                argb = appearance.controlColorArgb
+                                    ?: MiuixTheme.colorScheme.surfaceContainer.toArgb(),
+                                size = 24.dp,
+                                modifier = Modifier.padding(end = 12.dp)
+                            )
+                        },
+                        onClick = {
+                            pendingControlColorArgb = appearance.controlColorArgb
+                            showControlColorDialog = true
+                        }
+                    )
+                    SliderPreference(
+                        value = appearance.controlOpacityPercent.toFloat(),
+                        onValueChange = { value ->
+                            commit(appearance.copy(controlOpacityPercent = value.toInt()))
+                        },
+                        title = stringResource(R.string.setting_control_opacity),
+                        valueText = "${appearance.controlOpacityPercent}%",
+                        valueRange = 0f..100f,
+                        steps = 19
+                    )
                 }
             }
             item { SmallTitle(text = stringResource(R.string.setting_background_image)) }
@@ -236,6 +254,23 @@ internal fun AppAppearanceScreen(
                 showCustomColorDialog = false
             },
             onDismiss = { showCustomColorDialog = false }
+        )
+    }
+
+    if (showControlColorDialog) {
+        ControlColorDialog(
+            pendingArgb = pendingControlColorArgb,
+            fallbackArgb = MiuixTheme.colorScheme.surfaceContainer.toArgb(),
+            onColorChange = { pendingControlColorArgb = it },
+            onRestoreDefault = {
+                commit(appearance.copy(controlColorArgb = null))
+                showControlColorDialog = false
+            },
+            onSave = {
+                commit(appearance.copy(controlColorArgb = pendingControlColorArgb))
+                showControlColorDialog = false
+            },
+            onDismiss = { showControlColorDialog = false }
         )
     }
 
@@ -325,6 +360,66 @@ private fun CustomThemeColorDialog(
                     ColorSwatch(argb = pendingArgb, size = 40.dp)
                 }
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = onDismiss
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.action_save),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = onSave
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 控件颜色弹窗:色板取色 + 色块实时预览;「恢复默认」立即清除自定义回落主题,
+ * 「保存」写入所选(null=恢复默认)。null 状态下色板/色块以主题卡片色兜底展示。
+ */
+@Composable
+private fun ControlColorDialog(
+    pendingArgb: Int?,
+    fallbackArgb: Int,
+    onColorChange: (Int?) -> Unit,
+    onRestoreDefault: () -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    WindowDialog(
+        title = stringResource(R.string.setting_control_color),
+        show = true,
+        onDismissRequest = onDismiss
+    ) {
+        Column {
+            Column(modifier = Modifier.dialogScrollable()) {
+                ColorPicker(
+                    color = Color(pendingArgb ?: fallbackArgb),
+                    onColorChanged = { onColorChange(it.toArgb()) }
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    ColorSwatch(argb = pendingArgb ?: fallbackArgb, size = 40.dp)
+                }
+            }
+            TextButton(
+                text = stringResource(R.string.action_restore_default),
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onRestoreDefault
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

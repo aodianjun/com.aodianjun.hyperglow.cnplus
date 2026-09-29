@@ -64,17 +64,12 @@ import com.eza.hyperglow.diagnostics.utf8Size
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextFieldDefaults
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -175,17 +170,9 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
     Scaffold(
         containerColor = appSurfaceColor(),
         topBar = {
-            TopAppBar(
-                color = appTopBarColor(),
+            AppTopBar(
                 title = stringResource(R.string.action_report_problem),
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            MiuixIcons.Back,
-                            contentDescription = stringResource(R.string.action_back)
-                        )
-                    }
-                }
+                onBack = onBack
             )
         }
     ) { innerPadding ->
