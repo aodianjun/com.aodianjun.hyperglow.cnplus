@@ -209,8 +209,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
   entry point `Window.setExtraFlags(int, int)` is gone (`NoSuchMethodException` on
   `com.android.internal.policy.PhoneWindow`, captured from a deduped app log line). The "系统栏图标" row therefore
   carries a MIUI-only summary stating that the system picks the icon color from the content behind the status bar.
-  Pending a hardware smoke check: the three cards follow control color/opacity like every other surface, and the
-  summary renders on that row on MIUI/HyperOS.
+  Device-verified on the PR #111 build (Redmi K80 Pro, HyperOS 3): the three cards re-tint with the control
+  color/opacity like every other surface, and the summary renders on that row.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -323,8 +323,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   已失效：`MiuiWindowManager.LayoutParams.EXTRA_FLAG_STATUS_BAR_DARK_MODE` 的类与常量在
   `/system_ext/framework/miui-framework.jar` 里仍然存在，但入口方法 `Window.setExtraFlags(int, int)` 已被移除
   （应用日志抓到 `NoSuchMethodException: com.android.internal.policy.PhoneWindow.setExtraFlags`）。因此「系统栏图标」
-  行在 MIUI/HyperOS 上增加一条说明，告知图标颜色由系统按状态栏背后的内容自动决定。合并后待真机冒烟：三处卡片与其余
-  控件同样随控件颜色 / 不透明度变化，且说明文案在该行正常显示。
+  行在 MIUI/HyperOS 上增加一条说明，告知图标颜色由系统按状态栏背后的内容自动决定。已在 PR #111 构建上真机验证
+  （Redmi K80 Pro / HyperOS 3）：三处卡片与其余控件同样随控件颜色 / 不透明度变化，说明文案在该行正常显示。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
