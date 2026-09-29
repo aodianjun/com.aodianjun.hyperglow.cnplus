@@ -3,6 +3,7 @@ package com.eza.hyperglow.producer
 import io.github.proify.lyricon.lyric.model.LyricWord as LyriconLyricWord
 import io.github.proify.lyricon.lyric.model.RichLyricLine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -48,6 +49,10 @@ class LyriconTimelineRepairTest {
         assertEquals(3_500L, LyriconTimelineRepair.estimatedSingMs("恋爱不见得叫人坐不安"))
         // 无标记文本估时不变。
         assertEquals(4_550L, LyriconTimelineRepair.estimatedSingMs("或有可能慢慢地去摸索便成事"))
+        // 段落标记同规则;纯标记行(（间奏）等)按 0 字计——长间奏行窗不得被误判成损坏行。
+        assertEquals(3_500L, LyriconTimelineRepair.estimatedSingMs("（副歌） 恋爱不见得叫人坐不安"))
+        assertEquals(0L, LyriconTimelineRepair.estimatedSingMs("（间奏）"))
+        assertFalse(LyriconTimelineRepair.grossWindowMs("（间奏）", 30_000L))
     }
 
     @Test

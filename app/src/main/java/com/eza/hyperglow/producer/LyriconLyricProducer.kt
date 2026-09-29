@@ -127,9 +127,9 @@ class LyriconLyricProducer(
     @Volatile internal var duetResolvedAlignedRight: BooleanArray? = null
 
     /**
-     * 标记识别版分侧快照(元数据身份缺失时以行首「（男）/（女）/（合）」文本标记兜底),
-     * 与 [duetResolvedAlignedRight] 同时机重算;[activeAlignedRight] 按
-     * [duetMarkersEnabled] 在两套之间选用。
+     * 标记识别版分侧快照(元数据身份缺失时以行首「（男）/（女）/（合）」演唱者文本标记兜底,
+     * 「（副歌）」等段落标记不产出身份),与 [duetResolvedAlignedRight] 同时机重算;
+     * [activeAlignedRight] 按 [duetMarkersEnabled] 在两套之间选用。
      */
     @Volatile internal var duetMarkerResolvedAlignedRight: BooleanArray? = null
 

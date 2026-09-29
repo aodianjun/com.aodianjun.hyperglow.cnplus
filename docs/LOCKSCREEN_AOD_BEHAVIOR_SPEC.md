@@ -341,7 +341,11 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   （男）/（女）/（合） text marker on a lyric line is recognized as singer identity: the marker text is
   hidden on screen (main line, next line and the karaoke word list alike) and, where line metadata
   carries no singer identity, feeds the duet left/right derivation above; （合） never alternates and
-  keeps the source side. When it is off, lines display as-is and markers take no part in the split.
+  keeps the source side. Section markers such as （副歌）/（间奏） are recognized the same way (a run of
+  stacked or compound markers like （男·RAP） strips as one), but only hide their text — they never
+  act as singer identity and never move a line's side. Parenthesized text outside the marker
+  vocabulary stays as lyric content. A line that is only markers keeps displaying as-is. When the
+  switch is off, lines display as-is and markers take no part in the split.
   Explicit per-line sides still win in either state.
 - The producer ingest repairs implausible line windows before selection and rendering: a lyric row
   whose window far exceeds the plausible singing span of its text (gap-swallowing artifacts of
@@ -350,7 +354,8 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   fill and a head-attached window starts at `end - estimated sing duration`. Normal rows are
   untouched. The head clamp only engages when a track shows at least two damaged rows (real damage
   is systemic, while a genuine held note is an isolated long window); an isolated long-window row
-  keeps its exact original window. Estimation ignores leading duet markers, which are not sung.
+  keeps its exact original window. Estimation ignores leading markers, which are not sung; a line
+  that is only markers counts as zero sung characters.
 - A seek observed by one producer is forwarded to the others (`onExternalSeek`), so a producer
   whose own position source froze or dropped its seek callback snaps to the authoritative
   position at once instead of lagging behind.
@@ -634,8 +639,8 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；开启时取代独立的下一行歌词行而不与之叠加，关闭时独立下一行呈现保持不变。
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
 - 对唱分侧是每个 surface 独立的开关（默认开启）。开启时，行级 `alignedRight` 置位的行绘制在右侧；关闭时忽略该位，所有行按主对齐解析。行级分侧位来源于歌词源：源显式标记（Spicy `alignedRight`、Lyricon `isAlignedRight`、插件 `isAlignedRight`）恒优先，否则由行级演唱者身份元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal`，类型键 `amll:agent-type`/`agent:type`/`agentType`/`vocal:type`）推导——首位歌手居左、其余居右；带显式类型时 `group` 恒左、`other` 起右并随歌手切换翻转。无演唱者信息的曲目保持纯主对齐行为。
-- 识别对唱标记是文档级全局开关（默认开启）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。
-- 生产者 ingest 在选行/渲染之前修复明显失真的行窗口：行窗远大于文本可唱时长的行（逐字合成把乐器间隙吞进行窗的产物，真机实测单行偏差可达十余秒），词级跨距可信时行窗向词对齐，否则丢弃可疑词级、回退行级填充，头部贴附的行窗从 `end-估时` 起算。正常行零变化。行首钳制仅在全曲出现至少两个损坏行时启用（真实损坏是整首系统性的，真实长音则是孤立的长窗行）；孤立长窗行保持原有行窗不变。估时忽略行首对唱标记——标记不发声。
+- 识别对唱标记是文档级全局开关（默认开启）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。（副歌）/（间奏）等段落标记同样识别（连写或复合如（男·RAP）的标记串整串剥离），但只隐去文本——不作为演唱者身份、不改动行的分侧。词表外的括号内容按歌词原样保留。纯标记行保留原样显示。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。
+- 生产者 ingest 在选行/渲染之前修复明显失真的行窗口：行窗远大于文本可唱时长的行（逐字合成把乐器间隙吞进行窗的产物，真机实测单行偏差可达十余秒），词级跨距可信时行窗向词对齐，否则丢弃可疑词级、回退行级填充，头部贴附的行窗从 `end-估时` 起算。正常行零变化。行首钳制仅在全曲出现至少两个损坏行时启用（真实损坏是整首系统性的，真实长音则是孤立的长窗行）；孤立长窗行保持原有行窗不变。估时忽略行首标记——标记不发声；纯标记行按 0 字计。
 - 任一生产者观测到 seek 时跨源转发给其他生产者（`onExternalSeek`），位置源冻结/漏发 seek 回调的生产者立即落到权威位置，不再滞后。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。

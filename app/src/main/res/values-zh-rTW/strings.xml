@@ -275,7 +275,7 @@
     <string name="setting_duet_alignment">對唱左右分側</string>
     <string name="summary_duet_alignment">對唱歌詞依演唱者分居左右兩側;演唱者資訊須由歌詞源提供。僅當對齊為「自動」時生效。</string>
     <string name="setting_duet_markers">識別對唱標記</string>
-    <string name="summary_duet_markers">識別歌詞行首的（男）/（女）/（合）標記:顯示時隱去標記,並按標記分出左右演唱者;關閉後原樣顯示,標記不參與分側。</string>
+    <string name="summary_duet_markers">識別歌詞行首的（男）/（女）/（合）演唱者標記與（副歌）/（間奏）等段落標記:顯示時隱去標記,演唱者標記並按標記分出左右演唱者;關閉後原樣顯示,標記不參與分側。</string>
     <string name="setting_bright_secondary_text">高亮輔助文字</string>
     <string name="setting_secondary_next_line">輔助文字顯示第二行歌詞</string>
     <string name="setting_show_furigana">顯示振假名</string>

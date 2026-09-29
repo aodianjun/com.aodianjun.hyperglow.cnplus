@@ -55,11 +55,12 @@ internal object LyriconTimelineRepair {
     internal const val MIN_GROSS_LINES_FOR_CLAMP = 2
 
     /**
-     * 文本可唱估时:剥行首对唱标记后按可见字符数(空白不计,标点随行计入偏保守)× [MS_PER_CHAR]。
-     * 标记(（男）等)不发声,计入会把钳制目标与 gross 判定整体推偏约一秒。
+     * 文本可唱估时:剥行首标记后按可见字符数(空白不计,标点随行计入偏保守)× [MS_PER_CHAR]。
+     * 标记(（男）/（副歌）等)不发声,计入会把钳制目标与 gross 判定整体推偏约一秒;
+     * 纯标记行(（间奏）等)按 0 字计,否则长间奏行窗被误判成损坏行。
      */
     internal fun estimatedSingMs(text: CharSequence?): Long {
-        val visible = stripDuetMarker(text?.toString() ?: "")
+        val visible = stripDuetMarkerRun(text?.toString() ?: "")
         return visible.count { !it.isWhitespace() } * MS_PER_CHAR
     }
 

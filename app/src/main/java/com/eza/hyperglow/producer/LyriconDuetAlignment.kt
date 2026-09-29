@@ -12,9 +12,9 @@ import io.github.proify.lyricon.lyric.model.RichLyricLine
  *
  * 快照存两套(元数据身份版 / 标记识别版),[activeAlignedRight] 按文档级开关
  * 「识别对唱标记」([com.eza.hyperglow.customization.CustomizationDocument.duetMarkers]) 选用:
- * 开关只决定行首「（男）/（女）/（合）」标记是否作为身份输入,源显式 `isAlignedRight`
- * 两套都恒优先。开关变更即时生效(设置保存经 [LyricProducers.onCustomizationChanged] 重算,
- * 或随下次切歌)。
+ * 开关只决定行首「（男）/（女）/（合）」演唱者标记是否作为身份输入(「（副歌）」等段落标记
+ * 始终不作身份),源显式 `isAlignedRight` 两套都恒优先。开关变更即时生效(设置保存经
+ * [LyricProducers.onCustomizationChanged] 重算,或随下次切歌)。
  */
 
 /**
@@ -33,8 +33,9 @@ internal fun LyriconLyricProducer.refreshDuetMarkerPolicy() {
  *
  * 演唱者身份来自行级元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal` 键族,与 HyperLyric 同键名,
  * 见 [duetAgentId]/[duetAgentType]）;无元数据时,标记识别版以行首「（男）/（女）/（合）」
- * 文本标记兜底([parseDuetMarker],见 [duetMarkerAgentId])。源已显式标记 `isAlignedRight`
- * 的行恒保留该值。无身份信息的曲目两套结果与源值逐行相等——即对既有行为零影响。
+ * 演唱者文本标记兜底([parseDuetMarker],见 [duetMarkerAgentId];「（副歌）」等段落标记
+ * 只剥离显示、不产出身份)。源已显式标记 `isAlignedRight` 的行恒保留该值。无身份信息的曲目
+ * 两套结果与源值逐行相等——即对既有行为零影响。
  */
 @Synchronized
 internal fun LyriconLyricProducer.refreshDuetAlignment(lyrics: List<RichLyricLine>) {

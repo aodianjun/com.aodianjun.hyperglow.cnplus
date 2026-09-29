@@ -128,39 +128,98 @@ private fun alignTypedAgents(lines: List<DuetLine>): List<Boolean> {
     }
 }
 
-// --- 对唱文本标记(（男）/（女）/（合）)识别 ---
+// --- 行首标记(对唱「（男）/（女）/（合）」与段落「（副歌）/（间奏）」等)识别 ---
 //
-// 网易云等源的对唱信息以行首文本标记承载(实测《讲男讲女》《男左女右》),不是
-// agent/amll:agent 元数据键;没有标记识别时 resolveDuetAlignment 拿不到身份输入,
-// 分侧不生效。标记识别(文档级开关 duetMarkers)把标记翻译成演唱者身份喂给分侧推导,
-// 并在显示侧剥离标记文本。与元数据身份并存:元数据恒优先,标记只作无元数据时的兜底。
+// 网易云等源的对唱信息以行首文本标记承载(实测《讲男讲女》《男左女右》),段落标注
+// (（副歌）/（间奏）等)同样出现在行首括号里。没有标记识别时 resolveDuetAlignment 拿不到
+// 身份输入,分侧不生效,标记文本还会原样上屏。标记识别(文档级开关 duetMarkers)把演唱者
+// 标记翻译成演唱者身份喂给分侧推导,段落标记只作显示剥离;两类标记都在显示侧隐去。
+// 与元数据身份并存:元数据恒优先,标记只作无元数据时的兜底。
 
-/** 行首对唱标记的匹配(全/半角括号 + 男/女/合 + 其后空白,空白含在剥离范围内)。 */
-internal val DUET_MARKER_PREFIX = Regex("^[(（]\\s*(男|女|合)\\s*[)）]\\s*")
+/** 演唱者标记词:产出对唱分侧身份(男/女 各为一个身份)。 */
+internal val DUET_MARKER_SINGER_TOKENS = setOf("男", "女")
 
 /** 合唱标记词:不作为演唱者身份参与交替(与 HyperLyric `group` 恒左同视)。 */
 internal const val DUET_MARKER_TOKEN_CHORUS = "合"
 
-/** 识别出的行首对唱标记。[text] 为剥离标记(含其后空白)后的行文本。 */
+/**
+ * 段落/表演标记词(副歌等):只作显示剥离,不产出演唱者身份、不参与分侧。
+ * 只收结构性标注词——语气词/拟声(啊/喔 等)是实唱内容,不收,防误剥歌词。
+ */
+internal val SECTION_MARKER_TOKENS = listOf(
+    "前奏", "间奏", "尾奏", "尾声", "主歌", "副歌", "预副歌", "桥段", "过场",
+    "说唱", "旁白", "念白", "独白", "合唱", "和声", "伴唱", "齐唱", "轮唱",
+    "RAP", "Intro", "Verse", "Chorus", "Bridge", "Interlude", "Outro"
+)
+
+/** 标记词全集(按小写归一查找;ASCII 词大小写不敏感,CJK 不受影响)。 */
+private val MARKER_TOKEN_LOOKUP: Map<String, String> =
+    (DUET_MARKER_SINGER_TOKENS + DUET_MARKER_TOKEN_CHORUS + SECTION_MARKER_TOKENS)
+        .associateBy { it.lowercase(java.util.Locale.ROOT) }
+
+/** 标记组内词之间的粘合(空白/间隔号/连接符/序号数字):「男·RAP」「副歌2」等都归一成词序列。 */
+private val MARKER_GLUE = Regex("[\\s·・•、，,×*+/／＋+\\d]+")
+
+/** 行首一个括号标记组(全/半角括号);组后空白含在剥离范围内。 */
+private val MARKER_GROUP = Regex("^[(（]([^)）]*)[)）]\\s*")
+
+/** 行首标记串匹配结果:[tokens] 为识别出的全部标记词,[text] 为剥离后的行文本。 */
+private data class MarkerRun(val tokens: List<String>, val text: String)
+
+/**
+ * 把标记组内容切成标记词:整组每个词都命中词表才认作标记,
+ * 否则返回 null——「（男·爱你）」这类组内混有词表外内容的整组按歌词保留,防误剥。
+ */
+private fun tokenizeMarkerContent(content: String): List<String>? {
+    val tokens = content.split(MARKER_GLUE)
+        .filter { it.isNotEmpty() }
+        .map { piece -> MARKER_TOKEN_LOOKUP[piece.lowercase(java.util.Locale.ROOT)] ?: return null }
+    return if (tokens.isEmpty()) null else tokens
+}
+
+/**
+ * 连续匹配行首括号标记组(支持连写「（男）（副歌）」与组内复合「（男·RAP）」);
+ * 首个不成立的组即停,已匹配的组照常剥离。
+ */
+private fun matchMarkerRun(raw: String): MarkerRun? {
+    var rest = raw
+    val tokens = mutableListOf<String>()
+    while (true) {
+        val group = MARKER_GROUP.find(rest) ?: break
+        val groupTokens = tokenizeMarkerContent(group.groupValues[1]) ?: break
+        tokens += groupTokens
+        rest = rest.substring(group.value.length)
+    }
+    return if (tokens.isEmpty()) null else MarkerRun(tokens, rest)
+}
+
+/** 识别出的行首标记。[token] 为首个演唱者词(无演唱者词时为首个标记词);[text] 为剥离标记(含其后空白)后的行文本。 */
 internal data class DuetMarker(
     val token: String,
     val text: String
 )
 
 /**
- * 解析行首对唱标记:命中返回标记与剥离后的行文本;未命中返回 null。
+ * 解析行首标记:命中返回标记与剥离后的行文本;未命中返回 null。
  * 剥离后文本为空(纯标记行)也返回 null——保留原样显示,不产出空行。
  */
 internal fun parseDuetMarker(raw: String): DuetMarker? {
-    val match = DUET_MARKER_PREFIX.find(raw) ?: return null
-    val stripped = raw.substring(match.value.length)
-    if (stripped.isBlank()) return null
-    return DuetMarker(token = match.groupValues[1], text = stripped)
+    val run = matchMarkerRun(raw) ?: return null
+    if (run.text.isBlank()) return null
+    val token = run.tokens.firstOrNull { it in DUET_MARKER_SINGER_TOKENS } ?: run.tokens.first()
+    return DuetMarker(token = token, text = run.text)
 }
 
-/** 剥离行首对唱标记(幂等:未带标记的文本原样返回)。 */
+/** 剥离行首标记(幂等:未带标记的文本原样返回;纯标记行保留原样)。 */
 internal fun stripDuetMarker(raw: String): String =
     parseDuetMarker(raw)?.text ?: raw
+
+/**
+ * 无条件剥离行首标记(纯标记行剥成空串)——可唱估时专用:标记不发声,
+ * 纯标记行按 0 字计,否则「（间奏）」整行标记被当实唱文本,长间奏行窗被误判成损坏行。
+ */
+internal fun stripDuetMarkerRun(raw: String): String =
+    matchMarkerRun(raw)?.text ?: raw
 
 /**
  * 剥离词表中作为行首标记出现的部分:首词以标记起头时剥掉标记前缀,剥空则移除该词。
@@ -169,8 +228,7 @@ internal fun stripDuetMarker(raw: String): String =
  */
 internal fun stripDuetMarkerWords(words: List<LyricWord>): List<LyricWord> {
     val first = words.firstOrNull() ?: return words
-    val match = DUET_MARKER_PREFIX.find(first.text) ?: return words
-    val stripped = first.text.substring(match.value.length)
+    val stripped = matchMarkerRun(first.text)?.text ?: return words
     if (stripped == first.text) return words
     val out = words.toMutableList()
     if (stripped.isBlank()) {
@@ -182,8 +240,8 @@ internal fun stripDuetMarkerWords(words: List<LyricWord>): List<LyricWord> {
 }
 
 /**
- * 标记 → 演唱者身份(分侧推导的兜底输入,元数据身份恒优先):男/女 各为一个身份,
- * 「合」不参与交替故不产出身份(该行保持源值)。
+ * 标记 → 演唱者身份(分侧推导的兜底输入,元数据身份恒优先):男/女 各为一个身份;
+ * 「合」与段落标记(副歌等)不产出身份,该行保持源值。
  */
 internal fun duetMarkerAgentId(marker: DuetMarker): String? =
-    marker.token.takeIf { it != DUET_MARKER_TOKEN_CHORUS }
+    marker.token.takeIf { it in DUET_MARKER_SINGER_TOKENS }

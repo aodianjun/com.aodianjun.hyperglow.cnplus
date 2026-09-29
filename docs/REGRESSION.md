@@ -157,11 +157,15 @@ and (b) unverified paths stay explicit instead of silently assumed.
 - Duet marker recognition (`duetMarkers`, document-level, default on): leading （男）/（女）/（合）
   markers are hidden from display and, when the source carries no singer metadata, drive the duet
   left/right split (first marker singer left, the rest right, in order of appearance); turning it
-  off shows raw marker text and keeps markers out of the split.
+  off shows raw marker text and keeps markers out of the split. Section markers (（副歌）/（间奏） and
+  the like) hide the same way but never join the split; a pure marker line (only a marker, no lyric
+  text) keeps displaying as-is and counts zero in the sing-time estimate.
   Ingest timeline repair (gap-swallowing line windows re-anchored / suspect word timing dropped)
   and cross-producer seek forwarding land together — pending a hardware smoke check after merge:
   a Netease duet song (e.g. 讲男讲女) splits left/right by the （男）/（女） markers with clean text
-  and lines appear at their sung times (no early next-line), the switch restores raw markers, and
+  and lines appear at their sung times (no early next-line), a section-marker line strips clean
+  (e.g. （副歌）爱你一万年 renders as 爱你一万年) with the split unaffected, an interlude-only line （间奏）
+  stays as-is and is never re-anchored, the switch restores raw markers, and
   dragging the seek bar moves the lyric immediately. The clamp is deliberately conservative
   (isolated long-window rows stay untouched, so genuine held notes are safe): also confirm a slow
   ballad's held final note still enters at its real start, and an English/melisma song shows no
@@ -306,7 +310,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   对预设同样生效;`Fade up` 与历史一致。
 - 对唱分侧（`duetAlignment`，每 surface 独立，默认开启）：源显式标记（`alignedRight`/`isAlignedRight`）或演唱者身份元数据判为后位歌手的行绘制在右侧；关闭开关后所有行按主对齐解析。歌词源不带演唱者信息的曲目零变化——合并后待真机冒烟：歌词源标注了两位演唱者的对唱歌曲左右交替、关闭开关后全部居左、翻译/下一行行不受影响。
 - Lyricon 位置通道日志/状态刷屏修复（写入端 ~40ms 更新节奏内的重复位置回调不再触发停滞外推：低于 500ms 下限保持最后真实位置且不发状态；仲裁器仅在来源身份（源+歌曲代）真变时才记「active changed」，同源例行转发不再逐帧刷日志）——合并后待真机冒烟：开诊断日志播歌，`diagnostic-trace.log` 不再被逐帧 `position stalled/resumed`（约 45 行/秒）与逐帧 `active changed` 刷满轮转；真实息屏停滞仍外推且各记一条，换行/换源日志保留。
-- 识别对唱标记（`duetMarkers`，文档级全局，默认开启）：行首（男）/（女）/（合）标记被隐去并（无元数据时）驱动对唱左右分侧（按标记出现顺序，先出现者居左）；关闭后原样显示标记、标记不参与分侧。同行落地 ingest 时间轴修复（间隙吞进行窗向词对齐/钳制、可疑词级降级）与跨源 seek 转发——合并后待真机冒烟：网易云对唱曲（如《讲男讲女》）按（男）/（女）出现顺序左右分侧且文本无标记、逐句起唱点正确（下一句不再提前上屏）、关闭开关恢复原样标记、拖动进度条歌词立即跟手。钳制刻意保守（孤立长窗行原样保留，真实长音安全）：另验慢歌收尾长音按真实起唱点上屏、英文/拉长音歌曲无误钳。
+- 识别对唱标记（`duetMarkers`，文档级全局，默认开启）：行首（男）/（女）/（合）标记被隐去并（无元数据时）驱动对唱左右分侧（按标记出现顺序，先出现者居左）；（副歌）/（间奏）等段落标记同样隐去但不参与分侧；纯标记行（只有标记没有歌词）保留原样显示且可唱估时按 0 字计；关闭后原样显示标记、标记不参与分侧。同行落地 ingest 时间轴修复（间隙吞进行窗向词对齐/钳制、可疑词级降级）与跨源 seek 转发——合并后待真机冒烟：网易云对唱曲（如《讲男讲女》）按（男）/（女）出现顺序左右分侧且文本无标记、带段落标记的行文本干净（如「（副歌）爱你一万年」显示为「爱你一万年」）且分侧不变、整行（间奏）原样保留不被重锚、逐句起唱点正确（下一句不再提前上屏）、关闭开关恢复原样标记、拖动进度条歌词立即跟手。钳制刻意保守（孤立长窗行原样保留，真实长音安全）：另验慢歌收尾长音按真实起唱点上屏、英文/拉长音歌曲无误钳。
 - 应用外观设置页重做并新增背景模糊（主题模式/主题颜色/系统栏图标改为行内下拉直接选、行上显示当前值；
   自定义颜色行带色块与 hex 值、弹窗内色板取色并有色块实时预览；背景图片入口打开预览弹窗，变暗/模糊
   滑杆实时作用于预览、「恢复默认/保存」成对提交；新增 `background_blur_percent` 0-100，默认 0，
