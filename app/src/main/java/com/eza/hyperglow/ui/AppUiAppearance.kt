@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.R
 import java.io.File
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
@@ -284,17 +285,30 @@ internal fun applySystemBarIcons(
  * WindowInsetsController 的外观请求(真机实测:标志位已下发到窗口管理器,同一标志在
  * 深色壁纸上仍渲染浅色图标,换成亮色背景后立刻变深色)。这里额外下发 MIUI 自己的
  * extraWindowAttributes 标志,以显式声明争取优先权;非 MIUI 或字段不存在时静默跳过,
- * 标准路径不受影响。
+ * 标准路径不受影响。结论去重后留一条日志,便于真机判断该通道是否可用。
  */
 private fun applyMiuiStatusBarDarkMode(window: android.view.Window, darkIcons: Boolean) {
-    runCatching {
+    val failure = runCatching {
         val layoutParams = Class.forName("android.view.MiuiWindowManager\$LayoutParams")
         val darkModeFlag = layoutParams.getField("EXTRA_FLAG_STATUS_BAR_DARK_MODE").getInt(layoutParams)
-        val intClass = Int::class.javaPrimitiveType ?: return@runCatching
-        val setExtraFlags = window.javaClass.getMethod("setExtraFlags", intClass, intClass)
-        setExtraFlags.invoke(window, if (darkIcons) darkModeFlag else 0, darkModeFlag)
+        val intClass = Int::class.javaPrimitiveType ?: error("primitive int class unavailable")
+        window.javaClass.getMethod("setExtraFlags", intClass, intClass)
+            .invoke(window, if (darkIcons) darkModeFlag else 0, darkModeFlag)
+    }.exceptionOrNull()
+    val line = if (failure == null) {
+        "dark=$darkIcons applied"
+    } else {
+        "dark=$darkIcons unavailable: ${failure.javaClass.simpleName}: ${failure.message}"
+    }
+    if (line != lastMiuiFlagOutcome) {
+        lastMiuiFlagOutcome = line
+        if (failure == null) AppLog.i("AppUiAppearance", "miui status-bar flag $line")
+        else AppLog.w("AppUiAppearance", "miui status-bar flag $line")
     }
 }
+
+/** 最近一次 MIUI 标志下发结论;去重,避免每次重组都写日志。 */
+private var lastMiuiFlagOutcome: String? = null
 
 internal fun appBackgroundImageFile(context: android.content.Context): File =
     File(context.filesDir, APP_BACKGROUND_IMAGE_FILE)
