@@ -211,6 +211,14 @@ and (b) unverified paths stay explicit instead of silently assumed.
   carries a MIUI-only summary stating that the system picks the icon color from the content behind the status bar.
   Device-verified on the PR #111 build (Redmi K80 Pro, HyperOS 3): the three cards re-tint with the control
   color/opacity like every other surface, and the summary renders on that row.
+- Every color picker dialog gains hex code entry (app theme color, control color, and each
+  semantic lyric color on the layout screen): tapping the bottom color preview swatch reveals a
+  code field — type `#66CCFF` (leading `#` optional, `#RGB`/`#RRGGBB`/`#AARRGGBB`, alpha ignored)
+  and hit Apply or the keyboard done key to write the color through the same path as the sliders,
+  with an inline error for invalid codes that leaves the current color untouched. App-UI only
+  (no SystemUI/AOD surface change) — pending a hardware smoke check after merge: in each dialog
+  tapping the swatch opens the field, a typed code updates the swatch/picker/preview live and
+  survives Save, a garbage code keeps the old color and shows the error text.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -325,6 +333,11 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   （应用日志抓到 `NoSuchMethodException: com.android.internal.policy.PhoneWindow.setExtraFlags`）。因此「系统栏图标」
   行在 MIUI/HyperOS 上增加一条说明，告知图标颜色由系统按状态栏背后的内容自动决定。已在 PR #111 构建上真机验证
   （Redmi K80 Pro / HyperOS 3）：三处卡片与其余控件同样随控件颜色 / 不透明度变化，说明文案在该行正常显示。
+- 全部取色弹窗支持颜色代码输入（应用外观的主题色/控件颜色、歌词布局的九个语义歌词色）：点按弹窗底部
+  色块预览展开代码输入框，输入 `#66CCFF`（`#` 可省，支持 `#RGB`/`#RRGGBB`/`#AARRGGBB`，忽略透明度）
+  后点「应用」或回车即按与滑杆相同的路径写入；非法代码就地提示且不改动当前颜色。仅应用内改动
+  （不涉及 SystemUI/AOD surface）——合并后待真机冒烟：三个取色弹窗点色块都能展开输入框、输入代码后
+  色块/色板/预览同步更新且保存后保留、乱码代码保持原色并出现错误提示。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

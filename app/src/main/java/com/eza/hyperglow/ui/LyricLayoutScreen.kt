@@ -1194,6 +1194,13 @@ private fun PaletteColorPickerDialog(
                 color = Color(currentArgb),
                 onColorChanged = { onPick(it.toArgb()) }
             )
+            ColorSwatchHexInput(
+                argb = currentArgb,
+                onColorChange = onPick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            )
             Row(
                 Modifier
                     .fillMaxWidth()

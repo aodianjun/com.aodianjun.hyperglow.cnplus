@@ -358,14 +358,13 @@ private fun CustomThemeColorDialog(
                     color = Color(pendingArgb),
                     onColorChanged = { onColorChange(it.toArgb()) }
                 )
-                Row(
+                ColorSwatchHexInput(
+                    argb = pendingArgb,
+                    onColorChange = onColorChange,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    ColorSwatch(argb = pendingArgb, size = 40.dp)
-                }
+                        .padding(top = 8.dp)
+                )
             }
             Row(
                 modifier = Modifier
@@ -413,14 +412,13 @@ private fun ControlColorDialog(
                     color = Color(pendingArgb ?: fallbackArgb),
                     onColorChanged = { onColorChange(it.toArgb()) }
                 )
-                Row(
+                ColorSwatchHexInput(
+                    argb = pendingArgb ?: fallbackArgb,
+                    onColorChange = { onColorChange(it) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    ColorSwatch(argb = pendingArgb ?: fallbackArgb, size = 40.dp)
-                }
+                        .padding(top = 8.dp)
+                )
             }
             TextButton(
                 text = stringResource(R.string.action_restore_default),

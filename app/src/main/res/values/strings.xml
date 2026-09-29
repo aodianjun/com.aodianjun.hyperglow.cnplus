@@ -398,6 +398,10 @@
     <string name="palette_surface_scrim">Background scrim color</string>
     <string name="dialog_pick_color">Pick a color</string>
     <string name="action_reset_color">Reset to default</string>
+    <string name="action_apply">Apply</string>
+    <string name="color_hex_hint">Color code, e.g. #66CCFF</string>
+    <string name="color_hex_invalid">Invalid color code</string>
+    <string name="color_hex_edit_desc">Enter color code</string>
     <string name="option_left_to_right">Left to right</string>
     <string name="option_left_to_right_all">Left to right (all lines)</string>
     <string name="option_fast">Fast</string>
