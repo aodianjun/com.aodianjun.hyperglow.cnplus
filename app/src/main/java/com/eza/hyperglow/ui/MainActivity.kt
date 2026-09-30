@@ -65,6 +65,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             var appAppearance by remember { mutableStateOf(loadAppUiAppearance(this@MainActivity)) }
             val controller = remember(appAppearance) { appThemeController(appAppearance) }
+            val appFontFamily = appTextFontFamily(appAppearance.fontFamily)
+            val appTextStyles = remember(appFontFamily) { appMiuixTextStyles(appFontFamily) }
             val darkTheme = isDarkTheme(appAppearance, isSystemInDarkTheme())
             SideEffect {
                 lastAppearance = appAppearance
@@ -72,78 +74,80 @@ class MainActivity : ComponentActivity() {
                 applySystemBarIcons(this@MainActivity, appAppearance, darkTheme)
             }
             val layerBackdrop = rememberLayerBackdrop()
-            MiuixTheme(controller = controller) {
-                CompositionLocalProvider(
-                    LocalAppBackgroundActive provides appAppearance.hasBackgroundImage,
-                    LocalAppControlColor provides appAppearance.controlColorArgb?.let { ComposeColor(it) },
-                    LocalAppControlOpacity provides appAppearance.controlOpacityPercent / 100f,
-                    LocalAppLayerBackdrop provides layerBackdrop
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        AppBackgroundLayer(
-                            appearance = appAppearance,
-                            darkTheme = darkTheme,
-                            layerBackdrop = layerBackdrop
-                        )
-                        var editingSurface by rememberSaveable { mutableStateOf<String?>(null) }
-                        var selectedTabName by rememberSaveable {
-                            mutableStateOf(SettingsTab.OVERVIEW.name)
-                        }
-                        AnimatedContent(
-                            targetState = editingSurface,
-                            modifier = Modifier.fillMaxSize(),
-                            transitionSpec = {
-                                if (targetState != null) {
-                                    (slideInHorizontally(
-                                        animationSpec = tween(320, easing = FastOutSlowInEasing),
-                                        initialOffsetX = { it }
-                                    ) + fadeIn(tween(220))) togetherWith
-                                        (slideOutHorizontally(
+            MiuixTheme(controller = controller, textStyles = appTextStyles) {
+                AppTextOverride(textColorArgb = appAppearance.textColorArgb) {
+                    CompositionLocalProvider(
+                        LocalAppBackgroundActive provides appAppearance.hasBackgroundImage,
+                        LocalAppControlColor provides appAppearance.controlColorArgb?.let { ComposeColor(it) },
+                        LocalAppControlOpacity provides appAppearance.controlOpacityPercent / 100f,
+                        LocalAppLayerBackdrop provides layerBackdrop
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            AppBackgroundLayer(
+                                appearance = appAppearance,
+                                darkTheme = darkTheme,
+                                layerBackdrop = layerBackdrop
+                            )
+                            var editingSurface by rememberSaveable { mutableStateOf<String?>(null) }
+                            var selectedTabName by rememberSaveable {
+                                mutableStateOf(SettingsTab.OVERVIEW.name)
+                            }
+                            AnimatedContent(
+                                targetState = editingSurface,
+                                modifier = Modifier.fillMaxSize(),
+                                transitionSpec = {
+                                    if (targetState != null) {
+                                        (slideInHorizontally(
                                             animationSpec = tween(320, easing = FastOutSlowInEasing),
-                                            targetOffsetX = { -it }
-                                        ) + fadeOut(tween(180)))
-                                } else {
-                                    (slideInHorizontally(
-                                        animationSpec = tween(320, easing = FastOutSlowInEasing),
-                                        initialOffsetX = { -it }
-                                    ) + fadeIn(tween(220))) togetherWith
-                                        (slideOutHorizontally(
+                                            initialOffsetX = { it }
+                                        ) + fadeIn(tween(220))) togetherWith
+                                            (slideOutHorizontally(
+                                                animationSpec = tween(320, easing = FastOutSlowInEasing),
+                                                targetOffsetX = { -it }
+                                            ) + fadeOut(tween(180)))
+                                    } else {
+                                        (slideInHorizontally(
                                             animationSpec = tween(320, easing = FastOutSlowInEasing),
-                                            targetOffsetX = { it }
-                                        ) + fadeOut(tween(180)))
-                                }
-                            },
-                            label = "settingsDestination"
-                        ) { surface ->
-                            if (surface == DIAGNOSTICS_DESTINATION) {
-                                DiagnosticsScreen(onBack = { editingSurface = null })
-                            } else if (surface == PLUGIN_DESTINATION) {
-                                PluginManagementScreen(onBack = { editingSurface = null })
-                            } else if (surface == AOD_BEHAVIOR_DESTINATION) {
-                                AodBehaviorScreen(onBack = { editingSurface = null })
-                            } else if (surface == APP_APPEARANCE_DESTINATION) {
-                                AppAppearanceScreen(
-                                    onBack = { editingSurface = null },
-                                    onAppearanceChanged = {
-                                        appAppearance = loadAppUiAppearance(this@MainActivity)
+                                            initialOffsetX = { -it }
+                                        ) + fadeIn(tween(220))) togetherWith
+                                            (slideOutHorizontally(
+                                                animationSpec = tween(320, easing = FastOutSlowInEasing),
+                                                targetOffsetX = { it }
+                                            ) + fadeOut(tween(180)))
                                     }
-                                )
-                            } else if (surface != null) {
-                                LyricLayoutScreen(
-                                    initialSurface = surface,
-                                    onBack = { editingSurface = null }
-                                )
-                            } else {
-                                HomeScreen(
-                                    showRestartResult = ::showRestartResult,
-                                    selectedTabName = selectedTabName,
-                                    onSelectTab = { selectedTabName = it },
-                                    onOpenDiagnostics = { editingSurface = DIAGNOSTICS_DESTINATION },
-                                    onOpenLyricLayout = { target -> editingSurface = target },
-                                    onOpenPlugins = { editingSurface = PLUGIN_DESTINATION },
-                                    onOpenAodBehavior = { editingSurface = AOD_BEHAVIOR_DESTINATION },
-                                    onOpenAppAppearance = { editingSurface = APP_APPEARANCE_DESTINATION }
-                                )
+                                },
+                                label = "settingsDestination"
+                            ) { surface ->
+                                if (surface == DIAGNOSTICS_DESTINATION) {
+                                    DiagnosticsScreen(onBack = { editingSurface = null })
+                                } else if (surface == PLUGIN_DESTINATION) {
+                                    PluginManagementScreen(onBack = { editingSurface = null })
+                                } else if (surface == AOD_BEHAVIOR_DESTINATION) {
+                                    AodBehaviorScreen(onBack = { editingSurface = null })
+                                } else if (surface == APP_APPEARANCE_DESTINATION) {
+                                    AppAppearanceScreen(
+                                        onBack = { editingSurface = null },
+                                        onAppearanceChanged = {
+                                            appAppearance = loadAppUiAppearance(this@MainActivity)
+                                        }
+                                    )
+                                } else if (surface != null) {
+                                    LyricLayoutScreen(
+                                        initialSurface = surface,
+                                        onBack = { editingSurface = null }
+                                    )
+                                } else {
+                                    HomeScreen(
+                                        showRestartResult = ::showRestartResult,
+                                        selectedTabName = selectedTabName,
+                                        onSelectTab = { selectedTabName = it },
+                                        onOpenDiagnostics = { editingSurface = DIAGNOSTICS_DESTINATION },
+                                        onOpenLyricLayout = { target -> editingSurface = target },
+                                        onOpenPlugins = { editingSurface = PLUGIN_DESTINATION },
+                                        onOpenAodBehavior = { editingSurface = AOD_BEHAVIOR_DESTINATION },
+                                        onOpenAppAppearance = { editingSurface = APP_APPEARANCE_DESTINATION }
+                                    )
+                                }
                             }
                         }
                     }

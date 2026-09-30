@@ -3,23 +3,33 @@ package com.eza.hyperglow.ui
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.eza.hyperglow.AppLog
+import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.R
 import java.io.File
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.theme.Colors
+import top.yukonga.miuix.kmp.theme.LocalContentColor
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.TextStyles
 import top.yukonga.miuix.kmp.theme.ThemeController
+import top.yukonga.miuix.kmp.theme.defaultTextStyles
 
-/** 应用自身界面(设置 UI)的外观状态:主题、背景图片(变暗/模糊)、控件颜色/不透明度、系统栏图标。不参与 hook 端渲染配置。 */
+/** 应用自身界面(设置 UI)的外观状态:主题、背景图片(变暗/模糊)、控件颜色/不透明度、文字颜色/字体、系统栏图标。不参与 hook 端渲染配置。 */
 internal data class AppUiAppearance(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val themeColorMode: AppThemeColorMode = AppThemeColorMode.DEFAULT,
@@ -30,6 +40,8 @@ internal data class AppUiAppearance(
     val backgroundBlurPercent: Int = DEFAULT_BACKGROUND_BLUR_PERCENT,
     val controlColorArgb: Int? = null,
     val controlOpacityPercent: Int = DEFAULT_CONTROL_OPACITY_PERCENT,
+    val textColorArgb: Int? = null,
+    val fontFamily: String = FONT_FAMILY_SYSTEM,
     val systemBarIcons: AppSystemBarIcons = AppSystemBarIcons.AUTO
 )
 
@@ -76,10 +88,24 @@ internal const val KEY_BACKGROUND_BLUR_PERCENT = "background_blur_percent"
 // 可空键:未设置时不落盘(恢复默认=移除),备份/读取缺键即回落主题默认色。
 internal const val KEY_CONTROL_COLOR_ARGB = "control_color_argb"
 internal const val KEY_CONTROL_OPACITY_PERCENT = "control_opacity_percent"
+// 文字颜色同为可空键;字体令牌恒有值(默认跟随系统)。
+internal const val KEY_TEXT_COLOR_ARGB = "text_color_argb"
+internal const val KEY_FONT_FAMILY = "font_family"
 internal const val KEY_SYSTEM_BAR_ICONS = "system_bar_icons"
 
 /** 控件玻璃化的默认不透明度:100% 即三档原生透明度(顶栏 0.7/卡片 0.82/导航 0.93)。 */
 internal const val DEFAULT_CONTROL_OPACITY_PERCENT = 100
+
+/** 应用界面字体令牌:跟随系统(默认)/衬线/等宽;已导入字体走 `custom:<id>`(CustomFontContract 契约)。 */
+internal const val FONT_FAMILY_SYSTEM = "system"
+internal const val FONT_FAMILY_SERIF = "serif"
+internal const val FONT_FAMILY_MONO = "monospace"
+
+/** 内置通用字族;未列出的令牌交由 CustomFontContract 解析为已导入字体。 */
+internal val BUILTIN_APP_FONT_FAMILIES = mapOf(
+    FONT_FAMILY_SERIF to FontFamily.Serif,
+    FONT_FAMILY_MONO to FontFamily.Monospace
+)
 
 internal const val APP_BACKGROUND_IMAGE_FILE = "app_background.jpg"
 private const val MAX_BACKGROUND_IMAGE_SIDE = 2160
@@ -174,6 +200,8 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
     val controlColorArgb = values[KEY_CONTROL_COLOR_ARGB] as? Int
     val controlOpacityPercent = ((values[KEY_CONTROL_OPACITY_PERCENT] as? Int)
         ?: DEFAULT_CONTROL_OPACITY_PERCENT).coerceIn(0, 100)
+    val textColorArgb = values[KEY_TEXT_COLOR_ARGB] as? Int
+    val fontFamily = normalizeAppFontFamily(values[KEY_FONT_FAMILY])
     val systemBarIcons = AppSystemBarIcons.entries.firstOrNull { it.name == values[KEY_SYSTEM_BAR_ICONS] }
         ?: AppSystemBarIcons.AUTO
     return AppUiAppearance(
@@ -186,6 +214,8 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
         backgroundBlurPercent = backgroundBlurPercent,
         controlColorArgb = controlColorArgb,
         controlOpacityPercent = controlOpacityPercent,
+        textColorArgb = textColorArgb,
+        fontFamily = fontFamily,
         systemBarIcons = systemBarIcons
     )
 }
@@ -210,6 +240,8 @@ internal fun updateAppUiAppearance(
             KEY_BACKGROUND_BLUR_PERCENT to appearance.backgroundBlurPercent,
             KEY_CONTROL_COLOR_ARGB to appearance.controlColorArgb,
             KEY_CONTROL_OPACITY_PERCENT to appearance.controlOpacityPercent,
+            KEY_TEXT_COLOR_ARGB to appearance.textColorArgb,
+            KEY_FONT_FAMILY to appearance.fontFamily,
             KEY_SYSTEM_BAR_ICONS to appearance.systemBarIcons.name
         )
     )
@@ -228,6 +260,13 @@ internal fun updateAppUiAppearance(
         editor.remove(KEY_CONTROL_COLOR_ARGB)
     }
     editor.putInt(KEY_CONTROL_OPACITY_PERCENT, normalized.controlOpacityPercent)
+    // 可空键:未设置即移除,让"恢复默认"真正回到主题文字色而不是残留旧值。
+    if (normalized.textColorArgb != null) {
+        editor.putInt(KEY_TEXT_COLOR_ARGB, normalized.textColorArgb)
+    } else {
+        editor.remove(KEY_TEXT_COLOR_ARGB)
+    }
+    editor.putString(KEY_FONT_FAMILY, normalized.fontFamily)
     editor.putString(KEY_SYSTEM_BAR_ICONS, normalized.systemBarIcons.name)
     return editor.commit()
 }
@@ -318,6 +357,88 @@ internal fun isMiuiFamilySystem(): Boolean =
         Build.BRAND.equals("Xiaomi", ignoreCase = true) ||
         Build.BRAND.equals("Redmi", ignoreCase = true) ||
         Build.BRAND.equals("POCO", ignoreCase = true)
+
+/** 应用界面字体令牌规范化:白名单外一律回落跟随系统(fail-closed)。 */
+internal fun normalizeAppFontFamily(value: Any?): String {
+    if (value is String) {
+        if (value == FONT_FAMILY_SYSTEM || value == FONT_FAMILY_SERIF || value == FONT_FAMILY_MONO) {
+            return value
+        }
+        // 契约侧 id 会归一为小写,接受时回吐规范令牌,避免 raw 大写残留进 prefs/备份。
+        val id = CustomFontContract.fontIdOf(value)
+        if (id != null) return CustomFontContract.customFontFamily(id)
+    }
+    return FONT_FAMILY_SYSTEM
+}
+
+/**
+ * 应用界面文本样式:fontFamily 为 null(跟随系统)时保持 miuix 默认;
+ * 非 null 时把字族铺满全部 14 档样式,字号/字重/行高等其余属性逐档不变。
+ */
+internal fun appMiuixTextStyles(fontFamily: FontFamily?): TextStyles {
+    val base = defaultTextStyles()
+    if (fontFamily == null) return base
+    return TextStyles(
+        main = base.main.copy(fontFamily = fontFamily),
+        paragraph = base.paragraph.copy(fontFamily = fontFamily),
+        body1 = base.body1.copy(fontFamily = fontFamily),
+        body2 = base.body2.copy(fontFamily = fontFamily),
+        button = base.button.copy(fontFamily = fontFamily),
+        footnote1 = base.footnote1.copy(fontFamily = fontFamily),
+        footnote2 = base.footnote2.copy(fontFamily = fontFamily),
+        headline1 = base.headline1.copy(fontFamily = fontFamily),
+        headline2 = base.headline2.copy(fontFamily = fontFamily),
+        subtitle = base.subtitle.copy(fontFamily = fontFamily),
+        title1 = base.title1.copy(fontFamily = fontFamily),
+        title2 = base.title2.copy(fontFamily = fontFamily),
+        title3 = base.title3.copy(fontFamily = fontFamily),
+        title4 = base.title4.copy(fontFamily = fontFamily)
+    )
+}
+
+/**
+ * 自定义文字色只覆盖主文字 token(根内容色 onBackground、Surface 内容色 onSurface、
+ * 卡片内容色 onSurfaceContainer);summary/小节标题/行尾动作等次级 token 保持主题层级,
+ * 避免整屏文字被同一个颜色抹平后失去主次。
+ */
+internal fun appTextColorScheme(base: Colors, custom: Color): Colors = base.copy(
+    onBackground = custom,
+    onSurface = custom,
+    onSurfaceContainer = custom
+)
+
+/**
+ * 字体令牌 → Compose 字族:内置字族取常量,已导入字体从应用私有目录直接加载
+ * (与 SystemUI 不同,应用进程读自己的 filesDir 无需跨进程 Provider);
+ * 文件缺失/损坏回落 null,由调用方走默认样式(跟随系统)。
+ */
+@Composable
+internal fun appTextFontFamily(token: String): FontFamily? {
+    BUILTIN_APP_FONT_FAMILIES[token]?.let { return it }
+    val id = CustomFontContract.fontIdOf(token) ?: return null
+    val context = LocalContext.current
+    val file = CustomFontContract.fontFile(context.filesDir, id)
+    return remember(file.absolutePath, file.lastModified()) {
+        runCatching { FontFamily(Typeface.createFromFile(file)) }.getOrNull()
+    }
+}
+
+/**
+ * 自定义文字色的主题挂载点:未设置时原样透传;设置后用同源配色覆盖主文字 token
+ * 并同步根内容色([LocalContentColor] 会被 Card 等容器按自身配色重设,这里只兜根层级)。
+ */
+@Composable
+internal fun AppTextOverride(textColorArgb: Int?, content: @Composable () -> Unit) {
+    val custom = textColorArgb?.let { Color(it) }
+    if (custom == null) {
+        content()
+        return
+    }
+    val adjusted = appTextColorScheme(MiuixTheme.colorScheme, custom)
+    MiuixTheme(colors = adjusted) {
+        CompositionLocalProvider(LocalContentColor provides custom, content = content)
+    }
+}
 
 internal fun appBackgroundImageFile(context: android.content.Context): File =
     File(context.filesDir, APP_BACKGROUND_IMAGE_FILE)

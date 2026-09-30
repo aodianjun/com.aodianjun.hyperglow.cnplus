@@ -53,6 +53,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.R
+import com.eza.hyperglow.customization.CustomFontContract
+import com.eza.hyperglow.customization.CustomFontStore
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -70,7 +72,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
- * 应用外观子屏:主题模式/主题颜色/背景图片(变暗与模糊)/系统栏图标。
+ * 应用外观子屏:主题模式/主题颜色/背景图片(变暗与模糊)/控件与文字颜色/字体/系统栏图标。
  * 主题与系统栏即时写入并即时生效;背景图片与背景参数在弹窗内调整,
  * 预览实时反映待应用效果,「保存」后写入并经 [onAppearanceChanged] 通知宿主重绘。
  * 交互结构参照 HyperBackground(hyperbg)模块的背景设置:入口行 + 预览弹窗、
@@ -87,6 +89,8 @@ internal fun AppAppearanceScreen(
     var pendingThemeColorArgb by remember { mutableStateOf(appearance.themeColorArgb) }
     var showControlColorDialog by remember { mutableStateOf(false) }
     var pendingControlColorArgb by remember { mutableStateOf<Int?>(appearance.controlColorArgb) }
+    var showTextColorDialog by remember { mutableStateOf(false) }
+    var pendingTextColorArgb by remember { mutableStateOf<Int?>(appearance.textColorArgb) }
     var showBackgroundDialog by remember { mutableStateOf(false) }
     var pendingBackgroundUri by remember { mutableStateOf<Uri?>(null) }
     var pendingBackgroundDim by remember { mutableStateOf(appearance.backgroundDimPercent) }
@@ -104,6 +108,23 @@ internal fun AppAppearanceScreen(
     ) { uri ->
         if (uri != null) pendingBackgroundUri = uri
     }
+
+    // 字体选项 = 跟随系统/衬线/等宽 + 已导入字体(歌词渲染共用的 CustomFontStore 清单,
+    // 按导入名展示;应用进程直读自己的私有字体文件,无需跨进程 Provider)。
+    val importedFonts = remember { CustomFontStore.list(context) }
+    val followSystemLabel = stringResource(R.string.option_font_follow_system)
+    val serifLabel = stringResource(R.string.option_font_serif)
+    val monospaceLabel = stringResource(R.string.option_font_monospace)
+    val customFontLabel = stringResource(R.string.option_custom_font)
+    val fontTokens = remember(importedFonts) {
+        listOf(FONT_FAMILY_SYSTEM, FONT_FAMILY_SERIF, FONT_FAMILY_MONO) +
+            importedFonts.map { CustomFontContract.customFontFamily(it.id) }
+    }
+    val fontLabels = listOf(followSystemLabel, serifLabel, monospaceLabel) +
+        importedFonts.map { it.name.takeIf { name -> name.isNotBlank() } ?: customFontLabel }
+    // 已导入字体被删除后旧令牌不再出现在选项里,展示层回落跟随系统(实际渲染同步回落)。
+    val effectiveFontToken = fontTokens.firstOrNull { it == appearance.fontFamily }
+        ?: FONT_FAMILY_SYSTEM
 
     BackHandler(onBack = onBack)
 
@@ -197,6 +218,31 @@ internal fun AppAppearanceScreen(
                         valueRange = 0f..100f,
                         steps = 19
                     )
+                    BasicComponent(
+                        title = stringResource(R.string.setting_text_color),
+                        summary = appearance.textColorArgb?.let { argbToColorToken(it) }
+                            ?: stringResource(R.string.option_default),
+                        startAction = {
+                            ColorSwatch(
+                                argb = appearance.textColorArgb
+                                    ?: MiuixTheme.colorScheme.onBackground.toArgb(),
+                                size = 24.dp,
+                                modifier = Modifier.padding(end = 12.dp)
+                            )
+                        },
+                        onClick = {
+                            pendingTextColorArgb = appearance.textColorArgb
+                            showTextColorDialog = true
+                        }
+                    )
+                    OverlayDropdownPreference(
+                        items = fontLabels,
+                        selectedIndex = fontTokens.indexOf(effectiveFontToken),
+                        title = stringResource(R.string.setting_app_font),
+                        onSelectedIndexChange = { index ->
+                            commit(appearance.copy(fontFamily = fontTokens[index]))
+                        }
+                    )
                 }
             }
             item { SmallTitle(text = stringResource(R.string.setting_background_image)) }
@@ -266,6 +312,7 @@ internal fun AppAppearanceScreen(
 
     if (showControlColorDialog) {
         ControlColorDialog(
+            title = stringResource(R.string.setting_control_color),
             pendingArgb = pendingControlColorArgb,
             fallbackArgb = MiuixTheme.colorScheme.surfaceContainer.toArgb(),
             onColorChange = { pendingControlColorArgb = it },
@@ -278,6 +325,24 @@ internal fun AppAppearanceScreen(
                 showControlColorDialog = false
             },
             onDismiss = { showControlColorDialog = false }
+        )
+    }
+
+    if (showTextColorDialog) {
+        ControlColorDialog(
+            title = stringResource(R.string.setting_text_color),
+            pendingArgb = pendingTextColorArgb,
+            fallbackArgb = MiuixTheme.colorScheme.onBackground.toArgb(),
+            onColorChange = { pendingTextColorArgb = it },
+            onRestoreDefault = {
+                commit(appearance.copy(textColorArgb = null))
+                showTextColorDialog = false
+            },
+            onSave = {
+                commit(appearance.copy(textColorArgb = pendingTextColorArgb))
+                showTextColorDialog = false
+            },
+            onDismiss = { showTextColorDialog = false }
         )
     }
 
@@ -389,11 +454,12 @@ private fun CustomThemeColorDialog(
 }
 
 /**
- * 控件颜色弹窗:色板取色 + 色块实时预览;「恢复默认」立即清除自定义回落主题,
- * 「保存」写入所选(null=恢复默认)。null 状态下色板/色块以主题卡片色兜底展示。
+ * 可空颜色弹窗(控件颜色/文字颜色共用):色板取色 + 色块实时预览;「恢复默认」立即清除
+ * 自定义回落主题,「保存」写入所选(null=恢复默认)。null 状态下色板/色块以当前生效色兜底展示。
  */
 @Composable
 private fun ControlColorDialog(
+    title: String,
     pendingArgb: Int?,
     fallbackArgb: Int,
     onColorChange: (Int?) -> Unit,
@@ -402,7 +468,7 @@ private fun ControlColorDialog(
     onDismiss: () -> Unit
 ) {
     WindowDialog(
-        title = stringResource(R.string.setting_control_color),
+        title = title,
         show = true,
         onDismissRequest = onDismiss
     ) {

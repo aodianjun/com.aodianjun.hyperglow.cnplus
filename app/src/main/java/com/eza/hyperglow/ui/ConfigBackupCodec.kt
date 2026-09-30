@@ -254,6 +254,8 @@ internal object ConfigBackupCodec {
             put(KEY_BACKGROUND_BLUR_PERCENT, appearance.backgroundBlurPercent)
             appearance.controlColorArgb?.let { put(KEY_CONTROL_COLOR_ARGB, it) }
             put(KEY_CONTROL_OPACITY_PERCENT, appearance.controlOpacityPercent)
+            appearance.textColorArgb?.let { put(KEY_TEXT_COLOR_ARGB, it) }
+            put(KEY_FONT_FAMILY, appearance.fontFamily)
             put(KEY_SYSTEM_BAR_ICONS, appearance.systemBarIcons.name)
         }
 
@@ -382,6 +384,8 @@ internal object ConfigBackupCodec {
         stored.int(KEY_BACKGROUND_BLUR_PERCENT)?.let { values[KEY_BACKGROUND_BLUR_PERCENT] = it }
         stored.int(KEY_CONTROL_COLOR_ARGB)?.let { values[KEY_CONTROL_COLOR_ARGB] = it }
         stored.int(KEY_CONTROL_OPACITY_PERCENT)?.let { values[KEY_CONTROL_OPACITY_PERCENT] = it }
+        stored.int(KEY_TEXT_COLOR_ARGB)?.let { values[KEY_TEXT_COLOR_ARGB] = it }
+        stored.string(KEY_FONT_FAMILY)?.let { values[KEY_FONT_FAMILY] = it }
         stored.string(KEY_SYSTEM_BAR_ICONS)?.let { values[KEY_SYSTEM_BAR_ICONS] = it }
         return normalizeAppUiAppearance(values)
     }

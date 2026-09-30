@@ -77,6 +77,8 @@ class ConfigBackupCodecTest {
             backgroundBlurPercent = 66,
             controlColorArgb = 0xFF00FFAA.toInt(),
             controlOpacityPercent = 33,
+            textColorArgb = 0xFFFF8800.toInt(),
+            fontFamily = "custom:myfont",
             systemBarIcons = AppSystemBarIcons.LIGHT
         ),
         uiLanguage = UiLanguage.SIMPLIFIED_CHINESE,
