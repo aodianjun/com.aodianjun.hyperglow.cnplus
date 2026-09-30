@@ -211,6 +211,10 @@ class LyriconLyricProducer(
     // 连接会话内已经见过歌时,后续 onSongChanged 才按「切歌」处理(归零 + 关闸);首次补发
     // 按「重同步」处理 —— 否则歌中途的真实位置会被合理性门控当残留拒绝,歌词从第 1 句
     // 重新开始,整条时间轴平移「已播时长」。
+    // 判定窗口的武装点是「订阅动作」:start()/强制重建订阅/断连/连接超时 —— 不在连接回调里
+    // 复位。真机实测 SDK 会先投递补发的 onSongChanged、12ms 后才回调 connected(2026-09-29
+    // 《淑女的品格》整首无歌词):连接回调复位会把已被补发消费的窗口重新打开,下一首真·切歌
+    // 被误判为重同步,旧歌冻结残留被当真实位置接受、跳歌尾钳制清行。
     @Volatile internal var songSeenSinceSubscribe = false
 
     // issue #56 建议四:门控拒绝路径留一条去重日志(position/bound/sinceStart/duration/歌名),
@@ -240,6 +244,8 @@ class LyriconLyricProducer(
         lastPositionFeedValueMs = -1L
         lastAdvancingPositionClockMs = -1L
         noSongDropLogged = false
+        // issue #56:新订阅会触发补发 —— 在订阅动作处武装重同步判定窗口(见字段注释)。
+        songSeenSinceSubscribe = false
         AppLog.i("LyriconLyricProducer", "start: api=${Build.VERSION.SDK_INT}")
 
         // API < 27: LyriconFactory returns EmptyLyriconSubscriber (no-op). Per spec, this
@@ -519,6 +525,9 @@ class LyriconLyricProducer(
         val sub = subscriber ?: return
         lastForcedResubscribeElapsedMs = clock()
         AppLog.w("LyriconLyricProducer", "$reason; rebuilding subscription")
+        // issue #56:重建订阅后 SDK 会对当前在播歌曲补发 onSongChanged,与重启等效 —— 在
+        // 订阅动作处武装重同步判定窗口,补发按重同步处理(不归零、门控保持敞开)。
+        songSeenSinceSubscribe = false
         runCatching {
             sub.unsubscribeActivePlayer(playerListener)
             sub.subscribeActivePlayer(playerListener)

@@ -18,24 +18,33 @@ internal fun LyriconLyricProducer.createConnectionListener(): ConnectionListener
     object : ConnectionListener {
         override fun onConnected(s: LyriconSubscriber) {
             AppLog.i("LyriconLyricProducer", "connected")
-            songSeenSinceSubscribe = false
+            // issue #56 判定窗口只在「订阅动作」处武装(start/强制重建订阅/断连/连接超时),
+            // 不在这里复位:真机实测 SDK 会先投递补发的 onSongChanged、12ms 后才回调本方法
+            // (2026-09-29《淑女的品格》整首无歌词),迟到的连接回调复位窗口会把已被补发
+            // 消费的窗口重新打开,下一首真·切歌被误判为重同步(保留旧位置 + 门控敞开),
+            // 旧歌冻结残留被当真实位置接受、跳歌尾钳制清行,余下整首只剩占位。
             mutableConnection.value = ProducerConnection.CONNECTED
         }
 
         override fun onReconnected(s: LyriconSubscriber) {
             AppLog.i("LyriconLyricProducer", "reconnected")
-            songSeenSinceSubscribe = false
+            // 同 onConnected:窗口已在断连处武装(见 onDisconnected),这里不动 —— 补发
+            // 无论先于还是晚于本回调到达都按重同步处理。
             mutableConnection.value = ProducerConnection.RECONNECTED
         }
 
         override fun onDisconnected(s: LyriconSubscriber) {
             AppLog.i("LyriconLyricProducer", "disconnected")
+            // 重连后 SDK 会补发当前歌 —— 在断连点武装重同步判定窗口(issue #56)。
+            songSeenSinceSubscribe = false
             mutableConnection.value = ProducerConnection.DISCONNECTED
             mutableState.value = null
         }
 
         override fun onConnectTimeout(s: LyriconSubscriber) {
             AppLog.w("LyriconLyricProducer", "connect timeout")
+            // 同 onDisconnected:之后若连接成功,SDK 补发的当前歌按重同步处理。
+            songSeenSinceSubscribe = false
             mutableConnection.value = ProducerConnection.CONNECT_TIMEOUT
             mutableState.value = null
         }
@@ -88,6 +97,9 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             } else {
                 normalized
             }
+            // 记录本次回调前的歌曲身份:补发窗口内若 id 变了,说明切歌恰落在订阅/重连窗口,
+            // 旧歌时间线必须作废(见下方 issue #56 分支)。
+            val priorSongId = currentSong?.id
             currentSong = current
             // issue #64:歌曲通道恢复 —— 结束缺席纪元与 provider 等歌宽限,复位去重日志。
             songAbsentSinceMs = -1L
@@ -111,7 +123,11 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             // 开始、整条时间轴平移「已播时长」。只有本次连接会话内已见过歌时才算切歌。
             val songChangedInSession = songSeenSinceSubscribe
             songSeenSinceSubscribe = true
-            if (songChangedInSession) {
+            // 但补发携带的歌与上一首不同(切歌恰好落在订阅/重连窗口内)时,旧歌时间线必须
+            // 作废:归零并登记旧末位置精确拒收。门控仍保持敞开 —— 新歌可能已播到歌中途,
+            // 首个真实位置仍须直接采信(与重同步同语义,只是时间轴基准换到新歌)。
+            val songChangedAcrossReconnect = priorSongId != null && priorSongId != song.id
+            if (songChangedInSession || songChangedAcrossReconnect) {
                 // Reset position tracking for the new song. The shared memory may still hold the
                 // previous song's position until the player writes the new one, which caused the
                 // active line to jump to a stale index (e.g. idx=64 on song change).
@@ -126,22 +142,33 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 extrapolating = false
                 positionUnknown = false
                 pauseStaleRejectMs = -1L
-                // Close the post-song-change plausibility gate (issue #11): the next real position
-                // must be plausible for a song that starts now, or it is old-timeline residual.
-                songStartGateOpen = false
+                // Close the post-song-change plausibility gate (issue #11) for an in-session
+                // change (the song starts from 0): the next real position must be plausible for a
+                // song that starts now, or it is old-timeline residual. A backfill carrying a
+                // changed id keeps the gate open — the new song may already be mid-playback.
+                songStartGateOpen = !songChangedInSession
                 songStartClockMs = lastRealPositionClockMs
                 gateRateAnchorPosMs = -1L
                 gateRateAnchorClockMs = 0L
                 gateRateX = 1.0
                 gateFrozenRejectMs = -1L
+                if (songChangedAcrossReconnect && !songChangedInSession) {
+                    AppLog.i(
+                        "LyriconLyricProducer",
+                        "onSongChanged: re-sync window but song changed ($priorSongId -> ${song.id}); " +
+                            "timeline reset, residual filter armed, plausibility gate open"
+                    )
+                }
             } else {
                 // (Re)connect re-sync (issue #56): the song may already be mid-playback, so the
                 // shared-memory position IS this song's timeline. Keep it, keep the plausibility
-                // gate open, and drop the exact-match residual filters — the next real position
-                // locates the active line directly instead of restarting the timeline from 0.
-                previousSongLastPositionMs = -1L
-                pauseStaleRejectMs = -1L
-                seekRejectPositionMs = -1L
+                // gate open — the next real position locates the active line directly instead of
+                // restarting the timeline from 0.
+                //
+                // 防御纵深:精确匹配的残留过滤器(previousSongLastPositionMs/seekRejectPositionMs/
+                // pauseStaleRejectMs)保持武装,不再清空 —— 切歌/暂停/seek 后写入端冻结时旧值
+                // 会以 ~60Hz 续吐,即便判定被误入或切歌恰落在重连窗口内,该值仍须继续被拒;
+                // 真·重同步的首个真实位置与残留值不同,立即放行,不受影响。
                 songStartGateOpen = true
                 gateFrozenRejectMs = -1L
                 AppLog.i(
