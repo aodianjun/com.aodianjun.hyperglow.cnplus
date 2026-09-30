@@ -695,7 +695,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         if (!layoutSurface(root, burnInContainer, directSurface)) return
         lyricCanvas?.setContent(
-                    resolvedSnapshot.toAodCanvasContent(effectiveAodProfile())
+                    resolvedSnapshot.toAodCanvasContent(effectiveAodProfile(), duet = true)
                 )
         lastRenderContent = renderContent
         lyricCanvas?.visibility = if (demo) View.GONE else View.VISIBLE
@@ -1545,7 +1545,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     !it.metadata.startsWith("AOD DEMO")
                 }?.let {
                     lyricCanvas?.setContent(
-                        it.toAodCanvasContent(nextRuntimeProfile)
+                        it.toAodCanvasContent(nextRuntimeProfile, duet = true)
                     )
                     lastRenderContent = it.renderContent()
                 }
@@ -1632,7 +1632,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             lyricCanvas?.visibility != View.VISIBLE
         ) {
             lyricCanvas?.setContent(
-                    snapshot.toAodCanvasContent(effectiveAodProfile())
+                    snapshot.toAodCanvasContent(effectiveAodProfile(), duet = true)
                 )
             lyricCanvas?.visibility = View.VISIBLE
         }

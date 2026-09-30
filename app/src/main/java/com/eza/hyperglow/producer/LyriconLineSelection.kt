@@ -241,6 +241,7 @@ internal fun LyriconLyricProducer.emit() {
         ?.firstOrNull { it.begin > currentPositionMs }
         ?.text
         .orEmpty()
+    val duetLine = duetLineCandidate()
     sequence++
     mutableState.value = LyricProducerState(
         producerId = LyriconLyricProducer.PRODUCER_ID,
@@ -275,6 +276,44 @@ internal fun LyriconLyricProducer.emit() {
         layoutGroups = emptyList(),
         hasTimedLyrics = hasTimedLyrics,
         nextLineStartMs = nextLineStartMs,
-        nextLine = nextLineText
+        nextLine = nextLineText,
+        duetLine = duetLine
+    )
+}
+
+/**
+ * 对唱并发行候选(见 [selectDuetLineIndex],上游 99ba119d4 同语义):从整首行表选与主行
+ * 播放窗口重叠 ≥1s 的另一唱词行。Lyricon 行表无间奏角色,全部行参与;时间窗按行表引用
+ * 缓存、词级按行下标缓存,60Hz emit 不重扫不重排。无歌/未选中行返回 null。
+ */
+internal fun LyriconLyricProducer.duetLineCandidate(): LyricDuetLine? {
+    val source = navigator?.source ?: return null
+    if (currentLineIndex !in source.indices) return null
+    var windows = duetWindowsCache
+    if (windows == null || duetWindowsCacheSource !== source) {
+        windows = source.map { DuetLineWindow(it.begin, it.end, false) }
+        duetWindowsCache = windows
+        duetWindowsCacheSource = source
+    }
+    val companionIndex = selectDuetLineIndex(windows, currentLineIndex, currentPositionMs)
+    if (companionIndex !in source.indices || companionIndex == currentLineIndex) return null
+    val second = source[companionIndex]
+    val words = if (companionIndex == duetWordsCacheIndex) {
+        duetWordsCache
+    } else {
+        second.toLyricWords().also {
+            duetWordsCache = it
+            duetWordsCacheIndex = companionIndex
+        }
+    }
+    return LyricDuetLine(
+        text = second.text.orEmpty(),
+        romanized = second.roma.orEmpty(),
+        translated = second.translation.orEmpty(),
+        // 分侧快照按行下标取值(与主行 activeAlignedRight 同一套,元数据身份恒优先)。
+        alignedRight = activeAlignedRight(companionIndex),
+        lineStartMs = second.begin,
+        lineEndMs = second.end,
+        words = words.orEmpty()
     )
 }

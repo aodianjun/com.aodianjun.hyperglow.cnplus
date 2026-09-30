@@ -373,6 +373,16 @@ internal fun LyricLayoutScreen(
                         stringResource(R.string.setting_duet_alignment),
                         summary = stringResource(R.string.summary_duet_alignment)
                     )
+                    // 显示并发歌词(对唱):并发行是息屏专属(锁屏恒 solo,上游同语义),
+                    // 开关只在息屏面露出;锁屏档内的 duetConcurrent 值编译保留但不消费。
+                    if (editorState.selectedSurface == SceneCompiler.SURFACE_AOD) {
+                        SwitchPreference(
+                            selectedProfile.duetConcurrent,
+                            { enabled -> updateSelected { it.copy(duetConcurrent = enabled) } },
+                            stringResource(R.string.setting_duet_concurrent),
+                            summary = stringResource(R.string.summary_duet_concurrent)
+                        )
+                    }
                     // 识别对唱标记(文档级全局):标记是内容级解释,息屏与锁屏同源生效。
                     SwitchPreference(
                         editorState.document.duetMarkers,

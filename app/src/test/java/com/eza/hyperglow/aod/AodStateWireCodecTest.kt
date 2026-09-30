@@ -417,4 +417,57 @@ class AodStateWireCodecTest {
         artworkJpeg = artworkJpeg,
         artworkKey = artworkKey
     )
+
+    @Test
+    fun duetLineRoundTripsThroughWireBody() {
+        val message = snapshotMessage(
+            value = snapshotValue().copy(
+                duetLine = AodStateWireDuetLine(
+                    text = "second line",
+                    romanized = "roma",
+                    translated = "trans",
+                    alignedRight = true,
+                    lineStartMs = 40L,
+                    lineEndMs = 900L,
+                    words = listOf(AodStateWireWord("sec", "", 40L, 900L, true, -1, -1))
+                )
+            )
+        )
+        assertEquals(message, AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode))
+    }
+
+    @Test
+    fun duetLineFailsClosedOnBlankTextOrWindowBeyondDuration() {
+        // 空白文本:isValidSnapshot 拒收 → 编码直接出包失败(fail-closed)。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        duetLine = AodStateWireDuetLine(
+                            text = "   ",
+                            lineStartMs = 0L,
+                            lineEndMs = 10L,
+                            words = emptyList()
+                        )
+                    )
+                )
+            )
+        )
+        // 行窗越过歌长(快照 duration=1000):拒收。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        duetLine = AodStateWireDuetLine(
+                            text = "second",
+                            lineStartMs = 0L,
+                            lineEndMs = 2_000L,
+                            words = emptyList()
+                        )
+                    )
+                )
+            )
+        )
+    }
+
 }

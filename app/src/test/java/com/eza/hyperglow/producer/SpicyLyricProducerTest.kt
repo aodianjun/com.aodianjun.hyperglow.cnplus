@@ -437,4 +437,55 @@ class SpicyLyricProducerTest {
         assertEquals(LyricKind.LINE, mapped.lyricKind)
         assertFalse(mapped.hasTimedLyrics)
     }
+
+    @Test
+    fun duetConcurrentCandidateCarriesOverlappingRow() {
+        val doc = document(
+            "Syllable",
+            listOf(
+                row(role = "LEAD", startMs = 10_000L, endMs = 30_000L, text = "main"),
+                row(
+                    role = "BACKGROUND",
+                    startMs = 12_000L,
+                    endMs = 28_000L,
+                    text = "second",
+                    alignedRight = true
+                )
+            )
+        )
+        val out = producer.toProducerState(spicyState(positionMs = 15_000L), doc)
+        val duet = out.duetLine
+        assertNotNull(duet)
+        assertEquals("second", duet!!.text)
+        assertEquals(12_000L, duet.lineStartMs)
+        assertEquals(28_000L, duet.lineEndMs)
+        assertTrue(duet.alignedRight)
+    }
+
+    @Test
+    fun duetConcurrentSkipsShortOverlapAndInterludeRows() {
+        val doc = document(
+            "Syllable",
+            listOf(
+                row(role = "LEAD", startMs = 10_000L, endMs = 30_000L, text = "main"),
+                row(role = "INTERLUDE", startMs = 12_000L, endMs = 28_000L, text = "break"),
+                row(role = "BACKGROUND", startMs = 29_500L, endMs = 40_000L, text = "tail")
+            )
+        )
+        // 间奏行不参与;尾行与主行重叠仅 500ms → 无候选(既不覆盖也不预加入)。
+        val out = producer.toProducerState(spicyState(positionMs = 15_000L), doc)
+        assertNull(out.duetLine)
+    }
+
+    @Test
+    fun duetConcurrentNullWithoutActiveRow() {
+        val doc = document(
+            "Syllable",
+            listOf(row(role = "LEAD", startMs = 10_000L, endMs = 30_000L, text = "main"))
+        )
+        // 位置在首行之前 → 无主行 → 无并发行。
+        val out = producer.toProducerState(spicyState(positionMs = 1_000L), doc)
+        assertNull(out.duetLine)
+    }
+
 }

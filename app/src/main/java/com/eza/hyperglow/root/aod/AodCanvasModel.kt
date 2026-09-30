@@ -83,8 +83,36 @@ internal data class AodCanvasContent(
     /** 暂停驻留期间是否继续旋转(见 SurfaceProfile.artworkSpinWhenPaused)。 */
     val artworkSpinWhenPaused: Boolean = false,
     /** 当前快照是否为暂停驻留的冻结帧(pauseRetentionEligible):为真时旋转默认停。 */
-    val playbackPaused: Boolean = false
+    val playbackPaused: Boolean = false,
+    /** 对唱并发行(仅息屏);null = 无并发行或「显示并发歌词(对唱)」已关。 */
+    val duetLine: AodCanvasDuetLine? = null
 )
+
+/**
+ * 对唱并发行(画布模型,仅息屏消费):与主行播放窗口重叠的另一唱词行,在主行下方
+ * 同尺寸堆叠渲染,各画各的词级扫光。v1 不携带 ruby/layoutGroups。
+ */
+internal data class AodCanvasDuetLine(
+    val text: String,
+    val romanized: String = "",
+    val translated: String = "",
+    val alignedRight: Boolean = false,
+    val lineStartMs: Long = 0L,
+    val lineEndMs: Long = 0L,
+    val words: List<AodCanvasWord> = emptyList()
+)
+
+/**
+ * 对唱共享缩放:并发行加入后内容块超出画布内容区时,整块(主行+并发行)按同一比例缩小,
+ * 0.3 为绝对下限(低于下限不再缩,超出部分被裁——下限不保证容纳,上游同语义);
+ * 内容装得下时不缩放(nobody shrinks unless the combined content exceeds the canvas)。
+ */
+internal fun duetSharedFitScale(combinedHeightPx: Float, availableHeightPx: Float): Float =
+    if (availableHeightPx <= 0f || combinedHeightPx <= availableHeightPx) {
+        1f
+    } else {
+        (availableHeightPx / combinedHeightPx).coerceIn(0.3f, 1f)
+    }
 
 /** 下一行歌词的呈现方式;同一行只会以其中一种形态出现,不叠加。 */
 internal enum class SecondLinePresentation { NONE, AS_SECONDARY, STANDALONE }

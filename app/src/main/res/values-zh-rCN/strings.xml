@@ -303,6 +303,8 @@
     <string name="summary_duet_alignment">对唱歌词按演唱者分居左右两侧;演唱者信息须由歌词源提供。仅当对齐为「自动」时生效。</string>
     <string name="setting_duet_markers">识别对唱标记</string>
     <string name="summary_duet_markers">识别歌词行首的（男）/（女）/（合）演唱者标记与（副歌）/（间奏）等段落标记:显示时隐去标记,演唱者标记并按标记分出左右演唱者;关闭后原样显示,标记不参与分侧。</string>
+<string name="setting_duet_concurrent">显示并发歌词（对唱）</string>
+<string name="summary_duet_concurrent">另一行唱词与主行播放窗口重叠达到 1 秒时,两行同时显示、各画各的逐字扫光。仅息屏生效,锁屏保持单行。</string>
     <string name="setting_bright_secondary_text">高亮辅助文字</string>
     <string name="setting_secondary_next_line">辅助文字显示第二行歌词</string>
     <string name="setting_show_furigana">显示振假名</string>

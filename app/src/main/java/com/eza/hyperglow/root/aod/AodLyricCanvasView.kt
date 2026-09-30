@@ -82,6 +82,16 @@ internal class AodLyricCanvasView(
     private var exitSnapshot: CanvasSnapshot? = null
     private var transitionStartedAt = 0L
     private var transitionTimeline: LineTransitionTimeline? = null
+    // 对唱并发行(duetLine)加入淡入状态:内容键变化即重计时,淡入完成后归零(恒全亮)。
+    private var duetLineKey: String? = null
+    private var duetJoinStartedAt = 0L
+
+    /** 并发行加入淡入系数:未在淡入期恒 1;淡入窗口内 0→1 线性推进。 */
+    private fun duetJoinAlpha(): Float {
+        if (duetJoinStartedAt == 0L) return 1f
+        val elapsed = (SystemClock.elapsedRealtime() - duetJoinStartedAt).coerceAtLeast(0L)
+        return (elapsed.toFloat() / DUET_JOIN_FADE_MS).coerceIn(0f, 1f)
+    }
     private var handoffActive = false
     private var suppressNextLineTransition = false
     private var timingEffectEnabled = false
@@ -310,6 +320,11 @@ internal class AodLyricCanvasView(
             exitSnapshot = null
             transitionStartedAt = 0L
             transitionTimeline = null
+        }
+        val duetKey = nextContent.duetLine?.let { "${it.text}@${it.lineStartMs}" }
+        if (duetKey != duetLineKey) {
+            duetLineKey = duetKey
+            duetJoinStartedAt = if (duetKey != null) SystemClock.elapsedRealtime() else 0L
         }
         this.content = nextContent
         syncArtworkBitmap()
@@ -743,6 +758,14 @@ internal class AodLyricCanvasView(
         lastDrawAtElapsedMs = SystemClock.elapsedRealtime()
         recordDozeDraw()
         syncCadence()
+        // 并发行加入淡入:在淡入窗口内主动续帧(暂停态/低节拍下也能完成淡入),结束后归零。
+        if (duetJoinStartedAt != 0L) {
+            if (SystemClock.elapsedRealtime() - duetJoinStartedAt < DUET_JOIN_FADE_MS) {
+                scheduleFrame(frame, 16L)
+            } else {
+                duetJoinStartedAt = 0L
+            }
+        }
         val snapshot = exitSnapshot
         if (snapshot == null) {
             drawMetadata(canvas, layout)
@@ -947,6 +970,17 @@ internal class AodLyricCanvasView(
         // 取代原先逐 drawText 的 clip,成为唯一统一边界。
         val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
         canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
+        // 对唱共享缩放:并发行在场且行堆叠总高超出内容区时整块按同一比例缩小(0.3 绝对
+        // 下限,见 duetSharedFitScale);枢轴取内容框中心,与 Zoom 档同口径。缺席恒 1 不介入。
+        val duetScale = duetSharedScale(drawLayout)
+        if (duetScale != 1f) {
+            canvas.scale(
+                duetScale,
+                duetScale,
+                (padLeft + (ow - padRight)) / 2f,
+                (padTop + (oh - padBottom)) / 2f
+            )
+        }
         val sharedLineLevelSweep = shouldUseSharedLineLevelSweep(
             drawContent.lineLevelSync,
             drawLayout.original.lines.isNotEmpty(),
@@ -963,6 +997,8 @@ internal class AodLyricCanvasView(
                 when (row.row.kind) {
                     RowKind.METADATA -> Unit
                     RowKind.ORIGINAL -> if (!skipOriginal) drawOriginal(canvas, row.baseline)
+                    RowKind.DUET_ORIGINAL ->
+                        if (!skipOriginal) drawDuetOriginal(canvas, row.baseline)
                     else -> drawText(canvas, row.row, row.baseline)
                 }
                 rowIndex++
@@ -995,6 +1031,10 @@ internal class AodLyricCanvasView(
             lineProgress(),
             effectiveLineSyncFillMode()
         )
+        // 并发行(对唱)在共享行级扫光路径下同样绘制(自带行窗口/词表进度)。
+        rows.firstOrNull { it.row.kind == RowKind.DUET_ORIGINAL }?.let {
+            drawDuetOriginal(canvas, it.baseline)
+        }
     }
 
     /** 生效进度效果:仅行级同步时按配置解析;逐字时间源路径保持整块同时横向扫光。 */
@@ -1014,8 +1054,10 @@ internal class AodLyricCanvasView(
         var rowIndex = 0
         while (rowIndex < rows.size) {
             val positioned = rows[rowIndex]
+            // DUET_ORIGINAL 由 drawDuetOriginal 自绘(自带词级扫光),不在此按辅助行重复画。
             if (positioned.row.kind == RowKind.ORIGINAL ||
-                positioned.row.kind == RowKind.METADATA
+                positioned.row.kind == RowKind.METADATA ||
+                positioned.row.kind == RowKind.DUET_ORIGINAL
             ) {
                 rowIndex++
                 continue
@@ -1380,11 +1422,19 @@ internal class AodLyricCanvasView(
 
     private fun rebuildLayout() {
         val built = buildRows(content, (ow - padLeft - padRight).coerceAtLeast(1).toFloat())
-        layout = LayoutState(positionRows(built.rows, built.originalLayout), built.originalLayout)
+        layout = LayoutState(
+            positionRows(built.rows, built.originalLayout),
+            built.originalLayout,
+            built.duetLayout
+        )
         contentBoundsChangedListener?.invoke()
     }
 
-    private data class BuiltRows(val rows: List<Row>, val originalLayout: OriginalLayout)
+    private data class BuiltRows(
+        val rows: List<Row>,
+        val originalLayout: OriginalLayout,
+        val duetLayout: OriginalLayout? = null
+    )
 
     /**
      * 行装配(rebuildLayout 与自适应高度测量 [measureContentStack] 共用,杜绝两套装配漂移):
@@ -1465,10 +1515,68 @@ internal class AodLyricCanvasView(
                 )
             )
         }
+        // 对唱并发行(仅息屏内容携带,见 SurfaceProfile.duetConcurrent):主行块(原文+辅助行)
+        // 之后同尺寸堆叠并发行块(原文+其辅助行),各画各的词级扫光;并发行在场时取代独立
+        // 「下一行」行(与 #82「辅助文字显示第二行歌词」的 anti-dup 同式,防下方拥挤)。
+        val duet = content.duetLine
+        var duetLayout: OriginalLayout? = null
+        if (duet != null && duet.text.isNotBlank()) {
+            val built = buildDuetOriginalLayout(duet, availableWidth)
+            duetLayout = built
+            val metrics = originalPaint.fontMetrics
+            val lineHeight = metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density
+            rows += Row(
+                RowKind.DUET_ORIGINAL,
+                duet.text,
+                originalPaint,
+                originalRowHeight(
+                    lineHeight,
+                    built.lineCount,
+                    built.rubyHeight,
+                    built.lineGap
+                ),
+                ROW_GAP_BEFORE_ORIGINAL_DP * density,
+                emptyList(),
+                lineHeight
+            )
+            if (showReading && duet.romanized.isNotBlank()) {
+                rows += rowWithLines(
+                    RowKind.DUET_ROMANIZED,
+                    duet.romanized,
+                    romanizedPaint,
+                    ROW_GAP_BEFORE_SECONDARY_DP * density,
+                    wrapSecondaryText(
+                        content,
+                        duet.romanized,
+                        romanizedPaint,
+                        built.lineCount,
+                        availableWidth,
+                        alignmentFor(content, RowKind.DUET_ROMANIZED)
+                    )
+                )
+            }
+            if (showTranslation && duet.translated.isNotBlank()) {
+                rows += rowWithLines(
+                    RowKind.DUET_TRANSLATED,
+                    duet.translated,
+                    translatedPaint,
+                    ROW_GAP_BEFORE_SECONDARY_DP * density,
+                    wrapSecondaryText(
+                        content,
+                        duet.translated,
+                        translatedPaint,
+                        built.lineCount,
+                        availableWidth,
+                        alignmentFor(content, RowKind.DUET_TRANSLATED)
+                    )
+                )
+            }
+        }
         // 下一行歌词呈现与预览同源(secondLinePresentation):「辅助文字显示第二行歌词」
         // 开启时以辅助文字样式(音标行字号公式+亮度档)绘制并取代独立下一行行,同一行
         // 不重复出现;颜色恒走「下一行颜色」(secondLineColorArgb),不随形态改用辅助行颜色。
-        when (secondLinePresentation(
+        // 对唱并发行在场时独立下一行行整体让位(见上)。
+        if (duet == null || duet.text.isBlank()) when (secondLinePresentation(
             content.secondaryNextLine,
             content.showNextLine,
             content.nextLine.isNotBlank()
@@ -1503,7 +1611,7 @@ internal class AodLyricCanvasView(
             )
             SecondLinePresentation.NONE -> Unit
         }
-        return BuiltRows(rows, originalLayout)
+        return BuiltRows(rows, originalLayout, duetLayout)
     }
 
     private fun verticalBounds(state: LayoutState): AodCanvasVerticalBounds? {
@@ -1767,6 +1875,77 @@ internal class AodLyricCanvasView(
                 content.words
             )
         )
+    }
+
+    /**
+     * 对唱并发行绘制(移植上游 duet/secondLine 呈现,按 CN+ 画布适配):
+     * 复用主行共享发光管线(LyricGlowRenderer),进度取并发行自己的行窗口/词表;
+     * 加入时整块 180ms alpha 淡入,淡入期间按静音态绘制(无发光/扫光,上游 exit-side
+     * muted 同语义);并发行离场随主行换行过渡的整块退场一起消失(数据面退出缓冲已保证
+     * 它不会在对唱中途凭空塌掉),v1 不做独立的并发行退场动画。
+     */
+    private fun drawDuetOriginal(canvas: Canvas, baseline: Float) {
+        val duetLayout = layout.duet ?: return
+        val duet = content.duetLine ?: return
+        val alpha = duetJoinAlpha()
+        if (alpha <= 0f) return
+        val layer = if (alpha < 1f) {
+            canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * alpha).toInt())
+        } else {
+            canvas.save()
+        }
+        if (alpha < 1f) {
+            drawDuetStatic(canvas, duetLayout, baseline)
+        } else {
+            drawOriginalGlowBlock(
+                canvas,
+                baseline,
+                duetLayout,
+                unifiedBlockProgress(
+                    projectedPosition(),
+                    duet.lineStartMs,
+                    duet.lineEndMs,
+                    duet.words
+                ),
+                effectiveLineSyncFillMode()
+            )
+        }
+        canvas.restoreToCount(layer)
+    }
+
+    /** 并发行静音态绘制:无发光/扫光/Shader,全亮 sungText(与主行 Minimal 档同式)。 */
+    private fun drawDuetStatic(canvas: Canvas, duetLayout: OriginalLayout, baseline: Float) {
+        var precedingRuby = 0f
+        var lineIndex = 0
+        while (lineIndex < duetLayout.lines.size) {
+            val line = duetLayout.lines[lineIndex]
+            val lineBaseline = originalLineBaseline(
+                baseline,
+                lineIndex,
+                duetLayout.lineHeight,
+                precedingRuby,
+                line.rubyHeight,
+                duetLayout.lineGap
+            )
+            originalPaint.shader = null
+            originalPaint.setShadowLayer(0f, 0f, 0f, 0)
+            setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
+            drawOriginalText(canvas, line, lineBaseline)
+            precedingRuby += line.rubyHeight
+            lineIndex++
+        }
+    }
+
+    /**
+     * 对唱共享缩放系数:并发行在场时,行堆叠总高(含元数据带)超出内容区则整块缩小。
+     * v1 简化:缩放作用于整块行堆叠(含元数据),上游只缩歌词段;整块等比不会出现
+     * 歌词与元数据字号不一致,偏差已记 SPEC。
+     */
+    private fun duetSharedScale(state: LayoutState): Float {
+        if (state.duet == null) return 1f
+        val total = state.rows.sumOf { (it.row.height + it.row.gapBefore).toDouble() }.toFloat()
+        val available = (oh - padTop - padBottom).coerceAtLeast(1).toFloat()
+        return duetSharedFitScale(total, available)
     }
 
     /**
@@ -2106,6 +2285,54 @@ internal class AodLyricCanvasView(
         )
     }
 
+    /**
+     * 并发行原始行布局:与 [buildOriginalLayout] 同一套 LyricLayoutEngine 断行(与预览同源),
+     * 换行上限取 min(2, 主行档位解析值)——并发行通常一行,双行封顶防内容块失控;
+     * v1 不带 ruby(rubyHeight 恒 0),startX 按并发行自己的分侧对齐解析。
+     */
+    private fun buildDuetOriginalLayout(
+        duet: AodCanvasDuetLine,
+        availableWidth: Float
+    ): OriginalLayout {
+        val layout = layoutOriginalLines(
+            original = duet.text,
+            words = duet.words,
+            ruby = emptyList(),
+            layoutGroups = emptyList(),
+            paint = originalPaint,
+            availableWidth = availableWidth,
+            lineLimit = resolvedLyricLayoutLineLimit(
+                content.lyricLineLimit,
+                duet.text.length,
+                duet.words.size
+            ).coerceAtMost(2),
+            wordGapPx = LYRIC_WORD_GAP_DP * density,
+            wrap = content.overflowMode == "Wrap",
+            adaptiveSectioning = content.adaptiveSectioning
+        )
+        val lineAlignment = viewAlignment(
+            resolveAlignmentMode(content.alignmentMode, duet.alignedRight)
+        )
+        val lines = layout.lines.map {
+            val visual = visualExtents(it.text, originalPaint, it.width)
+            OriginalLine(
+                it.text,
+                it.words,
+                it.width,
+                alignedStart(it.width, lineAlignment, visual.first, visual.second),
+                it.charStart,
+                it.charEnd
+            )
+        }
+        val metrics = originalPaint.fontMetrics
+        return OriginalLayout(
+            lines,
+            metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density,
+            LYRIC_LINE_GAP_DP * density,
+            layout.timed
+        )
+    }
+
     private fun lyricLayoutLineLimit(wordCount: Int = content.words.size): Int =
         resolvedLyricLayoutLineLimit(
             content.lyricLineLimit,
@@ -2413,6 +2640,15 @@ internal class AodLyricCanvasView(
                 content.alignedRight
             )
         )
+        RowKind.DUET_ORIGINAL, RowKind.DUET_ROMANIZED, RowKind.DUET_TRANSLATED ->
+            // 并发行按自己的分侧(alignedRight 经 mapper 的「对唱分侧」门控)解析,
+            // 不随主行 alignedRight 翻转。
+            viewAlignment(
+                resolveAlignmentMode(
+                    content.alignmentMode,
+                    content.duetLine?.alignedRight ?: false
+                )
+            )
         else -> alignment
     }
 
@@ -2571,7 +2807,8 @@ internal class AodLyricCanvasView(
     private fun resolveTypeface(family: String, weight: String): Typeface =
         LyricTypefaceResolver.resolve(fontContext ?: context, family, weight, cacheContext = context)
 
-    private enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE }
+    private // DUET_*:对唱并发行块(仅息屏内容携带);ROMANIZED/TRANSLATED 为并发行自己的辅助行。
+    enum class RowKind { METADATA, ORIGINAL, ROMANIZED, TRANSLATED, NEXT_LINE, DUET_ORIGINAL, DUET_ROMANIZED, DUET_TRANSLATED }
     private data class Row(
         val kind: RowKind,
         val text: String,
@@ -2640,10 +2877,13 @@ internal class AodLyricCanvasView(
 
     private data class LayoutState(
         val rows: List<PositionedRow>,
-        val original: OriginalLayout
+        val original: OriginalLayout,
+        val duet: OriginalLayout? = null
     )
 
     companion object {
+        /** 对唱并发行加入淡入时长(毫秒);期间静音态绘制,完成恢复共享发光管线。 */
+        private const val DUET_JOIN_FADE_MS = 180L
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_HALO_ALPHA = 235

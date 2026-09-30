@@ -85,6 +85,13 @@ data class SurfaceProfile(
      * 关闭时忽略分侧、全部行按 [alignment] 解析。主对齐为显式 start/center/end 时本开关无效果。
      */
     val duetAlignment: Boolean = true,
+    /**
+     * 显示并发歌词(对唱):主行播放窗口与另一唱词行重叠 ≥1s 时,该行作为并发行在主行
+     * 下方同时显示(纯时间轴重叠判定,见 [com.eza.hyperglow.producer.selectDuetLineIndex];
+     * 移植上游 amarinne/hyperglow 99ba119d4 的 duet/secondLine 特性)。仅息屏面生效,
+     * 锁屏恒 solo;关闭后快照不携带并发行,呈现与关闭前 solo 行为逐字一致。默认开(上游同值)。
+     */
+    val duetConcurrent: Boolean = true,
     val rubyVisible: Boolean = true,
     val weight: String = "Medium",
     val textSize: String = "normal",
@@ -221,7 +228,9 @@ data class CompiledSurfaceProfile(
     /** 暂停驻留期间是否继续旋转,由 [SurfaceProfile.artworkSpinWhenPaused] 编译而来。 */
     val artworkSpinWhenPaused: Boolean = false,
     /** 对唱分侧,见 [SurfaceProfile.duetAlignment]。 */
-    val duetAlignment: Boolean = true
+    val duetAlignment: Boolean = true,
+    /** 对唱并发行开关,见 [SurfaceProfile.duetConcurrent];仅息屏面消费,锁屏编译进档但不渲染。 */
+    val duetConcurrent: Boolean = true
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1

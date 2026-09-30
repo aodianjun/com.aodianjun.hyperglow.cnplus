@@ -33,6 +33,21 @@ internal data class LyricLayoutGroup(
     val confidence: Double
 )
 
+/**
+ * 对唱并发行(仅息屏消费):与主行播放窗口重叠的另一唱词行,画布在主行下方同时渲染。
+ * v1 不携带 ruby/layoutGroups(三个接入源中只有 Spicy 可产,normalize 侧还要为文本 trim
+ * 重算区间;并入 v2 再评估)。
+ */
+internal data class LyricDuetLine(
+    val text: String = "",
+    val romanized: String = "",
+    val translated: String = "",
+    val alignedRight: Boolean = false,
+    val lineStartMs: Long = 0L,
+    val lineEndMs: Long = 0L,
+    val words: List<LyricWord> = emptyList()
+)
+
 internal data class LyricSnapshot(
     val revision: Long = 0L,
     val userId: Int = 0,
@@ -97,7 +112,9 @@ internal data class LyricSnapshot(
     /** 歌曲图片帧(有界 JPEG,空数组=无封面):经包名/曲目校对的当前播放音乐软件封面。 */
     val artworkJpeg: ByteArray = ByteArray(0),
     /** 封面稳定键(包名+曲目身份);空串=无封面,渲染侧按帧缓存解码位图。 */
-    val artworkKey: String = ""
+    val artworkKey: String = "",
+    /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
+    val duetLine: LyricDuetLine? = null
 ) {
     fun renderContent(): LyricRenderContent = LyricRenderContent(
         trackGeneration,
@@ -361,6 +378,30 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
     } else {
         snapshot.artworkKey.trim().take(AodStateWireLimits.MAX_ARTWORK_KEY_CHARS)
     }
+    // 对唱并发行:文本 trim/钳制(空文本整条丢弃),时间窗钳到非负,词级条数/时间轻量钳制
+    // (wire 侧 isValidSnapshot 已做过整包校验,这里只兜投影侧直接构造的快照)。
+    val duetLine = snapshot.duetLine?.let { line ->
+        val duetText = line.text.trim().take(MAX_LYRIC_LENGTH)
+        if (duetText.isEmpty()) {
+            null
+        } else {
+            line.copy(
+                text = duetText,
+                romanized = line.romanized.trim().take(MAX_LYRIC_LENGTH),
+                translated = line.translated.trim().take(MAX_LYRIC_LENGTH),
+                lineStartMs = line.lineStartMs.coerceAtLeast(0L),
+                lineEndMs = line.lineEndMs.coerceAtLeast(line.lineStartMs.coerceAtLeast(0L)),
+                words = line.words.asSequence().take(MAX_WORDS).map { word ->
+                    word.copy(
+                        text = word.text.take(MAX_LYRIC_LENGTH),
+                        romanized = word.romanized.take(MAX_LYRIC_LENGTH),
+                        startMs = word.startMs.coerceAtLeast(0L),
+                        endMs = word.endMs.coerceAtLeast(word.startMs.coerceAtLeast(0L))
+                    )
+                }.toList()
+            )
+        }
+    }
     return snapshot.copy(
         revision = snapshot.revision.coerceAtLeast(0L),
         trackGeneration = snapshot.trackGeneration.coerceAtLeast(0L),
@@ -400,7 +441,8 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
         layoutGroups = layoutGroups,
         textSizeCustom = snapshot.textSizeCustom.coerceIn(0, 500),
         artworkJpeg = artworkJpeg,
-        artworkKey = artworkKey
+        artworkKey = artworkKey,
+        duetLine = duetLine
     )
 }
 
@@ -486,7 +528,28 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             metadataAnchor = value.metadataAnchor,
             adaptiveSectioning = value.adaptiveSectioning,
             artworkJpeg = value.artworkJpeg.bytes,
-            artworkKey = value.artworkKey
+            artworkKey = value.artworkKey,
+            duetLine = value.duetLine?.let { line ->
+                LyricDuetLine(
+                    text = line.text,
+                    romanized = line.romanized,
+                    translated = line.translated,
+                    alignedRight = line.alignedRight,
+                    lineStartMs = line.lineStartMs,
+                    lineEndMs = line.lineEndMs,
+                    words = line.words.map { word ->
+                        LyricWord(
+                            text = word.text,
+                            romanized = word.romanized,
+                            startMs = word.startMs,
+                            endMs = word.endMs,
+                            boundaryAfter = word.boundaryAfter,
+                            sourceStart = word.sourceStart,
+                            sourceEnd = word.sourceEnd
+                        )
+                    }
+                )
+            }
         )
     )
     is AodStateWireMessage.Hidden -> LyricProjectionMessage.Snapshot(
