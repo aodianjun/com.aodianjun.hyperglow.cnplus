@@ -386,6 +386,8 @@
     <string name="option_color_sakura_pink">Sakura pink</string>
     <string name="option_color_butter_yellow">Butter yellow</string>
     <string name="option_color_lavender">Lavender</string>
+    <string name="option_color_black">Black</string>
+    <string name="option_color_white">White</string>
     <string name="section_colors">Colors</string>
     <string name="palette_primary_text">Main lyric color</string>
     <string name="palette_secondary_text">Secondary line color</string>
