@@ -979,24 +979,38 @@ private fun PreviewAnimatedRowBlock(
         }
     }
     // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方;参考档位移以行块
-    // 宽高为基准(高度取主行块高度近似,实机为内容裁剪框高)。
-    val blockWidthDp = with(LocalDensity.current) { availableWidthPx.toDp().value }
-    val blockHeightDp = with(LocalDensity.current) { block.main.blockHeight.toDp().value }
+    // 自身宽高为基准(Fade 族 1/4、Slide 族整宽):宽度取可用内容宽(行块横向铺满),
+    // 高度取该层行块布局实测高——退场层用旧行块、入场层用新行块,与实机各层行盒边界
+    // 同义(整块高含辅助文字/下一行,不再只按主行块高近似)。实测高由层内上报,按演示行
+    // 文本键控(行块实例每次组合都可能重建,不能按实例键控);首帧尚未测量时回落该块
+    // 主行高,此时位移≈0,视觉无差。
+    val density = LocalDensity.current
+    val previous = exitingBlock
+    var exitBlockHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    var enterBlockHeightPx by remember(block.mainText) { mutableStateOf(0) }
+    val mainBlockHeightDp = with(density) { block.main.blockHeight.toDp().value }
+    val exitMainBlockHeightDp = with(density) { (previous ?: block).main.blockHeight.toDp().value }
+    val blockWidthDp = with(density) { availableWidthPx.toDp().value }
+    val exitBlockHeightDp = with(density) {
+        if (exitBlockHeightPx > 0) exitBlockHeightPx.toDp().value else exitMainBlockHeightDp
+    }
+    val enterBlockHeightDp = with(density) {
+        if (enterBlockHeightPx > 0) enterBlockHeightPx.toDp().value else mainBlockHeightDp
+    }
     val exitFrame = lineTransitionExitFrame(
         lineTransition,
         lineTransitionExitEasing(lineTransition, exitFrameProgress.value),
         blockWidthDp,
-        blockHeightDp
+        exitBlockHeightDp
     )
     val enterFrame = lineTransitionEnterFrame(
         lineTransition,
         lineTransitionEnterEasing(lineTransition, enterFrameProgress.value),
         blockWidthDp,
-        blockHeightDp
+        enterBlockHeightDp
     )
 
     Box(modifier.fillMaxWidth()) {
-        val previous = exitingBlock
         if (previous != null && exitFrame.alpha > 0f) {
             PreviewRowBlockLayer(
                 block = previous,
@@ -1011,6 +1025,7 @@ private fun PreviewAnimatedRowBlock(
                 availableWidthPx = availableWidthPx,
                 wrap = wrap,
                 adaptiveSectioning = adaptiveSectioning,
+                onMeasuredHeightPx = { exitBlockHeightPx = it },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1027,6 +1042,7 @@ private fun PreviewAnimatedRowBlock(
             availableWidthPx = availableWidthPx,
             wrap = wrap,
             adaptiveSectioning = adaptiveSectioning,
+            onMeasuredHeightPx = { enterBlockHeightPx = it },
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -1034,8 +1050,10 @@ private fun PreviewAnimatedRowBlock(
 
 /**
  * 行块单层绘制:主行 LyricGlowRow + 辅助文字行 + 下一行行,整块共用一个 graphicsLayer
- * (alpha/位移/缩放一次施加,缩放锚点默认块中心,与实机 drawRows 的内容框中心一致)。
- * 旧行块按 exit 帧、新行块按 enter 帧各自成层叠加,与实机同构。
+ * (alpha/位移/缩放一次施加;缩放/旋转锚点取本层行块中心——本层整层即行块,默认原点即行块
+ * 中心,而实机 drawRows 按 SPEC「翻转/旋转绕内容中心」取内容框中心)。旧行块按 exit 帧、
+ * 新行块按 enter 帧各自成层叠加,与实机同构。本层实测高度经 [onMeasuredHeightPx] 上报,
+ * 作为该层换行帧的位移基准(参考实现 target.getHeight()/4),故测量挂在未加位移的层上。
  */
 @Composable
 private fun PreviewRowBlockLayer(
@@ -1051,10 +1069,13 @@ private fun PreviewRowBlockLayer(
     availableWidthPx: Int,
     wrap: Boolean,
     adaptiveSectioning: Boolean,
+    onMeasuredHeightPx: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier.graphicsLayer {
+        modifier
+            .onSizeChanged { onMeasuredHeightPx(it.height) }
+            .graphicsLayer {
             alpha = frame.alpha
             translationX = frame.translateXDp.dp.toPx()
             translationY = frame.translateYDp.dp.toPx()

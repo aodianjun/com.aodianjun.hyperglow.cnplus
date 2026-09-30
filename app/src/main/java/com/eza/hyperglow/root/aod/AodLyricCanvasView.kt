@@ -758,14 +758,22 @@ internal class AodLyricCanvasView(
         } else {
             drawMetadata(canvas, layout)
         }
-        // 参考档位移以行块内容框为基准(Fade 族 1/4 宽高、Slide 族整宽高),历史档忽略该参数。
+        // 参考档位移以行块自身边界为基准(Fade 族 1/4 宽高、Slide 族整宽高),历史档忽略该参数。
+        // 宽度取内容框宽(行块横向铺满内容框,等价参考实现 target.getWidth());高度取该层行块
+        // 实测高——退场层用旧行块、入场层用新行块,与 ObjectAnimator 在动画起始读取 target
+        // 尺寸同序。此前两层共用内容裁剪框高,竖向漂移被放大数倍(真机实测 169px,见
+        // [animatedBlockHeightDp])。
         val blockWidthDp = (ow - padLeft - padRight) / density
-        val blockHeightDp = (oh - padTop - padBottom) / density
         drawRows(
             canvas,
             snapshot.layout,
             snapshot.content,
-            lineTransitionExitFrame(transitionMode, exitEased, blockWidthDp, blockHeightDp),
+            lineTransitionExitFrame(
+                transitionMode,
+                exitEased,
+                blockWidthDp,
+                animatedBlockHeightDp(snapshot.layout, skipOriginal = metadataMorph)
+            ),
             snapshot.renderStyle,
             skipOriginal = metadataMorph
         )
@@ -773,7 +781,12 @@ internal class AodLyricCanvasView(
             canvas,
             layout,
             content,
-            lineTransitionEnterFrame(transitionMode, enterEased, blockWidthDp, blockHeightDp)
+            lineTransitionEnterFrame(
+                transitionMode,
+                enterEased,
+                blockWidthDp,
+                animatedBlockHeightDp(layout)
+            )
         )
         if (enterProgress >= 1f) {
             transitionStartedAt = 0L
@@ -1400,6 +1413,26 @@ internal class AodLyricCanvasView(
             top.coerceIn(0f, oh.toFloat()),
             bottom.coerceIn(0f, oh.toFloat())
         )
+    }
+
+    /**
+     * 换行动画的行块高度(dp):取与 [drawRows] 同一批参与过渡的行(主行 + 辅助文字 + 下一行,
+     * 跳过歌曲信息行;歌曲变更形变时旧层主行由元数据形变接管,按 [skipOriginal] 排除)的包围盒
+     * 高。参考实现把位移施加在歌词行视图上(target.getHeight()/4),基准是该视图自身尺寸,
+     * 不是画布内容裁剪框;空块回落内容框高(仅兜底,空块不绘制)。
+     */
+    private fun animatedBlockHeightDp(state: LayoutState, skipOriginal: Boolean = false): Float {
+        val boxes = ArrayList<AodCanvasRowBox>(state.rows.size)
+        state.rows.forEach { positioned ->
+            val top = positioned.baseline + positioned.row.paint.fontMetrics.ascent
+            boxes += AodCanvasRowBox(
+                topPx = top,
+                bottomPx = top + positioned.row.height,
+                animated = positioned.animate &&
+                    (!skipOriginal || positioned.row.kind != RowKind.ORIGINAL)
+            )
+        }
+        return animatedBlockHeightPx(boxes, (oh - padTop - padBottom).toFloat()) / density
     }
 
     private fun rowWithLines(
