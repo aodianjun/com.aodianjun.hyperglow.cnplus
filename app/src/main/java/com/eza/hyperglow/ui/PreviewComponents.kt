@@ -45,11 +45,14 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -71,8 +74,6 @@ import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.aod.AodCanvasRuby
 import com.eza.hyperglow.root.aod.edgeSafeAlignedStart
-import com.eza.hyperglow.root.aod.enterTransitionMs
-import com.eza.hyperglow.root.aod.exitTransitionMs
 import com.eza.hyperglow.root.aod.LineTransitionFrame
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
@@ -96,6 +97,10 @@ import com.eza.hyperglow.root.aod.layoutOriginalLines
 import com.eza.hyperglow.root.aod.layoutSecondaryLines
 import com.eza.hyperglow.root.aod.lineTransitionEnterFrame
 import com.eza.hyperglow.root.aod.lineTransitionExitFrame
+import com.eza.hyperglow.root.aod.lineTransitionMoveFrame
+import com.eza.hyperglow.root.aod.lineTransitionPromotes
+import com.eza.hyperglow.root.aod.lineTransitionTimeline
+import com.eza.hyperglow.root.aod.moveTransitionEase
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.originalRowHeight
@@ -118,7 +123,6 @@ import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
 import com.eza.hyperglow.root.aod.textSizeModeMultiplier
 import com.eza.hyperglow.root.aod.visualExtents
-import com.eza.hyperglow.root.aod.isSequentialLineTransition
 import com.eza.hyperglow.root.aod.END_EDGE_SAFETY_DP
 import com.eza.hyperglow.root.aod.lineTransitionEnterEasing
 import com.eza.hyperglow.root.aod.lineTransitionExitEasing
@@ -127,6 +131,7 @@ import com.eza.hyperglow.root.projection.LyricSnapshot
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -436,26 +441,27 @@ private fun LyricPreviewSurface(
                             Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp)
                         )
                     }
-                    // 行块(主行+辅助文字+下一行)整体参与换行动画:旧行块 exit 帧退场、
-                    // 新行块 enter 帧进场,与实机 drawRows 单层语义一致,辅助文字随主行换行。
-                    val blockRows = ArrayList<PreviewBlockRow>(secondaryRows.size + 1)
+                    // 行块(主行+辅助文字+下一行)按行分流三段式换行:离场行组(主行+辅助
+                    // 文字)退场、下一行晋级位移、新到行进场,与实机 drawOrientedContent 同构。
+                    val blockRows = ArrayList<PreviewBlockRow>(secondaryRows.size)
                     secondaryRows.forEach { row ->
                         blockRows += PreviewBlockRow(
                             row = row,
                             color = secondaryColor,
                             align = textAlign,
-                            gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp
+                            gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
+                            dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright)
                         )
                     }
                     // 下一行歌词呈现与实机同源(secondLinePresentation):「辅助文字显示第二行歌词」
                     // 开启时以辅助文字样式(音标行字号公式+亮度档)绘制并取代独立下一行行,
                     // 颜色仍走「下一行颜色」(secondLineColorArgb)。
-                    when (secondLinePresentation(
+                    val nextBlockRow = when (secondLinePresentation(
                         profile.secondaryNextLine,
                         showNext,
                         snapshot.nextLine.isNotBlank()
                     )) {
-                        SecondLinePresentation.AS_SECONDARY -> blockRows += PreviewBlockRow(
+                        SecondLinePresentation.AS_SECONDARY -> PreviewBlockRow(
                             row = PreviewSecondaryLine(
                                 snapshot.nextLine,
                                 secondaryReadingTextSizeSp(baseSp).sp,
@@ -463,9 +469,10 @@ private fun LyricPreviewSurface(
                             ),
                             color = nextLineSecondaryColor,
                             align = nextLineAlign,
-                            gapAbove = ROW_GAP_BEFORE_NEXT_LINE_DP.dp
+                            gapAbove = ROW_GAP_BEFORE_NEXT_LINE_DP.dp,
+                            dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright)
                         )
-                        SecondLinePresentation.STANDALONE -> blockRows += PreviewBlockRow(
+                        SecondLinePresentation.STANDALONE -> PreviewBlockRow(
                             row = PreviewSecondaryLine(
                                 snapshot.nextLine,
                                 nextLineTextSizeSp().sp,
@@ -473,12 +480,13 @@ private fun LyricPreviewSurface(
                             ),
                             color = nextLineColor,
                             align = nextLineAlign,
-                            gapAbove = ROW_GAP_BEFORE_NEXT_LINE_DP.dp
+                            gapAbove = ROW_GAP_BEFORE_NEXT_LINE_DP.dp,
+                            dimAlpha = staticNextLineTextFactor()
                         )
-                        SecondLinePresentation.NONE -> Unit
+                        SecondLinePresentation.NONE -> null
                     }
                     PreviewAnimatedRowBlock(
-                        block = PreviewRowBlock(mainLayout, snapshot.original, blockRows),
+                        block = PreviewRowBlock(mainLayout, snapshot.original, blockRows, nextBlockRow),
                         lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
                         lineTransitionSpeed = profile.lineTransitionSpeed,
                         color = lyricColor,
@@ -884,31 +892,35 @@ private fun previewRubyPlacements(
 }
 
 /**
- * 行块一代内容:主行 + 辅助文字行 + 下一行行。换行过渡以整块为单位冻结/进出,
- * 与实机 drawRows「一块图层包全部行」同语义 —— 辅助文字随主行一起换行。
+ * 行块一代内容:主行 + 辅助文字行 + 下一行行。换行过渡按行分流三段式(与实机
+ * drawOrientedContent 同构):离场行组(主行+辅助文字)退场 → 下一行晋级位移 →
+ * 新到行(新辅助文字+新下一行)进场;[nextLine] 为晋级源(内容延续时升任主行)。
  */
 private class PreviewRowBlock(
     val main: PreviewMainLayout,
     val mainText: String,
-    val rows: List<PreviewBlockRow>
+    val rows: List<PreviewBlockRow>,
+    val nextLine: PreviewBlockRow?
 )
 
-/** 行块内副行(辅助文字/下一行)的渲染参数,随所属行块一起冻结。 */
+/** 行块内副行(辅助文字/下一行)的渲染参数,随所属行块一起冻结;[dimAlpha] 为该行静态亮度档。 */
 private class PreviewBlockRow(
     val row: PreviewSecondaryLine,
     val color: ComposeColor,
     val align: TextAlign,
-    val gapAbove: Dp
+    val gapAbove: Dp,
+    val dimAlpha: Float
 )
 
 /**
  * 主页预览的歌词主体渲染:行布局来自共享 LyricLayoutEngine(与实机断行一致),
  * 绘制委托 LyricGlowRenderer(实机 AOD/锁屏同源)—— dim 底、光晕、扫光带(缓动/
  * 光带占比/渐变 stops)全部单点定义,预览即实机效果。进度为演示扫光(0→1 循环)。
- * 演示行循环切换时,旧行块/新行块的过渡帧取自共享纯函数 [lineTransitionExitFrame] /
- * [lineTransitionEnterFrame](与实机同源),层变换由 graphicsLayer 施加,预览不另写动画公式;
- * 线性时间轴先过 #68 缓动再查帧,与 AodLyricCanvasView 完全一致。时长按「动画速率」档
- * 缩放(见 [enterTransitionMs] / [exitTransitionMs]),与实机同一速率语义。
+ * 演示行循环切换时,三段式过渡帧取自共享纯函数 [lineTransitionExitFrame] /
+ * [lineTransitionMoveFrame] / [lineTransitionEnterFrame](与实机同源),层变换由
+ * graphicsLayer 施加,预览不另写动画公式;线性时间轴先过缓动再查帧,与
+ * AodLyricCanvasView 完全一致。时长按「动画速率」档缩放(见 [lineTransitionTimeline]),
+ * 与实机同一速率语义。
  */
 @Composable
 private fun PreviewAnimatedRowBlock(
@@ -935,14 +947,14 @@ private fun PreviewAnimatedRowBlock(
     // 在组合作用域读取进度,保证每次动画变化都会重绘 Canvas。
     val progressValue = progress.value
 
-    // 换行动画演示:演示行文本变化时冻结旧行块按 exit 帧退场、新行块按 enter 帧进场。
-    // 帧配方与速率语义来自 root.aod 共享实现,与 AodLyricCanvasView 同源;
+    // 换行动画演示:严格序列 退场 → 晋级位移 → 入场,任一时刻至多一段在播(与实机同构);
     // 仅重排(字体/字号/宽度)不触发过渡,退场冻结的是切换前实际可见的行块。
     var settledText by remember { mutableStateOf(block.mainText) }
     var stableBlock by remember { mutableStateOf(block) }
     var exitingBlock by remember { mutableStateOf<PreviewRowBlock?>(null) }
     val enterFrameProgress = remember { Animatable(1f) }
     val exitFrameProgress = remember { Animatable(1f) }
+    val moveFrameProgress = remember { Animatable(1f) }
     SideEffect {
         if (block.mainText == settledText) stableBlock = block
     }
@@ -954,25 +966,36 @@ private fun PreviewAnimatedRowBlock(
             exitingBlock = null
             enterFrameProgress.snapTo(1f)
             exitFrameProgress.snapTo(1f)
+            moveFrameProgress.snapTo(1f)
         } else {
-            val exitMs = exitTransitionMs(lineTransition, lineTransitionSpeed)
-            val enterMs = enterTransitionMs(lineTransition, lineTransitionSpeed)
+            // 角色分流与实机同源:旧「下一行」文本 == 新「主行」文本时晋级(内容延续)。
+            val promoting = lineTransitionPromotes(previous.nextLine?.row?.text ?: "", block.mainText)
+            val timeline = lineTransitionTimeline(lineTransition, lineTransitionSpeed, promoting)
             exitingBlock = previous
             enterFrameProgress.snapTo(0f)
             exitFrameProgress.snapTo(0f)
+            moveFrameProgress.snapTo(0f)
             coroutineScope {
                 launch {
                     exitFrameProgress.animateTo(
                         1f,
-                        tween(exitMs.toInt(), easing = LinearEasing)
+                        tween(timeline.exitMs.toInt(), easing = LinearEasing)
                     )
                 }
-                // 参考 HyperLyric 序列档:退场完成后再播入场(与实机 enterElapsed 同语义);
-                // 历史档退场/入场叠加,无延迟。
-                if (isSequentialLineTransition(lineTransition)) delay(exitMs)
+                // 严格序列:退场完成 → 晋级位移 → 入场,无重叠(历史档此前叠加播放是
+                // 旧行未走完新行已进场、同一句歌词两层各画一次的重叠根因)。
+                delay(timeline.exitMs)
+                if (timeline.moveMs > 0L) {
+                    moveFrameProgress.animateTo(
+                        1f,
+                        tween(timeline.moveMs.toInt(), easing = LinearEasing)
+                    )
+                } else {
+                    moveFrameProgress.snapTo(1f)
+                }
                 enterFrameProgress.animateTo(
                     1f,
-                    tween(enterMs.toInt(), easing = LinearEasing)
+                    tween(timeline.enterMs.toInt(), easing = LinearEasing)
                 )
             }
             exitingBlock = null
@@ -980,42 +1003,86 @@ private fun PreviewAnimatedRowBlock(
     }
     // 与实机 drawOrientedContent 同一顺序:线性进度 → 缓动 → 帧配方;参考档位移以行块
     // 自身宽高为基准(Fade 族 1/4、Slide 族整宽):宽度取可用内容宽(行块横向铺满),
-    // 高度取该层行块布局实测高——退场层用旧行块、入场层用新行块,与实机各层行盒边界
-    // 同义(整块高含辅助文字/下一行,不再只按主行块高近似)。实测高由层内上报,按演示行
-    // 文本键控(行块实例每次组合都可能重建,不能按实例键控);首帧尚未测量时回落该块
-    // 主行高,此时位移≈0,视觉无差。
+    // 高度取该层参与过渡的行组实测高——退场层 = 旧行组(主行+辅助文字)、入场层 =
+    // 新到行组(辅助文字+下一行),与实机各层行盒边界同义。实测高由层内上报,按演示行
+    // 文本键控(行块实例每次组合都可能重建,不能按实例键控);首帧尚未测量时回落主行块高。
     val density = LocalDensity.current
     val previous = exitingBlock
-    var exitBlockHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
-    var enterBlockHeightPx by remember(block.mainText) { mutableStateOf(0) }
+    val promoting = lineTransitionPromotes(previous?.nextLine?.row?.text ?: "", block.mainText)
+    var exitMainHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    var exitRowsHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    var exitNextHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    var enterMainHeightPx by remember(block.mainText) { mutableStateOf(0) }
+    var enterRowsHeightPx by remember(block.mainText) { mutableStateOf(0) }
+    var enterNextHeightPx by remember(block.mainText) { mutableStateOf(0) }
+    var nextRowTopPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
     val mainBlockHeightDp = with(density) { block.main.blockHeight.toDp().value }
     val exitMainBlockHeightDp = with(density) { (previous ?: block).main.blockHeight.toDp().value }
     val blockWidthDp = with(density) { availableWidthPx.toDp().value }
-    val exitBlockHeightDp = with(density) {
-        if (exitBlockHeightPx > 0) exitBlockHeightPx.toDp().value else exitMainBlockHeightDp
+    // 退场层行组 = 主行+辅助文字(晋级时不含下一行,内容延续由位移层接管);未晋级整块同层。
+    val exitGroupHeightPx = exitMainHeightPx + exitRowsHeightPx +
+        (if (promoting) 0 else exitNextHeightPx)
+    val exitGroupHeightDp = with(density) {
+        if (exitGroupHeightPx > 0) exitGroupHeightPx.toDp().value else exitMainBlockHeightDp
     }
-    val enterBlockHeightDp = with(density) {
-        if (enterBlockHeightPx > 0) enterBlockHeightPx.toDp().value else mainBlockHeightDp
+    // 入场层行组 = 辅助文字+下一行(晋级时不含主行,主行由位移层接管);未晋级整块同层。
+    val enterGroupHeightPx = enterRowsHeightPx + enterNextHeightPx +
+        (if (promoting) 0 else enterMainHeightPx)
+    val enterGroupHeightDp = with(density) {
+        if (enterGroupHeightPx > 0) enterGroupHeightPx.toDp().value else mainBlockHeightDp
     }
     val exitFrame = lineTransitionExitFrame(
         lineTransition,
         lineTransitionExitEasing(lineTransition, exitFrameProgress.value),
         blockWidthDp,
-        exitBlockHeightDp
+        exitGroupHeightDp
     )
     val enterFrame = lineTransitionEnterFrame(
         lineTransition,
         lineTransitionEnterEasing(lineTransition, enterFrameProgress.value),
         blockWidthDp,
-        enterBlockHeightDp
+        enterGroupHeightDp
     )
+    val moveFrame = lineTransitionMoveFrame(
+        moveTransitionEase(moveFrameProgress.value),
+        sizeRatio = with(density) {
+            val fromSize = previous?.nextLine?.row?.size?.toPx() ?: block.main.paint.textSize
+            block.main.paint.textSize / fromSize
+        },
+        fromAlpha = previous?.nextLine?.dimAlpha ?: staticNextLineTextFactor()
+    )
+    // 角色分流(与实机同构):退场层画离场行组[主行+辅助文字]、下一行只占位(退场段原地
+    // 保持、位移段起隐藏);入场层画新到行组[辅助文字+下一行]、主行只占位(由位移层绘制)。
+    val exitFrameParts = if (promoting) {
+        setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS)
+    } else {
+        PreviewRowPart.entries.toSet()
+    }
+    val exitHiddenParts = if (promoting && moveFrameProgress.value > 0f) {
+        setOf(PreviewRowPart.NEXT)
+    } else {
+        emptySet()
+    }
+    val enterFrameParts = if (promoting) {
+        setOf(PreviewRowPart.ROWS, PreviewRowPart.NEXT)
+    } else {
+        PreviewRowPart.entries.toSet()
+    }
+    val enterHiddenParts = if (promoting) setOf(PreviewRowPart.MAIN) else emptySet()
 
     Box(modifier.fillMaxWidth()) {
-        if (previous != null && exitFrame.alpha > 0f) {
+        // 段1 退场层:离场行组(主行+辅助文字)按退场半段离场,晋级时旧「下一行」原地保持。
+        // 晋级档在退场结束、位移尚未推进的交接帧继续绘制下一行(alpha 已 0 的主行组不可见),
+        // 避免「退场层已移除、位移层未起笔」的空白帧。
+        if (previous != null &&
+            (exitFrame.alpha > 0f || (promoting && moveFrameProgress.value <= 0f))
+        ) {
             PreviewRowBlockLayer(
                 block = previous,
                 sweepProgress = 1f,
                 frame = exitFrame,
+                frameParts = exitFrameParts,
+                hiddenParts = exitHiddenParts,
                 color = color,
                 glowColor = glowColor,
                 glowEnabled = glowEnabled,
@@ -1025,14 +1092,51 @@ private fun PreviewAnimatedRowBlock(
                 availableWidthPx = availableWidthPx,
                 wrap = wrap,
                 adaptiveSectioning = adaptiveSectioning,
-                onMeasuredHeightPx = { exitBlockHeightPx = it },
+                onPartHeightPx = { part, height ->
+                    when (part) {
+                        PreviewRowPart.MAIN -> exitMainHeightPx = height
+                        PreviewRowPart.ROWS -> exitRowsHeightPx = height
+                        PreviewRowPart.NEXT -> exitNextHeightPx = height
+                    }
+                },
+                onNextRowTopPx = { nextRowTopPx = it },
                 modifier = Modifier.fillMaxWidth()
             )
         }
+        // 段2 晋级位移层:新「主行」(即旧「下一行」内容)自旧槽位平移+放大+亮度接续。
+        if (promoting && previous != null && moveFrameProgress.value > 0f) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        alpha = moveFrame.alpha
+                        translationY = nextRowTopPx * moveFrame.translateFraction
+                        scaleX = moveFrame.scale
+                        scaleY = moveFrame.scale
+                    }
+            ) {
+                PreviewMainLayer(
+                    layout = block.main,
+                    progress = progressValue,
+                    color = color,
+                    glowColor = glowColor,
+                    glowEnabled = glowEnabled,
+                    fillMode = fillMode,
+                    rubyColor = rubyColor,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(with(density) { block.main.blockHeight.toDp() })
+                )
+            }
+        }
+        // 段3 入场层:新到行(新辅助文字+新下一行)按入场半段进场;晋级时新「主行」
+        // 由段2接管,本层只画新到行组。
         PreviewRowBlockLayer(
             block = block,
             sweepProgress = progressValue,
             frame = enterFrame,
+            frameParts = enterFrameParts,
+            hiddenParts = enterHiddenParts,
             color = color,
             glowColor = glowColor,
             glowEnabled = glowEnabled,
@@ -1042,24 +1146,35 @@ private fun PreviewAnimatedRowBlock(
             availableWidthPx = availableWidthPx,
             wrap = wrap,
             adaptiveSectioning = adaptiveSectioning,
-            onMeasuredHeightPx = { enterBlockHeightPx = it },
+            onPartHeightPx = { part, height ->
+                when (part) {
+                    PreviewRowPart.MAIN -> enterMainHeightPx = height
+                    PreviewRowPart.ROWS -> enterRowsHeightPx = height
+                    PreviewRowPart.NEXT -> enterNextHeightPx = height
+                }
+            },
             modifier = Modifier.fillMaxWidth()
         )
     }
 }
 
+/** 行块内可独立分帧的三段:主行 / 辅助文字行组 / 下一行行(与实机行角色一一对应)。 */
+private enum class PreviewRowPart { MAIN, ROWS, NEXT }
+
 /**
- * 行块单层绘制:主行 LyricGlowRow + 辅助文字行 + 下一行行,整块共用一个 graphicsLayer
- * (alpha/位移/缩放一次施加;缩放/旋转锚点取本层行块中心——本层整层即行块,默认原点即行块
- * 中心,而实机 drawRows 按 SPEC「翻转/旋转绕内容中心」取内容框中心)。旧行块按 exit 帧、
- * 新行块按 enter 帧各自成层叠加,与实机同构。本层实测高度经 [onMeasuredHeightPx] 上报,
- * 作为该层换行帧的位移基准(参考实现 target.getHeight()/4),故测量挂在未加位移的层上。
+ * 行块单层绘制:主行 LyricGlowRow + 辅助文字行 + 下一行行,按 [frameParts]/[hiddenParts]
+ * 逐段分流——[frameParts] 内的行段共用 [frame](alpha/位移/缩放/旋转一次施加);
+ * [hiddenParts] 内的行段只占位不绘制(由其它层接管);其余行段恒等展示。
+ * 各段实测高经 [onPartHeightPx] 上报,供调用方按角色组求和作为该层位移基准
+ * (参考实现 target.getHeight()/4);下一行行顶经 [onNextRowTopPx] 上报,作为晋级位移起点。
  */
 @Composable
 private fun PreviewRowBlockLayer(
     block: PreviewRowBlock,
     sweepProgress: Float,
     frame: LineTransitionFrame,
+    frameParts: Set<PreviewRowPart>,
+    hiddenParts: Set<PreviewRowPart>,
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
@@ -1069,13 +1184,95 @@ private fun PreviewRowBlockLayer(
     availableWidthPx: Int,
     wrap: Boolean,
     adaptiveSectioning: Boolean,
-    onMeasuredHeightPx: (Int) -> Unit = {},
+    onPartHeightPx: (PreviewRowPart, Int) -> Unit = { _, _ -> },
+    onNextRowTopPx: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier
-            .onSizeChanged { onMeasuredHeightPx(it.height) }
-            .graphicsLayer {
+    val density = LocalDensity.current
+    Column(modifier) {
+        // 主行段。
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .onSizeChanged { onPartHeightPx(PreviewRowPart.MAIN, it.height) }
+                .graphicsLayer { applyPartTransition(PreviewRowPart.MAIN, frame, frameParts, hiddenParts) }
+        ) {
+            PreviewMainLayer(
+                layout = block.main,
+                progress = sweepProgress,
+                color = color,
+                glowColor = glowColor,
+                glowEnabled = glowEnabled,
+                fillMode = fillMode,
+                rubyColor = rubyColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(with(density) { block.main.blockHeight.toDp() })
+            )
+        }
+        // 辅助文字行组段。
+        if (block.rows.isNotEmpty()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { onPartHeightPx(PreviewRowPart.ROWS, it.height) }
+                    .graphicsLayer { applyPartTransition(PreviewRowPart.ROWS, frame, frameParts, hiddenParts) }
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    block.rows.forEach { item ->
+                        PreviewSecondaryRow(
+                            row = item.row,
+                            color = item.color,
+                            typeface = regularTypeface,
+                            availableWidthPx = availableWidthPx,
+                            preferredLines = block.main.lines.size,
+                            wrap = wrap,
+                            adaptiveSectioning = adaptiveSectioning,
+                            textAlign = item.align,
+                            modifier = Modifier.padding(top = item.gapAbove)
+                        )
+                    }
+                }
+            }
+        }
+        // 下一行行段。
+        block.nextLine?.let { item ->
+            val gapPx = with(density) { item.gapAbove.toPx().roundToInt() }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { onPartHeightPx(PreviewRowPart.NEXT, it.height) }
+                    // 上报下一行行内容顶(含 gapAbove 的行盒顶 + gap),作为晋级位移起点:
+                    // 与被晋升行落位后的内容顶对齐,交接处不跳动。
+                    .onGloballyPositioned { onNextRowTopPx(it.positionInParent().y.roundToInt() + gapPx) }
+                    .graphicsLayer { applyPartTransition(PreviewRowPart.NEXT, frame, frameParts, hiddenParts) }
+            ) {
+                PreviewSecondaryRow(
+                    row = item.row,
+                    color = item.color,
+                    typeface = regularTypeface,
+                    availableWidthPx = availableWidthPx,
+                    preferredLines = block.main.lines.size,
+                    wrap = wrap,
+                    adaptiveSectioning = adaptiveSectioning,
+                    textAlign = item.align,
+                    modifier = Modifier.padding(top = item.gapAbove)
+                )
+            }
+        }
+    }
+}
+
+/** graphicsLayer 作用域内按行段分流:隐藏段 alpha 置 0(占位),帧内段施加 [frame],其余恒等。 */
+private fun GraphicsLayerScope.applyPartTransition(
+    part: PreviewRowPart,
+    frame: LineTransitionFrame,
+    frameParts: Set<PreviewRowPart>,
+    hiddenParts: Set<PreviewRowPart>
+) {
+    when {
+        part in hiddenParts -> alpha = 0f
+        part in frameParts -> {
             alpha = frame.alpha
             translationX = frame.translateXDp.dp.toPx()
             translationY = frame.translateYDp.dp.toPx()
@@ -1084,33 +1281,6 @@ private fun PreviewRowBlockLayer(
             rotationZ = frame.rotationDeg
             rotationX = frame.rotationXDeg
             rotationY = frame.rotationYDeg
-        }
-    ) {
-        val density = LocalDensity.current
-        PreviewMainLayer(
-            layout = block.main,
-            progress = sweepProgress,
-            color = color,
-            glowColor = glowColor,
-            glowEnabled = glowEnabled,
-            fillMode = fillMode,
-            rubyColor = rubyColor,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(with(density) { block.main.blockHeight.toDp() })
-        )
-        block.rows.forEach { item ->
-            PreviewSecondaryRow(
-                row = item.row,
-                color = item.color,
-                typeface = regularTypeface,
-                availableWidthPx = availableWidthPx,
-                preferredLines = block.main.lines.size,
-                wrap = wrap,
-                adaptiveSectioning = adaptiveSectioning,
-                textAlign = item.align,
-                modifier = Modifier.padding(top = item.gapAbove)
-            )
         }
     }
 }

@@ -81,6 +81,7 @@ internal class AodLyricCanvasView(
     private var layout = LayoutState(emptyList(), OriginalLayout(emptyList(), 0f, 0f, false))
     private var exitSnapshot: CanvasSnapshot? = null
     private var transitionStartedAt = 0L
+    private var transitionTimeline: LineTransitionTimeline? = null
     private var handoffActive = false
     private var suppressNextLineTransition = false
     private var timingEffectEnabled = false
@@ -229,11 +230,12 @@ internal class AodLyricCanvasView(
             if (exitSnapshot != null && isExitTransitionExpired(
                     transitionStartedAt,
                     SystemClock.elapsedRealtime(),
-                    lineTransitionTotalMs(content.transitionMode, content.lineTransitionSpeed)
+                    transitionTimeline?.totalMs ?: 0L
                 )
             ) {
                 transitionStartedAt = 0L
                 exitSnapshot = null
+                transitionTimeline = null
                 contentBoundsChangedListener?.invoke()
             }
             val nowNanos = System.nanoTime()
@@ -295,9 +297,19 @@ internal class AodLyricCanvasView(
         ) {
             exitSnapshot = CanvasSnapshot(content, layout, currentRenderStyle)
             transitionStartedAt = SystemClock.elapsedRealtime()
+            // 角色分流在起点定死:旧「下一行」文本 == 新「主行」文本且旧布局真有下一行行时
+            // 晋级(内容延续,只位移),否则旧行组整体退场、新行组整体进场。
+            val promoting = layout.rows.any { it.row.kind == RowKind.NEXT_LINE } &&
+                lineTransitionPromotes(content.nextLine, nextContent.original)
+            transitionTimeline = lineTransitionTimeline(
+                nextContent.transitionMode,
+                nextContent.lineTransitionSpeed,
+                promoting
+            )
         } else if (resuming || nextContent.transitionMode == "None") {
             exitSnapshot = null
             transitionStartedAt = 0L
+            transitionTimeline = null
         }
         this.content = nextContent
         syncArtworkBitmap()
@@ -325,6 +337,7 @@ internal class AodLyricCanvasView(
         removeCallbacks(frame)
         exitSnapshot = null
         transitionStartedAt = 0L
+        transitionTimeline = null
         suppressNextLineTransition = true
         contentBoundsChangedListener?.invoke()
     }
@@ -418,6 +431,7 @@ internal class AodLyricCanvasView(
         if (active) {
             exitSnapshot = null
             transitionStartedAt = 0L
+            transitionTimeline = null
         }
         syncCadence()
     }
@@ -716,6 +730,14 @@ internal class AodLyricCanvasView(
         )
     }
 
+    /**
+     * 换行三段式(owner 2026-09-30 定案):严格序列「退场 → 晋级位移 → 入场」,按行分流 ——
+     * 1. 离场行组(旧行组=主行+音标/翻译)播预设退场半段(如「向上渐隐」);
+     * 2. 内容延续的旧「下一行」平移+放大+亮度接续到当前行槽位(晋级,不播半段);
+     * 3. 新到行(新下一行/新辅助文字)播预设入场半段(如「向上渐现」)。
+     * 任意时刻至多一段在播,同一句歌词只在一个层出现 —— 旧行未走完新行已进场的
+     * 「歌词重叠」由结构消除。歌曲信息行(固定行)不参与,元数据走自己的淡入淡出。
+     */
     private fun drawOrientedContent(canvas: Canvas) {
         super.onDraw(canvas)
         lastDrawAtElapsedMs = SystemClock.elapsedRealtime()
@@ -728,12 +750,17 @@ internal class AodLyricCanvasView(
             return
         }
         val elapsed = (SystemClock.elapsedRealtime() - transitionStartedAt).coerceAtLeast(0L)
+        val timeline = transitionTimeline ?: lineTransitionTimeline(
+            content.transitionMode,
+            content.lineTransitionSpeed,
+            promoting = false
+        )
+        val promoting = timeline.moveMs > 0L
         val transitionMode = content.transitionMode
-        val transitionSpeed = content.lineTransitionSpeed
-        // 速率档只缩放时长(见 lineTransitionDurationScale),缓动/帧配方不变;
-        // 参考 HyperLyric 的序列档(Fade left/Landing/Slide swap)退场完成后再入场。
-        val exitProgress = lineTransitionExitProgress(elapsed, transitionMode, transitionSpeed)
-        val enterProgress = lineTransitionEnterProgress(elapsed, transitionMode, transitionSpeed)
+        // 速率档只缩放时长(见 lineTransitionDurationScale),缓动/帧配方不变。
+        val exitProgress = lineTransitionExitProgress(elapsed, timeline)
+        val moveProgress = lineTransitionMoveProgress(elapsed, timeline)
+        val enterProgress = lineTransitionEnterProgress(elapsed, timeline)
         // 行块换行用缓动:历史档旧行加速上滑离场、新行减速上滑落位,参考档过冲/柔落;
         // 元数据淡出仍走线性。
         val exitEased = lineTransitionExitEasing(transitionMode, exitProgress)
@@ -764,35 +791,108 @@ internal class AodLyricCanvasView(
         // 尺寸同序。此前两层共用内容裁剪框高,竖向漂移被放大数倍(真机实测 169px,见
         // [animatedBlockHeightDp])。
         val blockWidthDp = (ow - padLeft - padRight) / density
+        // 段1 退场:离场行组(主行+辅助文字)按退场半段离场;晋级时旧「下一行」不属于
+        // 离场组(内容延续),排除在退场层外。
+        val exitLayout = if (promoting) {
+            snapshot.layout.copy(rows = snapshot.layout.rows.filter { it.row.kind != RowKind.NEXT_LINE })
+        } else {
+            snapshot.layout
+        }
         drawRows(
             canvas,
-            snapshot.layout,
+            exitLayout,
             snapshot.content,
             lineTransitionExitFrame(
                 transitionMode,
                 exitEased,
                 blockWidthDp,
-                animatedBlockHeightDp(snapshot.layout, skipOriginal = metadataMorph)
+                animatedBlockHeightDp(exitLayout, skipOriginal = metadataMorph)
             ),
             snapshot.renderStyle,
             skipOriginal = metadataMorph
         )
+        if (promoting) {
+            // 段2 晋级位移:退场段内旧「下一行」原地保持,位移段开始即由新「主行」层接管
+            // (单层即换,不与旧行同帧叠加)。
+            if (moveProgress <= 0f) {
+                drawRows(
+                    canvas,
+                    snapshot.layout.copy(rows = snapshot.layout.rows.filter { it.row.kind == RowKind.NEXT_LINE }),
+                    snapshot.content,
+                    LineTransitionFrame(alpha = 1f),
+                    snapshot.renderStyle
+                )
+            } else {
+                drawPromotionLayer(canvas, snapshot, moveProgress)
+            }
+        }
+        // 段3 入场:新到行(新下一行/新辅助文字)按入场半段进场;晋级时新「主行」由段2接管。
+        val enterLayout = if (promoting) {
+            layout.copy(rows = layout.rows.filter { it.row.kind != RowKind.ORIGINAL })
+        } else {
+            layout
+        }
         drawRows(
             canvas,
-            layout,
+            enterLayout,
             content,
             lineTransitionEnterFrame(
                 transitionMode,
                 enterEased,
                 blockWidthDp,
-                animatedBlockHeightDp(layout)
+                animatedBlockHeightDp(enterLayout)
             )
         )
-        if (enterProgress >= 1f) {
+        if (elapsed >= timeline.totalMs) {
             transitionStartedAt = 0L
             exitSnapshot = null
+            transitionTimeline = null
             contentBoundsChangedListener?.invoke()
         }
+    }
+
+    /**
+     * 晋级位移段:旧「下一行」即新「主行」(内容延续),自旧槽位平移到当前行槽位,按两槽
+     * 字号比等比放大并自旧行亮度升至全亮(同 HyperLyric 下一句晋级的 translation+scale,
+     * 缩放枢轴取行块中心)。只画新「主行」一层,旧行在位移段开始时即被本层接管。
+     */
+    private fun drawPromotionLayer(canvas: Canvas, snapshot: CanvasSnapshot, moveProgress: Float) {
+        val target = layout.rows.firstOrNull { it.row.kind == RowKind.ORIGINAL } ?: return
+        val from = snapshot.layout.rows.firstOrNull { it.row.kind == RowKind.NEXT_LINE } ?: return
+        val frame = lineTransitionMoveFrame(
+            moveTransitionEase(moveProgress),
+            sizeRatio = target.row.paint.textSize / from.row.paint.textSize,
+            fromAlpha = if (snapshot.content.secondaryNextLine) {
+                staticSecondaryTextFactor(snapshot.content.secondaryTextBright)
+            } else {
+                staticNextLineTextFactor()
+            }
+        )
+        val dy = (from.baseline - target.baseline) * frame.translateFraction
+        val boxTop = target.baseline + target.row.paint.fontMetrics.ascent
+        val pivotY = boxTop + target.row.height / 2f
+        val pivotX = (padLeft + (ow - padRight)) / 2f
+        // 落位帧(alpha/scale/位移均为恒等)不再开离屏层,省电场景不空转一次 saveLayer。
+        val layer = if (frame.alpha < 1f || frame.scale != 1f || dy != 0f) {
+            val save = canvas.saveLayerAlpha(
+                0f,
+                0f,
+                ow.toFloat(),
+                oh.toFloat(),
+                (255f * frame.alpha).toInt()
+            )
+            canvas.translate(0f, dy)
+            if (frame.scale != 1f) {
+                canvas.scale(frame.scale, frame.scale, pivotX, pivotY)
+            }
+            save
+        } else {
+            canvas.save()
+        }
+        val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
+        drawOriginal(canvas, target.baseline)
+        canvas.restoreToCount(layer)
     }
 
     private fun drawRows(
@@ -855,7 +955,7 @@ internal class AodLyricCanvasView(
             drawContent.lineEndMs
         )
         if (sharedLineLevelSweep) {
-            drawSharedLineLevelRows(canvas, drawLayout.rows)
+            drawSharedLineLevelRows(canvas, drawLayout.rows, skipOriginal)
         } else {
             var rowIndex = 0
             while (rowIndex < drawLayout.rows.size) {
@@ -874,10 +974,17 @@ internal class AodLyricCanvasView(
         if (renderStyle != null) applyRenderStyle(currentRenderStyle)
     }
 
-    private fun drawSharedLineLevelRows(canvas: Canvas, rows: List<PositionedRow>) {
-        val original = rows.firstOrNull { it.row.kind == RowKind.ORIGINAL } ?: return
+    private fun drawSharedLineLevelRows(
+        canvas: Canvas,
+        rows: List<PositionedRow>,
+        skipOriginal: Boolean = false
+    ) {
         // 副行(音标/翻译/下一行)静态绘制,与预览的静态 Text 行一致,不参与扫光。
+        // 换行分层时入场层只带新到副行(主行由晋级位移层接管),这里按行集内是否有主行分流;
+        // 歌曲变更形变时旧层主行由元数据形变接管,按 [skipOriginal] 与逐行路径同义跳过。
         drawSecondaryRowsStatic(canvas, rows, bright = content.secondaryTextBright)
+        val original = rows.firstOrNull { it.row.kind == RowKind.ORIGINAL } ?: return
+        if (skipOriginal) return
         drawOriginalRubyRows(canvas, original.baseline, bright = true)
         // 主行发光统一委托共享渲染核心 LyricGlowRenderer —— 与预览(PreviewAnimatedLyric)
         // 同一份配方:dim 底、光晕、easeInOut 扫光带,杜绝行级同步路径另走一套旧实现。
