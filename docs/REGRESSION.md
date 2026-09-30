@@ -256,6 +256,18 @@ and (b) unverified paths stay explicit instead of silently assumed.
   right around a reconnect), and confirm the lyrics stay on the current line instead of jumping to
   the song tail placeholder; with the writer frozen (screen off) the old-song value must never
   jump the active line.
+- App text color and font settings land in the app-appearance screen: text color recolors the
+  primary text tokens only (`onBackground`/`onSurface`/`onSurfaceContainer` — row titles, bare
+  texts, card content and icons that follow the content color), while secondary text (summaries,
+  section titles, trailing action labels) keeps the theme hierarchy; the font row offers follow
+  system (default), serif and monospace plus every font already imported for the lyric rendering
+  (labeled by import name; the app process reads its own private font files directly), and a
+  deleted custom font falls back to follow system in both the picker and the render. Both settings
+  persist in `app_ui_appearance` prefs and round-trip through config backup. App-UI only (no
+  SystemUI/AOD surface change) — pending a hardware smoke check after merge: picking a text color
+  re-tints row titles and card text immediately while summaries stay theme-colored, picking a font
+  re-renders the whole app UI in that font across screens, follow-system restores the platform
+  default, and both survive config backup export/import.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -394,6 +406,14 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   连接回调、跨重连切歌、冻结残留经重同步仍拒；同 id 重发仍按重同步）——合并后待真机冒烟：
   放歌到中段后让歌词源发生重连（或恰好在重连前后切歌），歌词须跟随当前行而不是跳歌尾占位；
   息屏写入端冻结时旧歌残留值绝不允许把活动行跳走。
+- 应用外观页新增文字颜色与字体设置：文字颜色只覆盖主文字 token（`onBackground`/`onSurface`/
+  `onSurfaceContainer`——行标题、裸文本、卡片内容与跟随内容色的图标），summary/小节标题/行尾
+  动作等次级文字保持主题层级不被抹平；字体选项为跟随系统（默认）、衬线、等宽，外加歌词渲染
+  已导入的全部字体（按导入名展示，应用进程直读自己的私有字体文件），已删除字体的旧令牌在
+  选择与渲染两端都回落跟随系统。两项均存于 `app_ui_appearance` 偏好并随配置备份往返。仅应用内
+  改动（不涉及 SystemUI/AOD surface）——合并后待真机冒烟：选文字颜色后行标题与卡片文字立即
+  变色而 summary 保持主题色、选字体后整个应用界面跨屏换字体、跟随系统恢复平台默认、两项随
+  备份导出导入。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
