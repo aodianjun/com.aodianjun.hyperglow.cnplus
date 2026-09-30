@@ -200,9 +200,102 @@ internal fun lineTransitionPreset(mode: String): LineTransitionPreset? =
         else -> null
     }
 
-/** 参考 HyperLyric 的档为序列式:退场完成后再入场;历史档退场/入场叠加。 */
-internal fun isSequentialLineTransition(mode: String): Boolean =
-    lineTransitionPreset(mode) != null
+/**
+ * 下一行是否晋级为当前行:旧「下一行」文本 == 新「主行」文本(常规前进一行)。
+ * 跳行/拖动/跨曲时两者不等 → 无晋级段,旧行组整体退场、新行组整体进场。
+ *
+ * 换行角色(owner 2026-09-30 定案):按「内容是否延续」给参与换行的每一行分流 ——
+ * 离场行组(旧行组=主行+音标/翻译)播预设的**退场半段**(如「向上渐隐＆向上渐现」的
+ * 「向上渐隐」);内容延续的晋级行(旧「下一行」即新「主行」)只做槽位平移+等比放大+
+ * 亮度接续,不播退场/入场半段;新到行(新下一行、新辅助文字)播预设的**入场半段**
+ * (同例的「向上渐现」)。词表每档的「X＆Y」两半段**分别**作用于离场行与进场行——
+ * 判定角色时必须分辨,不可两行同播一段。歌曲信息行(固定行,
+ * `AodCanvasRowBox.animated=false`)不参与。
+ */
+internal fun lineTransitionPromotes(oldNextLine: String, newOriginal: String): Boolean =
+    oldNextLine.isNotBlank() && oldNextLine == newOriginal
+
+/** 换行「晋级位移」段基准时长(同 HyperLyric 下一句晋级 220ms),与退场/入场同速率缩放。 */
+internal const val MOVE_TRANSITION_MS = 220L
+
+/** 晋级位移时长:220ms 基准 × 速率倍率,与 [enterTransitionMs] / [exitTransitionMs] 同语义。 */
+internal fun moveTransitionMs(speed: String): Long =
+    (MOVE_TRANSITION_MS * lineTransitionDurationScale(speed)).toLong()
+
+/**
+ * 换行三段时间线:严格序列「退场 → 晋级位移 → 入场」,任意时刻至多一段在播 ——
+ * 旧行/新行不再同帧叠加(此前历史档退场/入场共用 elapsed,旧行未走完新行已进场,
+ * 同一句歌词在两层各画一次,表现为歌词重叠)。[moveMs] 仅在下一行晋级时非 0。
+ */
+internal data class LineTransitionTimeline(
+    val exitMs: Long,
+    val moveMs: Long,
+    val enterMs: Long
+) {
+    val moveStartMs: Long get() = exitMs
+    val enterStartMs: Long get() = exitMs + moveMs
+    val totalMs: Long get() = exitMs + moveMs + enterMs
+}
+
+/**
+ * 时间线求解:[promoting] 为真时插入晋级位移段(220ms×速率),否则退场直接接入场。
+ * 退场/入场时长沿用各档配方([exitTransitionMs] / [enterTransitionMs])。
+ */
+internal fun lineTransitionTimeline(
+    mode: String,
+    speed: String,
+    promoting: Boolean
+): LineTransitionTimeline = LineTransitionTimeline(
+    exitMs = exitTransitionMs(mode, speed),
+    moveMs = if (promoting) moveTransitionMs(speed) else 0L,
+    enterMs = enterTransitionMs(mode, speed)
+)
+
+/** 退场段进度 0..1(自过渡起点计时)。 */
+internal fun lineTransitionExitProgress(elapsedMs: Long, timeline: LineTransitionTimeline): Float =
+    if (timeline.exitMs <= 0L) 1f
+    else (elapsedMs.toFloat() / timeline.exitMs.toFloat()).coerceIn(0f, 1f)
+
+/** 晋级位移段进度 0..1(退场完成前恒 0;无晋级段恒 1)。 */
+internal fun lineTransitionMoveProgress(elapsedMs: Long, timeline: LineTransitionTimeline): Float =
+    if (timeline.moveMs <= 0L) 1f
+    else ((elapsedMs - timeline.moveStartMs).toFloat() / timeline.moveMs.toFloat()).coerceIn(0f, 1f)
+
+/** 入场段进度 0..1(退场/晋级完成前恒 0,新行层不可见)。 */
+internal fun lineTransitionEnterProgress(elapsedMs: Long, timeline: LineTransitionTimeline): Float =
+    if (timeline.enterMs <= 0L) 1f
+    else ((elapsedMs - timeline.enterStartMs).toFloat() / timeline.enterMs.toFloat()).coerceIn(0f, 1f)
+
+/**
+ * 晋级位移段单帧([progress] 已过 [moveTransitionEase]):被晋升行自旧槽位平移到当前行
+ * 槽位([translateFraction] 1→0,乘两槽基线差),按两槽字号比 [sizeRatio](当前行字号/
+ * 下一行字号,≥1)自小放大到落位,并自旧行亮度 [fromAlpha] 升至全亮。单层即换:旧行
+ * 在位移段开始时即被本层接管,不与本层同帧叠加。
+ */
+internal data class LineTransitionMoveFrame(
+    val translateFraction: Float,
+    val scale: Float,
+    val alpha: Float
+)
+
+internal fun lineTransitionMoveFrame(
+    progress: Float,
+    sizeRatio: Float,
+    fromAlpha: Float
+): LineTransitionMoveFrame {
+    val p = progress.coerceIn(0f, 1f)
+    val ratio = if (sizeRatio > 1f) sizeRatio else 1f
+    val from = 1f / ratio
+    val alphaFrom = fromAlpha.coerceIn(0f, 1f)
+    return LineTransitionMoveFrame(
+        translateFraction = 1f - p,
+        scale = from + (1f - from) * p,
+        alpha = alphaFrom + (1f - alphaFrom) * p
+    )
+}
+
+/** 晋级位移缓动:FastOutSlowIn(cubic-bezier(0.4,0,0.2,1)),起步/落位两头平顺。 */
+internal fun moveTransitionEase(progress: Float): Float = fastOutSlowInEase(progress)
 
 /**
  * 入场基准时长:历史档 210ms;HyperLyric 预设按各自 inMs(300/400/450/600/700ms)。
@@ -220,30 +313,6 @@ internal fun enterTransitionMs(mode: String, speed: String): Long {
 internal fun exitTransitionMs(mode: String, speed: String): Long {
     val base = lineTransitionPreset(mode)?.outMs ?: EXIT_TRANSITION_MS
     return (base * lineTransitionDurationScale(speed)).toLong()
-}
-
-/**
- * 过渡总时长:历史档退场/入场共用 elapsed 叠加(入场较长者收尾);
- * 序列档为退场+入场串接,冻结旧层的清理与帧过期判定按总时长收口。
- */
-internal fun lineTransitionTotalMs(mode: String, speed: String): Long {
-    val exitMs = exitTransitionMs(mode, speed)
-    val enterMs = enterTransitionMs(mode, speed)
-    return if (isSequentialLineTransition(mode)) exitMs + enterMs else maxOf(exitMs, enterMs)
-}
-
-/** 退场进度 0..1(自过渡起点计时,历史档与序列档同一公式)。 */
-internal fun lineTransitionExitProgress(elapsedMs: Long, mode: String, speed: String): Float =
-    (elapsedMs / exitTransitionMs(mode, speed).toFloat()).coerceIn(0f, 1f)
-
-/** 入场进度 0..1:序列档退场期间恒 0(新行层不可见),退场完成后才开始推进。 */
-internal fun lineTransitionEnterProgress(elapsedMs: Long, mode: String, speed: String): Float {
-    val enterElapsed = if (isSequentialLineTransition(mode)) {
-        elapsedMs - exitTransitionMs(mode, speed)
-    } else {
-        elapsedMs
-    }
-    return (enterElapsed / enterTransitionMs(mode, speed).toFloat()).coerceIn(0f, 1f)
 }
 
 // 各换行动画模式的运动参数(dp / 缩放比),预览与实机共用这一份配方。

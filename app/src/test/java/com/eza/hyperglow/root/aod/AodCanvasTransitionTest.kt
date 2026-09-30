@@ -2,6 +2,7 @@ package com.eza.hyperglow.root.aod
 
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -215,32 +216,88 @@ class AodCanvasTransitionTest {
         assertEquals(180L, exitTransitionMs("Fade left", "Fast"))
         assertEquals(1050L, enterTransitionMs("Landing", "Slow"))
         assertEquals(420L, enterTransitionMs("Landing", "Fast"))
-        // 参考档序列相位;历史档叠加(总长=较长者)。
-        assertTrue(isSequentialLineTransition("Fade left"))
-        assertTrue(isSequentialLineTransition("Landing"))
-        assertTrue(isSequentialLineTransition("Slide swap"))
-        for (mode in listOf("Fade up", "Crossfade", "Slide up", "Slide left", "Zoom", "None")) {
-            assertTrue(!isSequentialLineTransition(mode))
-        }
-        assertEquals(750L, lineTransitionTotalMs("Fade left", "Normal"))
-        assertEquals(1000L, lineTransitionTotalMs("Landing", "Normal"))
-        assertEquals(750L, lineTransitionTotalMs("Slide swap", "Normal"))
-        assertEquals(210L, lineTransitionTotalMs("Fade up", "Normal"))
+        // 全档严格序列:总长 = 退场+入场(+晋级位移 220ms×速率)。
+        assertEquals(750L, lineTransitionTimeline("Fade left", "Normal", false).totalMs)
+        assertEquals(1000L, lineTransitionTimeline("Landing", "Normal", false).totalMs)
+        assertEquals(750L, lineTransitionTimeline("Slide swap", "Normal", false).totalMs)
+        assertEquals(340L, lineTransitionTimeline("Fade up", "Normal", false).totalMs)
+        assertEquals(560L, lineTransitionTimeline("Fade up", "Normal", true).totalMs)
+        assertEquals(970L, lineTransitionTimeline("Fade left", "Normal", true).totalMs)
     }
 
     @Test
     fun sequentialPhasesKeepEnterHiddenUntilExitCompletes() {
-        // 序列档:退场期间入场进度恒 0(新行层不可见),退场完成后才推进入场。
-        assertEquals(0f, lineTransitionEnterProgress(0L, "Fade left", "Normal"), 1e-6f)
-        assertEquals(0f, lineTransitionEnterProgress(150L, "Fade left", "Normal"), 1e-6f)
-        assertEquals(0f, lineTransitionEnterProgress(300L, "Fade left", "Normal"), 1e-6f)
-        assertEquals(0.5f, lineTransitionEnterProgress(300L + 225L, "Fade left", "Normal"), 1e-6f)
-        assertEquals(1f, lineTransitionEnterProgress(750L, "Fade left", "Normal"), 1e-6f)
-        // 退场进度独立推进,与历史档同式。
-        assertEquals(0.5f, lineTransitionExitProgress(150L, "Fade left", "Normal"), 1e-6f)
-        assertEquals(1f, lineTransitionExitProgress(300L, "Fade left", "Normal"), 1e-6f)
-        // 历史档退场/入场共用 elapsed 叠加(入场与退场同时推进)。
-        assertTrue(lineTransitionEnterProgress(150L, "Fade up", "Normal") > 0f)
+        // 全档严格序列:退场期间入场进度恒 0(新行层不可见),退场完成后才推进入场。
+        val timeline = lineTransitionTimeline("Fade left", "Normal", false)
+        assertEquals(0f, lineTransitionEnterProgress(0L, timeline), 1e-6f)
+        assertEquals(0f, lineTransitionEnterProgress(150L, timeline), 1e-6f)
+        assertEquals(0f, lineTransitionEnterProgress(300L, timeline), 1e-6f)
+        assertEquals(0.5f, lineTransitionEnterProgress(300L + 225L, timeline), 1e-6f)
+        assertEquals(1f, lineTransitionEnterProgress(750L, timeline), 1e-6f)
+        // 退场进度独立推进。
+        assertEquals(0.5f, lineTransitionExitProgress(150L, timeline), 1e-6f)
+        assertEquals(1f, lineTransitionExitProgress(300L, timeline), 1e-6f)
+        // 历史档同样严格序列(此前退场/入场共用 elapsed 叠加,旧行未走完新行已进场=歌词重叠):
+        // 「Fade up」退场 130ms 结束前入场恒 0,结束后才开始推进。
+        val legacy = lineTransitionTimeline("Fade up", "Normal", false)
+        assertEquals(0f, lineTransitionEnterProgress(130L, legacy), 1e-6f)
+        assertTrue(lineTransitionEnterProgress(150L, legacy) > 0f)
+    }
+
+    @Test
+    fun promotionPhaseSitsBetweenExitAndEnterAndDrivesMoveFrame() {
+        // 晋级段夹在退场与入场之间:退场走完才动,入场等落位后才进。
+        val timeline = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
+        assertEquals(300L, timeline.exitMs)
+        assertEquals(220L, timeline.moveMs)
+        assertEquals(450L, timeline.enterMs)
+        assertEquals(970L, timeline.totalMs)
+        assertEquals(0f, lineTransitionMoveProgress(299L, timeline), 1e-6f)
+        assertEquals(0.5f, lineTransitionMoveProgress(300L + 110L, timeline), 1e-6f)
+        assertEquals(1f, lineTransitionMoveProgress(520L, timeline), 1e-6f)
+        assertEquals(0f, lineTransitionEnterProgress(519L, timeline), 1e-6f)
+        assertEquals(0f, lineTransitionEnterProgress(520L, timeline), 1e-6f)
+        assertTrue(lineTransitionEnterProgress(600L, timeline) > 0f)
+        // 无晋级段时位移进度恒 1、总长不含位移。
+        val plain = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", false)
+        assertEquals(0L, plain.moveMs)
+        assertEquals(1f, lineTransitionMoveProgress(0L, plain), 1e-6f)
+        assertEquals(750L, plain.totalMs)
+        // 速率档等比缩放三段(慢档 1.5×)。
+        val slow = lineTransitionTimeline("fade_out_up_fade_in_up", "Slow", true)
+        assertEquals(450L, slow.exitMs)
+        assertEquals(330L, slow.moveMs)
+        assertEquals(675L, slow.enterMs)
+    }
+
+    @Test
+    fun promotionRoleFollowsContentContinuity() {
+        // 内容延续判定:旧「下一行」== 新「主行」才晋级;跳行/空白/跨曲都走整体退场+进场。
+        assertTrue(lineTransitionPromotes("第二句", "第二句"))
+        assertFalse(lineTransitionPromotes("第二句", "第五句"))
+        assertFalse(lineTransitionPromotes("", ""))
+        assertFalse(lineTransitionPromotes("", "第一句"))
+        assertFalse(lineTransitionPromotes("第二句", ""))
+    }
+
+    @Test
+    fun promotionMoveFrameScalesUpAndBrightensIntoPlace() {
+        // 位移帧:translateFraction 1→0 乘槽位差;scale 自 1/字号比 放大到 1;alpha 自旧行亮度升满。
+        val start = lineTransitionMoveFrame(0f, sizeRatio = 1.4f, fromAlpha = 0.45f)
+        assertEquals(1f, start.translateFraction, 1e-6f)
+        assertEquals(1f / 1.4f, start.scale, 1e-6f)
+        assertEquals(0.45f, start.alpha, 1e-6f)
+        val mid = lineTransitionMoveFrame(0.5f, sizeRatio = 1.4f, fromAlpha = 0.45f)
+        assertEquals(0.5f, mid.translateFraction, 1e-6f)
+        assertEquals((1f / 1.4f + 1f) / 2f, mid.scale, 1e-6f)
+        assertEquals(0.725f, mid.alpha, 1e-6f)
+        val end = lineTransitionMoveFrame(1f, sizeRatio = 1.4f, fromAlpha = 0.45f)
+        assertEquals(0f, end.translateFraction, 1e-6f)
+        assertEquals(1f, end.scale, 1e-6f)
+        assertEquals(1f, end.alpha, 1e-6f)
+        // 字号比 ≤1(下一行更大等异常值)不放大不缩小。
+        assertEquals(1f, lineTransitionMoveFrame(0f, sizeRatio = 1f, fromAlpha = 1f).scale, 1e-6f)
+        assertEquals(1f, lineTransitionMoveFrame(0f, sizeRatio = 0.5f, fromAlpha = 1f).scale, 1e-6f)
     }
 
     @Test
@@ -330,7 +387,6 @@ class AodCanvasTransitionTest {
             val preset = lineTransitionPreset(mode)
             assertTrue(mode, mode in legacy || preset != null)
             if (preset != null) {
-                assertTrue(mode, isSequentialLineTransition(mode))
                 assertTrue(mode, preset.outMs > 0 && preset.inMs > 0)
             }
         }
@@ -388,7 +444,7 @@ class AodCanvasTransitionTest {
         assertEquals(270L, enterTransitionMs("flip_out_x_flip_in_x", "Fast"))
         for ((id, preset) in LINE_TRANSITION_PRESETS) {
             assertTrue(id, preset.outMs > 0 && preset.inMs > 0)
-            assertEquals(id, preset.outMs + preset.inMs, lineTransitionTotalMs(id, "Normal"))
+            assertEquals(id, preset.outMs + preset.inMs, lineTransitionTimeline(id, "Normal", false).totalMs)
         }
     }
 
