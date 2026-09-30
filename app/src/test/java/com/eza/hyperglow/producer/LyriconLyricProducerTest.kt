@@ -178,6 +178,82 @@ class LyriconLyricProducerTest {
         assertEquals(1_500L, words[0].endMs)
     }
 
+
+    @Test
+    fun translatedLine_fallsBackToTranslationWordsWhenTextMissing() {
+        // 冗余对兜底：源只带 translationWords（SDK Song 不做逐行 normalize）时译文不能丢。
+        val song = Song(
+            id = "song-words",
+            name = "Words Song",
+            artist = "Test Artist",
+            duration = 8_000L,
+            lyrics = listOf(
+                RichLyricLine(
+                    begin = 1_000,
+                    end = 3_000,
+                    text = "first",
+                    translation = "",
+                    translationWords = listOf(word(1_000, 2_000, "译"), word(2_000, 3_000, "文"))
+                )
+            )
+        )
+        producer.playerListener.onSongChanged(song)
+        producer.playerListener.onPositionChanged(2_000L)
+
+        val state = producer.state.value!!
+        assertEquals(0, state.lineIndex)
+        assertEquals("译文", state.translatedLine)
+    }
+
+    @Test
+    fun translatedLine_prefersTranslationTextOverWords() {
+        // 冗余对同时存在：文本优先，词表只兜底（不覆盖已有译文）。
+        val song = Song(
+            id = "song-both",
+            name = "Both Song",
+            artist = "Test Artist",
+            duration = 8_000L,
+            lyrics = listOf(
+                RichLyricLine(
+                    begin = 1_000,
+                    end = 3_000,
+                    text = "first",
+                    translation = "文本",
+                    translationWords = listOf(word(1_000, 3_000, "词"))
+                )
+            )
+        )
+        producer.playerListener.onSongChanged(song)
+        producer.playerListener.onPositionChanged(2_000L)
+
+        assertEquals("文本", producer.state.value!!.translatedLine)
+    }
+
+    @Test
+    fun fullSongSnapshot_carriesTranslationWordsAndBackfillsTranslationText() {
+        // 插件链输入侧同一规则：文本兜底取文 + 词表原样随行过桥。
+        val song = Song(
+            id = "song-words",
+            name = "Words Song",
+            artist = "Test Artist",
+            duration = 8_000L,
+            lyrics = listOf(
+                RichLyricLine(
+                    begin = 1_000,
+                    end = 3_000,
+                    text = "first",
+                    translation = "",
+                    translationWords = listOf(word(1_000, 2_000, "译"), word(2_000, 3_000, "文"))
+                )
+            )
+        )
+        producer.playerListener.onSongChanged(song)
+
+        val row = producer.fullSongSnapshot()!!.rows.single()
+        assertEquals("译文", row.translation)
+        assertEquals(listOf("译", "文"), row.translationWords?.map { it.text })
+    }
+
     @Test
     fun positionInGapBetweenLines_showsPreviousLine() {
         // Gap: line 0 ends at 3000, line 1 begins at 3500. Position 3200 is in the gap.

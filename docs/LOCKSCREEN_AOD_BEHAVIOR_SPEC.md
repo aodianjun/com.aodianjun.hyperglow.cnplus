@@ -24,6 +24,12 @@ customization, and fallback.
   still in flight), scalar state may keep the original lyric line visible and may supply its
   auxiliary lines — a deliberate CN+ divergence from upstream v0.3.97, which drops scalar
   auxiliary lines entirely.
+- Translation is a redundant pair (text + word list; either may arrive alone) on every producer
+  and plugin boundary. When only the word list is present, the effective translation text is
+  assembled from it — non-blank text always wins and the words never overwrite existing text —
+  and the word list crosses the plugin bridge unchanged (`PluginLyricLine.translationWords`). The
+  reverse path applies a plugin result that declares only translation words the same way. A
+  word-level translation is never dropped at a boundary.
 - A Chinese document carrying kana ruby is language-inconsistent producer data. Projection keeps
   the original lyric and rejects that row's ruby, whole-line romanization, and per-word
   romanization; it does not classify the lyric again or synthesize a replacement reading.
@@ -523,6 +529,7 @@ above and must fail back to Xiaomi's original target.
 - 过期、Binder 死亡、调用方失败或无效 payload 会隐藏所有订阅方。被显式标记为真实 Spotify 暂停的隐藏状态，可以按照下文的共享有界策略保留最后的有效歌词 snapshot。终态隐藏状态会将其清除。
 - 状态/配置携带应用用户 ID；SystemUI 用户切换时会清除/重新绑定，并拒绝前一用户的缓存 payload。
 - 音译、翻译、带时值的朗读片段与注音（ruby）来自当前匹配的生产者文档（一旦到达）。在该文档存在之前（未带时值的曲目，或文档仍在传输中），标量状态可以保持原歌词行可见，并可以提供其辅助行——这是相对上游 v0.3.97 的一个有意的 CN+ 分歧，上游会完全丢弃标量辅助行。
+- 翻译在每个生产者/插件边界上都是冗余对（文本 + 词表，二者皆可单独出现）：只带词表时按词表拼出兜底译文（非空文本恒优先，词表不覆盖已有文本），词表原样穿过插件桥（`PluginLyricLine.translationWords`）；回向对只声明词表的插件结果同规则回填。词级翻译不得在任何边界被丢弃。
 - 携带假名注音（kana ruby）的中文文档属于语言不一致的生产者数据。Projection 保留原歌词，并拒绝该行的 ruby、整行罗马音与逐词罗马音；不会重新对歌词进行语言分类，也不会合成替代朗读。
 - 行填充结束点必须保持在曲目时长之内。超出该行生效窗口的生产者填充结束点，在渲染时会被钳制到生效结束点；这一有界失配不会导致本来有效的带时值文档被丢弃，也不会释放 keepalive。
 - AOD keepalive 与锁屏亮屏策略保持相互独立。任一策略都不能仅凭另一 surface 的状态而激活。

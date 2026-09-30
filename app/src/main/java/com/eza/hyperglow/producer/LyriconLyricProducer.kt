@@ -557,7 +557,10 @@ class LyriconLyricProducer(
                         startMs = line.begin,
                         endMs = line.end,
                         text = line.text.orEmpty(),
-                        translation = line.translation.orEmpty(),
+                        // 翻译冗余对随行过桥:文本兜底取文(effectiveTranslation)+词表原样携带,
+                        // 只带 translationWords 的源在插件链输入侧不丢译文。
+                        translation = line.effectiveTranslation(),
+                        translationWords = line.toTranslationWords(),
                         roma = line.roma.orEmpty(),
                         words = line.toLyricWords()?.takeIf { it.isNotEmpty() },
                         // 对唱分侧随行进入插件链(见 activeAlignedRight)。

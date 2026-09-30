@@ -377,6 +377,9 @@ object PluginPipeline {
             return buildSet {
                 if (finalRows.any { !it.text.isNullOrBlank() }) add(PluginLyricField.TEXT)
                 if (finalRows.any { !it.translation.isNullOrBlank() }) add(PluginLyricField.TRANSLATION)
+                if (finalRows.any { !it.translationWords.isNullOrEmpty() }) {
+                    add(PluginLyricField.TRANSLATION_WORDS)
+                }
                 if (finalRows.any { !it.roma.isNullOrBlank() }) add(PluginLyricField.ROMA)
                 if (finalRows.any { !it.words.isNullOrEmpty() }) add(PluginLyricField.WORDS)
             }

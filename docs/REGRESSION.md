@@ -20,6 +20,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
 - Position anchoring (clock anchor stabilization, stock settle drift)
 - Lyric source arbitration (producer staleness rules, fallback takeover, Lyricon feed recovery)
 - Landscape rotation (canvas rotation, logical frame, surface rect swap)
+- Auxiliary secondary-text sourcing (translation/transliteration content across producer and
+  plugin boundaries)
 
 ## Entry format
 
@@ -40,9 +42,11 @@ and (b) unverified paths stay explicit instead of silently assumed.
 | 2026-09-26 | 0.3.116 (143) | AOD wake and keepalive | fail | Redmi K80 Pro (`miro`) / DEV-2327.0.0.1-03022115 (22327001) | trace-observed | AOD lyrics surface never attaches on doze: `AodPowerStateMonitor.attach` NPE (null `applicationContext` in the host package context) aborts `buildSurface`, `Attach failed` on every screen-off (regression since 0.3.114 / #72). Fix (context fallback + attach isolation) lands with this entry; update to pass + device-verified after hardware re-check. |
 | 2026-09-27 | 0.3.120 (147) | Lyric source arbitration | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | Home "Now playing" stuck on "No track from the active source yet" while music played: the Lyricon callback path silently died after the 0.3.120 install restart (position/playback callbacks never arrived, `isPlayingState` froze at false), both rebuild watchdogs stayed blind (gated on the frozen playing flag and a never-saw-callback baseline), and the arbiter dead-locked `active=null` (stale-sweep cleared a state the selector still deemed usable; signature dedup never re-published). Follow-up: this fix. |
 | 2026-09-29 | 0.3.129 (156) | Lyric source arbitration | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | Whole song showed no lyrics (stable placeholder for the last 2m43s) on《淑女的品格》: the SDK delivered the subscribe backfill `onSongChanged` 12 ms *before* the `connected` callback, the late connect callback re-armed the issue #56 backfill window, and the real track change 2 minutes later was misclassified as a re-sync (kept the old position, dropped the exact-match residual filters, opened the plausibility gate). The previous track's frozen shared-memory residual (164072 ms) was then accepted as the real position, the active line jumped to the song tail (`idx=58/62`) and clamped to the stable placeholder once extrapolation hit the duration. The same residual was correctly rejected minutes later on two other tracks with the gate closed — the gate itself is intact; only the classification raced. Fix (backfill window armed only at subscribe actions, residual filters stay armed through a re-sync, a changed-id backfill resets the timeline with the gate kept open) lands with this entry; update to pass + device-verified after hardware re-check. |
+| 2026-09-29 | 0.3.129 (156) | Auxiliary secondary-text sourcing | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | Auxiliary translation line missing on the AOD for Sunshine (OneRepublic, NetEase CloudMusic via LyriconProvider): the render configuration was correct (`secondaryMode=Translation` on both surfaces) and the render gate is pass-through, while the plugin chain's `跳过 AI 翻译: reason=existing_translation` at chain time proves the bridge input carried non-blank translation text (the plugin skip loop reads only `PluginLyricLine.getTranslation` with `isBlank`, the same predicate as the display gate) and all 67 rows were displayed as the active line — the visual symptom itself is a user report, not a capture. Verified adjacent defect: the host dropped the translation word list at every producer/plugin boundary (`translationWords` never crossed the bridge, word-only plugin results never applied). Fix (translation text/word-list redundancy pair honored at the three boundaries) lands with this entry; residual suspects for the symptom are sparse translation coverage in the installed provider build or a runtime display condition — re-check on hardware and update to pass + device-verified. |
 
 ## Known unverified paths
 
+- Translation redundancy pair across the producer/plugin bridge (`translationWords` backfills the translation text when the text is missing, crosses `PluginLyricLine.translationWords` unchanged, and word-only plugin results apply on the reverse path; unit-tested) — pending a hardware smoke check after merge: a source delivering word-level translations only must show the auxiliary translation line on the AOD, and a song whose translations arrive as plain text must be unchanged.
 - Frame-perfect 60 FPS animation on AOD (`docs/ARCHITECTURE.md`: "remains unverified and is not a
   contract").
 - Real-device `custom`/`noto-sc` typeface rendering through the unified `LyricTypefaceResolver`
@@ -299,6 +303,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 位置锚定（时钟锚点稳定、stock settle 漂移）
 - 歌词源仲裁（生产者 staleness 谓词、回退接管、Lyricon 供数恢复）
 - 横屏旋转（画布旋转、逻辑帧、surface rect 交换）
+- 辅助文本取数（翻译/音译内容在生产者与插件边界上的传递）
 
 ## 条目格式
 
@@ -319,9 +324,11 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 | 2026-09-26 | 0.3.116 (143) | AOD 唤醒与 keepalive | fail | Redmi K80 Pro (`miro`) / DEV-2327.0.0.1-03022115 (22327001) | trace-observed | 息屏时 AOD 歌词 surface 从未挂载：`AodPowerStateMonitor.attach` NPE（宿主包 context 的 `applicationContext` 为 null）炸掉 `buildSurface`，每次息屏 `Attach failed`（0.3.114 / #72 引入的回归）。修复（context 回退 + attach 隔离）随本条目落地；真机复验后更新为 pass + device-verified。 |
 | 2026-09-27 | 0.3.120 (147) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | 播放中主页「正在播放」常驻「当前歌词源暂无曲目。」：0.3.120 装机重启后 Lyricon 回调链静默死亡（位置/播放状态回调不再到达，`isPlayingState` 冻结 false），两个重建看门狗均为盲区（以冻结的 playing 与「从未收到回调」基线为条件），仲裁器 active 死锁在 null（staleSweep 清掉选源仍视为可用的状态，sig 去重后永不重发）。后续：本修复。 |
 | 2026-09-29 | 0.3.129 (156) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | 《淑女的品格》整首无歌词（最后 2m43s 全占位）：SDK 先投递订阅补发的 `onSongChanged`、12ms 后才回调 `connected`，迟到的连接回调把 issue #56 补发判定窗口重新打开，2 分钟后的真·切歌被误判为重同步（保留旧位置、清空精确匹配残留过滤、门控敞开）；上一首冻结的共享内存残留（164072ms）被当真实位置接受，活动行跳到歌尾（`idx=58/62`），外推到歌长后钳制稳定占位。同一残留值几分钟后在另两首歌上被关闸的门控正确拒收 —— 门控本身无损，问题只在判定被乱序抢先。修复（判定窗口只在订阅动作处武装 + 重同步分支保留残留过滤 + 补发换歌 id 时归零但门控保持敞开）随本条目落地；真机复验后更新为 pass + device-verified。 |
+| 2026-09-29 | 0.3.129 (156) | 辅助文本取数 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | Sunshine（OneRepublic，网易云经 LyriconProvider）息屏翻译辅助行缺失：渲染配置正确（两个 surface 均 `secondaryMode=Translation`）、渲染门控是直通的；而插件链入链时的 `跳过 AI 翻译: reason=existing_translation` 证明桥输入带非空翻译文本（插件 skip 循环只读 `PluginLyricLine.getTranslation` 加 `isBlank`，与显示门控同一谓词），且 67 行全部作为活动行上过屏 —— 视觉症状本身是用户目击、无截图。已证实的相邻缺陷：宿主在每个生产者/插件边界都丢翻译词表（`translationWords` 从不过桥、只给词表的插件结果从不回填）。修复（翻译文本/词表冗余对在三处边界按兜底取文）随本条目落地；症状的残余嫌疑为已装 provider 构建的翻译覆盖稀疏或运行时显示条件 —— 真机复验后更新为 pass + device-verified。 |
 
 ## 已知未验证路径
 
+- 翻译冗余对在生产者/插件桥上的传递（文本缺失时由 `translationWords` 拼出兜底译文、词表原样穿过 `PluginLyricLine.translationWords`、只给词表的插件结果在回向同规则回填；已单测）——合并后待真机冒烟：只带词级翻译的源必须显示翻译辅助行，译文以纯文本到达的曲目显示不变。
 - AOD 上逐帧 60 FPS 动画（`docs/ARCHITECTURE.md`："remains unverified and is not a contract"）。
 - 实机 `custom`/`noto-sc` 字体经统一 `LyricTypefaceResolver` 路径渲染（预览/实机字体同源）——合并后待真机冒烟确认。
 - 共享 `LyricLayoutEngine` 抽取后的断行/行距（算法逐字迁移）——合并后待真机冒烟歌词折行与行距无回归。
