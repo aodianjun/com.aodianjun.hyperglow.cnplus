@@ -359,6 +359,8 @@
     <string name="option_color_sakura_pink">櫻花粉</string>
     <string name="option_color_butter_yellow">鵝黃</string>
     <string name="option_color_lavender">淡紫</string>
+    <string name="option_color_black">黑色</string>
+    <string name="option_color_white">白色</string>
     <string name="section_colors">顏色</string>
     <string name="palette_primary_text">主歌詞顏色</string>
     <string name="palette_secondary_text">輔助行顏色</string>

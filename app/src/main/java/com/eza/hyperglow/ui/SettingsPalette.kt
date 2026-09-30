@@ -86,14 +86,22 @@ private fun scaleRgb(argb: Int, factor: Float): Int {
 internal fun argbToColorToken(argb: Int): String =
     String.format(Locale.US, "#%06X", argb and 0xFFFFFF)
 
-private val COLOR_TOKEN_LABELS = mapOf(
+/**
+ * 取色弹窗的预设颜色(token→展示名):顺序即展示顺序,
+ * [colorTokenLabel] 的名字映射由本表派生,单点维护。
+ */
+internal val PRESET_COLORS: List<Pair<String, Int>> = listOf(
     "#FFD9A0" to R.string.option_color_warm_gold,
     "#A9D9FF" to R.string.option_color_ice_blue,
     "#B8F0C9" to R.string.option_color_mint_green,
     "#FFC9DE" to R.string.option_color_sakura_pink,
     "#FFF3A8" to R.string.option_color_butter_yellow,
-    "#D9C9FF" to R.string.option_color_lavender
+    "#D9C9FF" to R.string.option_color_lavender,
+    "#000000" to R.string.option_color_black,
+    "#FFFFFF" to R.string.option_color_white
 )
+
+private val COLOR_TOKEN_LABELS = PRESET_COLORS.toMap()
 
 /** 颜色 token 的展示文案:default/dimmed/已知预设名,其余直接显示 hex 色值。 */
 internal fun colorTokenLabel(context: Context, value: String): String = when (value) {

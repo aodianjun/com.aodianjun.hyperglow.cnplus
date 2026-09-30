@@ -1,7 +1,9 @@
 package com.eza.hyperglow.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,6 +40,8 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+private const val PRESET_COLORS_PER_ROW = 4
+
 /**
  * 解析用户输入的十六进制颜色代码:允许省略 `#`、大小写混写与首尾空白,
  * 其余语义与 [parseOpaqueColorOrNull] 一致(`#RGB`/`#RRGGBB`/`#AARRGGBB`,忽略透明度);
@@ -51,8 +55,9 @@ internal fun parseHexColorInput(raw: String): Int? {
 }
 
 /**
- * 取色弹窗底部的「色块预览 + 颜色代码输入」组合:点按色块展开/收起代码输入行,
- * 输入 `#66CCFF` 形式(可省略 `#`)后点「应用」或回车即写入 [onColorChange]。
+ * 取色弹窗底部的「色块预览」组合:点按色块展开/收起预设颜色与代码输入行。
+ * 预设色块([PRESET_COLORS])点按即写入 [onColorChange],当前项描边高亮;
+ * 代码输入 `#66CCFF` 形式(可省略 `#`)后点「应用」或回车同样写入。
  * 非法代码就地提示且不改动当前颜色。
  */
 @Composable
@@ -91,6 +96,27 @@ internal fun ColorSwatchHexInput(
                 .semantics { contentDescription = editDesc }
         )
         if (showInput) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PRESET_COLORS.chunked(PRESET_COLORS_PER_ROW).forEach { rowTokens ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowTokens.forEach { (token, labelRes) ->
+                            val presetArgb = parseOpaqueColorOrNull(token) ?: return@forEach
+                            PresetColorSwatch(
+                                argb = presetArgb,
+                                label = stringResource(labelRes),
+                                selected = argbToColorToken(argb) == token,
+                                onClick = { onColorChange(presetArgb) }
+                            )
+                        }
+                    }
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -134,4 +160,26 @@ internal fun ColorSwatchHexInput(
             }
         }
     }
+}
+
+/** 预设颜色小色块:点按应用该色;与当前色一致时描边高亮。 */
+@Composable
+private fun PresetColorSwatch(argb: Int, label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(Color(argb))
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) {
+                    MiuixTheme.colorScheme.primary
+                } else {
+                    MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                },
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = label }
+    )
 }

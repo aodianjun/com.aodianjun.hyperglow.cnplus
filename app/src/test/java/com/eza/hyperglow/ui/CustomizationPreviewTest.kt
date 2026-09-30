@@ -5,6 +5,7 @@ import androidx.compose.ui.text.style.TextAlign
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
+import com.eza.hyperglow.root.aod.parseOpaqueColorOrNull
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import org.junit.Assert.assertEquals
@@ -124,6 +125,16 @@ class CustomizationPreviewTest {
         assertNull(parseHexColorInput("#GGHHII"))
         assertNull(parseHexColorInput("#12345"))
         assertNull(parseHexColorInput("reddish"))
+    }
+
+    @Test
+    fun presetColorsParseAndRoundTripCanonically() {
+        // 预设颜色与颜色 token 名字词表同源:每项可解析且 canonical hex 回写一致(选中态比对依赖此式)。
+        for ((token, _) in PRESET_COLORS) {
+            val parsed = parseOpaqueColorOrNull(token)
+            assertTrue("preset $token must parse", parsed != null)
+            assertEquals(token, argbToColorToken(parsed!!))
+        }
     }
 
     @Test
