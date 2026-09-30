@@ -39,6 +39,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
 |---|---|---|---|---|---|---|
 | 2026-09-26 | 0.3.116 (143) | AOD wake and keepalive | fail | Redmi K80 Pro (`miro`) / DEV-2327.0.0.1-03022115 (22327001) | trace-observed | AOD lyrics surface never attaches on doze: `AodPowerStateMonitor.attach` NPE (null `applicationContext` in the host package context) aborts `buildSurface`, `Attach failed` on every screen-off (regression since 0.3.114 / #72). Fix (context fallback + attach isolation) lands with this entry; update to pass + device-verified after hardware re-check. |
 | 2026-09-27 | 0.3.120 (147) | Lyric source arbitration | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | Home "Now playing" stuck on "No track from the active source yet" while music played: the Lyricon callback path silently died after the 0.3.120 install restart (position/playback callbacks never arrived, `isPlayingState` froze at false), both rebuild watchdogs stayed blind (gated on the frozen playing flag and a never-saw-callback baseline), and the arbiter dead-locked `active=null` (stale-sweep cleared a state the selector still deemed usable; signature dedup never re-published). Follow-up: this fix. |
+| 2026-09-29 | 0.3.129 (156) | Lyric source arbitration | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | Whole song showed no lyrics (stable placeholder for the last 2m43s) on《淑女的品格》: the SDK delivered the subscribe backfill `onSongChanged` 12 ms *before* the `connected` callback, the late connect callback re-armed the issue #56 backfill window, and the real track change 2 minutes later was misclassified as a re-sync (kept the old position, dropped the exact-match residual filters, opened the plausibility gate). The previous track's frozen shared-memory residual (164072 ms) was then accepted as the real position, the active line jumped to the song tail (`idx=58/62`) and clamped to the stable placeholder once extrapolation hit the duration. The same residual was correctly rejected minutes later on two other tracks with the gate closed — the gate itself is intact; only the classification raced. Fix (backfill window armed only at subscribe actions, residual filters stay armed through a re-sync, a changed-id backfill resets the timeline with the gate kept open) lands with this entry; update to pass + device-verified after hardware re-check. |
 
 ## Known unverified paths
 
@@ -237,6 +238,21 @@ and (b) unverified paths stay explicit instead of silently assumed.
   with the main row. Pending a hardware smoke check after merge: with `fade_out_up_fade_in_up`
   (plus one other up/down preset) the outgoing line no longer crosses the song-info row, the
   incoming line rises from a quarter of the block height, and the preview matches the device.
+- Lyricon backfill/real-change classification race fix (issue #56): the re-sync decision window is
+  armed only at subscribe actions (`start()`, forced resubscribe, disconnect, connect timeout) and
+  no longer re-armed by a late `onConnected`/`onReconnected` — the SDK was observed delivering the
+  subscribe backfill `onSongChanged` 12 ms before the connect callback, which re-opened the window
+  and made a real track change look like a re-sync (see the 2026-09-29 ledger row). Defense in
+  depth: the exact-match residual filters stay armed through a re-sync (a frozen writer keeps
+  re-sending the previous song's last value at ~60 Hz), and a backfill carrying a changed song id
+  resets the timeline to 0 with the previous song's last position registered for exact-match
+  rejection while the plausibility gate stays open (the new song may already be mid-playback).
+  Unit-tested (backfill-before-connect ordering, cross-reconnect song change, frozen residual
+  surviving a re-sync; same-id re-delivery still re-syncs) — pending a hardware smoke check after
+  merge: play a track past the middle, let the lyric feed reconnect (or watch a track change land
+  right around a reconnect), and confirm the lyrics stay on the current line instead of jumping to
+  the song tail placeholder; with the writer frozen (screen off) the old-song value must never
+  jump the active line.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -287,6 +303,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 |---|---|---|---|---|---|---|
 | 2026-09-26 | 0.3.116 (143) | AOD 唤醒与 keepalive | fail | Redmi K80 Pro (`miro`) / DEV-2327.0.0.1-03022115 (22327001) | trace-observed | 息屏时 AOD 歌词 surface 从未挂载：`AodPowerStateMonitor.attach` NPE（宿主包 context 的 `applicationContext` 为 null）炸掉 `buildSurface`，每次息屏 `Attach failed`（0.3.114 / #72 引入的回归）。修复（context 回退 + attach 隔离）随本条目落地；真机复验后更新为 pass + device-verified。 |
 | 2026-09-27 | 0.3.120 (147) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | 播放中主页「正在播放」常驻「当前歌词源暂无曲目。」：0.3.120 装机重启后 Lyricon 回调链静默死亡（位置/播放状态回调不再到达，`isPlayingState` 冻结 false），两个重建看门狗均为盲区（以冻结的 playing 与「从未收到回调」基线为条件），仲裁器 active 死锁在 null（staleSweep 清掉选源仍视为可用的状态，sig 去重后永不重发）。后续：本修复。 |
+| 2026-09-29 | 0.3.129 (156) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | 《淑女的品格》整首无歌词（最后 2m43s 全占位）：SDK 先投递订阅补发的 `onSongChanged`、12ms 后才回调 `connected`，迟到的连接回调把 issue #56 补发判定窗口重新打开，2 分钟后的真·切歌被误判为重同步（保留旧位置、清空精确匹配残留过滤、门控敞开）；上一首冻结的共享内存残留（164072ms）被当真实位置接受，活动行跳到歌尾（`idx=58/62`），外推到歌长后钳制稳定占位。同一残留值几分钟后在另两首歌上被关闸的门控正确拒收 —— 门控本身无损，问题只在判定被乱序抢先。修复（判定窗口只在订阅动作处武装 + 重同步分支保留残留过滤 + 补发换歌 id 时归零但门控保持敞开）随本条目落地；真机复验后更新为 pass + device-verified。 |
 
 ## 已知未验证路径
 
@@ -364,6 +381,15 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   `target.getHeight()/4` 同义），待下述冒烟确认。历史档不受影响（不读该参数），逐像素不变；预览改为测量各层行块
   实测高，不再用主行高近似。合并后待真机冒烟：`fade_out_up_fade_in_up`（再加一档上下向预设）旧行
   不再穿过歌曲信息行、新行自行块高 1/4 处升起，且预览与实机一致。
+- Lyricon 补发/真切歌判定乱序修复（issue #56）：重同步判定窗口只在订阅动作处武装
+  （`start()`、强制重建订阅、断连、连接超时），不再被迟到的 `onConnected`/`onReconnected`
+  重新打开 —— 真机实测 SDK 会先投递补发的 `onSongChanged`、12ms 后才回调连接回调，窗口被
+  重开后真切歌被误判为重同步（见 2026-09-29 台账条目）。纵深防御：重同步分支保留精确匹配
+  残留过滤器（写入端冻结时旧值以 ~60Hz 续吐）；补发携带的歌 id 变化时时间轴归零并登记旧歌
+  末位置精确拒收，但合理性门控保持敞开（新歌可能已播到歌中途）。单元测试覆盖（补发先于
+  连接回调、跨重连切歌、冻结残留经重同步仍拒；同 id 重发仍按重同步）——合并后待真机冒烟：
+  放歌到中段后让歌词源发生重连（或恰好在重连前后切歌），歌词须跟随当前行而不是跳歌尾占位；
+  息屏写入端冻结时旧歌残留值绝不允许把活动行跳走。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

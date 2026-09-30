@@ -1624,6 +1624,85 @@ class LyriconLyricProducerTest {
         )
     }
 
+    @Test
+    fun backfillBeforeConnectedCallback_nextRealChangeStillResets() {
+        // 真机回归(2026-09-29《淑女的品格》整首无歌词):SDK 先投递补发的 onSongChanged、
+        // 12ms 后才回调 connected。判定窗口若在连接回调复位,已被补发消费的窗口会被重开,
+        // 下一首真切歌被误判为重同步(保留旧位置 + 门控敞开),旧歌冻结残留被当真实位置接受。
+        val producer = LyriconLyricProducer { 0L }
+        producer.playerListener.onSongChanged(threeLineSong()) // 补发(先于 connected 到达)
+        producer.playerListener.onPositionChanged(6_000L)
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        producer.connectionListener.onConnected(unusedSubscriber) // 迟到的连接回调不得重开窗口
+
+        producer.playerListener.onSongChanged(sixtySecondSong()) // 真切歌:id 变、会话内已见歌
+        assertEquals(0L, producer.state.value!!.positionMs)
+        assertEquals(-1, producer.state.value!!.lineIndex)
+
+        // 旧歌冻结残留(等于旧歌末位置 6000)仍须被拒,而不是跳到新歌里对应旧行。
+        producer.playerListener.onPositionChanged(6_000L)
+        assertTrue(
+            "residual must stay rejected after a real change racing the connect callback",
+            producer.state.value!!.positionMs < 6_000L
+        )
+    }
+
+    @Test
+    fun reSyncWithChangedSongId_resetsTimelineButKeepsGateOpen() {
+        // 切歌恰好落在重连窗口内:补发携带的已是新歌。旧歌时间线作废(归零 + 旧末位置
+        // 精确拒收),但门控保持敞开 —— 新歌可能已播到歌中途,首个真实位置仍须直接采信。
+        val producer = LyriconLyricProducer { 0L }
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPositionChanged(6_000L)
+        assertEquals(2, producer.state.value!!.lineIndex)
+
+        producer.connectionListener.onDisconnected(unusedSubscriber)
+        producer.connectionListener.onReconnected(unusedSubscriber)
+        producer.playerListener.onSongChanged(sixtySecondSong()) // 重连补发携带新歌
+
+        assertEquals(0L, producer.state.value!!.positionMs)
+        assertEquals(-1, producer.state.value!!.lineIndex)
+
+        // 写入端冻结:旧歌末位置 6000 续吐必须被拒。
+        producer.playerListener.onPositionChanged(6_000L)
+        assertTrue(
+            "old-song frozen residual must stay rejected after a cross-reconnect song change",
+            producer.state.value!!.positionMs < 6_000L
+        )
+        // 新歌歌中途真实位置(30s)直接采信,门控不误拒。
+        producer.playerListener.onPositionChanged(30_000L)
+        assertEquals(30_000L, producer.state.value!!.positionMs)
+    }
+
+    @Test
+    fun reSyncKeepsFrozenResidualFilterArmed() {
+        // 防御纵深:重同步分支不再清空精确匹配残留过滤器 —— 切歌/暂停/seek 后写入端冻结
+        // 时旧值会以 ~60Hz 续吐,即便随后发生 (重)连重同步,该值仍须继续被拒。
+        val producer = LyriconLyricProducer { 0L }
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(6_000L)
+
+        producer.playerListener.onSongChanged(threeLineSong()) // 切歌(同 id 会话内仍算切歌)
+        // 写入端冻结在旧歌末位置 6000:切歌残留被拒的同时过滤器保持武装。
+        producer.playerListener.onPositionChanged(6_000L)
+
+        producer.connectionListener.onDisconnected(unusedSubscriber)
+        producer.connectionListener.onReconnected(unusedSubscriber)
+        producer.playerListener.onSongChanged(threeLineSong()) // 同 id 补发 → 重同步
+
+        // 重同步后冻结残留 6000 仍须被拒(过滤器不因重同步清空)。
+        producer.playerListener.onPositionChanged(6_000L)
+        assertTrue(
+            "frozen residual must stay rejected across a re-sync",
+            producer.state.value!!.positionMs < 6_000L
+        )
+        // 真实位置换新值后恢复正常采信。
+        producer.playerListener.onPositionChanged(1_500L)
+        assertEquals(1_500L, producer.state.value!!.positionMs)
+    }
+
     // --- Watchdog playing signal & subscribe-time silence baseline (0.3.120 regression:
     //     the whole callback path died right after subscribe — isPlayingState froze at false
     //     and no position callback ever arrived, so both rebuild watchdogs stayed blind) ---
