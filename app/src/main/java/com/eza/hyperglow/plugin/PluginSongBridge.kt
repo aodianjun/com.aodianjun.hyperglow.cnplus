@@ -90,16 +90,11 @@ object PluginSongBridge {
                     isAlignedRight = row.alignedRight,
                     metadata = PluginMetadata(values = mapOf(META_ROLE to row.role)),
                     text = row.text,
-                    words = row.words?.takeIf { it.isNotEmpty() }?.map { word ->
-                        PluginWord(
-                            begin = word.startMs,
-                            end = word.endMs,
-                            duration = (word.endMs - word.startMs).coerceAtLeast(0L),
-                            text = word.text
-                        )
-                    },
+                    words = toPluginWords(row.words),
                     secondary = row.roma.ifEmpty { null },
-                    translation = row.translation.ifEmpty { null },
+                    // 翻译冗余对随行过桥:文本兜底取文 + 词表原样携带(见 LyricSongRow.effectiveTranslation)。
+                    translation = row.effectiveTranslation().ifEmpty { null },
+                    translationWords = toPluginWords(row.translationWords),
                     roma = row.roma.ifEmpty { null }
                 )
             }
@@ -127,9 +122,13 @@ object PluginSongBridge {
         if (PluginLyricField.TEXT in patched.changedLyricFields) {
             enriched = enriched.copy(line = keepUnlessBlank(active.text, enriched.line))
         }
-        if (PluginLyricField.TRANSLATION in patched.changedLyricFields) {
+        if (PluginLyricField.TRANSLATION in patched.changedLyricFields ||
+            PluginLyricField.TRANSLATION_WORDS in patched.changedLyricFields
+        ) {
+            // 翻译冗余对:文本与词表任一被声明变化都按兜底取文回填——只给词表的插件结果
+            // (如 AI 翻译同给 TRANSLATION/TRANSLATION_WORDS)不能因为文本缺位被丢掉。
             enriched = enriched.copy(
-                translatedLine = keepUnlessBlank(active.translation, enriched.translatedLine)
+                translatedLine = keepUnlessBlank(effectiveTranslation(active), enriched.translatedLine)
             )
         }
         if (PluginLyricField.ROMA in patched.changedLyricFields) {
@@ -201,6 +200,26 @@ object PluginSongBridge {
      */
     private fun keepUnlessBlank(pluginValue: String?, producerValue: String): String =
         pluginValue?.takeIf { it.isNotBlank() } ?: producerValue
+
+    /** 生产者 [LyricWord] → 插件 [PluginWord]；空词表按 null 过桥（API 语义同原映射）。 */
+    private fun toPluginWords(words: List<LyricWord>?): List<PluginWord>? =
+        words?.takeIf { it.isNotEmpty() }?.map { word ->
+            PluginWord(
+                begin = word.startMs,
+                end = word.endMs,
+                duration = (word.endMs - word.startMs).coerceAtLeast(0L),
+                text = word.text
+            )
+        }
+
+    /**
+     * 插件行的翻译取文兜底（与 [LyricSongRow.effectiveTranslation] 同规则）：文本非空优先，
+     * 否则由 translationWords 拼出。插件 API 的 translation/translationWords 是冗余对，
+     * 只读文本字段会把只带词表的结果丢掉。
+     */
+    private fun effectiveTranslation(row: PluginLyricLine): String? =
+        row.translation?.takeIf { it.isNotBlank() }
+            ?: row.translationWords?.takeIf { it.isNotEmpty() }?.joinToString("") { it.text.orEmpty() }
 
     fun sessionKey(state: LyricProducerState): String =
         "${state.producerId}:${state.generation}:${state.trackUri}"

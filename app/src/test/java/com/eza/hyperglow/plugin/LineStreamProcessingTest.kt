@@ -9,6 +9,7 @@ import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricLine
 import com.lidesheng.hyperlyric.plugin.api.PluginMetadata
 import com.lidesheng.hyperlyric.plugin.api.PluginSong
+import com.lidesheng.hyperlyric.plugin.api.PluginWord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -155,18 +156,20 @@ class PluginSongBridgeSnapshotTest {
             receivedAtElapsedMs = 0L, words = null, renderModes = renderModes()
         )
 
-    private fun snapshot() = LyricSongSnapshot(
+    private fun snapshot(rows: List<LyricSongRow> = defaultRows()) = LyricSongSnapshot(
         producerId = "superlyric",
         generation = 0,
         trackUri = "superlyric:song",
         durationMs = 9_000L,
-        rows = listOf(
-            LyricSongRow(
-                startMs = 1_000, endMs = 5_000, text = "line1",
-                translation = "trans1", roma = "roma1"
-            ),
-            LyricSongRow(startMs = 5_000, endMs = 9_000, text = "line2")
-        )
+        rows = rows
+    )
+
+    private fun defaultRows() = listOf(
+        LyricSongRow(
+            startMs = 1_000, endMs = 5_000, text = "line1",
+            translation = "trans1", roma = "roma1"
+        ),
+        LyricSongRow(startMs = 5_000, endMs = 9_000, text = "line2")
     )
 
     @Test
@@ -191,6 +194,36 @@ class PluginSongBridgeSnapshotTest {
     }
 
     @Test
+    fun fromSnapshot_backfillsTranslationFromWordsAndCarriesThemAcross() {
+        // 只带词表的翻译(冗余对文本缺位)不能被桥丢掉:文本按词拼出兜底,词表原样过桥。
+        val wordOnly = LyricSongRow(
+            startMs = 1_000, endMs = 5_000, text = "line1",
+            translationWords = listOf(
+                LyricWord("译", "", 1_000L, 3_000L, false),
+                LyricWord("文", "", 3_000L, 5_000L, false)
+            )
+        )
+        val song = PluginSongBridge.fromSnapshot(state(), snapshot(listOf(wordOnly)))
+        val row = song.lyrics.orEmpty().single()
+        assertEquals("译文", row.translation)
+        assertEquals(listOf("译", "文"), row.translationWords?.map { it.text })
+    }
+
+    @Test
+    fun fromSnapshot_keepsTranslationTextAndDoesNotLetWordsOverrideIt() {
+        // 冗余对同时存在:文本优先,词表只兜底(与 LyricSongRow.effectiveTranslation 同规则)。
+        val both = LyricSongRow(
+            startMs = 1_000, endMs = 5_000, text = "line1",
+            translation = "文本",
+            translationWords = listOf(LyricWord("词", "", 1_000L, 5_000L, false))
+        )
+        val song = PluginSongBridge.fromSnapshot(state(), snapshot(listOf(both)))
+        val row = song.lyrics.orEmpty().single()
+        assertEquals("文本", row.translation)
+        assertEquals(listOf("词"), row.translationWords?.map { it.text })
+    }
+
+    @Test
     fun enrichStatePatchesActiveRowTranslationFromSynthesizedSong() {
         val st = state(positionMs = 6_000L) // 活动行 = 第二行 [5000, 9000)
         val original = PluginSongBridge.fromSnapshot(st, snapshot())
@@ -209,6 +242,55 @@ class PluginSongBridgeSnapshotTest {
         assertEquals("T1", enriched.translatedLine)
         // TEXT 未变：原文行与 nextLine 不被插件覆盖。
         assertEquals("raw", enriched.line)
+    }
+
+    @Test
+    fun enrichState_appliesWordsOnlyTranslationResult() {
+        // 插件只给 translationWords(如声明 TRANSLATION_WORDS 的词级翻译结果)时同样回填译文。
+        val st = state(positionMs = 6_000L) // 活动行 = 第二行 [5000, 9000)
+        val original = PluginSongBridge.fromSnapshot(st, snapshot())
+        val wordsOnly = original.copy(
+            lyrics = original.lyrics?.mapIndexed { index, row ->
+                row.copy(
+                    translation = null,
+                    translationWords = listOf(
+                        PluginWord(begin = 5_000L, end = 9_000L, duration = 4_000L, text = "W$index")
+                    )
+                )
+            }
+        )
+        val patched = PatchedSong(
+            sessionKey = PluginSongBridge.sessionKey(st),
+            song = wordsOnly,
+            changedSongFields = emptySet(),
+            changedLyricFields = setOf(PluginLyricField.TRANSLATION_WORDS)
+        )
+
+        val enriched = PluginSongBridge.enrichState(st, patched)
+
+        assertEquals("W1", enriched.translatedLine)
+    }
+
+    @Test
+    fun enrichState_blankTranslationResultKeepsProducerLine() {
+        // 词表也为空时不覆盖生产者译文(keepUnlessBlank:增强显示而非替换显示)。
+        val st = state(positionMs = 6_000L).copy(translatedLine = "producer-trans")
+        val original = PluginSongBridge.fromSnapshot(st, snapshot())
+        val blanked = original.copy(
+            lyrics = original.lyrics?.map { row ->
+                row.copy(translation = null, translationWords = emptyList())
+            }
+        )
+        val patched = PatchedSong(
+            sessionKey = PluginSongBridge.sessionKey(st),
+            song = blanked,
+            changedSongFields = emptySet(),
+            changedLyricFields = setOf(PluginLyricField.TRANSLATION_WORDS)
+        )
+
+        val enriched = PluginSongBridge.enrichState(st, patched)
+
+        assertEquals("producer-trans", enriched.translatedLine)
     }
 
     @Test
@@ -288,6 +370,32 @@ class PluginSongBridgeSnapshotTest {
 
         val (_, emptyLyricFields) = PluginPipeline.diff(base, emptyRows)
         assertTrue(emptyLyricFields.isEmpty())
+    }
+
+    @Test
+    fun diffOnRowCountChange_marksTranslationWordsWhenWordsCarryContent() {
+        // 行数变化的 REPLACE 也要识别词级翻译内容：只带 translationWords 的新表必须标记
+        // TRANSLATION_WORDS（文本字段为空），否则回向不会回填译文。
+        val base = song(
+            listOf(
+                line(0, 1_000, "a"),
+                line(1_000, 2_000, "b")
+            )
+        )
+        val wordsOnly = song(
+            listOf(
+                line(0, 500, "a1").copy(
+                    translationWords = listOf(PluginWord(begin = 0, end = 500, duration = 500, text = "译"))
+                ),
+                line(500, 1_000, "a2"),
+                line(1_000, 2_000, "b")
+            )
+        )
+
+        val (_, lyricFields) = PluginPipeline.diff(base, wordsOnly)
+
+        assertTrue(PluginLyricField.TRANSLATION_WORDS in lyricFields)
+        assertFalse(PluginLyricField.TRANSLATION in lyricFields)
     }
 
     private fun line(begin: Long, end: Long, text: String) = PluginLyricLine(

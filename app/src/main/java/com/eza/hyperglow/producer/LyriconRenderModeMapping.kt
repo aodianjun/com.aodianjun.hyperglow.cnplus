@@ -36,6 +36,30 @@ internal fun RichLyricLine.toLyricWords(): List<LyricWord>? = words?.map { w ->
 }
 
 /**
+ * 翻译词表 → [LyricWord]（与 [toLyricWords] 同构映射）。翻译是冗余对：SDK 的
+ * `RichLyricLine.normalize` 会用非空 translationWords 重新生成 translation，但订阅端
+ * 拿到的 Song 不经逐行 normalize，只带词表的源必须靠 [effectiveTranslation] 兜底。
+ */
+internal fun RichLyricLine.toTranslationWords(): List<LyricWord>? = translationWords?.map { w ->
+    LyricWord(
+        text = w.text.orEmpty(),
+        romanized = "",
+        startMs = w.begin,
+        endMs = w.end,
+        boundaryAfter = false
+    )
+}
+
+/**
+ * 翻译取文兜底（SDK 冗余对）：translation 非空优先，否则由 translationWords 拼出。
+ * 与 `RichLyricLine.normalize` 的词表再生语义一致，但只在文本缺失时兜底、不覆盖已有文本。
+ */
+internal fun RichLyricLine.effectiveTranslation(): String =
+    translation?.takeIf { it.isNotBlank() }
+        ?: translationWords?.takeIf { it.isNotEmpty() }?.joinToString("") { it.text.orEmpty() }
+        ?: ""
+
+/**
  * Refresh [renderModesSnapshot] from the AOD [CompiledSurfaceProfile]. Called on start and
  * song change — NOT at 60 Hz (compile is non-trivial). Per spec clause 5, the lyricon `Song`
  * carries no render modes, so they are sourced from HyperGlow's own customization.

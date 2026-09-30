@@ -31,6 +31,10 @@ data class LyricSongSnapshot(
  *
  * [alignedRight] 是对唱左右分侧的载体（源显式值或演唱者身份推导结果，见
  * [resolveDuetAlignment]）；桥接时进 PluginLyricLine.isAlignedRight，使插件链能读到并对齐回写。
+ *
+ * 翻译是冗余对（[translation] 文本 + [translationWords] 词表，语义同 SDK 的
+ * `RichLyricLine`/`PluginLyricLine`）：只带词表的源必须经 [effectiveTranslation] 兜底取文，
+ * 文本与词表都要随行过桥，否则词级翻译在快照/插件链/显示三处任一环节被静默丢弃。
  */
 data class LyricSongRow(
     val startMs: Long,
@@ -40,5 +44,16 @@ data class LyricSongRow(
     val roma: String = "",
     val words: List<LyricWord>? = null,
     val role: String = "LEAD",
-    val alignedRight: Boolean = false
-)
+    val alignedRight: Boolean = false,
+    val translationWords: List<LyricWord>? = null
+) {
+    /**
+     * 翻译取文兜底：[translation] 非空优先，否则由 [translationWords] 拼出。镜像
+     * `RichLyricLine.normalize` 的冗余对语义（词表非空时以词表重新生成文本），但只在
+     * 文本缺失时兜底、不覆盖已有文本——回向是增强显示而非替换显示（同
+     * `PluginSongBridge.keepUnlessBlank` 原则）。
+     */
+    fun effectiveTranslation(): String = translation.takeIf { it.isNotBlank() }
+        ?: translationWords?.takeIf { it.isNotEmpty() }?.joinToString("") { it.text.orEmpty() }
+        ?: ""
+}

@@ -254,7 +254,8 @@ internal fun LyriconLyricProducer.emit() {
         imageId = "",
         line = line?.text.orEmpty(),
         romanizedLine = line?.roma.orEmpty(),
-        translatedLine = line?.translation.orEmpty(),
+        // 翻译冗余对兜底：只带 translationWords 的源不能丢译文（见 effectiveTranslation）。
+        translatedLine = line?.effectiveTranslation().orEmpty(),
         lineIndex = currentLineIndex,
         positionMs = currentPositionMs,
         durationMs = song.duration,
