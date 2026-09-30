@@ -4,6 +4,7 @@ import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.TransitionPreset
+import com.eza.hyperglow.producer.LyricDuetLine
 import com.eza.hyperglow.producer.LyricKind
 import com.eza.hyperglow.producer.LyricLayoutGroup
 import com.eza.hyperglow.producer.LyricProducerState
@@ -13,6 +14,7 @@ import com.eza.hyperglow.producer.ProducerRenderModes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -746,4 +748,47 @@ class AodStateProjectorTest {
 
         assertEquals("（副歌） 爱你一万年", out.original)
     }
+
+    @Test
+    fun duetConcurrentOffDropsCandidateAtSource() {
+        val s = state(
+            line = "main",
+            lineIndex = 0,
+            words = listOf(LyricWord("main", "", 0L, 2_000L, false))
+        ).copy(
+            duetLine = LyricDuetLine(text = "second", lineStartMs = 500L, lineEndMs = 3_000L)
+        )
+        val gated = compiled.copy(
+            profiles = linkedMapOf(
+                SceneCompiler.SURFACE_LOCKSCREEN to
+                    compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
+                SceneCompiler.SURFACE_AOD to
+                    aodProfile(enabled = true, metadataVisible = true).copy(duetConcurrent = false)
+            )
+        )
+        val out = project(s, compiled = gated)
+        assertNull(out.duetLine)
+    }
+
+    @Test
+    fun duetConcurrentCarriesCandidateAndStripsMarkers() {
+        val s = state(
+            line = "main",
+            lineIndex = 0,
+            words = listOf(LyricWord("main", "", 0L, 2_000L, false))
+        ).copy(
+            duetLine = LyricDuetLine(
+                text = "（男）second",
+                lineStartMs = 500L,
+                lineEndMs = 3_000L,
+                words = listOf(LyricWord("（男）second", "", 500L, 3_000L, false))
+            )
+        )
+        val out = project(s)
+        assertNotNull(out.duetLine)
+        // 行首演唱者标记与主行同源剥离(duetMarkers 默认开)。
+        assertEquals("second", out.duetLine!!.text)
+        assertTrue(out.duetLine!!.words.isNotEmpty())
+    }
+
 }

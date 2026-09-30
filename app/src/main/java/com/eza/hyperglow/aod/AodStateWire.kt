@@ -81,6 +81,20 @@ internal class ArtworkJpeg(val bytes: ByteArray) {
     }
 }
 
+/**
+ * 对唱并发行(仅息屏消费);快照携带时其词级条数与主行共享 MAX_WORDS 上限
+ * (isValidSnapshot 求和校验),文本走同一聚合 UTF-8 预算。
+ */
+internal data class AodStateWireDuetLine(
+    val text: String,
+    val romanized: String = "",
+    val translated: String = "",
+    val alignedRight: Boolean = false,
+    val lineStartMs: Long,
+    val lineEndMs: Long,
+    val words: List<AodStateWireWord> = emptyList()
+)
+
 internal data class AodStateWireSnapshot(
     val trackGeneration: Long,
     val aodEnabled: Boolean,
@@ -138,7 +152,9 @@ internal data class AodStateWireSnapshot(
      */
     val artworkJpeg: ArtworkJpeg = ArtworkJpeg.EMPTY,
     /** 封面稳定键(包名+曲目身份),渲染侧按帧缓存解码位图;空串=无封面。 */
-    val artworkKey: String = ""
+    val artworkKey: String = "",
+    /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
+    val duetLine: AodStateWireDuetLine? = null
 )
 
 internal sealed interface AodStateWireMessage {
@@ -369,6 +385,27 @@ internal object AodStateWireCodec {
                 output.writeInt(snapshot.artworkJpeg.size)
                 output.write(snapshot.artworkJpeg.bytes)
                 output.writeBoundedString(snapshot.artworkKey)
+                // v4:对唱并发行(存在位 + 载荷);文本走聚合文本预算(isValidSnapshot 校验)。
+                val duet = snapshot.duetLine
+                output.writeStrictBoolean(duet != null)
+                duet?.let { line ->
+                    output.writeInt(line.words.size)
+                    output.writeBoundedString(line.text)
+                    output.writeBoundedString(line.romanized)
+                    output.writeBoundedString(line.translated)
+                    output.writeStrictBoolean(line.alignedRight)
+                    output.writeLong(line.lineStartMs)
+                    output.writeLong(line.lineEndMs)
+                    line.words.forEach { word ->
+                        output.writeBoundedString(word.text)
+                        output.writeBoundedString(word.romanized)
+                        output.writeLong(word.startMs)
+                        output.writeLong(word.endMs)
+                        output.writeStrictBoolean(word.boundaryAfter)
+                        output.writeInt(word.sourceStart)
+                        output.writeInt(word.sourceEnd)
+                    }
+                }
             }
             bytes.toByteArray().takeIf {
                 it.isNotEmpty() && it.size <= AodStateWireLimits.MAX_ENCODED_BODY_BYTES
@@ -521,6 +558,8 @@ internal object AodStateWireCodec {
                 allowEmpty = true,
                 budget = Utf8Budget()
             ) ?: return null
+            val hasDuet = input.readStrictBoolean() ?: return null
+            val duetLine = if (hasDuet) decodeDuetLine(input, budget) ?: return null else null
             if (input.available() != 0) return null
             AodStateWireSnapshot(
                 trackGeneration = trackGeneration,
@@ -574,8 +613,58 @@ internal object AodStateWireCodec {
                 metadataAnchor = metadataAnchor,
                 adaptiveSectioning = adaptiveSectioning,
                 artworkJpeg = artworkJpeg,
-                artworkKey = artworkKey
+                artworkKey = artworkKey,
+                duetLine = duetLine
             ).takeIf(::isValidSnapshot)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** 对唱并发行解码(v4 起):文本/副文本走聚合文本预算,词级条数与主行共享上限。 */
+    private fun decodeDuetLine(
+        input: DataInputStream,
+        budget: Utf8Budget
+    ): AodStateWireDuetLine? {
+        return try {
+            val wordCount = input.readBoundedCount(AodStateWireLimits.MAX_WORDS) ?: return null
+            val text = input.readBoundedString(
+                AodStateWireLimits.MAX_LYRIC_CHARS, allowEmpty = false, budget = budget
+            ) ?: return null
+            val romanized = input.readBoundedString(
+                AodStateWireLimits.MAX_LYRIC_CHARS, allowEmpty = true, budget = budget
+            ) ?: return null
+            val translated = input.readBoundedString(
+                AodStateWireLimits.MAX_LYRIC_CHARS, allowEmpty = true, budget = budget
+            ) ?: return null
+            val alignedRight = input.readStrictBoolean() ?: return null
+            val lineStartMs = input.readLong()
+            val lineEndMs = input.readLong()
+            val words = ArrayList<AodStateWireWord>(wordCount)
+            repeat(wordCount) {
+                words += AodStateWireWord(
+                    text = input.readBoundedString(
+                        AodStateWireLimits.MAX_LYRIC_CHARS, allowEmpty = true, budget = budget
+                    ) ?: return null,
+                    romanized = input.readBoundedString(
+                        AodStateWireLimits.MAX_LYRIC_CHARS, allowEmpty = true, budget = budget
+                    ) ?: return null,
+                    startMs = input.readLong(),
+                    endMs = input.readLong(),
+                    boundaryAfter = input.readStrictBoolean() ?: return null,
+                    sourceStart = input.readInt(),
+                    sourceEnd = input.readInt()
+                )
+            }
+            AodStateWireDuetLine(
+                text = text,
+                romanized = romanized,
+                translated = translated,
+                alignedRight = alignedRight,
+                lineStartMs = lineStartMs,
+                lineEndMs = lineEndMs,
+                words = words.toList()
+            )
         } catch (_: Exception) {
             null
         }
@@ -682,6 +771,28 @@ internal object AodStateWireCodec {
             snapshot.artworkKey.length > AodStateWireLimits.MAX_ARTWORK_KEY_CHARS ||
             !Utf8Budget().accept(snapshot.artworkKey, AodStateWireLimits.MAX_ARTWORK_KEY_CHARS, true)
         ) return false
+        // 对唱并发行:词级条数与主行共享上限;文本/副文本入同一聚合 UTF-8 预算;
+        // 时间窗/词级时间不得越歌长(与主行同口径,超限整包拒收)。
+        snapshot.duetLine?.let { duet ->
+            if (snapshot.words.size + duet.words.size > AodStateWireLimits.MAX_WORDS) return false
+            if (duet.text.isBlank() || duet.text != duet.text.trim() ||
+                duet.romanized != duet.romanized.trim() ||
+                duet.translated != duet.translated.trim() ||
+                duet.lineStartMs < 0L || duet.lineEndMs < duet.lineStartMs ||
+                duet.lineEndMs > snapshot.durationMs
+            ) return false
+            if (!budget.accept(duet.text, AodStateWireLimits.MAX_LYRIC_CHARS, false) ||
+                !budget.accept(duet.romanized, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+                !budget.accept(duet.translated, AodStateWireLimits.MAX_LYRIC_CHARS, true)
+            ) return false
+            for (word in duet.words) {
+                if (!budget.accept(word.text, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+                    !budget.accept(word.romanized, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+                    word.startMs < 0L || word.endMs < word.startMs ||
+                    word.endMs > snapshot.durationMs
+                ) return false
+            }
+        }
         return true
     }
 
@@ -757,8 +868,8 @@ internal object AodStateWireCodec {
 
     private const val BODY_MAGIC = 0x414F4453
 
-    /** v3:快照尾部追加歌曲图片帧(有界 JPEG + 稳定键)。 */
-    private const val BODY_VERSION = 3
+    /** v4:快照尾部追加对唱并发行(duetLine,存在位 + 载荷);v3 追加歌曲图片帧。 */
+    private const val BODY_VERSION = 4
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

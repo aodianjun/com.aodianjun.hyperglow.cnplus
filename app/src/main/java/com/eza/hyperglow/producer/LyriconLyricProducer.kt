@@ -133,6 +133,13 @@ class LyriconLyricProducer(
      */
     @Volatile internal var duetMarkerResolvedAlignedRight: BooleanArray? = null
 
+    // --- 对唱并发行候选缓存(见 duetLineCandidate):时间窗按行表引用缓存、词级按行下标
+    // 缓存,60Hz emit 不重扫不重排;行表引用变化(切歌)即自然失效,resetToIdle 兜底清理。
+    @Volatile internal var duetWindowsCache: List<DuetLineWindow>? = null
+    @Volatile internal var duetWindowsCacheSource: Array<RichLyricLine>? = null
+    @Volatile internal var duetWordsCache: List<LyricWord>? = null
+    @Volatile internal var duetWordsCacheIndex: Int = -1
+
     /** 文档级「识别对唱标记」开关缓存(见 refreshDuetMarkerPolicy);默认开启。 */
     @Volatile internal var duetMarkersEnabled: Boolean = true
 
@@ -325,6 +332,10 @@ class LyriconLyricProducer(
         cachedWords = null
         duetResolvedAlignedRight = null
         duetMarkerResolvedAlignedRight = null
+        duetWindowsCache = null
+        duetWindowsCacheSource = null
+        duetWordsCache = null
+        duetWordsCacheIndex = -1
         currentPositionMs = 0L
         lastRealPositionMs = 0L
         lastRealPositionUpdateMs = -1L

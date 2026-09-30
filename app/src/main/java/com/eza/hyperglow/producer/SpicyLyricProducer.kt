@@ -192,6 +192,40 @@ class SpicyLyricProducer : LyricProducer {
             ?.text
             .orEmpty()
 
+        // 对唱并发行候选(上游 99ba119d4 同语义):与主行播放窗口重叠 ≥1s 的另一唱词行,
+        // 纯时间轴判定(见 [selectDuetLineIndex]);间奏行(INTERLUDE)不参与。显示与否由
+        // 息屏「显示并发歌词(对唱)」开关在投影层决定(契约:投影不选行,生产者只出候选)。
+        val duetLine = timedDocument?.let { document ->
+            val primaryIndex = if (row == null) -1 else document.rows.indexOfFirst { it === row }
+            val companionIndex = if (primaryIndex < 0) {
+                -1
+            } else {
+                selectDuetLineIndex(
+                    document.rows.map {
+                        DuetLineWindow(it.startMs, it.endMs, it.role == "INTERLUDE")
+                    },
+                    primaryIndex,
+                    position
+                )
+            }
+            document.rows.getOrNull(companionIndex)?.let { second ->
+                LyricDuetLine(
+                    text = second.text,
+                    romanized = second.romanized,
+                    translated = second.translated,
+                    alignedRight = second.alignedRight,
+                    lineStartMs = second.startMs,
+                    // 与主行同一渲染钳制:fillEndMs 可越行尾,行级扫光窗口不得越过行尾。
+                    lineEndMs = minOf(second.fillEndMs, second.endMs),
+                    words = if (isLineLevelDocumentType(document.type)) {
+                        emptyList()
+                    } else {
+                        second.words.map(::toProducerWord)
+                    }
+                )
+            }
+        }
+
         return LyricProducerState(
             producerId = spicy.producerId,
             generation = spicy.generation,
@@ -238,6 +272,7 @@ class SpicyLyricProducer : LyricProducer {
             hasTimedLyrics = hasTimedLyrics,
             nextLineStartMs = nextLineStartMs,
             nextLine = nextLineText,
+            duetLine = duetLine,
             language = matchedDocument?.language.orEmpty()
         )
     }

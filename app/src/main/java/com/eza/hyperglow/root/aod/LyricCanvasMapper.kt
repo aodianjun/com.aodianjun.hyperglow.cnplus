@@ -6,10 +6,15 @@ import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.projection.LyricSnapshot
 
-/** 映射到画布内容;[artwork] 默认取自 [profile](per-surface 歌曲图片配置),可显式覆盖。 */
+/**
+ * 映射到画布内容;[artwork] 默认取自 [profile](per-surface 歌曲图片配置),可显式覆盖。
+ * [duet] 仅息屏调用方传 true(对唱并发行是息屏专属,锁屏卡片恒 solo,上游同语义);
+ * 并发行的 alignedRight 经同一「对唱分侧」门控。
+ */
 internal fun LyricSnapshot.toAodCanvasContent(
     profile: CompiledSurfaceProfile? = null,
-    artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile)
+    artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
+    duet: Boolean = false
 ): AodCanvasContent = AodCanvasContent(
     trackGeneration = trackGeneration,
     metadata = metadata,
@@ -83,5 +88,31 @@ internal fun LyricSnapshot.toAodCanvasContent(
     artworkShape = artwork.shape,
     artworkSpin = artwork.spins,
     artworkSpinWhenPaused = profile?.artworkSpinWhenPaused ?: false,
-    playbackPaused = pauseRetentionEligible
+    playbackPaused = pauseRetentionEligible,
+    duetLine = if (duet) {
+        duetLine?.let { line ->
+            AodCanvasDuetLine(
+                text = line.text,
+                romanized = line.romanized,
+                translated = line.translated,
+                // 分侧门控与主行同源:关闭「对唱分侧」时并发行同样不按右对齐。
+                alignedRight = duetAlignedRight(line.alignedRight, profile?.duetAlignment ?: true),
+                lineStartMs = line.lineStartMs,
+                lineEndMs = line.lineEndMs,
+                words = line.words.map {
+                    AodCanvasWord(
+                        it.text,
+                        it.romanized,
+                        it.startMs,
+                        it.endMs,
+                        it.boundaryAfter,
+                        it.sourceStart,
+                        it.sourceEnd
+                    )
+                }
+            )
+        }
+    } else {
+        null
+    }
 )

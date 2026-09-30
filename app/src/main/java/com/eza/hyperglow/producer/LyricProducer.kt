@@ -96,6 +96,25 @@ data class LyricLayoutGroup(
 )
 
 /**
+ * 对唱并发行(第二行)候选:与主行播放窗口重叠达到 [MIN_CONCURRENT_OVERLAP_MS] 的另一
+ * 唱词行,由持有整首行表的生产者在发射前预计算(见 [selectDuetLineIndex],上游
+ * amarinne/hyperglow 99ba119d4 同语义)。null = 当前没有并发行,或该源不持有整首行表
+ * (SuperLyric 只推当前行,不产出并发行)。字段语义与主行对齐;lineEndMs 已按各源的
+ * 行窗口钳制口径对齐(如 Spicy 取 min(fillEndMs, endMs))。并发行 v1 不携带
+ * ruby/layoutGroups(三个接入源中只有 Spicy 可产,normalize 侧还要为文本 trim 重算
+ * 区间;并入 v2 再评估)。
+ */
+data class LyricDuetLine(
+    val text: String,
+    val romanized: String = "",
+    val translated: String = "",
+    val alignedRight: Boolean = false,
+    val lineStartMs: Long = 0L,
+    val lineEndMs: Long = 0L,
+    val words: List<LyricWord> = emptyList()
+)
+
+/**
  * Producer-agnostic lyrics state consumed by [com.eza.hyperglow.aod.AodProjectionEngine].
  *
  * This is the single ingress-to-projection boundary. Producers MUST normalize their ingress
@@ -155,6 +174,12 @@ data class LyricProducerState(
      * （上游 8422d78）。来源:SpicyBridgeDocument.language;Lyricon 无此概念,保持空。
      */
     val language: String = "",
+    /**
+     * 对唱并发行候选(见 [LyricDuetLine]);是否显示由息屏「显示并发歌词(对唱)」开关
+     * ([com.eza.hyperglow.customization.SurfaceProfile.duetConcurrent])在投影层决定,
+     * 仅息屏面消费,锁屏恒 solo。
+     */
+    val duetLine: LyricDuetLine? = null,
     val staleAfterMs: Long = STALE_AFTER_MS
 ) {
     companion object {

@@ -393,6 +393,31 @@ class LyricInfoLyricProducer(
             .map { it.startMs }
             .filter { it > currentPositionMs }
             .minOrNull()
+        // 对唱并发行候选(见 [selectDuetLineIndex]):timedLines 全部行参与时间窗重叠判定;
+        // 翻译/roma lane 与活动行同一匹配规则(±120ms 最近行,见 matchSupplementalLine)。
+        val duetLine = run {
+            val primaryIndex = active?.let { a -> timedLines.indexOf(a) } ?: -1
+            val companionIndex = if (primaryIndex < 0) {
+                -1
+            } else {
+                selectDuetLineIndex(
+                    timedLines.map { DuetLineWindow(it.startMs, it.endMs, false) },
+                    primaryIndex,
+                    currentPositionMs
+                )
+            }
+            timedLines.getOrNull(companionIndex)?.let { second ->
+                LyricDuetLine(
+                    text = second.text,
+                    romanized = matchSupplementalLine(second, timedLines, romaLines)?.text.orEmpty(),
+                    translated = matchSupplementalLine(second, timedLines, translationLines)?.text.orEmpty(),
+                    alignedRight = false,
+                    lineStartMs = second.startMs,
+                    lineEndMs = second.endMs,
+                    words = second.words.orEmpty()
+                )
+            }
+        }
         val now = clock()
         sequence++
         mutableState.value = LyricProducerState(
@@ -425,7 +450,8 @@ class LyricInfoLyricProducer(
             layoutGroups = emptyList(),
             hasTimedLyrics = timedLines.any { it.endMs > it.startMs },
             nextLineStartMs = nextLineStartMs,
-            nextLine = nextLine
+            nextLine = nextLine,
+            duetLine = duetLine
         )
     }
 

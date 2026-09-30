@@ -50,6 +50,8 @@ data class AodDisplayState(
     val words: List<AodDisplayWord> = emptyList(),
     val ruby: List<AodDisplayRuby> = emptyList(),
     val layoutGroups: List<AodDisplayLayoutGroup> = emptyList(),
+    /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
+    val duetLine: AodDisplayDuetLine? = null,
     val weight: String = "Medium",
     val textSizeMode: String = "normal",
     val textSizeCustom: Int = 100,
@@ -103,6 +105,21 @@ fun shouldRepublish(lastPublished: AodDisplayState?, next: AodDisplayState): Boo
         ((next.sampledAtElapsedMs - lastPublished.sampledAtElapsedMs) * lastPublished.speed).toLong()
     return abs(next.positionMs - expectedPosition) > 750L
 }
+
+/**
+ * 对唱并发行(仅息屏消费):主行播放窗口与另一唱词行重叠 ≥1s 时同时显示的那行
+ * (见 [AodDisplayState.duetLine])。v1 不携带 ruby/layoutGroups(三个接入源中只有
+ * Spicy 可产,normalize 侧还要为文本 trim 重算区间)。
+ */
+data class AodDisplayDuetLine(
+    val text: String,
+    val romanized: String = "",
+    val translated: String = "",
+    val alignedRight: Boolean = false,
+    val lineStartMs: Long = 0L,
+    val lineEndMs: Long = 0L,
+    val words: List<AodDisplayWord> = emptyList()
+)
 
 object AodStateBridge {
     private val callbacks = RemoteCallbackList<IAodLyricCallback>()
@@ -402,7 +419,45 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
                 confidence = confidence
             )
         }
-        .toList()
+.toList()
+    // 对唱并发行:文本钳制、时间窗/词级时间钳到歌长、词级 source 范围弃用(画布并发行
+    // 不走逐字扫光路径);ruby/layoutGroups v1 不携带。条数超限/文本为空整条丢弃
+    // (并发行是可选增强,不应连累主行发布)。
+    val duetLine = state.duetLine?.let { line ->
+        val duetText = line.text.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
+        if (duetText.isEmpty()) {
+            null
+        } else {
+            AodDisplayDuetLine(
+                text = duetText,
+                romanized = line.romanized.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS),
+                translated = line.translated.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS),
+                alignedRight = line.alignedRight,
+                lineStartMs = line.lineStartMs.coerceAtLeast(0L).let {
+                    if (duration > 0L) it.coerceAtMost(duration) else it
+                },
+                lineEndMs = line.lineEndMs.coerceAtLeast(line.lineStartMs.coerceAtLeast(0L)).let {
+                    if (duration > 0L) it.coerceAtMost(duration) else it
+                },
+                words = line.words.asSequence().take(AodStateWireLimits.MAX_WORDS).map { word ->
+                    val wordStart = word.startMs.coerceAtLeast(0L).let {
+                        if (duration > 0L) it.coerceAtMost(duration) else it
+                    }
+                    word.copy(
+                        text = word.text.sanitizeUtf16().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
+                        romanized = word.romanized.sanitizeUtf16()
+                            .takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS),
+                        startMs = wordStart,
+                        endMs = word.endMs.coerceAtLeast(wordStart).let {
+                            if (duration > 0L) it.coerceAtMost(duration) else it
+                        },
+                        sourceStart = -1,
+                        sourceEnd = -1
+                    )
+                }.toList()
+            )
+        }
+    }
     val (budgetWords, budgetRuby, budgetGroups) = fitAodEnhancementBudget(
         baseTexts = listOf(original, romanized, translated, nextLine, metadata),
         styleTexts = styleTokens(state),
@@ -459,6 +514,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         words = budgetWords,
         ruby = budgetRuby,
         layoutGroups = budgetGroups,
+        duetLine = duetLine,
         weight = normalizeAodWeight(state.weight),
         textSizeMode = normalizeAodTextSize(state.textSizeMode),
         textSizeCustom = state.textSizeCustom.coerceIn(0, 500),
@@ -571,7 +627,28 @@ private fun AodDisplayState.toWireMessage(
             metadataAnchor = metadataAnchor,
             adaptiveSectioning = adaptiveSectioning,
             artworkJpeg = ArtworkJpeg(artworkJpeg),
-            artworkKey = artworkKey
+            artworkKey = artworkKey,
+            duetLine = duetLine?.let { line ->
+                AodStateWireDuetLine(
+                    text = line.text,
+                    romanized = line.romanized,
+                    translated = line.translated,
+                    alignedRight = line.alignedRight,
+                    lineStartMs = line.lineStartMs,
+                    lineEndMs = line.lineEndMs,
+                    words = line.words.map { word ->
+                        AodStateWireWord(
+                            text = word.text,
+                            romanized = word.romanized,
+                            startMs = word.startMs,
+                            endMs = word.endMs,
+                            boundaryAfter = word.boundaryAfter,
+                            sourceStart = word.sourceStart,
+                            sourceEnd = word.sourceEnd
+                        )
+                    }
+                )
+            }
         )
     )
 }

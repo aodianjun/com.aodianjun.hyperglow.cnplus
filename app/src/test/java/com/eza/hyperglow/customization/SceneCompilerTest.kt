@@ -948,4 +948,33 @@ class SceneCompilerTest {
             reloaded.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkVisible
         )
     }
+
+    @Test
+    fun duetConcurrentCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 对唱并发行开关必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返:
+        // 关闭状态是「与默认不同」的值,漏字段会被逐字段重建映射静默弹回默认(开启),
+        // 这正是 secondaryNextLine/duetAlignment 的经典回归面。
+        val off = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(duetConcurrent = false)
+            )
+        )
+        assertFalse(
+            SceneCompiler.compile(off).profiles.getValue(SceneCompiler.SURFACE_AOD).duetConcurrent
+        )
+        assertFalse(
+            SystemUiCustomizationValidator.validate(SceneCompiler.compile(off))!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).duetConcurrent
+        )
+        assertFalse(
+            CustomizationRepository.canonicalizeDocument(off)!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).duetConcurrent
+        )
+        // 默认文档保持开启(上游 duetEnabled 同值)。
+        assertTrue(
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).duetConcurrent
+        )
+    }
+
 }

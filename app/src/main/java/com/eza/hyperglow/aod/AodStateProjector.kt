@@ -207,6 +207,34 @@ internal fun projectToDisplay(
     }
     val layoutGroups = if (showLargeMetadata || !hasActiveLine) emptyList() else state.layoutGroups.map(::toDisplayLayoutGroup)
 
+    // --- 对唱并发行(仅息屏消费,移植上游 99ba119d4 duet/secondLine)---
+    // 生产者已按时间轴重叠预计算候选(契约:投影不选行),这里只做策略与格式转换:
+    // 「显示并发歌词(对唱)」关闭时快照永不携带并发行(上游 duetEnabled 同语义:在源头
+    // 撤走并发行,画布无 per-build 对唱状态);大元数据引导/无活动行时同样不携带。
+    // 行首标记剥离与主行同源(duetMarkers);语言不一致拒绝同样作用于并发行的罗马音。
+    val duetConcurrent = aodProfile?.duetConcurrent ?: true
+    val duetLine = if (!duetConcurrent || showLargeMetadata || !hasActiveLine) {
+        null
+    } else {
+        state.duetLine?.let { line ->
+            val duetText = if (duetMarkers) stripDuetMarker(line.text) else line.text
+            if (duetText.isBlank()) {
+                null
+            } else {
+                AodDisplayDuetLine(
+                    text = duetText,
+                    romanized = if (rejectJapaneseReading) "" else line.romanized,
+                    translated = line.translated,
+                    alignedRight = line.alignedRight,
+                    lineStartMs = line.lineStartMs,
+                    lineEndMs = line.lineEndMs,
+                    words = (if (duetMarkers) stripDuetMarkerWords(line.words) else line.words)
+                        .map(::toDisplayWord)
+                )
+            }
+        }
+    }
+
     return AodDisplayState(
         visible = original.isNotBlank(),
         playbackActive = state.playing,
@@ -248,6 +276,7 @@ internal fun projectToDisplay(
         words = words,
         ruby = ruby,
         layoutGroups = layoutGroups,
+        duetLine = duetLine,
         weight = modes.weight,
         textSizeMode = modes.textSize,
         textSizeCustom = modes.textSizeCustom,

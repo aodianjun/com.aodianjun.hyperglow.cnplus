@@ -150,6 +150,15 @@ and (b) unverified paths stay explicit instead of silently assumed.
   Songs whose lyric source carries no singer info are unchanged — pending a hardware smoke check
   after merge: a duet song tagged with two singers alternates left/right, turning the switch off
   lefts everything, and translation / next-line rows are unaffected.
+- Show concurrent lines (duet) (`duetConcurrent`, per surface, default on, AOD only): a sung line
+  overlapping the primary line by at least one second renders stacked next to the primary block
+  with its own karaoke sweep, fading in muted over 180 ms; while it shows the standalone next-line
+  row is replaced, and the combined block shrinks by one shared scale when it exceeds the lyric
+  area — pending a hardware smoke check after merge: a duet song on each wired source (Spicy /
+  Lyricon / LyricInfo) shows both lines through their shared window, the concurrent line follows
+  the duet left/right split, turning the switch off restores the exact solo rendering, the
+  lockscreen card stays solo, SuperLyric songs show no concurrent line, and the next-line row
+  returns when the duet window ends.
 - Lyricon position-feed log/state churn fix (a repeated position callback within the writer's
   ~40 ms update cadence no longer trips stall extrapolation: below the 500 ms floor the last
   real position is held and no state is emitted; the arbiter logs "active changed" only when
@@ -362,6 +371,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   旋转、缩放)观感与参考动画一致(旧行先离场、新行收位);翻转方向与应用内预览一致;速率档
   对预设同样生效;`Fade up` 与历史一致。
 - 对唱分侧（`duetAlignment`，每 surface 独立，默认开启）：源显式标记（`alignedRight`/`isAlignedRight`）或演唱者身份元数据判为后位歌手的行绘制在右侧；关闭开关后所有行按主对齐解析。歌词源不带演唱者信息的曲目零变化——合并后待真机冒烟：歌词源标注了两位演唱者的对唱歌曲左右交替、关闭开关后全部居左、翻译/下一行行不受影响。
+- 显示并发歌词（对唱）（`duetConcurrent`，每 surface 独立，默认开启，仅息屏）：与主行播放窗口重叠达到 1 秒的唱词行紧邻主行块堆叠、各画各的逐字扫光，加入时 180ms 静音淡入，在场时取代独立「下一行」行，整块超出歌词区按共享系数缩小——合并后待真机冒烟：三个接入源（Spicy/Lyricon/LyricInfo）的对唱歌曲在共享窗口内两行同显、并发行跟随「对唱分侧」、关闭开关后与 solo 呈现逐字一致、锁屏恒单行、SuperLyric 歌曲无并发行、对唱窗口结束后独立下一行恢复。
 - Lyricon 位置通道日志/状态刷屏修复（写入端 ~40ms 更新节奏内的重复位置回调不再触发停滞外推：低于 500ms 下限保持最后真实位置且不发状态；仲裁器仅在来源身份（源+歌曲代）真变时才记「active changed」，同源例行转发不再逐帧刷日志）——合并后待真机冒烟：开诊断日志播歌，`diagnostic-trace.log` 不再被逐帧 `position stalled/resumed`（约 45 行/秒）与逐帧 `active changed` 刷满轮转；真实息屏停滞仍外推且各记一条，换行/换源日志保留。
 - 识别对唱标记（`duetMarkers`，文档级全局，默认开启）：行首（男）/（女）/（合）标记被隐去并（无元数据时）驱动对唱左右分侧（按标记出现顺序，先出现者居左）；（副歌）/（间奏）等段落标记同样隐去但不参与分侧；纯标记行（只有标记没有歌词）保留原样显示且可唱估时按 0 字计；关闭后原样显示标记、标记不参与分侧。同行落地 ingest 时间轴修复（间隙吞进行窗向词对齐/钳制、可疑词级降级）与跨源 seek 转发——合并后待真机冒烟：网易云对唱曲（如《讲男讲女》）按（男）/（女）出现顺序左右分侧且文本无标记、带段落标记的行文本干净（如「（副歌）爱你一万年」显示为「爱你一万年」）且分侧不变、整行（间奏）原样保留不被重锚、逐句起唱点正确（下一句不再提前上屏）、关闭开关恢复原样标记、拖动进度条歌词立即跟手。钳制刻意保守（孤立长窗行原样保留，真实长音安全）：另验慢歌收尾长音按真实起唱点上屏、英文/拉长音歌曲无误钳。
 - 应用外观设置页重做并新增背景模糊（主题模式/主题颜色/系统栏图标改为行内下拉直接选、行上显示当前值；
