@@ -45,6 +45,7 @@ import com.eza.hyperglow.aod.XiaomiCapabilityStore
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiProfileState
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -83,6 +84,7 @@ internal fun HomeScreen(
     var restartSystemUiTarget by rememberSaveable { mutableStateOf(true) }
     var restartAodTarget by rememberSaveable { mutableStateOf(true) }
     var restartHyperglowTarget by rememberSaveable { mutableStateOf(false) }
+    var restartLyricSource by rememberSaveable { mutableStateOf(false) }
     var showPauseLingerDialog by rememberSaveable { mutableStateOf(false) }
     var showLogRetentionDialog by rememberSaveable { mutableStateOf(false) }
     var showClearLogsDialog by rememberSaveable { mutableStateOf(false) }
@@ -794,6 +796,11 @@ internal fun HomeScreen(
                     { enabled -> restartHyperglowTarget = enabled },
                     stringResource(R.string.dialog_restart_target_hyperglow)
                 )
+                SwitchPreference(
+                    restartLyricSource,
+                    { enabled -> restartLyricSource = enabled },
+                    stringResource(R.string.dialog_restart_target_lyric_source)
+                )
                 androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
                     TextButton(
                         text = stringResource(R.string.action_cancel),
@@ -806,7 +813,9 @@ internal fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),
                         onClick = {
-                            if (!restartSystemUiTarget && !restartAodTarget && !restartHyperglowTarget) {
+                            val hookTargetSelected = restartSystemUiTarget ||
+                                restartAodTarget || restartHyperglowTarget
+                            if (!hookTargetSelected && !restartLyricSource) {
                                 Toast.makeText(
                                     context,
                                     context.getString(R.string.toast_restart_no_target),
@@ -815,14 +824,26 @@ internal fun HomeScreen(
                                 return@TextButton
                             }
                             showRestartDialog = false
-                            scope.launch {
-                                showRestartResult(
-                                    ShellUtils.restartHookedProcesses(
-                                        systemUi = restartSystemUiTarget,
-                                        miuiAod = restartAodTarget,
-                                        hyperglowApp = restartHyperglowTarget
+                            // 歌词源重启在应用进程内即时生效(无 root);与挂钩进程重启相互独立。
+                            if (restartLyricSource) {
+                                LyricProducers.arbiterOrNull()?.restartSelected()
+                            }
+                            if (hookTargetSelected) {
+                                scope.launch {
+                                    showRestartResult(
+                                        ShellUtils.restartHookedProcesses(
+                                            systemUi = restartSystemUiTarget,
+                                            miuiAod = restartAodTarget,
+                                            hyperglowApp = restartHyperglowTarget
+                                        )
                                     )
-                                )
+                                }
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.toast_lyric_source_restarted),
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         }
                     )

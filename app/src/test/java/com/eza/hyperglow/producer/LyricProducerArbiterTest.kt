@@ -58,8 +58,10 @@ class LyricProducerArbiterTest {
         override val connection: StateFlow<ProducerConnection> = mutableConnection.asStateFlow()
         override val state: StateFlow<LyricProducerState?> = mutableState.asStateFlow()
         var started = false; private set
+        var restartCount = 0; private set
         override fun start(context: Context) { started = true }
         override fun stop() { started = false }
+        override fun restart() { restartCount++ }
         fun connect(c: ProducerConnection) { mutableConnection.value = c }
         fun emit(s: LyricProducerState?) { mutableState.value = s }
     }
@@ -660,5 +662,37 @@ class LyricProducerArbiterTest {
     @Test
     fun shouldPublishActive_clearedActiveWithNullNext_staysSilent() {
         assertFalse(shouldPublishActive(null, null, activeIsNull = true))
+    }
+
+    @Test
+    fun restartSelected_restartsOnlyTheSelectedProducer() {
+        val now = 1_000L
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", now))
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
+
+        // 默认首选为 SPICY:只重启它。
+        arbiter.restartSelected()
+        assertEquals(1, spicy.restartCount)
+        assertEquals(0, lyricon.restartCount)
+
+        // 切到 LYRICON 后,只重启新选中源。
+        arbiter.setPreference(LyricSource.LYRICON)
+        arbiter.restartSelected()
+        assertEquals(1, spicy.restartCount)
+        assertEquals(1, lyricon.restartCount)
+    }
+
+    @Test
+    fun restartSelected_withoutProducerForPreference_isNoOp() {
+        // 首选源无注册生产者(如仅注册了其他源)时不得抛异常。
+        val lyricon = FakeProducer(LyricSource.LYRICON)
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricon)) { 1_000L }
+
+        arbiter.restartSelected()
+
+        assertEquals(0, lyricon.restartCount)
     }
 }

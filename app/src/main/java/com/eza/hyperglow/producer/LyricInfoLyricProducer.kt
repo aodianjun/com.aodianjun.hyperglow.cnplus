@@ -142,6 +142,29 @@ class LyricInfoLyricProducer(
     }
 
     /**
+     * 「重启歌词源」:重新注册 MediaSession 会话监听,并重新挑选活动会话、重建其回调,
+     * 用于跨应用歌词注入链路(会话回调)卡死时恢复。
+     */
+    override fun restart() {
+        if (!started) {
+            AppLog.i("LyricInfoLyricProducer", "restart: not started (no-op)")
+            return
+        }
+        scope.launch {
+            val ctx = contextRef ?: return@launch
+            val component = ComponentName(ctx, LyricInfoNotificationListener::class.java)
+            runCatching { manager?.removeOnActiveSessionsChangedListener(sessionListener) }
+            runCatching { manager?.addOnActiveSessionsChangedListener(sessionListener, component) }
+            controller?.unregisterCallback(controllerCallback)
+            controller = null
+            val sessions = runCatching { manager?.getActiveSessions(component) ?: emptyList() }
+                .getOrDefault(emptyList())
+            AppLog.i("LyricInfoLyricProducer", "restart: re-registered (sessions=${sessions.size})")
+            refreshSessions(sessions)
+        }
+    }
+
+    /**
      * Called by [LyricInfoNotificationListener] once the user grants notification access and the
      * listener connects. Re-queries active sessions (which are now visible cross-app) and, if a
      * session with `lyricInfo` is present, switches to it immediately.

@@ -136,6 +136,17 @@ class LyricProducerArbiter(
         producer(source)?.connection
 
     /**
+     * 「重启歌词源」:强制重建当前选中源的订阅/回调链路(见 [LyricProducer.restart])。
+     * 无 root、即时生效,用于源卡死时在不重启应用的前提下恢复。只重建订阅,不清空
+     * [active]——重建期间保留当前显示,新状态到达后自然覆盖,避免闪空。
+     */
+    fun restartSelected() {
+        val source = mutablePreference.value
+        AppLog.i("LyricProducerArbiter", "restartSelected: $source")
+        producer(source)?.restart()
+    }
+
+    /**
      * The full-song snapshot of [source]'s producer — the plugin chain's whole-track input
      * for non-Spicy sources. Null when the producer has no full-track data (pure line-stream
      * sources; the host-side LineStreamAggregator substitutes for those). See

@@ -244,7 +244,9 @@
     <string name="dialog_restart_target_systemui">System UI (lock screen included)</string>
     <string name="dialog_restart_target_aod">AOD process (com.miui.aod)</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow app (this app)</string>
+    <string name="dialog_restart_target_lyric_source">Lyric source (reconnect the active source)</string>
     <string name="toast_restart_no_target">Select at least one process</string>
+    <string name="toast_lyric_source_restarted">Lyric source restarted</string>
     <string name="option_follow_xiaomi">Follow Xiaomi</string>
     <string name="dialog_pause_summary">Applies to both AOD and lock screen lyrics.</string>
     <string name="dialog_keep_aod_duration_summary">Bounds one continuous playing session. Pausing music starts a new one.</string>

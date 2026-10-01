@@ -217,6 +217,8 @@
     <string name="dialog_restart_target_systemui">系統界面（含鎖屏）</string>
     <string name="dialog_restart_target_aod">息屏顯示進程（com.miui.aod）</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow 應用程式（本應用程式）</string>
+    <string name="dialog_restart_target_lyric_source">歌詞來源（重新連接目前來源）</string>
+    <string name="toast_lyric_source_restarted">歌詞來源已重啟</string>
     <string name="toast_restart_no_target">請至少選擇一個進程</string>
     <string name="option_follow_xiaomi">跟隨小米</string>
     <string name="dialog_pause_summary">同時應用於息屏和鎖屏歌詞。</string>

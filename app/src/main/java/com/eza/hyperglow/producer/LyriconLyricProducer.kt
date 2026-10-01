@@ -312,6 +312,19 @@ class LyriconLyricProducer(
         applySeek(positionMs)
     }
 
+    /**
+     * 「重启歌词源」:重建活动播放器订阅,SDK 会对当前在播歌曲补发 onSongChanged,
+     * 恢复卡死的回调路径(与重启应用等效,见 [forceResubscribeActivePlayer])。
+     */
+    override fun restart() {
+        if (subscriber == null) {
+            AppLog.i("LyriconLyricProducer", "restart: no subscriber (no-op)")
+            return
+        }
+        AppLog.i("LyriconLyricProducer", "restart: rebuilding active player subscription")
+        watchdogScope.launch { forceResubscribeActivePlayer("user restart") }
+    }
+
     /** Issue #27: a brand-new provider/song re-arms the stop detector. */
     internal fun resetStopDetection() {
         stopConverged = false
