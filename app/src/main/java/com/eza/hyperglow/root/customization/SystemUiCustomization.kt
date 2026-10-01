@@ -7,6 +7,7 @@ import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.WidgetSpec
 import com.eza.hyperglow.customization.normalizeArtworkShape
+import com.eza.hyperglow.customization.normalizeArtworkSizeDp
 import com.eza.hyperglow.customization.normalizeCardAlpha
 import com.eza.hyperglow.customization.normalizeCardColor
 import com.eza.hyperglow.customization.normalizeLineTransition
@@ -64,6 +65,8 @@ internal object SystemUiCustomizationValidator {
                 artworkShape = rawLockscreen.artworkShape,
                 artworkSpin = rawLockscreen.artworkSpin,
                 artworkSpinWhenPaused = rawLockscreen.artworkSpinWhenPaused,
+                artworkAdaptiveScale = rawLockscreen.artworkAdaptiveScale,
+                artworkSizeDp = rawLockscreen.artworkSizeDp,
                 backgroundStyle = rawLockscreen.backgroundStyle,
                 cardAlpha = rawLockscreen.cardAlpha,
                 cardColor = rawLockscreen.cardColor
@@ -146,6 +149,8 @@ internal object SystemUiCustomizationValidator {
             artworkVisible = profile.artworkVisible,
             artworkShape = normalizeArtworkShape(profile.artworkShape),
             artworkSpin = profile.artworkSpin,
+            artworkAdaptiveScale = profile.artworkAdaptiveScale,
+            artworkSizeDp = normalizeArtworkSizeDp(profile.artworkSizeDp),
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",
             textSizeCustom = profile.textSizeCustom.coerceIn(50, 200),

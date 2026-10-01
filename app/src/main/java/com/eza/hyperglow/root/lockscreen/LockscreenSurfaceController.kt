@@ -16,6 +16,7 @@ import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.root.aod.AodLyricCanvasView
 import com.eza.hyperglow.root.aod.AodCanvasVerticalAlignment
+import com.eza.hyperglow.root.aod.artworkSideDp
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.aod.toAodCanvasContent
 import com.eza.hyperglow.root.capability.XiaomiCapability
@@ -581,10 +582,26 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val metadataExtraLines = customization?.let {
             metadataExpectedExtraLines(it.metadataParts, it.metadataSeparators)
         } ?: 0
+        // 歌曲图片槽边长(dp):关闭自适应时取固定自定义边长,静态高度估算需按图片入账,
+        // 否则大尺寸图片会被元数据组件裁切(实测路径走 measureContentStack 的行实测高)。
+        val artworkHeightDp = if (profile.artworkVisible) {
+            artworkSideDp(
+                profile.metadataSizePercent,
+                fontScale,
+                profile.artworkAdaptiveScale,
+                profile.artworkSizeDp
+            )
+        } else {
+            0f
+        }
         val metadataHeight = when {
             !metadataBudgeted -> 0f
             measured != null -> measured.metadataRowHeightPx
-            else -> metadataWidgetHeightDp(profile.metadataSizePercent, metadataExtraLines) * density
+            else -> metadataWidgetHeightDp(
+                profile.metadataSizePercent,
+                metadataExtraLines,
+                artworkHeightDp
+            ) * density
         }
         val desiredHeight = adaptiveLockscreenSceneHeight(
             measuredContentStackPx = measured?.stackHeightPx ?: 0f,
@@ -592,7 +609,8 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 profile,
                 density,
                 fontScale,
-                metadataExtraLines
+                metadataExtraLines,
+                artworkHeightDp
             ),
             progressHeightWithGapPx = progressHeightWithGap,
             cardVerticalPaddingPx = verticalInset * 2f,

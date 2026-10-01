@@ -1478,7 +1478,24 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             val extraLines = customization?.let {
                 metadataExpectedExtraLines(it.metadataParts, it.metadataSeparators)
             } ?: 0
-            metadataWidgetHeightDp(layoutProfile.metadataSizePercent, extraLines) * density
+            // 歌曲图片槽边长(dp):关闭自适应时取固定自定义边长,静态高度预算需按图片入账,
+            // 否则大尺寸图片会被元数据组件裁切。
+            val artworkHeightDp = if (layoutProfile.artworkVisible) {
+                artworkSideDp(
+                    layoutProfile.metadataSizePercent,
+                    root.resources.displayMetrics.scaledDensity /
+                        density.coerceAtLeast(0.1f),
+                    layoutProfile.artworkAdaptiveScale,
+                    layoutProfile.artworkSizeDp
+                )
+            } else {
+                0f
+            }
+            metadataWidgetHeightDp(
+                layoutProfile.metadataSizePercent,
+                extraLines,
+                artworkHeightDp
+            ) * density
         } else {
             0f
         }

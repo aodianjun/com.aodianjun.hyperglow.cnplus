@@ -1233,7 +1233,12 @@ internal class AodLyricCanvasView(
         if (bitmap.isRecycled || !artworkSlotActive(content)) return null
         val lines = metadata.row.lines
         if (lines.isEmpty()) return null
-        val leading = artworkLeadingPx(metadata.row.paint.textSize, density)
+        val leading = artworkLeadingPx(
+            metadata.row.paint.textSize,
+            density,
+            content.artworkAdaptiveScale,
+            content.artworkSizeDp
+        )
         val blockWidth = lines.maxOf { it.width }
         val groupWidth = leading + blockWidth
         val groupLeft = alignedStart(
@@ -1242,7 +1247,12 @@ internal class AodLyricCanvasView(
             0f,
             groupWidth
         )
-        val side = artworkSidePx(metadata.row.paint.textSize)
+        val side = artworkSidePx(
+            metadata.row.paint.textSize,
+            density,
+            content.artworkAdaptiveScale,
+            content.artworkSizeDp
+        )
         val metrics = metadata.row.paint.fontMetrics
         // 图片槽与文本块同心中线:文本视觉中线 = 首末行基线中点 + (ascent + descent)/2
         // (纯函数与预览 Row 居中同源;此前这里符号写反,图片整体低于文本约 0.7×字号)。
@@ -1472,7 +1482,15 @@ internal class AodLyricCanvasView(
             // 否则图片会被卡片/内容框裁掉(与预览「行高取文本与图片的大者」同语义)。
             rows += if (artworkSlotActive(content)) {
                 metadataRow.copy(
-                    height = max(metadataRow.height, artworkSidePx(metadataPaint.textSize))
+                    height = max(
+                        metadataRow.height,
+                        artworkSidePx(
+                            metadataPaint.textSize,
+                            density,
+                            content.artworkAdaptiveScale,
+                            content.artworkSizeDp
+                        )
+                    )
                 )
             } else {
                 metadataRow
@@ -1738,7 +1756,12 @@ internal class AodLyricCanvasView(
                     metadataMetrics.descent
                 ),
                 bandHeight = if (artworkSlotActive(content)) {
-                    artworkSidePx(metadata.paint.textSize)
+                    artworkSidePx(
+                        metadata.paint.textSize,
+                        density,
+                        content.artworkAdaptiveScale,
+                        content.artworkSizeDp
+                    )
                 } else {
                     0f
                 }
@@ -2468,7 +2491,12 @@ internal class AodLyricCanvasView(
     ): List<TextLine> {
         val lineAlignment = alignmentFor(content, RowKind.METADATA)
         val leading = if (artworkSlotActive(content)) {
-            artworkLeadingPx(paint.textSize, density)
+            artworkLeadingPx(
+                paint.textSize,
+                density,
+                content.artworkAdaptiveScale,
+                content.artworkSizeDp
+            )
         } else {
             0f
         }

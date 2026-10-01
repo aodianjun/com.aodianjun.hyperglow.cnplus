@@ -87,6 +87,10 @@ internal data class AodCanvasContent(
     val artworkSpin: Boolean = false,
     /** 暂停驻留期间是否继续旋转(见 SurfaceProfile.artworkSpinWhenPaused)。 */
     val artworkSpinWhenPaused: Boolean = false,
+    /** 歌曲图片自适应缩放(见 ArtworkDisplayConfig.adaptiveScale):关闭时边长取固定 [artworkSizeDp]。 */
+    val artworkAdaptiveScale: Boolean = true,
+    /** 自定义歌曲图片边长(dp);仅 [artworkAdaptiveScale] 关闭时生效。 */
+    val artworkSizeDp: Int = com.eza.hyperglow.customization.ARTWORK_SIZE_DEFAULT_DP,
     /** 当前快照是否为暂停驻留的冻结帧(pauseRetentionEligible):为真时旋转默认停。 */
     val playbackPaused: Boolean = false,
     /** 对唱并发行(仅息屏);null = 无并发行或「显示并发歌词(对唱)」已关。 */

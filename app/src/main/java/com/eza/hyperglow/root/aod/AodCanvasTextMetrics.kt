@@ -1,5 +1,7 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.customization.ARTWORK_SIZE_DEFAULT_DP
+import com.eza.hyperglow.customization.normalizeArtworkSizeDp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.round
@@ -129,9 +131,22 @@ internal fun nextLineTextSizeSp(): Float = 15f
 /**
  * 元数据小部件的静态高度预算(dp)。基准为历史两行预算;[extraLines] 为超出两行的
  * 切片行数(歌名/歌手/专辑换行分隔符下选满 3 部分时为 1),每行按一行等比高度追加。
+ * [artworkHeightDp] 为歌曲图片槽边长(dp,0=无图片):图片与文本块同高入账,预算不低于
+ * 图片槽 + [ARTWORK_WIDGET_VERTICAL_PADDING_DP],否则大尺寸自定义图片会被小部件裁切。
  */
-internal fun metadataWidgetHeightDp(percent: Int, extraLines: Int = 0): Float =
-    22f + 14f * metadataTextSizeMultiplier(percent) * (1 + extraLines.coerceAtLeast(0))
+internal fun metadataWidgetHeightDp(
+    percent: Int,
+    extraLines: Int = 0,
+    artworkHeightDp: Float = 0f
+): Float {
+    val textBudget =
+        22f + 14f * metadataTextSizeMultiplier(percent) * (1 + extraLines.coerceAtLeast(0))
+    return if (artworkHeightDp > 0f) {
+        max(textBudget, artworkHeightDp + ARTWORK_WIDGET_VERTICAL_PADDING_DP)
+    } else {
+        textBudget
+    }
+}
 
 // --- 歌曲图片几何(实机 AodLyricCanvasView 与预览 PreviewComponents 同源) ---
 
@@ -141,16 +156,51 @@ internal const val ARTWORK_SIDE_TEXT_RATIO = 1.6f
 /** 歌曲图片与信息文本之间的间距(dp)。 */
 internal const val ARTWORK_TEXT_GAP_DP = 6f
 
+/** 歌曲图片与元数据组件上下边距的预留(dp):静态高度预算按图片槽边长追加该余量。 */
+internal const val ARTWORK_WIDGET_VERTICAL_PADDING_DP = 8f
+
 /** 圆形封面匀速旋转一圈的时长(ms),实机与预览同源。 */
 internal const val ARTWORK_SPIN_PERIOD_MS = 12_000L
 
-/** 歌曲图片槽边长(px):歌曲信息字号 × [ARTWORK_SIDE_TEXT_RATIO],随字号百分比同步缩放。 */
-internal fun artworkSidePx(metadataTextSizePx: Float): Float =
+/**
+ * 歌曲图片槽边长(px):[adaptiveScale] 开启(默认)时随歌曲信息字号等比缩放
+ * (字号 × [ARTWORK_SIDE_TEXT_RATIO],历史行为);关闭时取固定自定义边长
+ * [customSizeDp](dp × [density]),不随字号变化。
+ */
+internal fun artworkSidePx(
+    metadataTextSizePx: Float,
+    density: Float = 1f,
+    adaptiveScale: Boolean = true,
+    customSizeDp: Int = ARTWORK_SIZE_DEFAULT_DP
+): Float = if (adaptiveScale) {
     metadataTextSizePx * ARTWORK_SIDE_TEXT_RATIO
+} else {
+    normalizeArtworkSizeDp(customSizeDp) * density
+}
 
 /** 歌曲图片+信息文本组的前置宽度(px):图片槽 + 间距,文本块整体右移该值让出左槽。 */
-internal fun artworkLeadingPx(metadataTextSizePx: Float, density: Float): Float =
-    artworkSidePx(metadataTextSizePx) + ARTWORK_TEXT_GAP_DP * density
+internal fun artworkLeadingPx(
+    metadataTextSizePx: Float,
+    density: Float = 1f,
+    adaptiveScale: Boolean = true,
+    customSizeDp: Int = ARTWORK_SIZE_DEFAULT_DP
+): Float = artworkSidePx(metadataTextSizePx, density, adaptiveScale, customSizeDp) +
+    ARTWORK_TEXT_GAP_DP * density
+
+/**
+ * 歌曲图片槽边长(dp)估算:静态高度预算用,与 [artworkSidePx] 同源。
+ * 自适应时 = 歌曲信息字号(sp) × [ARTWORK_SIDE_TEXT_RATIO] × 字体缩放;自定义时取固定边长。
+ */
+internal fun artworkSideDp(
+    metadataSizePercent: Int,
+    fontScale: Float,
+    adaptiveScale: Boolean,
+    customSizeDp: Int
+): Float = if (adaptiveScale) {
+    metadataTextSizeSp(metadataSizePercent) * ARTWORK_SIDE_TEXT_RATIO * fontScale.coerceIn(0.5f, 2f)
+} else {
+    normalizeArtworkSizeDp(customSizeDp).toFloat()
+}
 
 /** 圆形封面旋转角(度):按经过时间匀速推进,跨帧连续;非圆形/未开旋转传 0。 */
 internal fun artworkSpinDegrees(spin: Boolean, nowElapsedMs: Long): Float {

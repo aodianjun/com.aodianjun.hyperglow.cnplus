@@ -38,6 +38,8 @@ object SceneCompiler {
                 artworkShape = lockscreenSource.artworkShape,
                 artworkSpin = lockscreenSource.artworkSpin,
                 artworkSpinWhenPaused = lockscreenSource.artworkSpinWhenPaused,
+                artworkAdaptiveScale = lockscreenSource.artworkAdaptiveScale,
+                artworkSizeDp = lockscreenSource.artworkSizeDp,
                 backgroundStyle = lockscreenSource.backgroundStyle,
                 cardAlpha = lockscreenSource.cardAlpha,
                 cardColor = lockscreenSource.cardColor
@@ -180,6 +182,8 @@ object SceneCompiler {
             artworkShape = normalizeArtworkShape(profile.artworkShape),
             artworkSpin = profile.artworkSpin,
             artworkSpinWhenPaused = profile.artworkSpinWhenPaused,
+            artworkAdaptiveScale = profile.artworkAdaptiveScale,
+            artworkSizeDp = normalizeArtworkSizeDp(profile.artworkSizeDp),
             duetAlignment = profile.duetAlignment,
             duetConcurrent = profile.duetConcurrent,
             rubyVisible = profile.rubyVisible,

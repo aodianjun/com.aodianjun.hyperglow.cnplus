@@ -98,6 +98,13 @@ data class SurfaceProfile(
     /** 音乐暂停驻留期间圆形封面是否继续旋转;仅 [artworkSpin] 开启时有意义。默认关(暂停即停转,驻留期无逐帧开销)。 */
     val artworkSpinWhenPaused: Boolean = false,
     /**
+     * 歌曲图片自适应缩放:开启(默认)时边长随歌曲信息字号等比缩放(字号 × 1.6,历史行为);
+     * 关闭时用固定自定义边长 [artworkSizeDp],不随字号变化。每个 surface 独立设置。
+     */
+    val artworkAdaptiveScale: Boolean = true,
+    /** 自定义歌曲图片边长(dp);仅 [artworkAdaptiveScale] 关闭时生效,见 [normalizeArtworkSizeDp]。 */
+    val artworkSizeDp: Int = ARTWORK_SIZE_DEFAULT_DP,
+    /**
      * 对唱分侧:开启时按行级 `alignedRight`(歌词源显式值,或由演唱者身份元数据推导,
      * 见 [com.eza.hyperglow.producer.resolveDuetAlignment])把该行画到左/右一侧;
      * 关闭时忽略分侧、全部行按 [alignment] 解析。主对齐为显式 start/center/end 时本开关无效果。
@@ -247,6 +254,10 @@ data class CompiledSurfaceProfile(
     val artworkSpin: Boolean = false,
     /** 暂停驻留期间是否继续旋转,由 [SurfaceProfile.artworkSpinWhenPaused] 编译而来。 */
     val artworkSpinWhenPaused: Boolean = false,
+    /** 歌曲图片自适应缩放,由 [SurfaceProfile.artworkAdaptiveScale] 编译而来。 */
+    val artworkAdaptiveScale: Boolean = true,
+    /** 自定义歌曲图片边长(dp),由 [SurfaceProfile.artworkSizeDp] 编译而来。 */
+    val artworkSizeDp: Int = ARTWORK_SIZE_DEFAULT_DP,
     /** 对唱分侧,见 [SurfaceProfile.duetAlignment]。 */
     val duetAlignment: Boolean = true,
     /** 对唱并发行开关,见 [SurfaceProfile.duetConcurrent];仅息屏面消费,锁屏编译进档但不渲染。 */
@@ -498,6 +509,18 @@ const val ARTWORK_SHAPE_CIRCLE = "circle"
 /** 歌曲图片形状 token 词表。 */
 val ARTWORK_SHAPES = listOf(ARTWORK_SHAPE_SQUARE, ARTWORK_SHAPE_CIRCLE)
 
+/** 自定义歌曲图片边长下限(dp)。 */
+const val ARTWORK_SIZE_MIN_DP = 12
+
+/** 自定义歌曲图片边长上限(dp)。 */
+const val ARTWORK_SIZE_MAX_DP = 96
+
+/** 自定义歌曲图片默认边长(dp):与 100% 歌曲信息字号下的自适应边长一致。 */
+const val ARTWORK_SIZE_DEFAULT_DP = 22
+
+internal fun normalizeArtworkSizeDp(value: Int): Int =
+    value.coerceIn(ARTWORK_SIZE_MIN_DP, ARTWORK_SIZE_MAX_DP)
+
 internal fun normalizeArtworkShape(value: String?): String =
     value?.takeIf { it in ARTWORK_SHAPES } ?: ARTWORK_SHAPE_SQUARE
 
@@ -516,7 +539,11 @@ internal fun effectiveArtworkSpin(shape: String, spin: Boolean): Boolean =
 internal data class ArtworkDisplayConfig(
     val visible: Boolean = false,
     val shape: String = ARTWORK_SHAPE_SQUARE,
-    val spin: Boolean = false
+    val spin: Boolean = false,
+    /** 自适应缩放:true 时边长随歌曲信息字号缩放,false 时取固定 [sizeDp]。 */
+    val adaptiveScale: Boolean = true,
+    /** 自定义边长(dp);仅 [adaptiveScale] 关闭时生效。 */
+    val sizeDp: Int = ARTWORK_SIZE_DEFAULT_DP
 ) {
     val spins: Boolean
         get() = effectiveArtworkSpin(shape, spin)
@@ -526,5 +553,7 @@ internal fun artworkDisplayConfig(profile: CompiledSurfaceProfile?): ArtworkDisp
     ArtworkDisplayConfig(
         visible = profile?.artworkVisible == true,
         shape = normalizeArtworkShape(profile?.artworkShape),
-        spin = profile?.artworkSpin == true
+        spin = profile?.artworkSpin == true,
+        adaptiveScale = profile?.artworkAdaptiveScale != false,
+        sizeDp = normalizeArtworkSizeDp(profile?.artworkSizeDp ?: ARTWORK_SIZE_DEFAULT_DP)
     )

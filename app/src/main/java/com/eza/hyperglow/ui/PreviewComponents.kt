@@ -288,7 +288,14 @@ private fun LyricPreviewSurface(
     } else if (live != null) {
         previewArtworkFromSnapshot(snapshot, artwork)
     } else {
-        PreviewArtwork(artwork.shape, artwork.spins, image = null, placeholder = true)
+        PreviewArtwork(
+            artwork.shape,
+            artwork.spins,
+            image = null,
+            placeholder = true,
+            adaptiveScale = artwork.adaptiveScale,
+            sizeDp = artwork.sizeDp
+        )
     }
     // 颜色与实机同源:统一走 resolveAodPalette(dimmed 预设/自定义字体颜色 hex token 一处解析)
     val resolvedColors = resolveAodPalette(profile.palette)
@@ -566,12 +573,16 @@ private fun LyricPreviewSurface(
     }
 }
 
-/** 预览侧歌曲图片呈现参数:形状/旋转生效值 + 解码后的帧(或演示占位)。 */
+/** 预览侧歌曲图片呈现参数:形状/旋转生效值 + 自适应开关/自定义边长 + 解码后的帧(或演示占位)。 */
 private data class PreviewArtwork(
     val shape: String,
     val spin: Boolean,
     val image: ImageBitmap?,
-    val placeholder: Boolean
+    val placeholder: Boolean,
+    /** 自适应缩放(见 ArtworkDisplayConfig.adaptiveScale);关闭时用 [sizeDp]。 */
+    val adaptiveScale: Boolean = true,
+    /** 自定义边长(dp);仅 [adaptiveScale] 关闭时生效。 */
+    val sizeDp: Int = com.eza.hyperglow.customization.ARTWORK_SIZE_DEFAULT_DP
 )
 
 /**
@@ -594,7 +605,14 @@ private fun previewArtworkFromSnapshot(
             bitmap?.asImageBitmap()
         }.getOrNull()
     } ?: return null
-    return PreviewArtwork(artwork.shape, artwork.spins, image, placeholder = false)
+    return PreviewArtwork(
+        artwork.shape,
+        artwork.spins,
+        image,
+        placeholder = false,
+        adaptiveScale = artwork.adaptiveScale,
+        sizeDp = artwork.sizeDp
+    )
 }
 
 /**
@@ -615,7 +633,16 @@ private fun PreviewMetaLine(
     val size = previewMetadataTextSizeSp(sizePercent)
     val density = LocalDensity.current
     val sizePx = with(density) { size.toPx() }
-    val leadingPx = if (artwork != null) artworkLeadingPx(sizePx, density.density) else 0f
+    val leadingPx = if (artwork != null) {
+        artworkLeadingPx(
+            sizePx,
+            density.density,
+            artwork.adaptiveScale,
+            artwork.sizeDp
+        )
+    } else {
+        0f
+    }
     // 换行与实机 layoutMetadataLines 同算法:切片/折行后最多 MAX_METADATA_LAYOUT_LINES 行,溢出丢弃(无省略号)。
     val lines = remember(text, sizePx, typeface, availableWidthPx, leadingPx) {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -637,7 +664,14 @@ private fun PreviewMetaLine(
         if (artwork != null) {
             PreviewArtworkBox(
                 artwork,
-                side = with(density) { artworkSidePx(sizePx).toDp() },
+                side = with(density) {
+                    artworkSidePx(
+                        sizePx,
+                        density.density,
+                        artwork.adaptiveScale,
+                        artwork.sizeDp
+                    ).toDp()
+                },
                 contentDescription = text
             )
             Spacer(Modifier.width(com.eza.hyperglow.root.aod.ARTWORK_TEXT_GAP_DP.dp))

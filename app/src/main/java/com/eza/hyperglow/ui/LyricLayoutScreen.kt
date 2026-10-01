@@ -58,6 +58,8 @@ import com.eza.hyperglow.customization.METADATA_PART_ARTIST
 import com.eza.hyperglow.customization.METADATA_PART_TITLE
 import com.eza.hyperglow.customization.ARTWORK_SHAPES
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
+import com.eza.hyperglow.customization.ARTWORK_SIZE_MAX_DP
+import com.eza.hyperglow.customization.ARTWORK_SIZE_MIN_DP
 import com.eza.hyperglow.customization.METADATA_SEPARATORS
 import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
 import com.eza.hyperglow.customization.SceneCompiler
@@ -66,6 +68,7 @@ import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.customization.metadataGapCount
 import com.eza.hyperglow.customization.metadataSeparatorText
 import com.eza.hyperglow.customization.normalizeArtworkShape
+import com.eza.hyperglow.customization.normalizeArtworkSizeDp
 import com.eza.hyperglow.customization.normalizeMetadataParts
 import com.eza.hyperglow.customization.normalizeMetadataSeparator
 import com.eza.hyperglow.customization.normalizeMetadataSeparators
@@ -517,7 +520,8 @@ internal fun LyricLayoutScreen(
                             ),
                             onClick = { activePartsEditor = true }
                         )
-                        // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 旋转(仅圆形)。
+                        // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 自适应缩放
+                        // (关闭时露出自定义大小拖动条) → 旋转(仅圆形)。
                         SwitchPreference(
                             selectedProfile.artworkVisible,
                             { visible -> updateSelected { it.copy(artworkVisible = visible) } },
@@ -537,6 +541,34 @@ internal fun LyricLayoutScreen(
                                         it.copy(artworkShape = normalizeArtworkShape(value))
                                     }
                                 }
+                            }
+                            // 自适应缩放:开启时边长随歌曲信息字号缩放;关闭时露出自定义大小拖动条。
+                            SwitchPreference(
+                                selectedProfile.artworkAdaptiveScale,
+                                { adaptive ->
+                                    updateSelected { it.copy(artworkAdaptiveScale = adaptive) }
+                                },
+                                stringResource(R.string.setting_song_artwork_adaptive)
+                            )
+                            if (!selectedProfile.artworkAdaptiveScale) {
+                                val sizeDp = normalizeArtworkSizeDp(selectedProfile.artworkSizeDp)
+                                SliderPreference(
+                                    value = sizeDp.toFloat(),
+                                    onValueChange = { value ->
+                                        updateSelected {
+                                            it.copy(
+                                                artworkSizeDp =
+                                                    normalizeArtworkSizeDp(value.roundToInt())
+                                            )
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_song_artwork_size),
+                                    summary = stringResource(R.string.summary_song_artwork_size),
+                                    valueText = "${sizeDp}dp",
+                                    valueRange =
+                                        ARTWORK_SIZE_MIN_DP.toFloat()..ARTWORK_SIZE_MAX_DP.toFloat(),
+                                    steps = ARTWORK_SIZE_MAX_DP - ARTWORK_SIZE_MIN_DP - 1
+                                )
                             }
                             if (selectedProfile.artworkShape == ARTWORK_SHAPE_CIRCLE) {
                                 SwitchPreference(

@@ -318,6 +318,9 @@
     <string name="setting_song_info_size">歌曲信息大小</string>
     <string name="setting_song_info_parts">歌曲信息内容</string>
     <string name="setting_show_song_artwork">显示歌曲图片</string>
+    <string name="setting_song_artwork_adaptive">自适应缩放</string>
+    <string name="setting_song_artwork_size">图片大小</string>
+    <string name="summary_song_artwork_size">拖动调整图片大小</string>
     <string name="setting_song_artwork_spin">旋转歌曲图片</string>
 <string name="setting_song_artwork_spin_paused">音乐暂停时继续旋转</string>
     <string name="choice_song_artwork_shape">歌曲图片形状</string>

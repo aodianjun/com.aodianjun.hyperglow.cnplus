@@ -940,7 +940,9 @@ class SceneCompilerTest {
                     artworkVisible = true,
                     artworkShape = ARTWORK_SHAPE_CIRCLE,
                     artworkSpin = true,
-                    artworkSpinWhenPaused = true
+                    artworkSpinWhenPaused = true,
+                    artworkAdaptiveScale = false,
+                    artworkSizeDp = 48
                 ),
                 SceneCompiler.SURFACE_AOD to SurfaceProfile(artworkVisible = false)
             )
@@ -954,10 +956,14 @@ class SceneCompilerTest {
         assertEquals(ARTWORK_SHAPE_CIRCLE, lockscreen.artworkShape)
         assertEquals(true, lockscreen.artworkSpin)
         assertEquals(true, lockscreen.artworkSpinWhenPaused)
+        assertEquals(false, lockscreen.artworkAdaptiveScale)
+        assertEquals(48, lockscreen.artworkSizeDp)
         assertEquals(false, aod.artworkVisible)
         assertEquals(false, aod.artworkSpinWhenPaused)
         assertEquals(ARTWORK_SHAPE_SQUARE, aod.artworkShape)
         assertEquals(false, aod.artworkSpin)
+        assertEquals(true, aod.artworkAdaptiveScale)
+        assertEquals(ARTWORK_SIZE_DEFAULT_DP, aod.artworkSizeDp)
 
         // 校验器与编译同源归一(不改写),否则 wire 的 validate_rewrote_fields 会拒收。
         assertEquals(compiled, SystemUiCustomizationValidator.validate(compiled))
@@ -971,6 +977,14 @@ class SceneCompilerTest {
         assertEquals(
             true,
             canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkSpinWhenPaused
+        )
+        assertEquals(
+            false,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkAdaptiveScale
+        )
+        assertEquals(
+            48,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkSizeDp
         )
         assertEquals(
             false,

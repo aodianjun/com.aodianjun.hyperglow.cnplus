@@ -315,6 +315,9 @@
     <string name="setting_song_info_size">Song info size</string>
     <string name="setting_song_info_parts">Song info content</string>
     <string name="setting_show_song_artwork">Show song artwork</string>
+    <string name="setting_song_artwork_adaptive">Adaptive size</string>
+    <string name="setting_song_artwork_size">Artwork size</string>
+    <string name="summary_song_artwork_size">Drag to adjust the artwork size</string>
     <string name="setting_song_artwork_spin">Rotate song artwork</string>
 <string name="setting_song_artwork_spin_paused">Keep spinning while paused</string>
     <string name="choice_song_artwork_shape">Song artwork shape</string>
