@@ -294,6 +294,59 @@ class PluginSongBridgeSnapshotTest {
     }
 
     @Test
+    fun enrichStateFillsNextLineAuxTextFromPluginRowTable() {
+        // 「显示第二行辅助文字」:下一行的音标/翻译随插件行表回填,与 nextLine 取同一行
+        // (四行呈现的第三/四行描述同一句);只声明 TRANSLATION 的插件结果同样生效。
+        val st = state(positionMs = 6_000L) // 活动行 = line2 [5000, 9000)
+        val rows = defaultRows() + LyricSongRow(
+            startMs = 9_000, endMs = 12_000, text = "line3",
+            translation = "trans3", roma = "roma3"
+        )
+        val original = PluginSongBridge.fromSnapshot(st, snapshot(rows))
+        val translated = original.copy(
+            lyrics = original.lyrics?.mapIndexed { index, row -> row.copy(translation = "T$index") }
+        )
+        val patched = PatchedSong(
+            sessionKey = PluginSongBridge.sessionKey(st),
+            song = translated,
+            changedSongFields = emptySet(),
+            changedLyricFields = setOf(PluginLyricField.TRANSLATION)
+        )
+
+        val enriched = PluginSongBridge.enrichState(st, patched)
+
+        assertEquals("T1", enriched.translatedLine)
+        assertEquals("T2", enriched.nextLineTranslated)
+        // ROMA 未声明变化:不回填罗马音(保留生产者值)。
+        assertEquals("", enriched.nextLineRomanized)
+    }
+
+    @Test
+    fun enrichState_nextLineAuxKeepsProducerValueWhenPluginRowLacksTranslation() {
+        // 插件行表缺下一行译文时不覆盖生产者值(keepUnlessBlank:增强而非替换)。
+        val st = state(positionMs = 6_000L).copy(
+            nextLine = "line3", nextLineTranslated = "producer-next-trans"
+        )
+        val rows = defaultRows() + LyricSongRow(
+            startMs = 9_000, endMs = 12_000, text = "line3"
+        )
+        val original = PluginSongBridge.fromSnapshot(st, snapshot(rows))
+        val translated = original.copy(
+            lyrics = original.lyrics?.mapIndexed { index, row -> row.copy(translation = "T$index") }
+        )
+        val patched = PatchedSong(
+            sessionKey = PluginSongBridge.sessionKey(st),
+            song = translated,
+            changedSongFields = emptySet(),
+            changedLyricFields = setOf(PluginLyricField.TRANSLATION)
+        )
+
+        val enriched = PluginSongBridge.enrichState(st, patched)
+
+        assertEquals("producer-next-trans", enriched.nextLineTranslated)
+    }
+
+    @Test
     fun enrichStateKeepsProducerLineWhenPatchedRowTextIsBlank() {
         val st = state(positionMs = 6_000L) // 活动行 = 第二行 [5000, 9000)
         val original = PluginSongBridge.fromSnapshot(st, snapshot())
