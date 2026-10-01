@@ -768,6 +768,32 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun lyricTimeOffsetCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 「歌词时间偏移」是文档级全局数值:非零值必须穿过 compile、SystemUI 二次校验与
+        // 仓库 canonicalize 逐字段重建往返,漏字段会被静默弹回默认(0)。
+        val custom = CustomizationDocument(lyricTimeOffsetMs = 250)
+        assertEquals(250, SceneCompiler.compile(custom).lyricTimeOffsetMs)
+        assertEquals(
+            250,
+            SystemUiCustomizationValidator.validate(SceneCompiler.compile(custom))!!.lyricTimeOffsetMs
+        )
+        assertEquals(250, CustomizationRepository.canonicalizeDocument(custom)!!.lyricTimeOffsetMs)
+        // fail-closed 归一:越界钳制到 ±5s、按 50ms 档四舍五入;默认文档恒为 0。
+        assertEquals(
+            LyricTimeOffset.MAX_OFFSET_MS,
+            SceneCompiler.compile(CustomizationDocument(lyricTimeOffsetMs = 9_999)).lyricTimeOffsetMs
+        )
+        assertEquals(
+            100,
+            SceneCompiler.compile(CustomizationDocument(lyricTimeOffsetMs = 77)).lyricTimeOffsetMs
+        )
+        assertEquals(
+            0,
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument()).lyricTimeOffsetMs
+        )
+    }
+
+    @Test
     fun systemUiValidatorResetsInvalidCardColorToDefault() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(

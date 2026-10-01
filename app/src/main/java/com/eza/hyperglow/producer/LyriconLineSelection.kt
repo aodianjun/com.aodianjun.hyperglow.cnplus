@@ -1,6 +1,7 @@
 package com.eza.hyperglow.producer
 
 import com.eza.hyperglow.AppLog
+import com.eza.hyperglow.customization.LyricTimeOffset
 
 /**
  * Advance [currentPositionMs] by wall-clock extrapolation from [lastRealPositionMs], unless the
@@ -127,6 +128,9 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
     val nav = navigator ?: return emit() // no lyrics yet; emit metadata-only state
     val song = currentSong ?: return
     val pos = currentPositionMs
+    // 「歌词时间偏移」:选行查询走显示时间轴(播放位置 − 偏移);机制层(外推/门控/残留
+    // 拒绝)仍用原始媒体坐标 pos,偏移只影响选哪一行与发射出去的显示坐标。
+    val displayPos = LyricTimeOffset.displayPositionMs(pos, lyricTimeOffsetMs)
 
     // 位置未知(外推超过预算且数据源尚未恢复):清空活动行,稳定显示占位,而不是把歌词
     // 一路推进到歌尾。等真实位置恢复或 onSongChanged / onSeekTo 到来清除 positionUnknown
@@ -175,7 +179,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         return
     }
 
-    val idx = nav.findTargetIndex(currentPositionMs)
+    val idx = nav.findTargetIndex(displayPos)
     if (idx < 0) {
         // Before the first line: no current line yet.
         if (currentLineIndex != -1) {
@@ -188,7 +192,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
     // 最后一句歌词唱完后（position 越过其 end，歌曲进入尾奏/纯器乐段落），清空活动行
     // 让投影显示 🎶 占位，而不是把最后一句滞留到歌曲结束。TimingNavigator 选择的是
     // 「最后一条 begin <= pos」的行，不检查 end，所以这里显式兜住结尾。
-    if (idx == nav.source.size - 1 && currentPositionMs >= nav.source[idx].end) {
+    if (idx == nav.source.size - 1 && displayPos >= nav.source[idx].end) {
         if (currentLineIndex != -1) {
             currentLineIndex = -1
             cachedWords = null
@@ -216,6 +220,10 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
 internal fun LyriconLyricProducer.emit() {
     val song = currentSong ?: run { mutableState.value = null; return }
     val now = clock()
+    // 「歌词时间偏移」:发射坐标整体换算到显示时间轴(位置、行窗、词级、nextLine),
+    // 机制层保持原始坐标;换行、扫光与逐字高亮随偏移一致平移。offset=0 恒等原值。
+    val offset = lyricTimeOffsetMs
+    val displayPos = LyricTimeOffset.displayPositionMs(currentPositionMs, offset)
     val lyrics = song.lyrics
     val line = currentLineIndex.let { idx ->
         if (idx < 0) null else navigator?.source?.getOrNull(idx)
@@ -231,11 +239,14 @@ internal fun LyriconLyricProducer.emit() {
         else -> if (lyrics.any { !it.words.isNullOrEmpty() }) LyricKind.SYLLABLE
             else LyricKind.LINE
     }
+    // nextLine 的选取比较保持原始坐标(begin > 原始位置 ≡ 显示时间轴上 begin−offset >
+    // displayPos);仅发射值换算到显示时间轴。
     val nextLineStartMs = lyrics
         ?.asSequence()
         ?.map { it.begin }
         ?.filter { it > currentPositionMs }
         ?.minOrNull()
+        ?.let { LyricTimeOffset.displayMs(it, offset) }
     // 下一行歌词自身(供「显示第二行辅助文字」取其音标/翻译);无下一行时为 null。
     val nextLyricLine = lyrics
         ?.asSequence()
@@ -244,7 +255,7 @@ internal fun LyriconLyricProducer.emit() {
     val nextLineRomanizedText = nextLyricLine?.roma.orEmpty()
     // 翻译冗余对兜底:与主行同源走 effectiveTranslation(只带 translationWords 的源不丢译文)。
     val nextLineTranslatedText = nextLyricLine?.effectiveTranslation().orEmpty()
-    val duetLine = duetLineCandidate()
+    val duetLine = duetLineCandidate(displayPos)
     sequence++
     mutableState.value = LyricProducerState(
         producerId = LyriconLyricProducer.PRODUCER_ID,
@@ -261,20 +272,20 @@ internal fun LyriconLyricProducer.emit() {
         // 翻译冗余对兜底：只带 translationWords 的源不能丢译文（见 effectiveTranslation）。
         translatedLine = line?.effectiveTranslation().orEmpty(),
         lineIndex = currentLineIndex,
-        positionMs = currentPositionMs,
+        positionMs = displayPos,
         durationMs = song.duration,
         sampledAtElapsedMs = now,
         speed = if (isPlayingState) 1f else 0f,
         playing = isPlayingState,
         receivedAtElapsedMs = now,
-        words = cachedWords,
+        words = cachedWords?.shiftedByOffset(offset),
         renderModes = renderModesSnapshot,
         lyricKind = lyricKind,
         // 对唱左右分侧:按演唱者身份解析(见 resolveDuetAlignment),源显式值优先;
         // 是否真正按右对齐绘制由渲染侧的「对唱分侧」开关决定。
         alignedRight = activeAlignedRight(currentLineIndex),
-        lineStartMs = line?.begin ?: 0L,
-        lineEndMs = line?.end ?: 0L,
+        lineStartMs = line?.begin?.let { LyricTimeOffset.displayMs(it, offset) } ?: 0L,
+        lineEndMs = line?.end?.let { LyricTimeOffset.displayMs(it, offset) } ?: 0L,
         ruby = emptyList(),
         layoutGroups = emptyList(),
         hasTimedLyrics = hasTimedLyrics,
@@ -291,7 +302,8 @@ internal fun LyriconLyricProducer.emit() {
  * 播放窗口重叠 ≥1s 的另一唱词行。Lyricon 行表无间奏角色,全部行参与;时间窗按行表引用
  * 缓存、词级按行下标缓存,60Hz emit 不重扫不重排。无歌/未选中行返回 null。
  */
-internal fun LyriconLyricProducer.duetLineCandidate(): LyricDuetLine? {
+internal fun LyriconLyricProducer.duetLineCandidate(displayPositionMs: Long): LyricDuetLine? {
+    val offset = lyricTimeOffsetMs
     val source = navigator?.source ?: return null
     if (currentLineIndex !in source.indices) return null
     var windows = duetWindowsCache
@@ -300,7 +312,7 @@ internal fun LyriconLyricProducer.duetLineCandidate(): LyricDuetLine? {
         duetWindowsCache = windows
         duetWindowsCacheSource = source
     }
-    val companionIndex = selectDuetLineIndex(windows, currentLineIndex, currentPositionMs)
+    val companionIndex = selectDuetLineIndex(windows, currentLineIndex, displayPositionMs)
     if (companionIndex !in source.indices || companionIndex == currentLineIndex) return null
     val second = source[companionIndex]
     val words = if (companionIndex == duetWordsCacheIndex) {
@@ -317,8 +329,8 @@ internal fun LyriconLyricProducer.duetLineCandidate(): LyricDuetLine? {
         translated = second.translation.orEmpty(),
         // 分侧快照按行下标取值(与主行 activeAlignedRight 同一套,元数据身份恒优先)。
         alignedRight = activeAlignedRight(companionIndex),
-        lineStartMs = second.begin,
-        lineEndMs = second.end,
-        words = words.orEmpty()
+        lineStartMs = LyricTimeOffset.displayMs(second.begin, offset),
+        lineEndMs = LyricTimeOffset.displayMs(second.end, offset),
+        words = words.orEmpty().shiftedByOffset(offset)
     )
 }

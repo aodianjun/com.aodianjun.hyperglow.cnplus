@@ -231,4 +231,10 @@ interface LyricProducer {
      * (2026-09-28 真机实测可滞后十余秒)。默认无操作;有 seek 语义的实现覆写。
      */
     fun onExternalSeek(positionMs: Long) {}
+
+    /**
+     * 外部设置变更(文档保存/导入/重置)时刷新生产者侧派生缓存(如「歌词时间偏移」)。
+     * 默认无操作;有派生缓存的实现覆写(见 [LyricProducers.onCustomizationChanged])。
+     */
+    fun onCustomizationChanged() {}
 }

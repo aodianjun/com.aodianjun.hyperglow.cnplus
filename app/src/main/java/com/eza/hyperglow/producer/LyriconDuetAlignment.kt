@@ -86,17 +86,5 @@ internal fun LyriconLyricProducer.activeAlignedRight(lineIndex: Int): Boolean {
     return resolved?.getOrNull(lineIndex) ?: false
 }
 
-/**
- * 外部设置变更(文档保存/导入/重置)时的重算入口:标记开关与渲染模式即刻刷新,
- * 分侧快照按当前歌重算(无歌时仅刷新开关缓存)。
- */
-@Synchronized
-internal fun LyriconLyricProducer.onCustomizationChanged() {
-    val lyrics = currentSong?.lyrics
-    if (lyrics.isNullOrEmpty()) {
-        refreshDuetMarkerPolicy()
-    } else {
-        refreshDuetAlignment(lyrics)
-    }
-    refreshRenderModes()
-}
+// 「外部设置变更」重算入口已收拢为 [LyriconLyricProducer.onCustomizationChanged] 成员覆写
+// (歌词时间偏移缓存随同刷新,见 LyricTimeOffsetPolicy.kt)。

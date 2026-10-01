@@ -21,6 +21,13 @@ data class CustomizationDocument(
      */
     val duetMarkers: Boolean = true,
     /**
+     * 歌词时间偏移(毫秒;文档级全局):时间轴源生产者在发射边界把「播放位置 − 偏移」作为
+     * 显示时间轴(选行、行窗、词级扫光与 nextLine 同步平移),正数延后显示、负数提前显示,
+     * 参考 HyperLyric 同名能力。范围 ±5000ms、50ms 量化,编译时经
+     * [com.eza.hyperglow.customization.LyricTimeOffset.normalize] 规范化;同时作用于息屏与锁屏。
+     */
+    val lyricTimeOffsetMs: Int = 0,
+    /**
      * 旧版歌曲图片显示开关(文档级全局)。歌曲图片自本版起为 per-surface 设置,由
      * [SurfaceProfile.artworkVisible]/[SurfaceProfile.artworkShape]/[SurfaceProfile.artworkSpin]
      * 分别承载(锁屏与息屏各自独立);本字段仅作旧文档迁移载体:读取时一次性播种到两个曲面,
@@ -149,6 +156,8 @@ data class CompiledCustomization(
     val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
     /** 识别对唱标记;全局生效,由 [CustomizationDocument.duetMarkers] 编译而来。 */
     val duetMarkers: Boolean = true,
+    /** 歌词时间偏移(毫秒);全局生效,由 [CustomizationDocument.lyricTimeOffsetMs] 编译而来。 */
+    val lyricTimeOffsetMs: Int = 0,
     val profiles: Map<String, CompiledSurfaceProfile>,
     val pauseLingerMs: Long = 5_000L,
     /** 暂停时显示歌曲信息、歌词:App 端运行时开关,随配置下发到 SystemUI,同时作用于息屏与锁屏驻留。 */

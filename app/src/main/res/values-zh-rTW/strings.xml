@@ -276,6 +276,8 @@
     <string name="summary_duet_alignment">對唱歌詞依演唱者分居左右兩側;演唱者資訊須由歌詞源提供。僅當對齊為「自動」時生效。</string>
     <string name="setting_duet_markers">識別對唱標記</string>
     <string name="summary_duet_markers">識別歌詞行首的（男）/（女）/（合）演唱者標記與（副歌）/（間奏）等段落標記:顯示時隱去標記,演唱者標記並按標記分出左右演唱者;關閉後原樣顯示,標記不參與分側。</string>
+    <string name="setting_lyric_time_offset">歌詞時間偏移</string>
+    <string name="summary_lyric_time_offset">正數延後顯示,負數提前顯示(±5 秒)</string>
 <string name="setting_duet_concurrent">顯示並發歌詞（對唱）</string>
 <string name="summary_duet_concurrent">另一行唱詞與主行播放視窗重疊達到 1 秒時,兩行同時顯示、各畫各的逐字掃光。僅熄屏生效,鎖屏保持單行。</string>
     <string name="setting_bright_secondary_text">高亮輔助文字</string>

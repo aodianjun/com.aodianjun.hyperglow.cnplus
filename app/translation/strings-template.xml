@@ -300,6 +300,8 @@
     <string name="summary_duet_alignment">Place duet lines on the left/right side by singer; singer info must come from the lyric source. Only applies when alignment is Automatic.</string>
     <string name="setting_duet_markers">Detect duet markers</string>
     <string name="summary_duet_markers">Recognize leading singer markers （男）/（女）/（合） and section markers like （副歌）/（间奏） in lyric lines: hide the marker text on screen; singer markers also split singers left/right for duet alignment. When off, lines display as-is and markers are ignored.</string>
+    <string name="setting_lyric_time_offset">Lyric time offset</string>
+    <string name="summary_lyric_time_offset">Positive values show lyrics later, negative values earlier (±5 s)</string>
 <string name="setting_duet_concurrent">Show concurrent lines (duet)</string>
 <string name="summary_duet_concurrent">When another sung line overlaps the current line by at least one second, show both lines together, each with its own karaoke timing. Always-on display only; the lockscreen card stays solo.</string>
     <string name="setting_bright_secondary_text">Bright secondary text</string>
