@@ -885,7 +885,12 @@ internal class AodLyricCanvasView(
         val frame = lineTransitionMoveFrame(
             moveTransitionEase(moveProgress),
             sizeRatio = target.row.paint.textSize / from.row.paint.textSize,
-            fromAlpha = if (snapshot.content.secondaryNextLine) {
+            fromAlpha = if (
+                secondLineRendersAsSecondary(
+                    snapshot.content.secondaryNextLine,
+                    snapshot.content.nextLineAux
+                )
+            ) {
                 staticSecondaryTextFactor(snapshot.content.secondaryTextBright)
             } else {
                 staticNextLineTextFactor()
@@ -1066,16 +1071,20 @@ internal class AodLyricCanvasView(
             // secondLineColorArgb):「辅助文字显示第二行歌词」只借辅助文字的亮度档,
             // 不借「辅助行颜色」,否则"下一行颜色"设置对该形态完全失效。
             if (positioned.row.kind == RowKind.NEXT_LINE) {
+                val secondaryForm = secondLineRendersAsSecondary(
+                    content.secondaryNextLine,
+                    content.nextLineAux
+                )
                 setTextAlpha(
                     positioned.row.paint,
-                    if (content.secondaryNextLine) {
+                    if (secondaryForm) {
                         staticSecondaryTextFactor(bright)
                     } else {
                         staticNextLineTextFactor()
                     },
                     1f,
                     secondLineColorArgb(
-                        if (content.secondaryNextLine) {
+                        if (secondaryForm) {
                             SecondLinePresentation.AS_SECONDARY
                         } else {
                             SecondLinePresentation.STANDALONE
@@ -1578,23 +1587,65 @@ internal class AodLyricCanvasView(
         // 对唱并发行在场时独立下一行行整体让位(见上)。
         if (duet == null || duet.text.isBlank()) when (secondLinePresentation(
             content.secondaryNextLine,
+            content.nextLineAux,
             content.showNextLine,
             content.nextLine.isNotBlank()
         )) {
-            SecondLinePresentation.AS_SECONDARY -> rows += rowWithLines(
-                RowKind.NEXT_LINE,
-                content.nextLine,
-                romanizedPaint,
-                ROW_GAP_BEFORE_NEXT_LINE_DP * density,
-                wrapSecondaryText(
-                    content,
+            SecondLinePresentation.AS_SECONDARY -> {
+                rows += rowWithLines(
+                    RowKind.NEXT_LINE,
                     content.nextLine,
                     romanizedPaint,
-                    originalLayout.lineCount,
-                    availableWidth,
-                    alignmentFor(content, RowKind.NEXT_LINE)
+                    ROW_GAP_BEFORE_NEXT_LINE_DP * density,
+                    wrapSecondaryText(
+                        content,
+                        content.nextLine,
+                        romanizedPaint,
+                        originalLayout.lineCount,
+                        availableWidth,
+                        alignmentFor(content, RowKind.NEXT_LINE)
+                    )
                 )
-            )
+                // 「显示第二行辅助文字」:在第二行歌词行之后追加该行自己的辅助文字行
+                // (音标/翻译,按辅助文字模式取用;行清单与预览同源,见 secondLineAuxRows)。
+                secondLineAuxRows(
+                    content.nextLineAux,
+                    content.secondaryMode,
+                    content.nextLineRomanized,
+                    content.nextLineTranslated
+                ).forEach { auxRow ->
+                    when (auxRow) {
+                        SecondLineAuxRow.ROMANIZED -> rows += rowWithLines(
+                            RowKind.ROMANIZED,
+                            content.nextLineRomanized,
+                            romanizedPaint,
+                            ROW_GAP_BEFORE_SECONDARY_DP * density,
+                            wrapSecondaryText(
+                                content,
+                                content.nextLineRomanized,
+                                romanizedPaint,
+                                originalLayout.lineCount,
+                                availableWidth,
+                                alignmentFor(content, RowKind.NEXT_LINE)
+                            )
+                        )
+                        SecondLineAuxRow.TRANSLATED -> rows += rowWithLines(
+                            RowKind.TRANSLATED,
+                            content.nextLineTranslated,
+                            translatedPaint,
+                            ROW_GAP_BEFORE_SECONDARY_DP * density,
+                            wrapSecondaryText(
+                                content,
+                                content.nextLineTranslated,
+                                translatedPaint,
+                                originalLayout.lineCount,
+                                availableWidth,
+                                alignmentFor(content, RowKind.NEXT_LINE)
+                            )
+                        )
+                    }
+                }
+            }
             SecondLinePresentation.STANDALONE -> rows += rowWithLines(
                 RowKind.NEXT_LINE,
                 content.nextLine,
@@ -2773,15 +2824,19 @@ internal class AodLyricCanvasView(
     ) {
         // 颜色恒走独立的「下一行颜色」(secondLineColorArgb 同源),不随呈现形态改用
         // 「辅助行颜色」,否则"下一行颜色"设置对辅助文字形态完全失效。
+        val secondaryForm = secondLineRendersAsSecondary(
+            content.secondaryNextLine,
+            content.nextLineAux
+        )
         val color = secondLineColorArgb(
-            if (content.secondaryNextLine) {
+            if (secondaryForm) {
                 SecondLinePresentation.AS_SECONDARY
             } else {
                 SecondLinePresentation.STANDALONE
             },
             resolvedPalette
         )
-        if (content.secondaryNextLine) {
+        if (secondaryForm) {
             // 辅助文字形态只借辅助文字的亮度档(随「高亮辅助文字」),不借它的颜色。
             setTextAlpha(paint, staticSecondaryTextFactor(content.secondaryTextBright), 1f, color)
         } else {

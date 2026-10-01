@@ -645,6 +645,45 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun nextLineAuxCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 「显示第二行辅助文字」开关必须穿过 compile、SystemUI 二次校验与仓库 canonicalize
+        // 往返(compile -> toSurfaceProfile):任一环节漏字段都会让开关保存后弹回关闭。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(nextLineAux = true)
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertTrue(compiled.nextLineAux)
+
+        val validated = SystemUiCustomizationValidator.validate(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(nextLineAux = true)
+                    )
+                )
+            )
+        )!!.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertTrue(validated.nextLineAux)
+
+        val canonical = CustomizationRepository.canonicalizeDocument(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(nextLineAux = true)
+                )
+            )
+        )!!
+        assertTrue(canonical.profiles.getValue(SceneCompiler.SURFACE_AOD).nextLineAux)
+        // 默认文档保持关闭:不改变既有用户的呈现。
+        assertFalse(
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).nextLineAux
+        )
+    }
+
+    @Test
     fun rowAlignmentsCompileValidateAndSurviveCanonicalizeRoundTrip() {
         // 歌曲信息/第二行歌词独立对齐必须穿过 compile、SystemUI 二次校验与仓库
         // canonicalize 往返(compile -> toSurfaceProfile):任一环节漏字段都会让设置

@@ -712,6 +712,35 @@ class AodStateProjectorTest {
         assertEquals(listOf("男共女", "的事"), out.words.map { it.text })
     }
 
+    // --- 下一行辅助文字(「显示第二行辅助文字」)与下一行同门控 ---
+
+    @Test
+    fun nextLineAuxTextPassesWithNextLineAndClearsOnUnsynced() {
+        // 正常活动行:下一行与其音标/翻译一并透传(不剥离标记,与 translatedLine 同口径)。
+        val active = project(
+            state(line = "current", lineIndex = 0).copy(
+                nextLine = "next",
+                nextLineRomanized = "next roma",
+                nextLineTranslated = "next trans"
+            )
+        )
+        assertEquals("next", active.nextLine)
+        assertEquals("next roma", active.nextLineRomanized)
+        assertEquals("next trans", active.nextLineTranslated)
+
+        // 未同步歌词(UNSYNCED):下一行与其辅助文字一并清空(同一门控)。
+        val unsynced = project(
+            state(lyricKind = LyricKind.UNSYNCED, line = "flat", lineIndex = -1).copy(
+                nextLine = "next",
+                nextLineRomanized = "next roma",
+                nextLineTranslated = "next trans"
+            )
+        )
+        assertEquals("", unsynced.nextLine)
+        assertEquals("", unsynced.nextLineRomanized)
+        assertEquals("", unsynced.nextLineTranslated)
+    }
+
     @Test
     fun duetMarkersOffKeepsRawMarkerText() {
         val s = state(line = "（女） 男共女的事总有人偏私", lineIndex = 0)

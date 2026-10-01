@@ -236,11 +236,14 @@ internal fun LyriconLyricProducer.emit() {
         ?.map { it.begin }
         ?.filter { it > currentPositionMs }
         ?.minOrNull()
-    val nextLineText = lyrics
+    // 下一行歌词自身(供「显示第二行辅助文字」取其音标/翻译);无下一行时为 null。
+    val nextLyricLine = lyrics
         ?.asSequence()
         ?.firstOrNull { it.begin > currentPositionMs }
-        ?.text
-        .orEmpty()
+    val nextLineText = nextLyricLine?.text.orEmpty()
+    val nextLineRomanizedText = nextLyricLine?.roma.orEmpty()
+    // 翻译冗余对兜底:与主行同源走 effectiveTranslation(只带 translationWords 的源不丢译文)。
+    val nextLineTranslatedText = nextLyricLine?.effectiveTranslation().orEmpty()
     val duetLine = duetLineCandidate()
     sequence++
     mutableState.value = LyricProducerState(
@@ -277,6 +280,8 @@ internal fun LyriconLyricProducer.emit() {
         hasTimedLyrics = hasTimedLyrics,
         nextLineStartMs = nextLineStartMs,
         nextLine = nextLineText,
+        nextLineRomanized = nextLineRomanizedText,
+        nextLineTranslated = nextLineTranslatedText,
         duetLine = duetLine
     )
 }

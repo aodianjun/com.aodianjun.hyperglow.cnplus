@@ -187,10 +187,11 @@ class SpicyLyricProducer : LyricProducer {
             ?.map { it.startMs }
             ?.filter { it > position }
             ?.minOrNull()
-        val nextLineText = timedDocument?.rows?.asSequence()
+        val nextRow = timedDocument?.rows?.asSequence()
             ?.firstOrNull { it.startMs > position }
-            ?.text
-            .orEmpty()
+        val nextLineText = nextRow?.text.orEmpty()
+        val nextLineRomanized = nextRow?.romanized.orEmpty()
+        val nextLineTranslated = nextRow?.translated.orEmpty()
 
         // 对唱并发行候选(上游 99ba119d4 同语义):与主行播放窗口重叠 ≥1s 的另一唱词行,
         // 纯时间轴判定(见 [selectDuetLineIndex]);间奏行(INTERLUDE)不参与。显示与否由
@@ -272,6 +273,8 @@ class SpicyLyricProducer : LyricProducer {
             hasTimedLyrics = hasTimedLyrics,
             nextLineStartMs = nextLineStartMs,
             nextLine = nextLineText,
+            nextLineRomanized = nextLineRomanized,
+            nextLineTranslated = nextLineTranslated,
             duetLine = duetLine,
             language = matchedDocument?.language.orEmpty()
         )

@@ -463,6 +463,19 @@ class LyriconLyricProducerTest {
     }
 
     @Test
+    fun nextLineAuxText_followsNextLine() {
+        // 「显示第二行辅助文字」消费的下一行音标/翻译:随下一行一同给出(源行自带
+        // roma/translation,见 line() 构造);末行无下一行时为空。
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onPositionChanged(2_000L) // 活动行 0,下一行 = second
+
+        val state = producer.state.value!!
+        assertEquals("second", state.nextLine)
+        assertEquals("r-second", state.nextLineRomanized)
+        assertEquals("t-second", state.nextLineTranslated)
+    }
+
+    @Test
     fun rowFields_populatedFromLineLevelLineWithoutWords() {
         producer.playerListener.onSongChanged(threeLineSong())
         producer.playerListener.onPositionChanged(6_000L) // line 2 [5000,7000], words=null

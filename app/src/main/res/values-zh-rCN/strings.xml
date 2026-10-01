@@ -307,6 +307,7 @@
 <string name="summary_duet_concurrent">另一行唱词与主行播放窗口重叠达到 1 秒时,两行同时显示、各画各的逐字扫光。仅息屏生效,锁屏保持单行。</string>
     <string name="setting_bright_secondary_text">高亮辅助文字</string>
     <string name="setting_secondary_next_line">辅助文字显示第二行歌词</string>
+    <string name="setting_next_line_aux">显示第二行辅助文字</string>
     <string name="setting_show_furigana">显示振假名</string>
     <string name="choice_long_lines">长歌词</string>
     <string name="choice_lyric_lines">歌词行数</string>

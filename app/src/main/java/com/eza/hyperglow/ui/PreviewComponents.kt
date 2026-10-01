@@ -117,6 +117,8 @@ import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import com.eza.hyperglow.root.aod.secondLineColorArgb
 import com.eza.hyperglow.root.aod.SecondLinePresentation
+import com.eza.hyperglow.root.aod.SecondLineAuxRow
+import com.eza.hyperglow.root.aod.secondLineAuxRows
 import com.eza.hyperglow.root.aod.secondLinePresentation
 import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
@@ -454,13 +456,15 @@ private fun LyricPreviewSurface(
                         )
                     }
                     // 下一行歌词呈现与实机同源(secondLinePresentation):「辅助文字显示第二行歌词」
-                    // 开启时以辅助文字样式(音标行字号公式+亮度档)绘制并取代独立下一行行,
-                    // 颜色仍走「下一行颜色」(secondLineColorArgb)。
-                    val nextBlockRow = when (secondLinePresentation(
+                    // 或「显示第二行辅助文字」开启时以辅助文字样式(音标行字号公式+亮度档)绘制并
+                    // 取代独立下一行行,颜色仍走「下一行颜色」(secondLineColorArgb)。
+                    val nextPresentation = secondLinePresentation(
                         profile.secondaryNextLine,
+                        profile.nextLineAux,
                         showNext,
                         snapshot.nextLine.isNotBlank()
-                    )) {
+                    )
+                    val nextBlockRow = when (nextPresentation) {
                         SecondLinePresentation.AS_SECONDARY -> PreviewBlockRow(
                             row = PreviewSecondaryLine(
                                 snapshot.nextLine,
@@ -485,8 +489,56 @@ private fun LyricPreviewSurface(
                         )
                         SecondLinePresentation.NONE -> null
                     }
+                    // 「显示第二行辅助文字」:第二行歌词行之后追加其自身的辅助文字行
+                    // (行清单与实机同源,见 secondLineAuxRows;样式沿用辅助文字行)。
+                    val nextAuxRows =
+                        if (nextPresentation == SecondLinePresentation.AS_SECONDARY) {
+                            secondLineAuxRows(
+                                profile.nextLineAux,
+                                profile.secondaryMode,
+                                snapshot.nextLineRomanized,
+                                snapshot.nextLineTranslated
+                            ).map { auxRow ->
+                                when (auxRow) {
+                                    SecondLineAuxRow.ROMANIZED -> PreviewBlockRow(
+                                        row = PreviewSecondaryLine(
+                                            snapshot.nextLineRomanized,
+                                            secondaryReadingTextSizeSp(baseSp).sp,
+                                            italic = false
+                                        ),
+                                        color = secondaryColor,
+                                        align = nextLineAlign,
+                                        gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
+                                        dimAlpha = staticSecondaryTextFactor(
+                                            profile.secondaryTextBright
+                                        )
+                                    )
+                                    SecondLineAuxRow.TRANSLATED -> PreviewBlockRow(
+                                        row = PreviewSecondaryLine(
+                                            snapshot.nextLineTranslated,
+                                            secondaryTranslationTextSizeSp(baseSp).sp,
+                                            italic = true
+                                        ),
+                                        color = secondaryColor,
+                                        align = nextLineAlign,
+                                        gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
+                                        dimAlpha = staticSecondaryTextFactor(
+                                            profile.secondaryTextBright
+                                        )
+                                    )
+                                }
+                            }
+                        } else {
+                            emptyList()
+                        }
                     PreviewAnimatedRowBlock(
-                        block = PreviewRowBlock(mainLayout, snapshot.original, blockRows, nextBlockRow),
+                        block = PreviewRowBlock(
+                            mainLayout,
+                            snapshot.original,
+                            blockRows,
+                            nextBlockRow,
+                            nextAuxRows
+                        ),
                         lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
                         lineTransitionSpeed = profile.lineTransitionSpeed,
                         color = lyricColor,
@@ -900,7 +952,9 @@ private class PreviewRowBlock(
     val main: PreviewMainLayout,
     val mainText: String,
     val rows: List<PreviewBlockRow>,
-    val nextLine: PreviewBlockRow?
+    val nextLine: PreviewBlockRow?,
+    /** 「显示第二行辅助文字」:第二行歌词行自身的辅助文字行(音标/翻译),紧随下一行行之后。 */
+    val nextRows: List<PreviewBlockRow> = emptyList()
 )
 
 /** 行块内副行(辅助文字/下一行)的渲染参数,随所属行块一起冻结;[dimAlpha] 为该行静态亮度档。 */
@@ -1247,17 +1301,34 @@ private fun PreviewRowBlockLayer(
                     .onGloballyPositioned { onNextRowTopPx(it.positionInParent().y.roundToInt() + gapPx) }
                     .graphicsLayer { applyPartTransition(PreviewRowPart.NEXT, frame, frameParts, hiddenParts) }
             ) {
-                PreviewSecondaryRow(
-                    row = item.row,
-                    color = item.color,
-                    typeface = regularTypeface,
-                    availableWidthPx = availableWidthPx,
-                    preferredLines = block.main.lines.size,
-                    wrap = wrap,
-                    adaptiveSectioning = adaptiveSectioning,
-                    textAlign = item.align,
-                    modifier = Modifier.padding(top = item.gapAbove)
-                )
+                Column(Modifier.fillMaxWidth()) {
+                    PreviewSecondaryRow(
+                        row = item.row,
+                        color = item.color,
+                        typeface = regularTypeface,
+                        availableWidthPx = availableWidthPx,
+                        preferredLines = block.main.lines.size,
+                        wrap = wrap,
+                        adaptiveSectioning = adaptiveSectioning,
+                        textAlign = item.align,
+                        modifier = Modifier.padding(top = item.gapAbove)
+                    )
+                    // 第二行歌词自身的辅助文字行(「显示第二行辅助文字」),同属 NEXT 段:
+                    // 与下一行行一起进场/退场,晋级位移起点仍取下一行行顶。
+                    block.nextRows.forEach { aux ->
+                        PreviewSecondaryRow(
+                            row = aux.row,
+                            color = aux.color,
+                            typeface = regularTypeface,
+                            availableWidthPx = availableWidthPx,
+                            preferredLines = block.main.lines.size,
+                            wrap = wrap,
+                            adaptiveSectioning = adaptiveSectioning,
+                            textAlign = aux.align,
+                            modifier = Modifier.padding(top = aux.gapAbove)
+                        )
+                    }
+                }
             }
         }
     }

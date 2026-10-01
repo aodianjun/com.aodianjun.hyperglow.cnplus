@@ -143,6 +143,17 @@ internal fun projectToDisplay(
     } else {
         state.nextLine.let { if (duetMarkers) stripDuetMarker(it) else it }
     }
+    // 下一行的辅助文字(音标/翻译):与下一行同门控;文本不剥离对唱标记(与 translatedLine 同口径)。
+    val nextLineRomanized = if (showLargeMetadata || unsynced || noLyrics) {
+        ""
+    } else {
+        state.nextLineRomanized
+    }
+    val nextLineTranslated = if (showLargeMetadata || unsynced || noLyrics) {
+        ""
+    } else {
+        state.nextLineTranslated
+    }
 
     // --- 渲染模式（原 project() 从 state.liveCard* + prefs 混合取，现统一从 renderModes 取）---
     // 原 project() 里 weight/textSize/textSizeCustom/secondaryMode/animationMode/glowMode/
@@ -264,6 +275,8 @@ internal fun projectToDisplay(
         romanized = romanized,
         translated = translated,
         nextLine = nextLine,
+        nextLineRomanized = nextLineRomanized,
+        nextLineTranslated = nextLineTranslated,
         metadata = metadata,
         alignedRight = state.alignedRight,
         lineLevelSync = lineLevelSync,

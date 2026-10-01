@@ -261,6 +261,25 @@ class AodStateWireCodecTest {
     }
 
     @Test
+    fun nextLineAuxTextRoundTripsAndUntrimmedFailsClosed() {
+        // 下一行辅助文字(「显示第二行辅助文字」)随行文本过桥:内容相等是回环/去重判定的基石。
+        val message = snapshotMessage(
+            value = snapshotValue(
+                nextLine = "nextline",
+                nextLineRomanized = "next roma",
+                nextLineTranslated = "next trans"
+            )
+        )
+        assertEquals(message, AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode))
+        // 首尾空白 fail-closed(与 nextLine 同口径,归一到投影侧)。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(value = snapshotValue(nextLineTranslated = " padded "))
+            )
+        )
+    }
+
+    @Test
     fun artworkFrameRoundTripsWithContentEquality() {
         val jpegBytes = ByteArray(64) { it.toByte() }
         val message = snapshotMessage(
@@ -356,6 +375,9 @@ class AodStateWireCodecTest {
         original: String = "line",
         romanized: String = "",
         translated: String = "",
+        nextLine: String = "nextline",
+        nextLineRomanized: String = "",
+        nextLineTranslated: String = "",
         metadata: String = "track",
         speed: Float = 1f,
         words: List<AodStateWireWord> = emptyList(),
@@ -386,7 +408,9 @@ class AodStateWireCodecTest {
         original = original,
         romanized = romanized,
         translated = translated,
-        nextLine = "nextline",
+        nextLine = nextLine,
+        nextLineRomanized = nextLineRomanized,
+        nextLineTranslated = nextLineTranslated,
         metadata = metadata,
         alignedRight = true,
         lineLevelSync = true,

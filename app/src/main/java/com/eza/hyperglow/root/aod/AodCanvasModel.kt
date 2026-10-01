@@ -32,6 +32,9 @@ internal data class AodCanvasContent(
     val romanized: String,
     val translated: String,
     val nextLine: String = "",
+    /** 下一行歌词的辅助文字(音标/翻译,按 secondaryMode 取用;「显示第二行辅助文字」开启时有内容才显示)。 */
+    val nextLineRomanized: String = "",
+    val nextLineTranslated: String = "",
     val alignedRight: Boolean,
     val lineLevelSync: Boolean,
     val lineStartMs: Long,
@@ -66,6 +69,8 @@ internal data class AodCanvasContent(
     val showNextLine: Boolean = false,
     /** 辅助文字显示第二行歌词:见 SurfaceProfile.secondaryNextLine。 */
     val secondaryNextLine: Boolean = false,
+    /** 显示第二行辅助文字:见 SurfaceProfile.nextLineAux。 */
+    val nextLineAux: Boolean = false,
     /** 歌曲信息对齐(auto/start/center/end),auto 跟随主对齐解析;见 SurfaceProfile.metadataAlignment。 */
     val metadataAlignment: String = "auto",
     /** 第二行歌词对齐(auto/start/center/end),auto 跟随主对齐解析;见 SurfaceProfile.nextLineAlignment。 */
@@ -126,13 +131,52 @@ internal enum class SecondLinePresentation { NONE, AS_SECONDARY, STANDALONE }
  */
 internal fun secondLinePresentation(
     secondaryNextLine: Boolean,
+    nextLineAux: Boolean,
     showNextLine: Boolean,
     hasLine: Boolean
 ): SecondLinePresentation = when {
     !hasLine -> SecondLinePresentation.NONE
-    secondaryNextLine -> SecondLinePresentation.AS_SECONDARY
+    secondLineRendersAsSecondary(secondaryNextLine, nextLineAux) ->
+        SecondLinePresentation.AS_SECONDARY
     showNextLine -> SecondLinePresentation.STANDALONE
     else -> SecondLinePresentation.NONE
+}
+
+/**
+ * 第二行是否按辅助文字形态呈现:两个开关任一开启即为真(「显示第二行辅助文字」以
+ * 「显示第二行」为前提,开启时即使 [secondaryNextLine] 关闭也按辅助形态绘制)。
+ * 绘制期取色/亮度档与行装配共用本判定,防止两处漂移。
+ */
+internal fun secondLineRendersAsSecondary(secondaryNextLine: Boolean, nextLineAux: Boolean): Boolean =
+    secondaryNextLine || nextLineAux
+
+/** 第二行歌词的辅助文字行(按辅助文字模式取音标/翻译,有内容才出)。 */
+internal enum class SecondLineAuxRow { ROMANIZED, TRANSLATED }
+
+/**
+ * 「显示第二行辅助文字」的行清单(实机 AodLyricCanvasView 与预览 PreviewComponents 同源):
+ * 按 [secondaryMode] 取该行自己的音标/翻译行,文本为空则跳过;开关关闭恒空。
+ * 行序与主行辅助文字一致(音标在前、翻译在后)。
+ */
+internal fun secondLineAuxRows(
+    nextLineAux: Boolean,
+    secondaryMode: String,
+    nextLineRomanized: String,
+    nextLineTranslated: String
+): List<SecondLineAuxRow> {
+    if (!nextLineAux) return emptyList()
+    val rows = ArrayList<SecondLineAuxRow>(2)
+    if ((secondaryMode == "Transliteration" || secondaryMode == "Both") &&
+        nextLineRomanized.isNotBlank()
+    ) {
+        rows += SecondLineAuxRow.ROMANIZED
+    }
+    if ((secondaryMode == "Translation" || secondaryMode == "Both") &&
+        nextLineTranslated.isNotBlank()
+    ) {
+        rows += SecondLineAuxRow.TRANSLATED
+    }
+    return rows
 }
 
 /**
