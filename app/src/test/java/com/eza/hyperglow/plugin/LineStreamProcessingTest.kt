@@ -331,8 +331,11 @@ class PluginSongBridgeSnapshotTest {
             startMs = 9_000, endMs = 12_000, text = "line3"
         )
         val original = PluginSongBridge.fromSnapshot(st, snapshot(rows))
+        // 只给前两行译文:第三行(下一行)在插件行表里缺译文。
         val translated = original.copy(
-            lyrics = original.lyrics?.mapIndexed { index, row -> row.copy(translation = "T$index") }
+            lyrics = original.lyrics?.mapIndexed { index, row ->
+                if (index < 2) row.copy(translation = "T$index") else row
+            }
         )
         val patched = PatchedSong(
             sessionKey = PluginSongBridge.sessionKey(st),
