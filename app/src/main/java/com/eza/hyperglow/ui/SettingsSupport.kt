@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.AppLog
+import com.eza.hyperglow.DiagnosticLogLevel
 import com.eza.hyperglow.R
 import com.eza.hyperglow.normalizeLogRetentionDays
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
@@ -263,5 +264,16 @@ internal fun logRetentionLabel(context: android.content.Context, value: Int): St
             15 -> R.string.duration_15_days
             30 -> R.string.duration_30_days
             else -> R.string.duration_7_days
+        }
+    )
+
+/** 日志等级档(仅错误 / 警告 / 正常 / 详细),选择器与设置摘要共用。 */
+internal fun logLevelLabel(context: android.content.Context, level: DiagnosticLogLevel): String =
+    context.getString(
+        when (level) {
+            DiagnosticLogLevel.ERRORS -> R.string.log_level_errors
+            DiagnosticLogLevel.WARNING -> R.string.log_level_warning
+            DiagnosticLogLevel.NORMAL -> R.string.log_level_normal
+            DiagnosticLogLevel.VERBOSE -> R.string.log_level_verbose
         }
     )
