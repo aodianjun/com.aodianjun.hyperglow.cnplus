@@ -1105,6 +1105,7 @@ private fun PreviewAnimatedRowBlock(
     var enterRowsHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var enterNextHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var nextRowTopPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    var exitNextLineRowHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
     val mainBlockHeightDp = with(density) { block.main.blockHeight.toDp().value }
     val exitMainBlockHeightDp = with(density) { (previous ?: block).main.blockHeight.toDp().value }
     val blockWidthDp = with(density) { availableWidthPx.toDp().value }
@@ -1157,7 +1158,13 @@ private fun PreviewAnimatedRowBlock(
     } else {
         PreviewRowPart.entries.toSet()
     }
-    val enterHiddenParts = if (promoting) setOf(PreviewRowPart.MAIN) else emptySet()
+    // 晋级时新主行的辅助行(内容延续组)由晋级层呈现:入场层占位不绘制,
+    // 新到行组 = 新下一行及其辅助行(与实机入场层口径一致)。
+    val enterHiddenParts = if (promoting) {
+        setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS)
+    } else {
+        emptySet()
+    }
 
     Box(modifier.fillMaxWidth()) {
         // 段1 退场层:离场行组(主行+辅助文字)按退场半段离场,晋级时旧「下一行」原地保持。
@@ -1189,6 +1196,7 @@ private fun PreviewAnimatedRowBlock(
                     }
                 },
                 onNextRowTopPx = { nextRowTopPx = it },
+                onNextLineRowHeightPx = { exitNextLineRowHeightPx = it },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1216,6 +1224,41 @@ private fun PreviewAnimatedRowBlock(
                         .fillMaxWidth()
                         .height(with(density) { block.main.blockHeight.toDp() })
                 )
+            }
+            // 第二行辅助行随晋级自旧槽位平移至新主行的辅助槽位(与实机 drawPromotedAuxLayer
+            // 同语义:第二行辅助文字的换行动画跟随第二行歌词);不随主行缩放、恒定辅助亮度。
+            if (previous.nextRows.isNotEmpty() && exitNextLineRowHeightPx > 0) {
+                val auxDisplacementPx = (
+                    enterMainHeightPx - nextRowTopPx - exitNextLineRowHeightPx
+                    ).toFloat()
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            translationY = -auxDisplacementPx * moveFrame.translateFraction
+                        }
+                ) {
+                    Column {
+                        Spacer(
+                            Modifier.height(
+                                with(density) { block.main.blockHeight.toDp() }
+                            )
+                        )
+                        previous.nextRows.forEach { aux ->
+                            PreviewSecondaryRow(
+                                row = aux.row,
+                                color = aux.color,
+                                typeface = regularTypeface,
+                                availableWidthPx = availableWidthPx,
+                                preferredLines = aux.preferredLines ?: block.main.lines.size,
+                                wrap = wrap,
+                                adaptiveSectioning = adaptiveSectioning,
+                                textAlign = aux.align,
+                                modifier = Modifier.padding(top = aux.gapAbove)
+                            )
+                        }
+                    }
+                }
             }
         }
         // 段3 入场层:新到行(新辅助文字+新下一行)按入场半段进场;晋级时新「主行」
@@ -1275,6 +1318,7 @@ private fun PreviewRowBlockLayer(
     adaptiveSectioning: Boolean,
     onPartHeightPx: (PreviewRowPart, Int) -> Unit = { _, _ -> },
     onNextRowTopPx: (Int) -> Unit = {},
+    onNextLineRowHeightPx: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -1346,7 +1390,9 @@ private fun PreviewRowBlockLayer(
                         wrap = wrap,
                         adaptiveSectioning = adaptiveSectioning,
                         textAlign = item.align,
-                        modifier = Modifier.padding(top = item.gapAbove)
+                        modifier = Modifier
+                            .padding(top = item.gapAbove)
+                            .onSizeChanged { onNextLineRowHeightPx(it.height) }
                     )
                     // 第二行歌词自身的辅助文字行(「显示第二行辅助文字」),同属 NEXT 段:
                     // 与下一行行一起进场/退场,晋级位移起点仍取下一行行顶。
