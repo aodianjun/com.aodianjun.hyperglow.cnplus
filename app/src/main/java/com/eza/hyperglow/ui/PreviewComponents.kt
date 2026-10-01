@@ -503,10 +503,11 @@ private fun LyricPreviewSurface(
                         mainLayout
                     ) {
                         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                            textSize = with(density) {
+                            // 显式接收者:外层同名局部变量(TextUnit textSize)会遮蔽 paint 成员。
+                            this.textSize = with(density) {
                                 secondaryReadingTextSizeSp(baseSp).sp.toPx()
                             }
-                            typeface = regularTypeface
+                            this.typeface = regularTypeface
                         }
                         layoutSecondaryLines(
                             text = snapshot.nextLine,
