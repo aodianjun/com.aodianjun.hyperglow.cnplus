@@ -109,6 +109,12 @@ data class LyricDuetLine(
     val romanized: String = "",
     val translated: String = "",
     val alignedRight: Boolean = false,
+    /**
+     * 「识别对唱标记」开启时的分侧取值(标记作为演唱者身份兜底);关闭时用 [alignedRight]
+     * (元数据身份版)。两套由生产者预计算,渲染侧按各面自己的开关选用,见
+     * [LyricProducerState.alignedRightMarkers]。
+     */
+    val alignedRightMarkers: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<LyricWord> = emptyList()
@@ -159,7 +165,16 @@ data class LyricProducerState(
     val words: List<LyricWord>?,
     val renderModes: ProducerRenderModes,
     val lyricKind: LyricKind = LyricKind.NONE,
+    /**
+     * 对唱左右分侧的**元数据身份版**取值(源显式值 / 演唱者身份推导,不含行首标记兜底)。
+     */
     val alignedRight: Boolean = false,
+    /**
+     * 对唱左右分侧的**标记识别版**取值:元数据身份缺失时以行首「（男）/（女）/（合）」标记兜底。
+     * 生产者预计算两套,渲染侧按各面自己的「识别对唱标记」开关选用(见
+     * [com.eza.hyperglow.customization.SurfaceProfile.duetMarkers]),从而实现息屏/锁屏按面独立。
+     */
+    val alignedRightMarkers: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val ruby: List<LyricRuby> = emptyList(),

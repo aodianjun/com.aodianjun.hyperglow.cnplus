@@ -193,7 +193,7 @@ internal fun LyricLayoutScreen(
         saveEditor(editorState.updateSelected(updateProfile))
     }
 
-    /** 更新文档级(全局,两个曲面共用)设置,如歌曲信息切片选择与分隔符。 */
+    /** 更新文档级(全局,两个曲面共用)设置,如歌词时间偏移;歌曲信息内容/识别对唱标记已为 per-surface,走 updateSelected。 */
     fun updateDocument(update: (CustomizationDocument) -> CustomizationDocument) {
         saveEditor(
             CustomizationEditorState(
@@ -251,6 +251,13 @@ internal fun LyricLayoutScreen(
     }
 
     val selectedProfile = editorState.document.profiles[editorState.selectedSurface] ?: SurfaceProfile()
+    // per-surface 内容项(歌曲信息内容/分隔符/识别对唱标记):本面未显式设置(null)时继承文档级
+    // 默认值(与 SceneCompiler.withDocumentDefaults 同口径)。读取用有效值,写入落到本面,改一面
+    // 不再联动另一面。文档级字段仅作旧配置升级的兜底默认值。
+    val effectiveMetadataParts = selectedProfile.metadataParts ?: editorState.document.metadataParts
+    val effectiveMetadataSeparators =
+        selectedProfile.metadataSeparators ?: editorState.document.metadataSeparators
+    val effectiveDuetMarkers = selectedProfile.duetMarkers ?: editorState.document.duetMarkers
     // 预览走与实机相同的编译管线(归一化/白名单),编辑后立即反映最终生效效果,所见即所得
     val compiledPreviewProfile = remember(editorState.document) {
         SceneCompiler.compile(editorState.document)
@@ -285,9 +292,10 @@ internal fun LyricLayoutScreen(
                 AppearanceLivePreview(
                     profile = compiledPreviewProfile,
                     scenario = editorState.selectedSurface,
-                    metadataParts = editorState.document.metadataParts,
-                    metadataSeparators = editorState.document.metadataSeparators,
-                    duetMarkers = editorState.document.duetMarkers
+                    // 内容项取本面编译后的已解析值(含文档级兜底),预览与实机同源。
+                    metadataParts = compiledPreviewProfile.metadataParts,
+                    metadataSeparators = compiledPreviewProfile.metadataSeparators,
+                    duetMarkers = compiledPreviewProfile.duetMarkers
                 )
             }
             LazyColumn(
@@ -390,10 +398,11 @@ internal fun LyricLayoutScreen(
                             summary = stringResource(R.string.summary_duet_concurrent)
                         )
                     }
-                    // 识别对唱标记(文档级全局):标记是内容级解释,息屏与锁屏同源生效。
+                    // 识别对唱标记(per-surface):标记是内容级解释,息屏与锁屏各自独立生效,
+                    // 改本面不影响另一面。本面未显式设置时以文档级值作有效值。
                     SwitchPreference(
-                        editorState.document.duetMarkers,
-                        { enabled -> updateDocument { it.copy(duetMarkers = enabled) } },
+                        effectiveDuetMarkers,
+                        { enabled -> updateSelected { it.copy(duetMarkers = enabled) } },
                         stringResource(R.string.setting_duet_markers),
                         summary = stringResource(R.string.summary_duet_markers)
                     )
@@ -536,10 +545,7 @@ internal fun LyricLayoutScreen(
                         // 内容编辑:勾选/排序显示部分(歌名/歌手/专辑),并逐槽独立选择相邻两项之间的分隔符。
                         ArrowPreference(
                             title = stringResource(R.string.setting_song_info_parts),
-                            summary = metadataPartsDisplayLabel(
-                                context,
-                                editorState.document.metadataParts
-                            ),
+                            summary = metadataPartsDisplayLabel(context, effectiveMetadataParts),
                             onClick = { activePartsEditor = true }
                         )
                         // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 自适应缩放
@@ -866,12 +872,12 @@ internal fun LyricLayoutScreen(
             onDismissRequest = { activePartsEditor = false }
         ) {
             Column(Modifier.dialogScrollable()) {
-                val enabledParts = normalizeMetadataParts(editorState.document.metadataParts)
+                val enabledParts = normalizeMetadataParts(effectiveMetadataParts)
                     .split(',')
                 val disabledParts = METADATA_PARTS.filterNot { it in enabledParts }
                 val separatorTokens = normalizeMetadataSeparators(
-                    editorState.document.metadataSeparators,
-                    editorState.document.metadataParts
+                    effectiveMetadataSeparators,
+                    effectiveMetadataParts
                 ).split(',').filter { it.isNotEmpty() }
 
                 fun partLabel(part: String): String = context.getString(
@@ -884,7 +890,7 @@ internal fun LyricLayoutScreen(
                 fun tokenAt(index: Int): String =
                     separatorTokens.getOrNull(index) ?: METADATA_SEPARATOR_NEWLINE
                 fun commitParts(next: List<String>) {
-                    updateDocument {
+                    updateSelected {
                         it.copy(metadataParts = normalizeMetadataParts(next.joinToString(",")))
                     }
                 }
@@ -895,11 +901,13 @@ internal fun LyricLayoutScreen(
                     commitParts(next)
                 }
                 fun setGap(index: Int, value: String) {
-                    val gaps = metadataGapCount(editorState.document.metadataParts)
+                    val gaps = metadataGapCount(effectiveMetadataParts)
                     if (index !in 0 until gaps) return
                     val tokens = MutableList(gaps) { tokenAt(it) }
                     tokens[index] = normalizeMetadataSeparator(value)
-                    updateDocument { it.copy(metadataSeparators = tokens.joinToString(",")) }
+                    updateSelected {
+                        it.copy(metadataSeparators = tokens.joinToString(","))
+                    }
                 }
 
                 // 已选部分:开关关闭即移除,上/下按钮调整顺序(顺序即显示顺序)。

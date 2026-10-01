@@ -281,9 +281,10 @@ internal fun LyriconLyricProducer.emit() {
         words = cachedWords?.shiftedByOffset(offset),
         renderModes = renderModesSnapshot,
         lyricKind = lyricKind,
-        // 对唱左右分侧:按演唱者身份解析(见 resolveDuetAlignment),源显式值优先;
-        // 是否真正按右对齐绘制由渲染侧的「对唱分侧」开关决定。
-        alignedRight = activeAlignedRight(currentLineIndex),
+        // 对唱左右分侧:两套随状态下发(元数据身份版 / 标记识别版),由渲染侧按各面自己的
+        // 「识别对唱标记」开关选用;是否真正按右对齐绘制由渲染侧的「对唱分侧」开关决定。
+        alignedRight = identityAlignedRight(currentLineIndex),
+        alignedRightMarkers = markerAlignedRight(currentLineIndex),
         lineStartMs = line?.begin?.let { LyricTimeOffset.displayMs(it, offset) } ?: 0L,
         lineEndMs = line?.end?.let { LyricTimeOffset.displayMs(it, offset) } ?: 0L,
         ruby = emptyList(),
@@ -327,8 +328,9 @@ internal fun LyriconLyricProducer.duetLineCandidate(displayPositionMs: Long): Ly
         text = second.text.orEmpty(),
         romanized = second.roma.orEmpty(),
         translated = second.translation.orEmpty(),
-        // 分侧快照按行下标取值(与主行 activeAlignedRight 同一套,元数据身份恒优先)。
-        alignedRight = activeAlignedRight(companionIndex),
+        // 分侧快照按行下标取值(与主行同一套:元数据身份版 + 标记识别版)。
+        alignedRight = identityAlignedRight(companionIndex),
+        alignedRightMarkers = markerAlignedRight(companionIndex),
         lineStartMs = LyricTimeOffset.displayMs(second.begin, offset),
         lineEndMs = LyricTimeOffset.displayMs(second.end, offset),
         words = words.orEmpty().shiftedByOffset(offset)

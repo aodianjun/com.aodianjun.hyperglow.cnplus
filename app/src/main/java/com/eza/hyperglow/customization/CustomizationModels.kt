@@ -10,12 +10,13 @@ data class CustomizationDocument(
     val linkSurfaces: Boolean = false,
     /**
      * 歌曲信息显示部分(歌名/歌手/专辑),见 [METADATA_PARTS] 与 [normalizeMetadataParts];
-     * 顺序即显示顺序(可自定义排序),全局生效,同时作用于息屏与锁屏。
+     * 顺序即显示顺序(可自定义排序)。**文档级默认值**:各 surface 未显式设置时继承本值,
+     * 显式设置后由 [SurfaceProfile.metadataParts] 分别承载、互不联动。
      */
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /**
      * 相邻两个显示部分之间的分隔符 token 列表(逗号分隔,第 i 项为第 i 与第 i+1 部分之间的
-     * 分隔符,逐槽独立选择),见 [METADATA_SEPARATORS];全局生效,同时作用于息屏与锁屏。
+     * 分隔符,逐槽独立选择),见 [METADATA_SEPARATORS]。**文档级默认值**,同 [metadataParts]。
      */
     val metadataSeparators: String = METADATA_SEPARATORS_DEFAULT,
     /**
@@ -28,7 +29,8 @@ data class CustomizationDocument(
      * 隐去标记文本,并作为对唱左右分侧的身份输入(元数据身份恒优先,
      * 见 [com.eza.hyperglow.producer.resolveDuetAlignment]);「（副歌）/（间奏）」等段落标记
      * 同样隐去但不作身份、不参与分侧;关闭则原样显示、标记不参与分侧。
-     * 全局生效(内容级解释,同时作用于息屏与锁屏)。
+     * **文档级默认值**:各 surface 未显式设置时继承本值,显式设置后由
+     * [SurfaceProfile.duetMarkers] 分别承载、互不联动。
      */
     val duetMarkers: Boolean = true,
     /**
@@ -143,7 +145,20 @@ data class SurfaceProfile(
     /** 卡片背景不透明度,0-100。0 完全透明,100 完全不透明。 */
     val cardAlpha: Int = 85,
     /** 卡片背景色 token,见 [CARD_COLOR_VALUES]。 */
-    val cardColor: String = "black"
+    val cardColor: String = "black",
+    /**
+     * 歌曲信息显示部分(歌名/歌手/专辑),顺序即显示顺序;每个 surface 独立设置,
+     * 修改本面不影响另一面。null = 继承文档级 [CustomizationDocument.metadataParts]
+     * (旧配置升级时的默认值,见 SceneCompiler 的解析)。
+     */
+    val metadataParts: String? = null,
+    /** 逐槽分隔符序列,见 [METADATA_SEPARATORS];每个 surface 独立设置,null = 继承文档级。 */
+    val metadataSeparators: String? = null,
+    /**
+     * 识别对唱标记(行首「（男）/（女）/（合）」演唱者标记),每个 surface 独立设置;
+     * null = 继承文档级 [CustomizationDocument.duetMarkers]。
+     */
+    val duetMarkers: Boolean? = null
 )
 
 @Serializable
@@ -168,11 +183,11 @@ data class CompiledCustomization(
     val hash: String,
     val sourceId: String,
     val linkSurfaces: Boolean,
-    /** 歌曲信息显示部分(歌名/歌手/专辑,顺序即显示顺序);全局生效,由 [CustomizationDocument.metadataParts] 编译而来。 */
+    /** 文档级默认歌曲信息显示部分;仅作各面未显式设置时的兜底(真实生效值见 [CompiledSurfaceProfile.metadataParts])。 */
     val metadataParts: String = METADATA_PARTS_DEFAULT,
-    /** 歌曲信息逐槽分隔符 token 列表;全局生效,由 [CustomizationDocument.metadataSeparators] 编译而来。 */
+    /** 文档级默认歌曲信息逐槽分隔符;仅作各面未显式设置时的兜底。 */
     val metadataSeparators: String = METADATA_SEPARATORS_DEFAULT,
-    /** 识别对唱标记;全局生效,由 [CustomizationDocument.duetMarkers] 编译而来。 */
+    /** 文档级默认识别对唱标记;仅作各面未显式设置时的兜底(真实生效值见 [CompiledSurfaceProfile.duetMarkers])。 */
     val duetMarkers: Boolean = true,
     /** 歌词时间偏移(毫秒);全局生效,由 [CustomizationDocument.lyricTimeOffsetMs] 编译而来。 */
     val lyricTimeOffsetMs: Int = 0,
@@ -270,7 +285,13 @@ data class CompiledSurfaceProfile(
     /** 对唱分侧,见 [SurfaceProfile.duetAlignment]。 */
     val duetAlignment: Boolean = true,
     /** 对唱并发行开关,见 [SurfaceProfile.duetConcurrent];仅息屏面消费,锁屏编译进档但不渲染。 */
-    val duetConcurrent: Boolean = true
+    val duetConcurrent: Boolean = true,
+    /** 歌曲信息显示部分;由该 surface 的 [SurfaceProfile.metadataParts] 解析(空则继承文档级)编译而来。 */
+    val metadataParts: String = METADATA_PARTS_DEFAULT,
+    /** 歌曲信息逐槽分隔符序列;由该 surface 的 [SurfaceProfile.metadataSeparators] 解析编译而来。 */
+    val metadataSeparators: String = METADATA_SEPARATORS_DEFAULT,
+    /** 识别对唱标记;由该 surface 的 [SurfaceProfile.duetMarkers] 解析编译而来,每个 surface 独立生效。 */
+    val duetMarkers: Boolean = true
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1

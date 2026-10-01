@@ -42,7 +42,10 @@ internal data class LyricDuetLine(
     val text: String = "",
     val romanized: String = "",
     val translated: String = "",
+    /** 分侧(元数据身份版);渲染面按本面「识别对唱标记」开关在两版之间选用。 */
     val alignedRight: Boolean = false,
+    /** 分侧(标记识别版)。 */
+    val alignedRightMarkers: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<LyricWord> = emptyList()
@@ -86,7 +89,16 @@ internal data class LyricSnapshot(
     val nextLineRomanized: String = "",
     val nextLineTranslated: String = "",
     val metadata: String = "",
+    /** 原始歌名/歌手/专辑:渲染面按本面「歌曲信息内容」重新组装(per-surface)。 */
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    /** 大元数据引导态:渲染面用本面组装后的歌曲信息替换 original 占位符。 */
+    val largeMetadata: Boolean = false,
+    /** 分侧(元数据身份版);标记识别版见 [alignedRightMarkers]。 */
     val alignedRight: Boolean = false,
+    /** 分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
+    val alignedRightMarkers: Boolean = false,
     val lineLevelSync: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
@@ -128,7 +140,12 @@ internal data class LyricSnapshot(
         nextLineRomanized,
         nextLineTranslated,
         metadata,
+        title,
+        artist,
+        album,
+        largeMetadata,
         alignedRight,
+        alignedRightMarkers,
         lineLevelSync,
         lineStartMs,
         lineEndMs,
@@ -167,7 +184,15 @@ internal data class LyricRenderContent(
     val nextLineRomanized: String = "",
     val nextLineTranslated: String = "",
     val metadata: String,
+    /** 原始歌名/歌手/专辑:渲染面按本面「歌曲信息内容」重新组装(per-surface)。 */
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    /** 大元数据引导态:渲染面用本面组装后的歌曲信息替换 original 占位符。 */
+    val largeMetadata: Boolean = false,
     val alignedRight: Boolean,
+    /** 分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
+    val alignedRightMarkers: Boolean = false,
     val lineLevelSync: Boolean,
     val lineStartMs: Long,
     val lineEndMs: Long,
@@ -396,6 +421,8 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
                 text = duetText,
                 romanized = line.romanized.trim().take(MAX_LYRIC_LENGTH),
                 translated = line.translated.trim().take(MAX_LYRIC_LENGTH),
+                alignedRight = line.alignedRight,
+                alignedRightMarkers = line.alignedRightMarkers,
                 lineStartMs = line.lineStartMs.coerceAtLeast(0L),
                 lineEndMs = line.lineEndMs.coerceAtLeast(line.lineStartMs.coerceAtLeast(0L)),
                 words = line.words.asSequence().take(MAX_WORDS).map { word ->
@@ -421,6 +448,9 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
         nextLineRomanized = snapshot.nextLineRomanized.trim().take(MAX_LYRIC_LENGTH),
         nextLineTranslated = snapshot.nextLineTranslated.trim().take(MAX_LYRIC_LENGTH),
         metadata = snapshot.metadata.trim().take(MAX_METADATA_LENGTH),
+        title = snapshot.title.trim().take(MAX_METADATA_LENGTH),
+        artist = snapshot.artist.trim().take(MAX_METADATA_LENGTH),
+        album = snapshot.album.trim().take(MAX_METADATA_LENGTH),
         lineStartMs = snapshot.lineStartMs.coerceAtLeast(0L),
         lineEndMs = snapshot.lineEndMs.coerceAtLeast(snapshot.lineStartMs.coerceAtLeast(0L)),
         durationMs = duration,
@@ -492,7 +522,12 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             nextLineRomanized = value.nextLineRomanized,
             nextLineTranslated = value.nextLineTranslated,
             metadata = value.metadata,
+            title = value.title,
+            artist = value.artist,
+            album = value.album,
+            largeMetadata = value.largeMetadata,
             alignedRight = value.alignedRight,
+            alignedRightMarkers = value.alignedRightMarkers,
             lineLevelSync = value.lineLevelSync,
             lineStartMs = value.lineStartMs,
             lineEndMs = value.lineEndMs,
@@ -546,6 +581,7 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
                     romanized = line.romanized,
                     translated = line.translated,
                     alignedRight = line.alignedRight,
+                    alignedRightMarkers = line.alignedRightMarkers,
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
                     words = line.words.map { word ->

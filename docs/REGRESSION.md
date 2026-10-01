@@ -105,14 +105,17 @@ and (b) unverified paths stay explicit instead of silently assumed.
   preview popped the auxiliary rows instantly) — pending a hardware smoke check after merge: on a
   device line change the auxiliary text fades/moves together with the main line instead of popping,
   and the preview shows the same block transition.
-- Song info content and separator (`metadataParts` / `metadataSeparator`, document-level,
-  shared by both surfaces): choose which slices show (title/artist/album, always in canonical
-  order) and the joining separator (`newline` = one slice per line, the historical default, or
-  inline joins such as ` · `); the canvas splits metadata on hard line breaks only and renders at
-  most three metadata lines (was two), with the height budget extended by the extra slice lines —
-  pending a hardware smoke check after merge: the default title/artist + newline looks unchanged,
-  three selected parts each get their own unclipped line, and an inline separator keeps the row on
-  a single line.
+- Song info content and separator (`metadataParts` / `metadataSeparators`, per-surface — lockscreen
+  and AOD configure them independently; a surface that never set them inherits the document-level
+  default, so old documents upgrade unchanged): choose which slices show (title/artist/album, always
+  in canonical order) and the joining separator (`newline` = one slice per line, the historical
+  default, or inline joins such as ` · `); the canvas splits metadata on hard line breaks only and
+  renders at most three metadata lines (was two), with the height budget extended by the extra slice
+  lines. The snapshot carries raw title/artist/album and each surface re-assembles them from its own
+  profile — pending a hardware smoke check after merge: the default title/artist + newline looks
+  unchanged, three selected parts each get their own unclipped line, an inline separator keeps the
+  row on a single line, and changing slices/separators on AOD leaves the lockscreen's song-info
+  assembly and layout budget untouched (and vice versa).
 - Preview card adaptive height (`LyricPreviewCard` / `AppearanceLivePreview` surfaces grow with
   their lyric content instead of fixed 150/180dp boxes, clamped to 120-420dp, and hold the
   tallest content seen while the same profile is active so demo/live line re-wrapping does not
@@ -189,12 +192,16 @@ and (b) unverified paths stay explicit instead of silently assumed.
   `position stalled/resumed` (~45 lines/s) and per-frame arbiter `active changed` lines;
   genuine screen-off stalls still extrapolate and log once, and line changes / source
   switches still log.
-- Duet marker recognition (`duetMarkers`, document-level, default on): leading （男）/（女）/（合）
-  markers are hidden from display and, when the source carries no singer metadata, drive the duet
-  left/right split (first marker singer left, the rest right, in order of appearance); turning it
-  off shows raw marker text and keeps markers out of the split. Section markers (（副歌）/（间奏） and
-  the like) hide the same way but never join the split; a pure marker line (only a marker, no lyric
-  text) keeps displaying as-is and counts zero in the sing-time estimate.
+- Duet marker recognition (`duetMarkers`, per-surface — lockscreen and AOD configure it
+  independently, default on; a surface that never set it inherits the document-level default):
+  leading （男）/（女）/（合） markers are hidden from display and, when the source carries no singer
+  metadata, drive the duet left/right split (first marker singer left, the rest right, in order of
+  appearance); turning it off shows raw marker text and keeps markers out of the split. Section
+  markers (（副歌）/（间奏） and the like) hide the same way but never join the split; a pure marker
+  line (only a marker, no lyric text) keeps displaying as-is and counts zero in the sing-time
+  estimate. The snapshot is shared by both surfaces and only carries the raw line text plus two
+  precomputed split variants (metadata-identity and marker-recognition); hiding markers and choosing
+  the split are deferred to each surface's own switch, so toggling one surface never affects the other.
   Ingest timeline repair (gap-swallowing line windows re-anchored / suspect word timing dropped)
   and cross-producer seek forwarding land together — pending a hardware smoke check after merge:
   a Netease duet song (e.g. 讲男讲女) splits left/right by the （男）/（女） markers with clean text
@@ -375,7 +382,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 换行动画覆盖辅助文字（主歌词、音标/翻译辅助行与下一行歌词在主页预览中整块同层进退，与实机
   `drawRows` 单层语义对齐——实机本就整块过渡，此前仅预览对辅助行瞬切）——合并后待真机冒烟：
   实机换行时辅助文字随主行一起淡入淡出/位移而非瞬切，预览呈现与实机一致。
-- 歌曲信息内容与分隔符（`metadataParts`/`metadataSeparator`，文档级全局，息屏与锁屏共用）：可选显示哪些切片（歌名/歌手/专辑，恒按规范顺序）与连接分隔符（`newline` 每切片一行=历史默认，或 ` · ` 等行内连接）；画布歌曲信息只按硬换行拆行且最多 3 行（原 2 行），高度预算随切片行数追加——合并后待真机冒烟：默认「歌名/歌手+换行」与历史一致、选满 3 部分各占一行不裁切、行内分隔符保持单行。
+- 歌曲信息内容与分隔符（`metadataParts`/`metadataSeparators`，per-surface，锁屏与息屏各自独立；未显式设置的曲面继承文档级默认值，旧文档升级语义不变）：可选显示哪些切片（歌名/歌手/专辑，恒按规范顺序）与连接分隔符（`newline` 每切片一行=历史默认，或 ` · ` 等行内连接）；画布歌曲信息只按硬换行拆行且最多 3 行（原 2 行），高度预算随切片行数追加。快照携带原始歌名/歌手/专辑，由各渲染面按本面配置重新组装——合并后待真机冒烟：默认「歌名/歌手+换行」与历史一致、选满 3 部分各占一行不裁切、行内分隔符保持单行；在息屏改切片/分隔符后锁屏的歌曲信息组装与布局预算均不联动，反向同样独立。
 - 预览卡片自适应高度（`LyricPreviewCard` / `AppearanceLivePreview` 面板高度随歌词内容增长，取代固定 150/180dp，钳制在 120-420dp；同一配置生效期间保持已见最大内容高度，演示行循环/逐行折行变化不会让卡片高度来回呼吸）——仅应用内预览改动，不涉及 SystemUI/AOD surface；待真机看一眼：大字号 + 副文本/下一行/歌曲信息全开时内容不再被裁切，周围布局不跳动。
 - 导入字体按内置样式展示名字（字体选择行摘要与对话框显示字体 name 表真名、导入文件名兜底，不再显示「自定义字体」泛称；导入支持一次多选批量且全部保留）——合并后待真机冒烟：一次导入多个字体全部保留，对话框与设置摘要行各自显示自己的字体名。
 - 歌词源死锁恢复（staleSweep 与选源共用同一故障谓词、清空后强制补发；Lyricon 看门狗以
@@ -396,7 +403,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 对唱分侧（`duetAlignment`，每 surface 独立，默认开启）：源显式标记（`alignedRight`/`isAlignedRight`）或演唱者身份元数据判为后位歌手的行绘制在右侧；关闭开关后所有行按主对齐解析。歌词源不带演唱者信息的曲目零变化——合并后待真机冒烟：歌词源标注了两位演唱者的对唱歌曲左右交替、关闭开关后全部居左、翻译/下一行行不受影响。
 - 显示并发歌词（对唱）（`duetConcurrent`，每 surface 独立，默认开启，仅息屏）：与主行播放窗口重叠达到 1 秒的唱词行紧邻主行块堆叠、各画各的逐字扫光，加入时 180ms 静音淡入，在场时取代独立「下一行」行，整块超出歌词区按共享系数缩小——合并后待真机冒烟：三个接入源（Spicy/Lyricon/LyricInfo）的对唱歌曲在共享窗口内两行同显、并发行跟随「对唱分侧」、关闭开关后与 solo 呈现逐字一致、锁屏恒单行、SuperLyric 歌曲无并发行、对唱窗口结束后独立下一行恢复。
 - Lyricon 位置通道日志/状态刷屏修复（写入端 ~40ms 更新节奏内的重复位置回调不再触发停滞外推：低于 500ms 下限保持最后真实位置且不发状态；仲裁器仅在来源身份（源+歌曲代）真变时才记「active changed」，同源例行转发不再逐帧刷日志）——合并后待真机冒烟：开诊断日志播歌，`diagnostic-trace.log` 不再被逐帧 `position stalled/resumed`（约 45 行/秒）与逐帧 `active changed` 刷满轮转；真实息屏停滞仍外推且各记一条，换行/换源日志保留。
-- 识别对唱标记（`duetMarkers`，文档级全局，默认开启）：行首（男）/（女）/（合）标记被隐去并（无元数据时）驱动对唱左右分侧（按标记出现顺序，先出现者居左）；（副歌）/（间奏）等段落标记同样隐去但不参与分侧；纯标记行（只有标记没有歌词）保留原样显示且可唱估时按 0 字计；关闭后原样显示标记、标记不参与分侧。同行落地 ingest 时间轴修复（间隙吞进行窗向词对齐/钳制、可疑词级降级）与跨源 seek 转发——合并后待真机冒烟：网易云对唱曲（如《讲男讲女》）按（男）/（女）出现顺序左右分侧且文本无标记、带段落标记的行文本干净（如「（副歌）爱你一万年」显示为「爱你一万年」）且分侧不变、整行（间奏）原样保留不被重锚、逐句起唱点正确（下一句不再提前上屏）、关闭开关恢复原样标记、拖动进度条歌词立即跟手。钳制刻意保守（孤立长窗行原样保留，真实长音安全）：另验慢歌收尾长音按真实起唱点上屏、英文/拉长音歌曲无误钳。
+- 识别对唱标记（`duetMarkers`，per-surface，锁屏与息屏各自独立、默认开启；未显式设置的曲面继承文档级默认值）：行首（男）/（女）/（合）标记被隐去并（无元数据时）驱动对唱左右分侧（按标记出现顺序，先出现者居左）；（副歌）/（间奏）等段落标记同样隐去但不参与分侧；纯标记行（只有标记没有歌词）保留原样显示且可唱估时按 0 字计；关闭后原样显示标记、标记不参与分侧。快照只下发原始行文本与两套预计算分侧（元数据身份版/标记识别版），隐去与选侧推迟到各渲染面按本面开关执行——改一面的开关不联动另一面。同行落地 ingest 时间轴修复（间隙吞进行窗向词对齐/钳制、可疑词级降级）与跨源 seek 转发——合并后待真机冒烟：网易云对唱曲（如《讲男讲女》）按（男）/（女）出现顺序左右分侧且文本无标记、带段落标记的行文本干净（如「（副歌）爱你一万年」显示为「爱你一万年」）且分侧不变、整行（间奏）原样保留不被重锚、逐句起唱点正确（下一句不再提前上屏）、关闭开关恢复原样标记、拖动进度条歌词立即跟手。钳制刻意保守（孤立长窗行原样保留，真实长音安全）：另验慢歌收尾长音按真实起唱点上屏、英文/拉长音歌曲无误钳。
 - 应用外观设置页重做并新增背景模糊（主题模式/主题颜色/系统栏图标改为行内下拉直接选、行上显示当前值；
   自定义颜色行带色块与 hex 值、弹窗内色板取色并有色块实时预览；背景图片入口打开预览弹窗，变暗/模糊
   滑杆实时作用于预览、「恢复默认/保存」成对提交；新增 `background_blur_percent` 0-100，默认 0，

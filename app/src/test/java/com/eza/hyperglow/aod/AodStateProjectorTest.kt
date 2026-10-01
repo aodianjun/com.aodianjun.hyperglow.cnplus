@@ -713,10 +713,13 @@ class AodStateProjectorTest {
         )
     }
 
-    // --- 对唱标记(（男）/（女）/（合）)剥离(文档级 duetMarkers)---
+    // --- 对唱标记(（男）/（女）/（合）)不再在投影层剥离(per-surface)---
 
     @Test
-    fun duetMarkerStripsLineNextLineAndLeadingWordByDefault() {
+    fun duetMarkerTextPassesThroughRawForSurfaceRendering() {
+        // 快照为息屏/锁屏共用,行首标记剥离推迟到按面渲染(各面按自己「识别对唱标记」决策),
+        // 投影层只下发原始文本与词表。渲染侧行为见
+        // AodCanvasLayoutTest.surfaceDuetMarkersStripAndSelectAlignmentIndependently。
         val s = state(
             line = "（女） 男共女的事总有人偏私",
             lineIndex = 0,
@@ -727,9 +730,9 @@ class AodStateProjectorTest {
         ).copy(nextLine = "（男） 男共女的事深究无意义")
         val out = project(s)
 
-        assertEquals("男共女的事总有人偏私", out.original)
-        assertEquals("男共女的事深究无意义", out.nextLine)
-        assertEquals(listOf("男共女", "的事"), out.words.map { it.text })
+        assertEquals("（女） 男共女的事总有人偏私", out.original)
+        assertEquals("（男） 男共女的事深究无意义", out.nextLine)
+        assertEquals(listOf("（女）男共女", "的事"), out.words.map { it.text })
     }
 
     // --- 下一行辅助文字(「显示第二行辅助文字」)与下一行同门控 ---
@@ -762,18 +765,22 @@ class AodStateProjectorTest {
     }
 
     @Test
-    fun duetMarkersOffKeepsRawMarkerText() {
+    fun duetMarkerRawTextIsKeptRegardlessOfDocumentFlag() {
+        // 文档级开关不再是投影层的决策输入(剥离已推迟到按面渲染),两种取值下原文一致。
         val s = state(line = "（女） 男共女的事总有人偏私", lineIndex = 0)
             .copy(nextLine = "（男） 下一句")
-        val out = project(s, compiled = compiled.copy(duetMarkers = false))
+        val on = project(s, compiled = compiled.copy(duetMarkers = true))
+        val off = project(s, compiled = compiled.copy(duetMarkers = false))
 
-        assertEquals("（女） 男共女的事总有人偏私", out.original)
-        assertEquals("（男） 下一句", out.nextLine)
+        assertEquals("（女） 男共女的事总有人偏私", on.original)
+        assertEquals("（女） 男共女的事总有人偏私", off.original)
+        assertEquals("（男） 下一句", on.nextLine)
+        assertEquals("（男） 下一句", off.nextLine)
     }
 
     @Test
-    fun sectionMarkerStripsLikeDuetMarkers() {
-        // 段落标记(（副歌）/（间奏）等)与对唱标记同源剥离:词表同步,逐字卡拉OK不残留标记。
+    fun sectionMarkerTextPassesThroughRaw() {
+        // 段落标记(（副歌）/（间奏）等)与对唱标记同源:投影层原样下发,词表同步保留标记文本。
         val s = state(
             line = "（副歌） 爱你一万年",
             lineIndex = 0,
@@ -784,18 +791,9 @@ class AodStateProjectorTest {
         ).copy(nextLine = "（间奏） 轻快地弹奏")
         val out = project(s)
 
-        assertEquals("爱你一万年", out.original)
-        assertEquals("轻快地弹奏", out.nextLine)
-        assertEquals(listOf("爱你", "一万年"), out.words.map { it.text })
-    }
-
-    @Test
-    fun sectionMarkerOffKeepsRawText() {
-        // 关闭「识别对唱标记」后段落标记同样原样显示(同一开关共管)。
-        val s = state(line = "（副歌） 爱你一万年", lineIndex = 0)
-        val out = project(s, compiled = compiled.copy(duetMarkers = false))
-
         assertEquals("（副歌） 爱你一万年", out.original)
+        assertEquals("（间奏） 轻快地弹奏", out.nextLine)
+        assertEquals(listOf("（副歌）爱你", "一万年"), out.words.map { it.text })
     }
 
     @Test
@@ -820,7 +818,7 @@ class AodStateProjectorTest {
     }
 
     @Test
-    fun duetConcurrentCarriesCandidateAndStripsMarkers() {
+    fun duetConcurrentCarriesCandidateRawForSurfaceRendering() {
         val s = state(
             line = "main",
             lineIndex = 0,
@@ -835,8 +833,8 @@ class AodStateProjectorTest {
         )
         val out = project(s)
         assertNotNull(out.duetLine)
-        // 行首演唱者标记与主行同源剥离(duetMarkers 默认开)。
-        assertEquals("second", out.duetLine!!.text)
+        // 并发行文本原样下发(含行首标记),剥离由渲染面按本面「识别对唱标记」处理。
+        assertEquals("（男）second", out.duetLine!!.text)
         assertTrue(out.duetLine!!.words.isNotEmpty())
     }
 

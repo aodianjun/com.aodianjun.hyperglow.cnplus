@@ -233,6 +233,7 @@ class SpicyLyricProducer : LyricProducer {
                     romanized = second.romanized,
                     translated = second.translated,
                     alignedRight = second.alignedRight,
+                    alignedRightMarkers = second.alignedRight,
                     lineStartMs = LyricTimeOffset.displayMs(second.startMs, lyricTimeOffsetMs),
                     // 与主行同一渲染钳制:fillEndMs 可越行尾,行级扫光窗口不得越过行尾。
                     lineEndMs = LyricTimeOffset.displayMs(minOf(second.fillEndMs, second.endMs), lyricTimeOffsetMs),
@@ -279,7 +280,9 @@ class SpicyLyricProducer : LyricProducer {
                 font = spicy.lyricsFont
             ),
             lyricKind = lyricKind,
+            // 源显式分侧:Spicy 不用行首标记作身份输入,两套取值一致。
             alignedRight = row?.alignedRight == true,
+            alignedRightMarkers = row?.alignedRight == true,
             lineStartMs = row?.startMs?.let { LyricTimeOffset.displayMs(it, lyricTimeOffsetMs) } ?: 0L,
             // 渲染钳制(上游 8422d78):fillEndMs 可能越过本行 endMs(数据源把跨行的填充
             // 计算进去),行级扫光的行窗口不得越过行尾。

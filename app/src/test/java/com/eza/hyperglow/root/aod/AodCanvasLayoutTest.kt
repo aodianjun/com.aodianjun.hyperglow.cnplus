@@ -542,6 +542,84 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun surfaceMetadataComposesFromOwnProfilePartsAndSeparators() {
+        // 「歌曲信息内容」per-surface:息屏显式设置(专辑→歌名,换行),锁屏未显式设置时继承
+        // 文档级默认值(歌名·歌手)。同一份快照下两面各自组装,互不联动。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                metadataParts = "title,artist",
+                metadataSeparators = "dot",
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        metadataParts = "album,title",
+                        metadataSeparators = "newline"
+                    ),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile()
+                )
+            )
+        )
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        val snapshot = LyricSnapshot(
+            original = "line",
+            title = "Song",
+            artist = "Artist",
+            album = "Album"
+        )
+
+        assertEquals("Album\nSong", snapshot.toAodCanvasContent(aod).metadata)
+        assertEquals("Song · Artist", snapshot.toAodCanvasContent(lockscreen).metadata)
+    }
+
+    @Test
+    fun metadataOnlySnapshotKeepsLegacyComposedValueWhenNoRawSlices() {
+        // 快照未携带原始歌名/歌手/专辑(旧消费方/演示态只给文档级组装值)时,按面重组不得把这份
+        // 兜底值清空——回落快照 metadata;携带原始切片时才按本面重组(见上一则测试)。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataParts = "album")
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val snapshot = LyricSnapshot(original = "line", metadata = "Song · Artist")
+
+        assertEquals("Song · Artist", snapshot.toAodCanvasContent(compiled).metadata)
+    }
+
+    @Test
+    fun surfaceDuetMarkersStripAndSelectAlignmentIndependently() {
+        // 「识别对唱标记」per-surface:息屏开启则隐去标记并取标记识别版分侧;锁屏关闭则原样显示
+        // 标记并取元数据身份版分侧。同一份快照(两版分侧随状态下发)下两面各自决策。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(duetMarkers = true),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(duetMarkers = false)
+                )
+            )
+        )
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        val snapshot = LyricSnapshot(
+            original = "（女） 词",
+            nextLine = "（男） 下一句",
+            alignedRight = false,
+            alignedRightMarkers = true
+        )
+
+        val aodContent = snapshot.toAodCanvasContent(aod, duet = true)
+        assertEquals("词", aodContent.original)
+        assertEquals("下一句", aodContent.nextLine)
+        assertTrue(aodContent.alignedRight)
+
+        val lockscreenContent = snapshot.toAodCanvasContent(lockscreen)
+        assertEquals("（女） 词", lockscreenContent.original)
+        assertEquals("（男） 下一句", lockscreenContent.nextLine)
+        assertFalse(lockscreenContent.alignedRight)
+    }
+
+    @Test
     fun duetAlignedRightOnlyGatesTheLineSideBit() {
         // 真值表:开关关闭时忽略行级 alignedRight,开启时原样透传。
         assertTrue(duetAlignedRight(alignedRight = true, duetAlignment = true))

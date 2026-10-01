@@ -72,19 +72,29 @@ internal fun LyriconLyricProducer.refreshDuetAlignment(lyrics: List<RichLyricLin
 }
 
 /**
- * 活动行是否右对齐。无快照（尚未收到歌）或索引越界恒为 false。
- * 「识别对唱标记」开启时取标记版快照(缺失时回落元数据版),关闭取元数据版;
+ * 活动行的**元数据身份版**分侧。无快照（尚未收到歌）或索引越界恒为 false。
  * 是否真正按右对齐绘制由渲染侧的「对唱分侧」开关决定（见 root/aod/duetAlignedRight）。
  */
-internal fun LyriconLyricProducer.activeAlignedRight(lineIndex: Int): Boolean {
+internal fun LyriconLyricProducer.identityAlignedRight(lineIndex: Int): Boolean {
     if (lineIndex < 0) return false
-    val resolved = if (duetMarkersEnabled) {
-        duetMarkerResolvedAlignedRight ?: duetResolvedAlignedRight
-    } else {
-        duetResolvedAlignedRight
-    }
-    return resolved?.getOrNull(lineIndex) ?: false
+    return duetResolvedAlignedRight?.getOrNull(lineIndex) ?: false
 }
+
+/**
+ * 活动行的**标记识别版**分侧（元数据身份缺失时以行首标记兜底）；无标记版快照时回落身份版。
+ * 两套随状态下发，各渲染面按自己面的「识别对唱标记」开关选用。
+ */
+internal fun LyriconLyricProducer.markerAlignedRight(lineIndex: Int): Boolean {
+    if (lineIndex < 0) return false
+    return duetMarkerResolvedAlignedRight?.getOrNull(lineIndex) ?: identityAlignedRight(lineIndex)
+}
+
+/**
+ * 兼容旧入口：按**文档级**「识别对唱标记」开关在两套之间选用。
+ * 新的按面独立链路不再依赖它做显示决策（改为状态里同时下发两套），保留供既有测试/调用。
+ */
+internal fun LyriconLyricProducer.activeAlignedRight(lineIndex: Int): Boolean =
+    if (duetMarkersEnabled) markerAlignedRight(lineIndex) else identityAlignedRight(lineIndex)
 
 // 「外部设置变更」重算入口已收拢为 [LyriconLyricProducer.onCustomizationChanged] 成员覆写
 // (歌词时间偏移缓存随同刷新,见 LyricTimeOffsetPolicy.kt)。
