@@ -962,7 +962,7 @@ internal class AodLyricCanvasView(
     private fun drawPromotedAuxLayer(
         canvas: Canvas,
         snapshot: CanvasSnapshot,
-        frame: LineTransitionFrame
+        frame: LineTransitionMoveFrame
     ) {
         val nextGroupStart = snapshot.layout.rows.indexOfFirst { it.row.kind == RowKind.NEXT_LINE }
         if (nextGroupStart < 0) return
