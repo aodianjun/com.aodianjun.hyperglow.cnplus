@@ -143,6 +143,9 @@ class LyriconLyricProducer(
     /** 文档级「识别对唱标记」开关缓存(见 refreshDuetMarkerPolicy);默认开启。 */
     @Volatile internal var duetMarkersEnabled: Boolean = true
 
+    /** 文档级「歌词时间偏移」(毫秒)缓存(见 LyricTimeOffsetPolicy);正数延后、负数提前。 */
+    @Volatile internal var lyricTimeOffsetMs: Int = 0
+
     // --- Position extrapolation state ---
     // When the player process is frozen by MIUI screen-off, the shared-memory position stops
     // updating but onPositionChanged keeps firing at ~60 Hz with the same stalled value. To keep
@@ -310,6 +313,22 @@ class LyriconLyricProducer(
     /** 跨源 seek 转发入口(见 LyricProducer.onExternalSeek):与 onSeekTo 同一处理。 */
     override fun onExternalSeek(positionMs: Long) {
         applySeek(positionMs)
+    }
+
+    /**
+     * 外部设置变更(文档保存/导入/重置)时的重算入口:「歌词时间偏移」、标记开关与渲染模式
+     * 即刻刷新,分侧快照按当前歌重算(无歌时仅刷新缓存)。
+     */
+    @Synchronized
+    override fun onCustomizationChanged() {
+        lyricTimeOffsetMs = loadLyricTimeOffsetMs(contextRef)
+        val lyrics = currentSong?.lyrics
+        if (lyrics.isNullOrEmpty()) {
+            refreshDuetMarkerPolicy()
+        } else {
+            refreshDuetAlignment(lyrics)
+        }
+        refreshRenderModes()
     }
 
     /** Issue #27: a brand-new provider/song re-arms the stop detector. */

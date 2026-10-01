@@ -405,6 +405,17 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
 - A seek observed by one producer is forwarded to the others (`onExternalSeek`), so a producer
   whose own position source froze or dropped its seek callback snaps to the authoritative
   position at once instead of lagging behind.
+- Lyric time offset is a document-level slider (default 0 ms, range ±5 s, quantized to 50 ms;
+  semantics reference HyperLyric's lyric time offset): timeline producers (Lyricon, LyricInfo,
+  Spicy) evaluate line selection and emit `positionMs`, line windows, word timings and
+  `nextLineStartMs` on the display timeline `position − offset` — positive values show lyrics
+  later, negative values earlier. The machinery layer (extrapolation, residual rejection, seek
+  detection and cross-source seek forwarding, song-end clamping) keeps raw media coordinates;
+  only the emitted display coordinates shift, so the karaoke sweep stays coherent with the
+  selected line. Changing the slider takes effect immediately (producers refresh on
+  customization change). SuperLyric is a line-push source (a line is shown when it arrives) and
+  is not affected. The offset applies to both surfaces; the plugin chain's whole-song snapshot
+  keeps the raw timeline.
 - Line-change animation is selectable per surface profile from a fixed vocabulary: `Auto`, the
   historical modes `Fade up`, `Crossfade`, `Slide up`, `Slide left`, `Zoom`, the 25 HyperLyric
   line-change presets by their original ids (`fade_out_fade_in`, `fade_out_up_fade_in_up`,
@@ -700,6 +711,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 显示并发歌词(对唱)是每个 surface 独立的开关(默认开启),仅息屏生效:持有整首行表的生产者(Spicy 文档、Lyricon、LyricInfo)在发射前预计算并发行候选——与主行播放窗口重叠达到 1 秒的另一唱词行(纯时间轴重叠判定,不依赖任何歌手标记;间奏行不参与)。投影层只做开关与格式转换,不从原始行表选行。开关开启且快照携带候选时,息屏画布把并发行作为与主行同尺寸的段落紧邻主行块堆叠(锚顶布局主行位置保持稳定;锚底/居中布局整块重排),各画各的逐字扫光;并发行加入时 180ms 静音淡入;已唱完的重叠行由退出缓冲保留到主行行末,双行段不在对唱中途塌掉;整块超出歌词区时按同一共享系数缩小(0.3 绝对下限,低于下限溢出裁切)。并发行在场时取代独立「下一行」行。锁屏恒只渲染主行。SuperLyric(只推当前行的逐行源)不产出并发行。本次移植有意省去上游的槽位继承/双段独立过渡机制(v1 简化),选取语义与上游 99ba119d4 一致。
 - 生产者 ingest 在选行/渲染之前修复明显失真的行窗口：行窗远大于文本可唱时长的行（逐字合成把乐器间隙吞进行窗的产物，真机实测单行偏差可达十余秒），词级跨距可信时行窗向词对齐，否则丢弃可疑词级、回退行级填充，头部贴附的行窗从 `end-估时` 起算。正常行零变化。行首钳制仅在全曲出现至少两个损坏行时启用（真实损坏是整首系统性的，真实长音则是孤立的长窗行）；孤立长窗行保持原有行窗不变。估时忽略行首标记——标记不发声；纯标记行按 0 字计。
 - 任一生产者观测到 seek 时跨源转发给其他生产者（`onExternalSeek`），位置源冻结/漏发 seek 回调的生产者立即落到权威位置，不再滞后。
+- 歌词时间偏移是文档级全局滑杆（默认 0ms,范围 ±5 秒,按 50ms 档量化;语义参考 HyperLyric 的歌词时间偏移）:时间轴源生产者（Lyricon、LyricInfo、Spicy）的选行查询与发射坐标——`positionMs`、行窗、词级时间与 `nextLineStartMs`——统一落在「播放位置 − 偏移」的显示时间轴上,正数延后显示、负数提前显示。机制层（位置外推、残留拒绝、seek 判定与跨源 seek 转发、歌尾钳制）保持原始媒体坐标,仅发射的显示坐标平移,逐字扫光与所选行保持同轴。拖动滑杆立即生效（设置变更即刷新生产者缓存）。SuperLyric 为逐行推流源（行到达即上屏）,不受偏移影响。偏移同时作用于息屏与锁屏;插件链的整首快照保持原始时间轴。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
 - 歌曲图片为 per-surface 设置,锁屏与息屏各自独立(显示开关、方形/圆形形状、仅圆形可选旋转);旧文档中存的文档级全局值在首次读取时一次性播种到两个曲面。开启时歌曲信息块左侧恰好一个图片槽:槽边长为歌曲信息字号的 1.6 倍、与文本间距 6dp,行级对齐把「图片+文本块」当整组落位,文本块内各行仍按各自对齐排布。图片带高取「歌曲信息文本块高」与「图片槽边长」的较大者:图片高于文本块时带高随图片增长、文本块在带内垂直居中,图片不被内容裁剪框/锁屏卡片裁切,带高计入卡片实测高与歌曲信息组件预算;图片与文本块共用同一视觉中线(首末行基线中点 + (ascent + descent)/2,而非裸基线中点)。音乐暂停驻留期间圆形封面默认停转(暂停期无逐帧开销),仅「音乐暂停时继续旋转」打开的曲面继续旋转。取图 fail-closed:只显示经校对的「当前播放的音乐软件」当前曲目的专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致)——系统播放窗口滞留的旧封面、其他包、或歧义命中一律不显示。封面帧有界(源图降采样至 ≤192px 后压成 ≤24KiB JPEG),按帧键解码一次。方形不旋转;圆形旋转为匀速 12 秒/圈,与逐字歌词共用有效节拍门(隐藏即停帧)。未知形状值归一为方形;旋转仅圆形生效。隐私:封面字节不出设备、不入诊断;功耗:静态封面不增加逐帧开销,旋转随既有节拍门停止(隐藏,或暂停且未开「音乐暂停时继续旋转」)。

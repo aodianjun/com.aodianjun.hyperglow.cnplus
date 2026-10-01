@@ -210,6 +210,7 @@ object CustomizationRepository {
             metadataParts = compiled.metadataParts,
             metadataSeparator = compiled.metadataSeparator,
             duetMarkers = compiled.duetMarkers,
+            lyricTimeOffsetMs = compiled.lyricTimeOffsetMs,
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to compiled.profiles
                     .getValue(SceneCompiler.SURFACE_LOCKSCREEN)

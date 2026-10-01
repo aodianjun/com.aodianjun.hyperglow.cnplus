@@ -300,6 +300,14 @@ and (b) unverified paths stay explicit instead of silently assumed.
   re-tints row titles and card text immediately while summaries stay theme-colored, picking a font
   re-renders the whole app UI in that font across screens, follow-system restores the platform
   default, and both survive config backup export/import.
+- Lyric time offset (document-level 「歌词时间偏移」slider in the layout screen) shifts line
+  selection and the emitted display timeline (position, line window, word timings, next line)
+  by the configured offset — positive = later, negative = earlier, ±5 s at 50 ms steps — while
+  the position/seek machinery keeps raw media coordinates. Pending device smoke: with a
+  deliberately early or late source the offset moves the line switch and the karaoke sweep
+  together by the same amount on both AOD and lockscreen, changing the slider mid-song takes
+  effect at once, 0 ms keeps behavior identical, the value round-trips through config backup,
+  and SuperLyric-only playback is unaffected by design.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -471,6 +479,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   随后下一行列簇自 [358-418] 平移约 100px 至当前行槽位 [460-542] 并转亮（晋升位移）；
   最后新行在腾出的下一行槽位淡入。三段严格序列、同一句歌词同一时刻只在一层出现
   （无重叠）。跨曲场景（无内容延续）为旧行组整体退场 + 新行组整体进场，符合条款。
+- 歌词时间偏移（布局页文档级「歌词时间偏移」滑杆）把选行与发射显示时间轴（位置、行窗、词级时间、下一行）按配置偏移整体平移——正数延后、负数提前,±5 秒、50ms 档——位置/seek 机制层保持原始媒体坐标。待真机冒烟:对偏早/偏晚的歌词源,偏移让息屏与锁屏的换行点与逐字扫光同步移动同一幅度;播放中拖动滑杆立即生效;0ms 与改动前逐字一致;数值随配置备份往返;仅 SuperLyric 播放时按设计不受影响。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
