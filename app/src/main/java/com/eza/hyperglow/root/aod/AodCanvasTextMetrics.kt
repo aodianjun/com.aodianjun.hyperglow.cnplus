@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.aod
 
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.round
 
 internal fun baseTextSizeSp(text: String): Float = when {
@@ -112,13 +113,15 @@ internal fun metadataTextSizeMultiplier(percent: Int): Float =
 internal fun metadataTextSizeSp(percent: Int): Float =
     14f * metadataTextSizeMultiplier(percent)
 
-/** 副文本音标行字号(sp):主字号 baseSp 的 0.48 倍,带 14sp 下限。 */
+/** 副文本音标行字号(sp):主字号 baseSp 的 0.48 倍。14sp 可读性下限按 baseSp 等比封顶
+ *  (min(14, baseSp×0.62)):主行被字号档/LIVE_CARD_SIZE_MULTIPLIER 压小后,下限不得把辅助
+ *  形态抬到与主行同大,否则「辅助文字」视觉失效(2026-10-01 真机:0.68 缩放下 aux/main≈0.9)。 */
 internal fun secondaryReadingTextSizeSp(baseSp: Float): Float =
-    max(14f, round(baseSp * 0.48f))
+    max(min(14f, baseSp * 0.62f), round(baseSp * 0.48f))
 
-/** 副文本翻译行字号(sp):音标行再小 1sp,带 13sp 下限。 */
+/** 副文本翻译行字号(sp):音标行再小 1sp。13sp 下限同样按 baseSp 等比封顶。 */
 internal fun secondaryTranslationTextSizeSp(baseSp: Float): Float =
-    max(13f, round(baseSp * 0.48f) - 1f)
+    max(min(13f, baseSp * 0.62f - 1f), round(baseSp * 0.48f) - 1f)
 
 /** 下一行歌词字号(sp):固定 15sp,不随字号档位缩放。 */
 internal fun nextLineTextSizeSp(): Float = 15f

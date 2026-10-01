@@ -180,11 +180,16 @@ class CustomizationPreviewTest {
 
     @Test
     fun previewSecondaryAndNextLineSizesMatchDeviceFormula() {
-        // 与实机 setContent 同源:音标 0.48×base 带 14sp 下限,翻译再小 1sp 带 13sp 下限。
-        assertEquals(14f, secondaryReadingTextSizeSp(19.04f), 0.001f)
+        // 与实机 setContent 同源:音标 0.48×base;14/13sp 可读性下限按 baseSp 等比封顶,
+        // 主行被字号档/LIVE_CARD_SIZE_MULTIPLIER 压小时辅助形态仍明显小于主行。
+        assertEquals(11.8f, secondaryReadingTextSizeSp(19.04f), 0.01f)
         assertEquals(18f, secondaryReadingTextSizeSp(38f), 0.001f)
-        assertEquals(13f, secondaryTranslationTextSizeSp(19.04f), 0.001f)
+        assertEquals(10.8f, secondaryTranslationTextSizeSp(19.04f), 0.01f)
         assertEquals(17f, secondaryTranslationTextSizeSp(38f), 0.001f)
+        // 真机案例(2026-10-01):LIVE_CARD_SIZE_MULTIPLIER=0.68 下长行 base=23×0.68=15.64sp,
+        // 修复前被 14/13sp 下限顶到 ≈0.9 倍主行,辅助形态视觉失效。
+        assertEquals(9.7f, secondaryReadingTextSizeSp(15.64f), 0.01f)
+        assertEquals(8.7f, secondaryTranslationTextSizeSp(15.64f), 0.01f)
         // 下一行固定 15sp,不随字号档位缩放。
         assertEquals(15f, nextLineTextSizeSp(), 0.001f)
     }

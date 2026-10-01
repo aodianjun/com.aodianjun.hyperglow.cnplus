@@ -329,6 +329,11 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   selection but keeps the next-line color setting; when enabled it replaces the standalone next-line
   row instead of stacking with it, and when it is off the standalone next-line presentation is
   unchanged.
+- Auxiliary secondary-text rows (transliteration, translation, and the second lyric line in
+  secondary-text form) render at roughly half the effective main lyric size. Their absolute
+  readability floors are capped relative to the effective main size, so the auxiliary form stays
+  visibly smaller than the main line at every size setting and never renders as a second main
+  line.
 - Song info and the second lyric line each carry their own per-surface alignment choice (`auto`,
   `start`, `center`, `end`). `auto` follows the resolved main lyric alignment (the main `auto` still
   right-aligns right-to-left lyrics); explicit values align that row independently of the main
@@ -663,6 +668,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；开启时取代独立的下一行歌词行而不与之叠加，关闭时独立下一行呈现保持不变。
+- 辅助文字行（音译、翻译与辅助文字形态的第二行歌词）以约为有效主行字号一半渲染；其可读性下限按有效主行字号等比封顶（不超过约 0.62 倍），任何字号档下辅助形态都必须明显小于主行，不得渲染成第二条主行。
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
 - 对唱分侧是每个 surface 独立的开关（默认开启）。开启时，行级 `alignedRight` 置位的行绘制在右侧；关闭时忽略该位，所有行按主对齐解析。行级分侧位来源于歌词源：源显式标记（Spicy `alignedRight`、Lyricon `isAlignedRight`、插件 `isAlignedRight`）恒优先，否则由行级演唱者身份元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal`，类型键 `amll:agent-type`/`agent:type`/`agentType`/`vocal:type`）推导——首位歌手居左、其余居右；带显式类型时 `group` 恒左、`other` 起右并随歌手切换翻转。无演唱者信息的曲目保持纯主对齐行为。
 - 识别对唱标记是文档级全局开关（默认开启）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。（副歌）/（间奏）等段落标记同样识别（连写或复合如（男·RAP）的标记串整串剥离），但只隐去文本——不作为演唱者身份、不改动行的分侧。词表外的括号内容按歌词原样保留。纯标记行保留原样显示。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。
