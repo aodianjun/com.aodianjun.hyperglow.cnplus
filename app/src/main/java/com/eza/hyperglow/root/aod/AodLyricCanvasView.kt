@@ -880,6 +880,11 @@ internal class AodLyricCanvasView(
         } else {
             layout
         }
+        // enterLayout 已移除 ORIGINAL,其后行索引整体前移 1(被晋级的新主行辅助行布局保留、
+        // 仅不绘制,位移基准也按实际绘制行计)。
+        val enterSkipIndices = promotedAuxIndices.map { index ->
+            if (index > originalIndex) index - 1 else index
+        }.toSet()
         drawRows(
             canvas,
             enterLayout,
@@ -888,12 +893,9 @@ internal class AodLyricCanvasView(
                 transitionMode,
                 enterEased,
                 blockWidthDp,
-                animatedBlockHeightDp(enterLayout)
+                animatedBlockHeightDp(enterLayout, skipRowIndices = enterSkipIndices)
             ),
-            skipRowIndices = promotedAuxIndices.map { index ->
-                // enterLayout 已移除 ORIGINAL,其后行索引整体前移 1
-                if (index > originalIndex) index - 1 else index
-            }.toSet()
+            skipRowIndices = enterSkipIndices
         )
         if (elapsed >= timeline.totalMs) {
             transitionStartedAt = 0L
@@ -1774,14 +1776,18 @@ internal class AodLyricCanvasView(
      * 高。参考实现把位移施加在歌词行视图上(target.getHeight()/4),基准是该视图自身尺寸,
      * 不是画布内容裁剪框;空块回落内容框高(仅兜底,空块不绘制)。
      */
-    private fun animatedBlockHeightDp(state: LayoutState, skipOriginal: Boolean = false): Float {
+    private fun animatedBlockHeightDp(
+        state: LayoutState,
+        skipOriginal: Boolean = false,
+        skipRowIndices: Set<Int> = emptySet()
+    ): Float {
         val boxes = ArrayList<AodCanvasRowBox>(state.rows.size)
-        state.rows.forEach { positioned ->
+        state.rows.forEachIndexed { index, positioned ->
             val top = positioned.baseline + positioned.row.paint.fontMetrics.ascent
             boxes += AodCanvasRowBox(
                 topPx = top,
                 bottomPx = top + positioned.row.height,
-                animated = positioned.animate &&
+                animated = index !in skipRowIndices && positioned.animate &&
                     (!skipOriginal || positioned.row.kind != RowKind.ORIGINAL)
             )
         }
