@@ -1983,6 +1983,14 @@ internal class AodLyricCanvasView(
             }
             return
         }
+        // 「BetterLyrics」逐字发光档(参考 jayfunc/BetterLyrics):逐字时间源统一走词级
+        // 卡拉OK——长词播放中放大、发光开启时活动长词带 glow 色光晕(辉光属于正在唱的
+        // 词,不再叠加整块扫光);发光开关只增删光晕,不改词级运动。行级源(无逐字
+        // 时间)不进本分支,保留下方共享扫光管线——参考实现同样只对逐字源启用词级效果。
+        if (content.animationMode == "BetterLyrics" && originalLayout.timed) {
+            drawWordKaraoke(canvas, baseline, originalLayout, betterLyrics = true)
+            return
+        }
         // 行级歌词(无逐字时间戳,LRC):同样统一走共享渲染管线,与预览同源。
         if (!originalLayout.timed) {
             drawOriginalGlowBlock(
@@ -2186,8 +2194,17 @@ internal class AodLyricCanvasView(
         }
     }
 
-    /** 逐字卡拉OK路径（逐字源+关发光+非行级同步）：词级缩放/位移 + 词内扫光渐变。 */
-    private fun drawWordKaraoke(canvas: Canvas, baseline: Float, originalLayout: OriginalLayout) {
+    /**
+     * 逐字卡拉OK路径（逐字源+关发光+非行级同步；[betterLyrics] 为「BetterLyrics」档）：
+     * 词级缩放/位移 + 词内扫光渐变；BetterLyrics 档长词播放中放大到参考实现峰值，
+     * 发光开启时活动长词先画 glow 色光晕再画扫光亮部。
+     */
+    private fun drawWordKaraoke(
+        canvas: Canvas,
+        baseline: Float,
+        originalLayout: OriginalLayout,
+        betterLyrics: Boolean = false
+    ) {
         val lines = originalLayout.lines
         val position = projectedPosition()
         var precedingRuby = 0f
@@ -2216,7 +2233,9 @@ internal class AodLyricCanvasView(
                 val progress = timedWordProgress(position, word.startMs, word.endMs)
                 val active = position >= word.startMs && position < word.endMs
                 val sung = position >= word.endMs
-                val scale = if (active) scaleSpline(progress) else if (!sung) 0.95f else 1f
+                val scale = if (active) {
+                    scaleSpline(progress, wordKaraokeScalePeak(betterLyrics, word.endMs - word.startMs))
+                } else if (!sung) 0.95f else 1f
                 val y = if (active) yOffsetSpline(progress) * originalPaint.textSize
                 else if (!sung) 0.01f * originalPaint.textSize else 0f
                 canvas.save()
@@ -2231,6 +2250,19 @@ internal class AodLyricCanvasView(
                 )
                 canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
                 if (active) {
+                    if (betterLyrics && content.glowMode != "Off" &&
+                        word.endMs - word.startMs >= BETTER_LYRICS_LONG_WORD_MS
+                    ) {
+                        // BetterLyrics 活动长词辉光：glow 色阴影画在 sung 色文字下，光从
+                        // 文字背后透出（与共享 LyricGlowRenderer Pass 2 同式）；半径占字号
+                        // 比例同款，shader 置空规避硬件加速下 shadow+shader 同置发光丢失。
+                        val haloRadius = originalPaint.textSize * LyricGlowRenderer.HALO_RADIUS_FRACTION
+                        originalPaint.shader = null
+                        setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
+                        originalPaint.setShadowLayer(haloRadius, 0f, 0f, resolvedPalette.glow)
+                        canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
+                        originalPaint.setShadowLayer(0f, 0f, 0f, 0)
+                    }
                     setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
                     applyWordSweepShader(
                         originalPaint,
@@ -2836,8 +2868,9 @@ internal class AodLyricCanvasView(
         if (end <= start) if (position >= end) 1f else 0f
         else ((position - start).toFloat() / (end - start)).coerceIn(0f, 1f)
 
-    private fun scaleSpline(t: Float): Float = if (t <= 0.7f) lerp(0.95f, 1.0505f, t / 0.7f)
-    else lerp(1.0505f, 1f, (t - 0.7f) / 0.3f)
+    private fun scaleSpline(t: Float, peak: Float = WORD_KARAOKE_BASE_SCALE_PEAK): Float =
+        if (t <= 0.7f) lerp(0.95f, peak, t / 0.7f)
+        else lerp(peak, 1f, (t - 0.7f) / 0.3f)
 
     private fun yOffsetSpline(t: Float): Float = if (t <= 0.9f) lerp(0.01f, -(1f / 60f), t / 0.9f)
     else lerp(-(1f / 60f), 0f, (t - 0.9f) / 0.1f)

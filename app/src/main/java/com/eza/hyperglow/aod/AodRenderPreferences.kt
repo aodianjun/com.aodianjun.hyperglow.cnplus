@@ -170,8 +170,17 @@ internal fun normalizeAodFontFamily(value: String?): String = when {
     else -> "spotify"
 }
 
-internal fun normalizeAodAnimation(value: String?): String =
-    if (value == "Minimal") "Minimal" else "Gradient"
+/**
+ * 逐字动画归一化。必须对自身输出幂等:同一函数也用于 wire 快照的拒收校验
+ * (`snapshot.animationMode != normalizeAodAnimation(...)` 即整帧拒收),任何被放行的
+ * 取值都要原样通过。"BetterLyrics"(参考 jayfunc/BetterLyrics 的逐字发光档)与
+ * "Minimal" 原样通过,其余值(含历史遗留名)回落 "Gradient"。
+ */
+internal fun normalizeAodAnimation(value: String?): String = when (value) {
+    "Minimal" -> "Minimal"
+    "BetterLyrics" -> "BetterLyrics"
+    else -> "Gradient"
+}
 
 internal fun normalizeAodGlow(value: String?): String = when (value) {
     "On", "Word only", "Subtle line" -> "On"

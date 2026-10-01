@@ -400,6 +400,7 @@
     <string name="option_custom">自定義</string>
     <string name="option_minimal">最簡</string>
     <string name="option_gradient">漸變</string>
+    <string name="option_betterlyrics">BetterLyrics</string>
     <string name="option_off">關閉</string>
     <string name="option_on">開啟</string>
     <string name="option_none">無</string>

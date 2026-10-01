@@ -349,8 +349,11 @@ private fun LyricPreviewSurface(
     }
     // 生效进度效果:与实机 drawOriginal 的 Minimal 分支 / effectiveLineSyncFillMode 同源。
     // Minimal=静态全亮(无扫光/发光);行级同步时按配置的四种进度效果;否则整块连续横扫。
+    // 「BetterLyrics」档(实机为词级卡拉OK:长词放大+活动长词辉光)预览不做词级渲染,
+    // 与 Gradient 同观感(经批准的 parity 偏差;实机见 drawWordKaraoke(betterLyrics))。
     val previewFillMode = when {
         profile.animation == "Minimal" -> "None"
+        profile.animation == "BetterLyrics" -> LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
         snapshot.lineLevelSync -> resolvedLineSyncFillMode(true, profile.lineSyncFillMode)
         else -> LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
     }

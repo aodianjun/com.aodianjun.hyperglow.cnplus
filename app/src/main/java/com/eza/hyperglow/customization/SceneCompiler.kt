@@ -184,7 +184,8 @@ object SceneCompiler {
                 it in FONT_FAMILIES || CustomFontContract.isCustomFontFamily(it)
             } ?: "spotify",
             animation = when {
-                aod && profile.animation != "Minimal" -> "Gradient"
+                // 息屏与锁屏共用同一画布词表(历史档曾把息屏非 Minimal 一律压回 Gradient;
+                // 对既有词表两分支逐值等价,新档入词表后按成员放行,词表外仍回落 Gradient)。
                 profile.animation in ANIMATIONS -> profile.animation
                 else -> "Gradient"
             },
@@ -267,7 +268,7 @@ object SceneCompiler {
     private val WEIGHTS = setOf("Regular", "Medium", "Bold")
     private val TEXT_SIZES = setOf("small", "normal", "large", "xlarge", "custom")
     private val FONT_FAMILIES = setOf("noto", "spotify", "apple", "noto-sc", "custom")
-    private val ANIMATIONS = setOf("Minimal", "Gradient")
+    private val ANIMATIONS = setOf("Minimal", "Gradient", "BetterLyrics")
     private fun normalizeLineSyncFillMode(value: String): String = when (value) {
         "None",
         "Top to bottom",

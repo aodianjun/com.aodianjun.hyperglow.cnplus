@@ -219,8 +219,9 @@ set is pinned to `DIAGNOSTIC_DATA_POLICY.md` by a unit-test gate. See
 Customization is versioned, declarative data compiled in the app process and defensively validated
 again in SystemUI. SystemUI renders only a fixed internal widget registry. Imported documents may
 select known widgets, anchors, semantic palette tokens, typography, main-lyric line limits, static
-secondary-text brightness, and bounded transitions. They cannot name classes, resources, methods,
-paths, URLs, commands, or executable code.
+secondary-text brightness, and bounded transitions. Word animation selects from a fixed
+`Minimal`/`Gradient`/`BetterLyrics` vocabulary shared by both surfaces. They cannot name classes,
+resources, methods, paths, URLs, commands, or executable code.
 
 Lockscreen profiles also accept a bounded `backgroundStyle`: `auto`/`card` resolves to the built-in
 noninteractive notification-style scrim; `none` remains transparent. AOD always sanitizes it to
@@ -452,8 +453,9 @@ AOD 宿主容器以及锁屏控制器/宿主/几何接缝；未知 profile 仍�
 
 自定义内容是在 app 进程中编译的带版本声明式数据，并在 SystemUI 中再次进行防御性校验。SystemUI
 只渲染固定的内部 widget 注册表。导入的文档可以选择已知的 widget、锚点、语义化调色板 token、
-排版、主歌词行数上限、静态次级文本亮度以及受限的过渡效果。它们不能指定类、资源、方法、路径、
-URL、命令或任何可执行代码。
+排版、主歌词行数上限、静态次级文本亮度以及受限的过渡效果。逐字动画从
+`Minimal`/`Gradient`/`BetterLyrics` 的固定词表中选择，两个 surface 共用。它们不能指定类、资源、
+方法、路径、URL、命令或任何可执行代码。
 
 锁屏 profile 还接受受限的 `backgroundStyle`：`auto`/`card` 解析为内置的非交互通知式遮罩；
 `none` 保持透明。AOD 始终将其规范化为 `none`。
