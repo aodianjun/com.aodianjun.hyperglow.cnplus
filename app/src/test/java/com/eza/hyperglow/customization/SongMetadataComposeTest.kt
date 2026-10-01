@@ -4,11 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * 歌曲信息切片组装单测：[composeSongMetadata] 与部分/分隔符归一化。
+ * 歌曲信息切片组装单测：[composeSongMetadata] 与部分/逐槽分隔符归一化。
  *
  * 组装是纯函数,实机投影层([com.eza.hyperglow.aod.AodStateProjector])与 app 预览
  * (ProducerCollectors/collectDemoSnapshot)共用同一实现,保证所见即所得。
- * 默认(parts=title,artist + separator=newline)与历史
+ * 显示顺序由 parts 顺序决定;相邻两项之间的分隔符逐槽独立(separators 第 i 项对应第 i 个槽位)。
+ * 默认(parts=title,artist + separators=newline)与历史
  * `listOf(title, artist).filter{isNotBlank}.joinToString("\n").replace('·','\n')` 逐字等价。
  */
 class SongMetadataComposeTest {
@@ -48,16 +49,51 @@ class SongMetadataComposeTest {
     }
 
     @Test
-    fun albumPartAppendsInCanonicalOrder() {
+    fun partsRenderInUserChosenOrder() {
         assertEquals(
             "Song\nArtist\nAlbum",
             composeSongMetadata("Song", "Artist", "Album", "title,artist,album", METADATA_SEPARATOR_NEWLINE)
         )
-        // 选择顺序不影响显示顺序,恒为 歌名→歌手→专辑。
+        // 自定义排序:选择顺序即显示顺序。
         assertEquals(
-            "Song\nArtist\nAlbum",
+            "Album\nArtist\nSong",
             composeSongMetadata("Song", "Artist", "Album", "album,artist,title", METADATA_SEPARATOR_NEWLINE)
         )
+    }
+
+    @Test
+    fun perGapSeparatorsAreIndependent() {
+        // 三个部分两个槽位:第一槽换行、第二槽行内 dot。
+        assertEquals(
+            "Song\nArtist · Album",
+            composeSongMetadata("Song", "Artist", "Album", "title,artist,album", "newline,dot")
+        )
+        // 第一槽行内 dot、第二槽换行。
+        assertEquals(
+            "Song · Artist\nAlbum",
+            composeSongMetadata("Song", "Artist", "Album", "title,artist,album", "dot,newline")
+        )
+        // 两槽都用行内分隔符,则全部内联到一行。
+        assertEquals(
+            "Song · Artist - Album",
+            composeSongMetadata("Song", "Artist", "Album", "title,artist,album", "dot,hyphen")
+        )
+    }
+
+    @Test
+    fun metadataGapCountMatchesSelectedParts() {
+        assertEquals(0, metadataGapCount("title"))
+        assertEquals(1, metadataGapCount(METADATA_PARTS_DEFAULT))
+        assertEquals(2, metadataGapCount("album,title,artist"))
+    }
+
+    @Test
+    fun normalizeMetadataSeparatorsResizesToGapCount() {
+        // 序列长度恒等于槽位数:过短补换行,过长截断,单部分无槽位返回空串。
+        assertEquals("dot,newline", normalizeMetadataSeparators("dot", "title,artist,album"))
+        assertEquals("dot", normalizeMetadataSeparators("dot,dot,dot", "title,artist"))
+        assertEquals("", normalizeMetadataSeparators("dot", "title"))
+        assertEquals("newline,newline", normalizeMetadataSeparators("bogus,dot", "title,artist,album"))
     }
 
     @Test
@@ -85,11 +121,12 @@ class SongMetadataComposeTest {
     }
 
     @Test
-    fun normalizeMetadataPartsFiltersUnknownDedupesAndFallsBackToDefault() {
+    fun normalizeMetadataPartsKeepsOrderFiltersUnknownAndDedupes() {
         assertEquals("title,artist", normalizeMetadataParts(METADATA_PARTS_DEFAULT))
         assertEquals("title,artist,album", normalizeMetadataParts("title,artist,album"))
         assertEquals("title,artist", normalizeMetadataParts("title,foo,artist,title"))
-        assertEquals("title,album", normalizeMetadataParts("album,title"))
+        // 顺序保留:album,title 不再被重排回规范顺序。
+        assertEquals("album,title", normalizeMetadataParts("album,title"))
         assertEquals(METADATA_PARTS_DEFAULT, normalizeMetadataParts(""))
         assertEquals(METADATA_PARTS_DEFAULT, normalizeMetadataParts(null))
         assertEquals(METADATA_PARTS_DEFAULT, normalizeMetadataParts("foo,bar"))

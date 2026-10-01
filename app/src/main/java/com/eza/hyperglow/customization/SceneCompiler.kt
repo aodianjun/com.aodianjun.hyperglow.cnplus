@@ -51,7 +51,10 @@ object SceneCompiler {
             sourceId = normalizeId(source.id),
             linkSurfaces = source.linkSurfaces,
             metadataParts = normalizeMetadataParts(source.metadataParts),
-            metadataSeparator = normalizeMetadataSeparator(source.metadataSeparator),
+            metadataSeparators = normalizeMetadataSeparators(
+                source.metadataSeparators,
+                source.metadataParts
+            ),
             duetMarkers = source.duetMarkers,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
@@ -110,7 +113,10 @@ object SceneCompiler {
             sourceId = safe.id,
             linkSurfaces = safe.linkSurfaces,
             metadataParts = normalizeMetadataParts(safe.metadataParts),
-            metadataSeparator = normalizeMetadataSeparator(safe.metadataSeparator),
+            metadataSeparators = normalizeMetadataSeparators(
+                safe.metadataSeparators,
+                safe.metadataParts
+            ),
             duetMarkers = safe.duetMarkers,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )

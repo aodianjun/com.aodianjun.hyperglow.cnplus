@@ -579,7 +579,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             ?.copy(metadataVisible = metadataBudgeted)
             ?.let { canvas.measureContentStack(it, measureContentWidth) }
         val metadataExtraLines = customization?.let {
-            metadataExpectedExtraLines(it.metadataParts, it.metadataSeparator)
+            metadataExpectedExtraLines(it.metadataParts, it.metadataSeparators)
         } ?: 0
         val metadataHeight = when {
             !metadataBudgeted -> 0f

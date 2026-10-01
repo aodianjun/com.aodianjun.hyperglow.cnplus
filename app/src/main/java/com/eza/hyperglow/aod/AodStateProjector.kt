@@ -2,7 +2,7 @@ package com.eza.hyperglow.aod
 
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.METADATA_PARTS_DEFAULT
-import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
+import com.eza.hyperglow.customization.METADATA_SEPARATORS_DEFAULT
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.producer.LyricKind
@@ -92,7 +92,7 @@ internal fun projectToDisplay(
         artist = state.artist,
         album = state.album,
         parts = compiled?.metadataParts ?: METADATA_PARTS_DEFAULT,
-        separator = compiled?.metadataSeparator ?: METADATA_SEPARATOR_NEWLINE
+        separators = compiled?.metadataSeparators ?: METADATA_SEPARATORS_DEFAULT
     )
 
     // --- 引导大元数据状态（原 project() 的 lyricState 四分支）---

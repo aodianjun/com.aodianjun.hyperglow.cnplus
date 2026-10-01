@@ -371,6 +371,7 @@
     <string name="option_song_info_part_artist">歌手</string>
     <string name="option_song_info_part_album">专辑</string>
     <string name="option_song_info_separator_newline">换行</string>
+    <string name="label_song_info_pair">%1$s → %2$s</string>
     <string name="option_song_artwork_shape_square">方形</string>
     <string name="option_song_artwork_shape_circle">圆形</string>
     <string name="option_no_limit">不限制</string>

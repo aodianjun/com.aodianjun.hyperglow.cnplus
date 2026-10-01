@@ -372,6 +372,7 @@
     <string name="option_song_info_part_artist">Artist</string>
     <string name="option_song_info_part_album">Album</string>
     <string name="option_song_info_separator_newline">New line</string>
+    <string name="label_song_info_pair">%1$s → %2$s</string>
     <string name="option_song_artwork_shape_square">Square</string>
     <string name="option_song_artwork_shape_circle">Circle</string>
     <string name="option_no_limit">No limit</string>

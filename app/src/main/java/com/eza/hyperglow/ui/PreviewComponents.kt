@@ -199,18 +199,18 @@ internal fun AppearanceLivePreview(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
     scenario: String,
     metadataParts: String,
-    metadataSeparator: String,
+    metadataSeparators: String,
     duetMarkers: Boolean = true,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     modifier: Modifier = Modifier
 ) {
-    val live = collectLiveSnapshot(metadataParts, metadataSeparator, duetMarkers)
+    val live = collectLiveSnapshot(metadataParts, metadataSeparators, duetMarkers)
     LyricPreviewSurface(
         profile = profile,
         scenario = scenario,
         live = live,
         metadataParts = metadataParts,
-        metadataSeparator = metadataSeparator,
+        metadataSeparators = metadataSeparators,
         artwork = artwork,
         modifier = modifier
             .fillMaxWidth()
@@ -235,7 +235,7 @@ internal fun LyricPreviewCard(
     scenario: String,
     live: LyricSnapshot?,
     metadataParts: String,
-    metadataSeparator: String,
+    metadataSeparators: String,
     modifier: Modifier,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile)
 ) {
@@ -253,7 +253,7 @@ internal fun LyricPreviewCard(
                 scenario = scenario,
                 live = live,
                 metadataParts = metadataParts,
-                metadataSeparator = metadataSeparator,
+                metadataSeparators = metadataSeparators,
                 artwork = artwork,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -272,12 +272,12 @@ private fun LyricPreviewSurface(
     scenario: String,
     live: LyricSnapshot?,
     metadataParts: String,
-    metadataSeparator: String,
+    metadataSeparators: String,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
-    val snapshot = live ?: collectDemoSnapshot(metadataParts, metadataSeparator)
+    val snapshot = live ?: collectDemoSnapshot(metadataParts, metadataSeparators)
     // 歌曲图片(与实机同一几何公式):实时快照带已校对封面帧则显示真帧;演示态显示
     // 生成占位图,便于调形状/旋转开关所见即所得;实时无帧=不显示(与实机 fail-closed 一致)。
     // 只在歌曲信息行可见且文本非空时露出(与实机「图片随歌曲信息行」同一门槛)。

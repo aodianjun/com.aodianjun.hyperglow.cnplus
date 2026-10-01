@@ -1476,7 +1476,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             layoutProfile.widgets.any { it.type == "metadata" }
         ) {
             val extraLines = customization?.let {
-                metadataExpectedExtraLines(it.metadataParts, it.metadataSeparator)
+                metadataExpectedExtraLines(it.metadataParts, it.metadataSeparators)
             } ?: 0
             metadataWidgetHeightDp(layoutProfile.metadataSizePercent, extraLines) * density
         } else {
