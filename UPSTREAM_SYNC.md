@@ -72,6 +72,24 @@
 | `99ba119` item #12 | 2026-09-28 | Version 204/0.3.178 → 216/0.3.191 | ➖ Not applicable (CN+ independent version numbering) |
 | `99ba119` item #13 | 2026-09-28 | Tests: new `AodWakeBrokerRecoveryTest` + additions to AodCanvasLayoutTest / AodPositionUpdateTest / AodStateWireCodecTest / AodStateProjectorTest / SongMetadataIntroPolicyTest / DiagnosticCaptureCollectorTest / AodRenderPreferencesTest / SceneCompilerTest / ConfigBackupCodecTest / AodProjectionLifecycleTest / SpicyBridgeDocumentTest | ⏳ Land with the port |
 
+**Usefulness assessment (2026-10-02, cross-checked against the current CN+ tree)**
+
+- **High value — port first:**
+  - **item #7 `readNumericField`**: CN+ [readClockGeometry](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodPositionHook.kt#L698-L707) still reads `mTranslationY` with `getFloat`, yet CN+ itself pinned `mTranslationY` as **int** on surveyed firmware (issue #66 — the write-side fix). The read throws inside `runCatching`, so the geometry is always null and managed position **and** the stock-widget hold silently stop working. Tiny, zero-risk fix that restores function.
+  - **item #5 wake-broker hardening (port by concept)**: CN+ captures the host only in the [DozeTriggers constructor hooker](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodWakeBroker.kt#L320-L343), so an instance created before hook install is never captured (the retries only re-install the hook). [VisibilityTelemetryHooker](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodLifetimeHook.kt#L134-L147) already receives the `DozeHost` (`chain.thisObject`) — exactly the host the broker needs — so it can serve as the `adoptHost` seam. Seeding the power manager from the SystemUI `onCreate` [Application](file:///workspace/app/src/main/java/com/eza/hyperglow/root/SystemUiLifecycleHook.kt#L50-L57) lets the Lyricon watchdog run without a `DozeTriggers` instance. Named faults + install-skip summary make the single current "AOD wake host unavailable" warning diagnosable.
+  - **item #8 root-probe hardening**: CN+ runs only `ProcessBuilder("su", ...)` with the 5 s `COMMAND_TIMEOUT_MS`; KernelSU/APatch `su` often sits outside `PATH` and a root-manager grant prompt exceeds 5 s, so the probe fails and diagnostics misreport. Absolute-path fallbacks + the 15 s probe window are cheap.
+- **Medium value — as needed:**
+  - **item #1 metadata layout + wrap-instead-of-shrink**: CN+ [layoutMetadataLines](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/LyricLayoutEngine.kt#L176-L203) caps at 3 lines and drops overflow, and `AodCanvasModel` scales the block when content exceeds the canvas; upstream wraps onto further lines instead. `stacked`/`single` is a new choice for CN+ (CN+ already defaults to a ` · ` single line with per-slot separators — close to upstream `single`). User-visible, but must thread CN+'s own wire/customization/preview layer.
+  - **item #2 configurable intro length**: CN+ fixes 3000 ms and has diverged structurally (no `openingResolved`/`provisional`); porting must reconcile the `-1` (no cap) semantics with CN+'s `availableInterludeMs >= durationMs` gate. Preference feature.
+  - **item #3 named wire rejections**: CN+ logs a generic "Rejected invalid/malformed state payload"; folding the gate names into CN+'s own decoder cheaply separates self-healing app/hook protocol skew from real corruption.
+  - **item #9 clause-punctuation wrap bonus**: CN+ has the same-shape `balancedChunkRanges` ([AodCanvasLineLayout](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodCanvasLineLayout.kt#L47)) to add `breakAfter`; pure typography polish.
+  - **item #6 `Word` documents as timed**: CN+ document `type` comes from the bridge payload, so a source can emit `Word`; today `isTimedDocumentType` accepts only Line/Syllable, so a `Word` document renders as UNSYNCED. Cheap robustness.
+- **Low value / defer:**
+  - **item #4 stock-clock band reserve**: CN+ does not reserve a bottom band; it uses [avoidStockClockOverlap](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodSurfaceController.kt#L1678-L1697) (moves the lyric rect below the clock on overlap), so the upstream defect may not exist here — confirm on a top-clock device first.
+  - **item #11 upstream spec sync**: value lies in doc accuracy (notably the "Android does not auto-reconnect" correction) but it should follow the code conclusions; do it alongside a port.
+  - **item #13 tests**: land with their features.
+- **Not applicable:** item #10 (CN+ never had duet slot memory); item #12 (CN+ version numbering).
+
 ## Not Synced / Excluded
 
 > Evaluated and deliberately not ported, or not applicable — with reasons; re-evaluate on demand.
@@ -174,6 +192,24 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
 | `99ba119` 项 #11 | 2026-09-28 | **上游文档同步**：ARCHITECTURE（标点子句断行；更正——Android **不会**自动重连 bound-service 客户端，重连是生产者客户端的职责，provider 传输除外）；LOCKSCREEN_AOD_BEHAVIOR_SPEC（自由锚点独唱 / 原厂带预留 / 开场时长滑块 / `Line`,`Word`,`Syllable` keepalive / 唤醒 broker 接缝 + 具名故障 / stacked-single 布局 / 能力 ≠ 可达 / 具名 wire 拒绝）；DIAGNOSTIC_REPORTING_SPEC（root 探测） | ⏳ 未同步——CN+ `docs/` 仍是 `99ba119` 之前的文本（如 ARCHITECTURE.md 仍写着自动重连行为） |
 | `99ba119` 项 #12 | 2026-09-28 | 版本号 204/0.3.178 → 216/0.3.191 | ➖ 不适用（CN+ 独立版本号体系） |
 | `99ba119` 项 #13 | 2026-09-28 | 测试：新增 `AodWakeBrokerRecoveryTest`，并在 AodCanvasLayoutTest / AodPositionUpdateTest / AodStateWireCodecTest / AodStateProjectorTest / SongMetadataIntroPolicyTest / DiagnosticCaptureCollectorTest / AodRenderPreferencesTest / SceneCompilerTest / ConfigBackupCodecTest / AodProjectionLifecycleTest / SpicyBridgeDocumentTest 增补 | ⏳ 随移植落地 |
+
+**有用性评估（2026-10-02，逐项对照当前 CN+ 代码）**
+
+- **高价值 —— 建议优先移植：**
+  - **项 #7 `readNumericField`**：CN+ [readClockGeometry](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodPositionHook.kt#L698-L707) 仍用 `getFloat` 读 `mTranslationY`，而 CN+ 自己在已普查固件上已确认该字段是 **int**（issue #66，写入侧修复）。读取会在 `runCatching` 内抛异常，导致 geometry 恒为 null，托管位移**与原厂控件保持**静默失效。改动极小、零风险，直接恢复功能。
+  - **项 #5 唤醒 broker 加固（按概念移植）**：CN+ 只在 [DozeTriggers 构造器 hooker](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodWakeBroker.kt#L320-L343) 捕获宿主，早于 hook 创建实例则永不捕获（重试只是重挂 hook）。[VisibilityTelemetryHooker](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodLifetimeHook.kt#L134-L147) 已拿到 `DozeHost`（`chain.thisObject`），正是 broker 需要的宿主，可作 `adoptHost` 接缝。电源管理器改由 SystemUI `onCreate` 的 [Application](file:///workspace/app/src/main/java/com/eza/hyperglow/root/SystemUiLifecycleHook.kt#L50-L57) 预置，可让 Lyricon 看门狗不依赖 `DozeTriggers` 实例。具名故障 + 安装跳过汇总让目前唯一的 "AOD wake host unavailable" 警告可诊断。
+  - **项 #8 诊断 root 探测加固**：CN+ 仅 `ProcessBuilder("su", ...)` + 5s（`COMMAND_TIMEOUT_MS`）；KernelSU/APatch 的 `su` 常在 `PATH` 外，且授权弹窗 >5s，探测失败 → 诊断误报。加绝对路径回退 + 15s 探测窗口，成本低。
+- **中等价值 —— 视需要：**
+  - **项 #1 歌曲信息布局 + 换行而非缩小**：CN+ [layoutMetadataLines](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/LyricLayoutEngine.kt#L176-L203) 上限 3 行、溢出丢弃，`AodCanvasModel` 在内容超出画布时整体缩放；上游改为继续换行到更多行。`stacked`/`single` 对 CN+ 是新增选项（CN+ 默认已是 ` · ` 单行 + 逐槽分隔符，接近上游 `single`）。用户可见，但需贯通 CN+ 自有 wire/自定义/预览层。
+  - **项 #2 开场时长可配置**：CN+ 固定 3000ms，且结构已分叉（无 `openingResolved`/`provisional`）；移植需调和 `-1`（不限时）语义与 CN+ 的 `availableInterludeMs >= durationMs` 门槛。属偏好功能。
+  - **项 #3 wire 解码具名拒绝**：CN+ 现只记笼统 "Rejected invalid/malformed state payload"；把闸门名并入 CN+ 自有解码，可低成本区分「app/hook 协议错位（自愈）」与真损坏。
+  - **项 #9 子句标点断行加权**：CN+ 有同构的 `balancedChunkRanges`（[AodCanvasLineLayout](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodCanvasLineLayout.kt#L47)）可加 `breakAfter`；纯排版观感优化。
+  - **项 #6 `Word` 文档计入计时**：CN+ 文档 `type` 来自桥接载荷，来源可能标 `Word`；目前 `isTimedDocumentType` 只认 Line/Syllable，`Word` 会被当作 UNSYNCED。低成本健壮性。
+- **低价值 / 暂缓：**
+  - **项 #4 原厂时钟带按侧预留**：CN+ 并非「恒预留底部」，而是用 [avoidStockClockOverlap](file:///workspace/app/src/main/java/com/eza/hyperglow/root/aod/AodSurfaceController.kt#L1678-L1697)（重叠时把歌词下移），上游所指缺陷未必存在于 CN+；建议先在顶部时钟机型上复现再定。
+  - **项 #11 上游规范文档同步**：价值在文档准确性（尤其「Android 不会自动重连」更正），但应跟随代码结论；可随移植附带。
+  - **项 #13 测试**：随对应功能落地。
+- **不适用：** 项 #10（CN+ 从无对唱槽位机制）；项 #12（CN+ 独立版本号）。
 
 ## 未同步 / 未纳入
 
