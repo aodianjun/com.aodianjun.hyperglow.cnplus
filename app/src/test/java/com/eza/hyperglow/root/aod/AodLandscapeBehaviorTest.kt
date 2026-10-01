@@ -127,6 +127,34 @@ class AodLandscapeBehaviorTest {
         assertEquals(1.0f, fullscreenAutoScale(540f, 1080f, Float.NaN, 1.0f, 1.7f), 0.001f)
     }
 
+    // ---- fullscreenSafeInset ----
+
+    @Test
+    fun safeInsetIsPercentOfShortSide() {
+        // 短边 1080、默认 6% → 64.8。
+        assertEquals(64.8f, fullscreenSafeInset(1080f, 6f), 0.001f)
+        // 短边 1220、6% → 73.2。
+        assertEquals(73.2f, fullscreenSafeInset(1220f, 6f), 0.001f)
+        // 上限 20% → 短边五分之一。
+        assertEquals(216f, fullscreenSafeInset(1080f, 20f), 0.001f)
+    }
+
+    @Test
+    fun safeInsetIsZeroWhenNoMarginRequested() {
+        // 0% 表示不留白;负百分比同样视为不留白。
+        assertEquals(0f, fullscreenSafeInset(1080f, 0f), 0.001f)
+        assertEquals(0f, fullscreenSafeInset(1080f, -6f), 0.001f)
+    }
+
+    @Test
+    fun safeInsetDegenerateInputYieldsZero() {
+        assertEquals(0f, fullscreenSafeInset(0f, 6f), 0.001f)
+        assertEquals(0f, fullscreenSafeInset(-100f, 6f), 0.001f)
+        assertEquals(0f, fullscreenSafeInset(Float.NaN, 6f), 0.001f)
+        assertEquals(0f, fullscreenSafeInset(1080f, Float.NaN), 0.001f)
+        assertEquals(0f, fullscreenSafeInset(1080f, Float.POSITIVE_INFINITY), 0.001f)
+    }
+
     // ---- fullscreenWidthCapScale / resolveFullscreenLandscapeScale (issue #51) ----
 
     @Test

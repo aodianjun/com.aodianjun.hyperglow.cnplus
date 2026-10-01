@@ -23,6 +23,15 @@ internal const val FULLSCREEN_MAX_SCALE = 1.7f
 internal const val LANDSCAPE_FRAME_MAX_SCALE = 1.0f
 
 /**
+ * 横屏全屏化的安全边界(纯函数):四周各留出画布短边 [marginPercent]% 的空白,保证自适应
+ * 放大铺满后内容不贴屏幕边缘(圆角/挖孔/观感)。非法输入或非正百分比返回 0(不留白)。
+ */
+internal fun fullscreenSafeInset(shortSide: Float, marginPercent: Float): Float {
+    if (shortSide <= 0f || !marginPercent.isFinite() || marginPercent <= 0f) return 0f
+    return shortSide * (marginPercent / 100f)
+}
+
+/**
  * 横屏全屏化的自适应放缩比(纯函数):让内容高度按 [fillRatio] 铺满 [availableHeight],
  * 但钳制在 [minScale]..[maxScale],不越界、单行时也不放得过小。非法输入返回 [minScale]。
  */

@@ -265,6 +265,7 @@ internal fun projectToDisplay(
         aodLandscapeTextScale = prefs.aodLandscapeTextScale,
         aodLandscapeHideStock = prefs.aodLandscapeHideStock,
         aodLandscapeFullscreen = prefs.aodLandscapeFullscreen,
+        aodLandscapeFullscreenSafeMarginPercent = prefs.aodLandscapeFullscreenSafeMarginPercent,
         aodDebugShowCanvasFrame = prefs.aodDebugShowCanvasFrame,
         aodCanvasPaddingPortraitXPercent = prefs.aodCanvasPaddingPortraitXPercent,
         aodCanvasPaddingPortraitYPercent = prefs.aodCanvasPaddingPortraitYPercent,

@@ -28,6 +28,7 @@ data class AodDisplayState(
     val aodLandscapeTextScale: Float = 1f,
     val aodLandscapeHideStock: Boolean = false,
     val aodLandscapeFullscreen: Boolean = false,
+    val aodLandscapeFullscreenSafeMarginPercent: Float = DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT,
     val aodDebugShowCanvasFrame: Boolean = false,
     val aodCanvasPaddingPortraitXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val aodCanvasPaddingPortraitYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
@@ -503,6 +504,9 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         aodRotationSettleMs = normalizeAodRotationSettleMs(state.aodRotationSettleMs),
         aodCanvasAnchorLandscape = normalizeAodCanvasAnchor(state.aodCanvasAnchorLandscape),
         aodLandscapeTextScale = normalizeAodLandscapeTextScale(state.aodLandscapeTextScale),
+        aodLandscapeFullscreenSafeMarginPercent = normalizeAodFullscreenSafeMarginPercent(
+            state.aodLandscapeFullscreenSafeMarginPercent
+        ),
         aodCanvasPaddingPortraitXPercent = normalizeAodCanvasPaddingPercent(
             state.aodCanvasPaddingPortraitXPercent
         ),
@@ -589,6 +593,7 @@ private fun AodDisplayState.toWireMessage(
             aodLandscapeTextScale = aodLandscapeTextScale,
             aodLandscapeHideStock = aodLandscapeHideStock,
             aodLandscapeFullscreen = aodLandscapeFullscreen,
+            aodLandscapeFullscreenSafeMarginPercent = aodLandscapeFullscreenSafeMarginPercent,
             aodDebugShowCanvasFrame = aodDebugShowCanvasFrame,
             aodCanvasPaddingPortraitXPercent = aodCanvasPaddingPortraitXPercent,
             aodCanvasPaddingPortraitYPercent = aodCanvasPaddingPortraitYPercent,

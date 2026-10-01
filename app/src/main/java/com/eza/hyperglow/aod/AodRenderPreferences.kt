@@ -91,6 +91,11 @@ data class AodRenderConfig(
     val aodLandscapeHideStock: Boolean = false,
     /** 横屏全屏化:歌词在横屏时居中并自动放缩铺满(不越界),默认关闭。 */
     val aodLandscapeFullscreen: Boolean = false,
+    /**
+     * 横屏全屏化的安全边界:自动铺满时四周各留出画布短边的百分比(0-20),保证放大后
+     * 内容不贴屏幕边缘(圆角/挖孔/观感),默认 6%。仅在 [aodLandscapeFullscreen] 开启时生效。
+     */
+    val aodLandscapeFullscreenSafeMarginPercent: Float = DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT,
     val aodCanvasPaddingPortraitXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val aodCanvasPaddingPortraitYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val aodCanvasPaddingLandscapeXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
@@ -245,6 +250,14 @@ internal fun normalizeAodCanvasPaddingPercent(value: Float): Float =
 
 internal const val MAX_CANVAS_PADDING_PERCENT = 20f
 internal const val DEFAULT_CANVAS_PADDING_PERCENT = 2f
+/** 横屏全屏化安全边界的默认值(画布短边百分比)。 */
+internal const val DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT = 6f
+
+/** 全屏安全边界按画布短边百分比归一(0-20),非法输入回退默认值。 */
+internal fun normalizeAodFullscreenSafeMarginPercent(value: Float): Float =
+    if (value.isFinite()) value.coerceIn(0f, MAX_CANVAS_PADDING_PERCENT)
+    else DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
+
 /** 自定义 AOD 亮度档位的安全范围。 */
 internal const val MIN_AOD_BRIGHTNESS = 10
 internal const val MAX_AOD_BRIGHTNESS = 255
@@ -327,6 +340,8 @@ object AodRenderPreferences {
     const val AOD_LANDSCAPE_TEXT_SCALE = "aod_landscape_text_scale"
     const val AOD_LANDSCAPE_HIDE_STOCK = "aod_landscape_hide_stock"
     const val AOD_LANDSCAPE_FULLSCREEN = "aod_landscape_fullscreen"
+    const val AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT =
+        "aod_landscape_fullscreen_safe_margin_percent"
     const val AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT = "aod_canvas_padding_portrait_x_percent"
     const val AOD_CANVAS_PADDING_PORTRAIT_Y_PERCENT = "aod_canvas_padding_portrait_y_percent"
     const val AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT = "aod_canvas_padding_landscape_x_percent"
@@ -413,6 +428,12 @@ object AodRenderPreferences {
             normalizeAodLandscapeTextScale(prefs.safeFloat(AOD_LANDSCAPE_TEXT_SCALE, 1f)),
             prefs.safeBoolean(AOD_LANDSCAPE_HIDE_STOCK, false),
             prefs.safeBoolean(AOD_LANDSCAPE_FULLSCREEN, false),
+            normalizeAodFullscreenSafeMarginPercent(
+                prefs.safeFloat(
+                    AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT,
+                    DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
+                )
+            ),
             normalizeAodCanvasPaddingPercent(
                 prefs.safeFloat(AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT, DEFAULT_CANVAS_PADDING_PERCENT)
             ),
