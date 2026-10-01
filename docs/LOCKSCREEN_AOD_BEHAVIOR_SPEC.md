@@ -447,21 +447,31 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
 - Each surface profile stores metadata size from 50% to 200% and ruby-reading visibility. Ruby is
   shown by default and, when disabled, reserves no drawing or layout height.
 - Song info content is a document-level setting shared by both surfaces: which slices to show
-  (title, artist, album) and the separator between them. Slices render in canonical title → artist
-  → album order regardless of selection order; unselected and blank slices are dropped; `·` inside
-  a slice still marks a slice boundary. The separator is either `newline` (one slice per line, the
-  historical default) or an inline join (` · `, ` - `, ` | `, `、`, ` / `). The canvas splits the
-  assembled metadata into lines on line breaks only — never on the separator text — and never
-  renders more than three metadata lines. Unknown parts/separator values normalize to the defaults.
+  (title, artist, album), the order they render in, and one separator per adjacent pair. Selection
+  order is display order (the selected order is preserved; unselected and blank slices are dropped;
+  `·` inside a slice still marks a slice boundary). Two or more selected slices mean one separator
+  slot per adjacent pair, each chosen independently from the same vocabulary — `newline` (one slice
+  per line, the historical default) or an inline join (` · `, ` - `, ` | `, `、`, ` / `). The
+  separator sequence normalizes to exactly the slot count implied by the selected parts: missing or
+  invalid slots fall back to `newline`, extra slots are truncated, and a single selected part has no
+  slots. Documents saved before this change carry the single legacy `metadataSeparator`, which is
+  expanded across every slot on first read and then cleared, so the seeding happens only once. The
+  canvas splits the assembled metadata into lines on line breaks only — never on the separator text
+  — and never renders more than three metadata lines. Unknown parts/separator values normalize to
+  the defaults.
 - Song artwork is a per-surface setting, configured independently for AOD and lockscreen (show
-  toggle, square/circle shape, circle-only rotation); each surface profile stores its own values,
-  so toggling one surface never moves the other. When shown, exactly one artwork slot sits
-  immediately left of the song-info block: the slot side is 1.6× the metadata text size with a
-  6dp gap, and the row's alignment resolves the artwork+text group as one unit while lines inside
-  the text block keep their own alignment. The song-info band is max(text block, slot side): a slot
-  taller than the text block grows the band with the text block kept vertically centered in it, so
-  the slot is never clipped by the content box or the lockscreen card, and the band height feeds
-  the measured card height and the metadata widget budget. The slot and the text block share one
+  toggle, square/circle shape, adaptive-vs-fixed size, circle-only rotation); each surface profile
+  stores its own values, so toggling one surface never moves the other. When shown, exactly one
+  artwork slot sits immediately left of the song-info block: the slot side is adaptive by default —
+  1.6× the metadata text size, scaling with the metadata size — or, when the per-surface adaptive
+  switch is off, a fixed custom side length (12–96 dp, default 22 dp, which equals the adaptive side
+  at 100% metadata size) that ignores the text size; a 6dp gap separates the slot from the text, and
+  the row's alignment resolves the artwork+text group as one unit while lines inside the text block
+  keep their own alignment. The song-info band is max(text block, slot side): a slot taller than the
+  text block grows the band with the text block kept vertically centered in it, so the slot is never
+  clipped by the content box or the lockscreen card, and the band height feeds the measured card
+  height and the metadata widget budget — the static widget budget reserves the slot side plus an
+  8dp vertical allowance, so a large custom slot is never clipped. The slot and the text block share one
   vertical center — the optical middle of the text (baseline midpoint + (ascent + descent)/2).
   The circle spin freezes while playback is paused — no per-frame work during pause retention —
   unless the per-surface keep-spinning-while-paused switch is on. Frames are fail-closed: only the
@@ -688,7 +698,8 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 任一生产者观测到 seek 时跨源转发给其他生产者（`onExternalSeek`），位置源冻结/漏发 seek 回调的生产者立即落到权威位置，不再滞后。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
-- 歌曲图片为 per-surface 设置,锁屏与息屏各自独立(显示开关、方形/圆形形状、仅圆形可选旋转);旧文档中存的文档级全局值在首次读取时一次性播种到两个曲面。开启时歌曲信息块左侧恰好一个图片槽:槽边长为歌曲信息字号的 1.6 倍、与文本间距 6dp,行级对齐把「图片+文本块」当整组落位,文本块内各行仍按各自对齐排布。图片带高取「歌曲信息文本块高」与「图片槽边长」的较大者:图片高于文本块时带高随图片增长、文本块在带内垂直居中,图片不被内容裁剪框/锁屏卡片裁切,带高计入卡片实测高与歌曲信息组件预算;图片与文本块共用同一视觉中线(首末行基线中点 + (ascent + descent)/2,而非裸基线中点)。音乐暂停驻留期间圆形封面默认停转(暂停期无逐帧开销),仅「音乐暂停时继续旋转」打开的曲面继续旋转。取图 fail-closed:只显示经校对的「当前播放的音乐软件」当前曲目的专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致)——系统播放窗口滞留的旧封面、其他包、或歧义命中一律不显示。封面帧有界(源图降采样至 ≤192px 后压成 ≤24KiB JPEG),按帧键解码一次。方形不旋转;圆形旋转为匀速 12 秒/圈,与逐字歌词共用有效节拍门(隐藏即停帧)。未知形状值归一为方形;旋转仅圆形生效。隐私:封面字节不出设备、不入诊断;功耗:静态封面不增加逐帧开销,旋转随既有节拍门停止(隐藏,或暂停且未开「音乐暂停时继续旋转」)。
+- 歌曲信息内容为文档级全局设置,同时作用于息屏与锁屏:显示哪些切片(歌名/歌手/专辑)、它们的渲染顺序,以及每一对相邻切片之间的分隔符。选择顺序即显示顺序(保留所选顺序;未选与空白切片丢弃;切片内部的 `·` 仍视作切片边界)。选中两项及以上时,每对相邻切片各有一个分隔符槽位,逐槽从同一词表独立选择——`newline`(每切片一行,历史默认)或行内连接(` · `、` - `、` | `、`、`、` / `)。分隔符序列归一化为所选部分推出的槽位数:缺项/非法项回落 `newline`,多余项截断,仅选一项时无槽位。本次改动前保存的文档携带单一旧字段 `metadataSeparator`,首次读取时按槽位展开并清空,只播种一次。画布仅在换行符处把组装后的元数据拆成行——绝不在分隔符文本处拆分——且最多渲染三行元数据。未知部分/分隔符值归一为默认。
+- 歌曲图片为 per-surface 设置,锁屏与息屏各自独立(显示开关、方形/圆形形状、自适应/固定尺寸、仅圆形可选旋转);旧文档中存的文档级全局值在首次读取时一次性播种到两个曲面。开启时歌曲信息块左侧恰好一个图片槽:槽边长默认自适应(歌曲信息字号 × 1.6,随字号缩放),关闭该 surface 的自适应开关时改取固定自定义边长(12–96dp,默认 22dp,即 100% 歌曲信息字号下的自适应边长),不随字号变化;与文本间距 6dp,行级对齐把「图片+文本块」当整组落位,文本块内各行仍按各自对齐排布。图片带高取「歌曲信息文本块高」与「图片槽边长」的较大者:图片高于文本块时带高随图片增长、文本块在带内垂直居中,图片不被内容裁剪框/锁屏卡片裁切,带高计入卡片实测高与歌曲信息组件预算(静态预算按图片槽边长 + 8dp 上下余量入账,大尺寸自定义图片不被裁切);图片与文本块共用同一视觉中线(首末行基线中点 + (ascent + descent)/2,而非裸基线中点)。音乐暂停驻留期间圆形封面默认停转(暂停期无逐帧开销),仅「音乐暂停时继续旋转」打开的曲面继续旋转。取图 fail-closed:只显示经校对的「当前播放的音乐软件」当前曲目的专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致)——系统播放窗口滞留的旧封面、其他包、或歧义命中一律不显示。封面帧有界(源图降采样至 ≤192px 后压成 ≤24KiB JPEG),按帧键解码一次。方形不旋转;圆形旋转为匀速 12 秒/圈,与逐字歌词共用有效节拍门(隐藏即停帧)。未知形状值归一为方形;旋转仅圆形生效。隐私:封面字节不出设备、不入诊断;功耗:静态封面不增加逐帧开销,旋转随既有节拍门停止(隐藏,或暂停且未开「音乐暂停时继续旋转」)。
 - 在绑定 generation 的歌曲 intro 期间，匹配的单行标题/艺术家文本会抑制重复的元数据行，并在三秒后形变为持久的元数据位置与大小。不兼容或换行的几何使用有界交叉淡化。两条路径都不改变整个 surface 的 alpha、keepalive 亮度策略或位置权威。
 - 导入的数据不能指定类、资源、方法、路径、URL、命令或外部位图来源。
 - 重置会恢复内置安全 profile。

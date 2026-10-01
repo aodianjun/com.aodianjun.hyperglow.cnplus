@@ -295,6 +295,16 @@ and (b) unverified paths stay explicit instead of silently assumed.
   re-tints row titles and card text immediately while summaries stay theme-colored, picking a font
   re-renders the whole app UI in that font across screens, follow-system restores the platform
   default, and both survive config backup export/import.
+- Song info content order / per-gap separators and per-surface artwork sizing: the layout screen
+  reorders the song-info slices (selection order is display order), picks a separator independently
+  for each adjacent pair (`newline` or an inline join), and, per surface, switches the artwork
+  between adaptive (1.6× the metadata text size) and a fixed custom side (12–96 dp, default 22 dp).
+  Pending a hardware smoke check after merge: on both AOD and lockscreen the reordered slices render
+  in the chosen order, each pair uses its own separator (a `newline` pair breaks the line while an
+  inline pair stays on the same line), a legacy single-separator document expands to every slot
+  exactly once, and turning the artwork adaptive switch off holds the artwork at the chosen fixed
+  size across the metadata size range without clipping the card — the static widget budget grows to
+  fit a large custom slot.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -466,6 +476,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   随后下一行列簇自 [358-418] 平移约 100px 至当前行槽位 [460-542] 并转亮（晋升位移）；
   最后新行在腾出的下一行槽位淡入。三段严格序列、同一句歌词同一时刻只在一层出现
   （无重叠）。跨曲场景（无内容延续）为旧行组整体退场 + 新行组整体进场，符合条款。
+- 歌曲信息显示顺序与逐槽分隔符，以及 per-surface 歌曲图片尺寸:布局页可重排歌曲信息切片（选择顺序即显示顺序）、为每一对相邻切片独立选择分隔符（`newline` 或行内连接），并按 surface 在自适应（歌曲信息字号 × 1.6）与固定自定义边长（12–96dp，默认 22dp）之间切换。待真机冒烟:息屏与锁屏下重排后的切片按所选顺序渲染，每对切片各用其分隔符（`newline` 对换行、行内对同行），旧单一分隔符文档仅一次性展开到每个槽位，关闭自适应后图片在元数据字号全区间保持所选固定边长且不被卡片裁切——静态组件预算随大尺寸图片槽增大。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
