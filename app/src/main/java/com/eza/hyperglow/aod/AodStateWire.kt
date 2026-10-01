@@ -119,6 +119,9 @@ internal data class AodStateWireSnapshot(
     val romanized: String,
     val translated: String,
     val nextLine: String,
+    /** 下一行歌词的辅助文字(音标/翻译);「显示第二行辅助文字」消费。 */
+    val nextLineRomanized: String = "",
+    val nextLineTranslated: String = "",
     val metadata: String,
     val alignedRight: Boolean,
     val lineLevelSync: Boolean,
@@ -337,6 +340,8 @@ internal object AodStateWireCodec {
                 output.writeBoundedString(snapshot.romanized)
                 output.writeBoundedString(snapshot.translated)
                 output.writeBoundedString(snapshot.nextLine)
+                output.writeBoundedString(snapshot.nextLineRomanized)
+                output.writeBoundedString(snapshot.nextLineTranslated)
                 output.writeBoundedString(snapshot.metadata)
                 output.writeStrictBoolean(snapshot.alignedRight)
                 output.writeStrictBoolean(snapshot.lineLevelSync)
@@ -467,6 +472,16 @@ internal object AodStateWireCodec {
                 allowEmpty = true,
                 budget = budget
             ) ?: return null
+            val nextLineRomanized = input.readBoundedString(
+                AodStateWireLimits.MAX_LYRIC_CHARS,
+                allowEmpty = true,
+                budget = budget
+            ) ?: return null
+            val nextLineTranslated = input.readBoundedString(
+                AodStateWireLimits.MAX_LYRIC_CHARS,
+                allowEmpty = true,
+                budget = budget
+            ) ?: return null
             val metadata = input.readBoundedString(
                 AodStateWireLimits.MAX_METADATA_CHARS,
                 allowEmpty = true,
@@ -585,6 +600,8 @@ internal object AodStateWireCodec {
                 romanized = romanized,
                 translated = translated,
                 nextLine = nextLine,
+                nextLineRomanized = nextLineRomanized,
+                nextLineTranslated = nextLineTranslated,
                 metadata = metadata,
                 alignedRight = alignedRight,
                 lineLevelSync = lineLevelSync,
@@ -706,6 +723,8 @@ internal object AodStateWireCodec {
             snapshot.romanized != snapshot.romanized.trim() ||
             snapshot.translated != snapshot.translated.trim() ||
             snapshot.nextLine != snapshot.nextLine.trim() ||
+            snapshot.nextLineRomanized != snapshot.nextLineRomanized.trim() ||
+            snapshot.nextLineTranslated != snapshot.nextLineTranslated.trim() ||
             snapshot.metadata != snapshot.metadata.trim() ||
             snapshot.weight != normalizeAodWeight(snapshot.weight) ||
             snapshot.textSizeMode != normalizeAodTextSize(snapshot.textSizeMode) ||
@@ -725,6 +744,8 @@ internal object AodStateWireCodec {
             !budget.accept(snapshot.romanized, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
             !budget.accept(snapshot.translated, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
             !budget.accept(snapshot.nextLine, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+            !budget.accept(snapshot.nextLineRomanized, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+            !budget.accept(snapshot.nextLineTranslated, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
             !budget.accept(snapshot.metadata, AodStateWireLimits.MAX_METADATA_CHARS, true)
         ) return false
         val styles = listOf(
@@ -868,8 +889,9 @@ internal object AodStateWireCodec {
 
     private const val BODY_MAGIC = 0x414F4453
 
-    /** v4:快照尾部追加对唱并发行(duetLine,存在位 + 载荷);v3 追加歌曲图片帧。 */
-    private const val BODY_VERSION = 4
+   /** v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
+    *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
+    private const val BODY_VERSION = 5
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

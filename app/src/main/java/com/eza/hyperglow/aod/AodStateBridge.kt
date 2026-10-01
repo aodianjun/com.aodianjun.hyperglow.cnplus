@@ -38,6 +38,9 @@ data class AodDisplayState(
     val romanized: String = "",
     val translated: String = "",
     val nextLine: String = "",
+    /** 下一行歌词的辅助文字(音标/翻译);「显示第二行辅助文字」消费。 */
+    val nextLineRomanized: String = "",
+    val nextLineTranslated: String = "",
     val metadata: String = "",
     val alignedRight: Boolean = false,
     val lineLevelSync: Boolean = false,
@@ -343,6 +346,12 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
     val romanized = state.romanized.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
     val translated = state.translated.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
     val nextLine = state.nextLine.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
+    val nextLineRomanized = state.nextLineRomanized.normalizeAodWireText(
+        AodStateWireLimits.MAX_LYRIC_CHARS
+    )
+    val nextLineTranslated = state.nextLineTranslated.normalizeAodWireText(
+        AodStateWireLimits.MAX_LYRIC_CHARS
+    )
     val metadata = state.metadata.normalizeAodWireText(AodStateWireLimits.MAX_METADATA_CHARS)
     val effectiveVisible = state.visible && original.isNotEmpty()
     val baseDuration = state.durationMs.coerceIn(0L, AodStateWireLimits.MAX_MEDIA_DURATION_MS)
@@ -459,7 +468,15 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         }
     }
     val (budgetWords, budgetRuby, budgetGroups) = fitAodEnhancementBudget(
-        baseTexts = listOf(original, romanized, translated, nextLine, metadata),
+        baseTexts = listOf(
+            original,
+            romanized,
+            translated,
+            nextLine,
+            nextLineRomanized,
+            nextLineTranslated,
+            metadata
+        ),
         styleTexts = styleTokens(state),
         words = words,
         ruby = ruby,
@@ -502,6 +519,8 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         romanized = romanized,
         translated = translated,
         nextLine = nextLine,
+        nextLineRomanized = nextLineRomanized,
+        nextLineTranslated = nextLineTranslated,
         metadata = metadata,
         lineStartMs = lineStart,
         lineEndMs = lineEnd,
@@ -579,6 +598,8 @@ private fun AodDisplayState.toWireMessage(
             romanized = romanized,
             translated = translated,
             nextLine = nextLine,
+            nextLineRomanized = nextLineRomanized,
+            nextLineTranslated = nextLineTranslated,
             metadata = metadata,
             alignedRight = alignedRight,
             lineLevelSync = lineLevelSync,

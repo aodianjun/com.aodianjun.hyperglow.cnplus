@@ -71,6 +71,13 @@ data class SurfaceProfile(
      * 独立下一行行)共用。
      */
     val nextLineAlignment: String = "auto",
+    /**
+     * 显示第二行辅助文字:在第二行歌词行之后,再按 [secondaryMode] 追加该行自己的辅助
+     * 文字行(音标/翻译,有内容才显示)——四行呈现:第一行歌词、第一行辅助文字、
+     * 第二行歌词、第二行辅助文字。开启时第二行歌词同样按辅助文字形态呈现
+     * (即使 [secondaryNextLine] 关闭;该开关以「显示第二行」为前提)。
+     */
+    val nextLineAux: Boolean = false,
     /** 歌曲图片显示开关:歌曲信息左侧显示系统播放窗口的专辑图(经包名/曲目校对,见 SongArtworkRepository);每个 surface 独立设置,锁屏与息屏互不联动。 */
     val artworkVisible: Boolean = false,
     /** 歌曲图片形状 token,见 [ARTWORK_SHAPES];每个 surface 独立设置。 */
@@ -219,6 +226,8 @@ data class CompiledSurfaceProfile(
     val metadataAlignment: String = "auto",
     /** 第二行歌词对齐,见 [SurfaceProfile.nextLineAlignment]。 */
     val nextLineAlignment: String = "auto",
+    /** 显示第二行辅助文字,见 [SurfaceProfile.nextLineAux]。 */
+    val nextLineAux: Boolean = false,
     /** 歌曲图片显示开关,见 [SurfaceProfile.artworkVisible];每个 surface 独立承载。 */
     val artworkVisible: Boolean = false,
     /** 歌曲图片形状 token,见 [ARTWORK_SHAPES];由 [SurfaceProfile.artworkShape] 编译而来。 */

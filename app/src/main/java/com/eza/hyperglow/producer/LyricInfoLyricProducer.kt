@@ -384,9 +384,15 @@ class LyricInfoLyricProducer(
             words != null -> LyricKind.SYLLABLE
             else -> LyricKind.LINE
         }
-        val nextLine = timedLines
+        val nextTimedLine = timedLines
             .firstOrNull { it.startMs > currentPositionMs }
-            ?.text
+        val nextLine = nextTimedLine?.text.orEmpty()
+        // 下一行的辅助文字 lane(与主行同一 ±120ms 最近行匹配,见 matchSupplementalLine)。
+        val nextLineRomanized = nextTimedLine
+            ?.let { matchSupplementalLine(it, timedLines, romaLines)?.text }
+            .orEmpty()
+        val nextLineTranslated = nextTimedLine
+            ?.let { matchSupplementalLine(it, timedLines, translationLines)?.text }
             .orEmpty()
         val nextLineStartMs = timedLines
             .asSequence()
@@ -451,6 +457,8 @@ class LyricInfoLyricProducer(
             hasTimedLyrics = timedLines.any { it.endMs > it.startMs },
             nextLineStartMs = nextLineStartMs,
             nextLine = nextLine,
+            nextLineRomanized = nextLineRomanized,
+            nextLineTranslated = nextLineTranslated,
             duetLine = duetLine
         )
     }

@@ -249,6 +249,7 @@ object CustomizationRepository {
         lyricLineLimit = lyricLineLimit,
         showNextLine = showNextLine,
         secondaryNextLine = secondaryNextLine,
+        nextLineAux = nextLineAux,
         metadataVisible = metadataVisible,
         metadataAnchor = metadataAnchor,
         metadataSizePercent = metadataSizePercent,

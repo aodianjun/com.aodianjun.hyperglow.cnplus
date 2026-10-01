@@ -412,6 +412,11 @@ internal fun LyricLayoutScreen(
                         stringResource(R.string.setting_secondary_next_line)
                     )
                     SwitchPreference(
+                        selectedProfile.nextLineAux,
+                        { enabled -> updateSelected { it.copy(nextLineAux = enabled) } },
+                        stringResource(R.string.setting_next_line_aux)
+                    )
+                    SwitchPreference(
                         selectedProfile.rubyVisible,
                         { visible -> updateSelected { it.copy(rubyVisible = visible) } },
                         stringResource(R.string.setting_show_furigana)
@@ -444,7 +449,9 @@ internal fun LyricLayoutScreen(
                         { enabled -> updateSelected { it.copy(showNextLine = enabled) } },
                         stringResource(R.string.setting_show_next_line)
                     )
-                    if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine) {
+                    if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine ||
+                        selectedProfile.nextLineAux
+                    ) {
                         AodChoiceRow(
                             AodChoiceKind.SECOND_LINE_ALIGNMENT,
                             selectedProfile.nextLineAlignment
@@ -1002,8 +1009,11 @@ internal fun collectDemoSnapshot(
         original = line.original,
         romanized = line.romanized,
         translated = line.translated,
-        // 演示快照携带下一行文本,让「显示下一行歌词」与「辅助文字显示第二行歌词」在预览可见。
+        // 演示快照携带下一行文本与其辅助文字,让「显示下一行歌词」「辅助文字显示第二行歌词」
+        // 与「显示第二行辅助文字」在预览可见。
         nextLine = DEMO_LINES[(index + 1) % DEMO_LINES.size].original,
+        nextLineRomanized = DEMO_LINES[(index + 1) % DEMO_LINES.size].romanized,
+        nextLineTranslated = DEMO_LINES[(index + 1) % DEMO_LINES.size].translated,
         metadata = composeSongMetadata(
             title = "蝴蝶",
             artist = "洛天依",

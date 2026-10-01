@@ -168,6 +168,10 @@ data class LyricProducerState(
     val nextLineStartMs: Long? = null,
     /** Text of the lyric line that follows the active line (blank when none). */
     val nextLine: String = "",
+    /** 下一行歌词的罗马音/音标(blank when none);「显示第二行辅助文字」消费。 */
+    val nextLineRomanized: String = "",
+    /** 下一行歌词的翻译(blank when none);「显示第二行辅助文字」消费。 */
+    val nextLineTranslated: String = "",
     /**
      * Document language tag (BCP-47-ish, e.g. "zh-Hant" / "ja"), blank when unknown.
      * 投影层用其检测「中文歌被错误标注日语假名注音」并拒绝显示 ruby/罗马音

@@ -544,27 +544,105 @@ class AodCanvasLayoutTest {
     @Test
     fun secondLinePresentationNeverStacksBothForms() {
         // 呈现决策(实机/预览同源):辅助文字形态开启时取代独立下一行行,同一行不重复出现;
-        // 无下行文本时两种开关都为空呈现。
+        // 无下行文本时开关都为空呈现。「显示第二行辅助文字」以「显示第二行」为前提:
+        // 开启即为辅助形态(优先于独立下一行行),但无下一行文本时同样为空。
         assertEquals(
             SecondLinePresentation.AS_SECONDARY,
-            secondLinePresentation(secondaryNextLine = true, showNextLine = true, hasLine = true)
+            secondLinePresentation(
+                secondaryNextLine = true,
+                nextLineAux = false,
+                showNextLine = true,
+                hasLine = true
+            )
         )
         assertEquals(
             SecondLinePresentation.AS_SECONDARY,
-            secondLinePresentation(secondaryNextLine = true, showNextLine = false, hasLine = true)
+            secondLinePresentation(
+                secondaryNextLine = true,
+                nextLineAux = false,
+                showNextLine = false,
+                hasLine = true
+            )
         )
         assertEquals(
             SecondLinePresentation.STANDALONE,
-            secondLinePresentation(secondaryNextLine = false, showNextLine = true, hasLine = true)
+            secondLinePresentation(
+                secondaryNextLine = false,
+                nextLineAux = false,
+                showNextLine = true,
+                hasLine = true
+            )
         )
         assertEquals(
             SecondLinePresentation.NONE,
-            secondLinePresentation(secondaryNextLine = false, showNextLine = false, hasLine = true)
+            secondLinePresentation(
+                secondaryNextLine = false,
+                nextLineAux = false,
+                showNextLine = false,
+                hasLine = true
+            )
         )
         assertEquals(
             SecondLinePresentation.NONE,
-            secondLinePresentation(secondaryNextLine = true, showNextLine = true, hasLine = false)
+            secondLinePresentation(
+                secondaryNextLine = true,
+                nextLineAux = false,
+                showNextLine = true,
+                hasLine = false
+            )
         )
+        assertEquals(
+            SecondLinePresentation.AS_SECONDARY,
+            secondLinePresentation(
+                secondaryNextLine = false,
+                nextLineAux = true,
+                showNextLine = false,
+                hasLine = true
+            )
+        )
+        assertEquals(
+            SecondLinePresentation.AS_SECONDARY,
+            secondLinePresentation(
+                secondaryNextLine = false,
+                nextLineAux = true,
+                showNextLine = true,
+                hasLine = true
+            )
+        )
+        assertEquals(
+            SecondLinePresentation.NONE,
+            secondLinePresentation(
+                secondaryNextLine = false,
+                nextLineAux = true,
+                showNextLine = true,
+                hasLine = false
+            )
+        )
+    }
+
+    @Test
+    fun secondLineAuxRowsFollowModeAndContent() {
+        // 「显示第二行辅助文字」行清单(实机/预览同源):开关关闭恒空;按辅助文字模式取行,
+        // 文本为空则跳过;Both 档音标在前翻译在后。
+        assertTrue(secondLineAuxRows(false, "Both", "roma", "trans").isEmpty())
+        assertEquals(
+            listOf(SecondLineAuxRow.TRANSLATED),
+            secondLineAuxRows(true, "Translation", "roma", "trans")
+        )
+        assertEquals(
+            listOf(SecondLineAuxRow.ROMANIZED),
+            secondLineAuxRows(true, "Transliteration", "roma", "trans")
+        )
+        assertEquals(
+            listOf(SecondLineAuxRow.ROMANIZED, SecondLineAuxRow.TRANSLATED),
+            secondLineAuxRows(true, "Both", "roma", "trans")
+        )
+        assertTrue(secondLineAuxRows(true, "Main only", "roma", "trans").isEmpty())
+        assertEquals(
+            listOf(SecondLineAuxRow.TRANSLATED),
+            secondLineAuxRows(true, "Both", "", "trans")
+        )
+        assertTrue(secondLineAuxRows(true, "Both", "", "").isEmpty())
     }
 
     @Test
