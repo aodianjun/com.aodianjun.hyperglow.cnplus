@@ -158,6 +158,14 @@ internal enum class SecondLineAuxRow { ROMANIZED, TRANSLATED }
  * 按 [secondaryMode] 取该行自己的音标/翻译行,文本为空则跳过;开关关闭恒空。
  * 行序与主行辅助文字一致(音标在前、翻译在后)。
  */
+/**
+ * 第二行辅助行(音标/翻译)的换行档:跟随第二行歌词自身呈现的行数(至少 1 行),而不是主行行数
+ * ——第二行短于/长于主行时,辅助行的折行跟随它所属的那一行(owner 2026-10-02 真机反馈:
+ * 此前误用主行行数,短第二行的辅助文字被折成主行那么多行)。
+ */
+internal fun secondLineAuxPreferredLines(nextLineRenderedLineCount: Int): Int =
+    nextLineRenderedLineCount.coerceAtLeast(1)
+
 internal fun secondLineAuxRows(
     nextLineAux: Boolean,
     secondaryMode: String,

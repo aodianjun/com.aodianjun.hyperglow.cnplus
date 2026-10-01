@@ -1592,19 +1592,22 @@ internal class AodLyricCanvasView(
             content.nextLine.isNotBlank()
         )) {
             SecondLinePresentation.AS_SECONDARY -> {
+                // 第二行歌词自身布局先行落定:其辅助行的换行档跟随「第二行实际呈现的行数」,
+                // 而不是主行行数(owner 2026-10-02 真机反馈)。
+                val nextLineLines = wrapSecondaryText(
+                    content,
+                    content.nextLine,
+                    romanizedPaint,
+                    originalLayout.lineCount,
+                    availableWidth,
+                    alignmentFor(content, RowKind.NEXT_LINE)
+                )
                 rows += rowWithLines(
                     RowKind.NEXT_LINE,
                     content.nextLine,
                     romanizedPaint,
                     ROW_GAP_BEFORE_NEXT_LINE_DP * density,
-                    wrapSecondaryText(
-                        content,
-                        content.nextLine,
-                        romanizedPaint,
-                        originalLayout.lineCount,
-                        availableWidth,
-                        alignmentFor(content, RowKind.NEXT_LINE)
-                    )
+                    nextLineLines
                 )
                 // 「显示第二行辅助文字」:在第二行歌词行之后追加该行自己的辅助文字行
                 // (音标/翻译,按辅助文字模式取用;行清单与预览同源,见 secondLineAuxRows)。
@@ -1624,7 +1627,7 @@ internal class AodLyricCanvasView(
                                 content,
                                 content.nextLineRomanized,
                                 romanizedPaint,
-                                originalLayout.lineCount,
+                                secondLineAuxPreferredLines(nextLineLines.size),
                                 availableWidth,
                                 alignmentFor(content, RowKind.NEXT_LINE)
                             )
@@ -1638,7 +1641,7 @@ internal class AodLyricCanvasView(
                                 content,
                                 content.nextLineTranslated,
                                 translatedPaint,
-                                originalLayout.lineCount,
+                                secondLineAuxPreferredLines(nextLineLines.size),
                                 availableWidth,
                                 alignmentFor(content, RowKind.NEXT_LINE)
                             )
