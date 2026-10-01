@@ -74,9 +74,11 @@ and (b) unverified paths stay explicit instead of silently assumed.
   — device-verified on 0.3.137 (164) for the four-row order on the AOD (LyricInfo source carrying
   per-line translations) and the lockscreen; the second line's auxiliary rows now take the second
   line's own rendered line count as their wrap budget instead of the main line's (owner 2026-10-02
-  report), pending a hardware smoke check of the wrap following the second line on a line that
-  wraps differently from the main line. Note: sources without per-line upcoming-line auxiliary text
-  (SuperLyric line-stream) simply render the rows they have.
+  report), and in the line-change animation they belong to the promotion/enter groups (following
+  the second line) instead of exiting with the main-line group — pending a hardware smoke check of
+  both the wrap and the animation on lines that wrap/advance differently from the main line. Note:
+  sources without per-line upcoming-line auxiliary text (SuperLyric line-stream) simply render the
+  rows they have.
 - Independent row alignment for song info and the second lyric line (`metadataAlignment` /
   `nextLineAlignment`, `auto` follows the resolved main lyric alignment) — pending a hardware smoke
   check after merge. Note: with both left at `auto`, an explicit main alignment already governed
@@ -361,7 +363,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 共享 `LyricLayoutEngine` 抽取后的断行/行距（算法逐字迁移）——合并后待真机冒烟歌词折行与行距无回归。
 - AOD surface 挂载韧性修复（power monitor `attach` 空 context 回退 + runCatching 隔离，ArchitectureGuardTest 守卫）——合并后待真机冒烟：息屏必须显示歌词，`adb logcat -s HyperGlow` 出现 `Power state monitor attached` 且无 `Attach failed`。
 - 「辅助文字显示第二行歌词」呈现（`secondaryNextLine` 开关：下一行歌词按辅助文字样式绘制并取代独立下一行行；两种形态颜色均走「下一行颜色」设置）——2026-10-01 真机发现辅助形态以 ≈0.9 倍主行字号渲染、读作第二条主行（`LIVE_CARD_SIZE_MULTIPLIER=0.68` 缩小主行 + 14/13sp 绝对下限顶死辅助字号），修复为下限按有效主行字号等比封顶；合并后待真机冒烟：常规与自定义字号档下辅助形态的第二行都必须明显小于主行，两个 surface 均需确认。已在 0.3.135（162）真机复验通过：锁屏同图 next/main 字形比 0.88 → 0.58（公式预测 0.90 → 0.62），息屏（xlarge）三层对比清楚（证据存档 `adbdiag/live3/`）。
-- 「显示第二行辅助文字」（`nextLineAux` 开关：第二行歌词自身也带出辅助文字行——音标/翻译按辅助文字模式取用——四行呈现：第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字）——0.3.137（164）真机已验证四行顺序（息屏 LyricInfo 源带逐行翻译时）与锁屏呈现；第二行辅助行的折行档改为跟随第二行自身呈现的行数（owner 2026-10-02 反馈「换行效果要跟着第二行不是第一个」），待真机复核第二行与主行折行行数不同的场景。注：无逐行下一行辅助文字数据的源（SuperLyric 逐行流）只呈现有内容的部分。
+- 「显示第二行辅助文字」（`nextLineAux` 开关：第二行歌词自身也带出辅助文字行——音标/翻译按辅助文字模式取用——四行呈现：第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字）——0.3.137（164）真机已验证四行顺序（息屏 LyricInfo 源带逐行翻译时）与锁屏呈现；第二行辅助行的折行档改为跟随第二行自身呈现的行数（owner 2026-10-02 反馈「换行效果要跟着第二行不是第一个」），换行动画中第二行辅助行亦改归晋级/入场组（跟随第二行，不再随主行组退场，owner 2026-10-02 反馈），待真机复核折行与动画两个场景。注：无逐行下一行辅助文字数据的源（SuperLyric 逐行流）只呈现有内容的部分。
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
