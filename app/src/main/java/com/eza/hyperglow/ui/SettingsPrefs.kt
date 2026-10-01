@@ -5,6 +5,7 @@ import com.eza.hyperglow.DiagnosticLoggingPreferences
 import com.eza.hyperglow.DiagnosticTraceFile
 import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.setDiagnosticLogging
+import com.eza.hyperglow.setDiagnosticLogLevel
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
