@@ -426,6 +426,7 @@
     <string name="option_custom">自定义</string>
     <string name="option_minimal">最简</string>
     <string name="option_gradient">渐变</string>
+    <string name="option_betterlyrics">BetterLyrics</string>
     <string name="option_off">关闭</string>
     <string name="option_on">开启</string>
     <string name="option_none">无</string>

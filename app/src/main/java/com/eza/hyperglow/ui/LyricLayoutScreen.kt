@@ -633,7 +633,7 @@ internal fun LyricLayoutScreen(
                     AodChoiceRow(AodChoiceKind.WORD_ANIMATION, selectedProfile.animation) {
                         openChoice(
                             AodChoiceKind.WORD_ANIMATION,
-                            listOf("Minimal", "Gradient"),
+                            listOf("Minimal", "Gradient", "BetterLyrics"),
                             selectedProfile.animation
                         ) { value -> updateSelected { it.copy(animation = value) } }
                     }
@@ -1435,9 +1435,11 @@ private fun choiceDisplayLabel(
         "custom" -> R.string.option_custom
         else -> R.string.option_normal
     })
-    AodChoiceKind.WORD_ANIMATION -> context.getString(
-        if (value == "Minimal") R.string.option_minimal else R.string.option_gradient
-    )
+    AodChoiceKind.WORD_ANIMATION -> context.getString(when (value) {
+        "Minimal" -> R.string.option_minimal
+        "BetterLyrics" -> R.string.option_betterlyrics
+        else -> R.string.option_gradient
+    })
     AodChoiceKind.GLOW -> context.getString(
         if (value == "On") R.string.option_on else R.string.option_off
     )

@@ -177,6 +177,41 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun betterLyricsAnimationCompilesValidatesOnBothSurfacesAndFallsBackForUnknown() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(animation = "BetterLyrics"),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        enabled = true,
+                        animation = "BetterLyrics"
+                    )
+                )
+            )
+        )
+
+        // 新档在息屏与锁屏两表面原样通过编译与 SystemUI 二次校验(共用同一画布词表)。
+        val validated = SystemUiCustomizationValidator.validate(compiled)!!
+        listOf(SceneCompiler.SURFACE_AOD, SceneCompiler.SURFACE_LOCKSCREEN).forEach { surface ->
+            assertEquals("BetterLyrics", validated.profiles.getValue(surface).animation)
+        }
+
+        // 词表外值保持历史兜底:回落 Gradient(经 SystemUI 校验仍成立)。
+        val unknown = compiled.copy(
+            profiles = compiled.profiles + (
+                SceneCompiler.SURFACE_AOD to compiled.profiles
+                    .getValue(SceneCompiler.SURFACE_AOD)
+                    .copy(animation = "Spotlight word")
+                )
+        )
+        assertEquals(
+            "Gradient",
+            SystemUiCustomizationValidator.validate(unknown)!!.profiles
+                .getValue(SceneCompiler.SURFACE_AOD).animation
+        )
+    }
+
+    @Test
     fun lineLevelSweepDirectionIsCompiledAndValidated() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(
