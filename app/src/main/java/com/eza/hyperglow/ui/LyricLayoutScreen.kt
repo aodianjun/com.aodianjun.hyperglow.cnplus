@@ -56,6 +56,7 @@ import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
 import com.eza.hyperglow.customization.METADATA_PART_ALBUM
 import com.eza.hyperglow.customization.METADATA_PART_ARTIST
 import com.eza.hyperglow.customization.METADATA_PART_TITLE
+import com.eza.hyperglow.customization.METADATA_PARTS
 import com.eza.hyperglow.customization.ARTWORK_SHAPES
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.ARTWORK_SIZE_MAX_DP

@@ -89,11 +89,12 @@ class SongMetadataComposeTest {
 
     @Test
     fun normalizeMetadataSeparatorsResizesToGapCount() {
-        // 序列长度恒等于槽位数:过短补换行,过长截断,单部分无槽位返回空串。
+        // 序列长度恒等于槽位数:过短补换行,过长截断,单部分无槽位返回空串,
+        // 非法项只回落自己那一槽(逐槽独立,不影响相邻有效槽位)。
         assertEquals("dot,newline", normalizeMetadataSeparators("dot", "title,artist,album"))
         assertEquals("dot", normalizeMetadataSeparators("dot,dot,dot", "title,artist"))
         assertEquals("", normalizeMetadataSeparators("dot", "title"))
-        assertEquals("newline,newline", normalizeMetadataSeparators("bogus,dot", "title,artist,album"))
+        assertEquals("newline,dot", normalizeMetadataSeparators("bogus,dot", "title,artist,album"))
     }
 
     @Test
