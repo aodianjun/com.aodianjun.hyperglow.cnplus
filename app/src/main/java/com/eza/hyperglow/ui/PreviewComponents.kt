@@ -200,18 +200,18 @@ internal fun AppearanceLivePreview(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
     scenario: String,
     metadataParts: String,
-    metadataSeparator: String,
+    metadataSeparators: String,
     duetMarkers: Boolean = true,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     modifier: Modifier = Modifier
 ) {
-    val live = collectLiveSnapshot(metadataParts, metadataSeparator, duetMarkers)
+    val live = collectLiveSnapshot(metadataParts, metadataSeparators, duetMarkers)
     LyricPreviewSurface(
         profile = profile,
         scenario = scenario,
         live = live,
         metadataParts = metadataParts,
-        metadataSeparator = metadataSeparator,
+        metadataSeparators = metadataSeparators,
         artwork = artwork,
         modifier = modifier
             .fillMaxWidth()
@@ -236,7 +236,7 @@ internal fun LyricPreviewCard(
     scenario: String,
     live: LyricSnapshot?,
     metadataParts: String,
-    metadataSeparator: String,
+    metadataSeparators: String,
     modifier: Modifier,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile)
 ) {
@@ -254,7 +254,7 @@ internal fun LyricPreviewCard(
                 scenario = scenario,
                 live = live,
                 metadataParts = metadataParts,
-                metadataSeparator = metadataSeparator,
+                metadataSeparators = metadataSeparators,
                 artwork = artwork,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -273,12 +273,12 @@ private fun LyricPreviewSurface(
     scenario: String,
     live: LyricSnapshot?,
     metadataParts: String,
-    metadataSeparator: String,
+    metadataSeparators: String,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
-    val snapshot = live ?: collectDemoSnapshot(metadataParts, metadataSeparator)
+    val snapshot = live ?: collectDemoSnapshot(metadataParts, metadataSeparators)
     // 歌曲图片(与实机同一几何公式):实时快照带已校对封面帧则显示真帧;演示态显示
     // 生成占位图,便于调形状/旋转开关所见即所得;实时无帧=不显示(与实机 fail-closed 一致)。
     // 只在歌曲信息行可见且文本非空时露出(与实机「图片随歌曲信息行」同一门槛)。
@@ -289,7 +289,14 @@ private fun LyricPreviewSurface(
     } else if (live != null) {
         previewArtworkFromSnapshot(snapshot, artwork)
     } else {
-        PreviewArtwork(artwork.shape, artwork.spins, image = null, placeholder = true)
+        PreviewArtwork(
+            artwork.shape,
+            artwork.spins,
+            image = null,
+            placeholder = true,
+            adaptiveScale = artwork.adaptiveScale,
+            sizeDp = artwork.sizeDp
+        )
     }
     // 颜色与实机同源:统一走 resolveAodPalette(dimmed 预设/自定义字体颜色 hex token 一处解析)
     val resolvedColors = resolveAodPalette(profile.palette)
@@ -602,12 +609,16 @@ private fun LyricPreviewSurface(
     }
 }
 
-/** 预览侧歌曲图片呈现参数:形状/旋转生效值 + 解码后的帧(或演示占位)。 */
+/** 预览侧歌曲图片呈现参数:形状/旋转生效值 + 自适应开关/自定义边长 + 解码后的帧(或演示占位)。 */
 private data class PreviewArtwork(
     val shape: String,
     val spin: Boolean,
     val image: ImageBitmap?,
-    val placeholder: Boolean
+    val placeholder: Boolean,
+    /** 自适应缩放(见 ArtworkDisplayConfig.adaptiveScale);关闭时用 [sizeDp]。 */
+    val adaptiveScale: Boolean = true,
+    /** 自定义边长(dp);仅 [adaptiveScale] 关闭时生效。 */
+    val sizeDp: Int = com.eza.hyperglow.customization.ARTWORK_SIZE_DEFAULT_DP
 )
 
 /**
@@ -630,7 +641,14 @@ private fun previewArtworkFromSnapshot(
             bitmap?.asImageBitmap()
         }.getOrNull()
     } ?: return null
-    return PreviewArtwork(artwork.shape, artwork.spins, image, placeholder = false)
+    return PreviewArtwork(
+        artwork.shape,
+        artwork.spins,
+        image,
+        placeholder = false,
+        adaptiveScale = artwork.adaptiveScale,
+        sizeDp = artwork.sizeDp
+    )
 }
 
 /**
@@ -651,7 +669,16 @@ private fun PreviewMetaLine(
     val size = previewMetadataTextSizeSp(sizePercent)
     val density = LocalDensity.current
     val sizePx = with(density) { size.toPx() }
-    val leadingPx = if (artwork != null) artworkLeadingPx(sizePx, density.density) else 0f
+    val leadingPx = if (artwork != null) {
+        artworkLeadingPx(
+            sizePx,
+            density.density,
+            artwork.adaptiveScale,
+            artwork.sizeDp
+        )
+    } else {
+        0f
+    }
     // 换行与实机 layoutMetadataLines 同算法:切片/折行后最多 MAX_METADATA_LAYOUT_LINES 行,溢出丢弃(无省略号)。
     val lines = remember(text, sizePx, typeface, availableWidthPx, leadingPx) {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -673,7 +700,14 @@ private fun PreviewMetaLine(
         if (artwork != null) {
             PreviewArtworkBox(
                 artwork,
-                side = with(density) { artworkSidePx(sizePx).toDp() },
+                side = with(density) {
+                    artworkSidePx(
+                        sizePx,
+                        density.density,
+                        artwork.adaptiveScale,
+                        artwork.sizeDp
+                    ).toDp()
+                },
                 contentDescription = text
             )
             Spacer(Modifier.width(com.eza.hyperglow.root.aod.ARTWORK_TEXT_GAP_DP.dp))

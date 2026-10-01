@@ -295,6 +295,24 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun artworkCustomSizeIgnoresTextSizeAndReservesWidgetHeight() {
+        // 关闭自适应:边长取固定 dp × density,与歌曲信息字号无关。
+        assertEquals(30f, artworkSidePx(20f, 2f, adaptiveScale = false, customSizeDp = 15), 0.0001f)
+        assertEquals(30f, artworkSidePx(80f, 2f, adaptiveScale = false, customSizeDp = 15), 0.0001f)
+        assertEquals(30f + 6f * 2f, artworkLeadingPx(20f, 2f, false, 15), 0.0001f)
+        // dp 估算与 px 公式同源:自适应 = 字号 sp × 1.6 × 字体缩放;自定义取固定值。
+        assertEquals(22.4f, artworkSideDp(100, 1f, true, 22), 0.0001f)
+        assertEquals(15f, artworkSideDp(100, 1f, false, 15), 0.0001f)
+        // 静态高度预算:图片不超文本预算时不变,超出时按图片槽 + 上下余量抬高。
+        assertEquals(36f, metadataWidgetHeightDp(100, artworkHeightDp = 15f), 0.0001f)
+        assertEquals(
+            60f + ARTWORK_WIDGET_VERTICAL_PADDING_DP,
+            metadataWidgetHeightDp(100, artworkHeightDp = 60f),
+            0.0001f
+        )
+    }
+
+    @Test
     fun artworkSpinAdvancesContinuouslyOnlyWhenEnabled() {
         assertEquals(0f, artworkSpinDegrees(false, 12_345L), 0.0001f)
         assertEquals(0f, artworkSpinDegrees(true, 0L), 0.0001f)
@@ -329,6 +347,13 @@ class AodCanvasLayoutTest {
         assertEquals(true, content.artworkVisible)
         assertEquals(ARTWORK_SHAPE_CIRCLE, content.artworkShape)
         assertEquals(true, content.artworkSpin)
+        // 默认自适应开启;关闭并设自定义尺寸后按配置透传到画布内容。
+        assertEquals(true, content.artworkAdaptiveScale)
+        val custom = snapshot.toAodCanvasContent(
+            lockscreen.copy(artworkAdaptiveScale = false, artworkSizeDp = 48)
+        )
+        assertEquals(false, custom.artworkAdaptiveScale)
+        assertEquals(48, custom.artworkSizeDp)
         assertEquals("com.music.player|song|artist", content.artworkKey)
         assertTrue(content.artworkJpeg.contentEquals(byteArrayOf(1, 2, 3)))
 

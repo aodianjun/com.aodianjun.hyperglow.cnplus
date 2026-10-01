@@ -7,13 +7,14 @@ import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.WidgetSpec
 import com.eza.hyperglow.customization.normalizeArtworkShape
+import com.eza.hyperglow.customization.normalizeArtworkSizeDp
 import com.eza.hyperglow.customization.normalizeCardAlpha
 import com.eza.hyperglow.customization.normalizeCardColor
 import com.eza.hyperglow.customization.normalizeLineTransition
 import com.eza.hyperglow.customization.normalizeLineTransitionSpeed
 import com.eza.hyperglow.customization.normalizeLyricLineLimit
 import com.eza.hyperglow.customization.normalizeMetadataParts
-import com.eza.hyperglow.customization.normalizeMetadataSeparator
+import com.eza.hyperglow.customization.normalizeMetadataSeparators
 import com.eza.hyperglow.aod.normalizePauseLingerMs
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
 import com.eza.hyperglow.root.surface.SurfacePolicyResolver
@@ -64,6 +65,8 @@ internal object SystemUiCustomizationValidator {
                 artworkShape = rawLockscreen.artworkShape,
                 artworkSpin = rawLockscreen.artworkSpin,
                 artworkSpinWhenPaused = rawLockscreen.artworkSpinWhenPaused,
+                artworkAdaptiveScale = rawLockscreen.artworkAdaptiveScale,
+                artworkSizeDp = rawLockscreen.artworkSizeDp,
                 backgroundStyle = rawLockscreen.backgroundStyle,
                 cardAlpha = rawLockscreen.cardAlpha,
                 cardColor = rawLockscreen.cardColor
@@ -86,7 +89,10 @@ internal object SystemUiCustomizationValidator {
                 sourceId = normalizeIdentifier(configuration.sourceId),
                 pauseLingerMs = normalizePauseLingerMs(configuration.pauseLingerMs),
                 metadataParts = normalizeMetadataParts(configuration.metadataParts),
-                metadataSeparator = normalizeMetadataSeparator(configuration.metadataSeparator),
+                metadataSeparators = normalizeMetadataSeparators(
+                    configuration.metadataSeparators,
+                    configuration.metadataParts
+                ),
                 profiles = profiles
             )
         )
@@ -143,6 +149,8 @@ internal object SystemUiCustomizationValidator {
             artworkVisible = profile.artworkVisible,
             artworkShape = normalizeArtworkShape(profile.artworkShape),
             artworkSpin = profile.artworkSpin,
+            artworkAdaptiveScale = profile.artworkAdaptiveScale,
+            artworkSizeDp = normalizeArtworkSizeDp(profile.artworkSizeDp),
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",
             textSizeCustom = profile.textSizeCustom.coerceIn(50, 200),

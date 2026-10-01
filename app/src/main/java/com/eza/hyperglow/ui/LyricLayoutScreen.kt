@@ -57,17 +57,23 @@ import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
 import com.eza.hyperglow.customization.METADATA_PART_ALBUM
 import com.eza.hyperglow.customization.METADATA_PART_ARTIST
 import com.eza.hyperglow.customization.METADATA_PART_TITLE
+import com.eza.hyperglow.customization.METADATA_PARTS
 import com.eza.hyperglow.customization.ARTWORK_SHAPES
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
+import com.eza.hyperglow.customization.ARTWORK_SIZE_MAX_DP
+import com.eza.hyperglow.customization.ARTWORK_SIZE_MIN_DP
 import com.eza.hyperglow.customization.METADATA_SEPARATORS
 import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.customization.composeSongMetadata
+import com.eza.hyperglow.customization.metadataGapCount
 import com.eza.hyperglow.customization.metadataSeparatorText
 import com.eza.hyperglow.customization.normalizeArtworkShape
+import com.eza.hyperglow.customization.normalizeArtworkSizeDp
 import com.eza.hyperglow.customization.normalizeMetadataParts
 import com.eza.hyperglow.customization.normalizeMetadataSeparator
+import com.eza.hyperglow.customization.normalizeMetadataSeparators
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.projection.LyricRuby
@@ -280,7 +286,7 @@ internal fun LyricLayoutScreen(
                     profile = compiledPreviewProfile,
                     scenario = editorState.selectedSurface,
                     metadataParts = editorState.document.metadataParts,
-                    metadataSeparator = editorState.document.metadataSeparator,
+                    metadataSeparators = editorState.document.metadataSeparators,
                     duetMarkers = editorState.document.duetMarkers
                 )
             }
@@ -527,6 +533,7 @@ internal fun LyricLayoutScreen(
                                 }
                             }
                         )
+                        // 内容编辑:勾选/排序显示部分(歌名/歌手/专辑),并逐槽独立选择相邻两项之间的分隔符。
                         ArrowPreference(
                             title = stringResource(R.string.setting_song_info_parts),
                             summary = metadataPartsDisplayLabel(
@@ -535,21 +542,8 @@ internal fun LyricLayoutScreen(
                             ),
                             onClick = { activePartsEditor = true }
                         )
-                        AodChoiceRow(
-                            AodChoiceKind.SONG_INFO_SEPARATOR,
-                            editorState.document.metadataSeparator
-                        ) {
-                            openChoice(
-                                AodChoiceKind.SONG_INFO_SEPARATOR,
-                                METADATA_SEPARATORS,
-                                editorState.document.metadataSeparator
-                            ) { value ->
-                                updateDocument {
-                                    it.copy(metadataSeparator = normalizeMetadataSeparator(value))
-                                }
-                            }
-                        }
-                        // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 旋转(仅圆形)。
+                        // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 自适应缩放
+                        // (关闭时露出自定义大小拖动条) → 旋转(仅圆形)。
                         SwitchPreference(
                             selectedProfile.artworkVisible,
                             { visible -> updateSelected { it.copy(artworkVisible = visible) } },
@@ -569,6 +563,34 @@ internal fun LyricLayoutScreen(
                                         it.copy(artworkShape = normalizeArtworkShape(value))
                                     }
                                 }
+                            }
+                            // 自适应缩放:开启时边长随歌曲信息字号缩放;关闭时露出自定义大小拖动条。
+                            SwitchPreference(
+                                selectedProfile.artworkAdaptiveScale,
+                                { adaptive ->
+                                    updateSelected { it.copy(artworkAdaptiveScale = adaptive) }
+                                },
+                                stringResource(R.string.setting_song_artwork_adaptive)
+                            )
+                            if (!selectedProfile.artworkAdaptiveScale) {
+                                val sizeDp = normalizeArtworkSizeDp(selectedProfile.artworkSizeDp)
+                                SliderPreference(
+                                    value = sizeDp.toFloat(),
+                                    onValueChange = { value ->
+                                        updateSelected {
+                                            it.copy(
+                                                artworkSizeDp =
+                                                    normalizeArtworkSizeDp(value.roundToInt())
+                                            )
+                                        }
+                                    },
+                                    title = stringResource(R.string.setting_song_artwork_size),
+                                    summary = stringResource(R.string.summary_song_artwork_size),
+                                    valueText = "${sizeDp}dp",
+                                    valueRange =
+                                        ARTWORK_SIZE_MIN_DP.toFloat()..ARTWORK_SIZE_MAX_DP.toFloat(),
+                                    steps = ARTWORK_SIZE_MAX_DP - ARTWORK_SIZE_MIN_DP - 1
+                                )
                             }
                             if (selectedProfile.artworkShape == ARTWORK_SHAPE_CIRCLE) {
                                 SwitchPreference(
@@ -818,35 +840,6 @@ internal fun LyricLayoutScreen(
         }
     }
 
-    activeChoice?.let { selected ->
-        if (selected.kind == AodChoiceKind.FONT) {
-            FontChoiceDialog(
-                selected = selected,
-                customNames = customFontNames,
-                onDismiss = { activeChoice = null }
-            )
-        } else {
-            WindowDialog(
-                title = stringResource(selected.kind.titleRes),
-                show = true,
-                onDismissRequest = { activeChoice = null }
-            ) {
-                Column {
-                    selected.values.forEach { value ->
-                        RadioButtonPreference(
-                            choiceDisplayLabel(context, selected.kind, value),
-                            selected.current == value,
-                            {
-                                selected.onSelect(value)
-                                activeChoice = null
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
     activeColorPicker?.let { paletteKey ->
         PaletteColorPickerDialog(
             key = paletteKey,
@@ -872,32 +865,95 @@ internal fun LyricLayoutScreen(
             show = true,
             onDismissRequest = { activePartsEditor = false }
         ) {
-            Column {
-                val parts = normalizeMetadataParts(editorState.document.metadataParts)
+            Column(Modifier.dialogScrollable()) {
+                val enabledParts = normalizeMetadataParts(editorState.document.metadataParts)
                     .split(',')
-                    .toSet()
-                listOf(
-                    METADATA_PART_TITLE to R.string.option_song_info_part_title,
-                    METADATA_PART_ARTIST to R.string.option_song_info_part_artist,
-                    METADATA_PART_ALBUM to R.string.option_song_info_part_album
-                ).forEach { (part, labelRes) ->
+                val disabledParts = METADATA_PARTS.filterNot { it in enabledParts }
+                val separatorTokens = normalizeMetadataSeparators(
+                    editorState.document.metadataSeparators,
+                    editorState.document.metadataParts
+                ).split(',').filter { it.isNotEmpty() }
+
+                fun partLabel(part: String): String = context.getString(
+                    when (part) {
+                        METADATA_PART_ARTIST -> R.string.option_song_info_part_artist
+                        METADATA_PART_ALBUM -> R.string.option_song_info_part_album
+                        else -> R.string.option_song_info_part_title
+                    }
+                )
+                fun tokenAt(index: Int): String =
+                    separatorTokens.getOrNull(index) ?: METADATA_SEPARATOR_NEWLINE
+                fun commitParts(next: List<String>) {
+                    updateDocument {
+                        it.copy(metadataParts = normalizeMetadataParts(next.joinToString(",")))
+                    }
+                }
+                fun movePart(from: Int, to: Int) {
+                    if (to !in enabledParts.indices) return
+                    val next = enabledParts.toMutableList()
+                    next[from] = next[to].also { next[to] = next[from] }
+                    commitParts(next)
+                }
+                fun setGap(index: Int, value: String) {
+                    val gaps = metadataGapCount(editorState.document.metadataParts)
+                    if (index !in 0 until gaps) return
+                    val tokens = MutableList(gaps) { tokenAt(it) }
+                    tokens[index] = normalizeMetadataSeparator(value)
+                    updateDocument { it.copy(metadataSeparators = tokens.joinToString(",")) }
+                }
+
+                // 已选部分:开关关闭即移除,上/下按钮调整顺序(顺序即显示顺序)。
+                enabledParts.forEachIndexed { index, part ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SwitchPreference(
+                            checked = true,
+                            onCheckedChange = {
+                                if (enabledParts.size > 1) commitParts(enabledParts - part)
+                            },
+                            title = partLabel(part),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        MetadataOrderButton(
+                            text = "↑",
+                            enabled = index > 0,
+                            onClick = { movePart(index, index - 1) }
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        MetadataOrderButton(
+                            text = "↓",
+                            enabled = index < enabledParts.lastIndex,
+                            onClick = { movePart(index, index + 1) }
+                        )
+                    }
+                    // 相邻两项之间的分隔符:逐槽独立选择。
+                    if (index < enabledParts.lastIndex) {
+                        ArrowPreference(
+                            title = context.getString(
+                                R.string.label_song_info_pair,
+                                partLabel(part),
+                                partLabel(enabledParts[index + 1])
+                            ),
+                            summary = metadataSeparatorDisplayLabel(context, tokenAt(index)),
+                            onClick = {
+                                openChoice(
+                                    AodChoiceKind.SONG_INFO_SEPARATOR,
+                                    METADATA_SEPARATORS,
+                                    tokenAt(index)
+                                ) { value -> setGap(index, value) }
+                            }
+                        )
+                    }
+                }
+                // 未选部分:开关打开即追加到末尾。
+                disabledParts.forEach { part ->
                     SwitchPreference(
-                        parts.contains(part),
-                        { enabled ->
-                            val next = parts.toMutableSet()
-                            if (enabled) {
-                                next += part
-                            } else if (next.size > 1) {
-                                // 至少保留一个部分;全部关闭时回落默认组合。
-                                next -= part
-                            }
-                            updateDocument {
-                                it.copy(
-                                    metadataParts = normalizeMetadataParts(next.joinToString(","))
-                                )
-                            }
-                        },
-                        stringResource(labelRes)
+                        checked = false,
+                        onCheckedChange = { commitParts(enabledParts + part) },
+                        title = partLabel(part)
                     )
                 }
             }
@@ -944,6 +1000,36 @@ internal fun LyricLayoutScreen(
                         ).show()
                     }
                 )
+            }
+        }
+    }
+
+    // 选项弹窗最后合成:保证在内容编辑弹窗之上弹出(逐槽分隔符选择需要覆盖在其上方)。
+    activeChoice?.let { selected ->
+        if (selected.kind == AodChoiceKind.FONT) {
+            FontChoiceDialog(
+                selected = selected,
+                customNames = customFontNames,
+                onDismiss = { activeChoice = null }
+            )
+        } else {
+            WindowDialog(
+                title = stringResource(selected.kind.titleRes),
+                show = true,
+                onDismissRequest = { activeChoice = null }
+            ) {
+                Column {
+                    selected.values.forEach { value ->
+                        RadioButtonPreference(
+                            choiceDisplayLabel(context, selected.kind, value),
+                            selected.current == value,
+                            {
+                                selected.onSelect(value)
+                                activeChoice = null
+                            }
+                        )
+                    }
+                }
             }
         }
     }
@@ -1012,7 +1098,7 @@ internal fun previewEnvironment(
 @Composable
 internal fun collectDemoSnapshot(
     metadataParts: String,
-    metadataSeparator: String
+    metadataSeparators: String
 ): LyricSnapshot {
     var index by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
@@ -1040,7 +1126,7 @@ internal fun collectDemoSnapshot(
             artist = "洛天依",
             album = "专辑示例",
             parts = metadataParts,
-            separator = metadataSeparator
+            separators = metadataSeparators
         ),
         lineLevelSync = true,
         lineStartMs = 0,
@@ -1261,6 +1347,25 @@ private fun PaletteColorPickerDialog(
                 )
             }
         }
+    }
+}
+
+/** 歌曲信息部分排序按钮(上/下移),与字号步进按钮同风格。 */
+@Composable
+private fun MetadataOrderButton(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+        cornerRadius = 24.dp,
+        minHeight = 44.dp,
+        minWidth = 44.dp
+    ) {
+        Text(text, fontSize = 20.sp)
     }
 }
 
@@ -1533,7 +1638,7 @@ internal fun withMetadataVisible(profile: SurfaceProfile, visible: Boolean): Sur
     return profile.copy(metadataVisible = visible, widgets = widgets)
 }
 
-/** 歌曲信息内容行摘要:已选部分按规范顺序以 " · " 连接,如「歌名 · 歌手」。 */
+/** 歌曲信息内容行摘要:已选部分按用户排序以 " · " 连接,如「歌名 · 歌手」;逐槽分隔符在编辑弹窗内调整。 */
 internal fun metadataPartsDisplayLabel(
     context: android.content.Context,
     parts: String

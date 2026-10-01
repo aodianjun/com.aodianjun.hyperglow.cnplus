@@ -943,23 +943,54 @@ class SceneCompilerTest {
     fun metadataPartsAndSeparatorCompileThroughAndNormalize() {
         val document = SceneCompiler.safeDefaultDocument().copy(
             metadataParts = "album,title,bogus",
-            metadataSeparator = "dot"
+            metadataSeparators = "dot"
         )
         val compiled = SceneCompiler.compile(document)
-        assertEquals("title,album", compiled.metadataParts)
-        assertEquals("dot", compiled.metadataSeparator)
+        // 顺序保留(album→title),两个部分一个槽位。
+        assertEquals("album,title", compiled.metadataParts)
+        assertEquals("dot", compiled.metadataSeparators)
 
         val invalid = SceneCompiler.compile(
-            document.copy(metadataParts = "bogus", metadataSeparator = "unknown")
+            document.copy(metadataParts = "bogus", metadataSeparators = "unknown")
         )
         assertEquals(METADATA_PARTS_DEFAULT, invalid.metadataParts)
-        assertEquals(METADATA_SEPARATOR_NEWLINE, invalid.metadataSeparator)
+        assertEquals(METADATA_SEPARATOR_NEWLINE, invalid.metadataSeparators)
 
         // SystemUI 侧校验同样收敛新字段,防止越界配置经 wire 落地。
         val validated = SystemUiCustomizationValidator.validate(compiled)
         assertNotNull(validated)
-        assertEquals("title,album", validated?.metadataParts)
-        assertEquals("dot", validated?.metadataSeparator)
+        assertEquals("album,title", validated?.metadataParts)
+        assertEquals("dot", validated?.metadataSeparators)
+    }
+
+    @Test
+    fun metadataSeparatorsResizeToGapCountThroughCompile() {
+        val document = SceneCompiler.safeDefaultDocument().copy(
+            metadataParts = "artist,title,album",
+            metadataSeparators = "dot"
+        )
+        val compiled = SceneCompiler.compile(document)
+        assertEquals("artist,title,album", compiled.metadataParts)
+        // 三个部分两个槽位:缺项补默认换行。
+        assertEquals("dot,newline", compiled.metadataSeparators)
+        assertEquals("dot,newline", CustomizationRepository.canonicalizeDocument(document)!!.metadataSeparators)
+    }
+
+    @Test
+    fun legacySingleSeparatorSeedsEveryGapOnce() {
+        // 旧文档只带单一分隔符:迁移时按当时槽位重复展开,并清空载体(只播种一次)。
+        val legacy = SceneCompiler.safeDefaultDocument().copy(
+            metadataParts = "title,artist,album",
+            metadataSeparator = "dot"
+        )
+        val migrated = CustomizationRepository.migrateDocument(legacy)!!
+        assertEquals("dot,dot", migrated.metadataSeparators)
+        assertNull(migrated.metadataSeparator)
+
+        // 已迁移文档二次迁移不变(载体已清空),用户后续逐槽选择不被覆盖。
+        val diverged = migrated.copy(metadataSeparators = "dot,newline")
+        val reloaded = CustomizationRepository.migrateDocument(diverged)!!
+        assertEquals("dot,newline", reloaded.metadataSeparators)
     }
 
     @Test
@@ -970,7 +1001,9 @@ class SceneCompilerTest {
                     artworkVisible = true,
                     artworkShape = ARTWORK_SHAPE_CIRCLE,
                     artworkSpin = true,
-                    artworkSpinWhenPaused = true
+                    artworkSpinWhenPaused = true,
+                    artworkAdaptiveScale = false,
+                    artworkSizeDp = 48
                 ),
                 SceneCompiler.SURFACE_AOD to SurfaceProfile(artworkVisible = false)
             )
@@ -984,10 +1017,14 @@ class SceneCompilerTest {
         assertEquals(ARTWORK_SHAPE_CIRCLE, lockscreen.artworkShape)
         assertEquals(true, lockscreen.artworkSpin)
         assertEquals(true, lockscreen.artworkSpinWhenPaused)
+        assertEquals(false, lockscreen.artworkAdaptiveScale)
+        assertEquals(48, lockscreen.artworkSizeDp)
         assertEquals(false, aod.artworkVisible)
         assertEquals(false, aod.artworkSpinWhenPaused)
         assertEquals(ARTWORK_SHAPE_SQUARE, aod.artworkShape)
         assertEquals(false, aod.artworkSpin)
+        assertEquals(true, aod.artworkAdaptiveScale)
+        assertEquals(ARTWORK_SIZE_DEFAULT_DP, aod.artworkSizeDp)
 
         // 校验器与编译同源归一(不改写),否则 wire 的 validate_rewrote_fields 会拒收。
         assertEquals(compiled, SystemUiCustomizationValidator.validate(compiled))
@@ -1001,6 +1038,14 @@ class SceneCompilerTest {
         assertEquals(
             true,
             canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkSpinWhenPaused
+        )
+        assertEquals(
+            false,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkAdaptiveScale
+        )
+        assertEquals(
+            48,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkSizeDp
         )
         assertEquals(
             false,

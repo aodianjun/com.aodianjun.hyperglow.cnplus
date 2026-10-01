@@ -73,7 +73,7 @@ internal fun collectConnection(source: LyricSource): androidx.compose.runtime.St
  * 当前歌词源上报的 [LyricProducerState],映射成预览所需的 [LyricSnapshot]。无实时数据时返回
  * null,由调用方回退到静态示例快照。
  *
- * 歌曲信息按 [metadataParts]/[metadataSeparator](外观文档全局配置)用与实机投影层相同的
+ * 歌曲信息按 [metadataParts]/[metadataSeparators](外观文档全局配置)用与实机投影层相同的
  * [composeSongMetadata] 组装,保证预览与实机所见即所得。歌曲图片同样与实机同源:
  * 订阅 [SongArtworkRepository.current](出帧后驱动重组),取与当前曲目同曲的已校对帧。
  *
@@ -83,18 +83,18 @@ internal fun collectConnection(source: LyricSource): androidx.compose.runtime.St
 @Composable
 internal fun collectLiveSnapshot(
     metadataParts: String,
-    metadataSeparator: String,
+    metadataSeparators: String,
     duetMarkers: Boolean = true
 ): LyricSnapshot? {
     val active by collectActiveState()
     // 封面帧出帧后驱动重组(帧到达前字段为空,预览不显示,与实机 fail-closed 一致)。
     val artworkFrame by SongArtworkRepository.current.collectAsState()
-    return active?.toPreviewSnapshot(metadataParts, metadataSeparator, duetMarkers, artworkFrame)
+    return active?.toPreviewSnapshot(metadataParts, metadataSeparators, duetMarkers, artworkFrame)
 }
 
 private fun LyricProducerState.toPreviewSnapshot(
     metadataParts: String,
-    metadataSeparator: String,
+    metadataSeparators: String,
     duetMarkers: Boolean,
     artworkFrame: ArtworkFrame?
 ): LyricSnapshot {
@@ -115,7 +115,7 @@ private fun LyricProducerState.toPreviewSnapshot(
         artist = artist,
         album = album,
         parts = metadataParts,
-        separator = metadataSeparator
+        separators = metadataSeparators
     ).ifBlank { "HyperGlow" },
     alignedRight = alignedRight,
     lineLevelSync = words == null,

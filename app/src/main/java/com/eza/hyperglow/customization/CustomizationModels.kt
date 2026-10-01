@@ -8,10 +8,21 @@ data class CustomizationDocument(
     val id: String = "default_continuity",
     val name: String = "Seamless Default",
     val linkSurfaces: Boolean = false,
-    /** 歌曲信息显示部分(歌名/歌手/专辑),见 [METADATA_PARTS] 与 [normalizeMetadataParts];全局生效,同时作用于息屏与锁屏。 */
+    /**
+     * 歌曲信息显示部分(歌名/歌手/专辑),见 [METADATA_PARTS] 与 [normalizeMetadataParts];
+     * 顺序即显示顺序(可自定义排序),全局生效,同时作用于息屏与锁屏。
+     */
     val metadataParts: String = METADATA_PARTS_DEFAULT,
-    /** 歌曲信息分隔符 token,见 [METADATA_SEPARATORS];全局生效,同时作用于息屏与锁屏。 */
-    val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
+    /**
+     * 相邻两个显示部分之间的分隔符 token 列表(逗号分隔,第 i 项为第 i 与第 i+1 部分之间的
+     * 分隔符,逐槽独立选择),见 [METADATA_SEPARATORS];全局生效,同时作用于息屏与锁屏。
+     */
+    val metadataSeparators: String = METADATA_SEPARATORS_DEFAULT,
+    /**
+     * 旧版单一分隔符 token;仅作旧文档迁移载体:读取时按槽位展开进 [metadataSeparators] 并清空,
+     * 回写文档时不再携带(保证只播种一次)。
+     */
+    val metadataSeparator: String? = null,
     /**
      * 识别对唱标记:行首「（男）/（女）/（合）」演唱者标记被识别为演唱者身份——显示时
      * 隐去标记文本,并作为对唱左右分侧的身份输入(元数据身份恒优先,
@@ -94,6 +105,13 @@ data class SurfaceProfile(
     /** 音乐暂停驻留期间圆形封面是否继续旋转;仅 [artworkSpin] 开启时有意义。默认关(暂停即停转,驻留期无逐帧开销)。 */
     val artworkSpinWhenPaused: Boolean = false,
     /**
+     * 歌曲图片自适应缩放:开启(默认)时边长随歌曲信息字号等比缩放(字号 × 1.6,历史行为);
+     * 关闭时用固定自定义边长 [artworkSizeDp],不随字号变化。每个 surface 独立设置。
+     */
+    val artworkAdaptiveScale: Boolean = true,
+    /** 自定义歌曲图片边长(dp);仅 [artworkAdaptiveScale] 关闭时生效,见 [normalizeArtworkSizeDp]。 */
+    val artworkSizeDp: Int = ARTWORK_SIZE_DEFAULT_DP,
+    /**
      * 对唱分侧:开启时按行级 `alignedRight`(歌词源显式值,或由演唱者身份元数据推导,
      * 见 [com.eza.hyperglow.producer.resolveDuetAlignment])把该行画到左/右一侧;
      * 关闭时忽略分侧、全部行按 [alignment] 解析。主对齐为显式 start/center/end 时本开关无效果。
@@ -150,10 +168,10 @@ data class CompiledCustomization(
     val hash: String,
     val sourceId: String,
     val linkSurfaces: Boolean,
-    /** 歌曲信息显示部分(歌名/歌手/专辑);全局生效,同时作用于息屏与锁屏,由 [CustomizationDocument.metadataParts] 编译而来。 */
+    /** 歌曲信息显示部分(歌名/歌手/专辑,顺序即显示顺序);全局生效,由 [CustomizationDocument.metadataParts] 编译而来。 */
     val metadataParts: String = METADATA_PARTS_DEFAULT,
-    /** 歌曲信息分隔符 token;全局生效,由 [CustomizationDocument.metadataSeparator] 编译而来。 */
-    val metadataSeparator: String = METADATA_SEPARATOR_NEWLINE,
+    /** 歌曲信息逐槽分隔符 token 列表;全局生效,由 [CustomizationDocument.metadataSeparators] 编译而来。 */
+    val metadataSeparators: String = METADATA_SEPARATORS_DEFAULT,
     /** 识别对唱标记;全局生效,由 [CustomizationDocument.duetMarkers] 编译而来。 */
     val duetMarkers: Boolean = true,
     /** 歌词时间偏移(毫秒);全局生效,由 [CustomizationDocument.lyricTimeOffsetMs] 编译而来。 */
@@ -245,6 +263,10 @@ data class CompiledSurfaceProfile(
     val artworkSpin: Boolean = false,
     /** 暂停驻留期间是否继续旋转,由 [SurfaceProfile.artworkSpinWhenPaused] 编译而来。 */
     val artworkSpinWhenPaused: Boolean = false,
+    /** 歌曲图片自适应缩放,由 [SurfaceProfile.artworkAdaptiveScale] 编译而来。 */
+    val artworkAdaptiveScale: Boolean = true,
+    /** 自定义歌曲图片边长(dp),由 [SurfaceProfile.artworkSizeDp] 编译而来。 */
+    val artworkSizeDp: Int = ARTWORK_SIZE_DEFAULT_DP,
     /** 对唱分侧,见 [SurfaceProfile.duetAlignment]。 */
     val duetAlignment: Boolean = true,
     /** 对唱并发行开关,见 [SurfaceProfile.duetConcurrent];仅息屏面消费,锁屏编译进档但不渲染。 */
@@ -364,13 +386,16 @@ const val METADATA_PART_TITLE = "title"
 const val METADATA_PART_ARTIST = "artist"
 const val METADATA_PART_ALBUM = "album"
 
-/** 部分的规范顺序(显示顺序恒为该顺序,与选择顺序无关)。 */
+/** 部分 token 的规范词表(用于白名单校验与补全;显示顺序由用户选择决定,见 [normalizeMetadataParts])。 */
 val METADATA_PARTS = listOf(METADATA_PART_TITLE, METADATA_PART_ARTIST, METADATA_PART_ALBUM)
 
 const val METADATA_PARTS_DEFAULT = "title,artist"
 
 /** 每个切片独立成行(历史默认行为)。 */
 const val METADATA_SEPARATOR_NEWLINE = "newline"
+
+/** 默认逐槽分隔符序列(默认两部分之间一个换行)。 */
+const val METADATA_SEPARATORS_DEFAULT = METADATA_SEPARATOR_NEWLINE
 
 /** 歌曲信息分隔符 token 词表;"newline" 为换行,其余为行内分隔符(见 [metadataSeparatorText])。 */
 val METADATA_SEPARATORS = listOf(
@@ -392,47 +417,94 @@ internal fun metadataSeparatorText(value: String): String = when (value) {
     else -> "\n"
 }
 
+/** 归一化:按用户给定顺序保留、去重、丢弃未知 token;全空回落默认。 */
 internal fun normalizeMetadataParts(value: String?): String {
-    val requested = value?.split(',')?.map { it.trim() }?.toSet().orEmpty()
-    val parts = METADATA_PARTS.filter { it in requested }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(",") ?: METADATA_PARTS_DEFAULT
+    val requested = value?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it in METADATA_PARTS }
+        ?.distinct()
+        .orEmpty()
+    return requested.takeIf { it.isNotEmpty() }?.joinToString(",") ?: METADATA_PARTS_DEFAULT
 }
 
 internal fun normalizeMetadataSeparator(value: String?): String =
     value?.takeIf { it in METADATA_SEPARATORS } ?: METADATA_SEPARATOR_NEWLINE
 
+/** 已选部分数量 - 1,即部分之间可独立选择的分隔符槽位数。 */
+internal fun metadataGapCount(parts: String): Int =
+    (normalizeMetadataParts(parts).split(',').size - 1).coerceAtLeast(0)
+
 /**
- * 歌曲信息组装:按 [parts](歌名/歌手/专辑,恒按 [METADATA_PARTS] 规范顺序)取切片,
- * 以 [separator] 连接。每个部分文本内的 `·` 仍视作切片边界(历史行为:部分音源把
- * 「歌名·歌手」塞进单字段);切片两端空白裁剪,空切片丢弃。
- * separator 为 [METADATA_SEPARATOR_NEWLINE] 时切片各占一行,否则全部内联到一行。
+ * 分隔符序列归一化:槽位数由 [parts] 推出,逐槽取对应 token,缺项/非法项回落换行;
+ * 序列过长截断、过短补换行,保证长度恒等于槽位数。单部分(0 槽)返回空串。
+ */
+internal fun normalizeMetadataSeparators(value: String?, parts: String): String {
+    val gaps = metadataGapCount(parts)
+    if (gaps <= 0) return ""
+    val requested = value?.split(',')?.map { it.trim() }.orEmpty()
+    return (0 until gaps).joinToString(",") { index ->
+        normalizeMetadataSeparator(requested.getOrNull(index))
+    }
+}
+
+/**
+ * 歌曲信息组装:按 [parts](歌名/歌手/专辑,顺序即显示顺序)取切片,相邻部分之间用
+ * [separators] 对应槽位的分隔符连接,逐槽独立(槽位不足回落换行)。每个部分文本内的 `·`
+ * 仍视作切片边界(历史行为:部分音源把「歌名·歌手」塞进单字段),同一切片内部与部分之间
+ * 共用该部分之后的槽位分隔符;最后一个部分之后无槽位,回落换行。切片两端空白裁剪,空切片丢弃。
  */
 internal fun composeSongMetadata(
     title: String,
     artist: String,
     album: String,
     parts: String,
-    separator: String
+    separators: String
 ): String {
     val source = mapOf(
         METADATA_PART_TITLE to title,
         METADATA_PART_ARTIST to artist,
         METADATA_PART_ALBUM to album
     )
-    val slices = normalizeMetadataParts(parts).split(',')
-        .flatMap { source.getValue(it).split('·') }
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
-    return slices.joinToString(metadataSeparatorText(normalizeMetadataSeparator(separator)))
+    val gapTokens = normalizeMetadataSeparators(separators, parts)
+        .split(',')
+        .filter { it.isNotEmpty() }
+    val builder = StringBuilder()
+    var pendingSeparator = ""
+    var firstPiece = true
+    normalizeMetadataParts(parts).split(',').forEachIndexed { partIndex, part ->
+        val slices = source.getValue(part).split('·')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        slices.forEachIndexed { sliceIndex, slice ->
+            if (firstPiece) {
+                builder.append(slice)
+                firstPiece = false
+            } else {
+                val separator = if (sliceIndex == 0) {
+                    pendingSeparator
+                } else {
+                    metadataSeparatorText(gapTokens.getOrNull(partIndex) ?: METADATA_SEPARATOR_NEWLINE)
+                }
+                builder.append(separator).append(slice)
+            }
+        }
+        if (slices.isNotEmpty()) {
+            pendingSeparator =
+                metadataSeparatorText(gapTokens.getOrNull(partIndex) ?: METADATA_SEPARATOR_NEWLINE)
+        }
+    }
+    return builder.toString()
 }
 
 /**
- * 组装后歌曲信息相对「两行」静态预算的额外行数:换行分隔符下选满 3 部分需要 3 行;
+ * 组装后歌曲信息相对「两行」静态预算的额外行数:换行槽位超过 1 个时才超出两行预算;
  * 行内分隔符按单行预算(超宽自动折行属于渲染期行为,不计入静态预算)。
  */
-internal fun metadataExpectedExtraLines(parts: String, separator: String): Int {
-    if (normalizeMetadataSeparator(separator) != METADATA_SEPARATOR_NEWLINE) return 0
-    return (normalizeMetadataParts(parts).split(',').size - 2).coerceAtLeast(0)
+internal fun metadataExpectedExtraLines(parts: String, separators: String): Int {
+    val newlineGaps = normalizeMetadataSeparators(separators, parts)
+        .split(',')
+        .count { it == METADATA_SEPARATOR_NEWLINE }
+    return (newlineGaps - 1).coerceAtLeast(0)
 }
 
 // --- 歌曲图片:形状与旋转 ---
@@ -445,6 +517,18 @@ const val ARTWORK_SHAPE_CIRCLE = "circle"
 
 /** 歌曲图片形状 token 词表。 */
 val ARTWORK_SHAPES = listOf(ARTWORK_SHAPE_SQUARE, ARTWORK_SHAPE_CIRCLE)
+
+/** 自定义歌曲图片边长下限(dp)。 */
+const val ARTWORK_SIZE_MIN_DP = 12
+
+/** 自定义歌曲图片边长上限(dp)。 */
+const val ARTWORK_SIZE_MAX_DP = 96
+
+/** 自定义歌曲图片默认边长(dp):与 100% 歌曲信息字号下的自适应边长一致。 */
+const val ARTWORK_SIZE_DEFAULT_DP = 22
+
+internal fun normalizeArtworkSizeDp(value: Int): Int =
+    value.coerceIn(ARTWORK_SIZE_MIN_DP, ARTWORK_SIZE_MAX_DP)
 
 internal fun normalizeArtworkShape(value: String?): String =
     value?.takeIf { it in ARTWORK_SHAPES } ?: ARTWORK_SHAPE_SQUARE
@@ -464,7 +548,11 @@ internal fun effectiveArtworkSpin(shape: String, spin: Boolean): Boolean =
 internal data class ArtworkDisplayConfig(
     val visible: Boolean = false,
     val shape: String = ARTWORK_SHAPE_SQUARE,
-    val spin: Boolean = false
+    val spin: Boolean = false,
+    /** 自适应缩放:true 时边长随歌曲信息字号缩放,false 时取固定 [sizeDp]。 */
+    val adaptiveScale: Boolean = true,
+    /** 自定义边长(dp);仅 [adaptiveScale] 关闭时生效。 */
+    val sizeDp: Int = ARTWORK_SIZE_DEFAULT_DP
 ) {
     val spins: Boolean
         get() = effectiveArtworkSpin(shape, spin)
@@ -474,5 +562,7 @@ internal fun artworkDisplayConfig(profile: CompiledSurfaceProfile?): ArtworkDisp
     ArtworkDisplayConfig(
         visible = profile?.artworkVisible == true,
         shape = normalizeArtworkShape(profile?.artworkShape),
-        spin = profile?.artworkSpin == true
+        spin = profile?.artworkSpin == true,
+        adaptiveScale = profile?.artworkAdaptiveScale != false,
+        sizeDp = normalizeArtworkSizeDp(profile?.artworkSizeDp ?: ARTWORK_SIZE_DEFAULT_DP)
     )

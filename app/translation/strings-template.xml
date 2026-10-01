@@ -317,6 +317,9 @@
     <string name="setting_song_info_size">Song info size</string>
     <string name="setting_song_info_parts">Song info content</string>
     <string name="setting_show_song_artwork">Show song artwork</string>
+    <string name="setting_song_artwork_adaptive">Adaptive size</string>
+    <string name="setting_song_artwork_size">Artwork size</string>
+    <string name="summary_song_artwork_size">Drag to adjust the artwork size</string>
     <string name="setting_song_artwork_spin">Rotate song artwork</string>
 <string name="setting_song_artwork_spin_paused">Keep spinning while paused</string>
     <string name="choice_song_artwork_shape">Song artwork shape</string>
@@ -369,6 +372,7 @@
     <string name="option_song_info_part_artist">Artist</string>
     <string name="option_song_info_part_album">Album</string>
     <string name="option_song_info_separator_newline">New line</string>
+    <string name="label_song_info_pair">%1$s → %2$s</string>
     <string name="option_song_artwork_shape_square">Square</string>
     <string name="option_song_artwork_shape_circle">Circle</string>
     <string name="option_no_limit">No limit</string>

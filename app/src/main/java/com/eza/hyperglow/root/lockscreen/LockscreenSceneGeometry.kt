@@ -104,7 +104,9 @@ internal fun estimatedLockscreenSceneHeight(
     profile: CompiledSurfaceProfile,
     density: Float,
     fontScale: Float = 1f,
-    metadataExtraLines: Int = 0
+    metadataExtraLines: Int = 0,
+    /** 歌曲图片槽边长(dp);与 [metadataWidgetHeightDp] 的图片入账同源,0=无图片。 */
+    artworkHeightDp: Float = 0f
 ): Float {
     val textScale = textSizeModeMultiplier(profile.textSize, profile.textSizeCustom) *
         fontScale.coerceIn(0.8f, 1.5f)
@@ -117,7 +119,7 @@ internal fun estimatedLockscreenSceneHeight(
     val metadataHeight = if (profile.metadataVisible &&
         profile.widgets.any { it.type == "metadata" }
     ) {
-        metadataWidgetHeightDp(profile.metadataSizePercent, metadataExtraLines)
+        metadataWidgetHeightDp(profile.metadataSizePercent, metadataExtraLines, artworkHeightDp)
     } else {
         0f
     }

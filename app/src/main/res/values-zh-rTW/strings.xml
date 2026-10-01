@@ -293,6 +293,9 @@
     <string name="setting_song_info_size">歌曲信息大小</string>
     <string name="setting_song_info_parts">歌曲信息內容</string>
     <string name="setting_show_song_artwork">顯示歌曲圖片</string>
+    <string name="setting_song_artwork_adaptive">自適應縮放</string>
+    <string name="setting_song_artwork_size">圖片大小</string>
+    <string name="summary_song_artwork_size">拖動調整圖片大小</string>
     <string name="setting_song_artwork_spin">旋轉歌曲圖片</string>
 <string name="setting_song_artwork_spin_paused">音樂暫停時繼續旋轉</string>
     <string name="choice_song_artwork_shape">歌曲圖片形狀</string>
@@ -347,6 +350,7 @@
     <string name="option_song_info_part_artist">歌手</string>
     <string name="option_song_info_part_album">專輯</string>
     <string name="option_song_info_separator_newline">換行</string>
+    <string name="label_song_info_pair">%1$s → %2$s</string>
     <string name="option_song_artwork_shape_square">方形</string>
     <string name="option_song_artwork_shape_circle">圓形</string>
     <string name="option_no_limit">不限制</string>

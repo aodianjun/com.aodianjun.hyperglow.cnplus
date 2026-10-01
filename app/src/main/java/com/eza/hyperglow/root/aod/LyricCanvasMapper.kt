@@ -91,6 +91,8 @@ internal fun LyricSnapshot.toAodCanvasContent(
     artworkShape = artwork.shape,
     artworkSpin = artwork.spins,
     artworkSpinWhenPaused = profile?.artworkSpinWhenPaused ?: false,
+    artworkAdaptiveScale = artwork.adaptiveScale,
+    artworkSizeDp = artwork.sizeDp,
     playbackPaused = pauseRetentionEligible,
     duetLine = if (duet) {
         duetLine?.let { line ->

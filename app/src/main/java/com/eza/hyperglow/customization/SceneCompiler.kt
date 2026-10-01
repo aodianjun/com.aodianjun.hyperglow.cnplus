@@ -38,6 +38,8 @@ object SceneCompiler {
                 artworkShape = lockscreenSource.artworkShape,
                 artworkSpin = lockscreenSource.artworkSpin,
                 artworkSpinWhenPaused = lockscreenSource.artworkSpinWhenPaused,
+                artworkAdaptiveScale = lockscreenSource.artworkAdaptiveScale,
+                artworkSizeDp = lockscreenSource.artworkSizeDp,
                 backgroundStyle = lockscreenSource.backgroundStyle,
                 cardAlpha = lockscreenSource.cardAlpha,
                 cardColor = lockscreenSource.cardColor
@@ -51,7 +53,10 @@ object SceneCompiler {
             sourceId = normalizeId(source.id),
             linkSurfaces = source.linkSurfaces,
             metadataParts = normalizeMetadataParts(source.metadataParts),
-            metadataSeparator = normalizeMetadataSeparator(source.metadataSeparator),
+            metadataSeparators = normalizeMetadataSeparators(
+                source.metadataSeparators,
+                source.metadataParts
+            ),
             duetMarkers = source.duetMarkers,
             lyricTimeOffsetMs = LyricTimeOffset.normalize(source.lyricTimeOffsetMs),
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
@@ -111,7 +116,10 @@ object SceneCompiler {
             sourceId = safe.id,
             linkSurfaces = safe.linkSurfaces,
             metadataParts = normalizeMetadataParts(safe.metadataParts),
-            metadataSeparator = normalizeMetadataSeparator(safe.metadataSeparator),
+            metadataSeparators = normalizeMetadataSeparators(
+                safe.metadataSeparators,
+                safe.metadataParts
+            ),
             duetMarkers = safe.duetMarkers,
             lyricTimeOffsetMs = LyricTimeOffset.normalize(safe.lyricTimeOffsetMs),
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
@@ -176,6 +184,8 @@ object SceneCompiler {
             artworkShape = normalizeArtworkShape(profile.artworkShape),
             artworkSpin = profile.artworkSpin,
             artworkSpinWhenPaused = profile.artworkSpinWhenPaused,
+            artworkAdaptiveScale = profile.artworkAdaptiveScale,
+            artworkSizeDp = normalizeArtworkSizeDp(profile.artworkSizeDp),
             duetAlignment = profile.duetAlignment,
             duetConcurrent = profile.duetConcurrent,
             rubyVisible = profile.rubyVisible,

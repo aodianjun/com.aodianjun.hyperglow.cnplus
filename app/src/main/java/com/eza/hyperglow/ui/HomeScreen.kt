@@ -321,7 +321,7 @@ internal fun HomeScreen(
                         val compiled = SceneCompiler.compile(customizationDocument)
                         val previewLive = collectLiveSnapshot(
                             customizationDocument.metadataParts,
-                            customizationDocument.metadataSeparator,
+                            customizationDocument.metadataSeparators,
                             customizationDocument.duetMarkers
                         )
                         Column(
@@ -341,7 +341,7 @@ internal fun HomeScreen(
                                     scenario = "Lockscreen · notifications",
                                     live = previewLive,
                                     metadataParts = customizationDocument.metadataParts,
-                                    metadataSeparator = customizationDocument.metadataSeparator,
+                                    metadataSeparators = customizationDocument.metadataSeparators,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 LyricPreviewCard(
@@ -350,7 +350,7 @@ internal fun HomeScreen(
                                     scenario = "Full AOD",
                                     live = previewLive,
                                     metadataParts = customizationDocument.metadataParts,
-                                    metadataSeparator = customizationDocument.metadataSeparator,
+                                    metadataSeparators = customizationDocument.metadataSeparators,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
