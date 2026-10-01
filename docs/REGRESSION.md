@@ -302,6 +302,22 @@ and (b) unverified paths stay explicit instead of silently assumed.
   re-tints row titles and card text immediately while summaries stay theme-colored, picking a font
   re-renders the whole app UI in that font across screens, follow-system restores the platform
   default, and both survive config backup export/import.
+- HyperOS dynamic island doze retention guard (defensive fix for a stock SystemUI race): while
+  `PowerManager.isInteractive` is false the guard forces the island window root
+  (`miui.systemui.dynamicisland.window.DynamicIslandWindowView`) GONE with a restore ledger and a
+  bounded one-second re-assert, and rewrites host visibility requests on that root while recording
+  the host's latest intent; on the next interactive observation the belief state is restored.
+  Device evidence (24122RKC7C / HyperOS 3, 2026-10-02): the stock hide chain is transition-event
+  driven (keyguard-showing → island tempHidden → `hideAllElementSurface` + `relayoutToMini`); a
+  sleep followed 3 s later by a policy-initiated wake (`WAKE_REASON_UNKNOWN`) and trusted-device
+  unlock consumed the pending lock transition, leaving the expanded island shown while the display
+  was already in `DOZE` (captured 02:40:19.5→02:40:21.6); when that wake does not rescue the state
+  the island persists over AOD — the reported "AOD sometimes retains the pre-screen-off super
+  island". 7/7 clean-sleep trials confirm the island is stock-hidden in doze, so suppression only
+  restores stock intent. Pending a hardware smoke check after merge: sleep with music playing and
+  the island expanded, confirm the AOD shows no island pill (logcat `AodIslandGuard` gate lines on
+  doze entry), wake and confirm the island reappears normally on the lockscreen/unlocked screen,
+  and confirm repeated sleep/wake cycles never leave the island stuck.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -473,6 +489,17 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   随后下一行列簇自 [358-418] 平移约 100px 至当前行槽位 [460-542] 并转亮（晋升位移）；
   最后新行在腾出的下一行槽位淡入。三段严格序列、同一句歌词同一时刻只在一层出现
   （无重叠）。跨曲场景（无内容延续）为旧行组整体退场 + 新行组整体进场，符合条款。
+- 超级岛息屏残留守卫（对原生 SystemUI 竞态的防御性修复）：设备非交互（`PowerManager.isInteractive`
+  为 false）期间，守卫把岛窗口根视图（`miui.systemui.dynamicisland.window.DynamicIslandWindowView`）
+  按台账强制 GONE，并以有界 1 秒周期复断言；对宿主发到该根的可见性请求改写为 GONE 并记录宿主最新
+  意图；下一次交互态观察时按信念态恢复。真机取证（24122RKC7C / HyperOS 3，2026-10-02）：原生隐藏链
+  完全由状态迁移事件驱动（keyguard-showing → 岛 tempHidden → `hideAllElementSurface` +
+  `relayoutToMini`）；息屏 3 秒后一次系统策略唤醒（`WAKE_REASON_UNKNOWN`）加蓝牙信任解锁吞掉了未
+  落地的锁定迁移，显示器已进入 `DOZE` 而展开态的岛仍为可见（02:40:19.5→02:40:21.6 实拍窗口）；该
+  唤醒不发生时岛就以可见态整段留在 AOD 上——即用户报告的「AOD 有时把息屏前的超级岛保留进去」。
+  7/7 干净息屏轮次确认岛在 doze 期间本就被系统隐藏，抑制只是恢复系统自身意图。合并后待真机冒烟：
+  播放音乐且岛展开时息屏，确认 AOD 无岛残留（息屏进入时 logcat 有 `AodIslandGuard` 闸门行）、唤醒后
+  岛在锁屏/解锁画面正常重现、反复息屏/唤醒循环岛不卡留。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

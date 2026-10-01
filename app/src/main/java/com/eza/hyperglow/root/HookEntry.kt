@@ -5,6 +5,7 @@ import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.root.aod.AodBrightnessController
 import com.eza.hyperglow.root.aod.AodBrightnessHook
 import com.eza.hyperglow.root.aod.AodDisplayStateHook
+import com.eza.hyperglow.root.aod.AodIslandGuard
 import com.eza.hyperglow.root.aod.AodLifetimeController
 import com.eza.hyperglow.root.aod.AodLifetimeHook
 import com.eza.hyperglow.root.aod.AodOrientationMonitor
@@ -231,6 +232,11 @@ class HookEntry : XposedModule() {
             AodDisplayStateHook.install(module, classLoader)
         } catch (error: Exception) {
             HookLogger.w(TAG, "AOD display-state hook unavailable", error)
+        }
+        try {
+            AodIslandGuard.install(module, classLoader)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "AOD island guard unavailable", error)
         }
         try {
             AodWakeBroker.install(module, classLoader)
