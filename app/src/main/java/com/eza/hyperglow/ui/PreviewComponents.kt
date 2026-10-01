@@ -118,6 +118,7 @@ import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import com.eza.hyperglow.root.aod.secondLineColorArgb
 import com.eza.hyperglow.root.aod.SecondLinePresentation
 import com.eza.hyperglow.root.aod.SecondLineAuxRow
+import com.eza.hyperglow.root.aod.secondLineAuxPreferredLines
 import com.eza.hyperglow.root.aod.secondLineAuxRows
 import com.eza.hyperglow.root.aod.secondLinePresentation
 import com.eza.hyperglow.root.aod.staticNextLineTextFactor
@@ -489,6 +490,36 @@ private fun LyricPreviewSurface(
                         )
                         SecondLinePresentation.NONE -> null
                     }
+                    // 第二行歌词自身的呈现行数(与实机 buildRows 同序:先按主行行数作
+                    // preferredLines 布局第二行,再取其实际行数),第二行辅助行的换行档
+                    // 跟随它而不是主行行数(owner 2026-10-02 真机反馈)。
+                    val nextLineRenderedLines = remember(
+                        snapshot.nextLine,
+                        baseSp,
+                        regularTypeface,
+                        availablePx,
+                        profile.overflow,
+                        profile.adaptiveSectioning,
+                        mainLayout
+                    ) {
+                        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                            // 显式接收者:外层同名局部变量(TextUnit textSize)会遮蔽 paint 成员。
+                            this.textSize = with(density) {
+                                secondaryReadingTextSizeSp(baseSp).sp.toPx()
+                            }
+                            this.typeface = regularTypeface
+                        }
+                        layoutSecondaryLines(
+                            text = snapshot.nextLine,
+                            paint = paint,
+                            availableWidth = availablePx.toFloat(),
+                            preferredLines = mainLayout.lines.size,
+                            wrap = profile.overflow == "Wrap",
+                            adaptiveSectioning = profile.adaptiveSectioning
+                        ).size
+                    }
+                    val nextAuxPreferredLines =
+                        secondLineAuxPreferredLines(nextLineRenderedLines)
                     // 「显示第二行辅助文字」:第二行歌词行之后追加其自身的辅助文字行
                     // (行清单与实机同源,见 secondLineAuxRows;样式沿用辅助文字行)。
                     val nextAuxRows =
@@ -511,7 +542,8 @@ private fun LyricPreviewSurface(
                                         gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
                                         dimAlpha = staticSecondaryTextFactor(
                                             profile.secondaryTextBright
-                                        )
+                                        ),
+                                        preferredLines = nextAuxPreferredLines
                                     )
                                     SecondLineAuxRow.TRANSLATED -> PreviewBlockRow(
                                         row = PreviewSecondaryLine(
@@ -524,7 +556,8 @@ private fun LyricPreviewSurface(
                                         gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
                                         dimAlpha = staticSecondaryTextFactor(
                                             profile.secondaryTextBright
-                                        )
+                                        ),
+                                        preferredLines = nextAuxPreferredLines
                                     )
                                 }
                             }
@@ -963,7 +996,9 @@ private class PreviewBlockRow(
     val color: ComposeColor,
     val align: TextAlign,
     val gapAbove: Dp,
-    val dimAlpha: Float
+    val dimAlpha: Float,
+    /** 折行档:null = 沿用主行呈现行数;第二行自身的辅助行传第二行呈现行数(实机同源)。 */
+    val preferredLines: Int? = null
 )
 
 /**
@@ -1307,7 +1342,7 @@ private fun PreviewRowBlockLayer(
                         color = item.color,
                         typeface = regularTypeface,
                         availableWidthPx = availableWidthPx,
-                        preferredLines = block.main.lines.size,
+                        preferredLines = item.preferredLines ?: block.main.lines.size,
                         wrap = wrap,
                         adaptiveSectioning = adaptiveSectioning,
                         textAlign = item.align,
@@ -1321,7 +1356,7 @@ private fun PreviewRowBlockLayer(
                             color = aux.color,
                             typeface = regularTypeface,
                             availableWidthPx = availableWidthPx,
-                            preferredLines = block.main.lines.size,
+                            preferredLines = aux.preferredLines ?: block.main.lines.size,
                             wrap = wrap,
                             adaptiveSectioning = adaptiveSectioning,
                             textAlign = aux.align,
