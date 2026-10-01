@@ -646,6 +646,16 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun secondLineAuxPreferredLinesFollowsTheSecondLine() {
+        // 第二行辅助行的换行档跟随第二行自身呈现的行数(owner 2026-10-02 真机反馈:
+        // 此前误用主行行数);空/非法布局回落 1(永远至少一行)。
+        assertEquals(1, secondLineAuxPreferredLines(1))
+        assertEquals(3, secondLineAuxPreferredLines(3))
+        assertEquals(1, secondLineAuxPreferredLines(0))
+        assertEquals(1, secondLineAuxPreferredLines(-2))
+    }
+
+    @Test
     fun secondLineAuxRowsFollowModeAndContent() {
         // 「显示第二行辅助文字」行清单(实机/预览同源):开关关闭恒空;按辅助文字模式取行,
         // 文本为空则跳过;Both 档音标在前翻译在后。

@@ -177,6 +177,41 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun betterLyricsAnimationCompilesValidatesOnBothSurfacesAndFallsBackForUnknown() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(animation = "BetterLyrics"),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        enabled = true,
+                        animation = "BetterLyrics"
+                    )
+                )
+            )
+        )
+
+        // 新档在息屏与锁屏两表面原样通过编译与 SystemUI 二次校验(共用同一画布词表)。
+        val validated = SystemUiCustomizationValidator.validate(compiled)!!
+        listOf(SceneCompiler.SURFACE_AOD, SceneCompiler.SURFACE_LOCKSCREEN).forEach { surface ->
+            assertEquals("BetterLyrics", validated.profiles.getValue(surface).animation)
+        }
+
+        // 词表外值保持历史兜底:回落 Gradient(经 SystemUI 校验仍成立)。
+        val unknown = compiled.copy(
+            profiles = compiled.profiles + (
+                SceneCompiler.SURFACE_AOD to compiled.profiles
+                    .getValue(SceneCompiler.SURFACE_AOD)
+                    .copy(animation = "Spotlight word")
+                )
+        )
+        assertEquals(
+            "Gradient",
+            SystemUiCustomizationValidator.validate(unknown)!!.profiles
+                .getValue(SceneCompiler.SURFACE_AOD).animation
+        )
+    }
+
+    @Test
     fun lineLevelSweepDirectionIsCompiledAndValidated() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(
@@ -765,6 +800,32 @@ class SceneCompilerTest {
         assertFalse(CustomizationRepository.canonicalizeDocument(off)!!.duetMarkers)
         // 默认文档保持开启(标记识别即对唱特性在真实内容上的输入形态)。
         assertTrue(SceneCompiler.compile(SceneCompiler.safeDefaultDocument()).duetMarkers)
+    }
+
+    @Test
+    fun lyricTimeOffsetCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 「歌词时间偏移」是文档级全局数值:非零值必须穿过 compile、SystemUI 二次校验与
+        // 仓库 canonicalize 逐字段重建往返,漏字段会被静默弹回默认(0)。
+        val custom = CustomizationDocument(lyricTimeOffsetMs = 250)
+        assertEquals(250, SceneCompiler.compile(custom).lyricTimeOffsetMs)
+        assertEquals(
+            250,
+            SystemUiCustomizationValidator.validate(SceneCompiler.compile(custom))!!.lyricTimeOffsetMs
+        )
+        assertEquals(250, CustomizationRepository.canonicalizeDocument(custom)!!.lyricTimeOffsetMs)
+        // fail-closed 归一:越界钳制到 ±5s、按 50ms 档四舍五入;默认文档恒为 0。
+        assertEquals(
+            LyricTimeOffset.MAX_OFFSET_MS,
+            SceneCompiler.compile(CustomizationDocument(lyricTimeOffsetMs = 9_999)).lyricTimeOffsetMs
+        )
+        assertEquals(
+            100,
+            SceneCompiler.compile(CustomizationDocument(lyricTimeOffsetMs = 77)).lyricTimeOffsetMs
+        )
+        assertEquals(
+            0,
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument()).lyricTimeOffsetMs
+        )
     }
 
     @Test

@@ -51,6 +51,7 @@ import com.eza.hyperglow.customization.CustomFontStore
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.customization.LyricTimeOffset
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
 import com.eza.hyperglow.customization.METADATA_PART_ALBUM
@@ -396,6 +397,26 @@ internal fun LyricLayoutScreen(
                         stringResource(R.string.setting_duet_markers),
                         summary = stringResource(R.string.summary_duet_markers)
                     )
+                    // 歌词时间偏移(文档级全局):显示时间轴 = 播放位置 − 偏移,正数延后、
+                    // 负数提前(参考 HyperLyric 同名能力);50ms 量化、±5s 封顶,编译归一,
+                    // 息屏与锁屏同源生效。
+                    SliderPreference(
+                        value = editorState.document.lyricTimeOffsetMs.toFloat(),
+                        onValueChange = { raw ->
+                            val quantized = LyricTimeOffset.normalize(
+                                (raw / LyricTimeOffset.STEP_MS.toFloat()).roundToInt() * LyricTimeOffset.STEP_MS
+                            )
+                            updateDocument { it.copy(lyricTimeOffsetMs = quantized) }
+                        },
+                        title = stringResource(R.string.setting_lyric_time_offset),
+                        summary = stringResource(R.string.summary_lyric_time_offset),
+                        valueText = run {
+                            val v = editorState.document.lyricTimeOffsetMs
+                            if (v > 0) "+$v ms" else "$v ms"
+                        },
+                        valueRange = LyricTimeOffset.MIN_OFFSET_MS.toFloat()..LyricTimeOffset.MAX_OFFSET_MS.toFloat(),
+                        steps = 199
+                    )
                     AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
                         openChoice(
                             AodChoiceKind.SECONDARY_TEXT,
@@ -655,7 +676,7 @@ internal fun LyricLayoutScreen(
                     AodChoiceRow(AodChoiceKind.WORD_ANIMATION, selectedProfile.animation) {
                         openChoice(
                             AodChoiceKind.WORD_ANIMATION,
-                            listOf("Minimal", "Gradient"),
+                            listOf("Minimal", "Gradient", "BetterLyrics"),
                             selectedProfile.animation
                         ) { value -> updateSelected { it.copy(animation = value) } }
                     }
@@ -1540,9 +1561,11 @@ private fun choiceDisplayLabel(
         "custom" -> R.string.option_custom
         else -> R.string.option_normal
     })
-    AodChoiceKind.WORD_ANIMATION -> context.getString(
-        if (value == "Minimal") R.string.option_minimal else R.string.option_gradient
-    )
+    AodChoiceKind.WORD_ANIMATION -> context.getString(when (value) {
+        "Minimal" -> R.string.option_minimal
+        "BetterLyrics" -> R.string.option_betterlyrics
+        else -> R.string.option_gradient
+    })
     AodChoiceKind.GLOW -> context.getString(
         if (value == "On") R.string.option_on else R.string.option_off
     )

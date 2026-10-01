@@ -8,6 +8,7 @@ import com.eza.hyperglow.bridge.SpicyBridgeDocumentStore
 import com.eza.hyperglow.bridge.SpicyBridgeState
 import com.eza.hyperglow.bridge.SpicyBridgeStore
 import com.eza.hyperglow.bridge.SpicyBridgeWord
+import com.eza.hyperglow.customization.LyricTimeOffset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,6 +57,11 @@ class SpicyLyricProducer : LyricProducer {
     override val connection: StateFlow<ProducerConnection> = mutableConnection.asStateFlow()
     private var connectionJob: Job? = null
 
+    internal var contextRef: Context? = null
+
+    /** 文档级「歌词时间偏移」(毫秒)缓存;正数延后、负数提前(见 LyricTimeOffsetPolicy)。 */
+    @Volatile internal var lyricTimeOffsetMs: Int = 0
+
     override val state: StateFlow<LyricProducerState?> =
         combine(SpicyBridgeStore.state, SpicyBridgeDocumentStore.state) { spicy, document ->
             spicy?.let { toProducerState(it, document) }
@@ -85,6 +91,8 @@ class SpicyLyricProducer : LyricProducer {
         // against whether it is actually feeding live data.
         if (connectionJob != null) return
         AppLog.i("SpicyLyricProducer", "start")
+        contextRef = context.applicationContext
+        lyricTimeOffsetMs = loadLyricTimeOffsetMs(contextRef)
         connectionJob = scope.launch {
             while (scope.isActive) {
                 val connected = isSpicyConnected()
@@ -109,6 +117,11 @@ class SpicyLyricProducer : LyricProducer {
         connectionJob = null
         mutableConnection.value = ProducerConnection.DISCONNECTED
         AppLog.i("SpicyLyricProducer", "stop")
+    }
+
+    /** 外部设置变更(文档保存/导入/重置)时刷新「歌词时间偏移」缓存。 */
+    override fun onCustomizationChanged() {
+        lyricTimeOffsetMs = loadLyricTimeOffsetMs(contextRef)
     }
 
     /**
@@ -140,7 +153,11 @@ class SpicyLyricProducer : LyricProducer {
         spicy: SpicyBridgeState,
         document: SpicyBridgeDocument?
     ): LyricProducerState {
-        val position = spicy.positionMs
+        // 「歌词时间偏移」:主行选行与发射坐标走显示时间轴(采样位置 − 偏移);序列去重/
+        // keepalive 等机制层保持原始坐标。nextLine 的选取比较保持原始坐标(见 rawPosition),
+        // 仅发射值换算到显示时间轴。
+        val rawPosition = spicy.positionMs
+        val position = LyricTimeOffset.displayPositionMs(spicy.positionMs, lyricTimeOffsetMs)
         val matchedDocument = document?.takeIf { it.matches(spicy) }
         val timedDocument = matchedDocument?.takeIf { isTimedDocumentType(it.type) }
         val noLyrics = spicy.status == "no_lyrics"
@@ -178,17 +195,18 @@ class SpicyLyricProducer : LyricProducer {
         val words = if (timedDocument != null && row != null &&
             !isLineLevelDocumentType(timedDocument.type)
         ) {
-            row.words.map(::toProducerWord)
+            row.words.map(::toProducerWord).shiftedByOffset(lyricTimeOffsetMs)
         } else {
             null
         }
 
         val nextLineStartMs = timedDocument?.rows?.asSequence()
             ?.map { it.startMs }
-            ?.filter { it > position }
+            ?.filter { it > rawPosition }
             ?.minOrNull()
+            ?.let { LyricTimeOffset.displayMs(it, lyricTimeOffsetMs) }
         val nextRow = timedDocument?.rows?.asSequence()
-            ?.firstOrNull { it.startMs > position }
+            ?.firstOrNull { it.startMs > rawPosition }
         val nextLineText = nextRow?.text.orEmpty()
         val nextLineRomanized = nextRow?.romanized.orEmpty()
         val nextLineTranslated = nextRow?.translated.orEmpty()
@@ -215,13 +233,13 @@ class SpicyLyricProducer : LyricProducer {
                     romanized = second.romanized,
                     translated = second.translated,
                     alignedRight = second.alignedRight,
-                    lineStartMs = second.startMs,
+                    lineStartMs = LyricTimeOffset.displayMs(second.startMs, lyricTimeOffsetMs),
                     // 与主行同一渲染钳制:fillEndMs 可越行尾,行级扫光窗口不得越过行尾。
-                    lineEndMs = minOf(second.fillEndMs, second.endMs),
+                    lineEndMs = LyricTimeOffset.displayMs(minOf(second.fillEndMs, second.endMs), lyricTimeOffsetMs),
                     words = if (isLineLevelDocumentType(document.type)) {
                         emptyList()
                     } else {
-                        second.words.map(::toProducerWord)
+                        second.words.map(::toProducerWord).shiftedByOffset(lyricTimeOffsetMs)
                     }
                 )
             }
@@ -241,7 +259,7 @@ class SpicyLyricProducer : LyricProducer {
             romanizedLine = romanizedLine,
             translatedLine = translatedLine,
             lineIndex = lineIndex,
-            positionMs = spicy.positionMs,
+            positionMs = position,
             durationMs = spicy.durationMs,
             sampledAtElapsedMs = spicy.sampledAtElapsedMs,
             speed = spicy.speed,
@@ -262,10 +280,11 @@ class SpicyLyricProducer : LyricProducer {
             ),
             lyricKind = lyricKind,
             alignedRight = row?.alignedRight == true,
-            lineStartMs = row?.startMs ?: 0L,
+            lineStartMs = row?.startMs?.let { LyricTimeOffset.displayMs(it, lyricTimeOffsetMs) } ?: 0L,
             // 渲染钳制(上游 8422d78):fillEndMs 可能越过本行 endMs(数据源把跨行的填充
             // 计算进去),行级扫光的行窗口不得越过行尾。
-            lineEndMs = row?.let { minOf(it.fillEndMs, it.endMs) } ?: 0L,
+            lineEndMs = row?.let { minOf(it.fillEndMs, it.endMs) }
+                ?.let { LyricTimeOffset.displayMs(it, lyricTimeOffsetMs) } ?: 0L,
             ruby = row?.ruby?.map { LyricRuby(it.start, it.end, it.reading) } ?: emptyList(),
             layoutGroups = row?.layoutGroups?.map {
                 LyricLayoutGroup(it.start, it.end, it.kind, it.keepTogether, it.confidence)
