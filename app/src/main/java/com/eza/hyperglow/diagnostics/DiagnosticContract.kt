@@ -22,6 +22,13 @@ internal object DiagnosticLimits {
     const val LYRIC_LINE_BYTES = 8 * 1024
     const val CAPTURE_TTL_MS = 30L * 60L * 1000L
     const val COMMAND_TIMEOUT_MS = 5_000L
+
+    /**
+     * root 探测是唯一一条可能等人操作(授权弹窗)的命令:root 管理器弹窗后命令要等用户
+     * 点按,共享的 5s 命令窗口会在用户几秒后确认时先行超时并销毁进程,报告只剩 `error`
+     * 且没有任何证据。
+     */
+    const val ROOT_PROBE_TIMEOUT_MS = 15_000L
 }
 
 @Serializable

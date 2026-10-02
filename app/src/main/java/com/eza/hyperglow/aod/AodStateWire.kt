@@ -225,6 +225,24 @@ internal data class AodStateWireEnvelope(
     val pauseRetentionEligible: Boolean = false
 )
 
+/**
+ * Decode 把「值」与「拒绝它的闸门名」一并给出,一个实现同时回答两件事:拆成两套会复制
+ * 闸门顺序,而两处顺序一旦漂移比没有原因更糟。
+ */
+internal sealed interface AodStateWireDecodeOutcome {
+    val messageOrNull: AodStateWireMessage?
+    val rejectReason: String?
+
+    data class Decoded(val message: AodStateWireMessage) : AodStateWireDecodeOutcome {
+        override val messageOrNull: AodStateWireMessage get() = message
+        override val rejectReason: String? get() = null
+    }
+
+    data class Rejected(override val rejectReason: String) : AodStateWireDecodeOutcome {
+        override val messageOrNull: AodStateWireMessage? get() = null
+    }
+}
+
 internal object AodStateWireCodec {
     fun encode(message: AodStateWireMessage): AodStateWireEnvelope? {
         if (!validEnvelopeScalars(message.revision, message.userId, message.updatedAtElapsedMs)) {
@@ -273,48 +291,70 @@ internal object AodStateWireCodec {
         }
     }
 
-    fun decode(envelope: AodStateWireEnvelope): AodStateWireMessage? {
-        if (envelope.protocol != AodStateWireContract.PROTOCOL_VERSION) return null
+    fun decode(envelope: AodStateWireEnvelope): AodStateWireMessage? =
+        decodeOutcome(envelope).messageOrNull
+
+    /**
+     * 具名被拒闸门。裸 null 让「app 与 hook 版本错位」和「载荷损坏」无法区分:前者常见于
+     * 应用升级后 hook 进程尚未重启,会自愈,根本不需要诊断;后者才需要。
+     */
+    fun decodeRejectReason(envelope: AodStateWireEnvelope): String? =
+        decodeOutcome(envelope).rejectReason
+
+    private fun decodeOutcome(envelope: AodStateWireEnvelope): AodStateWireDecodeOutcome {
+        if (envelope.protocol != AodStateWireContract.PROTOCOL_VERSION) {
+            return AodStateWireDecodeOutcome.Rejected("protocol_mismatch")
+        }
         if (!validEnvelopeScalars(
                 envelope.revision,
                 envelope.userId,
                 envelope.updatedAtElapsedMs
             )
-        ) return null
+        ) {
+            return AodStateWireDecodeOutcome.Rejected("invalid_scalars")
+        }
         return when (envelope.kind) {
             AodStateWireContract.KIND_SNAPSHOT -> {
-                val body = envelope.body ?: return null
-                val snapshot = decodeSnapshotBody(body) ?: return null
-                AodStateWireMessage.Snapshot(
+                val body = envelope.body
+                    ?: return AodStateWireDecodeOutcome.Rejected("missing_body")
+                val snapshot = decodeSnapshotBody(body)
+                    ?: return AodStateWireDecodeOutcome.Rejected("undecodable_body")
+                AodStateWireDecodeOutcome.Decoded(
+                    AodStateWireMessage.Snapshot(
+                        revision = envelope.revision,
+                        userId = envelope.userId,
+                        updatedAtElapsedMs = envelope.updatedAtElapsedMs,
+                        keepAlive = envelope.keepAlive,
+                        wakeSignal = envelope.wakeSignal,
+                        playbackActive = envelope.playbackActive,
+                        pauseRetentionEligible = envelope.pauseRetentionEligible,
+                        value = snapshot
+                    )
+                )
+            }
+            AodStateWireContract.KIND_HIDDEN -> AodStateWireDecodeOutcome.Decoded(
+                AodStateWireMessage.Hidden(
                     revision = envelope.revision,
                     userId = envelope.userId,
                     updatedAtElapsedMs = envelope.updatedAtElapsedMs,
                     keepAlive = envelope.keepAlive,
                     wakeSignal = envelope.wakeSignal,
                     playbackActive = envelope.playbackActive,
-                    pauseRetentionEligible = envelope.pauseRetentionEligible,
-                    value = snapshot
+                    pauseRetentionEligible = envelope.pauseRetentionEligible
                 )
-            }
-            AodStateWireContract.KIND_HIDDEN -> AodStateWireMessage.Hidden(
-                revision = envelope.revision,
-                userId = envelope.userId,
-                updatedAtElapsedMs = envelope.updatedAtElapsedMs,
-                keepAlive = envelope.keepAlive,
-                wakeSignal = envelope.wakeSignal,
-                playbackActive = envelope.playbackActive,
-                pauseRetentionEligible = envelope.pauseRetentionEligible
             )
-            AodStateWireContract.KIND_KEEPALIVE -> AodStateWireMessage.KeepAlive(
-                revision = envelope.revision,
-                userId = envelope.userId,
-                updatedAtElapsedMs = envelope.updatedAtElapsedMs,
-                keepAlive = envelope.keepAlive,
-                wakeSignal = envelope.wakeSignal,
-                playbackActive = envelope.playbackActive,
-                pauseRetentionEligible = envelope.pauseRetentionEligible
+            AodStateWireContract.KIND_KEEPALIVE -> AodStateWireDecodeOutcome.Decoded(
+                AodStateWireMessage.KeepAlive(
+                    revision = envelope.revision,
+                    userId = envelope.userId,
+                    updatedAtElapsedMs = envelope.updatedAtElapsedMs,
+                    keepAlive = envelope.keepAlive,
+                    wakeSignal = envelope.wakeSignal,
+                    playbackActive = envelope.playbackActive,
+                    pauseRetentionEligible = envelope.pauseRetentionEligible
+                )
             )
-            else -> null
+            else -> AodStateWireDecodeOutcome.Rejected("unknown_kind")
         }
     }
 
@@ -1055,7 +1095,14 @@ internal object AodStateWireBundleCodec {
         envelope.body?.let { putByteArray(KEY_BODY, it) }
     }
 
-    fun snapshotFromBundle(bundle: Bundle): AodStateWireMessage? {
+    fun snapshotFromBundle(bundle: Bundle): AodStateWireMessage? =
+        AodStateWireCodec.decode(envelopeFromBundle(bundle))
+
+    /**
+     * 抽出信封与解码分离,使被拒时能报出闸门名。Bundle 仍在这里解成自有标量/字节
+     * (Binder 还持有它的时候)。
+     */
+    fun envelopeFromBundle(bundle: Bundle): AodStateWireEnvelope {
         val kind = bundle.getInt(KEY_KIND, 0)
         val envelope = AodStateWireEnvelope(
             protocol = bundle.getInt(KEY_PROTOCOL, 0),
@@ -1073,7 +1120,7 @@ internal object AodStateWireBundleCodec {
             playbackActive = bundle.getBoolean(KEY_PLAYBACK_ACTIVE, false),
             pauseRetentionEligible = bundle.getBoolean(KEY_PAUSE_RETENTION_ELIGIBLE, false)
         )
-        return AodStateWireCodec.decode(envelope)
+        return envelope
     }
 
     private const val KEY_PROTOCOL = "stateProtocol"
