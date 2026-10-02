@@ -2337,6 +2337,9 @@ internal class AodLyricCanvasView(
                         blockWidth
                     )
                     val blockHighlight = timedWordProgress(position, blockWindow.first, blockWindow.last)
+                    // 长音节按合成块时长判定:快速掠过的短词块(不足 700ms)只有扫光,不放大、
+                    // 不辉光;被拖长的长词块整块同步放大+辉光(块内共享高亮进度)。
+                    val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
                     var charIndex = block.first
                     while (charIndex <= block.last) {
                         val charWidth = originalPaint.measureText(line.text, charIndex, charIndex + 1)
@@ -2353,8 +2356,8 @@ internal class AodLyricCanvasView(
                             width = charWidth,
                             playedFraction = timedWordProgress(position, charWindow.first, charWindow.last),
                             durationMs = charWindow.last - charWindow.first,
-                            longSyllable = true,
-                            highlightFraction = blockHighlight
+                            longSyllable = blockLong,
+                            highlightFraction = if (blockLong) blockHighlight else -1f
                         )
                         prefix += charWidth
                         charIndex++
