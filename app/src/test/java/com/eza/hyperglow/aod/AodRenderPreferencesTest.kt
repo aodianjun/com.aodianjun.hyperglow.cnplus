@@ -43,6 +43,14 @@ class AodRenderPreferencesTest {
     }
 
     @Test
+    fun betterLyricsAnimationNameSurvivesNormalization() {
+        // 「BetterLyrics」档原样通过:同一函数用于 wire 快照的拒收校验,任何改写都会让
+        // 整帧被拒或新档静默失效。
+        assertEquals("BetterLyrics", normalizeAodAnimation("BetterLyrics"))
+        assertEquals("Gradient", normalizeAodAnimation(null))
+    }
+
+    @Test
     fun burnInControlsNormalizeToBoundedPatternsAndIntervals() {
         assertEquals("static_bottom", normalizeAodBurnInPattern("unknown"))
         assertEquals("static_top", normalizeAodBurnInPattern("static_top"))

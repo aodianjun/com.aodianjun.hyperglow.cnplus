@@ -30,12 +30,23 @@ internal object DiagnosticTraceFile {
     @Volatile
     private var retentionDays: Int = DEFAULT_RETENTION_DAYS
 
+    /**
+     * 写入等级下限。总闸(「诊断日志」开关)打开后,只有严重度达到该下限的行才落盘;
+     * 关闭(目录为 null)时一行都不写,等级不参与。
+     */
+    @Volatile
+    private var minSeverity: Int = DIAGNOSTIC_SEVERITY_INFO
+
     fun setDirectory(directory: File?) {
         this.directory = directory
     }
 
     fun setRetentionDays(days: Int) {
         retentionDays = normalizeLogRetentionDays(days)
+    }
+
+    fun setMinSeverity(severity: Int) {
+        minSeverity = severity
     }
 
     /**
@@ -74,10 +85,24 @@ internal object DiagnosticTraceFile {
     }
 
     fun append(level: String, area: String, message: String) {
+        if (!shouldWriteDiagnosticLine(level, minSeverity)) return
         val target = directory ?: return
         val line = "${format(System.currentTimeMillis())} $level [$area] $message"
         runCatching { write(target, line) }
     }
+
+    /**
+     * 「导出日志」:读取两个镜像文件的全部现存行(不做时间过滤——导出的是还没被清理的
+     * 全部内容),轮转文件在前保持时间递增。目标由调用方显式传入,理由同 [clear]:
+     * 日志当前关闭时 [directory] 为空,遗留文件仍要能导出。
+     */
+    fun readAll(target: File): String = runCatching {
+        sequenceOf(ROTATED_FILE_NAME, FILE_NAME)
+            .map { File(target, it) }
+            .filter { it.isFile }
+            .flatMap { file -> file.readLines().asSequence() }
+            .joinToString("\n")
+    }.getOrDefault("")
 
     /**
      * 读取自 sinceWallClockMs 起的镜像内容用于报告。logcat 各段都用 -T 从捕获开始切,

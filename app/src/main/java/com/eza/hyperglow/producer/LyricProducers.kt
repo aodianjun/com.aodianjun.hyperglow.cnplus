@@ -52,6 +52,8 @@ object LyricProducers {
         instance = arbiter
         lyricInfoProducer = lyricInfo
         registeredProducers = producers
+        // 启动即装载文档级派生配置(歌词时间偏移/对唱标记/渲染模式),不等首次文档变更。
+        registeredProducers.forEach { it.onCustomizationChanged() }
         // 文档保存/导入/重置 → 生产者侧派生缓存(对唱标记开关/分侧快照/渲染模式)即刻重算,
         // 不必等下次切歌(见 LyriconLyricProducer.onCustomizationChanged)。
         CustomizationRepository.onChange = { onCustomizationChanged() }
@@ -79,10 +81,8 @@ object LyricProducers {
         }
     }
 
-    /** 外部设置变更(文档保存/导入/重置)时通知生产者刷新派生缓存。 */
+    /** 外部设置变更(文档保存/导入/重置)时通知生产者刷新派生缓存(偏移/标记/渲染模式)。 */
     fun onCustomizationChanged() {
-        registeredProducers.forEach { producer ->
-            (producer as? LyriconLyricProducer)?.onCustomizationChanged()
-        }
+        registeredProducers.forEach { producer -> producer.onCustomizationChanged() }
     }
 }

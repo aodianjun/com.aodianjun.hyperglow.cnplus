@@ -97,6 +97,13 @@ files after a destructive confirmation; it leaves the logging toggle and SystemU
 logs untouched, and a guided capture still in progress then reports only what is logged after
 the clearing.
 
+The "Log level" setting only filters which mirror lines are written once logging is on: errors
+only / warnings and errors / normal (default) / verbose. Verbose additionally mirrors the
+SystemUI-side module logs by pulling the `HyperGlow` logcat tag through root on a fixed cadence.
+The toggle remains the master switch; the level never turns writing on by itself. "Export logs"
+writes every retained (not yet pruned or cleared) line from both mirror files to a user-chosen
+`.txt` file.
+
 ## Guided capture
 
 Capture stores wall and elapsed start times plus the previous diagnostic-logging state. It enables
@@ -234,6 +241,11 @@ App 进程日志镜像（`diagnostic-trace.log` 加一次轮转）只在诊断�
 清理在进程启动、保留期限变更与轮转时执行，因此关闭开关也不会把旧会话留在设备上。
 「清除日志」经破坏性确认后删除两个镜像文件；不动日志开关与 SystemUI 侧 hook 日志，
 采集进行中执行清除后报告的镜像段只含清除之后的行。
+
+「日志等级」只在日志开启后过滤写入镜像的行：仅错误 / 警告与错误 / 正常（默认）/ 详细。
+「详细」会额外以 root 按固定周期拉取 `HyperGlow` tag 的 logcat，把 SystemUI 侧模块日志一并
+镜像落盘。开关仍是总闸，等级本身不会打开写入。「导出日志」把两个镜像文件里全部尚未修剪或
+清除的行写入用户选定的 `.txt` 文件。
 
 ## 引导采集
 

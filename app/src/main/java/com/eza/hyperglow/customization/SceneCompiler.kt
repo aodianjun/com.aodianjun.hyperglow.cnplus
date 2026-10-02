@@ -38,6 +38,8 @@ object SceneCompiler {
                 artworkShape = lockscreenSource.artworkShape,
                 artworkSpin = lockscreenSource.artworkSpin,
                 artworkSpinWhenPaused = lockscreenSource.artworkSpinWhenPaused,
+                artworkAdaptiveScale = lockscreenSource.artworkAdaptiveScale,
+                artworkSizeDp = lockscreenSource.artworkSizeDp,
                 backgroundStyle = lockscreenSource.backgroundStyle,
                 cardAlpha = lockscreenSource.cardAlpha,
                 cardColor = lockscreenSource.cardColor
@@ -51,8 +53,12 @@ object SceneCompiler {
             sourceId = normalizeId(source.id),
             linkSurfaces = source.linkSurfaces,
             metadataParts = normalizeMetadataParts(source.metadataParts),
-            metadataSeparator = normalizeMetadataSeparator(source.metadataSeparator),
+            metadataSeparators = normalizeMetadataSeparators(
+                source.metadataSeparators,
+                source.metadataParts
+            ),
             duetMarkers = source.duetMarkers,
+            lyricTimeOffsetMs = LyricTimeOffset.normalize(source.lyricTimeOffsetMs),
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: compileSafeDefault()
@@ -110,8 +116,12 @@ object SceneCompiler {
             sourceId = safe.id,
             linkSurfaces = safe.linkSurfaces,
             metadataParts = normalizeMetadataParts(safe.metadataParts),
-            metadataSeparator = normalizeMetadataSeparator(safe.metadataSeparator),
+            metadataSeparators = normalizeMetadataSeparators(
+                safe.metadataSeparators,
+                safe.metadataParts
+            ),
             duetMarkers = safe.duetMarkers,
+            lyricTimeOffsetMs = LyricTimeOffset.normalize(safe.lyricTimeOffsetMs),
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
         return finalizeCompiled(base) ?: error("Safe customization exceeds hard limit")
@@ -174,6 +184,8 @@ object SceneCompiler {
             artworkShape = normalizeArtworkShape(profile.artworkShape),
             artworkSpin = profile.artworkSpin,
             artworkSpinWhenPaused = profile.artworkSpinWhenPaused,
+            artworkAdaptiveScale = profile.artworkAdaptiveScale,
+            artworkSizeDp = normalizeArtworkSizeDp(profile.artworkSizeDp),
             duetAlignment = profile.duetAlignment,
             duetConcurrent = profile.duetConcurrent,
             rubyVisible = profile.rubyVisible,
@@ -184,7 +196,8 @@ object SceneCompiler {
                 it in FONT_FAMILIES || CustomFontContract.isCustomFontFamily(it)
             } ?: "spotify",
             animation = when {
-                aod && profile.animation != "Minimal" -> "Gradient"
+                // 息屏与锁屏共用同一画布词表(历史档曾把息屏非 Minimal 一律压回 Gradient;
+                // 对既有词表两分支逐值等价,新档入词表后按成员放行,词表外仍回落 Gradient)。
                 profile.animation in ANIMATIONS -> profile.animation
                 else -> "Gradient"
             },
@@ -267,7 +280,7 @@ object SceneCompiler {
     private val WEIGHTS = setOf("Regular", "Medium", "Bold")
     private val TEXT_SIZES = setOf("small", "normal", "large", "xlarge", "custom")
     private val FONT_FAMILIES = setOf("noto", "spotify", "apple", "noto-sc", "custom")
-    private val ANIMATIONS = setOf("Minimal", "Gradient")
+    private val ANIMATIONS = setOf("Minimal", "Gradient", "BetterLyrics")
     private fun normalizeLineSyncFillMode(value: String): String = when (value) {
         "None",
         "Top to bottom",

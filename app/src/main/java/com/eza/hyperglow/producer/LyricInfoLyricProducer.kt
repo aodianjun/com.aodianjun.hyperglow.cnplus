@@ -7,6 +7,7 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
+import com.eza.hyperglow.customization.LyricTimeOffset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -91,6 +92,9 @@ class LyricInfoLyricProducer(
     /** True while currentPositionMs is being advanced by extrapolation (stale/frozen ps). */
     @Volatile private var extrapolating: Boolean = false
 
+    /** 文档级「歌词时间偏移」(毫秒)缓存;正数延后、负数提前(见 LyricTimeOffsetPolicy)。 */
+    @Volatile private var lyricTimeOffsetMs: Int = 0
+
     /** 跳转判定器(issue #68 #19):注入与外推同一时钟;换歌时 reset。 */
     private val seekDetector = LyricSeekDetector(clock)
 
@@ -139,6 +143,11 @@ class LyricInfoLyricProducer(
         mutableConnection.value = ProducerConnection.DISCONNECTED
         mutableState.value = null
         AppLog.i("LyricInfoLyricProducer", "stop: done")
+    }
+
+    /** 外部设置变更(文档保存/导入/重置)时刷新「歌词时间偏移」缓存。 */
+    override fun onCustomizationChanged() {
+        lyricTimeOffsetMs = loadLyricTimeOffsetMs(contextRef)
     }
 
     /**
@@ -394,14 +403,17 @@ class LyricInfoLyricProducer(
         // 最后一句歌词唱完后（position 越过其 end，歌曲进入尾奏/纯器乐段落），清空活动行
         // 让投影显示 🎶 占位。activeLineAt 返回「最后一条 start <= pos」的行，不检查 end，
         // 这里显式兜住结尾，避免最后一句在尾奏期间长期滞留。
-        val active = activeLinePastEndOrNull(timedLines, currentPositionMs)
+        // 「歌词时间偏移」:选行与发射坐标走显示时间轴(播放位置 − 偏移);外推/seek 判定
+        // 等机制层保持原始坐标(currentPositionMs),跨源 seek 转发的仍是原始位置。
+        val displayPos = LyricTimeOffset.displayPositionMs(currentPositionMs, lyricTimeOffsetMs)
+        val active = activeLinePastEndOrNull(timedLines, displayPos)
         val translationText = active
             ?.let { matchSupplementalLine(it, timedLines, translationLines)?.text }
             .orEmpty()
         val romanizedText = active
             ?.let { matchSupplementalLine(it, timedLines, romaLines)?.text }
             .orEmpty()
-        val words = active?.words?.takeIf { it.isNotEmpty() }
+        val words = active?.words?.takeIf { it.isNotEmpty() }?.shiftedByOffset(lyricTimeOffsetMs)
         val lyricKind = when {
             active == null -> LyricKind.NONE
             words != null -> LyricKind.SYLLABLE
@@ -417,11 +429,13 @@ class LyricInfoLyricProducer(
         val nextLineTranslated = nextTimedLine
             ?.let { matchSupplementalLine(it, timedLines, translationLines)?.text }
             .orEmpty()
+        // nextLine 的选取比较保持原始坐标(与 Lyricon 路径同语义);仅发射值换算到显示时间轴。
         val nextLineStartMs = timedLines
             .asSequence()
             .map { it.startMs }
             .filter { it > currentPositionMs }
             .minOrNull()
+            ?.let { LyricTimeOffset.displayMs(it, lyricTimeOffsetMs) }
         // 对唱并发行候选(见 [selectDuetLineIndex]):timedLines 全部行参与时间窗重叠判定;
         // 翻译/roma lane 与活动行同一匹配规则(±120ms 最近行,见 matchSupplementalLine)。
         val duetLine = run {
@@ -432,7 +446,7 @@ class LyricInfoLyricProducer(
                 selectDuetLineIndex(
                     timedLines.map { DuetLineWindow(it.startMs, it.endMs, false) },
                     primaryIndex,
-                    currentPositionMs
+                    displayPos
                 )
             }
             timedLines.getOrNull(companionIndex)?.let { second ->
@@ -441,9 +455,9 @@ class LyricInfoLyricProducer(
                     romanized = matchSupplementalLine(second, timedLines, romaLines)?.text.orEmpty(),
                     translated = matchSupplementalLine(second, timedLines, translationLines)?.text.orEmpty(),
                     alignedRight = false,
-                    lineStartMs = second.startMs,
-                    lineEndMs = second.endMs,
-                    words = second.words.orEmpty()
+                    lineStartMs = LyricTimeOffset.displayMs(second.startMs, lyricTimeOffsetMs),
+                    lineEndMs = LyricTimeOffset.displayMs(second.endMs, lyricTimeOffsetMs),
+                    words = second.words.orEmpty().shiftedByOffset(lyricTimeOffsetMs)
                 )
             }
         }
@@ -463,7 +477,7 @@ class LyricInfoLyricProducer(
             romanizedLine = romanizedText,
             translatedLine = translationText,
             lineIndex = active?.let { a -> timedLines.indexOf(a) } ?: -1,
-            positionMs = currentPositionMs,
+            positionMs = displayPos,
             durationMs = durationMs,
             sampledAtElapsedMs = now,
             speed = if (isPlayingState) lastPlaybackSpeed else 0f,
@@ -473,8 +487,8 @@ class LyricInfoLyricProducer(
             renderModes = defaultRenderModes(),
             lyricKind = lyricKind,
             alignedRight = false,
-            lineStartMs = active?.startMs ?: 0L,
-            lineEndMs = active?.endMs ?: 0L,
+            lineStartMs = active?.startMs?.let { LyricTimeOffset.displayMs(it, lyricTimeOffsetMs) } ?: 0L,
+            lineEndMs = active?.endMs?.let { LyricTimeOffset.displayMs(it, lyricTimeOffsetMs) } ?: 0L,
             ruby = emptyList(),
             layoutGroups = emptyList(),
             hasTimedLyrics = timedLines.any { it.endMs > it.startMs },

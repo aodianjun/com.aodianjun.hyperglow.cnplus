@@ -171,7 +171,21 @@ object CustomizationRepository {
                 else -> return null
             }
         }
-        return seedArtworkLegacyCarriers(migrated)
+        return seedMetadataLegacyCarrier(seedArtworkLegacyCarriers(migrated))
+    }
+
+    /**
+     * 旧版单一分隔符迁移为逐槽分隔符序列:旧值对当时所有槽位生效,故按槽位重复展开;
+     * 载体清空后回写文档不再携带,保证只播种一次。新文档载体为 null,原样返回。
+     */
+    private fun seedMetadataLegacyCarrier(document: CustomizationDocument): CustomizationDocument {
+        val legacy = document.metadataSeparator ?: return document
+        val gaps = metadataGapCount(document.metadataParts)
+        val token = normalizeMetadataSeparator(legacy)
+        return document.copy(
+            metadataSeparators = List(gaps) { token }.joinToString(","),
+            metadataSeparator = null
+        )
     }
 
     /**
@@ -208,8 +222,9 @@ object CustomizationRepository {
             name = migrated.name.trim().take(100).ifBlank { "Customization" },
             linkSurfaces = compiled.linkSurfaces,
             metadataParts = compiled.metadataParts,
-            metadataSeparator = compiled.metadataSeparator,
+            metadataSeparators = compiled.metadataSeparators,
             duetMarkers = compiled.duetMarkers,
+            lyricTimeOffsetMs = compiled.lyricTimeOffsetMs,
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to compiled.profiles
                     .getValue(SceneCompiler.SURFACE_LOCKSCREEN)
@@ -259,6 +274,8 @@ object CustomizationRepository {
         artworkShape = artworkShape,
         artworkSpin = artworkSpin,
         artworkSpinWhenPaused = artworkSpinWhenPaused,
+        artworkAdaptiveScale = artworkAdaptiveScale,
+        artworkSizeDp = artworkSizeDp,
         duetAlignment = duetAlignment,
         duetConcurrent = duetConcurrent,
         rubyVisible = rubyVisible,

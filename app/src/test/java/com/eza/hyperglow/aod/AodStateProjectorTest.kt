@@ -657,10 +657,30 @@ class AodStateProjectorTest {
             s,
             compiled = compiled.copy(
                 metadataParts = "title,artist,album",
-                metadataSeparator = "dot"
+                metadataSeparators = "dot,dot"
             )
         )
         assertEquals("Song · Artist · Album", out.metadata)
+    }
+
+    @Test
+    fun metadataHonorsCustomOrderAndPerGapSeparators() {
+        val s = state(
+            lyricKind = LyricKind.NONE,
+            hasTimedLyrics = false,
+            title = "Song",
+            artist = "Artist",
+            album = "Album"
+        )
+        // 自定义排序(专辑→歌名→歌手)与逐槽分隔符(第一槽换行、第二槽行内)。
+        val out = project(
+            s,
+            compiled = compiled.copy(
+                metadataParts = "album,title,artist",
+                metadataSeparators = "newline,dot"
+            )
+        )
+        assertEquals("Album\nSong · Artist", out.metadata)
     }
 
     @Test

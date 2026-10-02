@@ -243,4 +243,10 @@ interface LyricProducer {
      * 默认实现为空;实现必须幂等,且不得向调用方抛异常(内部自行容错)。
      */
     fun restart() {}
+
+    /**
+     * 外部设置变更(文档保存/导入/重置)时刷新生产者侧派生缓存(如「歌词时间偏移」)。
+     * 默认无操作;有派生缓存的实现覆写(见 [LyricProducers.onCustomizationChanged])。
+     */
+    fun onCustomizationChanged() {}
 }

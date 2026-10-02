@@ -47,6 +47,16 @@
     <string name="dialog_clear_logs_summary">Delete the diagnostic log files on this device? This cannot be undone.</string>
     <string name="toast_logs_cleared">Logs cleared</string>
     <string name="toast_logs_clear_failed">Failed to clear logs</string>
+    <string name="setting_log_level">Log level</string>
+    <string name="log_level_errors">Errors only</string>
+    <string name="log_level_warning">Warnings and errors</string>
+    <string name="log_level_normal">Normal</string>
+    <string name="log_level_verbose">Verbose</string>
+    <string name="dialog_log_level_summary">Controls which levels are written while diagnostic logging is on. Only errors keeps the least noise; verbose also mirrors System UI module logs (requires root).</string>
+    <string name="action_export_logs">Export logs</string>
+    <string name="summary_export_logs">Save the retained logs as a .txt file.</string>
+    <string name="toast_logs_exported">Logs exported</string>
+    <string name="toast_logs_export_failed">Failed to export logs</string>
 
     <string name="action_send_compatibility_report">Send compatibility report</string>
     <string name="action_report_problem">Report a problem</string>
@@ -306,6 +316,8 @@
     <string name="summary_duet_alignment">Place duet lines on the left/right side by singer; singer info must come from the lyric source. Only applies when alignment is Automatic.</string>
     <string name="setting_duet_markers">Detect duet markers</string>
     <string name="summary_duet_markers">Recognize leading singer markers （男）/（女）/（合） and section markers like （副歌）/（间奏） in lyric lines: hide the marker text on screen; singer markers also split singers left/right for duet alignment. When off, lines display as-is and markers are ignored.</string>
+    <string name="setting_lyric_time_offset">Lyric time offset</string>
+    <string name="summary_lyric_time_offset">Positive values show lyrics later, negative values earlier (±5 s)</string>
 <string name="setting_duet_concurrent">Show concurrent lines (duet)</string>
 <string name="summary_duet_concurrent">When another sung line overlaps the current line by at least one second, show both lines together, each with its own karaoke timing. Always-on display only; the lockscreen card stays solo.</string>
     <string name="setting_bright_secondary_text">Bright secondary text</string>
@@ -321,6 +333,9 @@
     <string name="setting_song_info_size">Song info size</string>
     <string name="setting_song_info_parts">Song info content</string>
     <string name="setting_show_song_artwork">Show song artwork</string>
+    <string name="setting_song_artwork_adaptive">Adaptive size</string>
+    <string name="setting_song_artwork_size">Artwork size</string>
+    <string name="summary_song_artwork_size">Drag to adjust the artwork size</string>
     <string name="setting_song_artwork_spin">Rotate song artwork</string>
 <string name="setting_song_artwork_spin_paused">Keep spinning while paused</string>
     <string name="choice_song_artwork_shape">Song artwork shape</string>
@@ -374,6 +389,7 @@
     <string name="option_song_info_part_artist">Artist</string>
     <string name="option_song_info_part_album">Album</string>
     <string name="option_song_info_separator_newline">New line</string>
+    <string name="label_song_info_pair">%1$s → %2$s</string>
     <string name="option_song_artwork_shape_square">Square</string>
     <string name="option_song_artwork_shape_circle">Circle</string>
     <string name="option_no_limit">No limit</string>
@@ -429,6 +445,7 @@
     <string name="option_custom">Custom</string>
     <string name="option_minimal">Minimal</string>
     <string name="option_gradient">Gradient</string>
+    <string name="option_betterlyrics">BetterLyrics</string>
     <string name="option_off">Off</string>
     <string name="option_on">On</string>
     <string name="option_none">None</string>

@@ -87,6 +87,10 @@ internal data class AodCanvasContent(
     val artworkSpin: Boolean = false,
     /** 暂停驻留期间是否继续旋转(见 SurfaceProfile.artworkSpinWhenPaused)。 */
     val artworkSpinWhenPaused: Boolean = false,
+    /** 歌曲图片自适应缩放(见 ArtworkDisplayConfig.adaptiveScale):关闭时边长取固定 [artworkSizeDp]。 */
+    val artworkAdaptiveScale: Boolean = true,
+    /** 自定义歌曲图片边长(dp);仅 [artworkAdaptiveScale] 关闭时生效。 */
+    val artworkSizeDp: Int = com.eza.hyperglow.customization.ARTWORK_SIZE_DEFAULT_DP,
     /** 当前快照是否为暂停驻留的冻结帧(pauseRetentionEligible):为真时旋转默认停。 */
     val playbackPaused: Boolean = false,
     /** 对唱并发行(仅息屏);null = 无并发行或「显示并发歌词(对唱)」已关。 */
@@ -158,6 +162,14 @@ internal enum class SecondLineAuxRow { ROMANIZED, TRANSLATED }
  * 按 [secondaryMode] 取该行自己的音标/翻译行,文本为空则跳过;开关关闭恒空。
  * 行序与主行辅助文字一致(音标在前、翻译在后)。
  */
+/**
+ * 第二行辅助行(音标/翻译)的换行档:跟随第二行歌词自身呈现的行数(至少 1 行),而不是主行行数
+ * ——第二行短于/长于主行时,辅助行的折行跟随它所属的那一行(owner 2026-10-02 真机反馈:
+ * 此前误用主行行数,短第二行的辅助文字被折成主行那么多行)。
+ */
+internal fun secondLineAuxPreferredLines(nextLineRenderedLineCount: Int): Int =
+    nextLineRenderedLineCount.coerceAtLeast(1)
+
 internal fun secondLineAuxRows(
     nextLineAux: Boolean,
     secondaryMode: String,

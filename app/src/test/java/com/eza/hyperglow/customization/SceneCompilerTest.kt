@@ -177,6 +177,41 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun betterLyricsAnimationCompilesValidatesOnBothSurfacesAndFallsBackForUnknown() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(animation = "BetterLyrics"),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        enabled = true,
+                        animation = "BetterLyrics"
+                    )
+                )
+            )
+        )
+
+        // 新档在息屏与锁屏两表面原样通过编译与 SystemUI 二次校验(共用同一画布词表)。
+        val validated = SystemUiCustomizationValidator.validate(compiled)!!
+        listOf(SceneCompiler.SURFACE_AOD, SceneCompiler.SURFACE_LOCKSCREEN).forEach { surface ->
+            assertEquals("BetterLyrics", validated.profiles.getValue(surface).animation)
+        }
+
+        // 词表外值保持历史兜底:回落 Gradient(经 SystemUI 校验仍成立)。
+        val unknown = compiled.copy(
+            profiles = compiled.profiles + (
+                SceneCompiler.SURFACE_AOD to compiled.profiles
+                    .getValue(SceneCompiler.SURFACE_AOD)
+                    .copy(animation = "Spotlight word")
+                )
+        )
+        assertEquals(
+            "Gradient",
+            SystemUiCustomizationValidator.validate(unknown)!!.profiles
+                .getValue(SceneCompiler.SURFACE_AOD).animation
+        )
+    }
+
+    @Test
     fun lineLevelSweepDirectionIsCompiledAndValidated() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(
@@ -768,6 +803,32 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun lyricTimeOffsetCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 「歌词时间偏移」是文档级全局数值:非零值必须穿过 compile、SystemUI 二次校验与
+        // 仓库 canonicalize 逐字段重建往返,漏字段会被静默弹回默认(0)。
+        val custom = CustomizationDocument(lyricTimeOffsetMs = 250)
+        assertEquals(250, SceneCompiler.compile(custom).lyricTimeOffsetMs)
+        assertEquals(
+            250,
+            SystemUiCustomizationValidator.validate(SceneCompiler.compile(custom))!!.lyricTimeOffsetMs
+        )
+        assertEquals(250, CustomizationRepository.canonicalizeDocument(custom)!!.lyricTimeOffsetMs)
+        // fail-closed 归一:越界钳制到 ±5s、按 50ms 档四舍五入;默认文档恒为 0。
+        assertEquals(
+            LyricTimeOffset.MAX_OFFSET_MS,
+            SceneCompiler.compile(CustomizationDocument(lyricTimeOffsetMs = 9_999)).lyricTimeOffsetMs
+        )
+        assertEquals(
+            100,
+            SceneCompiler.compile(CustomizationDocument(lyricTimeOffsetMs = 77)).lyricTimeOffsetMs
+        )
+        assertEquals(
+            0,
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument()).lyricTimeOffsetMs
+        )
+    }
+
+    @Test
     fun systemUiValidatorResetsInvalidCardColorToDefault() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(
@@ -882,23 +943,54 @@ class SceneCompilerTest {
     fun metadataPartsAndSeparatorCompileThroughAndNormalize() {
         val document = SceneCompiler.safeDefaultDocument().copy(
             metadataParts = "album,title,bogus",
-            metadataSeparator = "dot"
+            metadataSeparators = "dot"
         )
         val compiled = SceneCompiler.compile(document)
-        assertEquals("title,album", compiled.metadataParts)
-        assertEquals("dot", compiled.metadataSeparator)
+        // 顺序保留(album→title),两个部分一个槽位。
+        assertEquals("album,title", compiled.metadataParts)
+        assertEquals("dot", compiled.metadataSeparators)
 
         val invalid = SceneCompiler.compile(
-            document.copy(metadataParts = "bogus", metadataSeparator = "unknown")
+            document.copy(metadataParts = "bogus", metadataSeparators = "unknown")
         )
         assertEquals(METADATA_PARTS_DEFAULT, invalid.metadataParts)
-        assertEquals(METADATA_SEPARATOR_NEWLINE, invalid.metadataSeparator)
+        assertEquals(METADATA_SEPARATOR_NEWLINE, invalid.metadataSeparators)
 
         // SystemUI 侧校验同样收敛新字段,防止越界配置经 wire 落地。
         val validated = SystemUiCustomizationValidator.validate(compiled)
         assertNotNull(validated)
-        assertEquals("title,album", validated?.metadataParts)
-        assertEquals("dot", validated?.metadataSeparator)
+        assertEquals("album,title", validated?.metadataParts)
+        assertEquals("dot", validated?.metadataSeparators)
+    }
+
+    @Test
+    fun metadataSeparatorsResizeToGapCountThroughCompile() {
+        val document = SceneCompiler.safeDefaultDocument().copy(
+            metadataParts = "artist,title,album",
+            metadataSeparators = "dot"
+        )
+        val compiled = SceneCompiler.compile(document)
+        assertEquals("artist,title,album", compiled.metadataParts)
+        // 三个部分两个槽位:缺项补默认换行。
+        assertEquals("dot,newline", compiled.metadataSeparators)
+        assertEquals("dot,newline", CustomizationRepository.canonicalizeDocument(document)!!.metadataSeparators)
+    }
+
+    @Test
+    fun legacySingleSeparatorSeedsEveryGapOnce() {
+        // 旧文档只带单一分隔符:迁移时按当时槽位重复展开,并清空载体(只播种一次)。
+        val legacy = SceneCompiler.safeDefaultDocument().copy(
+            metadataParts = "title,artist,album",
+            metadataSeparator = "dot"
+        )
+        val migrated = CustomizationRepository.migrateDocument(legacy)!!
+        assertEquals("dot,dot", migrated.metadataSeparators)
+        assertNull(migrated.metadataSeparator)
+
+        // 已迁移文档二次迁移不变(载体已清空),用户后续逐槽选择不被覆盖。
+        val diverged = migrated.copy(metadataSeparators = "dot,newline")
+        val reloaded = CustomizationRepository.migrateDocument(diverged)!!
+        assertEquals("dot,newline", reloaded.metadataSeparators)
     }
 
     @Test
@@ -909,7 +1001,9 @@ class SceneCompilerTest {
                     artworkVisible = true,
                     artworkShape = ARTWORK_SHAPE_CIRCLE,
                     artworkSpin = true,
-                    artworkSpinWhenPaused = true
+                    artworkSpinWhenPaused = true,
+                    artworkAdaptiveScale = false,
+                    artworkSizeDp = 48
                 ),
                 SceneCompiler.SURFACE_AOD to SurfaceProfile(artworkVisible = false)
             )
@@ -923,10 +1017,14 @@ class SceneCompilerTest {
         assertEquals(ARTWORK_SHAPE_CIRCLE, lockscreen.artworkShape)
         assertEquals(true, lockscreen.artworkSpin)
         assertEquals(true, lockscreen.artworkSpinWhenPaused)
+        assertEquals(false, lockscreen.artworkAdaptiveScale)
+        assertEquals(48, lockscreen.artworkSizeDp)
         assertEquals(false, aod.artworkVisible)
         assertEquals(false, aod.artworkSpinWhenPaused)
         assertEquals(ARTWORK_SHAPE_SQUARE, aod.artworkShape)
         assertEquals(false, aod.artworkSpin)
+        assertEquals(true, aod.artworkAdaptiveScale)
+        assertEquals(ARTWORK_SIZE_DEFAULT_DP, aod.artworkSizeDp)
 
         // 校验器与编译同源归一(不改写),否则 wire 的 validate_rewrote_fields 会拒收。
         assertEquals(compiled, SystemUiCustomizationValidator.validate(compiled))
@@ -940,6 +1038,14 @@ class SceneCompilerTest {
         assertEquals(
             true,
             canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkSpinWhenPaused
+        )
+        assertEquals(
+            false,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkAdaptiveScale
+        )
+        assertEquals(
+            48,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).artworkSizeDp
         )
         assertEquals(
             false,

@@ -816,8 +816,16 @@ internal class AodLyricCanvasView(
         val blockWidthDp = (ow - padLeft - padRight) / density
         // 段1 退场:离场行组(主行+辅助文字)按退场半段离场;晋级时旧「下一行」不属于
         // 离场组(内容延续),排除在退场层外。
+        // 晋级时「下一行组」(下一行及其辅助行)是内容延续组:不随主行组离场,整组改由
+        // 原地保持段/晋级层接管(第二行辅助文字的换行动画跟随第二行歌词,
+        // owner 2026-10-02 真机反馈:此前辅助行复用 ROMANIZED/TRANSLATED kind 被算进主行离场组)。
+        val nextGroupStart = snapshot.layout.rows.indexOfFirst { it.row.kind == RowKind.NEXT_LINE }
         val exitLayout = if (promoting) {
-            snapshot.layout.copy(rows = snapshot.layout.rows.filter { it.row.kind != RowKind.NEXT_LINE })
+            snapshot.layout.copy(rows = if (nextGroupStart < 0) {
+                snapshot.layout.rows
+            } else {
+                snapshot.layout.rows.take(nextGroupStart)
+            })
         } else {
             snapshot.layout
         }
@@ -840,7 +848,11 @@ internal class AodLyricCanvasView(
             if (moveProgress <= 0f) {
                 drawRows(
                     canvas,
-                    snapshot.layout.copy(rows = snapshot.layout.rows.filter { it.row.kind == RowKind.NEXT_LINE }),
+                    snapshot.layout.copy(rows = if (nextGroupStart < 0) {
+                        emptyList()
+                    } else {
+                        snapshot.layout.rows.drop(nextGroupStart)
+                    }),
                     snapshot.content,
                     LineTransitionFrame(alpha = 1f),
                     snapshot.renderStyle
@@ -849,12 +861,30 @@ internal class AodLyricCanvasView(
                 drawPromotionLayer(canvas, snapshot, moveProgress)
             }
         }
-        // 段3 入场:新到行(新下一行/新辅助文字)按入场半段进场;晋级时新「主行」由段2接管。
+        // 段3 入场:真正新到的行(新下一行及其辅助行)按入场半段进场;晋级时新「主行」与其
+        // 辅助行(内容延续组)由段2晋级层接管——布局保留(基线不变)、仅跳过绘制,transition
+        // 结束后静态绘制无缝接管。
+        val originalIndex = layout.rows.indexOfFirst { it.row.kind == RowKind.ORIGINAL }
+        val promotedAuxCount = if (nextGroupStart < 0) {
+            0
+        } else {
+            snapshot.layout.rows.size - nextGroupStart - 1
+        }
+        val promotedAuxIndices = if (promoting && originalIndex >= 0 && promotedAuxCount > 0) {
+            (originalIndex + 1..(originalIndex + promotedAuxCount).coerceAtMost(layout.rows.size - 1)).toSet()
+        } else {
+            emptySet()
+        }
         val enterLayout = if (promoting) {
             layout.copy(rows = layout.rows.filter { it.row.kind != RowKind.ORIGINAL })
         } else {
             layout
         }
+        // enterLayout 已移除 ORIGINAL,其后行索引整体前移 1(被晋级的新主行辅助行布局保留、
+        // 仅不绘制,位移基准也按实际绘制行计)。
+        val enterSkipIndices = promotedAuxIndices.map { index ->
+            if (index > originalIndex) index - 1 else index
+        }.toSet()
         drawRows(
             canvas,
             enterLayout,
@@ -863,8 +893,9 @@ internal class AodLyricCanvasView(
                 transitionMode,
                 enterEased,
                 blockWidthDp,
-                animatedBlockHeightDp(enterLayout)
-            )
+                animatedBlockHeightDp(enterLayout, skipRowIndices = enterSkipIndices)
+            ),
+            skipRowIndices = enterSkipIndices
         )
         if (elapsed >= timeline.totalMs) {
             transitionStartedAt = 0L
@@ -921,6 +952,52 @@ internal class AodLyricCanvasView(
         canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
         drawOriginal(canvas, target.baseline)
         canvas.restoreToCount(layer)
+        drawPromotedAuxLayer(canvas, snapshot, frame)
+    }
+
+    /**
+     * 晋级段的第二行辅助行:与被晋级的「下一行」同属内容延续组,随晋级平移到新主行的
+     * 辅助槽位——位移 = 新辅助行基线 − 旧辅助行基线,乘 (1 − 晋级分数)(晋级开始时在旧
+     * 槽位、落位时在新槽位),不缩放、恒定辅助亮度。第二行辅助文字的换行动画由此跟随
+     * 第二行歌词(owner 2026-10-02 真机反馈:此前辅助行被算进主行离场组、跟着主行退场)。
+     */
+    private fun drawPromotedAuxLayer(
+        canvas: Canvas,
+        snapshot: CanvasSnapshot,
+        frame: LineTransitionMoveFrame
+    ) {
+        val nextGroupStart = snapshot.layout.rows.indexOfFirst { it.row.kind == RowKind.NEXT_LINE }
+        if (nextGroupStart < 0) return
+        val originalIndex = layout.rows.indexOfFirst { it.row.kind == RowKind.ORIGINAL }
+        if (originalIndex < 0) return
+        val fromAuxRows = snapshot.layout.rows.drop(nextGroupStart + 1)
+        val toAuxRows = layout.rows.drop(originalIndex + 1)
+        val bright = snapshot.content.secondaryTextBright
+        val remain = 1f - frame.translateFraction
+        for ((fromRow, toRow) in fromAuxRows.zip(toAuxRows)) {
+            canvas.save()
+            canvas.translate(0f, (toRow.baseline - fromRow.baseline) * remain)
+            setTextAlpha(
+                fromRow.row.paint,
+                staticSecondaryTextFactor(bright),
+                1f,
+                resolvedPalette.secondaryText
+            )
+            fromRow.row.paint.shader = null
+            fromRow.row.paint.clearShadowLayer()
+            var lineIndex = 0
+            while (lineIndex < fromRow.row.lines.size) {
+                val line = fromRow.row.lines[lineIndex]
+                canvas.drawText(
+                    line.text,
+                    line.startX,
+                    fromRow.baseline + lineIndex * fromRow.row.lineHeight,
+                    fromRow.row.paint
+                )
+                lineIndex++
+            }
+            canvas.restore()
+        }
     }
 
     private fun drawRows(
@@ -929,7 +1006,8 @@ internal class AodLyricCanvasView(
         drawContent: AodCanvasContent,
         frame: LineTransitionFrame,
         renderStyle: RenderStyleSnapshot? = null,
-        skipOriginal: Boolean = false
+        skipOriginal: Boolean = false,
+        skipRowIndices: Set<Int> = emptySet()
     ) {
         if (frame.alpha <= 0f || drawLayout.rows.none {
                 it.row.kind != RowKind.METADATA && (!skipOriginal || it.row.kind != RowKind.ORIGINAL)
@@ -994,11 +1072,19 @@ internal class AodLyricCanvasView(
             drawContent.lineEndMs
         )
         if (sharedLineLevelSweep) {
-            drawSharedLineLevelRows(canvas, drawLayout.rows, skipOriginal)
+            drawSharedLineLevelRows(
+                canvas,
+                drawLayout.rows.filterIndexed { index, _ -> index !in skipRowIndices },
+                skipOriginal
+            )
         } else {
             var rowIndex = 0
             while (rowIndex < drawLayout.rows.size) {
                 val row = drawLayout.rows[rowIndex]
+                if (rowIndex in skipRowIndices) {
+                    rowIndex++
+                    continue
+                }
                 when (row.row.kind) {
                     RowKind.METADATA -> Unit
                     RowKind.ORIGINAL -> if (!skipOriginal) drawOriginal(canvas, row.baseline)
@@ -1233,7 +1319,12 @@ internal class AodLyricCanvasView(
         if (bitmap.isRecycled || !artworkSlotActive(content)) return null
         val lines = metadata.row.lines
         if (lines.isEmpty()) return null
-        val leading = artworkLeadingPx(metadata.row.paint.textSize, density)
+        val leading = artworkLeadingPx(
+            metadata.row.paint.textSize,
+            density,
+            content.artworkAdaptiveScale,
+            content.artworkSizeDp
+        )
         val blockWidth = lines.maxOf { it.width }
         val groupWidth = leading + blockWidth
         val groupLeft = alignedStart(
@@ -1242,7 +1333,12 @@ internal class AodLyricCanvasView(
             0f,
             groupWidth
         )
-        val side = artworkSidePx(metadata.row.paint.textSize)
+        val side = artworkSidePx(
+            metadata.row.paint.textSize,
+            density,
+            content.artworkAdaptiveScale,
+            content.artworkSizeDp
+        )
         val metrics = metadata.row.paint.fontMetrics
         // 图片槽与文本块同心中线:文本视觉中线 = 首末行基线中点 + (ascent + descent)/2
         // (纯函数与预览 Row 居中同源;此前这里符号写反,图片整体低于文本约 0.7×字号)。
@@ -1472,7 +1568,15 @@ internal class AodLyricCanvasView(
             // 否则图片会被卡片/内容框裁掉(与预览「行高取文本与图片的大者」同语义)。
             rows += if (artworkSlotActive(content)) {
                 metadataRow.copy(
-                    height = max(metadataRow.height, artworkSidePx(metadataPaint.textSize))
+                    height = max(
+                        metadataRow.height,
+                        artworkSidePx(
+                            metadataPaint.textSize,
+                            density,
+                            content.artworkAdaptiveScale,
+                            content.artworkSizeDp
+                        )
+                    )
                 )
             } else {
                 metadataRow
@@ -1592,19 +1696,22 @@ internal class AodLyricCanvasView(
             content.nextLine.isNotBlank()
         )) {
             SecondLinePresentation.AS_SECONDARY -> {
+                // 第二行歌词自身布局先行落定:其辅助行的换行档跟随「第二行实际呈现的行数」,
+                // 而不是主行行数(owner 2026-10-02 真机反馈)。
+                val nextLineLines = wrapSecondaryText(
+                    content,
+                    content.nextLine,
+                    romanizedPaint,
+                    originalLayout.lineCount,
+                    availableWidth,
+                    alignmentFor(content, RowKind.NEXT_LINE)
+                )
                 rows += rowWithLines(
                     RowKind.NEXT_LINE,
                     content.nextLine,
                     romanizedPaint,
                     ROW_GAP_BEFORE_NEXT_LINE_DP * density,
-                    wrapSecondaryText(
-                        content,
-                        content.nextLine,
-                        romanizedPaint,
-                        originalLayout.lineCount,
-                        availableWidth,
-                        alignmentFor(content, RowKind.NEXT_LINE)
-                    )
+                    nextLineLines
                 )
                 // 「显示第二行辅助文字」:在第二行歌词行之后追加该行自己的辅助文字行
                 // (音标/翻译,按辅助文字模式取用;行清单与预览同源,见 secondLineAuxRows)。
@@ -1624,7 +1731,7 @@ internal class AodLyricCanvasView(
                                 content,
                                 content.nextLineRomanized,
                                 romanizedPaint,
-                                originalLayout.lineCount,
+                                secondLineAuxPreferredLines(nextLineLines.size),
                                 availableWidth,
                                 alignmentFor(content, RowKind.NEXT_LINE)
                             )
@@ -1638,7 +1745,7 @@ internal class AodLyricCanvasView(
                                 content,
                                 content.nextLineTranslated,
                                 translatedPaint,
-                                originalLayout.lineCount,
+                                secondLineAuxPreferredLines(nextLineLines.size),
                                 availableWidth,
                                 alignmentFor(content, RowKind.NEXT_LINE)
                             )
@@ -1687,14 +1794,18 @@ internal class AodLyricCanvasView(
      * 高。参考实现把位移施加在歌词行视图上(target.getHeight()/4),基准是该视图自身尺寸,
      * 不是画布内容裁剪框;空块回落内容框高(仅兜底,空块不绘制)。
      */
-    private fun animatedBlockHeightDp(state: LayoutState, skipOriginal: Boolean = false): Float {
+    private fun animatedBlockHeightDp(
+        state: LayoutState,
+        skipOriginal: Boolean = false,
+        skipRowIndices: Set<Int> = emptySet()
+    ): Float {
         val boxes = ArrayList<AodCanvasRowBox>(state.rows.size)
-        state.rows.forEach { positioned ->
+        state.rows.forEachIndexed { index, positioned ->
             val top = positioned.baseline + positioned.row.paint.fontMetrics.ascent
             boxes += AodCanvasRowBox(
                 topPx = top,
                 bottomPx = top + positioned.row.height,
-                animated = positioned.animate &&
+                animated = index !in skipRowIndices && positioned.animate &&
                     (!skipOriginal || positioned.row.kind != RowKind.ORIGINAL)
             )
         }
@@ -1738,7 +1849,12 @@ internal class AodLyricCanvasView(
                     metadataMetrics.descent
                 ),
                 bandHeight = if (artworkSlotActive(content)) {
-                    artworkSidePx(metadata.paint.textSize)
+                    artworkSidePx(
+                        metadata.paint.textSize,
+                        density,
+                        content.artworkAdaptiveScale,
+                        content.artworkSizeDp
+                    )
                 } else {
                     0f
                 }
@@ -1888,6 +2004,14 @@ internal class AodLyricCanvasView(
                 precedingRuby += line.rubyHeight
                 lineIndex++
             }
+            return
+        }
+        // 「BetterLyrics」逐字发光档(参考 jayfunc/BetterLyrics):逐字时间源统一走词级
+        // 卡拉OK——长词播放中放大、发光开启时活动长词带 glow 色光晕(辉光属于正在唱的
+        // 词,不再叠加整块扫光);发光开关只增删光晕,不改词级运动。行级源(无逐字
+        // 时间)不进本分支,保留下方共享扫光管线——参考实现同样只对逐字源启用词级效果。
+        if (content.animationMode == "BetterLyrics" && originalLayout.timed) {
+            drawWordKaraoke(canvas, baseline, originalLayout, betterLyrics = true)
             return
         }
         // 行级歌词(无逐字时间戳,LRC):同样统一走共享渲染管线,与预览同源。
@@ -2093,8 +2217,17 @@ internal class AodLyricCanvasView(
         }
     }
 
-    /** 逐字卡拉OK路径（逐字源+关发光+非行级同步）：词级缩放/位移 + 词内扫光渐变。 */
-    private fun drawWordKaraoke(canvas: Canvas, baseline: Float, originalLayout: OriginalLayout) {
+    /**
+     * 逐字卡拉OK路径（逐字源+关发光+非行级同步；[betterLyrics] 为「BetterLyrics」档）：
+     * 词级缩放/位移 + 词内扫光渐变；BetterLyrics 档长词播放中放大到参考实现峰值，
+     * 发光开启时活动长词先画 glow 色光晕再画扫光亮部。
+     */
+    private fun drawWordKaraoke(
+        canvas: Canvas,
+        baseline: Float,
+        originalLayout: OriginalLayout,
+        betterLyrics: Boolean = false
+    ) {
         val lines = originalLayout.lines
         val position = projectedPosition()
         var precedingRuby = 0f
@@ -2123,7 +2256,9 @@ internal class AodLyricCanvasView(
                 val progress = timedWordProgress(position, word.startMs, word.endMs)
                 val active = position >= word.startMs && position < word.endMs
                 val sung = position >= word.endMs
-                val scale = if (active) scaleSpline(progress) else if (!sung) 0.95f else 1f
+                val scale = if (active) {
+                    scaleSpline(progress, wordKaraokeScalePeak(betterLyrics, word.endMs - word.startMs))
+                } else if (!sung) 0.95f else 1f
                 val y = if (active) yOffsetSpline(progress) * originalPaint.textSize
                 else if (!sung) 0.01f * originalPaint.textSize else 0f
                 canvas.save()
@@ -2138,6 +2273,19 @@ internal class AodLyricCanvasView(
                 )
                 canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
                 if (active) {
+                    if (betterLyrics && content.glowMode != "Off" &&
+                        word.endMs - word.startMs >= BETTER_LYRICS_LONG_WORD_MS
+                    ) {
+                        // BetterLyrics 活动长词辉光：glow 色阴影画在 sung 色文字下，光从
+                        // 文字背后透出（与共享 LyricGlowRenderer Pass 2 同式）；半径占字号
+                        // 比例同款，shader 置空规避硬件加速下 shadow+shader 同置发光丢失。
+                        val haloRadius = originalPaint.textSize * LyricGlowRenderer.HALO_RADIUS_FRACTION
+                        originalPaint.shader = null
+                        setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
+                        originalPaint.setShadowLayer(haloRadius, 0f, 0f, resolvedPalette.glow)
+                        canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
+                        originalPaint.setShadowLayer(0f, 0f, 0f, 0)
+                    }
                     setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
                     applyWordSweepShader(
                         originalPaint,
@@ -2468,7 +2616,12 @@ internal class AodLyricCanvasView(
     ): List<TextLine> {
         val lineAlignment = alignmentFor(content, RowKind.METADATA)
         val leading = if (artworkSlotActive(content)) {
-            artworkLeadingPx(paint.textSize, density)
+            artworkLeadingPx(
+                paint.textSize,
+                density,
+                content.artworkAdaptiveScale,
+                content.artworkSizeDp
+            )
         } else {
             0f
         }
@@ -2743,8 +2896,9 @@ internal class AodLyricCanvasView(
         if (end <= start) if (position >= end) 1f else 0f
         else ((position - start).toFloat() / (end - start)).coerceIn(0f, 1f)
 
-    private fun scaleSpline(t: Float): Float = if (t <= 0.7f) lerp(0.95f, 1.0505f, t / 0.7f)
-    else lerp(1.0505f, 1f, (t - 0.7f) / 0.3f)
+    private fun scaleSpline(t: Float, peak: Float = WORD_KARAOKE_BASE_SCALE_PEAK): Float =
+        if (t <= 0.7f) lerp(0.95f, peak, t / 0.7f)
+        else lerp(peak, 1f, (t - 0.7f) / 0.3f)
 
     private fun yOffsetSpline(t: Float): Float = if (t <= 0.9f) lerp(0.01f, -(1f / 60f), t / 0.9f)
     else lerp(-(1f / 60f), 0f, (t - 0.9f) / 0.1f)

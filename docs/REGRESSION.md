@@ -71,9 +71,16 @@ and (b) unverified paths stay explicit instead of silently assumed.
 - "Show auxiliary text for the second line" (`nextLineAux` switch: the second lyric line also
   brings its own auxiliary rows — transliteration and/or translation per the secondary-text mode —
   giving four rows: first line, its auxiliary text, second line, the second line's auxiliary text)
-  — pending a hardware smoke check after merge: with the switch on, the four rows render in order
-  and each auxiliary row tracks its own line; with the switch off, the two existing second-line
-  presentations are unchanged.
+  — device-verified on 0.3.137 (164) for the four-row order on the AOD (LyricInfo source carrying
+  per-line translations) and the lockscreen; the second line's auxiliary rows now take the second
+  line's own rendered line count as their wrap budget instead of the main line's (owner 2026-10-02
+  report), and in the line-change animation they belong to the promotion/enter groups (following
+  the second line) instead of exiting with the main-line group — pending a hardware smoke check of
+  both the wrap and the animation on lines that wrap/advance differently from the main line. The
+  upcoming line's auxiliary text is now also enriched from the plugin row table (SuperLyric
+  line-stream + a translation plugin yields the fourth row; without a plugin result the producer
+  value is kept), pending a hardware smoke check on the SuperLyric fallback path. Note: sources
+  with no upcoming-line auxiliary data anywhere simply render the rows they have.
 - Independent row alignment for song info and the second lyric line (`metadataAlignment` /
   `nextLineAlignment`, `auto` follows the resolved main lyric alignment) — pending a hardware smoke
   check after merge. Note: with both left at `auto`, an explicit main alignment already governed
@@ -295,6 +302,22 @@ and (b) unverified paths stay explicit instead of silently assumed.
   re-tints row titles and card text immediately while summaries stay theme-colored, picking a font
   re-renders the whole app UI in that font across screens, follow-system restores the platform
   default, and both survive config backup export/import.
+- HyperOS dynamic island doze retention guard (defensive fix for a stock SystemUI race): while
+  `PowerManager.isInteractive` is false the guard forces the island window root
+  (`miui.systemui.dynamicisland.window.DynamicIslandWindowView`) GONE with a restore ledger and a
+  bounded one-second re-assert, and rewrites host visibility requests on that root while recording
+  the host's latest intent; on the next interactive observation the belief state is restored.
+  Device evidence (24122RKC7C / HyperOS 3, 2026-10-02): the stock hide chain is transition-event
+  driven (keyguard-showing → island tempHidden → `hideAllElementSurface` + `relayoutToMini`); a
+  sleep followed 3 s later by a policy-initiated wake (`WAKE_REASON_UNKNOWN`) and trusted-device
+  unlock consumed the pending lock transition, leaving the expanded island shown while the display
+  was already in `DOZE` (captured 02:40:19.5→02:40:21.6); when that wake does not rescue the state
+  the island persists over AOD — the reported "AOD sometimes retains the pre-screen-off super
+  island". 7/7 clean-sleep trials confirm the island is stock-hidden in doze, so suppression only
+  restores stock intent. Pending a hardware smoke check after merge: sleep with music playing and
+  the island expanded, confirm the AOD shows no island pill (logcat `AodIslandGuard` gate lines on
+  doze entry), wake and confirm the island reappears normally on the lockscreen/unlocked screen,
+  and confirm repeated sleep/wake cycles never leave the island stuck.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -358,7 +381,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 共享 `LyricLayoutEngine` 抽取后的断行/行距（算法逐字迁移）——合并后待真机冒烟歌词折行与行距无回归。
 - AOD surface 挂载韧性修复（power monitor `attach` 空 context 回退 + runCatching 隔离，ArchitectureGuardTest 守卫）——合并后待真机冒烟：息屏必须显示歌词，`adb logcat -s HyperGlow` 出现 `Power state monitor attached` 且无 `Attach failed`。
 - 「辅助文字显示第二行歌词」呈现（`secondaryNextLine` 开关：下一行歌词按辅助文字样式绘制并取代独立下一行行；两种形态颜色均走「下一行颜色」设置）——2026-10-01 真机发现辅助形态以 ≈0.9 倍主行字号渲染、读作第二条主行（`LIVE_CARD_SIZE_MULTIPLIER=0.68` 缩小主行 + 14/13sp 绝对下限顶死辅助字号），修复为下限按有效主行字号等比封顶；合并后待真机冒烟：常规与自定义字号档下辅助形态的第二行都必须明显小于主行，两个 surface 均需确认。已在 0.3.135（162）真机复验通过：锁屏同图 next/main 字形比 0.88 → 0.58（公式预测 0.90 → 0.62），息屏（xlarge）三层对比清楚（证据存档 `adbdiag/live3/`）。
-- 「显示第二行辅助文字」（`nextLineAux` 开关：第二行歌词自身也带出辅助文字行——音标/翻译按辅助文字模式取用——四行呈现：第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字）——合并后待真机冒烟：开关开启时四行按序呈现且各行辅助文字跟随各自歌词行，开关关闭时既有两种第二行呈现逐字不变。
+- 「显示第二行辅助文字」（`nextLineAux` 开关：第二行歌词自身也带出辅助文字行——音标/翻译按辅助文字模式取用——四行呈现：第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字）——0.3.137（164）真机已验证四行顺序（息屏 LyricInfo 源带逐行翻译时）与锁屏呈现；第二行辅助行的折行档改为跟随第二行自身呈现的行数（owner 2026-10-02 反馈「换行效果要跟着第二行不是第一个」），换行动画中第二行辅助行亦改归晋级/入场组（跟随第二行，不再随主行组退场，owner 2026-10-02 反馈），下一行的辅助文字另随插件行表富化回填（SuperLyric 逐行流 + 翻译插件即可出第四行；无插件结果时保留生产者值），待真机复核折行、动画与 SuperLyric 回退三个场景。注：任何来源都没有下一行辅助文字数据时只呈现有内容的部分。
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
@@ -466,6 +489,17 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   随后下一行列簇自 [358-418] 平移约 100px 至当前行槽位 [460-542] 并转亮（晋升位移）；
   最后新行在腾出的下一行槽位淡入。三段严格序列、同一句歌词同一时刻只在一层出现
   （无重叠）。跨曲场景（无内容延续）为旧行组整体退场 + 新行组整体进场，符合条款。
+- 超级岛息屏残留守卫（对原生 SystemUI 竞态的防御性修复）：设备非交互（`PowerManager.isInteractive`
+  为 false）期间，守卫把岛窗口根视图（`miui.systemui.dynamicisland.window.DynamicIslandWindowView`）
+  按台账强制 GONE，并以有界 1 秒周期复断言；对宿主发到该根的可见性请求改写为 GONE 并记录宿主最新
+  意图；下一次交互态观察时按信念态恢复。真机取证（24122RKC7C / HyperOS 3，2026-10-02）：原生隐藏链
+  完全由状态迁移事件驱动（keyguard-showing → 岛 tempHidden → `hideAllElementSurface` +
+  `relayoutToMini`）；息屏 3 秒后一次系统策略唤醒（`WAKE_REASON_UNKNOWN`）加蓝牙信任解锁吞掉了未
+  落地的锁定迁移，显示器已进入 `DOZE` 而展开态的岛仍为可见（02:40:19.5→02:40:21.6 实拍窗口）；该
+  唤醒不发生时岛就以可见态整段留在 AOD 上——即用户报告的「AOD 有时把息屏前的超级岛保留进去」。
+  7/7 干净息屏轮次确认岛在 doze 期间本就被系统隐藏，抑制只是恢复系统自身意图。合并后待真机冒烟：
+  播放音乐且岛展开时息屏，确认 AOD 无岛残留（息屏进入时 logcat 有 `AodIslandGuard` 闸门行）、唤醒后
+  岛在锁屏/解锁画面正常重现、反复息屏/唤醒循环岛不卡留。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

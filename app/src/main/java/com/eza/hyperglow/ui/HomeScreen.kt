@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.DiagnosticLoggingPreferences
+import com.eza.hyperglow.DIAGNOSTIC_LOG_LEVELS
 import com.eza.hyperglow.LOG_RETENTION_DAYS
 import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.launch
@@ -87,6 +88,7 @@ internal fun HomeScreen(
     var restartLyricSource by rememberSaveable { mutableStateOf(false) }
     var showPauseLingerDialog by rememberSaveable { mutableStateOf(false) }
     var showLogRetentionDialog by rememberSaveable { mutableStateOf(false) }
+    var showLogLevelDialog by rememberSaveable { mutableStateOf(false) }
     var showClearLogsDialog by rememberSaveable { mutableStateOf(false) }
     var showLanguageDialog by rememberSaveable { mutableStateOf(false) }
     var showSourceDialog by rememberSaveable { mutableStateOf(false) }
@@ -120,6 +122,24 @@ internal fun HomeScreen(
             context.getString(
                 if (written) R.string.toast_config_exported
                 else R.string.toast_config_export_failed
+            ),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    val exportLogsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val written = runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                it.write(readDiagnosticLogsForExport(context))
+            } ?: error("Log export unavailable")
+        }.isSuccess
+        Toast.makeText(
+            context,
+            context.getString(
+                if (written) R.string.toast_logs_exported
+                else R.string.toast_logs_export_failed
             ),
             Toast.LENGTH_LONG
         ).show()
@@ -206,6 +226,9 @@ internal fun HomeScreen(
     }
     var logRetentionDays by remember {
         mutableStateOf(DiagnosticLoggingPreferences.readRetentionDays(context))
+    }
+    var logLevel by remember {
+        mutableStateOf(DiagnosticLoggingPreferences.readLevel(context))
     }
     var persistentNotification by remember {
         mutableStateOf(initialConfig.persistentNotification)
@@ -323,7 +346,7 @@ internal fun HomeScreen(
                         val compiled = SceneCompiler.compile(customizationDocument)
                         val previewLive = collectLiveSnapshot(
                             customizationDocument.metadataParts,
-                            customizationDocument.metadataSeparator,
+                            customizationDocument.metadataSeparators,
                             customizationDocument.duetMarkers
                         )
                         Column(
@@ -343,7 +366,7 @@ internal fun HomeScreen(
                                     scenario = "Lockscreen · notifications",
                                     live = previewLive,
                                     metadataParts = customizationDocument.metadataParts,
-                                    metadataSeparator = customizationDocument.metadataSeparator,
+                                    metadataSeparators = customizationDocument.metadataSeparators,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 LyricPreviewCard(
@@ -352,7 +375,7 @@ internal fun HomeScreen(
                                     scenario = "Full AOD",
                                     live = previewLive,
                                     metadataParts = customizationDocument.metadataParts,
-                                    metadataSeparator = customizationDocument.metadataSeparator,
+                                    metadataSeparators = customizationDocument.metadataSeparators,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
@@ -392,6 +415,16 @@ internal fun HomeScreen(
                                 title = stringResource(R.string.setting_log_retention),
                                 summary = logRetentionLabel(context, logRetentionDays),
                                 onClick = { showLogRetentionDialog = true }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_log_level),
+                                summary = logLevelLabel(context, logLevel),
+                                onClick = { showLogLevelDialog = true }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.action_export_logs),
+                                summary = stringResource(R.string.summary_export_logs),
+                                onClick = { exportLogsLauncher.launch("hyperglow-logs.txt") }
                             )
                             ArrowPreference(
                                 title = stringResource(R.string.action_clear_logs),
@@ -888,6 +921,28 @@ internal fun HomeScreen(
                         {
                             if (updateLogRetentionDays(context, value)) logRetentionDays = value
                             showLogRetentionDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showLogLevelDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_log_level),
+            summary = stringResource(R.string.dialog_log_level_summary),
+            show = true,
+            onDismissRequest = { showLogLevelDialog = false }
+        ) {
+            Column(Modifier.dialogScrollable()) {
+                DIAGNOSTIC_LOG_LEVELS.forEach { value ->
+                    RadioButtonPreference(
+                        logLevelLabel(context, value),
+                        logLevel == value,
+                        {
+                            if (updateLogLevel(context, value)) logLevel = value
+                            showLogLevelDialog = false
                         }
                     )
                 }

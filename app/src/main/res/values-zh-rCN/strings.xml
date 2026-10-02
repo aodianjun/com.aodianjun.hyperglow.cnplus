@@ -47,6 +47,16 @@
     <string name="dialog_clear_logs_summary">删除本设备上的诊断日志文件？此操作无法撤销。</string>
     <string name="toast_logs_cleared">日志已清除</string>
     <string name="toast_logs_clear_failed">清除日志失败</string>
+    <string name="setting_log_level">日志等级</string>
+    <string name="log_level_errors">仅错误</string>
+    <string name="log_level_warning">警告与错误</string>
+    <string name="log_level_normal">正常</string>
+    <string name="log_level_verbose">详细</string>
+    <string name="dialog_log_level_summary">控制诊断日志开启后写入哪些等级。仅错误噪声最低；详细还会一并镜像 SystemUI 侧模块日志（需要 root）。</string>
+    <string name="action_export_logs">导出日志</string>
+    <string name="summary_export_logs">将尚未删除的日志保存为 .txt 文件。</string>
+    <string name="toast_logs_exported">日志已导出</string>
+    <string name="toast_logs_export_failed">导出日志失败</string>
 
     <string name="action_send_compatibility_report">发送兼容性报告</string>
     <string name="action_report_problem">报告问题</string>
@@ -305,6 +315,8 @@
     <string name="summary_duet_alignment">对唱歌词按演唱者分居左右两侧;演唱者信息须由歌词源提供。仅当对齐为「自动」时生效。</string>
     <string name="setting_duet_markers">识别对唱标记</string>
     <string name="summary_duet_markers">识别歌词行首的（男）/（女）/（合）演唱者标记与（副歌）/（间奏）等段落标记:显示时隐去标记,演唱者标记并按标记分出左右演唱者;关闭后原样显示,标记不参与分侧。</string>
+    <string name="setting_lyric_time_offset">歌词时间偏移</string>
+    <string name="summary_lyric_time_offset">正数延后显示,负数提前显示(±5 秒)</string>
 <string name="setting_duet_concurrent">显示并发歌词（对唱）</string>
 <string name="summary_duet_concurrent">另一行唱词与主行播放窗口重叠达到 1 秒时,两行同时显示、各画各的逐字扫光。仅息屏生效,锁屏保持单行。</string>
     <string name="setting_bright_secondary_text">高亮辅助文字</string>
@@ -320,6 +332,9 @@
     <string name="setting_song_info_size">歌曲信息大小</string>
     <string name="setting_song_info_parts">歌曲信息内容</string>
     <string name="setting_show_song_artwork">显示歌曲图片</string>
+    <string name="setting_song_artwork_adaptive">自适应缩放</string>
+    <string name="setting_song_artwork_size">图片大小</string>
+    <string name="summary_song_artwork_size">拖动调整图片大小</string>
     <string name="setting_song_artwork_spin">旋转歌曲图片</string>
 <string name="setting_song_artwork_spin_paused">音乐暂停时继续旋转</string>
     <string name="choice_song_artwork_shape">歌曲图片形状</string>
@@ -373,6 +388,7 @@
     <string name="option_song_info_part_artist">歌手</string>
     <string name="option_song_info_part_album">专辑</string>
     <string name="option_song_info_separator_newline">换行</string>
+    <string name="label_song_info_pair">%1$s → %2$s</string>
     <string name="option_song_artwork_shape_square">方形</string>
     <string name="option_song_artwork_shape_circle">圆形</string>
     <string name="option_no_limit">不限制</string>
@@ -428,6 +444,7 @@
     <string name="option_custom">自定义</string>
     <string name="option_minimal">最简</string>
     <string name="option_gradient">渐变</string>
+    <string name="option_betterlyrics">BetterLyrics</string>
     <string name="option_off">关闭</string>
     <string name="option_on">开启</string>
     <string name="option_none">无</string>
