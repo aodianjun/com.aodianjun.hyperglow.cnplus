@@ -2032,11 +2032,11 @@ internal class AodLyricCanvasView(
             }
             return
         }
-        // 「BetterLyrics」逐字发光档(参考 jayfunc/BetterLyrics):逐字时间源统一走词级
-        // 卡拉OK——长词播放中放大、发光开启时活动长词带 glow 色光晕(辉光属于正在唱的
-        // 词,不再叠加整块扫光);发光开关只增删光晕,不改词级运动。行级源(无逐字
-        // 时间)不进本分支,保留下方共享扫光管线——参考实现同样只对逐字源启用词级效果。
-        if (content.animationMode == "BetterLyrics" && originalLayout.timed) {
+        // 「BetterLyrics」逐字发光档(参考 jayfunc/BetterLyrics):逐字时间源走真词级
+        // 卡拉OK;行级源(LRC,无逐字时间)由 [drawWordKaraoke] 按字符合成时间窗走同一
+        // 渲染——未唱下沉/已唱上浮/正在唱的字放大辉光对两类源同样适用,推进前缘与
+        // 行级扫光几何一致。「行进度效果=None」除外:尊重用户的静态全亮选择。
+        if (content.animationMode == "BetterLyrics" && effectiveLineSyncFillMode() != "None") {
             drawWordKaraoke(canvas, baseline, originalLayout, betterLyrics = true)
             return
         }
@@ -2244,9 +2244,11 @@ internal class AodLyricCanvasView(
     }
 
     /**
-     * 逐字卡拉OK路径（逐字源+关发光+非行级同步；[betterLyrics] 为「BetterLyrics」档）：
-     * 词级进度/放大/扫光与未唱下沉、已唱上浮、长音节辉光统一委托共享渲染核心
-     * [LyricWordKaraokeRenderer]（预览同源，杜绝效果漂移）。
+     * 逐字卡拉OK路径（[betterLyrics] 为「BetterLyrics」档）：词级进度/放大/扫光与
+     * 未唱下沉、已唱上浮、长音节辉光统一委托共享渲染核心 [LyricWordKaraokeRenderer]
+     * （预览同源，杜绝效果漂移）。逐字时间源用真词时间窗;行级源（[betterLyrics] 且
+     * 行无词）按字符合成时间窗（[syntheticCharTimeWindow],与行级扫光前缘同式）,
+     * 正在唱的字恒按长音节放大/辉光。
      */
     private fun drawWordKaraoke(
         canvas: Canvas,
@@ -2257,7 +2259,11 @@ internal class AodLyricCanvasView(
         val lines = originalLayout.lines
         val position = projectedPosition()
         val sinkPx = karaokeFloatSinkPx(originalLayout.lineHeight)
+        val totalWidth = lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
+        val blockStartMs = content.lineStartMs
+        val blockEndMs = content.lineEndMs
         val runs = ArrayList<KaraokeWordRun>(8)
+        var precedingWidth = 0f
         var precedingRuby = 0f
         var lineIndex = 0
         while (lineIndex < lines.size) {
@@ -2292,6 +2298,34 @@ internal class AodLyricCanvasView(
                 x += placed.width + placed.gapAfter
                 wordIndex++
             }
+            if (runs.isEmpty() && betterLyrics) {
+                // 行级源合成:每字符一个词位,时间窗按几何宽度分摊(与行级扫光前缘同式);
+                // 正在唱的字恒按长音节放大/辉光(行级源无真实音节时长)。
+                var prefix = 0f
+                var charIndex = 0
+                while (charIndex < line.text.length) {
+                    val charWidth = originalPaint.measureText(line.text, charIndex, charIndex + 1)
+                    if (charWidth > 0f && !line.text[charIndex].isWhitespace()) {
+                        val window = syntheticCharTimeWindow(
+                            blockStartMs,
+                            blockEndMs,
+                            totalWidth,
+                            precedingWidth + prefix,
+                            charWidth
+                        )
+                        runs += KaraokeWordRun(
+                            text = line.text.substring(charIndex, charIndex + 1),
+                            x = line.startX + prefix,
+                            width = charWidth,
+                            playedFraction = timedWordProgress(position, window.first, window.last),
+                            durationMs = window.last - window.first,
+                            longSyllable = true
+                        )
+                    }
+                    prefix += charWidth
+                    charIndex++
+                }
+            }
             LyricWordKaraokeRenderer.draw(
                 canvas = canvas,
                 paint = originalPaint,
@@ -2305,6 +2339,7 @@ internal class AodLyricCanvasView(
                 sinkPx = sinkPx
             )
             if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
+            precedingWidth += line.width
             precedingRuby += line.rubyHeight
             lineIndex++
         }

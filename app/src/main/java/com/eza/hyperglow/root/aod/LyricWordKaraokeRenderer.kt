@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
+import kotlin.math.roundToLong
 
 /**
  * 逐字卡拉OK的一个词位(行内绝对坐标):[playedFraction] 为该词已唱比例 0..1
@@ -80,6 +81,29 @@ internal fun karaokeFloatOffsetPx(playedFraction: Float, durationMs: Long, sinkP
 private fun karaokeLerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
 
 /**
+ * 行级源(无逐字时间戳)的合成字符时间窗:整块时长按几何宽度分摊——与行级扫光前缘
+ * ([splitContinuousFill])完全同式,合成推进前缘与扫光前缘逐帧重合。纯函数,可单测。
+ */
+internal fun syntheticCharTimeWindow(
+    blockStartMs: Long,
+    blockEndMs: Long,
+    totalWidth: Float,
+    globalPrefixWidth: Float,
+    charWidth: Float
+): LongRange {
+    val span = (blockEndMs - blockStartMs).coerceAtLeast(0L)
+    val safeTotal = totalWidth.coerceAtLeast(1f)
+    val start = blockStartMs +
+        (span.toDouble() * globalPrefixWidth.coerceAtLeast(0f).toDouble() / safeTotal).roundToLong()
+    val end = blockStartMs +
+        (span.toDouble() * (globalPrefixWidth + charWidth).coerceAtLeast(0f).toDouble() / safeTotal)
+            .roundToLong()
+    val safeStart = start.coerceIn(blockStartMs, blockEndMs)
+    val safeEnd = end.coerceIn(safeStart, blockEndMs)
+    return safeStart until safeEnd
+}
+
+/**
  * 逐字卡拉OK的共享渲染核心 —— 预览(PreviewComponents)与实机(AodLyricCanvasView)
  * 调用同一实现:底字亮度、词内扫光带、演唱中放大、未唱下沉/已唱上浮、长音节辉光
  * 只在此定义一次,杜绝"两份手工同步的拷贝"造成的漂移。
@@ -88,6 +112,10 @@ private fun karaokeLerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.c
  * 唱到后 450ms 内弹回基线(「已唱上浮」);长音节(≥700ms)演唱中放大到 1.15、唱完
  * 回落;长音节 + 发光开启时活动词带 glow 色辉光。短音节沿用历史逐字卡拉OK运动
  * (峰值 1.0505、词内扫光),既有观感不变。
+ *
+ * 行级源(无逐字时间戳)由调用方用 [syntheticCharTimeWindow] 合成每字符的时间窗后
+ * 走同一渲染:下沉/上浮与逐字点亮同样适用;合成词位恒标长音节——「正在唱的字」
+ * 放大并(发光开启时)辉光,行级源没有真实音节时长,以当前被唱到的字承担该强调。
  */
 internal object LyricWordKaraokeRenderer {
     /** 词内扫光带占词宽比例(与 [LyricGlowRenderer] 同式)。 */
