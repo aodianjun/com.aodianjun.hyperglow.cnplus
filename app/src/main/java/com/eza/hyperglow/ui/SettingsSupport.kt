@@ -45,8 +45,10 @@ internal fun String.isStaticClockPlacement(): Boolean =
     this == "static_top" || this == "static_bottom"
 
 internal enum class SettingsTab {
-    OVERVIEW,
-    CONFIG
+    STATUS,
+    SETTINGS,
+    APP,
+    ABOUT
 }
 
 internal const val DIAGNOSTICS_DESTINATION = "__diagnostics__"

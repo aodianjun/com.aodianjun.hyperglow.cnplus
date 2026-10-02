@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                             )
                             var editingSurface by rememberSaveable { mutableStateOf<String?>(null) }
                             var selectedTabName by rememberSaveable {
-                                mutableStateOf(SettingsTab.OVERVIEW.name)
+                                mutableStateOf(SettingsTab.STATUS.name)
                             }
                             AnimatedContent(
                                 targetState = editingSurface,

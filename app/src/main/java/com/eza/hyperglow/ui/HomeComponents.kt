@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
+import com.eza.hyperglow.customization.SceneCompiler
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -51,7 +52,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 /**
  * Home hero section (HyperHome 风格):顶部的模块运行状态卡 + 两个 surface 统计卡 + 系统信息卡。
  * 参照 HyperHome 的主页布局:状态卡用彩色背景 + 大号半透明图标,AOD/锁屏两个统计卡并排,
- * 下方为系统信息列表。
+ * 下方为系统信息列表。统计卡可点击,直达对应曲面的外观编辑器。
  */
 @Composable
 internal fun HomeOverviewHero(
@@ -60,8 +61,74 @@ internal fun HomeOverviewHero(
     aodEnabled: Boolean,
     lockscreenEnabled: Boolean,
     systemUiVersion: String,
-    aodVersion: String
+    aodVersion: String,
+    onOpenSurface: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            HomeStatusCard(
+                working = working,
+                supportLabel = supportLabel,
+                modifier = Modifier.weight(1f).aspectRatio(1f)
+            )
+            Column(
+                Modifier.weight(1f).aspectRatio(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                HomeStatCard(
+                    title = stringResource(R.string.label_aod_lyrics),
+                    value = homeSurfaceState(context, working, aodEnabled),
+                    modifier = Modifier.weight(1f),
+                    onClick = { onOpenSurface(SceneCompiler.SURFACE_AOD) }
+                )
+                HomeStatCard(
+                    title = stringResource(R.string.label_lockscreen_lyrics),
+                    value = homeSurfaceState(context, working, lockscreenEnabled),
+                    modifier = Modifier.weight(1f),
+                    onClick = { onOpenSurface(SceneCompiler.SURFACE_LOCKSCREEN) }
+                )
+            }
+        }
+        Card(
+            colors = CardDefaults.defaultColors(
+                color = appCardContainerColor(),
+                contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+            )
+        ) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                HomeInfoRow(stringResource(R.string.label_compatibility), supportLabel)
+                HomeInfoRow(
+                    stringResource(R.string.label_systemui_aod),
+                    "$systemUiVersion / $aodVersion"
+                )
+                HomeInfoRow(
+                    stringResource(R.string.label_app_version),
+                    BuildConfig.VERSION_NAME
+                )
+                HomeInfoRow(
+                    stringResource(R.string.label_android_version),
+                    Build.VERSION.RELEASE
+                )
+                HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL, last = true)
+            }
+        }
+    }
+}
+
+/**
+ * 关于页的版本与更新卡:App 版本 + 检查更新(含更新提示对话框)。
+ * 检查更新从概览系统信息卡迁入「关于」页,与项目链接归在一处。
+ */
+@Composable
+internal fun AboutVersionCard() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var checkingUpdate by remember { mutableStateOf(false) }
@@ -87,62 +154,21 @@ internal fun HomeOverviewHero(
         }
     }
 
-    Column(
-        modifier = Modifier.padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    Card(
+        colors = CardDefaults.defaultColors(
+            color = appCardContainerColor(),
+            contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+        )
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            HomeStatusCard(
-                working = working,
-                supportLabel = supportLabel,
-                modifier = Modifier.weight(1f).aspectRatio(1f)
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            HomeInfoRow(
+                stringResource(R.string.label_app_version),
+                BuildConfig.VERSION_NAME
             )
-            Column(
-                Modifier.weight(1f).aspectRatio(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                HomeStatCard(
-                    title = stringResource(R.string.label_aod_lyrics),
-                    value = homeSurfaceState(context, working, aodEnabled),
-                    modifier = Modifier.weight(1f)
-                )
-                HomeStatCard(
-                    title = stringResource(R.string.label_lockscreen_lyrics),
-                    value = homeSurfaceState(context, working, lockscreenEnabled),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-        Card(
-            colors = CardDefaults.defaultColors(
-                color = appCardContainerColor(),
-                contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+            HomeUpdateRow(
+                checking = checkingUpdate,
+                onClick = { startCheckUpdate() }
             )
-        ) {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                HomeInfoRow(stringResource(R.string.label_compatibility), supportLabel)
-                HomeInfoRow(
-                    stringResource(R.string.label_systemui_aod),
-                    "$systemUiVersion / $aodVersion"
-                )
-                HomeInfoRow(
-                    stringResource(R.string.label_app_version),
-                    BuildConfig.VERSION_NAME
-                )
-                HomeUpdateRow(
-                    checking = checkingUpdate,
-                    onClick = { startCheckUpdate() }
-                )
-                HomeInfoRow(
-                    stringResource(R.string.label_android_version),
-                    Build.VERSION.RELEASE
-                )
-                HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL, last = true)
-            }
         }
     }
 
@@ -247,9 +273,14 @@ private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Mod
 }
 
 @Composable
-private fun HomeStatCard(title: String, value: String, modifier: Modifier) {
+private fun HomeStatCard(
+    title: String,
+    value: String,
+    modifier: Modifier,
+    onClick: (() -> Unit)? = null
+) {
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().clickable(enabled = onClick != null) { onClick?.invoke() },
         colors = CardDefaults.defaultColors(
             color = appCardContainerColor(),
             contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
