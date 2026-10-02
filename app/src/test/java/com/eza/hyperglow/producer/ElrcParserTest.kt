@@ -98,6 +98,60 @@ class ElrcParserTest {
     }
 
     @Test
+    fun parsesMillisecondPrecisionBeyondThreeDigits() {
+        // 毫秒 1 至 6 位:4-6 位此前不匹配 → 行时间戳整行丢弃(整句歌词消失)。
+        // 超过 3 位截到毫秒,不足 3 位右侧补零。
+        val lrc = "[00:01.2345]A\n[00:02.234567]B\n[00:03.5]C"
+
+        val lines = ElrcParser.parse(lrc)
+
+        assertEquals(3, lines.size)
+        assertEquals(1_234L, lines[0].startMs)
+        assertEquals(2_234L, lines[1].startMs)
+        assertEquals(3_500L, lines[2].startMs)
+    }
+
+    @Test
+    fun parsesTimestampsWithoutFraction() {
+        // 毫秒段可省略:此前 [mm:ss] 不匹配 → 整行被丢弃(标准 LRC 常见写法)。
+        val lrc = "[00:01]A\n[00:02]B"
+
+        val lines = ElrcParser.parse(lrc)
+
+        assertEquals(2, lines.size)
+        assertEquals(1_000L, lines[0].startMs)
+        assertEquals(2_000L, lines[1].startMs)
+    }
+
+    @Test
+    fun parsesWordMarkersWithExtendedFraction() {
+        // 词标记与行时间戳同语法:4-6 位小数此前不匹配 → 标记残留为歌词正文、逐字丢失。
+        val lrc = "[00:01.000]<00:01.0000>He<00:02.123456>llo"
+
+        val lines = ElrcParser.parse(lrc)
+
+        assertEquals(1, lines.size)
+        assertEquals("Hello", lines[0].text)
+        val words = lines[0].words!!
+        assertEquals(2, words.size)
+        assertEquals("He", words[0].text)
+        assertEquals(1_000L, words[0].startMs)
+        assertEquals("llo", words[1].text)
+        assertEquals(2_123L, words[1].startMs)
+    }
+
+    @Test
+    fun rejectsTokensOutsideTheTimestampGrammar() {
+        // 分钟 4 位、秒 3 位、缺冒号:都不算时间戳(行丢弃 / 标记按普通字符保留)。
+        assertEquals(emptyList<ElrcParser.TimedLine>(), ElrcParser.parse("[1234:00.000]Not a timestamp"))
+        assertEquals(emptyList<ElrcParser.TimedLine>(), ElrcParser.parse("[00:123.000]Not a timestamp"))
+
+        val lines = ElrcParser.parse("[00:01.000]<05>literal")
+        assertEquals("<05>literal", lines[0].text)
+        assertTrue(lines[0].words!!.isEmpty())
+    }
+
+    @Test
     fun ignoresLinesWithoutLeadingTimestamp_andEmptyInput() {
         assertEquals(emptyList<ElrcParser.TimedLine>(), ElrcParser.parse("no timestamp here"))
         assertEquals(emptyList<ElrcParser.TimedLine>(), ElrcParser.parse(""))
