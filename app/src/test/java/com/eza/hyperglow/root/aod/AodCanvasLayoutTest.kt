@@ -898,6 +898,161 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun betterLyricsNeverTakesTheSharedLineLevelSweep() {
+        // BetterLyrics 档必须落在词级卡拉OK路径:此前带行窗的源在 drawRows 就被共享扫光门
+        // 拦下,实机永远走不到 drawWordKaraoke(表现即「预览有逐字效果、实机没有」)。
+        assertFalse(
+            shouldUseSharedLineLevelSweep(
+                lineLevelSync = true,
+                hasOriginalLines = true,
+                animationMode = "BetterLyrics",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        // 其余非 Minimal 档不受影响:带行窗的行级同步源仍走共享逐行扫光。
+        assertTrue(
+            shouldUseSharedLineLevelSweep(
+                lineLevelSync = true,
+                hasOriginalLines = true,
+                animationMode = "Gradient",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        assertFalse(
+            shouldUseSharedLineLevelSweep(
+                lineLevelSync = true,
+                hasOriginalLines = true,
+                animationMode = "Minimal",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+    }
+
+    @Test
+    fun originalLinePlanKeepsPreviewAndDeviceOnOneRouting() {
+        // 逐字源 + 行级同步 + 带行窗(实机稳态最常见组合):取配置的逐行扫光,
+        // 不再是预览整块、实机逐行。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Left to right (main only)"),
+            planOriginalLine(
+                animationMode = "Gradient",
+                timed = true,
+                lineLevelSync = true,
+                glowMode = "Off",
+                lineSyncFillMode = "Left to right (main only)",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        // 显式整块兼容档仍是整块(整块只保留给显式选择,不被逐行归一吞掉)。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Left to right (whole block)"),
+            planOriginalLine(
+                animationMode = "Gradient",
+                timed = true,
+                lineLevelSync = true,
+                glowMode = "On",
+                lineSyncFillMode = "Left to right (whole block)",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        // BetterLyrics 档:逐字源(真实词窗)与行级源(字符合成)都走词级卡拉OK。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
+            planOriginalLine(
+                animationMode = "BetterLyrics",
+                timed = true,
+                lineLevelSync = true,
+                glowMode = "Off",
+                lineSyncFillMode = "Left to right (main only)",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
+            planOriginalLine(
+                animationMode = "BetterLyrics",
+                timed = false,
+                lineLevelSync = true,
+                glowMode = "On",
+                lineSyncFillMode = "Left to right (main only)",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        // Minimal 档与「行进度效果=None」都是静态全亮(None 经共享管线解析为静态)。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.STATIC, "None"),
+            planOriginalLine(
+                animationMode = "Minimal",
+                timed = true,
+                lineLevelSync = true,
+                glowMode = "On",
+                lineSyncFillMode = "Left to right (main only)",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "None"),
+            planOriginalLine(
+                animationMode = "BetterLyrics",
+                timed = true,
+                lineLevelSync = true,
+                glowMode = "On",
+                lineSyncFillMode = "None",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        // 无行窗的逐字源 + 发光开:走共享扫光块,且取配置效果而非硬编码整块
+        // (此前 drawOriginal 的 4 参数重载默认整块,用户选了逐行也会被整块覆盖)。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Left to right (main only)"),
+            planOriginalLine(
+                animationMode = "Gradient",
+                timed = true,
+                lineLevelSync = true,
+                glowMode = "On",
+                lineSyncFillMode = "Left to right (main only)",
+                lineStartMs = 0L,
+                lineEndMs = 0L
+            )
+        )
+        // 大元数据引导态(非行级同步)+ 逐字源 + 关闭发光:保留基础词级卡拉OK路径。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
+            planOriginalLine(
+                animationMode = "Gradient",
+                timed = true,
+                lineLevelSync = false,
+                glowMode = "Off",
+                lineSyncFillMode = "Left to right (main only)",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        // 行级(无逐字时间)源:同样取生效进度效果(Top to bottom 不被吞掉)。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Top to bottom"),
+            planOriginalLine(
+                animationMode = "Gradient",
+                timed = false,
+                lineLevelSync = true,
+                glowMode = "Off",
+                lineSyncFillMode = "Top to bottom",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+    }
+
+    @Test
     fun rubyStartSelectsContainingWrappedLine() {
         assertEquals(0, rubyLineIndex(4, listOf(0, 8), listOf(8, 16)))
         assertEquals(1, rubyLineIndex(8, listOf(0, 8), listOf(8, 16)))

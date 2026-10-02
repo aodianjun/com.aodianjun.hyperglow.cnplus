@@ -111,7 +111,7 @@ import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
-import com.eza.hyperglow.root.aod.resolvedLineSyncFillMode
+import com.eza.hyperglow.root.aod.planOriginalLine
 import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
 import com.eza.hyperglow.root.aod.rubyReservation
 import com.eza.hyperglow.root.aod.rubySpanGeometry
@@ -372,17 +372,22 @@ private fun LyricPreviewSurface(
             emptyList()
         }
     }
-    // 生效进度效果:与实机 drawOriginal 的 Minimal 分支 / effectiveLineSyncFillMode 同源。
-    // Minimal=静态全亮(无扫光/发光);行级同步时按配置的四种进度效果;否则整块连续横扫。
-    // 「BetterLyrics」档:逐字源走逐字卡拉OK、行级源按字符合成时间窗走同一渲染(见
-    // [PreviewMainLayer]);「行进度效果=None」尊重为静态全亮,其余退化逐行(绝不用整块)。
-    val previewFillMode = when {
-        profile.animation == "Minimal" -> "None"
-        profile.animation == "BetterLyrics" ->
-            if (profile.lineSyncFillMode == "None") "None" else "Left to right (main only)"
-        snapshot.lineLevelSync -> resolvedLineSyncFillMode(true, profile.lineSyncFillMode)
-        else -> LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
-    }
+    // 主行渲染路径与实机同源:读共享决策函数 planOriginalLine(实机 drawRows 的共享扫光门 +
+    // drawOriginal 分支树与预览三处只此一份)。此前预览自带一份 when,且判据是
+    // `snapshot.lineLevelSync`,而快照该位在实机侧表示「行级同步显示态」(有活动行且非大
+    // 元数据引导),预览侧旧值却是「无逐字时间」——逐字源被当成非行级同步,预览整块横扫,
+    // 与实机(带行窗的逐字源走共享逐行扫光)不一致。BetterLyrics 档由决策函数保证落在
+    // 词级卡拉OK路径(逐字源真实词窗 / 行级源字符合成),不再被整块扫光吞掉。
+    val previewPlan = planOriginalLine(
+        animationMode = profile.animation,
+        timed = snapshot.words.isNotEmpty(),
+        lineLevelSync = snapshot.lineLevelSync,
+        glowMode = profile.glow,
+        lineSyncFillMode = profile.lineSyncFillMode,
+        lineStartMs = snapshot.lineStartMs,
+        lineEndMs = snapshot.lineEndMs
+    )
+    val previewFillMode = previewPlan.fillMode
 
     // 预览卡片高度自适应:面板高度贴合歌词内容(钳制见 previewCardHeightDp),大字号/多行
     // 内容不再被固定高度裁掉。高度取本配置下的已见最大内容高度——演示行循环/逐行播放时
@@ -1692,6 +1697,10 @@ private fun PreviewMainLayer(
                 }
             }
         }
+        // 走词级卡拉OK:共享决策(planOriginalLine)已把 BetterLyrics 档固定在该路径
+        // (fillMode 非 None 时),这里再加预览自身的必要条件——词位已构建且时间跨度有效。
+        // 词位只在 BetterLyrics 档构建([buildPreviewMainLayout]),故该门与决策同义;
+        // 若将来为非 BetterLyrics 档补建词位(实机基础卡拉OK路径),此处一并放开即可。
         val useWordKaraoke = layout.betterLyrics && fillMode != "None" &&
             layout.wordSpanEndMs > layout.wordSpanStartMs &&
             layout.wordRuns.any { it.isNotEmpty() }
