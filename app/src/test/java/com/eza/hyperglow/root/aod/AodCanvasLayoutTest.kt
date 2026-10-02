@@ -528,7 +528,14 @@ class AodCanvasLayoutTest {
                 )
             )
         ).profiles.getValue(SceneCompiler.SURFACE_AOD)
-        val split = LyricSnapshot(original = "current", alignedRight = true)
+        // 快照按新契约同时携带两套分侧值(元数据身份版 + 标记识别版);本用例不区分两版,
+        // 故同取 true 以表示「该行分侧」。标记识别开关的按面选用见
+        // surfaceDuetMarkersStripAndSelectAlignmentIndependently。
+        val split = LyricSnapshot(
+            original = "current",
+            alignedRight = true,
+            alignedRightMarkers = true
+        )
 
         // 开启(或无 profile 的默认)时保留行级分侧;关闭时整行回落主对齐解析。
         assertTrue(split.toAodCanvasContent(on).alignedRight)
@@ -536,7 +543,7 @@ class AodCanvasLayoutTest {
         assertFalse(split.toAodCanvasContent(off).alignedRight)
         // 门控只做减法:未分侧的行在任何开关下都保持未分侧。
         assertFalse(
-            LyricSnapshot(original = "current", alignedRight = false)
+            LyricSnapshot(original = "current")
                 .toAodCanvasContent(on).alignedRight
         )
     }
