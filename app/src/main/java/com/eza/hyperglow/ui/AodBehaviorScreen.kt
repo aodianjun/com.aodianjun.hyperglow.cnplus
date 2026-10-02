@@ -86,6 +86,9 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
     }
     var aodLandscapeHideStock by remember { mutableStateOf(initialConfig.aodLandscapeHideStock) }
     var aodLandscapeFullscreen by remember { mutableStateOf(initialConfig.aodLandscapeFullscreen) }
+    var aodLandscapeFullscreenSafeMarginPercent by remember {
+        mutableStateOf(initialConfig.aodLandscapeFullscreenSafeMarginPercent)
+    }
     var aodDebugShowCanvasFrame by remember { mutableStateOf(initialConfig.aodDebugShowCanvasFrame) }
     var aodRefreshRateCap by remember { mutableStateOf(initialConfig.aodRefreshRateCap) }
 
@@ -462,6 +465,20 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
                             summary = stringResource(
                                 R.string.summary_aod_landscape_fullscreen
                             )
+                        )
+                        SliderPreference(
+                            value = aodLandscapeFullscreenSafeMarginPercent,
+                            onValueChange = { v ->
+                                if (updateAodLandscapeFullscreenSafeMarginPercent(context, v)) {
+                                    aodLandscapeFullscreenSafeMarginPercent = v
+                                }
+                            },
+                            title = stringResource(R.string.setting_aod_landscape_fullscreen_safe_margin),
+                            summary = stringResource(R.string.summary_aod_landscape_fullscreen_safe_margin),
+                            valueText =
+                                aodLandscapeFullscreenSafeMarginPercent.toInt().toString() + "%",
+                            valueRange = 0f..MAX_CANVAS_PADDING_PERCENT,
+                            steps = MAX_CANVAS_PADDING_PERCENT.toInt()
                         )
                         SwitchPreference(
                             aodDebugShowCanvasFrame,

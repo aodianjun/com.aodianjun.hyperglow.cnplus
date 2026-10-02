@@ -55,6 +55,7 @@ class ConfigBackupCodecTest {
         aodLandscapeTextScale = 1.5f,
         aodLandscapeHideStock = true,
         aodLandscapeFullscreen = true,
+        aodLandscapeFullscreenSafeMarginPercent = 12.5f,
         aodCanvasPaddingPortraitXPercent = 4.5f,
         aodCanvasPaddingPortraitYPercent = 6f,
         aodCanvasPaddingLandscapeXPercent = 8.25f,

@@ -18,6 +18,7 @@ import android.view.View
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
+import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.root.HookLogger
 import kotlin.math.max
@@ -113,6 +114,7 @@ internal class AodLyricCanvasView(
     private var landscapeTextScale = 1f
     private var landscapeAnchor = 0.5f
     private var landscapeFullscreen = false
+    private var landscapeFullscreenSafeMarginPercent = DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
     private var debugShowCanvasFrame = false
     private var paddingPortraitXPercent = DEFAULT_CANVAS_PADDING_PERCENT
     private var paddingPortraitYPercent = DEFAULT_CANVAS_PADDING_PERCENT
@@ -383,7 +385,8 @@ internal class AodLyricCanvasView(
         paddingPortraitXPercent: Float,
         paddingPortraitYPercent: Float,
         paddingLandscapeXPercent: Float,
-        paddingLandscapeYPercent: Float
+        paddingLandscapeYPercent: Float,
+        landscapeFullscreenSafeMarginPercent: Float = DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
     ) {
         val changed = rotationEnabled != rotate ||
             rotationMode != mode ||
@@ -394,7 +397,8 @@ internal class AodLyricCanvasView(
             this.paddingPortraitXPercent != paddingPortraitXPercent ||
             this.paddingPortraitYPercent != paddingPortraitYPercent ||
             this.paddingLandscapeXPercent != paddingLandscapeXPercent ||
-            this.paddingLandscapeYPercent != paddingLandscapeYPercent
+            this.paddingLandscapeYPercent != paddingLandscapeYPercent ||
+            this.landscapeFullscreenSafeMarginPercent != landscapeFullscreenSafeMarginPercent
         rotationEnabled = rotate
         rotationMode = mode
         this.landscapeTextScale = landscapeTextScale
@@ -405,6 +409,7 @@ internal class AodLyricCanvasView(
         this.paddingPortraitYPercent = paddingPortraitYPercent
         this.paddingLandscapeXPercent = paddingLandscapeXPercent
         this.paddingLandscapeYPercent = paddingLandscapeYPercent
+        this.landscapeFullscreenSafeMarginPercent = landscapeFullscreenSafeMarginPercent
         recomputeLogicalFrame()
         if (!rotate && rotationStep != AodOrientationStep.PORTRAIT) {
             rotationStep = AodOrientationStep.PORTRAIT
@@ -589,11 +594,18 @@ internal class AodLyricCanvasView(
     private fun computeFullscreenAutoScale(): Float {
         val bounds = verticalBounds(layout) ?: return landscapeTextScale
         val contentHeight = (bounds.bottom - bounds.top).coerceAtLeast(1f)
-        val availableHeight = ((oh - padTop - padBottom).toFloat()).coerceAtLeast(1f)
+        // 安全边界:四周各留画布短边的一定百分比,避免放大铺满后内容贴屏幕边缘(圆角/挖孔)。
+        val safeInset = fullscreenSafeInset(
+            minOf(ow, oh).toFloat(),
+            landscapeFullscreenSafeMarginPercent
+        )
+        val availableHeight =
+            ((oh - padTop - padBottom).toFloat() - safeInset * 2f).coerceAtLeast(1f)
         // 长轴输入:最长行宽与可用逻辑宽。行按 available 换行,故 maxLineWidth <= ow,
         // widthCap 不会把内容缩小;它只在短轴填充倍数会让长行两端越界时介入。
         val maxLineWidth = widestContentLineWidth(layout)
-        val availableWidth = ((ow - padLeft - padRight).toFloat()).coerceAtLeast(1f)
+        val availableWidth =
+            ((ow - padLeft - padRight).toFloat() - safeInset * 2f).coerceAtLeast(1f)
         val decision = resolveFullscreenLandscapeScale(
             contentHeight = contentHeight,
             availableHeight = availableHeight,
@@ -606,7 +618,8 @@ internal class AodLyricCanvasView(
         // issue #41/#44/#51:记录横屏全屏自适应缩放的实际输入输出,便于真机核对
         // contentHeight 与 maxLineWidth 是否越界(of=none/h/w)、缩放结果是否被长轴上限截断。
         val key = "rot=$rotationStep c=${contentHeight.roundToInt()} " +
-            "a=${availableHeight.roundToInt()} s=${decision.scale} " +
+            "a=${availableHeight.roundToInt()} inset=${safeInset.roundToInt()} " +
+            "s=${decision.scale} " +
             "lw=${maxLineWidth.roundToInt()} aw=${availableWidth.roundToInt()} " +
             "cap=${decision.widthCap} of=${decision.overflowAxes}"
         if (key != lastAutoScaleLogKey) {
@@ -1952,12 +1965,18 @@ internal class AodLyricCanvasView(
             if (bottom > maxBottom) maxBottom = bottom
         }
         if (!minTop.isFinite() || !maxBottom.isFinite() || maxBottom <= minTop) return
-        val available = (oh - padTop - padBottom).coerceAtLeast(0)
+        // 全屏化沿短边再让出安全边界,使内容块在安全区内锚定/居中(与自适应缩放同一圈留白)。
+        val safeInset = if (fullscreenLandscapeActive()) {
+            fullscreenSafeInset(minOf(ow, oh).toFloat(), landscapeFullscreenSafeMarginPercent)
+        } else {
+            0f
+        }
+        val available = ((oh - padTop - padBottom).toFloat() - safeInset * 2f).coerceAtLeast(0f)
         val blockHeight = maxBottom - minTop
         val offset = landscapeBlockAnchorOffset(
             blockTop = minTop,
             blockHeight = blockHeight,
-            availableHeight = available.toFloat(),
+            availableHeight = available,
             padTop = padTop.toFloat(),
             anchor = landscapeAnchor
         )

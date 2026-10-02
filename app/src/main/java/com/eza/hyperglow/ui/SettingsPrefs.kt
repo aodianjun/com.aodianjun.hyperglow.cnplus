@@ -419,6 +419,19 @@ internal fun updateAodCanvasPaddingPercent(
     return true
 }
 
+internal fun updateAodLandscapeFullscreenSafeMarginPercent(
+    context: android.content.Context,
+    value: Float
+): Boolean {
+    val normalized = com.eza.hyperglow.aod.normalizeAodFullscreenSafeMarginPercent(value)
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putFloat(AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT, normalized)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 internal fun updateDiagnosticLogging(
     context: android.content.Context,
     enabled: Boolean

@@ -10,6 +10,7 @@ import com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS
 import com.eza.hyperglow.aod.normalizeAodCanvasAnchor
 import com.eza.hyperglow.aod.normalizeAodCanvasPaddingPercent
 import com.eza.hyperglow.aod.normalizeAodClockYOffset
+import com.eza.hyperglow.aod.normalizeAodFullscreenSafeMarginPercent
 import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
 import com.eza.hyperglow.aod.normalizeAodRefreshRateCap
 import com.eza.hyperglow.aod.normalizeAodRotationMode
@@ -159,6 +160,9 @@ internal object ConfigBackupCodec {
         },
         BackupFloatField(AodRenderPreferences.AOD_LANDSCAPE_TEXT_SCALE) {
             it.aodLandscapeTextScale
+        },
+        BackupFloatField(AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT) {
+            it.aodLandscapeFullscreenSafeMarginPercent
         },
         BackupFloatField(AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT) {
             it.aodCanvasPaddingPortraitXPercent
@@ -496,6 +500,10 @@ internal object ConfigBackupCodec {
             ?: DEFAULTS.aodLandscapeHideStock,
         aodLandscapeFullscreen = stored.boolean(AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN)
             ?: DEFAULTS.aodLandscapeFullscreen,
+        aodLandscapeFullscreenSafeMarginPercent = stored.float(
+            AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT
+        )?.let(::normalizeAodFullscreenSafeMarginPercent)
+            ?: DEFAULTS.aodLandscapeFullscreenSafeMarginPercent,
         aodCanvasPaddingPortraitXPercent = stored.float(
             AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT
         )?.let(::normalizeAodCanvasPaddingPercent) ?: DEFAULTS.aodCanvasPaddingPortraitXPercent,

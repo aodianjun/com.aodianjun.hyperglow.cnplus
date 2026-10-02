@@ -4,10 +4,12 @@ import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.AodStateWireLimits
 import com.eza.hyperglow.aod.AodStateWireMessage
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
+import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
 import com.eza.hyperglow.aod.normalizeAodBurnInInterval
 import com.eza.hyperglow.aod.normalizeAodBurnInPattern
 import com.eza.hyperglow.aod.normalizeAodCanvasAnchor
 import com.eza.hyperglow.aod.normalizeAodCanvasPaddingPercent
+import com.eza.hyperglow.aod.normalizeAodFullscreenSafeMarginPercent
 import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
 import com.eza.hyperglow.aod.normalizeAodRotationMode
 import com.eza.hyperglow.aod.normalizeAodRotationSettleMs
@@ -72,6 +74,7 @@ internal data class LyricSnapshot(
     val aodLandscapeTextScale: Float = 1f,
     val aodLandscapeHideStock: Boolean = false,
     val aodLandscapeFullscreen: Boolean = false,
+    val aodLandscapeFullscreenSafeMarginPercent: Float = DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT,
     val aodDebugShowCanvasFrame: Boolean = false,
     val aodCanvasPaddingPortraitXPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
     val aodCanvasPaddingPortraitYPercent: Float = DEFAULT_CANVAS_PADDING_PERCENT,
@@ -433,6 +436,9 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
         aodRotationSettleMs = normalizeAodRotationSettleMs(snapshot.aodRotationSettleMs),
         aodCanvasAnchorLandscape = normalizeAodCanvasAnchor(snapshot.aodCanvasAnchorLandscape),
         aodLandscapeTextScale = normalizeAodLandscapeTextScale(snapshot.aodLandscapeTextScale),
+        aodLandscapeFullscreenSafeMarginPercent = normalizeAodFullscreenSafeMarginPercent(
+            snapshot.aodLandscapeFullscreenSafeMarginPercent
+        ),
         aodCanvasPaddingPortraitXPercent = normalizeAodCanvasPaddingPercent(
             snapshot.aodCanvasPaddingPortraitXPercent
         ),
@@ -479,6 +485,8 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             aodLandscapeTextScale = value.aodLandscapeTextScale,
             aodLandscapeHideStock = value.aodLandscapeHideStock,
             aodLandscapeFullscreen = value.aodLandscapeFullscreen,
+            aodLandscapeFullscreenSafeMarginPercent =
+                value.aodLandscapeFullscreenSafeMarginPercent,
             aodDebugShowCanvasFrame = value.aodDebugShowCanvasFrame,
             aodCanvasPaddingPortraitXPercent = value.aodCanvasPaddingPortraitXPercent,
             aodCanvasPaddingPortraitYPercent = value.aodCanvasPaddingPortraitYPercent,
