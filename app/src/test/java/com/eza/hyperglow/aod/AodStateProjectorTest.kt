@@ -265,7 +265,7 @@ class AodStateProjectorTest {
     // --- lyricKind = UNSYNCED ---
 
     @Test
-    fun unsyncedKind_rendersMusicalNoteButKeepsTransitionFromModes() {
+    fun unsyncedKind_rendersMusicalNoteButKeepsTransitionFromProfile() {
         val s = state(
             lyricKind = LyricKind.UNSYNCED,
             hasTimedLyrics = false,
@@ -276,8 +276,12 @@ class AodStateProjectorTest {
         )
         val out = project(s)
         assertEquals("🎶", out.original)
-        assertEquals("Crossfade", out.transitionMode) // 来自 renderModes，非 "None"
+        // UNSYNCED 不像 NONE 那样强制 "None"：取 profile.lineTransition 的解析值
+        // （默认 "Auto" → "Fade up"）。renderModes 的 "Crossfade" 只在 compiled 缺失时才是答案。
+        assertEquals("Fade up", out.transitionMode)
         assertFalse(out.lineLevelSync)
+        // compiled 缺失时回落到 renderModes 的原值，确认兜底路径仍通。
+        assertEquals("Crossfade", project(s, compiled = null).transitionMode)
     }
 
     // --- lyricKind = LINE (活动行无 words) ---
@@ -442,23 +446,63 @@ class AodStateProjectorTest {
         assertEquals(42_000L, out.positionMs)
     }
 
-    // --- 渲染模式透传 ---
+    // --- 渲染模式：编译后的 AOD profile 优先，producer renderModes 兜底 ---
 
     @Test
-    fun renderModesArePassedThroughFromState() {
+    fun compiledAodProfileOverridesProducerRenderModes() {
+        // 渲染模式以编译后的 AOD profile 为准（预览读的就是这份 profile，两侧同源才谈得上
+        // 所见即所得）；state.renderModes 降级为兜底。修复前这里只读 renderModes。
         val s = state(lyricKind = LyricKind.LINE, line = "x", lineIndex = 0, lineStartMs = 1, lineEndMs = 2)
         val out = project(s)
+        val profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals(profile.weight, out.weight)
+        assertEquals(profile.textSize, out.textSizeMode)
+        assertEquals(profile.textSizeCustom, out.textSizeCustom)
+        assertEquals(profile.secondaryMode, out.secondaryMode)
+        assertEquals(profile.animation, out.animationMode)
+        assertEquals(profile.glow, out.glowMode)
+        assertEquals(profile.lineSyncFillMode, out.lineSyncFillMode)
+        assertEquals(profile.overflow, out.overflowMode)
+        assertEquals(profile.fontFamily, out.fontFamily)
+        // 换行动画：profile.lineTransition 为 "Auto" 时退默认 "Fade up"，
+        // 与 producer 侧 LyriconRenderModeMapping.toProducerRenderModes 同一归一。
+        assertEquals("Fade up", out.transitionMode)
+    }
+
+    @Test
+    fun betterLyricsFromProfileSurvivesProducerThatDoesNotRefillRenderModes() {
+        // 「BetterLyrics 预览看得到、实机没有」的回归门：非 Lyricon 源的 renderModes 是硬编码
+        // 默认值（此处模拟 "Karaoke fill"——normalizeAodAnimation 会把它退回 Gradient），
+        // 而用户把逐字动画设成了 BetterLyrics。修复前 animationMode 恒为 Gradient。
+        val betterLyrics = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+            .copy(animation = "BetterLyrics", glow = "On")
+        val compiledWithBetterLyrics = compiled.copy(
+            profiles = compiled.profiles + (SceneCompiler.SURFACE_AOD to betterLyrics)
+        )
+        val s = state(
+            lyricKind = LyricKind.SYLLABLE,
+            line = "晴天",
+            lineIndex = 0,
+            words = listOf(LyricWord("晴天", "せいてん", 0L, 2_000L, false)),
+            lineStartMs = 1,
+            lineEndMs = 2
+        ).copy(renderModes = renderModes().copy(animation = "Karaoke fill"))
+        val out = project(s, compiled = compiledWithBetterLyrics)
+        assertEquals("BetterLyrics", out.animationMode)
+        assertEquals("On", out.glowMode)
+    }
+
+    @Test
+    fun producerRenderModesRemainTheFallbackWhenCompiledProfileMissing() {
+        // compiled 缺失（降级 / 旧文档）时仍回落 renderModes，行为与改前一致。
+        val s = state(lyricKind = LyricKind.LINE, line = "x", lineIndex = 0, lineStartMs = 1, lineEndMs = 2)
+        val out = project(s, compiled = null)
         val modes = renderModes()
         assertEquals(modes.weight, out.weight)
         assertEquals(modes.textSize, out.textSizeMode)
-        assertEquals(modes.textSizeCustom, out.textSizeCustom)
-        assertEquals(modes.secondary, out.secondaryMode)
         assertEquals(modes.animation, out.animationMode)
         assertEquals(modes.glow, out.glowMode)
-        assertEquals(modes.lineSyncFill, out.lineSyncFillMode)
-        assertEquals(modes.overflow, out.overflowMode)
         assertEquals(modes.transition, out.transitionMode)
-        assertEquals(modes.font, out.fontFamily)
     }
 
     @Test
