@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
  * sourced from [CustomizationRepository.loadCompiled] (the AOD [CompiledSurfaceProfile]).
  * Snapshot is cached and refreshed on song change — never read at 60 Hz.
  *
- * Contract (see `.archcore/lyricon-integration/lyric-producer-contract.spec.md`):
+ * Contract (see `docs/LYRIC_PRODUCER_CONTRACT.md`):
  * - Requires API >= 27 (O_MR1). Below that, `LyriconFactory.createSubscriber` returns
  *   `EmptyLyriconSubscriber`, so this producer is a no-op (spec: API<27 → no-op).
  * - Requires lyricon's Xposed module active in SystemUI; its absence MUST NOT crash HyperGlow.
