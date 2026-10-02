@@ -174,6 +174,7 @@ internal class AodLyricCanvasView(
     private var lastTransformLogKey = ""
     private var lastRotationBoundsKey = ""
     private var lastRenderModeLogKey = ""
+    private var lastIncomingProbeKey = ""
 
     /**
      * 裁剪防呆:padding 异常(left>=right 或 top>=bottom)会让 clipRect 变成空矩形,
@@ -290,6 +291,17 @@ internal class AodLyricCanvasView(
     }
 
     fun setContent(incomingContent: AodCanvasContent) {
+        if (HookLogger.traceEnabled) {
+            // 诊断探针(配置下发排查):记录画布实例与「收到」的档位,与控制器侧
+            // Render profile probe 配对,定位「控制器读到的 profile 正确但画布渲染旧档」。
+            val incomingKey = "id=${System.identityHashCode(this)} " +
+                "inAnim=${incomingContent.animationMode} inGlow=${incomingContent.glowMode} " +
+                "words=${incomingContent.words.size}"
+            if (incomingKey != lastIncomingProbeKey) {
+                lastIncomingProbeKey = incomingKey
+                HookLogger.i("AodLyricCanvasView", "setContent in: $incomingKey")
+            }
+        }
         val nextContent = incomingContent.copy(
             animationMode = normalizeAodAnimation(incomingContent.animationMode),
             motionMode = normalizeAodMotion(incomingContent.motionMode),
