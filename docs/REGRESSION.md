@@ -484,6 +484,12 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   改动（不涉及 SystemUI/AOD surface）——合并后待真机冒烟：选文字颜色后行标题与卡片文字立即
   变色而 summary 保持主题色、选字体后整个应用界面跨屏换字体、跟随系统恢复平台默认、两项随
   备份导出导入。
+- 息屏(AOD)渲染模式改从编译后的 AOD profile 解析(`AodStateProjector.projectToDisplay`:weight / 字号档与自定义百分比 / 辅助文字模式 / 逐字动画 / 发光 / 行进度效果 / 折行裁剪 / 字体族 / 换行动画 / 主对齐 / 歌曲信息锚点 / 自适应分节),producer 的 `renderModes` 降为兜底(`compiled` 缺失时行为与改前一致)。
+  根因(现场反馈「BetterLyrics 的效果在预览上看得见,实机上没有」):投影层此前只读 `state.renderModes`,而全仓只有 Lyricon 会从 profile 回填它(`LyriconRenderModeMapping.toProducerRenderModes` 是唯一调用点);LyricInfo / SuperLyric 发的是硬编码默认值,Spicy 的桥白名单(`normalizeSpicyBridgeRenderModes`)又不含 `BetterLyrics`,于是这些源下 `animation` 恒为硬编码值再被 `normalizeAodAnimation` 退回 `Gradient`——同一条链上的字号档、字重、辅助文字、发光、字体、换行动画、行进度效果同样不生效。另三项(主对齐 / 歌曲信息锚点 / 自适应分节)历史上读旧 SharedPreferences,而 `ui/` 已无任何写入方(`SettingsPrefs.updateAlignment` 等在 `ui/` 下零调用点),恒取默认值。锁屏面不走这条链(`LyricCanvasMapper` 直接读 SystemUI 侧 customization bundle),所以现象只在息屏出现——这也解释了 PR #138/#139/#140 的验证为何没发现(其「设备验证」栏一直是「待真机冒烟」,且备注里的锁屏观察恰好是好的那条路)。
+  同时清理:三个生产者的 `defaultRenderModes()` 兜底值 `animation = "Karaoke fill"` 改为 `"Gradient"`(该遗留名过不了 `normalizeAodAnimation`,是纯误导);Spicy 桥归一化白名单补入 `BetterLyrics`(被静默改写会在归一化处再退回 Gradient)。
+  测试:`AodStateProjectorTest` 的「渲染模式透传」改为「编译 profile 覆盖 producer renderModes」,新增 `BetterLyrics` 现场形状的回归用例与 `compiled` 缺失时的兜底用例;UNSYNCED 的换行动画断言同步改口径(`Auto` → `Fade up`)并补一条兜底对照。`ArchitectureGuardTest` 新增两道机器门:投影层必须以 `aodProfile?.… ?: …` 取渲染模式;`producer/` 下不得再出现 `animation = "Karaoke fill"`。
+  合并后待真机冒烟(**不声称 device-verified**):歌词源分别选 LyricInfo / SuperLyric / Spicy,息屏与锁屏各验一遍——① 逐字动画选 `BetterLyrics` + 发光开,息屏出现长音节放大/辉光与未唱下沉/已唱上浮(对照 `adb logcat -s HyperGlow` 里 `AodLyricCanvasView` 的 `Render mode: anim=BetterLyrics …`,`anim=Gradient` 即未生效);② 字号档、字重、辅助文字模式、字体族、行进度效果在息屏生效;③ 主对齐(居中/右对齐)、歌曲信息锚点(底部)、自适应分节开关在息屏生效;④ 切回 Lyricon 行为不变(该源本就取 profile,改后仍取 profile,只是路径统一)。
+  已知相邻缺口(本 PR 未含,需各自独立处理,均为息屏独有):`aod/AodStateWire` 的 `normalizeAodTransition` 只放行 5 个历史档,25 个 HyperLyrics 预设 id 在息屏会被静默改写为 `Fade up`(锁屏正常)——修它要过 wire 出口白名单,属协议面改动;`metadataSizePercent` 从未过 AOD wire(`AodCanvasContent` 恒为 100),故息屏的「歌曲信息字号」不生效——修它要新增 wire 字段与 BODY_VERSION 递增。两者都请另开 issue/PR,不要混进本 PR。
 - 换行动画改为逐行三段式（owner 2026-09-30 定案，实机 + 预览）：此前整块行块（主歌词 +
   辅助文字 + 下一行）单层进退——第一行与第二行用同个动画一起消失/移动、新两行用同个
   动画一起出现；历史档退场/入场还共用同一 elapsed 叠加进行，旧行未走完新行已进场，
