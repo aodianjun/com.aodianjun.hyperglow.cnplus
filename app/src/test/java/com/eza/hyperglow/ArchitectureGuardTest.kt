@@ -136,6 +136,69 @@ class ArchitectureGuardTest {
         )
     }
 
+    // --- 息屏渲染模式的来源契约 ---
+
+    @Test
+    fun aodRenderModesPreferCompiledProfileOverProducerRenderModes() {
+        // 「BetterLyrics 预览看得到、实机没有」的机器门：息屏渲染模式必须以编译后的
+        // AOD profile 为准，state.renderModes 只作兜底。应用内预览读的就是这份 profile
+        // （PreviewComponents: betterLyrics = profile.animation == "BetterLyrics"），
+        // 两端同源才谈得上所见即所得。
+        //
+        // 回归形状：投影层只读 state.renderModes，而全仓只有 Lyricon 会从 profile 回填它
+        //（LyriconRenderModeMapping.toProducerRenderModes 是唯一调用点），LyricInfo /
+        // SuperLyric 发硬编码默认值、Spicy 桥白名单又不含 BetterLyrics —— 这些源下
+        // 「逐字动画」等设置永远到不了息屏，表现即「设置只在预览生效、实机不变」。
+        val base = mainSourceDir() ?: return
+        val projector = File(base, "aod/AodStateProjector.kt")
+        assertTrue("aod/AodStateProjector.kt exists", projector.isFile)
+        val text = projector.readText()
+        val required = listOf(
+            "aodProfile?.weight ?: modes.weight",
+            "aodProfile?.textSize ?: modes.textSize",
+            "aodProfile?.textSizeCustom ?: modes.textSizeCustom",
+            "aodProfile?.secondaryMode ?: modes.secondary",
+            "aodProfile?.animation ?: modes.animation",
+            "aodProfile?.glow ?: modes.glow",
+            "aodProfile?.lineSyncFillMode ?: modes.lineSyncFill",
+            "aodProfile?.overflow ?: modes.overflow",
+            "aodProfile?.fontFamily ?: modes.font",
+            "aodProfile?.alignment ?: prefs.alignment",
+            "aodProfile?.metadataAnchor ?: prefs.metadataAnchor",
+            "aodProfile?.adaptiveSectioning ?: prefs.adaptiveSectioning",
+            "resolveLineTransition(it.lineTransition"
+        )
+        val missing = required.filterNot { text.contains(it) }
+        assertTrue(
+            "AodStateProjector must read AOD render modes from the compiled profile first, " +
+                "missing: $missing",
+            missing.isEmpty()
+        )
+    }
+
+    @Test
+    fun producersDoNotShipUnnormalizableAnimationDefaults() {
+        // aod/AodRenderPreferences.normalizeAodAnimation 只放行 Minimal / BetterLyrics，
+        // 其余（含历史遗留名）一律回落 Gradient。生产者兜底默认值若写了过不了归一化的值，
+        // 就是纯误导：既让兜底路径静默降级，也让「设置只在预览生效」这类反馈更难定位。
+        val base = mainSourceDir() ?: return
+        val producerDir = File(base, "producer")
+        assumeTrue("scope producer exists", producerDir.isDirectory)
+        // 普通字符串而非 raw string：raw string 遇到结尾的 `"` 会被 `"""` 提前截断。
+        val marker = Regex("animation\\s*=\\s*\"Karaoke fill\"")
+        val violations = mutableListOf<String>()
+        for (file in kotlinSources(producerDir)) {
+            val text = runCatching { file.readText() }.getOrNull() ?: continue
+            if (marker.containsMatchIn(text)) {
+                violations += file.relativeTo(base).invariantSeparatorsPath
+            }
+        }
+        assertTrue(
+            "producer renderModes defaults must survive normalizeAodAnimation, found \"Karaoke fill\" in: $violations",
+            violations.isEmpty()
+        )
+    }
+
     // --- helpers ---
 
     private fun mainSourceDir(): File? {
