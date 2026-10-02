@@ -58,4 +58,15 @@ class BetterLyricsWordEffectsTest {
         assertEquals(950L until 1_000L, syntheticCharTimeWindow(0L, 1_000L, 100f, 95f, 10f))
         assertEquals(1_000L until 1_000L, syntheticCharTimeWindow(0L, 1_000L, 100f, 100f, 0f))
     }
+
+    @Test
+    fun syntheticBlocksSplitCjkPerCharAndWesternPerWord() {
+        // 中文逐字成块、西文按词成块(含词内标点)、空白跳过。
+        assertEquals(listOf(0 until 1, 1 until 2, 2 until 3), syntheticKaraokeBlocks("蝴蝶飞"))
+        assertEquals(listOf(0 until 5, 6 until 11), syntheticKaraokeBlocks("hello world"))
+        assertEquals(listOf(0 until 5, 6 until 7, 7 until 8), syntheticKaraokeBlocks("hello 你好"))
+        assertEquals(listOf(0 until 5), syntheticKaraokeBlocks("don't"))
+        assertEquals(listOf(0 until 1, 2 until 3), syntheticKaraokeBlocks("你 好"))
+        assertEquals(emptyList<IntRange>(), syntheticKaraokeBlocks("   "))
+    }
 }

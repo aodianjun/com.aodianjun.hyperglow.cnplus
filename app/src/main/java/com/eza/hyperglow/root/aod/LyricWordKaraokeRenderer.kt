@@ -9,8 +9,13 @@ import kotlin.math.roundToLong
 
 /**
  * 逐字卡拉OK的一个词位(行内绝对坐标):[playedFraction] 为该词已唱比例 0..1
- * (0=未唱、1=已唱完、之间=正在唱);[durationMs] 为词时长,驱动未唱下沉/已唱上浮的
- * 动画时长;[longSyllable] 标记长音节(「BetterLyrics」档放大/辉光只作用于长音节)。
+ * (0=未唱、1=已唱完、之间=正在唱),驱动底字亮度/扫光/未唱下沉/已唱上浮;
+ * [durationMs] 为词时长,驱动上浮动画的加速段;[longSyllable] 标记长音节
+ * (「BetterLyrics」档放大/辉光只作用于长音节)。
+ *
+ * [highlightFraction] 为「高亮进度」:放大与辉光由它驱动,让同一词块内的字符共享
+ * 一个进度(整块同步放大/发光而非单字符一闪,合成源的关键可见性)。负数=未提供,
+ * 退回 [playedFraction](逐字源:字符自身进度)。
  */
 internal data class KaraokeWordRun(
     val text: String,
@@ -18,7 +23,8 @@ internal data class KaraokeWordRun(
     val width: Float,
     val playedFraction: Float,
     val durationMs: Long,
-    val longSyllable: Boolean
+    val longSyllable: Boolean,
+    val highlightFraction: Float = -1f
 )
 
 /** 长音节阈值:词时长不低于此值才算长音节(参考 jayfunc/BetterLyrics 的 700ms)。 */
@@ -104,6 +110,39 @@ internal fun syntheticCharTimeWindow(
 }
 
 /**
+ * 行级源合成的词块划分:空白跳过;CJK 汉字各自成块(逐字,中文行没有空格可依),
+ * 连续非 CJK 非空白字符成一块(西文按词,连同词内标点)。放大/辉光以块为单位同步,
+ * 块内字符仍各自扫光——中文逐字、西文逐词,与参考实现的音节粒度同构。
+ */
+internal fun syntheticKaraokeBlocks(text: String): List<IntRange> {
+    val blocks = ArrayList<IntRange>()
+    var index = 0
+    while (index < text.length) {
+        if (text[index].isWhitespace()) {
+            index++
+            continue
+        }
+        val start = index
+        if (isCjkKaraokeChar(text[index])) {
+            index++
+        } else {
+            while (index < text.length &&
+                !text[index].isWhitespace() &&
+                !isCjkKaraokeChar(text[index])
+            ) {
+                index++
+            }
+        }
+        blocks += start until index
+    }
+    return blocks
+}
+
+/** CJK 统一表意文字(含扩展 A/兼容区):按字成块;其余(西文/数字/标点)按词成块。 */
+private fun isCjkKaraokeChar(ch: Char): Boolean =
+    ch.code in 0x4E00..0x9FFF || ch.code in 0x3400..0x4DBF || ch.code in 0xF900..0xFAFF
+
+/**
  * 逐字卡拉OK的共享渲染核心 —— 预览(PreviewComponents)与实机(AodLyricCanvasView)
  * 调用同一实现:底字亮度、词内扫光带、演唱中放大、未唱下沉/已唱上浮、长音节辉光
  * 只在此定义一次,杜绝"两份手工同步的拷贝"造成的漂移。
@@ -152,9 +191,16 @@ internal object LyricWordKaraokeRenderer {
             if (run.text.isEmpty()) continue
             val played = run.playedFraction.coerceIn(0f, 1f)
             val sung = played >= 1f
-            val active = played > 0f && played < 1f
+            // 放大/辉光由「高亮进度」驱动:逐字源=字符自身进度;合成源=所属词块的进度
+            // (块内字符共享),整块在一个音节演唱期间同步放大/发光、持续可见。
+            val highlight = if (run.highlightFraction >= 0f) {
+                run.highlightFraction.coerceIn(0f, 1f)
+            } else {
+                played
+            }
+            val active = highlight > 0f && highlight < 1f
             val scale = when {
-                active -> karaokeScaleAt(played, karaokeScalePeak(betterLyrics, run.longSyllable))
+                active -> karaokeScaleAt(highlight, karaokeScalePeak(betterLyrics, run.longSyllable))
                 sung -> 1f
                 else -> UNSUNG_SCALE
             }
