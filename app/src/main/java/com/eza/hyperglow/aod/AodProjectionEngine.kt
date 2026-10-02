@@ -516,10 +516,15 @@ object AodProjectionEngine {
     // after the Phase 3 switch — producers now select the active row before emitting). ---
 
     fun isTimedDocumentType(type: String): Boolean =
-        type.equals("Line", ignoreCase = true) || type.equals("Syllable", ignoreCase = true)
+        type.equals("Line", ignoreCase = true) || type.equals("Word", ignoreCase = true) ||
+            type.equals("Syllable", ignoreCase = true)
 
     internal fun hasActualLyricTiming(document: SpicyBridgeDocument): Boolean =
-        isTimedDocumentType(document.type) && document.rows.any { it.endMs > it.startMs }
+        // 间奏行带时间窗但不是唱词:只有间奏的文档不计「有计时」,否则没有唱词源的歌会把
+        // AOD keepalive 钉在间奏场景(上游 99ba119)。
+        isTimedDocumentType(document.type) && document.rows.any {
+            it.role != "INTERLUDE" && it.endMs > it.startMs
+        }
 
     internal fun shouldKeepAodAlive(
         playing: Boolean,
@@ -535,7 +540,8 @@ object AodProjectionEngine {
 
     fun isEffectiveLineLevelSync(type: String, wordCount: Int): Boolean =
         isLineLevelDocumentType(type) ||
-            type.equals("Syllable", ignoreCase = true) && wordCount <= 0
+            (type.equals("Word", ignoreCase = true) ||
+                type.equals("Syllable", ignoreCase = true)) && wordCount <= 0
 
     /** Delegates to [AodStateProjector.sessionWakeSignal] (LyricProducerState overload). */
     internal fun sessionWakeSignal(state: LyricProducerState, hasTimedLyrics: Boolean): Long =
