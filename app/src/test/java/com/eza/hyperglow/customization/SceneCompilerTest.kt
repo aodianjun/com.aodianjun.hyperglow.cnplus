@@ -768,6 +768,21 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun hideAlbumWhenSameAsTitleCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 「专辑与歌名一致时隐藏专辑」同为文档级全局开关:非默认值(开启)必须穿过
+        // compile、SystemUI 二次校验与仓库 canonicalize 的逐字段重建往返,漏字段会被静默
+        // 弹回默认(关闭)。
+        val on = CustomizationDocument(hideAlbumWhenSameAsTitle = true)
+        assertTrue(SceneCompiler.compile(on).hideAlbumWhenSameAsTitle)
+        assertTrue(
+            SystemUiCustomizationValidator.validate(SceneCompiler.compile(on))!!
+                .hideAlbumWhenSameAsTitle
+        )
+        assertTrue(CustomizationRepository.canonicalizeDocument(on)!!.hideAlbumWhenSameAsTitle)
+        assertFalse(SceneCompiler.compile(SceneCompiler.safeDefaultDocument()).hideAlbumWhenSameAsTitle)
+    }
+
+    @Test
     fun systemUiValidatorResetsInvalidCardColorToDefault() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(

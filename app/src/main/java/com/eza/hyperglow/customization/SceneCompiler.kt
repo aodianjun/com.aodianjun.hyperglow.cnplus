@@ -57,6 +57,7 @@ object SceneCompiler {
                 source.metadataSeparators,
                 source.metadataParts
             ),
+            hideAlbumWhenSameAsTitle = source.hideAlbumWhenSameAsTitle,
             duetMarkers = source.duetMarkers,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )
@@ -119,6 +120,7 @@ object SceneCompiler {
                 safe.metadataSeparators,
                 safe.metadataParts
             ),
+            hideAlbumWhenSameAsTitle = safe.hideAlbumWhenSameAsTitle,
             duetMarkers = safe.duetMarkers,
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
         )

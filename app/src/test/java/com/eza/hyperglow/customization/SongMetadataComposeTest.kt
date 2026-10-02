@@ -149,6 +149,58 @@ class SongMetadataComposeTest {
     }
 
     @Test
+    fun hideAlbumWhenSameAsTitleDropsAlbumSlice() {
+        // 关闭时专辑照常显示(默认行为不受影响)。
+        assertEquals(
+            "Song\nArtist\nSong",
+            composeSongMetadata("Song", "Artist", "Song", "title,artist,album", METADATA_SEPARATOR_NEWLINE)
+        )
+        // 开启且专辑名与歌名完全相同 → 丢弃专辑,分隔符随之折叠。
+        assertEquals(
+            "Song\nArtist",
+            composeSongMetadata(
+                "Song", "Artist", "Song", "title,artist,album", METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+        // 两端空白裁剪后相等同样丢弃。
+        assertEquals(
+            "Song\nArtist",
+            composeSongMetadata(
+                "Song", "Artist", " Song ", "title,artist,album", METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+        // 专辑与歌名不同、或专辑为空 → 不受开关影响。
+        assertEquals(
+            "Song\nArtist\nAlbum",
+            composeSongMetadata(
+                "Song", "Artist", "Album", "title,artist,album", METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+        assertEquals(
+            "Song\nArtist",
+            composeSongMetadata(
+                "Song", "Artist", "", "title,artist,album", METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+    }
+
+    @Test
+    fun hideAlbumWhenSameAsTitleFoldsAlbumInTheMiddle() {
+        // 专辑夹在中间被抑制:剩余相邻项用前一槽分隔符连接(与「空切片丢弃」同一折叠语义)。
+        assertEquals(
+            "Song · Artist",
+            composeSongMetadata(
+                "Song", "Artist", "Song", "title,album,artist", "dot,dot",
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+    }
+
+    @Test
     fun composeNormalizesIncomingPartsAndSeparator() {
         // 未经归一的入参也按词表收敛,非法部分丢弃、非法分隔符回落换行。
         assertEquals(

@@ -286,7 +286,8 @@ internal fun LyricLayoutScreen(
                     scenario = editorState.selectedSurface,
                     metadataParts = editorState.document.metadataParts,
                     metadataSeparators = editorState.document.metadataSeparators,
-                    duetMarkers = editorState.document.duetMarkers
+                    duetMarkers = editorState.document.duetMarkers,
+                    hideAlbumWhenSameAsTitle = editorState.document.hideAlbumWhenSameAsTitle
                 )
             }
             LazyColumn(
@@ -521,6 +522,22 @@ internal fun LyricLayoutScreen(
                             ),
                             onClick = { activePartsEditor = true }
                         )
+                        // 专辑名与歌名一致时隐藏专辑(内容级解释,全局生效);仅专辑被选中时才有意义。
+                        val albumSelected = METADATA_PART_ALBUM in normalizeMetadataParts(
+                            editorState.document.metadataParts
+                        ).split(',')
+                        if (albumSelected) {
+                            SwitchPreference(
+                                editorState.document.hideAlbumWhenSameAsTitle,
+                                { enabled ->
+                                    updateDocument { it.copy(hideAlbumWhenSameAsTitle = enabled) }
+                                },
+                                stringResource(R.string.setting_hide_album_same_as_title),
+                                summary = stringResource(
+                                    R.string.summary_hide_album_same_as_title
+                                )
+                            )
+                        }
                         // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 自适应缩放
                         // (关闭时露出自定义大小拖动条) → 旋转(仅圆形)。
                         SwitchPreference(
@@ -1077,7 +1094,8 @@ internal fun previewEnvironment(
 @Composable
 internal fun collectDemoSnapshot(
     metadataParts: String,
-    metadataSeparators: String
+    metadataSeparators: String,
+    hideAlbumWhenSameAsTitle: Boolean = false
 ): LyricSnapshot {
     var index by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
@@ -1105,7 +1123,8 @@ internal fun collectDemoSnapshot(
             artist = "洛天依",
             album = "专辑示例",
             parts = metadataParts,
-            separators = metadataSeparators
+            separators = metadataSeparators,
+            hideAlbumWhenSameAsTitle = hideAlbumWhenSameAsTitle
         ),
         lineLevelSync = true,
         lineStartMs = 0,

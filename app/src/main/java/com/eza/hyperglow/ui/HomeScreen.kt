@@ -345,7 +345,8 @@ internal fun HomeScreen(
                         val previewLive = collectLiveSnapshot(
                             customizationDocument.metadataParts,
                             customizationDocument.metadataSeparators,
-                            customizationDocument.duetMarkers
+                            customizationDocument.duetMarkers,
+                            customizationDocument.hideAlbumWhenSameAsTitle
                         )
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -365,7 +366,9 @@ internal fun HomeScreen(
                                     live = previewLive,
                                     metadataParts = customizationDocument.metadataParts,
                                     metadataSeparators = customizationDocument.metadataSeparators,
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth(),
+                                    hideAlbumWhenSameAsTitle =
+                                        customizationDocument.hideAlbumWhenSameAsTitle
                                 )
                                 LyricPreviewCard(
                                     title = stringResource(R.string.label_aod_preview),
@@ -374,7 +377,9 @@ internal fun HomeScreen(
                                     live = previewLive,
                                     metadataParts = customizationDocument.metadataParts,
                                     metadataSeparators = customizationDocument.metadataSeparators,
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth(),
+                                    hideAlbumWhenSameAsTitle =
+                                        customizationDocument.hideAlbumWhenSameAsTitle
                                 )
                             }
                         }

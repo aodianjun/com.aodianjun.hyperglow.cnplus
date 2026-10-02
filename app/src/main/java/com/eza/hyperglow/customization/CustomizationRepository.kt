@@ -223,6 +223,7 @@ object CustomizationRepository {
             linkSurfaces = compiled.linkSurfaces,
             metadataParts = compiled.metadataParts,
             metadataSeparators = compiled.metadataSeparators,
+            hideAlbumWhenSameAsTitle = compiled.hideAlbumWhenSameAsTitle,
             duetMarkers = compiled.duetMarkers,
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to compiled.profiles

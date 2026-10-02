@@ -24,6 +24,12 @@ data class CustomizationDocument(
      */
     val metadataSeparator: String? = null,
     /**
+     * 专辑名与歌名一致时隐藏专辑切片:开启后,当专辑名(裁剪两端空白后)与歌名完全相同,
+     * 组装歌曲信息时丢弃专辑部分(等同该部分为空,分隔符随之折叠),避免重复显示。
+     * 全局生效(内容级解释,同时作用于息屏与锁屏)。
+     */
+    val hideAlbumWhenSameAsTitle: Boolean = false,
+    /**
      * 识别对唱标记:行首「（男）/（女）/（合）」演唱者标记被识别为演唱者身份——显示时
      * 隐去标记文本,并作为对唱左右分侧的身份输入(元数据身份恒优先,
      * 见 [com.eza.hyperglow.producer.resolveDuetAlignment]);「（副歌）/（间奏）」等段落标记
@@ -165,6 +171,8 @@ data class CompiledCustomization(
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 歌曲信息逐槽分隔符 token 列表;全局生效,由 [CustomizationDocument.metadataSeparators] 编译而来。 */
     val metadataSeparators: String = METADATA_SEPARATORS_DEFAULT,
+    /** 专辑名与歌名一致时隐藏专辑切片;全局生效,由 [CustomizationDocument.hideAlbumWhenSameAsTitle] 编译而来。 */
+    val hideAlbumWhenSameAsTitle: Boolean = false,
     /** 识别对唱标记;全局生效,由 [CustomizationDocument.duetMarkers] 编译而来。 */
     val duetMarkers: Boolean = true,
     val profiles: Map<String, CompiledSurfaceProfile>,
@@ -443,14 +451,22 @@ internal fun normalizeMetadataSeparators(value: String?, parts: String): String 
  * [separators] 对应槽位的分隔符连接,逐槽独立(槽位不足回落换行)。每个部分文本内的 `·`
  * 仍视作切片边界(历史行为:部分音源把「歌名·歌手」塞进单字段),同一切片内部与部分之间
  * 共用该部分之后的槽位分隔符;最后一个部分之后无槽位,回落换行。切片两端空白裁剪,空切片丢弃。
+ *
+ * [hideAlbumWhenSameAsTitle] 开启且专辑名(裁剪两端空白后)与歌名完全相同时,专辑部分按
+ * 「无切片」处理(整体丢弃、分隔符随之折叠),用于避免专辑与歌名重复显示。
  */
 internal fun composeSongMetadata(
     title: String,
     artist: String,
     album: String,
     parts: String,
-    separators: String
+    separators: String,
+    hideAlbumWhenSameAsTitle: Boolean = false
 ): String {
+    val normalizedAlbum = album.trim()
+    val suppressAlbum = hideAlbumWhenSameAsTitle &&
+        normalizedAlbum.isNotEmpty() &&
+        normalizedAlbum == title.trim()
     val source = mapOf(
         METADATA_PART_TITLE to title,
         METADATA_PART_ARTIST to artist,
@@ -463,9 +479,13 @@ internal fun composeSongMetadata(
     var pendingSeparator = ""
     var firstPiece = true
     normalizeMetadataParts(parts).split(',').forEachIndexed { partIndex, part ->
-        val slices = source.getValue(part).split('·')
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
+        val slices = if (part == METADATA_PART_ALBUM && suppressAlbum) {
+            emptyList()
+        } else {
+            source.getValue(part).split('·')
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+        }
         slices.forEachIndexed { sliceIndex, slice ->
             if (firstPiece) {
                 builder.append(slice)
