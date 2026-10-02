@@ -316,6 +316,19 @@ class LyriconLyricProducer(
     }
 
     /**
+     * 「重启歌词源」:重建活动播放器订阅,SDK 会对当前在播歌曲补发 onSongChanged,
+     * 恢复卡死的回调路径(与重启应用等效,见 [forceResubscribeActivePlayer])。
+     */
+    override fun restart() {
+        if (subscriber == null) {
+            AppLog.i("LyriconLyricProducer", "restart: no subscriber (no-op)")
+            return
+        }
+        AppLog.i("LyriconLyricProducer", "restart: rebuilding active player subscription")
+        watchdogScope.launch { forceResubscribeActivePlayer("user restart") }
+    }
+
+    /**
      * 外部设置变更(文档保存/导入/重置)时的重算入口:「歌词时间偏移」、标记开关与渲染模式
      * 即刻刷新,分侧快照按当前歌重算(无歌时仅刷新缓存)。
      */

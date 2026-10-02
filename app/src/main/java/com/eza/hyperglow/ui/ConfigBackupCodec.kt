@@ -1,5 +1,6 @@
 package com.eza.hyperglow.ui
 
+import com.eza.hyperglow.DiagnosticLogLevel
 import com.eza.hyperglow.DiagnosticTraceFile
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderConfig.Companion.DEFAULTS
@@ -9,6 +10,7 @@ import com.eza.hyperglow.aod.MIN_AOD_BRIGHTNESS
 import com.eza.hyperglow.aod.normalizeAodCanvasAnchor
 import com.eza.hyperglow.aod.normalizeAodCanvasPaddingPercent
 import com.eza.hyperglow.aod.normalizeAodClockYOffset
+import com.eza.hyperglow.aod.normalizeAodFullscreenSafeMarginPercent
 import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
 import com.eza.hyperglow.aod.normalizeAodRefreshRateCap
 import com.eza.hyperglow.aod.normalizeAodRotationMode
@@ -16,6 +18,7 @@ import com.eza.hyperglow.aod.normalizeAodRotationSettleMs
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_AUTO
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.normalizeDiagnosticLogLevel
 import com.eza.hyperglow.normalizeLogRetentionDays
 import com.eza.hyperglow.plugin.isValidPluginId
 import com.eza.hyperglow.producer.LyricSource
@@ -75,6 +78,7 @@ internal data class ConfigBackupSideSettings(
     val uiLanguage: UiLanguage? = null,
     val diagnosticLogging: Boolean? = null,
     val logRetentionDays: Int? = null,
+    val logLevel: DiagnosticLogLevel? = null,
     /** 插件 id → (设置键 → SharedPreferences 原生值);写入按覆盖语义,未列出的键保持现状。 */
     val pluginSettings: Map<String, Map<String, Any?>>? = null
 )
@@ -157,6 +161,9 @@ internal object ConfigBackupCodec {
         BackupFloatField(AodRenderPreferences.AOD_LANDSCAPE_TEXT_SCALE) {
             it.aodLandscapeTextScale
         },
+        BackupFloatField(AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT) {
+            it.aodLandscapeFullscreenSafeMarginPercent
+        },
         BackupFloatField(AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT) {
             it.aodCanvasPaddingPortraitXPercent
         },
@@ -220,10 +227,13 @@ internal object ConfigBackupCodec {
         side.lyricSource?.let { out[LYRIC_SOURCE_KEY] = JsonPrimitive(it.name) }
         side.appUiAppearance?.let { out[APP_UI_KEY] = encodeAppUiAppearance(it) }
         side.uiLanguage?.let { out[UI_LANGUAGE_KEY] = JsonPrimitive(it.name) }
-        if (side.diagnosticLogging != null || side.logRetentionDays != null) {
+        if (side.diagnosticLogging != null || side.logRetentionDays != null ||
+            side.logLevel != null
+        ) {
             out[DIAGNOSTICS_KEY] = buildJsonObject {
                 side.diagnosticLogging?.let { put(DIAGNOSTIC_LOGGING_KEY, it) }
                 side.logRetentionDays?.let { put(LOG_RETENTION_DAYS_KEY, it) }
+                side.logLevel?.let { put(LOG_LEVEL_KEY, it.wire) }
             }
         }
         side.pluginSettings?.let { plugins ->
@@ -368,6 +378,7 @@ internal object ConfigBackupCodec {
                     it.int(LOG_RETENTION_DAYS_KEY) ?: DiagnosticTraceFile.DEFAULT_RETENTION_DAYS
                 )
             },
+            logLevel = diagnostics?.string(LOG_LEVEL_KEY)?.let(::normalizeDiagnosticLogLevel),
             pluginSettings = decodePluginSettings(envelope[PLUGIN_SETTINGS_KEY])
         )
     }
@@ -489,6 +500,10 @@ internal object ConfigBackupCodec {
             ?: DEFAULTS.aodLandscapeHideStock,
         aodLandscapeFullscreen = stored.boolean(AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN)
             ?: DEFAULTS.aodLandscapeFullscreen,
+        aodLandscapeFullscreenSafeMarginPercent = stored.float(
+            AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT
+        )?.let(::normalizeAodFullscreenSafeMarginPercent)
+            ?: DEFAULTS.aodLandscapeFullscreenSafeMarginPercent,
         aodCanvasPaddingPortraitXPercent = stored.float(
             AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT
         )?.let(::normalizeAodCanvasPaddingPercent) ?: DEFAULTS.aodCanvasPaddingPortraitXPercent,
@@ -539,6 +554,7 @@ internal object ConfigBackupCodec {
     private const val PLUGIN_SETTINGS_KEY = "pluginSettings"
     private const val DIAGNOSTIC_LOGGING_KEY = "diagnostic_logging"
     private const val LOG_RETENTION_DAYS_KEY = "log_retention_days"
+    private const val LOG_LEVEL_KEY = "log_level"
 
     /** 插件设置数字值的类型标签(见 [encodePluginValue])。 */
     private const val PLUGIN_VALUE_TAG_INT = "i"

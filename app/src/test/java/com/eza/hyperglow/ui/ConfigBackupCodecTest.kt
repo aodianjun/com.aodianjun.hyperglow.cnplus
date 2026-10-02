@@ -1,5 +1,6 @@
 package com.eza.hyperglow.ui
 
+import com.eza.hyperglow.DiagnosticLogLevel
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.customization.SceneCompiler
@@ -54,6 +55,7 @@ class ConfigBackupCodecTest {
         aodLandscapeTextScale = 1.5f,
         aodLandscapeHideStock = true,
         aodLandscapeFullscreen = true,
+        aodLandscapeFullscreenSafeMarginPercent = 12.5f,
         aodCanvasPaddingPortraitXPercent = 4.5f,
         aodCanvasPaddingPortraitYPercent = 6f,
         aodCanvasPaddingLandscapeXPercent = 8.25f,
@@ -84,6 +86,7 @@ class ConfigBackupCodecTest {
         uiLanguage = UiLanguage.SIMPLIFIED_CHINESE,
         diagnosticLogging = true,
         logRetentionDays = 15,
+        logLevel = DiagnosticLogLevel.VERBOSE,
         pluginSettings = mapOf(
             "com.example.plugin" to mapOf(
                 "enabled" to true,

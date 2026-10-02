@@ -122,6 +122,30 @@ class SuperLyricLyricProducer(
     }
 
     /**
+     * 「重启歌词源」:注销并重新注册 Binder 接收器,重新武装服务端回调路径。
+     * 与 [maybeForceReRegisterOnStall] 同一动作,但由用户显式触发、不看停滞阈值。
+     */
+    override fun restart() {
+        if (!started) {
+            AppLog.i("SuperLyricLyricProducer", "restart: not started (no-op)")
+            return
+        }
+        scope.launch {
+            val ok = runCatching {
+                SuperLyricHelper.unregisterReceiver(receiver)
+                SuperLyricHelper.registerReceiver(receiver)
+                SuperLyricHelper.isReceiverRegistered(receiver)
+            }.getOrDefault(false)
+            if (ok) {
+                mutableConnection.value = ProducerConnection.RECONNECTED
+                AppLog.i("SuperLyricLyricProducer", "restart: receiver re-registered")
+            } else {
+                AppLog.w("SuperLyricLyricProducer", "restart: re-register failed")
+            }
+        }
+    }
+
+    /**
      * Registers [receiver] with SuperLyric, tolerating the SuperLyric module being absent. The
      * API's `registerReceiver` throws `IllegalStateException` when its manager is not attached
      * (module inactive / IPC not yet bound), so this MUST NOT be called unguarded — doing so

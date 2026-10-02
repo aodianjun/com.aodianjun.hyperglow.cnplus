@@ -13,8 +13,8 @@ class HyperGlowApplication : Application() {
         super.onCreate()
         DiagnosticCaptureManager.expireIfNeeded(this)
         DiagnosticDraftStore.load(this)
-        DiagnosticLoggingRuntime.setEnabled(DiagnosticLoggingPreferences.read(this))
-        DiagnosticTraceFile.setDirectory(filesDir.takeIf { DiagnosticLoggingRuntime.enabled })
+        // 总闸开关、写入等级与详细档的 SystemUI 侧镜像一并接线。
+        syncDiagnosticLoggingRuntime(this)
         // 保留期限在进程启动即修剪:日志关闭时也清理上次会话遗留的镜像。
         DiagnosticTraceFile.setRetentionDays(DiagnosticLoggingPreferences.readRetentionDays(this))
         DiagnosticTraceFile.prune(filesDir)

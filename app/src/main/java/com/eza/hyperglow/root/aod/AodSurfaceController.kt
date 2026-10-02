@@ -16,6 +16,7 @@ import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
+import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
@@ -1056,6 +1057,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val anchorLandscape = snapshot?.aodCanvasAnchorLandscape ?: 0.5f
         val textScale = snapshot?.aodLandscapeTextScale ?: 1f
         val fullscreen = snapshot?.aodLandscapeFullscreen == true
+        val fullscreenSafeMargin =
+            snapshot?.aodLandscapeFullscreenSafeMarginPercent
+                ?: DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
         val debugShowCanvasFrame = snapshot?.aodDebugShowCanvasFrame == true
         val padPX = snapshot?.aodCanvasPaddingPortraitXPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
         val padPY = snapshot?.aodCanvasPaddingPortraitYPercent ?: DEFAULT_CANVAS_PADDING_PERCENT
@@ -1075,7 +1079,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             paddingPortraitXPercent = padPX,
             paddingPortraitYPercent = padPY,
             paddingLandscapeXPercent = padLX,
-            paddingLandscapeYPercent = padLY
+            paddingLandscapeYPercent = padLY,
+            landscapeFullscreenSafeMarginPercent = fullscreenSafeMargin
         )
         if (rotate && !AodOrientationMonitor.isAttached()) {
             val context = rootRef.get()?.context

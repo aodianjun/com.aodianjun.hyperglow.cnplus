@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.DiagnosticLoggingPreferences
+import com.eza.hyperglow.DIAGNOSTIC_LOG_LEVELS
 import com.eza.hyperglow.LOG_RETENTION_DAYS
 import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.launch
@@ -45,6 +46,7 @@ import com.eza.hyperglow.aod.XiaomiCapabilityStore
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiProfileState
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -83,8 +85,10 @@ internal fun HomeScreen(
     var restartSystemUiTarget by rememberSaveable { mutableStateOf(true) }
     var restartAodTarget by rememberSaveable { mutableStateOf(true) }
     var restartHyperglowTarget by rememberSaveable { mutableStateOf(false) }
+    var restartLyricSource by rememberSaveable { mutableStateOf(false) }
     var showPauseLingerDialog by rememberSaveable { mutableStateOf(false) }
     var showLogRetentionDialog by rememberSaveable { mutableStateOf(false) }
+    var showLogLevelDialog by rememberSaveable { mutableStateOf(false) }
     var showClearLogsDialog by rememberSaveable { mutableStateOf(false) }
     var showLanguageDialog by rememberSaveable { mutableStateOf(false) }
     var showSourceDialog by rememberSaveable { mutableStateOf(false) }
@@ -118,6 +122,24 @@ internal fun HomeScreen(
             context.getString(
                 if (written) R.string.toast_config_exported
                 else R.string.toast_config_export_failed
+            ),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+    val exportLogsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val written = runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                it.write(readDiagnosticLogsForExport(context))
+            } ?: error("Log export unavailable")
+        }.isSuccess
+        Toast.makeText(
+            context,
+            context.getString(
+                if (written) R.string.toast_logs_exported
+                else R.string.toast_logs_export_failed
             ),
             Toast.LENGTH_LONG
         ).show()
@@ -204,6 +226,9 @@ internal fun HomeScreen(
     }
     var logRetentionDays by remember {
         mutableStateOf(DiagnosticLoggingPreferences.readRetentionDays(context))
+    }
+    var logLevel by remember {
+        mutableStateOf(DiagnosticLoggingPreferences.readLevel(context))
     }
     var persistentNotification by remember {
         mutableStateOf(initialConfig.persistentNotification)
@@ -401,6 +426,16 @@ internal fun HomeScreen(
                                 title = stringResource(R.string.setting_log_retention),
                                 summary = logRetentionLabel(context, logRetentionDays),
                                 onClick = { showLogRetentionDialog = true }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_log_level),
+                                summary = logLevelLabel(context, logLevel),
+                                onClick = { showLogLevelDialog = true }
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.action_export_logs),
+                                summary = stringResource(R.string.summary_export_logs),
+                                onClick = { exportLogsLauncher.launch("hyperglow-logs.txt") }
                             )
                             ArrowPreference(
                                 title = stringResource(R.string.action_clear_logs),
@@ -805,6 +840,11 @@ internal fun HomeScreen(
                     { enabled -> restartHyperglowTarget = enabled },
                     stringResource(R.string.dialog_restart_target_hyperglow)
                 )
+                SwitchPreference(
+                    restartLyricSource,
+                    { enabled -> restartLyricSource = enabled },
+                    stringResource(R.string.dialog_restart_target_lyric_source)
+                )
                 androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
                     TextButton(
                         text = stringResource(R.string.action_cancel),
@@ -817,7 +857,9 @@ internal fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),
                         onClick = {
-                            if (!restartSystemUiTarget && !restartAodTarget && !restartHyperglowTarget) {
+                            val hookTargetSelected = restartSystemUiTarget ||
+                                restartAodTarget || restartHyperglowTarget
+                            if (!hookTargetSelected && !restartLyricSource) {
                                 Toast.makeText(
                                     context,
                                     context.getString(R.string.toast_restart_no_target),
@@ -826,14 +868,26 @@ internal fun HomeScreen(
                                 return@TextButton
                             }
                             showRestartDialog = false
-                            scope.launch {
-                                showRestartResult(
-                                    ShellUtils.restartHookedProcesses(
-                                        systemUi = restartSystemUiTarget,
-                                        miuiAod = restartAodTarget,
-                                        hyperglowApp = restartHyperglowTarget
+                            // 歌词源重启在应用进程内即时生效(无 root);与挂钩进程重启相互独立。
+                            if (restartLyricSource) {
+                                LyricProducers.arbiterOrNull()?.restartSelected()
+                            }
+                            if (hookTargetSelected) {
+                                scope.launch {
+                                    showRestartResult(
+                                        ShellUtils.restartHookedProcesses(
+                                            systemUi = restartSystemUiTarget,
+                                            miuiAod = restartAodTarget,
+                                            hyperglowApp = restartHyperglowTarget
+                                        )
                                     )
-                                )
+                                }
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.toast_lyric_source_restarted),
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         }
                     )
@@ -878,6 +932,28 @@ internal fun HomeScreen(
                         {
                             if (updateLogRetentionDays(context, value)) logRetentionDays = value
                             showLogRetentionDialog = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showLogLevelDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_log_level),
+            summary = stringResource(R.string.dialog_log_level_summary),
+            show = true,
+            onDismissRequest = { showLogLevelDialog = false }
+        ) {
+            Column(Modifier.dialogScrollable()) {
+                DIAGNOSTIC_LOG_LEVELS.forEach { value ->
+                    RadioButtonPreference(
+                        logLevelLabel(context, value),
+                        logLevel == value,
+                        {
+                            if (updateLogLevel(context, value)) logLevel = value
+                            showLogLevelDialog = false
                         }
                     )
                 }

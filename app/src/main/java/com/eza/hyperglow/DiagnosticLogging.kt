@@ -28,6 +28,7 @@ internal object DiagnosticLoggingPreferences {
     private const val PREFS = "diagnostics"
     private const val KEY_DIAGNOSTIC_LOGGING = "diagnostic_logging"
     private const val KEY_LOG_RETENTION_DAYS = "log_retention_days"
+    private const val KEY_LOG_LEVEL = "log_level"
 
     fun read(context: Context): Boolean = diagnosticLoggingEnabled(
         available = BuildConfig.TRACE_LOGGING_AVAILABLE,
@@ -54,19 +55,51 @@ internal object DiagnosticLoggingPreferences {
             .edit()
             .putInt(KEY_LOG_RETENTION_DAYS, normalizeLogRetentionDays(days))
             .commit()
+
+    fun readLevel(context: Context): DiagnosticLogLevel = normalizeDiagnosticLogLevel(
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_LOG_LEVEL, null)
+    )
+
+    fun writeLevel(context: Context, level: DiagnosticLogLevel): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LOG_LEVEL, level.wire)
+            .commit()
 }
 
 internal fun setDiagnosticLogging(context: Context, enabled: Boolean): Boolean {
     if (!DiagnosticLoggingPreferences.write(context, enabled)) return false
-    val effective = DiagnosticLoggingPreferences.read(context)
-    DiagnosticLoggingRuntime.setEnabled(effective)
-    DiagnosticTraceFile.setDirectory(context.applicationContext.filesDir.takeIf { effective })
+    syncDiagnosticLoggingRuntime(context)
     AodStateBridge.publishConfiguration(
         RuntimeCustomization.loadCompiled(context),
         currentProcessUserId(),
         experimentalMode = AodRenderPreferences.read(context).experimentalMode
     )
     return true
+}
+
+/**
+ * 日志等级写入:只过滤镜像的写入阈值,不动总闸开关,也不改变镜像目录是否启用。
+ * 详细档额外拉起 SystemUI 侧 logcat 镜像(见 [DiagnosticSystemUiMirror])。
+ */
+internal fun setDiagnosticLogLevel(context: Context, level: DiagnosticLogLevel): Boolean {
+    if (!DiagnosticLoggingPreferences.writeLevel(context, level)) return false
+    syncDiagnosticLoggingRuntime(context)
+    return true
+}
+
+/**
+ * 把持久化偏好落到各运行时持有者:总闸开关 → 镜像目录,日志等级 → 写入下限,
+ * 详细档 → SystemUI 侧 logcat 镜像的启停。启动与每次设置变更都走这一条路径。
+ */
+internal fun syncDiagnosticLoggingRuntime(context: Context) {
+    val effective = DiagnosticLoggingPreferences.read(context)
+    DiagnosticLoggingRuntime.setEnabled(effective)
+    DiagnosticTraceFile.setDirectory(context.applicationContext.filesDir.takeIf { effective })
+    val level = DiagnosticLoggingPreferences.readLevel(context)
+    DiagnosticTraceFile.setMinSeverity(level.minSeverity)
+    DiagnosticSystemUiMirror.sync(effective && level.mirrorsSystemUiLogs)
 }
 
 internal object RuntimeCustomization {

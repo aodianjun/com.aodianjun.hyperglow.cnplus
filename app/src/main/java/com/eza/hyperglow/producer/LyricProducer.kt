@@ -248,6 +248,18 @@ interface LyricProducer {
     fun onExternalSeek(positionMs: Long) {}
 
     /**
+     * 「重启歌词源」入口:强制重建本源的订阅/回调链路,用于回调链静默卡死时在不重启
+     * 应用(=不重启 SystemUI/AOD)的前提下恢复。各源的重建方式不同:
+     * - Lyricon:重建活动播放器订阅,SDK 会补发当前歌曲(与重启等效);
+     * - SuperLyric:注销并重新注册 Binder 接收器,重新武装回调路径;
+     * - LyricInfo:重新注册 MediaSession 会话监听并重新挑选活动会话。
+     *
+     * 由外部推送驱动、应用侧无可重建订阅的源(如 Spicy EX)保持默认无操作。
+     * 默认实现为空;实现必须幂等,且不得向调用方抛异常(内部自行容错)。
+     */
+    fun restart() {}
+
+    /**
      * 外部设置变更(文档保存/导入/重置)时刷新生产者侧派生缓存(如「歌词时间偏移」)。
      * 默认无操作;有派生缓存的实现覆写(见 [LyricProducers.onCustomizationChanged])。
      */

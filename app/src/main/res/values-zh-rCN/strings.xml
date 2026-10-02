@@ -47,6 +47,16 @@
     <string name="dialog_clear_logs_summary">删除本设备上的诊断日志文件？此操作无法撤销。</string>
     <string name="toast_logs_cleared">日志已清除</string>
     <string name="toast_logs_clear_failed">清除日志失败</string>
+    <string name="setting_log_level">日志等级</string>
+    <string name="log_level_errors">仅错误</string>
+    <string name="log_level_warning">警告与错误</string>
+    <string name="log_level_normal">正常</string>
+    <string name="log_level_verbose">详细</string>
+    <string name="dialog_log_level_summary">控制诊断日志开启后写入哪些等级。仅错误噪声最低；详细还会一并镜像 SystemUI 侧模块日志（需要 root）。</string>
+    <string name="action_export_logs">导出日志</string>
+    <string name="summary_export_logs">将尚未删除的日志保存为 .txt 文件。</string>
+    <string name="toast_logs_exported">日志已导出</string>
+    <string name="toast_logs_export_failed">导出日志失败</string>
 
     <string name="action_send_compatibility_report">发送兼容性报告</string>
     <string name="action_report_problem">报告问题</string>
@@ -206,6 +216,8 @@
     <string name="summary_aod_landscape_hide_stock">歌词旋转到横屏时,强制隐藏小米系统自带的息屏元素(时钟、天气);切回竖屏后自动恢复显示。</string>
     <string name="setting_aod_landscape_fullscreen">横屏歌词全屏化</string>
     <string name="summary_aod_landscape_fullscreen">旋转到横屏时,将歌词块在屏幕居中并自适应放大铺满,不超出屏幕。</string>
+    <string name="setting_aod_landscape_fullscreen_safe_margin">全屏安全边界</string>
+    <string name="summary_aod_landscape_fullscreen_safe_margin" formatted="false">横屏歌词全屏铺满时,四周各保留屏幕短边一定百分比的空白(0–20%),避免内容贴近屏幕边缘(圆角/挖孔)。仅在全屏横屏歌词下生效。</string>
     <string name="setting_aod_debug_show_canvas_frame">显示 AOD 画布边框(调试)</string>
     <string name="summary_aod_debug_show_canvas_frame">在 AOD 上画出画布边界(红色)与内容裁剪区(绿色),用于布局调试。调试完成后请关闭。</string>
     <string name="section_lockscreen_behavior">锁屏行为</string>
@@ -244,7 +256,9 @@
     <string name="dialog_restart_target_systemui">系统界面（含锁屏）</string>
     <string name="dialog_restart_target_aod">息屏显示进程（com.miui.aod）</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow 应用（本应用）</string>
+    <string name="dialog_restart_target_lyric_source">歌词源（重连当前歌词源）</string>
     <string name="toast_restart_no_target">请至少选择一个进程</string>
+    <string name="toast_lyric_source_restarted">歌词源已重启</string>
     <string name="option_follow_xiaomi">跟随小米</string>
     <string name="dialog_pause_summary">同时应用于息屏和锁屏歌词。</string>
     <string name="dialog_keep_aod_duration_summary">限制一次连续播放会话。暂停音乐后，下次播放会开始新会话。</string>

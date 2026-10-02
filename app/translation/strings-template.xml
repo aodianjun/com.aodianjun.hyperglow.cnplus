@@ -52,6 +52,16 @@
     <string name="dialog_clear_logs_summary">Delete the diagnostic log files on this device? This cannot be undone.</string>
     <string name="toast_logs_cleared">Logs cleared</string>
     <string name="toast_logs_clear_failed">Failed to clear logs</string>
+    <string name="setting_log_level">Log level</string>
+    <string name="log_level_errors">Errors only</string>
+    <string name="log_level_warning">Warnings and errors</string>
+    <string name="log_level_normal">Normal</string>
+    <string name="log_level_verbose">Verbose</string>
+    <string name="dialog_log_level_summary">Controls which levels are written while diagnostic logging is on. Only errors keeps the least noise; verbose also mirrors System UI module logs (requires root).</string>
+    <string name="action_export_logs">Export logs</string>
+    <string name="summary_export_logs">Save the retained logs as a .txt file.</string>
+    <string name="toast_logs_exported">Logs exported</string>
+    <string name="toast_logs_export_failed">Failed to export logs</string>
 
     <string name="action_send_compatibility_report">Send compatibility report</string>
     <string name="action_report_problem">Report a problem</string>
@@ -80,6 +90,8 @@
     <string name="summary_aod_landscape_hide_stock">While lyrics rotate to landscape, force-hide Xiaomi\'s stock AOD elements (clock, weather); they reappear automatically when the device returns to portrait. Requires rotation to be enabled.</string>
     <string name="setting_aod_landscape_fullscreen">Full-screen lyrics in landscape</string>
     <string name="summary_aod_landscape_fullscreen">While rotated to landscape, center the lyric block and automatically scale it up to fill the screen without overflowing.</string>
+    <string name="setting_aod_landscape_fullscreen_safe_margin">Full-screen safe margin</string>
+    <string name="summary_aod_landscape_fullscreen_safe_margin" formatted="false">Blank space kept on every edge when lyrics scale to fill the screen in landscape, as a percentage of the screen\'s short side (0–20%). Only applies to full-screen landscape lyrics.</string>
     <string name="setting_aod_debug_show_canvas_frame">Show AOD canvas frame (debug)</string>
     <string name="summary_aod_debug_show_canvas_frame">Draw the canvas boundary (red) and content area (green) on the AOD for layout debugging. Turn off after debugging.</string>
     <string name="setting_suppress_stock_aod">Hide stock AOD content</string>
@@ -244,7 +256,9 @@
     <string name="dialog_restart_target_systemui">System UI (lock screen included)</string>
     <string name="dialog_restart_target_aod">AOD process (com.miui.aod)</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow app (this app)</string>
+    <string name="dialog_restart_target_lyric_source">Lyric source (reconnect the active source)</string>
     <string name="toast_restart_no_target">Select at least one process</string>
+    <string name="toast_lyric_source_restarted">Lyric source restarted</string>
     <string name="option_follow_xiaomi">Follow Xiaomi</string>
     <string name="dialog_pause_summary">Applies to both AOD and lock screen lyrics.</string>
     <string name="dialog_keep_aod_duration_summary">Bounds one continuous playing session. Pausing music starts a new one.</string>

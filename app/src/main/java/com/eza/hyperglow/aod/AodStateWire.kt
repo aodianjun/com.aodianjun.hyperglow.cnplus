@@ -112,6 +112,7 @@ internal data class AodStateWireSnapshot(
     val aodLandscapeTextScale: Float,
     val aodLandscapeHideStock: Boolean,
     val aodLandscapeFullscreen: Boolean,
+    val aodLandscapeFullscreenSafeMarginPercent: Float = DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT,
     val aodDebugShowCanvasFrame: Boolean = false,
     val aodCanvasPaddingPortraitXPercent: Float,
     val aodCanvasPaddingPortraitYPercent: Float,
@@ -341,6 +342,7 @@ internal object AodStateWireCodec {
                 output.writeFloat(snapshot.aodLandscapeTextScale)
                 output.writeStrictBoolean(snapshot.aodLandscapeHideStock)
                 output.writeStrictBoolean(snapshot.aodLandscapeFullscreen)
+                output.writeFloat(snapshot.aodLandscapeFullscreenSafeMarginPercent)
                 output.writeStrictBoolean(snapshot.aodDebugShowCanvasFrame)
                 output.writeFloat(snapshot.aodCanvasPaddingPortraitXPercent)
                 output.writeFloat(snapshot.aodCanvasPaddingPortraitYPercent)
@@ -353,7 +355,7 @@ internal object AodStateWireCodec {
                 output.writeBoundedString(snapshot.nextLineRomanized)
                 output.writeBoundedString(snapshot.nextLineTranslated)
                 output.writeBoundedString(snapshot.metadata)
-                // v6:原始歌名/歌手/专辑 + 大元数据引导态 + 标记识别版分侧(per-surface 内容链路)。
+                // v7:原始歌名/歌手/专辑 + 大元数据引导态 + 标记识别版分侧(per-surface 内容链路)。
                 output.writeBoundedString(snapshot.title)
                 output.writeBoundedString(snapshot.artist)
                 output.writeBoundedString(snapshot.album)
@@ -464,6 +466,7 @@ internal object AodStateWireCodec {
             val aodLandscapeTextScale = input.readFloat()
             val aodLandscapeHideStock = input.readStrictBoolean() ?: return null
             val aodLandscapeFullscreen = input.readStrictBoolean() ?: return null
+            val aodLandscapeFullscreenSafeMarginPercent = input.readFloat()
             val aodDebugShowCanvasFrame = input.readStrictBoolean() ?: return null
             val aodCanvasPaddingPortraitXPercent = input.readFloat()
             val aodCanvasPaddingPortraitYPercent = input.readFloat()
@@ -625,6 +628,7 @@ internal object AodStateWireCodec {
                 aodLandscapeTextScale = aodLandscapeTextScale,
                 aodLandscapeHideStock = aodLandscapeHideStock,
                 aodLandscapeFullscreen = aodLandscapeFullscreen,
+                aodLandscapeFullscreenSafeMarginPercent = aodLandscapeFullscreenSafeMarginPercent,
                 aodDebugShowCanvasFrame = aodDebugShowCanvasFrame,
                 aodCanvasPaddingPortraitXPercent = aodCanvasPaddingPortraitXPercent,
                 aodCanvasPaddingPortraitYPercent = aodCanvasPaddingPortraitYPercent,
@@ -748,6 +752,10 @@ internal object AodStateWireCodec {
             snapshot.aodRotationSettleMs != normalizeAodRotationSettleMs(snapshot.aodRotationSettleMs) ||
             snapshot.aodCanvasAnchorLandscape != normalizeAodCanvasAnchor(snapshot.aodCanvasAnchorLandscape) ||
             snapshot.aodLandscapeTextScale != normalizeAodLandscapeTextScale(snapshot.aodLandscapeTextScale) ||
+            snapshot.aodLandscapeFullscreenSafeMarginPercent !=
+                normalizeAodFullscreenSafeMarginPercent(
+                    snapshot.aodLandscapeFullscreenSafeMarginPercent
+                ) ||
             snapshot.aodCanvasPaddingPortraitXPercent != normalizeAodCanvasPaddingPercent(
                 snapshot.aodCanvasPaddingPortraitXPercent
             ) ||
@@ -936,11 +944,12 @@ internal object AodStateWireCodec {
 
     private const val BODY_MAGIC = 0x414F4453
 
-   /** v6:metadata 区追加原始 title/artist/album + largeMetadata + 标记识别版分侧(主行与并发行),
-    *  让渲染面按本面「歌曲信息内容」/「识别对唱标记」独立组装与选侧(per-surface);
-    *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
-    *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
-    private const val BODY_VERSION = 6
+    /** v7:metadata 区追加原始 title/artist/album + largeMetadata + 标记识别版分侧(主行与并发行),
+     *  让渲染面按本面「歌曲信息内容」/「识别对唱标记」独立组装与选侧(per-surface);
+     *  v6:样式区追加 aodLandscapeFullscreenSafeMarginPercent(横屏全屏化安全边界);
+     *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
+     *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
+    private const val BODY_VERSION = 7
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 
