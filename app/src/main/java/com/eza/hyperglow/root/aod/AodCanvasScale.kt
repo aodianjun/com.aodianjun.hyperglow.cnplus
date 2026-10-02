@@ -27,7 +27,9 @@ internal const val LANDSCAPE_FRAME_MAX_SCALE = 1.0f
  * 放大铺满后内容不贴屏幕边缘(圆角/挖孔/观感)。非法输入或非正百分比返回 0(不留白)。
  */
 internal fun fullscreenSafeInset(shortSide: Float, marginPercent: Float): Float {
-    if (shortSide <= 0f || !marginPercent.isFinite() || marginPercent <= 0f) return 0f
+    if (!shortSide.isFinite() || shortSide <= 0f || !marginPercent.isFinite() || marginPercent <= 0f) {
+        return 0f
+    }
     return shortSide * (marginPercent / 100f)
 }
 
