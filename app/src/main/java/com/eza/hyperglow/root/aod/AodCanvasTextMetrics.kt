@@ -255,8 +255,16 @@ internal fun spotlightAlpha(progress: Float, state: SpotlightWordState): Float =
 
 internal fun normalizeAodMotion(mode: String): String = "Fluid"
 
+/**
+ * 逐字动画档归一化(画布内部副本)。**必须与 aod/AodRenderPreferences 的同名函数逐值一致**:
+ * 画布(package com.eza.hyperglow.root.aod)调用时按同包解析到本函数,不会走 aod 包版本——
+ * 本副本曾只认 Minimal(其余一律回落 Gradient),导致 BetterLyrics 档「配置/快照/映射全链
+ * 正确、画布渲染恒 Gradient」(表现即「设置只在预览生效、实机不变」;预览不走画布故正常)。
+ * 新增动画档时两处必须同步(单测 AodCanvasTextMetricsTest 断言二者一致防漂移)。
+ */
 internal fun normalizeAodAnimation(mode: String): String = when (mode) {
     "Minimal" -> "Minimal"
+    "BetterLyrics" -> "BetterLyrics"
     else -> "Gradient"
 }
 
