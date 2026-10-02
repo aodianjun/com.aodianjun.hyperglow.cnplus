@@ -6,7 +6,7 @@
     <string name="nav_app_settings">App 設置</string>
     <string name="nav_about">關於</string>
     <string name="section_language">語言</string>
-    <string name="section_diagnostic_logging">診斷日誌</string>
+    <string name="section_developer_options">開發者選項</string>
     <string name="setting_interface_language">界面語言</string>
     <string name="language_system_default">跟隨系統</string>
     <string name="language_english">English</string>
@@ -588,6 +588,8 @@
     <string name="setting_control_opacity">控制項不透明度</string>
     <string name="setting_text_color">文字顏色</string>
     <string name="setting_app_font">字體</string>
+    <string name="setting_floating_nav_bar">懸浮底欄</string>
+    <string name="summary_floating_nav_bar">關閉後底欄改用貼底樣式。</string>
     <string name="option_font_follow_system">跟隨系統</string>
     <string name="option_font_serif">襯線</string>
     <string name="option_font_monospace">等寬</string>

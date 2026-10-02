@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -54,7 +55,9 @@ import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -70,6 +73,13 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
+/** 底部导航项:tab 枚举 + 图标 + 标签资源;悬浮/贴底两种底栏共用同一份清单。 */
+private data class HomeTab(
+    val tab: SettingsTab,
+    val icon: ImageVector,
+    val labelRes: Int
+)
+
 @Composable
 internal fun HomeScreen(
     showRestartResult: (Boolean) -> Unit,
@@ -79,7 +89,8 @@ internal fun HomeScreen(
     onOpenLyricLayout: (String) -> Unit,
     onOpenPlugins: () -> Unit,
     onOpenAodBehavior: () -> Unit,
-    onOpenAppAppearance: () -> Unit
+    onOpenAppAppearance: () -> Unit,
+    floatingNavBar: Boolean
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -283,55 +294,45 @@ internal fun HomeScreen(
             )
         },
         bottomBar = {
-            FloatingNavigationBar(color = appNavBarColor()) {
-                FloatingNavigationBarItem(
-                    selected = pagerState.currentPage == SettingsTab.STATUS.ordinal,
-                    onClick = {
-                        scope.launch { pagerState.animateScrollToPage(SettingsTab.STATUS.ordinal) }
-                    },
-                    icon = MiuixIcons.Regular.Home,
-                    label = stringResource(R.string.nav_status),
-                    colors = NavigationBarDefaults.navigationBarItemColors(
-                        unselectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer),
-                        selectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
-                    )
-                )
-                FloatingNavigationBarItem(
-                    selected = pagerState.currentPage == SettingsTab.SETTINGS.ordinal,
-                    onClick = {
-                        scope.launch { pagerState.animateScrollToPage(SettingsTab.SETTINGS.ordinal) }
-                    },
-                    icon = MiuixIcons.Regular.Settings,
-                    label = stringResource(R.string.nav_settings),
-                    colors = NavigationBarDefaults.navigationBarItemColors(
-                        unselectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer),
-                        selectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
-                    )
-                )
-                FloatingNavigationBarItem(
-                    selected = pagerState.currentPage == SettingsTab.APP.ordinal,
-                    onClick = {
-                        scope.launch { pagerState.animateScrollToPage(SettingsTab.APP.ordinal) }
-                    },
-                    icon = MiuixIcons.Tune,
-                    label = stringResource(R.string.nav_app_settings),
-                    colors = NavigationBarDefaults.navigationBarItemColors(
-                        unselectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer),
-                        selectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
-                    )
-                )
-                FloatingNavigationBarItem(
-                    selected = pagerState.currentPage == SettingsTab.ABOUT.ordinal,
-                    onClick = {
-                        scope.launch { pagerState.animateScrollToPage(SettingsTab.ABOUT.ordinal) }
-                    },
-                    icon = MiuixIcons.Info,
-                    label = stringResource(R.string.nav_about),
-                    colors = NavigationBarDefaults.navigationBarItemColors(
-                        unselectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer),
-                        selectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
-                    )
-                )
+            // 悬浮底栏开关(App 外观设置):开=miuix FloatingNavigationBar,关=贴底 NavigationBar。
+            val tabs = listOf(
+                HomeTab(SettingsTab.STATUS, MiuixIcons.Regular.Home, R.string.nav_status),
+                HomeTab(SettingsTab.SETTINGS, MiuixIcons.Regular.Settings, R.string.nav_settings),
+                HomeTab(SettingsTab.APP, MiuixIcons.Tune, R.string.nav_app_settings),
+                HomeTab(SettingsTab.ABOUT, MiuixIcons.Info, R.string.nav_about)
+            )
+            val itemColors = NavigationBarDefaults.navigationBarItemColors(
+                unselectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer),
+                selectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+            )
+            if (floatingNavBar) {
+                FloatingNavigationBar(color = appNavBarColor()) {
+                    tabs.forEach { entry ->
+                        FloatingNavigationBarItem(
+                            selected = pagerState.currentPage == entry.tab.ordinal,
+                            onClick = {
+                                scope.launch { pagerState.animateScrollToPage(entry.tab.ordinal) }
+                            },
+                            icon = entry.icon,
+                            label = stringResource(entry.labelRes),
+                            colors = itemColors
+                        )
+                    }
+                }
+            } else {
+                NavigationBar(color = appNavBarColor()) {
+                    tabs.forEach { entry ->
+                        NavigationBarItem(
+                            selected = pagerState.currentPage == entry.tab.ordinal,
+                            onClick = {
+                                scope.launch { pagerState.animateScrollToPage(entry.tab.ordinal) }
+                            },
+                            icon = entry.icon,
+                            label = stringResource(entry.labelRes),
+                            colors = itemColors
+                        )
+                    }
+                }
             }
         }
     ) { innerPadding ->
@@ -435,22 +436,6 @@ internal fun HomeScreen(
                                 },
                                 onClick = onOpenDiagnostics
                             )
-                            if (experimentalEligible) {
-                                SwitchPreference(
-                                    experimentalMode,
-                                    { enabled ->
-                                        if (updateExperimentalMode(context, enabled)) {
-                                            experimentalMode = enabled
-                                        }
-                                    },
-                                    stringResource(R.string.setting_experimental_mode),
-                                    summary = if (experimentalMode) {
-                                        stringResource(R.string.summary_experimental_mode_on)
-                                    } else {
-                                        stringResource(R.string.summary_experimental_mode)
-                                    }
-                                )
-                            }
                         }
                     }
                     item { SmallTitle(text = stringResource(R.string.section_permission_status)) }
@@ -662,7 +647,27 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_diagnostic_logging)) }
+                    item { SmallTitle(text = stringResource(R.string.section_developer_options)) }
+                    if (experimentalEligible) {
+                        item {
+                            SettingsCard {
+                                SwitchPreference(
+                                    experimentalMode,
+                                    { enabled ->
+                                        if (updateExperimentalMode(context, enabled)) {
+                                            experimentalMode = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_experimental_mode),
+                                    summary = if (experimentalMode) {
+                                        stringResource(R.string.summary_experimental_mode_on)
+                                    } else {
+                                        stringResource(R.string.summary_experimental_mode)
+                                    }
+                                )
+                            }
+                        }
+                    }
                     item {
                         SettingsCard {
                             SwitchPreference(
@@ -754,7 +759,12 @@ internal fun HomeScreen(
 
                 SettingsTab.ABOUT -> {
                     item { SmallTitle(text = stringResource(R.string.section_about)) }
-                    item { AboutVersionCard() }
+                    item {
+                        AboutHeroCard(
+                            systemUiVersion = capabilityReport.systemUiVersion,
+                            aodVersion = capabilityReport.aodVersion
+                        )
+                    }
                     item {
                         SettingsCard {
                             ArrowPreference(

@@ -42,7 +42,9 @@ internal data class AppUiAppearance(
     val controlOpacityPercent: Int = DEFAULT_CONTROL_OPACITY_PERCENT,
     val textColorArgb: Int? = null,
     val fontFamily: String = FONT_FAMILY_SYSTEM,
-    val systemBarIcons: AppSystemBarIcons = AppSystemBarIcons.AUTO
+    val systemBarIcons: AppSystemBarIcons = AppSystemBarIcons.AUTO,
+    /** 底部导航是否用悬浮样式(miuix FloatingNavigationBar);关闭改用贴底 NavigationBar。 */
+    val floatingNavBar: Boolean = true
 )
 
 internal enum class AppThemeMode {
@@ -92,6 +94,7 @@ internal const val KEY_CONTROL_OPACITY_PERCENT = "control_opacity_percent"
 internal const val KEY_TEXT_COLOR_ARGB = "text_color_argb"
 internal const val KEY_FONT_FAMILY = "font_family"
 internal const val KEY_SYSTEM_BAR_ICONS = "system_bar_icons"
+internal const val KEY_FLOATING_NAV_BAR = "floating_nav_bar"
 
 /** 控件玻璃化的默认不透明度:100% 即三档原生透明度(顶栏 0.7/卡片 0.82/导航 0.93)。 */
 internal const val DEFAULT_CONTROL_OPACITY_PERCENT = 100
@@ -204,6 +207,7 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
     val fontFamily = normalizeAppFontFamily(values[KEY_FONT_FAMILY])
     val systemBarIcons = AppSystemBarIcons.entries.firstOrNull { it.name == values[KEY_SYSTEM_BAR_ICONS] }
         ?: AppSystemBarIcons.AUTO
+    val floatingNavBar = values[KEY_FLOATING_NAV_BAR] as? Boolean ?: true
     return AppUiAppearance(
         themeMode = themeMode,
         themeColorMode = themeColorMode,
@@ -216,7 +220,8 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
         controlOpacityPercent = controlOpacityPercent,
         textColorArgb = textColorArgb,
         fontFamily = fontFamily,
-        systemBarIcons = systemBarIcons
+        systemBarIcons = systemBarIcons,
+        floatingNavBar = floatingNavBar
     )
 }
 
@@ -242,7 +247,8 @@ internal fun updateAppUiAppearance(
             KEY_CONTROL_OPACITY_PERCENT to appearance.controlOpacityPercent,
             KEY_TEXT_COLOR_ARGB to appearance.textColorArgb,
             KEY_FONT_FAMILY to appearance.fontFamily,
-            KEY_SYSTEM_BAR_ICONS to appearance.systemBarIcons.name
+            KEY_SYSTEM_BAR_ICONS to appearance.systemBarIcons.name,
+            KEY_FLOATING_NAV_BAR to appearance.floatingNavBar
         )
     )
     val editor = context.getSharedPreferences(APP_UI_PREFS, android.content.Context.MODE_PRIVATE).edit()
@@ -268,6 +274,7 @@ internal fun updateAppUiAppearance(
     }
     editor.putString(KEY_FONT_FAMILY, normalized.fontFamily)
     editor.putString(KEY_SYSTEM_BAR_ICONS, normalized.systemBarIcons.name)
+    editor.putBoolean(KEY_FLOATING_NAV_BAR, normalized.floatingNavBar)
     return editor.commit()
 }
 

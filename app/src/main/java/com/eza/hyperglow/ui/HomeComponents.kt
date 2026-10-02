@@ -2,6 +2,7 @@ package com.eza.hyperglow.ui
 
 import android.os.Build
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.lerp
@@ -124,11 +127,12 @@ internal fun HomeOverviewHero(
 }
 
 /**
- * 关于页的版本与更新卡:App 版本 + 检查更新(含更新提示对话框)。
- * 检查更新从概览系统信息卡迁入「关于」页,与项目链接归在一处。
+ * 关于页主卡(样式参照 HyperCeiler 关于页):居中 App 图标 + 名称 + 版本号,下接检查更新;
+ * 另附设备信息卡(设备型号 / Android 版本 / 系统界面 · 息屏)。所有卡片走 [SettingsCard],
+ * 与其余页面保持同一边距(修复此前卡片满宽无左右边距的显示问题)。
  */
 @Composable
-internal fun AboutVersionCard() {
+internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var checkingUpdate by remember { mutableStateOf(false) }
@@ -154,20 +158,44 @@ internal fun AboutVersionCard() {
         }
     }
 
-    Card(
-        colors = CardDefaults.defaultColors(
-            color = appCardContainerColor(),
-            contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
-        )
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            HomeInfoRow(
-                stringResource(R.string.label_app_version),
-                BuildConfig.VERSION_NAME
+    SettingsCard {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_launcher),
+                contentDescription = null,
+                modifier = Modifier.size(72.dp)
             )
+            Text(
+                stringResource(R.string.app_name),
+                fontSize = MiuixTheme.textStyles.title3.fontSize,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+            Text(
+                "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Spacer(Modifier.height(12.dp))
             HomeUpdateRow(
                 checking = checkingUpdate,
                 onClick = { startCheckUpdate() }
+            )
+        }
+    }
+
+    SettingsCard {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL)
+            HomeInfoRow(stringResource(R.string.label_android_version), Build.VERSION.RELEASE)
+            HomeInfoRow(
+                stringResource(R.string.label_systemui_aod),
+                "$systemUiVersion / $aodVersion",
+                last = true
             )
         }
     }

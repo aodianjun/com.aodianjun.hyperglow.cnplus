@@ -6,7 +6,7 @@
     <string name="nav_app_settings">App settings</string>
     <string name="nav_about">About</string>
     <string name="section_language">Language</string>
-    <string name="section_diagnostic_logging">Diagnostics logging</string>
+    <string name="section_developer_options">Developer options</string>
     <string name="setting_interface_language">Interface language</string>
     <string name="language_system_default">System default</string>
     <string name="language_english">English</string>
@@ -617,6 +617,8 @@
     <string name="setting_control_opacity">Control opacity</string>
     <string name="setting_text_color">Text color</string>
     <string name="setting_app_font">Font</string>
+    <string name="setting_floating_nav_bar">Floating navigation bar</string>
+    <string name="summary_floating_nav_bar">When off, the bottom bar switches to the standard docked style.</string>
     <string name="option_font_follow_system">Follow system</string>
     <string name="option_font_serif">Serif</string>
     <string name="option_font_monospace">Monospace</string>

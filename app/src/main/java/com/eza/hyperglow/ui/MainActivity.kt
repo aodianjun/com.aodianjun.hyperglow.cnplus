@@ -145,7 +145,8 @@ class MainActivity : ComponentActivity() {
                                         onOpenLyricLayout = { target -> editingSurface = target },
                                         onOpenPlugins = { editingSurface = PLUGIN_DESTINATION },
                                         onOpenAodBehavior = { editingSurface = AOD_BEHAVIOR_DESTINATION },
-                                        onOpenAppAppearance = { editingSurface = APP_APPEARANCE_DESTINATION }
+                                        onOpenAppAppearance = { editingSurface = APP_APPEARANCE_DESTINATION },
+                                        floatingNavBar = appAppearance.floatingNavBar
                                     )
                                 }
                             }

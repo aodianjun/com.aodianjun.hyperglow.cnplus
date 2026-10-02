@@ -267,6 +267,7 @@ internal object ConfigBackupCodec {
             appearance.textColorArgb?.let { put(KEY_TEXT_COLOR_ARGB, it) }
             put(KEY_FONT_FAMILY, appearance.fontFamily)
             put(KEY_SYSTEM_BAR_ICONS, appearance.systemBarIcons.name)
+            put(KEY_FLOATING_NAV_BAR, appearance.floatingNavBar)
         }
 
     /**
@@ -398,6 +399,7 @@ internal object ConfigBackupCodec {
         stored.int(KEY_TEXT_COLOR_ARGB)?.let { values[KEY_TEXT_COLOR_ARGB] = it }
         stored.string(KEY_FONT_FAMILY)?.let { values[KEY_FONT_FAMILY] = it }
         stored.string(KEY_SYSTEM_BAR_ICONS)?.let { values[KEY_SYSTEM_BAR_ICONS] = it }
+        stored.boolean(KEY_FLOATING_NAV_BAR)?.let { values[KEY_FLOATING_NAV_BAR] = it }
         return normalizeAppUiAppearance(values)
     }
 
