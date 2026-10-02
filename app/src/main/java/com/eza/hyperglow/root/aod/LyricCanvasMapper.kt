@@ -8,8 +8,9 @@ import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.producer.stripDuetMarker
-import com.eza.hyperglow.producer.stripDuetMarkerWords
+import com.eza.hyperglow.producer.stripDuetMarkerRun
 import com.eza.hyperglow.root.projection.LyricSnapshot
+import com.eza.hyperglow.root.projection.LyricWord
 
 /**
  * 映射到画布内容;[artwork] 默认取自 [profile](per-surface 歌曲图片配置),可显式覆盖。
@@ -66,7 +67,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     sampledAtElapsedMs = sampledAtElapsedMs,
     speed = speed,
     // 逐字卡拉OK按词绘制:与主行文本同源剥离行首标记,否则标记会残留/错位。
-    words = (if (duetMarkers) stripDuetMarkerWords(words) else words).map {
+    words = (if (duetMarkers) stripSurfaceDuetMarkerWords(words) else words).map {
         AodCanvasWord(
             it.text,
             it.romanized,
@@ -146,7 +147,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
                     ),
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
-                    words = (if (duetMarkers) stripDuetMarkerWords(line.words) else line.words).map {
+                    words = (if (duetMarkers) stripSurfaceDuetMarkerWords(line.words) else line.words).map {
                         AodCanvasWord(
                             it.text,
                             it.romanized,
@@ -164,4 +165,23 @@ internal fun LyricSnapshot.toAodCanvasContent(
         null
     }
     )
+}
+
+/**
+ * 词表级剥离行首标记(投影层 [LyricWord] 专用,语义与 producer 侧 `stripDuetMarkerWords` 一致:
+ * 首词以行首标记起头时剥掉标记前缀,剥空则移除该词;无变化时返回输入实例)。
+ * 快照为息屏/锁屏共用,逐字卡拉OK按词绘制,标记剥离必须与主行文本同源做在按面渲染处,
+ * 否则标记会残留/错位。
+ */
+private fun stripSurfaceDuetMarkerWords(words: List<LyricWord>): List<LyricWord> {
+    val first = words.firstOrNull() ?: return words
+    val stripped = stripDuetMarkerRun(first.text)
+    if (stripped == first.text) return words
+    val out = words.toMutableList()
+    if (stripped.isBlank()) {
+        out.removeAt(0)
+    } else {
+        out[0] = first.copy(text = stripped)
+    }
+    return out
 }
