@@ -47,6 +47,7 @@ object AodIslandGuard {
     @Volatile private var suppressionActive = false
     @Volatile private var powerManager: PowerManager? = null
     private var pollerStarted = false
+    private var firstRewriteLogged = false
 
     /** 已捕获的岛窗口根视图(弱引用:窗口随 SystemUI 重建/用户切换自然更替)。 */
     private val islandRoots = Collections.newSetFromMap(WeakHashMap<View, Boolean>())
@@ -76,15 +77,26 @@ object AodIslandGuard {
     }
 
     /**
-     * 与 AodSurfaceHook 同款强制接缝:framework View.setVisibility 的实例级改写。
-     * 闸门关闭时直通(几乎零开销);开启时只影响已登记的岛根视图。
+     * 双接缝:framework `View.setVisibility` 与 `View.setFlags`。setVisibility 内部委托
+     * setFlags,但宿主可能直调 setFlags 或在子类覆写 setVisibility——两条都拦才拦得全。
+     * 真机实证(2026-10-02 16:53 复现):doze 期间 stock 以高于 1s/次的频率把岛根重新置回
+     * VISIBLE,仅靠周期复断言会在两次压制之间留出可见间隙(闪烁);接缝级同步改写才能
+     * 让根在 doze 期间持续保持 GONE。
      */
     private fun installVisibilitySeam(module: XposedModule) {
         val setVisibility = runCatching {
             View::class.java.getMethod("setVisibility", Int::class.javaPrimitiveType)
-        }.getOrNull() ?: return
-        HookRegistry.hook(module, FEATURE_ID, setVisibility, IslandVisibilityHooker)
-        HookLogger.i(TAG, "Island visibility enforcement seam installed")
+        }.getOrNull()
+        if (setVisibility != null) {
+            HookRegistry.hook(module, FEATURE_ID, setVisibility, IslandVisibilityHooker)
+        }
+        val setFlags = runCatching {
+            View::class.java.getMethod("setFlags", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+        }.getOrNull()
+        if (setFlags != null) {
+            HookRegistry.hook(module, FEATURE_ID, setFlags, IslandFlagsHooker)
+        }
+        HookLogger.i(TAG, "Island visibility enforcement seam installed visibility=${setVisibility != null} flags=${setFlags != null}")
     }
 
     private class IslandRootCaptureHooker : Hooker {
@@ -134,6 +146,7 @@ object AodIslandGuard {
     fun setSuppressionGate(active: Boolean, cause: String) {
         if (suppressionActive == active) return
         suppressionActive = active
+        if (active) firstRewriteLogged = false
         HookLogger.i(TAG, "Island doze suppression gate=$active cause=$cause")
         if (active) enforceSuppressed() else releaseSuppressedViews()
     }
@@ -204,14 +217,67 @@ object AodIslandGuard {
                 restoreTargets[view] =
                     nextIslandRestoreValue(restoreTargets[view], requested)
             }
-            HookLogger.i(TAG, "Island visible request during doze rewritten requested=$requested")
+            logRewrite("visibility", requested, view)
             return chain.proceed(arrayOf<Any>(ISLAND_VIEW_GONE))
+        }
+    }
+
+    /**
+     * setFlags 接缝:setVisibility 的底层通道,也是宿主绕过 setVisibility 的直调路径。
+     * 只改写「会让岛根可见」的请求:requested 视图位 ≠ GONE 时把该位强写为 GONE,
+     * 其余 flag 位与掩码原样保留;非可见性掩码的请求直通。
+     */
+    private object IslandFlagsHooker : Hooker {
+        override fun intercept(chain: Chain): Any? {
+            if (!suppressionActive) return chain.proceed()
+            val flags = (chain.args.getOrNull(0) as? Number)?.toInt() ?: return chain.proceed()
+            val mask = (chain.args.getOrNull(1) as? Number)?.toInt() ?: return chain.proceed()
+            if (mask and ISLAND_FLAG_VISIBILITY_MASK == 0) return chain.proceed()
+            val view = chain.thisObject as? View ?: return chain.proceed()
+            val registered = synchronized(this@AodIslandGuard) { islandRoots.contains(view) }
+            if (!registered) return chain.proceed()
+            val requested = flags and ISLAND_FLAG_VISIBILITY_MASK
+            if (requested == ISLAND_VIEW_GONE) return chain.proceed()
+            synchronized(this@AodIslandGuard) {
+                restoreTargets[view] =
+                    nextIslandRestoreValue(restoreTargets[view], requested)
+            }
+            logRewrite("flags", requested, view)
+            return chain.proceed(arrayOf<Any>(rewrittenIslandFlagsRequest(flags, mask) ?: flags, mask))
+        }
+    }
+
+    /** 首次改写取调用者栈前四帧(一次性,认领谁在 doze 期间重显岛根);其后节流。 */
+    private fun logRewrite(seam: String, requested: Int, view: View) {
+        val caller = synchronized(this@AodIslandGuard) {
+            if (firstRewriteLogged) "" else {
+                firstRewriteLogged = true
+                " caller=" + Thread.currentThread().stackTrace
+                    .drop(3).take(4).joinToString(" <- ") { it.methodName }
+            }
+        }
+        HookLogger.iThrottled("aod-island-rewrite", 5_000L, TAG) {
+            "Island visible request during doze rewritten seam=$seam requested=$requested$caller"
         }
     }
 }
 
-/** android.view.View.GONE 钉值(JVM 单测无框架依赖;API 冻结常量)。 */
-internal const val ISLAND_VIEW_GONE = 2
+/** android.view.View.GONE 钉值(JVM 单测无框架依赖;可见性常量 VISIBLE=0/INVISIBLE=4/GONE=8)。 */
+internal const val ISLAND_VIEW_GONE = 8
+
+/** android.view.View.VISIBILITY_MASK 钉值(可见性位段,API 冻结常量)。 */
+internal const val ISLAND_FLAG_VISIBILITY_MASK = 0x0000000C
+
+/**
+ * setFlags 请求改写判定(纯函数):掩码覆盖可见性位段且请求位 ≠ GONE 时,返回把可见位
+ * 强写为 GONE 的新 flags(其余位保留);其余情况返回 null(直通不改写)。
+ */
+internal fun rewrittenIslandFlagsRequest(flags: Int, mask: Int): Int? {
+    if (mask and ISLAND_FLAG_VISIBILITY_MASK == 0) return null
+    val requested = flags and ISLAND_FLAG_VISIBILITY_MASK
+    if (requested == ISLAND_VIEW_GONE) return null
+    return (flags and ISLAND_FLAG_VISIBILITY_MASK.inv()) or ISLAND_VIEW_GONE
+}
 
 /** 岛闸门迁移判定(纯函数):非交互开闸、交互关闸、同态保持。 */
 internal fun islandGateAction(isInteractive: Boolean, gateActive: Boolean): IslandGateAction = when {
