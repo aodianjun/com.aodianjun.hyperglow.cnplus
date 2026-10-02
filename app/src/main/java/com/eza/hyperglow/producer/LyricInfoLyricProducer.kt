@@ -582,7 +582,10 @@ class LyricInfoLyricProducer(
             textSize = "normal",
             textSizeCustom = 100,
             secondary = "Main only",
-            animation = "Karaoke fill",
+            // 兜底值必须过得了 aod/AodRenderPreferences.normalizeAodAnimation（只放行
+            // Minimal / BetterLyrics，其余回落 Gradient）：历史遗留的 "Karaoke fill" 会被
+            // 静默改写成 Gradient，是个纯误导的默认值。
+            animation = "Gradient",
             glow = "Off",
             lineSyncFill = "Top to bottom",
             overflow = "Wrap",
