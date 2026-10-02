@@ -616,8 +616,10 @@ internal class AodLyricCanvasView(
             minOf(ow, oh).toFloat(),
             landscapeFullscreenSafeMarginPercent
         )
-        val availableHeight =
-            ((oh - padTop - padBottom).toFloat() - safeInset * 2f).coerceAtLeast(1f)
+        // 与内容块锚定(anchorLandscapeContentBlock)共用同一安全区:同一圈留白既约束放缩、
+        // 也约束摆放,否则「填 85%」与「居中」两处各算一套会让内容偏向一侧。
+        val safeRegion = landscapeSafeRegion(oh, padTop, padBottom, safeInset)
+        val availableHeight = safeRegion.height.coerceAtLeast(1f)
         // 长轴输入:最长行宽与可用逻辑宽。行按 available 换行,故 maxLineWidth <= ow,
         // widthCap 不会把内容缩小;它只在短轴填充倍数会让长行两端越界时介入。
         val maxLineWidth = widestContentLineWidth(layout)
@@ -1924,11 +1926,10 @@ internal class AodLyricCanvasView(
             val bottomPadding = oh - padBottom
             val available = (bottomPadding - topPadding).coerceAtLeast(0f)
             // issue #63:横屏时行堆叠轴经 90° 旋转映射为画布的视觉横轴,沿用竖屏的 TOP 会让
-            // 内容整块贴向画布一侧(现场实测偏约 185px)。横屏统一按 landscapeAnchor 锚定
-            // (默认 0.5=居中);竖屏维持原 TOP/CENTER 语义。
-            var top = if (landscapeActive()) {
-                topPadding + max(0f, available - total) * landscapeAnchor.coerceIn(0f, 1f)
-            } else if (effectiveVerticalAlignment() == AodCanvasVerticalAlignment.TOP) {
+            // 内容整块贴向画布一侧(现场实测偏约 185px)。横屏的最终摆放统一交给
+            // [anchorLandscapeContentBlock](按块包围盒 + 安全区反解偏移),这里只给自然起点;
+            // 竖屏维持原 TOP/CENTER 语义。
+            var top = if (effectiveVerticalAlignment() == AodCanvasVerticalAlignment.TOP) {
                 topPadding
             } else {
                 topPadding + max(0f, (available - total) / 2f)
@@ -1939,10 +1940,9 @@ internal class AodLyricCanvasView(
                 top += row.height
             }
         }
-        // issue #41:横屏全屏时元数据分支走 anchor 排版,会把整块锚到 padTop/padBottom,
-        // 完全不做居中(居中只在无元数据分支生效)。这里对整块(元数据+歌词)统一锚定。
-        // issue #63 起扩展到全部横屏(含非全屏),锚点取 landscapeAnchor(默认 0.5=居中)。
-        if (metadata != null) anchorLandscapeContentBlock(positioned)
+        // issue #41/#63:横屏(全屏与非全屏)整块(元数据+歌词)统一按 landscapeAnchor 锚定在
+        // 安全区内——有无元数据两条分支共用同一基准,不再一条居中、另一条贴边。
+        if (landscapeActive()) anchorLandscapeContentBlock(positioned)
         // issue #41/#44/#63:记录横屏整块(元数据+歌词)的最终占位范围与锚定参数,便于真机核对
         // 内容是否被正确锚定/居中、是否偏靠一侧/越界被裁。覆盖 oh/pad/total→block 全链路。
         if (landscapeActive()) {
@@ -1954,8 +1954,10 @@ internal class AodLyricCanvasView(
                 if (t < minTop) minTop = t
                 if (b > maxBottom) maxBottom = b
             }
+            // 拼接必须给 if 表达式加括号:否则 " md=1" 分支会吞掉其后的 block/anchor/fs
+            // (Kotlin 中 else 分支才继续参与 + 链),有元数据时日志恰好缺掉最该看的三个字段。
             val key = "rot=$rotationStep ow=$ow oh=$oh padT=$padTop padB=$padBottom" +
-                if (metadata != null) " md=1" else " md=0" +
+                (if (metadata != null) " md=1" else " md=0") +
                 " block=${minTop.roundToInt()}..${maxBottom.roundToInt()} " +
                 "anchor=$landscapeAnchor fs=${fullscreenLandscapeActive()}"
             if (key != lastRowLayoutLogKey) {
@@ -1975,10 +1977,13 @@ internal class AodLyricCanvasView(
     }
 
     /**
-     * issue #41/#63:横屏(全屏与非全屏)时把整块(元数据+歌词)按 [landscapeAnchor] 锚定。
-     * 元数据分支此前只用 metadataAnchor 锚定到 padTop/padBottom,完全不做居中——而无元数据
-     * 分支会居中/锚定,导致有元数据时不居中、挤向画布一侧。anchor=0.5 与旧全屏居中行为
-     * 逐点等价;仅在横屏激活时生效(需自适应 scale 也读完预缩放布局),竖屏不受影响。
+     * issue #41/#63:横屏(全屏与非全屏)时把整块(元数据+歌词)按 [landscapeAnchor] 锚定在
+     * 安全区 [landscapeSafeRegion] 内——两条分支(有无元数据)统一走这里,避免「有元数据时
+     * 按一种基准摆放、无元数据时按另一种」的居中口径分叉:
+     *  - 块包围盒取各行视觉上下沿(baseline+ascent … baseline+行高),含元数据带与歌曲图片槽;
+     *  - 全屏化时安全区上下再各让出 safeMargin(与自适应缩放同一圈留白),故区间中心恒为
+     *    逻辑帧中心 oh/2,anchor=0.5 即视觉正中间;
+     *  - 竖屏不受影响(仅横屏激活时生效)。
      */
     private fun anchorLandscapeContentBlock(positioned: MutableList<PositionedRow>) {
         if (!landscapeActive() || positioned.isEmpty()) return
@@ -1997,25 +2002,35 @@ internal class AodLyricCanvasView(
         } else {
             0f
         }
-        val available = ((oh - padTop - padBottom).toFloat() - safeInset * 2f).coerceAtLeast(0f)
+        // 区间起点必须与高度同源:只减高度、起点仍取 padTop 会让整块偏向一侧 safeInset 像素
+        // (全屏化放大后偏移同步放大),现场表现为「横屏全屏化后歌词不在正中间」。
+        val region = landscapeSafeRegion(oh, padTop, padBottom, safeInset)
+        val available = region.height
         val blockHeight = maxBottom - minTop
         val offset = landscapeBlockAnchorOffset(
             blockTop = minTop,
             blockHeight = blockHeight,
             availableHeight = available,
-            padTop = padTop.toFloat(),
+            regionTop = region.top,
             anchor = landscapeAnchor
         )
-        if (offset == 0f) return
-        val shifted = positioned.map { it.copy(baseline = it.baseline + offset) }
-        positioned.clear()
-        positioned.addAll(shifted)
-        if (lastCenteredLogKey != offset.toString()) {
-            lastCenteredLogKey = offset.toString()
+        if (offset != 0f) {
+            val shifted = positioned.map { it.copy(baseline = it.baseline + offset) }
+            positioned.clear()
+            positioned.addAll(shifted)
+        }
+        // 自检留痕:直接给出整块中心与逻辑帧中心(相差 0 即「正中间」),并标出安全区范围;
+        // 现场只要看这一行即可判定居中与否,无需再靠截图反推。
+        val key = "$minTop/$blockHeight/${region.top}/$available/$landscapeAnchor/$offset"
+        if (lastCenteredLogKey != key) {
+            lastCenteredLogKey = key
             HookLogger.i(
                 "AodLyricCanvasView",
-                "Landscape content block anchored minTop=$minTop " +
-                    "blockH=$blockHeight avail=$available anchor=$landscapeAnchor offset=$offset"
+                "Landscape content block anchored minTop=$minTop blockH=$blockHeight " +
+                    "region=${region.top}..${region.top + available} avail=$available " +
+                    "anchor=$landscapeAnchor offset=$offset " +
+                    "center=${minTop + offset + blockHeight / 2f} frameCenter=${oh / 2f} " +
+                    "fs=${fullscreenLandscapeActive()}"
             )
         }
     }
