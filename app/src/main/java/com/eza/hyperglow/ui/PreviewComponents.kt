@@ -448,7 +448,8 @@ private fun LyricPreviewSurface(
                 // 换行/测量全部委托 LyricLayoutEngine(与实机同源):断行点、行数上限、
                 // Clip 语义一致;预览只负责卡片内的居中摆放。
                 val mainLayout = remember(
-                    snapshot.original, snapshot.words, textSize, lyricTypeface, regularTypeface,
+                    snapshot.original, snapshot.words, snapshot.lineStartMs, snapshot.lineEndMs,
+                    textSize, lyricTypeface, regularTypeface,
                     previewRuby, availablePx, profile.lyricLineLimit, profile.overflow,
                     profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText
                 ) {
@@ -461,6 +462,10 @@ private fun LyricPreviewSurface(
                         words = snapshot.words,
                         betterLyrics = profile.animation == "BetterLyrics",
                         unsungColorArgb = resolvedColors.unsungText,
+                        // 合成源的虚拟时间跨度取真实行窗(演示快照=切换周期):长音节判定
+                        // (块时长 ≥700ms)与实机一致,快歌短词块同样不放大/不辉光。
+                        lineSpanMs = (snapshot.lineEndMs - snapshot.lineStartMs)
+                            .takeIf { it >= 100L } ?: 2_500L,
                         availableWidthPx = availablePx.toFloat(),
                         lineLimit = profile.lyricLineLimit,
                         wrap = profile.overflow == "Wrap",
@@ -932,6 +937,7 @@ private fun buildPreviewMainLayout(
     words: List<LyricWord>,
     betterLyrics: Boolean,
     unsungColorArgb: Int,
+    lineSpanMs: Long,
     availableWidthPx: Float,
     lineLimit: Int,
     wrap: Boolean,
@@ -1036,7 +1042,7 @@ private fun buildPreviewMainLayout(
     val wordRuns = when {
         betterLyrics && words.isNotEmpty() ->
             result.lines.map { line -> previewWordRuns(line, text.length, words, paint) }
-        betterLyrics -> syntheticPreviewWordRuns(result.lines, paint)
+        betterLyrics -> syntheticPreviewWordRuns(result.lines, paint, lineSpanMs)
         else -> emptyList()
     }
     val wordSpanStartMs = wordRuns.asSequence().flatten().minOfOrNull { it.startMs } ?: 0L
@@ -1103,10 +1109,11 @@ private fun previewWordRuns(
  */
 private fun syntheticPreviewWordRuns(
     lines: List<LyricLayoutLine>,
-    paint: TextPaint
+    paint: TextPaint,
+    lineSpanMs: Long
 ): List<List<PreviewWordRun>> {
     val totalWidth = lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
-    val spanMs = 1_000L
+    val spanMs = lineSpanMs.coerceAtLeast(1L)
     var preceding = 0f
     val out = ArrayList<List<PreviewWordRun>>(lines.size)
     lines.forEach { line ->
@@ -1126,6 +1133,8 @@ private fun syntheticPreviewWordRuns(
                 preceding + prefix,
                 blockWidth
             )
+            // 与实机同判定:块时长不足 700ms 的短词块只有扫光,不放大、不辉光。
+            val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
             var charIndex = block.first
             while (charIndex <= block.last) {
                 val charWidth = paint.measureText(line.text, charIndex, charIndex + 1)
@@ -1143,9 +1152,9 @@ private fun syntheticPreviewWordRuns(
                         width = charWidth,
                         startMs = charWindow.first,
                         endMs = charWindow.last,
-                        longSyllable = true,
-                        highlightStartMs = blockWindow.first,
-                        highlightEndMs = blockWindow.last
+                        longSyllable = blockLong,
+                        highlightStartMs = if (blockLong) blockWindow.first else -1L,
+                        highlightEndMs = if (blockLong) blockWindow.last else -1L
                     )
                 }
                 prefix += charWidth

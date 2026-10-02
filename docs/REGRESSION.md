@@ -332,6 +332,18 @@ and (b) unverified paths stay explicit instead of silently assumed.
   the call site (plus `View.setVisibility`), which must hold the root GONE without flicker;
   pending a re-check on the upgraded build: the `cause=reassert` log cycle goes silent during
   doze and the island stays invisible for the whole session.
+- Landscape fullscreen lyric centering (the "landscape fullscreen" switch +
+  `aodLandscapeFullscreenSafeMarginPercent`): the content block now anchors inside the same safe
+  area the adaptive scale fills (`landscapeSafeRegion`, region top = canvas padding + safe inset).
+  Previously the safe inset was only subtracted from the region height while the region still
+  started at the canvas padding, so the whole block sat one inset off-center (≈54 px at the default
+  6%, ≈92 px after the 1.7× scale — the reported "not in the middle"). The metadata and
+  no-metadata branches now share one anchoring path (visual block bounds + safe region), so the two
+  can no longer disagree on the centering basis. Pending a hardware smoke check after merge: with
+  the default 6% margin the landscape lyrics sit in the middle of the view (equal margins on both
+  sides; logcat `Landscape content block anchored … center=… frameCenter=…` must show
+  `center == frameCenter`), and the landscape vertical anchor still moves the block toward either
+  edge.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -485,6 +497,12 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   改动（不涉及 SystemUI/AOD surface）——合并后待真机冒烟：选文字颜色后行标题与卡片文字立即
   变色而 summary 保持主题色、选字体后整个应用界面跨屏换字体、跟随系统恢复平台默认、两项随
   备份导出导入。
+- 息屏(AOD)渲染模式改从编译后的 AOD profile 解析(`AodStateProjector.projectToDisplay`:weight / 字号档与自定义百分比 / 辅助文字模式 / 逐字动画 / 发光 / 行进度效果 / 折行裁剪 / 字体族 / 换行动画 / 主对齐 / 歌曲信息锚点 / 自适应分节),producer 的 `renderModes` 降为兜底(`compiled` 缺失时行为与改前一致)。
+  根因(现场反馈「BetterLyrics 的效果在预览上看得见,实机上没有」):投影层此前只读 `state.renderModes`,而全仓只有 Lyricon 会从 profile 回填它(`LyriconRenderModeMapping.toProducerRenderModes` 是唯一调用点);LyricInfo / SuperLyric 发的是硬编码默认值,Spicy 的桥白名单(`normalizeSpicyBridgeRenderModes`)又不含 `BetterLyrics`,于是这些源下 `animation` 恒为硬编码值再被 `normalizeAodAnimation` 退回 `Gradient`——同一条链上的字号档、字重、辅助文字、发光、字体、换行动画、行进度效果同样不生效。另三项(主对齐 / 歌曲信息锚点 / 自适应分节)历史上读旧 SharedPreferences,而 `ui/` 已无任何写入方(`SettingsPrefs.updateAlignment` 等在 `ui/` 下零调用点),恒取默认值。锁屏面不走这条链(`LyricCanvasMapper` 直接读 SystemUI 侧 customization bundle),所以现象只在息屏出现——这也解释了 PR #138/#139/#140 的验证为何没发现(其「设备验证」栏一直是「待真机冒烟」,且备注里的锁屏观察恰好是好的那条路)。
+  同时清理:三个生产者的 `defaultRenderModes()` 兜底值 `animation = "Karaoke fill"` 改为 `"Gradient"`(该遗留名过不了 `normalizeAodAnimation`,是纯误导);Spicy 桥归一化白名单补入 `BetterLyrics`(被静默改写会在归一化处再退回 Gradient)。
+  测试:`AodStateProjectorTest` 的「渲染模式透传」改为「编译 profile 覆盖 producer renderModes」,新增 `BetterLyrics` 现场形状的回归用例与 `compiled` 缺失时的兜底用例;UNSYNCED 的换行动画断言同步改口径(`Auto` → `Fade up`)并补一条兜底对照。`ArchitectureGuardTest` 新增两道机器门:投影层必须以 `aodProfile?.… ?: …` 取渲染模式;`producer/` 下不得再出现 `animation = "Karaoke fill"`。
+  合并后待真机冒烟(**不声称 device-verified**):歌词源分别选 LyricInfo / SuperLyric / Spicy,息屏与锁屏各验一遍——① 逐字动画选 `BetterLyrics` + 发光开,息屏出现长音节放大/辉光与未唱下沉/已唱上浮(对照 `adb logcat -s HyperGlow` 里 `AodLyricCanvasView` 的 `Render mode: anim=BetterLyrics …`,`anim=Gradient` 即未生效);② 字号档、字重、辅助文字模式、字体族、行进度效果在息屏生效;③ 主对齐(居中/右对齐)、歌曲信息锚点(底部)、自适应分节开关在息屏生效;④ 切回 Lyricon 行为不变(该源本就取 profile,改后仍取 profile,只是路径统一)。
+  已知相邻缺口(本 PR 未含,需各自独立处理,均为息屏独有):`aod/AodStateWire` 的 `normalizeAodTransition` 只放行 5 个历史档,25 个 HyperLyrics 预设 id 在息屏会被静默改写为 `Fade up`(锁屏正常)——修它要过 wire 出口白名单,属协议面改动;`metadataSizePercent` 从未过 AOD wire(`AodCanvasContent` 恒为 100),故息屏的「歌曲信息字号」不生效——修它要新增 wire 字段与 BODY_VERSION 递增。两者都请另开 issue/PR,不要混进本 PR。
 - 换行动画改为逐行三段式（owner 2026-09-30 定案，实机 + 预览）：此前整块行块（主歌词 +
   辅助文字 + 下一行）单层进退——第一行与第二行用同个动画一起消失/移动、新两行用同个
   动画一起出现；历史档退场/入场还共用同一 elapsed 叠加进行，旧行未走完新行已进场，
@@ -520,6 +538,13 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   （报告者仍看到了残留岛）。已把强制接缝升级为在调用点同步改写 `View.setFlags` 的可见性请求
   （连同 `View.setVisibility`），必须让岛根在 doze 期间无闪烁地持续保持 GONE；升级包待复验：
   doze 期间 `cause=reassert` 日志周期归于静默、整段息屏岛不再可见。
+- 横屏全屏化歌词居中（「横屏歌词全屏化」开关 + `aodLandscapeFullscreenSafeMarginPercent`）：内容块改为在
+  自适应缩放所填的同一安全区内锚定（`landscapeSafeRegion`，区间起点 = 画布内边距 + 安全边界）。此前安全边界
+  只从区间高度里减掉、区间起点仍取画布内边距，整块因此偏向一侧一个安全边界（默认 6% 时约 54px，放大 1.7 倍
+  后约 92px——即反馈的「全屏化后歌词不在正中间」）；同时有无元数据两条分支统一走同一条锚定路径（视觉块包围盒
+  + 安全区），不再出现「一条居中、另一条贴边」的口径分叉。合并后待真机冒烟：默认 6% 安全边界下横屏歌词在
+  视野正中（两侧留白相等，logcat `Landscape content block anchored … center=… frameCenter=…` 中
+  `center == frameCenter`），且「横屏垂直锚点」设置仍能把整块推向顶/底。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

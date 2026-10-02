@@ -62,7 +62,9 @@ internal fun normalizeSpicyBridgeRenderModes(
         else -> "Main only"
     },
     animation = when (candidate.animation) {
-        "Minimal", "Karaoke fill", "Spotlight word" -> candidate.animation
+        // "BetterLyrics" 是现行词表成员，必须原样通过：被静默改写成遗留名会在
+        // normalizeAodAnimation 处再退回 Gradient（表现即「设置只在预览生效、实机不变」）。
+        "Minimal", "BetterLyrics", "Karaoke fill", "Spotlight word" -> candidate.animation
         "Full" -> "Spotlight word"
         else -> "Karaoke fill"
     },
