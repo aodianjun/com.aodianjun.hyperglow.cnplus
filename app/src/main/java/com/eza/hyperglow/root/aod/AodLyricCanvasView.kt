@@ -2038,78 +2038,71 @@ internal class AodLyricCanvasView(
     private fun drawOriginal(canvas: Canvas, baseline: Float) {
         val originalLayout = layout.original
         val lines = originalLayout.lines
-        // Minimal 模式：静态全亮，无扫光/发光（timed / untimed 通用）。
-        if (content.animationMode == "Minimal") {
-            var precedingRuby = 0f
-            var lineIndex = 0
-            while (lineIndex < lines.size) {
-                val line = lines[lineIndex]
-                val lineBaseline = originalLineBaseline(
-                    baseline,
-                    lineIndex,
-                    originalLayout.lineHeight,
-                    precedingRuby,
-                    line.rubyHeight,
-                    originalLayout.lineGap
-                )
-                val lineClipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
-                if (line.ruby.isNotEmpty()) {
-                    drawRuby(canvas, line, lineBaseline)
+        // 主行渲染路径由共享决策函数给出(与 App 内预览读同一份,杜绝两侧分支树漂移):
+        // 静态全亮 / 词级卡拉OK / 共享扫光块三选一。
+        val plan = planOriginalLine(
+            animationMode = content.animationMode,
+            timed = originalLayout.timed,
+            lineLevelSync = content.lineLevelSync,
+            glowMode = content.glowMode,
+            lineSyncFillMode = content.lineSyncFillMode,
+            lineStartMs = content.lineStartMs,
+            lineEndMs = content.lineEndMs
+        )
+        when (plan.path) {
+            // 静态全亮，无扫光/发光（Minimal 档或行进度效果 None）。
+            OriginalLinePath.STATIC -> {
+                var precedingRuby = 0f
+                var lineIndex = 0
+                while (lineIndex < lines.size) {
+                    val line = lines[lineIndex]
+                    val lineBaseline = originalLineBaseline(
+                        baseline,
+                        lineIndex,
+                        originalLayout.lineHeight,
+                        precedingRuby,
+                        line.rubyHeight,
+                        originalLayout.lineGap
+                    )
+                    val lineClipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
+                    if (line.ruby.isNotEmpty()) {
+                        drawRuby(canvas, line, lineBaseline)
+                    }
+                    originalPaint.shader = null
+                    originalPaint.setShadowLayer(0f, 0f, 0f, 0)
+                    setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
+                    drawOriginalText(canvas, line, lineBaseline)
+                    if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
+                    precedingRuby += line.rubyHeight
+                    lineIndex++
                 }
-                originalPaint.shader = null
-                originalPaint.setShadowLayer(0f, 0f, 0f, 0)
-                setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-                drawOriginalText(canvas, line, lineBaseline)
-                if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
-                precedingRuby += line.rubyHeight
-                lineIndex++
             }
-            return
-        }
-        // 「BetterLyrics」逐字发光档(参考 jayfunc/BetterLyrics):逐字时间源走真词级
-        // 卡拉OK;行级源(LRC,无逐字时间)由 [drawWordKaraoke] 按字符合成时间窗走同一
-        // 渲染——未唱下沉/已唱上浮/正在唱的字放大辉光对两类源同样适用,推进前缘与
-        // 行级扫光几何一致。「行进度效果=None」除外:尊重用户的静态全亮选择。
-        if (content.animationMode == "BetterLyrics" && effectiveLineSyncFillMode() != "None") {
-            drawWordKaraoke(canvas, baseline, originalLayout, betterLyrics = true)
-            return
-        }
-        // 行级歌词(无逐字时间戳,LRC):同样统一走共享渲染管线,与预览同源。
-        if (!originalLayout.timed) {
-            drawOriginalGlowBlock(
+            // 「BetterLyrics」档(参考 jayfunc/BetterLyrics):逐字时间源走真词级卡拉OK;
+            // 行级源(LRC,无逐字时间)由 [drawWordKaraoke] 按字符合成时间窗走同一渲染——
+            // 未唱下沉/已唱上浮/正在唱的字放大辉光对两类源同样适用,推进前缘与行级扫光几何一致。
+            // 非 BetterLyrics 的基础卡拉OK路径(逐字源 + 关闭发光 + 大元数据引导态)同走此分支。
+            OriginalLinePath.WORD_KARAOKE -> drawWordKaraoke(
                 canvas,
                 baseline,
                 originalLayout,
-                lineProgress(),
-                effectiveLineSyncFillMode()
+                betterLyrics = content.animationMode == "BetterLyrics"
             )
-            return
+            // 统一共享管线：dim 底 + 光晕(发光开启时) + 扫光带,fillMode 由决策函数给出
+            // (逐行依次 / 整块同时 / 纵向推进 / None 静态)。整块进度：行级时间优先，
+            // 纯逐字源回退全局词范围（unifiedBlockProgress）。
+            OriginalLinePath.BLOCK_SWEEP -> drawOriginalGlowBlock(
+                canvas,
+                baseline,
+                originalLayout,
+                unifiedBlockProgress(
+                    projectedPosition(),
+                    content.lineStartMs,
+                    content.lineEndMs,
+                    content.words
+                ),
+                plan.fillMode
+            )
         }
-        // 逐字卡拉OK路径：仅"逐字时间源 + 关闭发光 + 非行级同步"保留，
-        // 其余全部走共享 LyricGlowRenderer 统一管线（与预览同源，杜绝效果漂移）。
-        if (!usesPreviewGlowPipeline(
-                content.animationMode,
-                originalLayout.timed,
-                content.lineLevelSync,
-                content.glowMode
-            )
-        ) {
-            drawWordKaraoke(canvas, baseline, originalLayout)
-            return
-        }
-        // 统一预览管线：dim 底 + 光晕(发光开启时) + 扫光带。
-        // 整块进度：行级时间优先，纯逐字源回退全局词范围（unifiedBlockProgress）。
-        drawOriginalGlowBlock(
-            canvas,
-            baseline,
-            originalLayout,
-            unifiedBlockProgress(
-                projectedPosition(),
-                content.lineStartMs,
-                content.lineEndMs,
-                content.words
-            )
-        )
     }
 
     /**

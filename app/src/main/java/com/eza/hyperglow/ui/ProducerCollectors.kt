@@ -129,7 +129,12 @@ private fun LyricProducerState.toPreviewSnapshot(
     // 本面「识别对唱标记」开启取标记识别版分侧,否则取元数据身份版(与实机按面选用同口径)。
     alignedRight = if (duetMarkers) alignedRightMarkers else alignedRight,
     alignedRightMarkers = alignedRightMarkers,
-    lineLevelSync = words == null,
+    // 行级同步判据与投影层同源(AodStateProjector.projectToDisplay:hasActiveLine && !showLargeMetadata):
+    // 有活动行且非大元数据引导态。预览不建模换歌引导态,故取「有活动行」即实机稳态。
+    // 此前用 `words == null`(无逐字时间)当判据,逐字源被判成非行级同步 → 主行渲染路径落到
+    // 整块横扫,与实机(带行窗的逐字源走共享逐行扫光)不一致;演示快照恒写 true,只有连上
+    // 实时歌词源才看得出来。
+    lineLevelSync = lineIndex >= 0 && line.isNotBlank(),
     lineStartMs = lineStartMs,
     lineEndMs = lineEndMs,
     durationMs = durationMs,

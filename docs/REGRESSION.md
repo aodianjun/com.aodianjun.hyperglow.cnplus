@@ -401,6 +401,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 
 ## 已知未验证路径
 
+- 主行渲染路径的预览/实机同源决策（`planOriginalLine`：静态全亮 / 词级卡拉OK / 共享扫光块三选一，实机画布与 App 内预览读同一份；`BetterLyrics` 档不再被共享行级扫光门拦下；整块横扫只在显式选择该档时出现）——合并后待真机冒烟：带行窗的逐字源（Spicy/LyricInfo/SuperLyric）在 BetterLyrics 档下必须出逐字卡拉OK（此前被 `shouldUseSharedLineLevelSweep` 拦到逐行扫光，表现即「预览有逐字效果、实机没有」）；Gradient 档仍逐行推进；「行进度效果」四档逐档生效（None 静态、Top to bottom 纵向、main only 逐行、whole block 整块）；App 内预览与实机在换歌引导态之外逐档一致（此前逐字源预览整块、实机逐行分叉）。
 - 翻译冗余对在生产者/插件桥上的传递（文本缺失时由 `translationWords` 拼出兜底译文、词表原样穿过 `PluginLyricLine.translationWords`、只给词表的插件结果在回向同规则回填；已单测）——合并后待真机冒烟：只带词级翻译的源必须显示翻译辅助行，译文以纯文本到达的曲目显示不变。
 - AOD 上逐帧 60 FPS 动画（`docs/ARCHITECTURE.md`："remains unverified and is not a contract"）。
 - 实机 `custom`/`noto-sc` 字体经统一 `LyricTypefaceResolver` 路径渲染（预览/实机字体同源）——合并后待真机冒烟确认。
