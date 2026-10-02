@@ -910,4 +910,46 @@ class AodPositionUpdateTest {
         assertTrue(shouldReleaseManagedControlOnExhaustion(true))
         assertFalse(shouldReleaseManagedControlOnExhaustion(false))
     }
+
+    // ---- 数值型 ROM 字段读取的宽度容忍(上游 99ba119 item #7) ----
+
+    /**
+     * 模拟已普查机型的真实字段宽度:`mTranslationY` 是 int、`mTranslationYStep` 是 float。
+     * 固件对同一控制器的数值字段宽度不自洽,这正是读侧必须装箱读取的原因。
+     */
+    private class FakeAodPositionController {
+        @JvmField var mMode: Int = 0
+        @JvmField var mTranslationY: Int = 0
+        @JvmField var mTranslationYStep: Float = 0f
+        @JvmField var mAodMoveCurrent: Int = 0
+    }
+
+    private fun fakeControllerField(name: String): java.lang.reflect.Field =
+        FakeAodPositionController::class.java.getDeclaredField(name).apply { isAccessible = true }
+
+    @Test
+    fun numericRomFieldReadToleratesDeclaredWidthMismatch() {
+        val controller = FakeAodPositionController().apply {
+            mMode = 3
+            mTranslationY = 1372
+            mTranslationYStep = 2.5f
+            mAodMoveCurrent = 7
+        }
+
+        // 装箱读取 + 调用方窄化:int 与 float 两种宽度都取到正确值。
+        //
+        // 此处不断言「窄访问器在宽度不符时抛异常」——那是运行时的宽度校验策略,而非本改动要
+        // 固定的不变量。实测(JDK 21/25 宿主机):Field.getFloat 读 int 字段是宽容的,int→float
+        // 属无损加宽,不抛;反向 getInt 读 float 字段才抛 IllegalArgumentException。而设备侧
+        // ART 的窄访问器按精确类型校验,会双向都抛——那一次的抛出被 readClockGeometry 自身的
+        // runCatching 读成「没有时钟几何」,才静默禁用了托管位移与原厂控件保持。
+        // 宽度策略随运行时变化,故此处只固定:装箱读取在两种宽度下都成立,且窄化结果正确。
+        // 顶层函数而非 AodPositionHook 成员:后者静态初始化依赖 Android 运行时,裸 JVM 单元测试
+        // 触碰它会抛 ExceptionInInitializerError。
+        assertEquals(1372f, readNumericField(controller, fakeControllerField("mTranslationY")).toFloat(), 0.001f)
+        assertEquals(1372, readNumericField(controller, fakeControllerField("mTranslationY")).toInt())
+        assertEquals(2.5f, readNumericField(controller, fakeControllerField("mTranslationYStep")).toFloat(), 0.001f)
+        assertEquals(3, readNumericField(controller, fakeControllerField("mMode")).toInt())
+        assertEquals(7, readNumericField(controller, fakeControllerField("mAodMoveCurrent")).toInt())
+    }
 }
