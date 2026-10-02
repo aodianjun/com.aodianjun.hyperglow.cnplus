@@ -1578,7 +1578,7 @@ class AodCanvasLayoutTest {
             blockTop = 22f,
             blockHeight = 300f,
             availableHeight = 1036f,
-            padTop = 22f
+            regionTop = 22f
         )
         // (1036-300)/2 - (22-22) = 368
         assertEquals(368f, offset, 0.0001f)
@@ -1586,12 +1586,12 @@ class AodCanvasLayoutTest {
 
     @Test
     fun fullscreenBlockCenterOffsetKeepsTopWhenBlockTooTall() {
-        // 内容块高于可用高度时不缩小也不上移:偏移恒为 padTop - blockTop(此处内容本就在顶部 → 0)。
+        // 内容块高于可用高度时不缩小也不上移:偏移恒为 regionTop - blockTop(此处内容本就在顶部 → 0)。
         val bigger = fullscreenBlockCenterOffset(
             blockTop = 100f,
             blockHeight = 1200f,
             availableHeight = 1036f,
-            padTop = 22f
+            regionTop = 22f
         )
         // (1036-1200)/2 为负 → max(0,·)→ 0,再减去尚未在顶部的 (100-22)。
         assertEquals(-78f, bigger, 0.0001f)

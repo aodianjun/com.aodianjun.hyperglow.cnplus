@@ -373,6 +373,86 @@ class AodLandscapeBehaviorTest {
         assertEquals(atOne, landscapeBlockAnchorOffset(100f, 306f, 906f, 22f, 1.8f), 0.001f)
     }
 
+    // ---- 横屏全屏化安全区 [landscapeSafeRegion]:让出量必须同时作用于区间起点与高度 ----
+
+    @Test
+    fun safeRegionIsCenteredOnLogicalFrame() {
+        // 上下让出量相同时安全区中心恒等于逻辑帧中心 oh/2 —— 这是「全屏化后歌词在正中间」
+        // 的几何前提。现场形态:逻辑 oh=906、pad=22、安全边界 6%(54.36)。
+        val region = landscapeSafeRegion(oh = 906, padTop = 22, padBottom = 22, safeInset = 54.36f)
+        assertEquals(76.36f, region.top, 0.001f)
+        assertEquals(906f - 2f * 76.36f, region.height, 0.001f)
+        assertEquals(453f, region.top + region.height / 2f, 0.001f)
+    }
+
+    @Test
+    fun safeRegionDegeneratesWithoutMargin() {
+        // 非全屏横屏(安全边界为 0):安全区 == 画布内边距区间,与旧行为逐点一致。
+        val region = landscapeSafeRegion(906, 22, 22, 0f)
+        assertEquals(22f, region.top, 0.001f)
+        assertEquals(862f, region.height, 0.001f)
+        // 非法/负让出量按 0 处理;内边距吃掉整个逻辑帧时高度归零,不出现负高度。
+        assertEquals(region, landscapeSafeRegion(906, 22, 22, Float.NaN))
+        assertEquals(region, landscapeSafeRegion(906, 22, 22, -6f))
+        assertEquals(0f, landscapeSafeRegion(906, 500, 500, 54.36f).height, 0.001f)
+    }
+
+    @Test
+    fun fullscreenAnchorCentersBlockInSafeRegion() {
+        // 现场形态(真机日志:oh=906、pad=22、安全边界 6%、块高 342.43、anchor=0.5):
+        // 锚定后块中心必须落在逻辑帧中心;再经自适应放大(绕逻辑帧中心)后两端留白相等,
+        // 且不小于安全边界。
+        val oh = 906
+        val inset = fullscreenSafeInset(oh.toFloat(), 6f)
+        val region = landscapeSafeRegion(oh, 22, 22, inset)
+        val blockTop = 22f
+        val blockHeight = 342.43f
+        val offset = landscapeBlockAnchorOffset(
+            blockTop = blockTop,
+            blockHeight = blockHeight,
+            availableHeight = region.height,
+            regionTop = region.top,
+            anchor = 0.5f
+        )
+        val centeredTop = blockTop + offset
+        assertEquals(oh / 2f, centeredTop + blockHeight / 2f, 0.001f)
+        val scale = 1.7f
+        val topAfter = oh / 2f + (centeredTop - oh / 2f) * scale
+        val bottomAfter = oh / 2f + (centeredTop + blockHeight - oh / 2f) * scale
+        assertEquals(topAfter, oh - bottomAfter, 0.001f)
+        assertTrue(topAfter >= inset)
+    }
+
+    @Test
+    fun legacySafeInsetThatOnlyShrinksHeightBiasesBlockToOneSide() {
+        // 回归锚点(旧实现):安全边界只从区间高度里减掉、区间起点仍取 padTop,块中心偏向
+        // 一侧 inset 像素,全屏化放大后偏移被 scale 再次放大 —— 现场「横屏全屏化后歌词
+        // 不在正中间」的直接来源。
+        val oh = 906
+        val inset = fullscreenSafeInset(oh.toFloat(), 6f)
+        val blockHeight = 342.43f
+        val legacyOffset = landscapeBlockAnchorOffset(
+            blockTop = 22f,
+            blockHeight = blockHeight,
+            availableHeight = (oh - 44).toFloat() - inset * 2f,
+            regionTop = 22f,
+            anchor = 0.5f
+        )
+        val legacyCenter = 22f + legacyOffset + blockHeight / 2f
+        assertEquals(oh / 2f - inset, legacyCenter, 0.01f)
+        assertEquals(inset * 1.7f, (oh / 2f - legacyCenter) * 1.7f, 0.01f)
+        // 修正后(起点与高度同源)同输入下块中心回到逻辑帧中心。
+        val fixedRegion = landscapeSafeRegion(oh, 22, 22, inset)
+        val fixedOffset = landscapeBlockAnchorOffset(
+            blockTop = 22f,
+            blockHeight = blockHeight,
+            availableHeight = fixedRegion.height,
+            regionTop = fixedRegion.top,
+            anchor = 0.5f
+        )
+        assertEquals(oh / 2f, 22f + fixedOffset + blockHeight / 2f, 0.001f)
+    }
+
     // ---- 横屏画布 rect 宽高交换 [swapAodSurfaceRectForLandscape] ----
 
     @Test

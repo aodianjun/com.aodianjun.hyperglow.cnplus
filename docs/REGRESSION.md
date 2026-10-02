@@ -332,6 +332,18 @@ and (b) unverified paths stay explicit instead of silently assumed.
   the call site (plus `View.setVisibility`), which must hold the root GONE without flicker;
   pending a re-check on the upgraded build: the `cause=reassert` log cycle goes silent during
   doze and the island stays invisible for the whole session.
+- Landscape fullscreen lyric centering (the "landscape fullscreen" switch +
+  `aodLandscapeFullscreenSafeMarginPercent`): the content block now anchors inside the same safe
+  area the adaptive scale fills (`landscapeSafeRegion`, region top = canvas padding + safe inset).
+  Previously the safe inset was only subtracted from the region height while the region still
+  started at the canvas padding, so the whole block sat one inset off-center (≈54 px at the default
+  6%, ≈92 px after the 1.7× scale — the reported "not in the middle"). The metadata and
+  no-metadata branches now share one anchoring path (visual block bounds + safe region), so the two
+  can no longer disagree on the centering basis. Pending a hardware smoke check after merge: with
+  the default 6% margin the landscape lyrics sit in the middle of the view (equal margins on both
+  sides; logcat `Landscape content block anchored … center=… frameCenter=…` must show
+  `center == frameCenter`), and the landscape vertical anchor still moves the block toward either
+  edge.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -525,6 +537,13 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   （报告者仍看到了残留岛）。已把强制接缝升级为在调用点同步改写 `View.setFlags` 的可见性请求
   （连同 `View.setVisibility`），必须让岛根在 doze 期间无闪烁地持续保持 GONE；升级包待复验：
   doze 期间 `cause=reassert` 日志周期归于静默、整段息屏岛不再可见。
+- 横屏全屏化歌词居中（「横屏歌词全屏化」开关 + `aodLandscapeFullscreenSafeMarginPercent`）：内容块改为在
+  自适应缩放所填的同一安全区内锚定（`landscapeSafeRegion`，区间起点 = 画布内边距 + 安全边界）。此前安全边界
+  只从区间高度里减掉、区间起点仍取画布内边距，整块因此偏向一侧一个安全边界（默认 6% 时约 54px，放大 1.7 倍
+  后约 92px——即反馈的「全屏化后歌词不在正中间」）；同时有无元数据两条分支统一走同一条锚定路径（视觉块包围盒
+  + 安全区），不再出现「一条居中、另一条贴边」的口径分叉。合并后待真机冒烟：默认 6% 安全边界下横屏歌词在
+  视野正中（两侧留白相等，logcat `Landscape content block anchored … center=… frameCenter=…` 中
+  `center == frameCenter`），且「横屏垂直锚点」设置仍能把整块推向顶/底。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

@@ -112,30 +112,53 @@ internal fun resolveFullscreenLandscapeScale(
 }
 
 /**
- * 横屏全屏的垂直居中偏移:把垂直占 [preOffsetTop, preOffsetTop + blockHeight] 的内容块,
- * 在可用高度 [padTop, padTop + availableHeight] 内整体居中。返回需叠加到每行 baseline 的偏移;
+ * 横屏内容安全区(纯函数):在逻辑帧高 [oh] 内扣掉画布内边距 [padTop]/[padBottom] 后,
+ * 再上下各让出 [safeInset],得到内容块锚定与自适应缩放共用的垂直区间
+ * [LandscapeSafeRegion.top, +height]。上下让出量相同 ⇒ 区间中心恒等于逻辑帧中心 oh/2,
+ * 这是「横屏全屏化后歌词在正中间」的几何前提;安全边界非正/非法时退化为无让出。
+ */
+internal data class LandscapeSafeRegion(val top: Float, val height: Float)
+
+internal fun landscapeSafeRegion(
+    oh: Int,
+    padTop: Int,
+    padBottom: Int,
+    safeInset: Float
+): LandscapeSafeRegion {
+    val inset = if (safeInset.isFinite() && safeInset > 0f) safeInset else 0f
+    val height = ((oh - padTop - padBottom).toFloat() - inset * 2f).coerceAtLeast(0f)
+    return LandscapeSafeRegion(padTop + inset, height)
+}
+
+/**
+ * 横屏全屏的垂直居中偏移:把垂直占 [blockTop, blockTop + blockHeight] 的内容块,
+ * 在可用高度 [regionTop, regionTop + availableHeight] 内整体居中。返回需叠加到每行 baseline 的偏移;
  * 内容块高于可用区间时不缩小、也不再上移(保持原顶部,避免裁切)。
  */
 internal fun fullscreenBlockCenterOffset(
     blockTop: Float,
     blockHeight: Float,
     availableHeight: Float,
-    padTop: Float
-): Float = max(0f, (availableHeight - blockHeight) / 2f) - (blockTop - padTop)
+    regionTop: Float
+): Float = max(0f, (availableHeight - blockHeight) / 2f) - (blockTop - regionTop)
 
 /**
- * 横屏内容块的锚定偏移(纯函数,issue #63):把垂直占 [blockTop, blockTop + blockHeight]
- * 的内容块,在可用区间 [padTop, padTop + availableHeight] 内按 [anchor] 整体摆放
+ * 横屏内容块的锚定偏移(纯函数,issue #63):把垂直占 [blockTop, blockTop + blockHeight] 的内容块,
+ * 在可用区间 [regionTop, regionTop + availableHeight] 内按 [anchor] 整体摆放
  * (0=顶、0.5=居中、1=底)。anchor=0.5 时与 [fullscreenBlockCenterOffset] 逐点等价;
  * 内容块高于可用区间时不缩小、也不再上移(保持原顶部,避免裁切)。
+ *
+ * [regionTop]/[availableHeight] 必须取自同一个安全区([landscapeSafeRegion])——只把安全边界从
+ * 高度里减掉、区间起点却仍取画布内边距时,整块会偏向一侧 safeInset 像素(全屏化再经 scale
+ * 放大该偏移,现场即「歌词不在正中间」)。
  */
 internal fun landscapeBlockAnchorOffset(
     blockTop: Float,
     blockHeight: Float,
     availableHeight: Float,
-    padTop: Float,
+    regionTop: Float,
     anchor: Float
-): Float = max(0f, availableHeight - blockHeight) * anchor.coerceIn(0f, 1f) - (blockTop - padTop)
+): Float = max(0f, availableHeight - blockHeight) * anchor.coerceIn(0f, 1f) - (blockTop - regionTop)
 
 internal fun steadyTextAlpha(factor: Float): Float = if (factor < 0.5f) {
     max(0.35f * AOD_DIMMING_BOOST, 0.55f)
