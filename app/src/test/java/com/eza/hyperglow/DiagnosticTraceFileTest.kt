@@ -87,6 +87,77 @@ class DiagnosticTraceFileTest {
     }
 
     @Test
+    fun appendDropsLinesBelowTheLevelFloor() {
+        val dir = Files.createTempDirectory("hyperglow-trace").toFile()
+        try {
+            DiagnosticTraceFile.setDirectory(dir)
+            DiagnosticTraceFile.setMinSeverity(DIAGNOSTIC_SEVERITY_WARN)
+
+            DiagnosticTraceFile.append("I", "Area", "info-line")
+            DiagnosticTraceFile.append("W", "Area", "warn-line")
+            DiagnosticTraceFile.append("E", "Area", "error-line")
+
+            val written = File(dir, DiagnosticTraceFile.FILE_NAME).readText()
+            assertFalse(written.contains("info-line"))
+            assertTrue(written.contains("warn-line"))
+            assertTrue(written.contains("error-line"))
+        } finally {
+            DiagnosticTraceFile.setMinSeverity(DIAGNOSTIC_SEVERITY_INFO)
+            DiagnosticTraceFile.setDirectory(null)
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun appendDropsUnrecognizedLevelsRegardlessOfTheFloor() {
+        val dir = Files.createTempDirectory("hyperglow-trace").toFile()
+        try {
+            DiagnosticTraceFile.setDirectory(dir)
+            DiagnosticTraceFile.setMinSeverity(DIAGNOSTIC_SEVERITY_INFO)
+
+            DiagnosticTraceFile.append("V", "Area", "verbose-line")
+
+            assertFalse(File(dir, DiagnosticTraceFile.FILE_NAME).exists())
+        } finally {
+            DiagnosticTraceFile.setDirectory(null)
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun readAllReturnsBothFilesOldestFirstWithoutTimeFilter() {
+        val dir = Files.createTempDirectory("hyperglow-trace").toFile()
+        try {
+            File(dir, DiagnosticTraceFile.ROTATED_FILE_NAME).writeText(
+                "2026-09-01T10:00:00.000 I [Area] rotated\n"
+            )
+            File(dir, DiagnosticTraceFile.FILE_NAME).writeText(
+                "2026-09-02T10:00:00.000 E [Area] current\n"
+            )
+
+            val all = DiagnosticTraceFile.readAll(dir)
+
+            assertEquals(
+                "2026-09-01T10:00:00.000 I [Area] rotated\n" +
+                    "2026-09-02T10:00:00.000 E [Area] current",
+                all
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun readAllWithoutAnyTraceFileYieldsEmpty() {
+        val dir = Files.createTempDirectory("hyperglow-trace").toFile()
+        try {
+            assertEquals("", DiagnosticTraceFile.readAll(dir))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun clearRemovesBothTraceFiles() {
         val dir = Files.createTempDirectory("hyperglow-trace").toFile()
         try {

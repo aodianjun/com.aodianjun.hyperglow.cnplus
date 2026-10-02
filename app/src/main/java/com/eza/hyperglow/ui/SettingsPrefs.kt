@@ -5,6 +5,7 @@ import com.eza.hyperglow.DiagnosticLoggingPreferences
 import com.eza.hyperglow.DiagnosticTraceFile
 import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.setDiagnosticLogging
+import com.eza.hyperglow.setDiagnosticLogLevel
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
@@ -180,6 +181,7 @@ private fun collectSideSettings(context: android.content.Context): ConfigBackupS
         uiLanguage = currentUiLanguage(context),
         diagnosticLogging = DiagnosticLoggingPreferences.read(context),
         logRetentionDays = DiagnosticLoggingPreferences.readRetentionDays(context),
+        logLevel = DiagnosticLoggingPreferences.readLevel(context),
         pluginSettings = collectPluginSettingsBackup(context)
     )
 
@@ -203,6 +205,7 @@ private fun applySideSettings(context: android.content.Context, side: ConfigBack
     side.uiLanguage?.let { setUiLanguage(context, it) }
     side.diagnosticLogging?.let { updateDiagnosticLogging(context, it) }
     side.logRetentionDays?.let { updateLogRetentionDays(context, it) }
+    side.logLevel?.let { updateLogLevel(context, it) }
     side.pluginSettings?.let { applyPluginSettingsBackup(context, it) }
 }
 
@@ -440,6 +443,15 @@ internal fun updateLogRetentionDays(context: android.content.Context, days: Int)
     DiagnosticTraceFile.prune(context.applicationContext.filesDir)
     return true
 }
+
+internal fun updateLogLevel(
+    context: android.content.Context,
+    level: com.eza.hyperglow.DiagnosticLogLevel
+): Boolean = setDiagnosticLogLevel(context, level)
+
+/** 「导出日志」:两个镜像文件里全部尚未清理的行,轮转文件在前。 */
+internal fun readDiagnosticLogsForExport(context: android.content.Context): String =
+    DiagnosticTraceFile.readAll(context.applicationContext.filesDir)
 
 internal fun clearDiagnosticLogs(context: android.content.Context): Boolean =
     DiagnosticTraceFile.clear(context.applicationContext.filesDir)

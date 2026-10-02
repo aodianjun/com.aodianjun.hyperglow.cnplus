@@ -52,6 +52,16 @@
     <string name="dialog_clear_logs_summary">Delete the diagnostic log files on this device? This cannot be undone.</string>
     <string name="toast_logs_cleared">Logs cleared</string>
     <string name="toast_logs_clear_failed">Failed to clear logs</string>
+    <string name="setting_log_level">Log level</string>
+    <string name="log_level_errors">Errors only</string>
+    <string name="log_level_warning">Warnings and errors</string>
+    <string name="log_level_normal">Normal</string>
+    <string name="log_level_verbose">Verbose</string>
+    <string name="dialog_log_level_summary">Controls which levels are written while diagnostic logging is on. Only errors keeps the least noise; verbose also mirrors System UI module logs (requires root).</string>
+    <string name="action_export_logs">Export logs</string>
+    <string name="summary_export_logs">Save the retained logs as a .txt file.</string>
+    <string name="toast_logs_exported">Logs exported</string>
+    <string name="toast_logs_export_failed">Failed to export logs</string>
 
     <string name="action_send_compatibility_report">Send compatibility report</string>
     <string name="action_report_problem">Report a problem</string>

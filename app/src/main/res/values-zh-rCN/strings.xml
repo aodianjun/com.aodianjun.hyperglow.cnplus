@@ -47,6 +47,16 @@
     <string name="dialog_clear_logs_summary">删除本设备上的诊断日志文件？此操作无法撤销。</string>
     <string name="toast_logs_cleared">日志已清除</string>
     <string name="toast_logs_clear_failed">清除日志失败</string>
+    <string name="setting_log_level">日志等级</string>
+    <string name="log_level_errors">仅错误</string>
+    <string name="log_level_warning">警告与错误</string>
+    <string name="log_level_normal">正常</string>
+    <string name="log_level_verbose">详细</string>
+    <string name="dialog_log_level_summary">控制诊断日志开启后写入哪些等级。仅错误噪声最低；详细还会一并镜像 SystemUI 侧模块日志（需要 root）。</string>
+    <string name="action_export_logs">导出日志</string>
+    <string name="summary_export_logs">将尚未删除的日志保存为 .txt 文件。</string>
+    <string name="toast_logs_exported">日志已导出</string>
+    <string name="toast_logs_export_failed">导出日志失败</string>
 
     <string name="action_send_compatibility_report">发送兼容性报告</string>
     <string name="action_report_problem">报告问题</string>

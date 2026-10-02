@@ -20,7 +20,8 @@ import com.lidesheng.hyperlyric.plugin.api.PluginWord
  * 而回向选择活动行时必须复刻 Spicy 的 primaryRowAt 语义。
  *
  * 回向（[enrichState]）：用插件处理后的快照覆盖生产者逐行状态的**内容字段**
- * （line/translatedLine/romanizedLine/words/nextLine），时间轴字段（lineStartMs/
+ * （line/translatedLine/romanizedLine/words/nextLine/nextLineRomanized/nextLineTranslated），
+ * 时间轴字段（lineStartMs/
  * lineEndMs/positionMs 等）一律保留生产者权威值——插件 REPLACE 改时间轴时仅按
  * 新时间轴重选活动行，不改采样语义。
  */
@@ -154,10 +155,41 @@ object PluginSongBridge {
             // 空词表不覆盖生产者词级时间轴:逐字卡拉OK会因此整体失效。
             if (patchedWords != null) enriched = enriched.copy(words = patchedWords)
         }
-        if (PluginLyricField.TEXT in patched.changedLyricFields) {
-            enriched = enriched.copy(
-                nextLine = keepUnlessBlank(nextLeadText(rows, active), enriched.nextLine)
-            )
+        if (PluginLyricField.TEXT in patched.changedLyricFields ||
+            PluginLyricField.TRANSLATION in patched.changedLyricFields ||
+            PluginLyricField.TRANSLATION_WORDS in patched.changedLyricFields ||
+            PluginLyricField.ROMA in patched.changedLyricFields
+        ) {
+            // 下一行组(文本/音标/翻译)随插件行表回填:「辅助文字显示第二行歌词」消费下一行
+            // 的音标/翻译——行表里有就给,且与 nextLine 取同一行(四行呈现的第三/四行描述
+            // 同一句)。各字段按声明的变化集合分别回填(keepUnlessBlank:插件空值不覆盖
+            // 生产者非空值,增强而非替换)。
+            val nextLeadRow = rows.asSequence()
+                .filter {
+                    it.metadata?.values?.get(META_ROLE) == "LEAD" &&
+                        it.begin >= active.end && !it.text.isNullOrEmpty()
+                }
+                .minByOrNull { it.begin }
+            if (PluginLyricField.TEXT in patched.changedLyricFields) {
+                enriched = enriched.copy(
+                    nextLine = keepUnlessBlank(nextLeadRow?.text, enriched.nextLine)
+                )
+            }
+            if (PluginLyricField.TRANSLATION in patched.changedLyricFields ||
+                PluginLyricField.TRANSLATION_WORDS in patched.changedLyricFields
+            ) {
+                enriched = enriched.copy(
+                    nextLineTranslated = keepUnlessBlank(
+                        nextLeadRow?.let { effectiveTranslation(it) },
+                        enriched.nextLineTranslated
+                    )
+                )
+            }
+            if (PluginLyricField.ROMA in patched.changedLyricFields) {
+                enriched = enriched.copy(
+                    nextLineRomanized = keepUnlessBlank(nextLeadRow?.roma, enriched.nextLineRomanized)
+                )
+            }
         }
         if (PluginSongField.NAME in patched.changedSongFields) {
             enriched = enriched.copy(title = patched.song.name ?: state.title)
@@ -186,12 +218,12 @@ object PluginSongBridge {
         return lead ?: other
     }
 
-    private fun nextLeadText(rows: List<PluginLyricLine>, active: PluginLyricLine): String? {
+    private fun nextLeadRow(rows: List<PluginLyricLine>, active: PluginLyricLine): PluginLyricLine? {
         val candidates = rows.filter {
             it.metadata?.values?.get(META_ROLE) == "LEAD" &&
                 it.begin >= active.end && !it.text.isNullOrEmpty()
         }
-        return candidates.minByOrNull { it.begin }?.text
+        return candidates.minByOrNull { it.begin }
     }
 
     /**
