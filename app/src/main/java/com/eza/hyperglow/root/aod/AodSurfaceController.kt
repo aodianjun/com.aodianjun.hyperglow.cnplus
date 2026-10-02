@@ -695,6 +695,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             return
         }
         if (!layoutSurface(root, burnInContainer, directSurface)) return
+        logRenderProfileProbe("main", resolvedSnapshot, effectiveAodProfile())
         lyricCanvas?.setContent(
                     resolvedSnapshot.toAodCanvasContent(effectiveAodProfile(), duet = true)
                 )
@@ -764,6 +765,14 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     override fun onCustomization(configuration: CompiledCustomization) {
         customization = configuration
+        val receivedAod = configuration.profiles[SceneCompiler.SURFACE_AOD]
+        // 诊断留痕:确认本控制器确实收到了配置以及收到的 aod 档位(与 projection 侧
+        // 「Configuration applied」配对,区分「没收到」与「收到了但渲染读了别的 profile」)。
+        HookLogger.w(
+            TAG,
+            "Customization received: aodAnim=${receivedAod?.animation} " +
+                "aodGlow=${receivedAod?.glow} rtNull=${runtimeProfile == null}"
+        )
         AodBrightnessController.setBoostEnabled(configuration.aodBrightnessBoost)
         AodBrightnessController.setBrightnessOverride(
             configuration.aodBrightnessOverride,
@@ -1569,6 +1578,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 latestSnapshot?.takeIf {
                     !it.metadata.startsWith("AOD DEMO")
                 }?.let {
+                    logRenderProfileProbe("layout-replay", it, nextRuntimeProfile)
                     lyricCanvas?.setContent(
                         it.toAodCanvasContent(nextRuntimeProfile, duet = true)
                     )
@@ -1656,6 +1666,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (visible && !snapshot.metadata.startsWith("AOD DEMO") &&
             lyricCanvas?.visibility != View.VISIBLE
         ) {
+            logRenderProfileProbe("reveal", snapshot, effectiveAodProfile())
             lyricCanvas?.setContent(
                     snapshot.toAodCanvasContent(effectiveAodProfile(), duet = true)
                 )
@@ -1892,6 +1903,26 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private fun effectiveAodProfile(): CompiledSurfaceProfile =
         runtimeProfile ?: currentAodProfile()
+
+    private var lastRenderProbeKey = ""
+
+    /**
+     * 诊断探针(配置下发排查):渲染时实际读到的 profile 档位与快照自带档位。
+     * 只在值变化时留痕,与快照侧 `AodProjectionProbe`、画布侧 `Render mode` 日志配对,
+     * 定位「配置已 applied 但画布仍渲染旧档」断点在哪一跳。
+     */
+    private fun logRenderProfileProbe(
+        source: String,
+        snapshot: LyricSnapshot,
+        profile: CompiledSurfaceProfile
+    ) {
+        val key = "$source custNull=${customization == null} rtNull=${runtimeProfile == null} " +
+            "profileAnim=${profile.animation} profileGlow=${profile.glow} " +
+            "snapAnim=${snapshot.animationMode} snapGlow=${snapshot.glowMode}"
+        if (key == lastRenderProbeKey) return
+        lastRenderProbeKey = key
+        HookLogger.w(TAG, "Render profile probe: $key")
+    }
 
     private fun canRenderAod(snapshot: LyricSnapshot): Boolean =
         XiaomiCapabilityResolver.hasCapability(XiaomiCapability.AOD_SURFACE) &&
