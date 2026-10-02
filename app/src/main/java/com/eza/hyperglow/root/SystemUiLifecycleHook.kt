@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import com.eza.hyperglow.root.aod.AodPowerCoordinator
+import com.eza.hyperglow.root.aod.AodWakeBroker
 import com.eza.hyperglow.root.projection.SystemUiLyricProjectionRuntime
 import com.eza.hyperglow.root.symbols.SymbolRequest
 import com.eza.hyperglow.root.symbols.SymbolResolver
@@ -50,6 +51,9 @@ internal object SystemUiLifecycleHook {
     fun bootstrap(application: Application) {
         XiaomiCapabilityResolver.observeContext(application)
         SymbolResolver.observeContext(application)
+        // 唤醒 broker 的电源管理器在此播种:交互性判断不再依赖观测到 DozeTriggers 实例,
+        // Lyricon 看门狗在从未见到该实例的进程里也能工作(上游 99ba119)。
+        AodWakeBroker.observeContext(application)
         SystemUiLyricProjectionRuntime.projection.bootstrap(application)
         HookLogger.bootstrap(TAG, "systemui_projection_bootstrapped")
         SystemUiLyricProjectionRuntime.projection.attach(AodPowerCoordinator, application)
