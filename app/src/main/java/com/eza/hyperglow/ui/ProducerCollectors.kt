@@ -99,7 +99,7 @@ internal fun collectLiveSnapshot(
     )
 }
 
-private fun LyricProducerState.toPreviewSnapshot(
+internal fun LyricProducerState.toPreviewSnapshot(
     metadataParts: String,
     metadataSeparators: String,
     duetMarkers: Boolean,
@@ -118,6 +118,10 @@ private fun LyricProducerState.toPreviewSnapshot(
     romanized = romanizedLine,
     translated = translatedLine,
     nextLine = if (duetMarkers) stripDuetMarker(nextLine) else nextLine,
+    // 下一行辅助文字原样透传(与实机 projectToDisplay 同口径,不剥对唱标记);
+    // 「显示第二行辅助文字」预览行构建直接消费这两个字段,缺了预览就少第四行。
+    nextLineRomanized = nextLineRomanized,
+    nextLineTranslated = nextLineTranslated,
     metadata = composeSongMetadata(
         title = title,
         artist = artist,
