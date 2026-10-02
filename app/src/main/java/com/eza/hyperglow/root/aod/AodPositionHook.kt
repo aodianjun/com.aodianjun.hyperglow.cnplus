@@ -711,10 +711,10 @@ internal object AodPositionHook {
         hierarchyField(owner.javaClass, name) ?: throw NoSuchFieldException(name)
 
     private fun readIntField(controller: Any, name: String): Int =
-        requireField(controller, name).getInt(controller)
+        readNumericField(controller, requireField(controller, name)).toInt()
 
     private fun readFloatField(controller: Any, name: String): Float =
-        requireField(controller, name).getFloat(controller)
+        readNumericField(controller, requireField(controller, name)).toFloat()
 
     /**
      * 按声明类型把数值写进字段(issue #66 根因:mTranslationY 在设备固件里是 int,
@@ -743,7 +743,7 @@ internal object AodPositionHook {
     private fun readFodSafeBottom(controller: Any?): Int? = runCatching {
         controller ?: return null
         val shown = requireField(controller, "mIsGxzwIconShow").getBoolean(controller)
-        val y = requireField(controller, "mGxzwIconY").getInt(controller)
+        val y = readIntField(controller, "mGxzwIconY")
         y.takeIf { shown && it > 0 }
     }.getOrNull()
 
@@ -794,7 +794,7 @@ internal object AodPositionHook {
             if (controller != null) {
                 runCatching {
                     val field = requireField(controller, "mTranslationY")
-                    beforeController = runCatching { field.getFloat(controller) }.getOrNull()
+                    beforeController = runCatching { readNumericField(controller, field).toFloat() }.getOrNull()
                     // 反解 f = appliedY 所需的 mTranslationY 基准值。系统步进来自 controller
                     // 的 mAodMoveCurrent 计数器(naturalAodTranslation 同款),垂直步进按
                     // mode 取 halfStep/3(mode0) 或 halfStep(mode2/3);缺几何时退化为
@@ -813,7 +813,7 @@ internal object AodPositionHook {
                         appliedY
                     }
                     val wrote = writeNumberField(controller, "mTranslationY", baseTarget)
-                    afterController = runCatching { field.getFloat(controller) }.getOrNull()
+                    afterController = runCatching { readNumericField(controller, field).toFloat() }.getOrNull()
                     fieldDesc = field.declaringClass.name + "#" + field.name +
                         " type=" + field.type.name +
                         " final=" + java.lang.reflect.Modifier.isFinal(field.modifiers) +
@@ -984,3 +984,27 @@ internal fun shouldAnimateAodPosition(
     overridden: Boolean,
     placementChanged: Boolean
 ): Boolean = requested && (!overridden || placementChanged)
+
+/**
+ * 按装箱 `Number` 读取数值型 ROM 字段,交由调用方窄化。
+ *
+ * 固件对字段宽度不自洽:已普查机型(`DEV-2344.0.0.0.1-07031920`、`DEV-2446.3.0.1-09042206`)上
+ * `AODUpdatePositionController.mTranslationY` 是 int,而 `mTranslationYStep` 是 float。
+ * 窄访问器(`getInt`/`getFloat`)按字段类型校验,宽度不符时抛 `IllegalArgumentException`;而
+ * `readClockGeometry` 把整个 body 包在 runCatching 里,该抛出被读成「没有时钟几何」而非失败,
+ * 于是在机型上静默禁用了托管位移与原厂控件保持,且无任何上报。
+ *
+ * 宽度校验的宽严随运行时变化,故读侧不能依赖任何一种策略——装箱读取对所有数值宽度都成立:
+ * 宿主机 JDK(JDK 21/25 实测)对 `getFloat` 读 int 字段是宽容的(int→float 属无损加宽),
+ * 而设备侧 ART 按精确类型校验、双向都抛。只用装箱读取即对两者都正确。
+ *
+ * 写侧同一宽度问题已由 `AodPositionHook.writeNumberField`(issue #66)按 `field.type` 分派修好,
+ * 此处把读侧补成对称写法——同一字段、同一已知宽度事实,读写两侧此前只修了一侧。
+ *
+ * 「存在」不等于「宽度」:宽度变化仍应是非事件,故此处不断言字段类型,只做装箱读取与窄化。
+ *
+ * 顶层函数而非 `AodPositionHook` 成员:纯反射、无状态,且不触发该 object 的静态初始化
+ * (其初始化依赖 Android 运行时),从而可被 JVM 单元测试直接覆盖。
+ */
+internal fun readNumericField(owner: Any, field: java.lang.reflect.Field): Number =
+    field.get(owner) as Number
