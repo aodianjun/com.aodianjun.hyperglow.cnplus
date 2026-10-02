@@ -313,13 +313,17 @@ class SpicyLyricProducer : LyricProducer {
     )
 
     private fun isTimedDocumentType(type: String): Boolean =
-        type.equals("Line", ignoreCase = true) || type.equals("Syllable", ignoreCase = true)
+        type.equals("Line", ignoreCase = true) || type.equals("Word", ignoreCase = true) ||
+            type.equals("Syllable", ignoreCase = true)
 
     private fun isLineLevelDocumentType(type: String): Boolean =
         type.equals("Line", ignoreCase = true)
 
     private fun hasActualLyricTiming(document: SpicyBridgeDocument): Boolean =
-        isTimedDocumentType(document.type) && document.rows.any { it.endMs > it.startMs }
+        // 间奏行带时间窗但不是唱词:只有间奏的文档不计「有计时」(上游 99ba119)。
+        isTimedDocumentType(document.type) && document.rows.any {
+            it.role != "INTERLUDE" && it.endMs > it.startMs
+        }
 
     companion object {
         /** How often the connection sweep re-checks SpicyBridgeStore freshness. */

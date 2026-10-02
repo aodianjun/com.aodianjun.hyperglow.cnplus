@@ -494,4 +494,58 @@ class AodStateWireCodecTest {
         )
     }
 
+    @Test
+    fun everyRejectionGateNamesItselfAndAValidEnvelopeNamesNone() {
+        // 报告 R1-… 曾连打六条一模一样的 "Rejected invalid state payload":真实原因是应用
+        // 升级后 hook 进程尚未重启(会自愈),日志却分不出它与载荷损坏。
+        val envelope = requireNotNull(AodStateWireCodec.encode(snapshotMessage()))
+        val body = requireNotNull(envelope.body)
+        val unknownBodyVersion = body.copyOf()
+        ByteBuffer.wrap(unknownBodyVersion).putInt(4, 99)
+
+        assertNull(AodStateWireCodec.decodeRejectReason(envelope))
+        assertEquals(
+            "protocol_mismatch",
+            AodStateWireCodec.decodeRejectReason(
+                envelope.copy(protocol = AodStateWireContract.PROTOCOL_VERSION + 1)
+            )
+        )
+        assertEquals(
+            "invalid_scalars",
+            AodStateWireCodec.decodeRejectReason(envelope.copy(revision = -1L))
+        )
+        assertEquals(
+            "unknown_kind",
+            AodStateWireCodec.decodeRejectReason(envelope.copy(kind = 99))
+        )
+        assertEquals(
+            "missing_body",
+            AodStateWireCodec.decodeRejectReason(envelope.copy(body = null))
+        )
+        assertEquals(
+            "undecodable_body",
+            AodStateWireCodec.decodeRejectReason(envelope.copy(body = unknownBodyVersion))
+        )
+        assertEquals(
+            "undecodable_body",
+            AodStateWireCodec.decodeRejectReason(envelope.copy(body = body.copyOf(body.size - 1)))
+        )
+    }
+
+    @Test
+    fun aNonSnapshotKindRejectsOnlyOnItsOwnGate() {
+        // 闸门有序:无 body 的 KeepAlive 不得被报成 missing_body。
+        val envelope = requireNotNull(
+            AodStateWireCodec.encode(
+                AodStateWireMessage.KeepAlive(
+                    revision = 1L,
+                    userId = 0,
+                    updatedAtElapsedMs = 1L,
+                    keepAlive = true,
+                    wakeSignal = 0L
+                )
+            )
+        )
+        assertNull(AodStateWireCodec.decodeRejectReason(envelope))
+    }
 }
