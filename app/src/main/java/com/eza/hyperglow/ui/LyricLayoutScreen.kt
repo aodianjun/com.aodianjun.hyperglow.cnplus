@@ -78,6 +78,7 @@ import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
+import com.eza.hyperglow.root.projection.LyricWord
 import com.eza.hyperglow.root.surface.PlacementEngine
 import com.eza.hyperglow.root.surface.PlacementEnvironment
 import com.eza.hyperglow.root.surface.PlacementRect
@@ -1165,7 +1166,9 @@ internal fun collectDemoSnapshot(
         durationMs = DEMO_LINES.size * DEMO_LINE_SWITCH_MS,
         positionMs = ((index * DEMO_LINE_SWITCH_MS).toFloat()).toLong(),
         sampledAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
-        words = emptyList(),
+        // 演示快照携带逐字时间戳:让「BetterLyrics」档的逐字扫光、未唱下沉/已唱上浮与
+        // 长音节放大辉光在无实时歌词时也能在预览里看出效果(纯行级源仍退化为逐行扫光)。
+        words = demoWords(line.original),
         // 演示快照携带注音:让「注音」开关在无实时歌词时也能在预览里看出效果
         // (实机仅在 rubyVisible == false 时清空,见 LyricCanvasMapper)。
         ruby = line.ruby
@@ -1209,6 +1212,64 @@ private val DEMO_LINES = listOf(
 
 /** How long each demo line stays on screen before cycling to the next. */
 internal const val DEMO_LINE_SWITCH_MS = 2_500L
+
+/**
+ * 演示逐字时间戳:把演示行切成词(空格处切分,否则每 2 字一块),首词按长音节加权
+ * (占整行 30%,即 750ms ≥ 700ms 阈值),其余均分。目的是让「BetterLyrics」档的逐字效果
+ * (逐字扫光、未唱下沉/已唱上浮、长音节放大辉光)在无实时歌词时也能在预览里可见;
+ * 区间为原文下标,与实机词位同语义(见 PreviewComponents.previewWordRuns)。
+ */
+private fun demoWords(text: String): List<LyricWord> {
+    val spans = demoWordSpans(text)
+    if (spans.isEmpty()) return emptyList()
+    val firstMs = DEMO_LINE_SWITCH_MS * 30L / 100L
+    val restCount = (spans.size - 1).coerceAtLeast(1)
+    val restMs = ((DEMO_LINE_SWITCH_MS - firstMs) / restCount).coerceAtLeast(1L)
+    var elapsed = 0L
+    return spans.mapIndexed { index, span ->
+        val duration = if (index == 0) firstMs else restMs
+        val start = elapsed
+        val end = start + duration
+        elapsed = end
+        LyricWord(
+            text = text.substring(span.first, span.last + 1),
+            romanized = "",
+            startMs = start,
+            endMs = end,
+            boundaryAfter = true,
+            sourceStart = span.first,
+            sourceEnd = span.last + 1
+        )
+    }
+}
+
+/** 演示行的词区间:空格处切分,否则每 2 字一块(区间为原文下标,含首不含尾)。 */
+private fun demoWordSpans(text: String): List<IntRange> {
+    val spans = ArrayList<IntRange>()
+    var start = -1
+    var count = 0
+    var index = 0
+    while (index < text.length) {
+        if (text[index].isWhitespace()) {
+            if (start >= 0) {
+                spans += start until index
+                start = -1
+                count = 0
+            }
+        } else {
+            if (start < 0) start = index
+            count++
+            if (count >= 2) {
+                spans += start until index + 1
+                start = -1
+                count = 0
+            }
+        }
+        index++
+    }
+    if (start >= 0) spans += start until text.length
+    return spans
+}
 
 /** SAF 文档选择器里取原始文件名,作为字体展示名;取不到时由存储层回落到 id。 */
 private fun queryDisplayName(

@@ -6,12 +6,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Camera
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.SystemClock
 import android.view.View
@@ -2247,8 +2245,8 @@ internal class AodLyricCanvasView(
 
     /**
      * 逐字卡拉OK路径（逐字源+关发光+非行级同步；[betterLyrics] 为「BetterLyrics」档）：
-     * 词级缩放/位移 + 词内扫光渐变；BetterLyrics 档长词播放中放大到参考实现峰值，
-     * 发光开启时活动长词先画 glow 色光晕再画扫光亮部。
+     * 词级进度/放大/扫光与未唱下沉、已唱上浮、长音节辉光统一委托共享渲染核心
+     * [LyricWordKaraokeRenderer]（预览同源，杜绝效果漂移）。
      */
     private fun drawWordKaraoke(
         canvas: Canvas,
@@ -2258,6 +2256,8 @@ internal class AodLyricCanvasView(
     ) {
         val lines = originalLayout.lines
         val position = projectedPosition()
+        val sinkPx = karaokeFloatSinkPx(originalLayout.lineHeight)
+        val runs = ArrayList<KaraokeWordRun>(8)
         var precedingRuby = 0f
         var lineIndex = 0
         while (lineIndex < lines.size) {
@@ -2274,90 +2274,40 @@ internal class AodLyricCanvasView(
             if (line.ruby.isNotEmpty()) {
                 drawRuby(canvas, line, lineBaseline)
             }
+            runs.clear()
             var x = 0f
             var wordIndex = 0
             while (wordIndex < line.words.size) {
                 val placed = line.words[wordIndex]
                 val word = placed.word
-                val width = placed.width
-                val wordX = line.startX + x
-                val progress = timedWordProgress(position, word.startMs, word.endMs)
-                val active = position >= word.startMs && position < word.endMs
-                val sung = position >= word.endMs
-                val scale = if (active) {
-                    scaleSpline(progress, wordKaraokeScalePeak(betterLyrics, word.endMs - word.startMs))
-                } else if (!sung) 0.95f else 1f
-                val y = if (active) yOffsetSpline(progress) * originalPaint.textSize
-                else if (!sung) 0.01f * originalPaint.textSize else 0f
-                canvas.save()
-                val wordBaseline = lineBaseline
-                canvas.scale(scale, scale, wordX + ow / 2f, wordBaseline)
-                originalPaint.shader = null
-                setTextAlpha(
-                    originalPaint,
-                    if (sung) 1f else 0.35f,
-                    1f,
-                    if (sung) resolvedPalette.sungText else resolvedPalette.unsungText
+                val durationMs = word.endMs - word.startMs
+                runs += KaraokeWordRun(
+                    text = word.text,
+                    x = line.startX + x,
+                    width = placed.width,
+                    playedFraction = timedWordProgress(position, word.startMs, word.endMs),
+                    durationMs = durationMs,
+                    longSyllable = isLongKaraokeSyllable(durationMs)
                 )
-                canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
-                if (active) {
-                    if (betterLyrics && content.glowMode != "Off" &&
-                        word.endMs - word.startMs >= BETTER_LYRICS_LONG_WORD_MS
-                    ) {
-                        // BetterLyrics 活动长词辉光：glow 色阴影画在 sung 色文字下，光从
-                        // 文字背后透出（与共享 LyricGlowRenderer Pass 2 同式）；半径占字号
-                        // 比例同款，shader 置空规避硬件加速下 shadow+shader 同置发光丢失。
-                        val haloRadius = originalPaint.textSize * LyricGlowRenderer.HALO_RADIUS_FRACTION
-                        originalPaint.shader = null
-                        setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-                        originalPaint.setShadowLayer(haloRadius, 0f, 0f, resolvedPalette.glow)
-                        canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
-                        originalPaint.setShadowLayer(0f, 0f, 0f, 0)
-                    }
-                    setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-                    applyWordSweepShader(
-                        originalPaint,
-                        resolvedPalette.sungText,
-                        origin = wordX,
-                        progress = progress,
-                        extent = width
-                    )
-                    canvas.drawText(word.text, wordX, wordBaseline + y, originalPaint)
-                    originalPaint.shader = null
-                }
-                canvas.restore()
-                x += width + placed.gapAfter
+                x += placed.width + placed.gapAfter
                 wordIndex++
             }
+            LyricWordKaraokeRenderer.draw(
+                canvas = canvas,
+                paint = originalPaint,
+                runs = runs,
+                baseline = lineBaseline,
+                sungColor = resolvedPalette.sungText,
+                unsungColor = resolvedPalette.unsungText,
+                glowColor = resolvedPalette.glow,
+                glowEnabled = content.glowMode != "Off",
+                betterLyrics = betterLyrics,
+                sinkPx = sinkPx
+            )
             if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
             precedingRuby += line.rubyHeight
             lineIndex++
         }
-    }
-
-    /**
-     * 逐字卡拉OK路径的词内扫光渐变:
-     * 与共享 LyricGlowRenderer Pass 3 同形状([sung→middle→transparent, CLAMP]),
-     * 每词绝对坐标构建,不复用缓存 shader,调用方负责置空。
-     */
-    private fun applyWordSweepShader(
-        paint: Paint,
-        color: Int,
-        origin: Float,
-        progress: Float,
-        extent: Float
-    ) {
-        val safeExtent = extent.coerceAtLeast(0f)
-        val band = (safeExtent * LyricGlowRenderer.SWEEP_BAND_FRACTION).coerceAtLeast(1f)
-        val start = origin - band + (safeExtent + band) * progress.coerceIn(0f, 1f)
-        val transparent = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
-        val middle = Color.argb(184, Color.red(color), Color.green(color), Color.blue(color))
-        paint.shader = LinearGradient(
-            start, 0f, start + band, 0f,
-            intArrayOf(color, middle, transparent),
-            floatArrayOf(0f, 0.45f, 1f),
-            Shader.TileMode.CLAMP
-        )
     }
 
     private fun drawRuby(
@@ -2923,15 +2873,6 @@ internal class AodLyricCanvasView(
     private fun progress(position: Long, start: Long, end: Long): Float =
         if (end <= start) if (position >= end) 1f else 0f
         else ((position - start).toFloat() / (end - start)).coerceIn(0f, 1f)
-
-    private fun scaleSpline(t: Float, peak: Float = WORD_KARAOKE_BASE_SCALE_PEAK): Float =
-        if (t <= 0.7f) lerp(0.95f, peak, t / 0.7f)
-        else lerp(peak, 1f, (t - 0.7f) / 0.3f)
-
-    private fun yOffsetSpline(t: Float): Float = if (t <= 0.9f) lerp(0.01f, -(1f / 60f), t / 0.9f)
-    else lerp(-(1f / 60f), 0f, (t - 0.9f) / 0.1f)
-
-    private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t.coerceIn(0f, 1f)
 
     private fun setTextAlpha(
         paint: Paint,
