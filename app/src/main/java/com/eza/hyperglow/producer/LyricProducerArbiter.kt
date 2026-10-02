@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
  * Selects which [LyricProducer] feeds the projection pipeline, enforcing the single-active-
  * producer invariant from the contract spec.
  *
- * Contract (see `.archcore/lyricon-integration/lyric-producer-contract.spec.md`):
+ * Contract (see `docs/LYRIC_PRODUCER_CONTRACT.md`):
  * 1. Exposes exactly one [active] flow; at most one producer's state is visible at any instant.
  * 2. WHEN the selected producer is CONNECTED/RECONNECTED and non-stale, forward its state.
  * 3. WHEN the selected producer is DISCONNECTED or its state is stale, clear `active` to null

@@ -214,7 +214,7 @@ data class LyricProducerState(
 /**
  * A lyrics source feeding the projection pipeline through one normalized boundary.
  *
- * Contract (see `.archcore/lyricon-integration/lyric-producer-contract.spec.md`):
+ * Contract (see `docs/LYRIC_PRODUCER_CONTRACT.md`):
  * - Emits a nullable [LyricProducerState] via [state]; null means "no current state".
  * - Reports [connection] so the arbiter can fall back on disconnect/timeout.
  * - [start] / [stop] are idempotent and lifecycle-bound; called once by the arbiter.

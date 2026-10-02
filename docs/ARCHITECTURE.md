@@ -9,9 +9,11 @@ Status: optional lockscreen + AOD package contract
 `HyperGlow` owns Xiaomi lockscreen/AOD lyric delivery and module-owned rendering surfaces:
 
 ```text
-Spotify / Spicy EX
-  -> versioned Binder, provider fallback
-  -> HyperGlow app process
+Spotify / Spicy EX        (versioned Binder push)
+Lyricon module            (subscriber SDK, SharedMemory position)
+SuperLyric module         (Binder active-line push)
+LyricInfo notification    (MediaMetadata.extras.lyricInfo, elrc/lrc)
+  -> HyperGlow app process: LyricProducerArbiter, one active producer at a time
   -> local playback projection and row selection
   -> UID-validated callback
   -> one validated SystemUI projection
@@ -19,12 +21,22 @@ Spotify / Spicy EX
       -> non-measuring ViewGroupOverlay on the full-screen SystemUI AODView root
 ```
 
+`Spotify / Spicy EX` is the upstream path only; CN+ adds three more producers behind the same
+single-active-producer arbitration. Which source wins, when it yields, and what projection may read
+is `docs/LYRIC_PRODUCER_CONTRACT.md`.
+
 Package identity:
 
-- application ID: `com.eza.hyperglow`
+- application ID: `com.aodianjun.hyperglow.cnplus` (the CN+ standalone release; the upstream id
+  `com.eza.hyperglow` is taken by the original author)
+- code namespace: `com.eza.hyperglow` — component names resolve against the namespace, not the
+  application ID, so the Binder/callback names below are unchanged from upstream
 - producer Binder: `com.eza.hyperglow.bridge.SpicyLyricBridgeService`
-- provider authority: `com.eza.hyperglow.spicybridge`
+- provider authority: `com.aodianjun.hyperglow.cnplus.spicybridge` (declared as
+  `${applicationId}.spicybridge`; the custom-font provider is `${applicationId}.customfont`)
 - SystemUI callback service: `com.eza.hyperglow.aod.AodLyricBridgeService`
+- plugin API package: `com.lidesheng.hyperlyric.plugin.api` (HyperLyric-compatible frozen copy
+  under `plugins/api`)
 - Xposed scope: `com.android.systemui`, `android` (system_server), `com.miui.aod` (standalone AOD process on some devices)
 
 Lockscreen and AOD use separate physical renderer instances backed by one immutable lyric snapshot.
@@ -282,9 +294,11 @@ Initial transport and AOD surface code extracted and adapted from HyperLyric. Hy
 `HyperGlow` 负责 Xiaomi 锁屏/AOD 歌词投递，以及由模块自有的渲染 surface：
 
 ```text
-Spotify / Spicy EX
-  -> versioned Binder, provider fallback
-  -> HyperGlow app process
+Spotify / Spicy EX        （带版本 Binder 推送）
+Lyricon 模块              （订阅 SDK，位置取自 SharedMemory）
+SuperLyric 模块           （Binder 活动行推送）
+LyricInfo 通知            （MediaMetadata.extras.lyricInfo，elrc/lrc）
+  -> HyperGlow app process：LyricProducerArbiter，同一时刻只有一个活动生产者
   -> local playback projection and row selection
   -> UID-validated callback
   -> one validated SystemUI projection
@@ -292,12 +306,20 @@ Spotify / Spicy EX
       -> non-measuring ViewGroupOverlay on the full-screen SystemUI AODView root
 ```
 
+`Spotify / Spicy EX` 只是上游那一路；CN+ 在同一套「单一活动生产者」仲裁之后又接入了三个源。哪个源
+胜出、何时让位、投影层允许读什么，见 `docs/LYRIC_PRODUCER_CONTRACT.md`。
+
 模块包标识：
 
-- application ID：`com.eza.hyperglow`
+- application ID：`com.aodianjun.hyperglow.cnplus`（CN+ 独立版发布用；上游包名 `com.eza.hyperglow`
+  已被原作者占用）
+- 代码命名空间：`com.eza.hyperglow` —— 组件名按 namespace 解析而非 applicationId，因此下表的
+  Binder/回调名与上游一致
 - 生产者 Binder：`com.eza.hyperglow.bridge.SpicyLyricBridgeService`
-- provider authority：`com.eza.hyperglow.spicybridge`
+- provider authority：`com.aodianjun.hyperglow.cnplus.spicybridge`（声明为
+  `${applicationId}.spicybridge`；自定义字体 provider 为 `${applicationId}.customfont`）
 - SystemUI 回调服务：`com.eza.hyperglow.aod.AodLyricBridgeService`
+- 插件 API 包：`com.lidesheng.hyperlyric.plugin.api`（HyperLyric 兼容的冻结副本，位于 `plugins/api`）
 - Xposed 作用域：`com.android.systemui`、`android`（system_server）、`com.miui.aod`（部分设备上的独立 AOD 进程）
 
 锁屏与 AOD 使用相互独立的物理渲染器实例，并由同一份不可变的歌词 snapshot 支撑。View 不会
