@@ -231,7 +231,7 @@ class SongMetadataComposeTest {
         assertEquals(
             "Song",
             composeSongMetadata(
-                "",
+                "Song",
                 "",
                 "",
                 "title,album",
