@@ -46,4 +46,16 @@ class BetterLyricsWordEffectsTest {
         // 短词(≤450ms)整段用于上浮:半程回到一半。
         assertEquals(5.0, karaokeFloatOffsetPx(0.5f, 300L, 10f).toDouble(), 1e-4)
     }
+
+    @Test
+    fun syntheticCharTimeWindowSplitsBlockSpanByGeometry() {
+        // 整块 1000ms/总宽 100px:0..10px 的字符占前 100ms,50..60px 占中段 500..600ms。
+        assertEquals(0L until 100L, syntheticCharTimeWindow(0L, 1_000L, 100f, 0f, 10f))
+        assertEquals(500L until 600L, syntheticCharTimeWindow(0L, 1_000L, 100f, 50f, 10f))
+        // 带块起点偏移:窗口整体平移。
+        assertEquals(1_200L until 1_300L, syntheticCharTimeWindow(1_000L, 2_000L, 100f, 20f, 10f))
+        // 前缀贴近块尾/零宽字符:钳制到块内且不越过块尾。
+        assertEquals(950L until 1_000L, syntheticCharTimeWindow(0L, 1_000L, 100f, 95f, 10f))
+        assertEquals(1_000L until 1_000L, syntheticCharTimeWindow(0L, 1_000L, 100f, 100f, 0f))
+    }
 }

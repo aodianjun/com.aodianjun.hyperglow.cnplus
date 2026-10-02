@@ -129,6 +129,7 @@ import com.eza.hyperglow.root.aod.secondLinePresentation
 import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
+import com.eza.hyperglow.root.aod.syntheticCharTimeWindow
 import com.eza.hyperglow.root.aod.textSizeModeMultiplier
 import com.eza.hyperglow.root.aod.timedWordProgress
 import com.eza.hyperglow.root.aod.visualExtents
@@ -372,11 +373,12 @@ private fun LyricPreviewSurface(
     }
     // 生效进度效果:与实机 drawOriginal 的 Minimal 分支 / effectiveLineSyncFillMode 同源。
     // Minimal=静态全亮(无扫光/发光);行级同步时按配置的四种进度效果;否则整块连续横扫。
-    // 「BetterLyrics」档:逐字源走逐字卡拉OK(见 [PreviewMainLayer]);无逐字时间时退化为
-    // 逐行扫光(「Left to right (main only)」,绝不用整块——避免多行一起扫过)。
+    // 「BetterLyrics」档:逐字源走逐字卡拉OK、行级源按字符合成时间窗走同一渲染(见
+    // [PreviewMainLayer]);「行进度效果=None」尊重为静态全亮,其余退化逐行(绝不用整块)。
     val previewFillMode = when {
         profile.animation == "Minimal" -> "None"
-        profile.animation == "BetterLyrics" -> "Left to right (main only)"
+        profile.animation == "BetterLyrics" ->
+            if (profile.lineSyncFillMode == "None") "None" else "Left to right (main only)"
         snapshot.lineLevelSync -> resolvedLineSyncFillMode(true, profile.lineSyncFillMode)
         else -> LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
     }
@@ -887,13 +889,14 @@ private class PreviewMainLayout(
     val unsungColorArgb: Int = 0
 )
 
-/** 预览一行内一个逐字词位:行内 x/宽 + 词时间窗(供逐字进度与长音节判定)。 */
+/** 预览一行内一个逐字词位:行内 x/宽 + 词时间窗;[longSyllable] 为合成词位的恒长音节标记。 */
 private class PreviewWordRun(
     val text: String,
     val x: Float,
     val width: Float,
     val startMs: Long,
-    val endMs: Long
+    val endMs: Long,
+    val longSyllable: Boolean = false
 )
 
 /** 预览一行注音:落位于主行基线之上,[placements] 为各注音段的中心 X 与文本。 */
@@ -1019,11 +1022,13 @@ private fun buildPreviewMainLayout(
         lineGap
     )
     // 「BetterLyrics」档:把逐字词位映射到各行(与实机词行布局同源语义),供预览逐字渲染;
-    // 其余档不注入(预览沿用行级/块级扫光)。词位为空(纯行级源)时逐字分支自然退化。
-    val wordRuns = if (betterLyrics && words.isNotEmpty()) {
-        result.lines.map { line -> previewWordRuns(line, text.length, words, paint) }
-    } else {
-        emptyList()
+    // 行级源(无逐字时间)按字符合成时间窗走同一渲染;其余档不注入。词位为空时逐字分支
+    // 自然退化到行级/块级扫光。
+    val wordRuns = when {
+        betterLyrics && words.isNotEmpty() ->
+            result.lines.map { line -> previewWordRuns(line, text.length, words, paint) }
+        betterLyrics -> syntheticPreviewWordRuns(result.lines, paint)
+        else -> emptyList()
     }
     val wordSpanStartMs = wordRuns.asSequence().flatten().minOfOrNull { it.startMs } ?: 0L
     val wordSpanEndMs = wordRuns.asSequence().flatten().maxOfOrNull { it.endMs } ?: 0L
@@ -1079,6 +1084,54 @@ private fun previewWordRuns(
             )
         }
         .toList()
+}
+
+/**
+ * 预览行级源(无逐字时间)的合成逐字词位:每字符一块,虚拟时间在 [0,1000] 内按字符宽度
+ * 分摊——[PreviewMainLayer] 的虚拟播放位置(progress×跨度)下,合成推进前缘与逐行扫光
+ * 几何完全一致(共享 [syntheticCharTimeWindow])。正在唱的字恒按长音节放大/辉光
+ * (行级源无真实音节时长);跳过空白。
+ */
+private fun syntheticPreviewWordRuns(
+    lines: List<LyricLayoutLine>,
+    paint: TextPaint
+): List<List<PreviewWordRun>> {
+    val totalWidth = lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
+    val spanMs = 1_000L
+    var preceding = 0f
+    val out = ArrayList<List<PreviewWordRun>>(lines.size)
+    lines.forEach { line ->
+        val runs = ArrayList<PreviewWordRun>()
+        var prefix = 0f
+        var index = 0
+        while (index < line.text.length) {
+            val charWidth = paint.measureText(line.text, index, index + 1)
+            if (charWidth > 0f && !line.text[index].isWhitespace()) {
+                val window = syntheticCharTimeWindow(
+                    0L,
+                    spanMs,
+                    totalWidth,
+                    preceding + prefix,
+                    charWidth
+                )
+                if (window.last > window.first) {
+                    runs += PreviewWordRun(
+                        text = line.text.substring(index, index + 1),
+                        x = prefix,
+                        width = charWidth,
+                        startMs = window.first,
+                        endMs = window.last,
+                        longSyllable = true
+                    )
+                }
+            }
+            prefix += charWidth
+            index++
+        }
+        preceding += line.width
+        out += runs
+    }
+    return out
 }
 
 /**
@@ -1619,7 +1672,7 @@ private fun PreviewMainLayer(
                 }
             }
         }
-        val useWordKaraoke = layout.betterLyrics &&
+        val useWordKaraoke = layout.betterLyrics && fillMode != "None" &&
             layout.wordSpanEndMs > layout.wordSpanStartMs &&
             layout.wordRuns.any { it.isNotEmpty() }
         if (useWordKaraoke) {
@@ -1644,7 +1697,7 @@ private fun PreviewMainLayer(
                             width = run.width,
                             playedFraction = timedWordProgress(virtualPosition, run.startMs, run.endMs),
                             durationMs = durationMs,
-                            longSyllable = isLongKaraokeSyllable(durationMs)
+                            longSyllable = run.longSyllable || isLongKaraokeSyllable(durationMs)
                         )
                     }
                     LyricWordKaraokeRenderer.draw(
