@@ -337,12 +337,15 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   profile independently selects bright or dimmed secondary-text presentation. Word/syllable-level
   synchronization is unchanged.
 - Word animation accepts a fixed `Minimal`/`Gradient`/`BetterLyrics` vocabulary per surface profile.
-  `BetterLyrics` (modeled after jayfunc/BetterLyrics) renders word/syllable-timed sources through
-  the word-karaoke path: long words (≥700 ms) scale up to 1.15 while playing and fall back to rest
-  size when sung, and — only when the glow preference is on — the playing long word carries a
-  glow-colored halo (radius ≈ 36% of the text size) instead of the block sweep. Short words keep
-  the base karaoke motion; glow off leaves the motion unchanged. Line-level (untimed) sources and
-  the AOD-only concurrent duet line keep the shared sweep pipeline; unknown profile values still
+  `BetterLyrics` (modeled after jayfunc/BetterLyrics) renders word/syllable-timed sources through the
+  shared word-karaoke renderer, used by both the device canvas and the in-app preview: each syllable
+  fills left-to-right as it is sung; unplayed syllables sit about 10% of the line height lower and
+  rise back to the baseline over ≈450 ms as they are sung; long syllables (≥700 ms) scale up to 1.15
+  while playing and fall back to rest size when sung; and — only when the glow preference is on — the
+  playing long syllable carries a glow-colored halo (radius ≈ 36% of the text size). Short syllables
+  keep the base karaoke motion (peak 1.0505); glow off leaves the motion unchanged. Line-level
+  (untimed) sources fall back to a per-row left-to-right sweep (never the whole-block sweep), and the
+  AOD-only concurrent duet line keeps the shared sweep pipeline; unknown profile values still
   normalize to `Gradient`.
 - Each surface profile may also show the upcoming lyric line (second lyric line) as secondary text.
   That presentation borrows the secondary-text sizing and the profile's bright/dim secondary
@@ -727,7 +730,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 未知组件会被丢弃。不存在有效歌词组件时，退回到内置安全 profile。
 - 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。
-- 逐字动画接受 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表（每个 surface 独立选择）。`BetterLyrics` 档（参考 jayfunc/BetterLyrics）把逐字/音节级时间源交给词级卡拉OK路径：长词（≥700ms）播放中放大到 1.15、唱完回落原大；仅在发光偏好开启时，播放中的长词带 glow 色光晕（半径约为字号的 36%）并取代整块扫光。短词保持既有卡拉OK运动；发光关闭时运动不变。行级（无逐字时间）源与仅息屏的对唱并发行保留共享扫光管线；profile 未知值仍规范化为 `Gradient`。
+- 逐字动画接受 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表（每个 surface 独立选择）。`BetterLyrics` 档（参考 jayfunc/BetterLyrics）把逐字/音节级时间源交给共享逐字卡拉OK渲染核心（实机画布与 App 内预览同源）：每个音节演唱中自左向右填充；未唱音节下沉约 10% 行高、唱到时在约 450ms 内上浮回基线；长音节（≥700ms）演唱中放大到 1.15、唱完回落原大；仅在发光偏好开启时，演唱中的长音节带 glow 色光晕（半径约为字号的 36%）。短音节保持既有卡拉OK运动（峰值 1.0505）；发光关闭时运动不变。行级（无逐字时间）源退化为逐行自左向右扫光（绝不使用整块同时扫光），仅息屏的对唱并发行保留共享扫光管线；profile 未知值仍规范化为 `Gradient`。
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现仅在第一行辅助文字实际显示时生效（第一行按「辅助文字」模式没有可显示的辅助文字行时，本开关不产生第二行呈现）；呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；生效时取代独立的下一行歌词行而不与之叠加，不生效时独立下一行呈现保持不变。
 - 「显示第二行辅助文字」（每个 surface 独立，以「辅助文字显示第二行歌词」为前提，仅在该开关开启且第一行辅助文字实际显示时露出）：开启后第二行歌词自身也带出它的辅助文字行（音标/翻译，按辅助文字模式取用，源无内容则不出）——四行呈现，顺序为第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字。其辅助文字行沿用辅助文字行的字号/亮度档与第二行歌词对齐，折行档跟随第二行歌词自身呈现的行数（不得沿用主行行数）；关闭时只呈现第二行歌词行。源没有下一行的辅助文字时只呈现有内容的部分。
 - 辅助文字行（音译、翻译与辅助文字形态的第二行歌词）以约为有效主行字号一半渲染；其可读性下限按有效主行字号等比封顶（不超过约 0.62 倍），任何字号档下辅助形态都必须明显小于主行，不得渲染成第二条主行。

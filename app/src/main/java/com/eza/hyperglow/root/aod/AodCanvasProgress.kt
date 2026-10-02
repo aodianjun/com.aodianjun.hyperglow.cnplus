@@ -81,31 +81,3 @@ internal fun continuousFillAt(
 } else {
     ((progress.coerceIn(0f, 1f) * totalWidth - precedingWidth) / width).coerceIn(0f, 1f)
 }
-
-// ---------------------------------------------------------------------------
-// 「BetterLyrics」逐字发光档(参考 jayfunc/BetterLyrics):词级效果的纯判定。
-// ---------------------------------------------------------------------------
-
-/** BetterLyrics 档的长词阈值:词时长不低于此值才放大/发光(参考其 LongDurationSyllable 700ms)。 */
-internal const val BETTER_LYRICS_LONG_WORD_MS = 700L
-
-/**
- * BetterLyrics 档长词播放中的放大峰值(参考其 LyricsScaleEffectAmount 115%:
- * LyricsAnimator 长音节播放中放大到 1.15、唱完回落 1.0)。
- */
-internal const val BETTER_LYRICS_LONG_WORD_SCALE_PEAK = 1.15f
-
-/** 逐字卡拉OK基础峰值(Gradient 档与 BetterLyrics 档短词沿用,既有行为不变)。 */
-internal const val WORD_KARAOKE_BASE_SCALE_PEAK = 1.0505f
-
-/**
- * 单次播放的词放大峰值:BetterLyrics 档长词(≥[BETTER_LYRICS_LONG_WORD_MS])放大到
- * [BETTER_LYRICS_LONG_WORD_SCALE_PEAK],其余沿用 [WORD_KARAOKE_BASE_SCALE_PEAK]。
- * 纯函数,可单测。
- */
-internal fun wordKaraokeScalePeak(betterLyrics: Boolean, wordDurationMs: Long): Float =
-    if (betterLyrics && wordDurationMs >= BETTER_LYRICS_LONG_WORD_MS) {
-        BETTER_LYRICS_LONG_WORD_SCALE_PEAK
-    } else {
-        WORD_KARAOKE_BASE_SCALE_PEAK
-    }
