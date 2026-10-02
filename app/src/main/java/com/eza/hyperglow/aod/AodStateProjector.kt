@@ -5,6 +5,7 @@ import com.eza.hyperglow.customization.METADATA_PARTS_DEFAULT
 import com.eza.hyperglow.customization.METADATA_SEPARATORS_DEFAULT
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.composeSongMetadata
+import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.producer.LyricKind
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricLayoutGroup
@@ -159,8 +160,15 @@ internal fun projectToDisplay(
     // 原 project() 里 weight/textSize/textSizeCustom/secondaryMode/animationMode/glowMode/
     // overflowMode/fontFamily/alignmentMode/burnIn* 全部来自 prefs；
     // lineSyncFillMode/transitionMode 来自 state.liveCard*。
-    // 生产者已把两者合并进 renderModes（Spicy 来自 liveCard*，Lyricon 来自 CompiledSurfaceProfile），
-    // 这里统一读 renderModes，与 spec clause 5/7 一致。
+    // 取值优先级：**编译后的 AOD profile > state.renderModes > （隐含）prefs**。
+    // profile 优先是「预览即实机」的前提——应用内预览读的就是这份 profile
+    // （见 PreviewComponents 的 betterLyrics = profile.animation == "BetterLyrics"）。
+    // 历史上这里只读 renderModes，而全仓只有 Lyricon 一个生产者会从 profile 回填它
+    // （producer/LyriconRenderModeMapping.toProducerRenderModes 是唯一调用点）：
+    // LyricInfo / SuperLyric 发的是硬编码默认值，Spicy 的桥白名单
+    // （bridge/SpicyBridgeStore.normalizeSpicyBridgeRenderModes）又不含 BetterLyrics，
+    // 于是这些源下「逐字动画」等设置永远到不了息屏——表现即「设置只在预览生效、实机不变」。
+    // compiled 缺失（降级 / 旧文档）时仍回落 renderModes，行为与改前一致。
     val modes = state.renderModes
     val aodProfile = compiled?.profiles?.get(SceneCompiler.SURFACE_AOD)
     val aodEnabled = aodProfile?.enabled ?: prefs.aodEnabled
@@ -296,20 +304,30 @@ internal fun projectToDisplay(
         ruby = ruby,
         layoutGroups = layoutGroups,
         duetLine = duetLine,
-        weight = modes.weight,
-        textSizeMode = modes.textSize,
-        textSizeCustom = modes.textSizeCustom,
-        secondaryMode = modes.secondary,
-        animationMode = modes.animation,
-        glowMode = modes.glow,
-        lineSyncFillMode = modes.lineSyncFill,
-        overflowMode = modes.overflow,
-        transitionMode = if (noLyrics) "None" else modes.transition,
-        fontFamily = modes.font,
-        alignmentMode = prefs.alignment,
+        weight = aodProfile?.weight ?: modes.weight,
+        textSizeMode = aodProfile?.textSize ?: modes.textSize,
+        textSizeCustom = aodProfile?.textSizeCustom ?: modes.textSizeCustom,
+        secondaryMode = aodProfile?.secondaryMode ?: modes.secondary,
+        animationMode = aodProfile?.animation ?: modes.animation,
+        glowMode = aodProfile?.glow ?: modes.glow,
+        lineSyncFillMode = aodProfile?.lineSyncFillMode ?: modes.lineSyncFill,
+        overflowMode = aodProfile?.overflow ?: modes.overflow,
+        // 换行动画与 producer 侧同一归一：profile.lineTransition 的 "Auto" 退默认 "Fade up"
+        // （不能借用场景过渡 preset id，那是 AOD↔锁屏联动的词表，语义不同）。
+        transitionMode = if (noLyrics) {
+            "None"
+        } else {
+            aodProfile?.let { resolveLineTransition(it.lineTransition, "Fade up") } ?: modes.transition
+        },
+        fontFamily = aodProfile?.fontFamily ?: modes.font,
+        // 以下三项历史上同属「从 prefs 混合取」，而 ui/ 已无任何写入方
+        // （SettingsPrefs.updateAlignment/updateMetadataAnchor/updateAdaptiveSectioning
+        //  在 ui/ 下零调用点），于是恒读旧 SharedPreferences 的残留值 = 恒取默认值，
+        // 表现同样是「设置只在预览生效、实机不变」。一并改走 profile，prefs 留作兜底。
+        alignmentMode = aodProfile?.alignment ?: prefs.alignment,
         metadataVisible = aodProfile?.metadataVisible ?: (prefs.metadataVisible != "hide"),
-        metadataAnchor = prefs.metadataAnchor,
-        adaptiveSectioning = prefs.adaptiveSectioning,
+        metadataAnchor = aodProfile?.metadataAnchor ?: prefs.metadataAnchor,
+        adaptiveSectioning = aodProfile?.adaptiveSectioning ?: prefs.adaptiveSectioning,
         artworkJpeg = artworkJpeg,
         artworkKey = artworkKey
     )
