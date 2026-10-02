@@ -90,6 +90,8 @@ internal data class AodStateWireDuetLine(
     val romanized: String = "",
     val translated: String = "",
     val alignedRight: Boolean = false,
+    /** 标记识别版分侧(v6 起);渲染面按本面「识别对唱标记」开关选用。 */
+    val alignedRightMarkers: Boolean = false,
     val lineStartMs: Long,
     val lineEndMs: Long,
     val words: List<AodStateWireWord> = emptyList()
@@ -124,7 +126,15 @@ internal data class AodStateWireSnapshot(
     val nextLineRomanized: String = "",
     val nextLineTranslated: String = "",
     val metadata: String,
+    /** 原始歌名/歌手/专辑(v6 起):渲染面按本面「歌曲信息内容」重新组装,实现 per-surface 独立。 */
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    /** 大元数据引导态(v6 起):渲染面用本面组装后的歌曲信息替换 [original] 的占位符。 */
+    val largeMetadata: Boolean = false,
     val alignedRight: Boolean,
+    /** 标记识别版分侧(v6 起);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
+    val alignedRightMarkers: Boolean = false,
     val lineLevelSync: Boolean,
     val lineStartMs: Long,
     val lineEndMs: Long,
@@ -345,7 +355,13 @@ internal object AodStateWireCodec {
                 output.writeBoundedString(snapshot.nextLineRomanized)
                 output.writeBoundedString(snapshot.nextLineTranslated)
                 output.writeBoundedString(snapshot.metadata)
+                // v7:原始歌名/歌手/专辑 + 大元数据引导态 + 标记识别版分侧(per-surface 内容链路)。
+                output.writeBoundedString(snapshot.title)
+                output.writeBoundedString(snapshot.artist)
+                output.writeBoundedString(snapshot.album)
+                output.writeStrictBoolean(snapshot.largeMetadata)
                 output.writeStrictBoolean(snapshot.alignedRight)
+                output.writeStrictBoolean(snapshot.alignedRightMarkers)
                 output.writeStrictBoolean(snapshot.lineLevelSync)
                 output.writeLong(snapshot.lineStartMs)
                 output.writeLong(snapshot.lineEndMs)
@@ -401,6 +417,7 @@ internal object AodStateWireCodec {
                     output.writeBoundedString(line.romanized)
                     output.writeBoundedString(line.translated)
                     output.writeStrictBoolean(line.alignedRight)
+                    output.writeStrictBoolean(line.alignedRightMarkers)
                     output.writeLong(line.lineStartMs)
                     output.writeLong(line.lineEndMs)
                     line.words.forEach { word ->
@@ -490,7 +507,24 @@ internal object AodStateWireCodec {
                 allowEmpty = true,
                 budget = budget
             ) ?: return null
+            val title = input.readBoundedString(
+                AodStateWireLimits.MAX_METADATA_CHARS,
+                allowEmpty = true,
+                budget = budget
+            ) ?: return null
+            val artist = input.readBoundedString(
+                AodStateWireLimits.MAX_METADATA_CHARS,
+                allowEmpty = true,
+                budget = budget
+            ) ?: return null
+            val album = input.readBoundedString(
+                AodStateWireLimits.MAX_METADATA_CHARS,
+                allowEmpty = true,
+                budget = budget
+            ) ?: return null
+            val largeMetadata = input.readStrictBoolean() ?: return null
             val alignedRight = input.readStrictBoolean() ?: return null
+            val alignedRightMarkers = input.readStrictBoolean() ?: return null
             val lineLevelSync = input.readStrictBoolean() ?: return null
             val lineStartMs = input.readLong()
             val lineEndMs = input.readLong()
@@ -607,7 +641,12 @@ internal object AodStateWireCodec {
                 nextLineRomanized = nextLineRomanized,
                 nextLineTranslated = nextLineTranslated,
                 metadata = metadata,
+                title = title,
+                artist = artist,
+                album = album,
+                largeMetadata = largeMetadata,
                 alignedRight = alignedRight,
+                alignedRightMarkers = alignedRightMarkers,
                 lineLevelSync = lineLevelSync,
                 lineStartMs = lineStartMs,
                 lineEndMs = lineEndMs,
@@ -659,6 +698,7 @@ internal object AodStateWireCodec {
                 AodStateWireLimits.MAX_LYRIC_CHARS, allowEmpty = true, budget = budget
             ) ?: return null
             val alignedRight = input.readStrictBoolean() ?: return null
+            val alignedRightMarkers = input.readStrictBoolean() ?: return null
             val lineStartMs = input.readLong()
             val lineEndMs = input.readLong()
             val words = ArrayList<AodStateWireWord>(wordCount)
@@ -682,6 +722,7 @@ internal object AodStateWireCodec {
                 romanized = romanized,
                 translated = translated,
                 alignedRight = alignedRight,
+                alignedRightMarkers = alignedRightMarkers,
                 lineStartMs = lineStartMs,
                 lineEndMs = lineEndMs,
                 words = words.toList()
@@ -734,6 +775,9 @@ internal object AodStateWireCodec {
             snapshot.nextLineRomanized != snapshot.nextLineRomanized.trim() ||
             snapshot.nextLineTranslated != snapshot.nextLineTranslated.trim() ||
             snapshot.metadata != snapshot.metadata.trim() ||
+            snapshot.title != snapshot.title.trim() ||
+            snapshot.artist != snapshot.artist.trim() ||
+            snapshot.album != snapshot.album.trim() ||
             snapshot.weight != normalizeAodWeight(snapshot.weight) ||
             snapshot.textSizeMode != normalizeAodTextSize(snapshot.textSizeMode) ||
             snapshot.secondaryMode != normalizeAodSecondary(snapshot.secondaryMode) ||
@@ -754,7 +798,10 @@ internal object AodStateWireCodec {
             !budget.accept(snapshot.nextLine, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
             !budget.accept(snapshot.nextLineRomanized, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
             !budget.accept(snapshot.nextLineTranslated, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
-            !budget.accept(snapshot.metadata, AodStateWireLimits.MAX_METADATA_CHARS, true)
+            !budget.accept(snapshot.metadata, AodStateWireLimits.MAX_METADATA_CHARS, true) ||
+            !budget.accept(snapshot.title, AodStateWireLimits.MAX_METADATA_CHARS, true) ||
+            !budget.accept(snapshot.artist, AodStateWireLimits.MAX_METADATA_CHARS, true) ||
+            !budget.accept(snapshot.album, AodStateWireLimits.MAX_METADATA_CHARS, true)
         ) return false
         val styles = listOf(
             snapshot.burnInPattern,
@@ -897,10 +944,12 @@ internal object AodStateWireCodec {
 
     private const val BODY_MAGIC = 0x414F4453
 
-   /** v6:样式区追加 aodLandscapeFullscreenSafeMarginPercent(横屏全屏化安全边界);
-    *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
-    *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
-    private const val BODY_VERSION = 6
+    /** v7:metadata 区追加原始 title/artist/album + largeMetadata + 标记识别版分侧(主行与并发行),
+     *  让渲染面按本面「歌曲信息内容」/「识别对唱标记」独立组装与选侧(per-surface);
+     *  v6:样式区追加 aodLandscapeFullscreenSafeMarginPercent(横屏全屏化安全边界);
+     *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
+     *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
+    private const val BODY_VERSION = 7
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

@@ -528,7 +528,14 @@ class AodCanvasLayoutTest {
                 )
             )
         ).profiles.getValue(SceneCompiler.SURFACE_AOD)
-        val split = LyricSnapshot(original = "current", alignedRight = true)
+        // 快照按新契约同时携带两套分侧值(元数据身份版 + 标记识别版);本用例不区分两版,
+        // 故同取 true 以表示「该行分侧」。标记识别开关的按面选用见
+        // surfaceDuetMarkersStripAndSelectAlignmentIndependently。
+        val split = LyricSnapshot(
+            original = "current",
+            alignedRight = true,
+            alignedRightMarkers = true
+        )
 
         // 开启(或无 profile 的默认)时保留行级分侧;关闭时整行回落主对齐解析。
         assertTrue(split.toAodCanvasContent(on).alignedRight)
@@ -536,9 +543,87 @@ class AodCanvasLayoutTest {
         assertFalse(split.toAodCanvasContent(off).alignedRight)
         // 门控只做减法:未分侧的行在任何开关下都保持未分侧。
         assertFalse(
-            LyricSnapshot(original = "current", alignedRight = false)
+            LyricSnapshot(original = "current")
                 .toAodCanvasContent(on).alignedRight
         )
+    }
+
+    @Test
+    fun surfaceMetadataComposesFromOwnProfilePartsAndSeparators() {
+        // 「歌曲信息内容」per-surface:息屏显式设置(专辑→歌名,换行),锁屏未显式设置时继承
+        // 文档级默认值(歌名·歌手)。同一份快照下两面各自组装,互不联动。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                metadataParts = "title,artist",
+                metadataSeparators = "dot",
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        metadataParts = "album,title",
+                        metadataSeparators = "newline"
+                    ),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile()
+                )
+            )
+        )
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        val snapshot = LyricSnapshot(
+            original = "line",
+            title = "Song",
+            artist = "Artist",
+            album = "Album"
+        )
+
+        assertEquals("Album\nSong", snapshot.toAodCanvasContent(aod).metadata)
+        assertEquals("Song · Artist", snapshot.toAodCanvasContent(lockscreen).metadata)
+    }
+
+    @Test
+    fun metadataOnlySnapshotKeepsLegacyComposedValueWhenNoRawSlices() {
+        // 快照未携带原始歌名/歌手/专辑(旧消费方/演示态只给文档级组装值)时,按面重组不得把这份
+        // 兜底值清空——回落快照 metadata;携带原始切片时才按本面重组(见上一则测试)。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataParts = "album")
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val snapshot = LyricSnapshot(original = "line", metadata = "Song · Artist")
+
+        assertEquals("Song · Artist", snapshot.toAodCanvasContent(compiled).metadata)
+    }
+
+    @Test
+    fun surfaceDuetMarkersStripAndSelectAlignmentIndependently() {
+        // 「识别对唱标记」per-surface:息屏开启则隐去标记并取标记识别版分侧;锁屏关闭则原样显示
+        // 标记并取元数据身份版分侧。同一份快照(两版分侧随状态下发)下两面各自决策。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(duetMarkers = true),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(duetMarkers = false)
+                )
+            )
+        )
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        val snapshot = LyricSnapshot(
+            original = "（女） 词",
+            nextLine = "（男） 下一句",
+            alignedRight = false,
+            alignedRightMarkers = true
+        )
+
+        val aodContent = snapshot.toAodCanvasContent(aod, duet = true)
+        assertEquals("词", aodContent.original)
+        assertEquals("下一句", aodContent.nextLine)
+        assertTrue(aodContent.alignedRight)
+
+        val lockscreenContent = snapshot.toAodCanvasContent(lockscreen)
+        assertEquals("（女） 词", lockscreenContent.original)
+        assertEquals("（男） 下一句", lockscreenContent.nextLine)
+        assertFalse(lockscreenContent.alignedRight)
     }
 
     @Test

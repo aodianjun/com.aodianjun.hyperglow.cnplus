@@ -42,8 +42,21 @@ data class AodDisplayState(
     /** 下一行歌词的辅助文字(音标/翻译);「显示第二行辅助文字」消费。 */
     val nextLineRomanized: String = "",
     val nextLineTranslated: String = "",
+    /** 文档级默认组装值(按文档级 metadataParts/metadataSeparators 组装),降级/旧消费方兜底。 */
     val metadata: String = "",
+    /** 原始歌名/歌手/专辑:随快照下发,由各渲染面按自己的「歌曲信息内容」重新组装(per-surface)。 */
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    /**
+     * 大元数据引导态:为真时歌词主行位置显示的应是各面按本面「歌曲信息内容」组装的歌曲信息,
+     * 由渲染面替换 [original] 的占位符(见 root/aod/LyricCanvasMapper)。
+     */
+    val largeMetadata: Boolean = false,
+    /** 对唱分侧(元数据身份版);标记识别版见 [alignedRightMarkers],由渲染面按本面开关选用。 */
     val alignedRight: Boolean = false,
+    /** 对唱分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
+    val alignedRightMarkers: Boolean = false,
     val lineLevelSync: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
@@ -119,7 +132,10 @@ data class AodDisplayDuetLine(
     val text: String,
     val romanized: String = "",
     val translated: String = "",
+    /** 对唱分侧(元数据身份版);标记识别版见 [alignedRightMarkers]。 */
     val alignedRight: Boolean = false,
+    /** 对唱分侧(标记识别版);由渲染面按本面「识别对唱标记」开关选用。 */
+    val alignedRightMarkers: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<AodDisplayWord> = emptyList()
@@ -354,6 +370,10 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         AodStateWireLimits.MAX_LYRIC_CHARS
     )
     val metadata = state.metadata.normalizeAodWireText(AodStateWireLimits.MAX_METADATA_CHARS)
+    // 原始歌名/歌手/专辑:随快照下发给渲染面按本面「歌曲信息内容」重新组装。
+    val title = state.title.normalizeAodWireText(AodStateWireLimits.MAX_METADATA_CHARS)
+    val artist = state.artist.normalizeAodWireText(AodStateWireLimits.MAX_METADATA_CHARS)
+    val album = state.album.normalizeAodWireText(AodStateWireLimits.MAX_METADATA_CHARS)
     val effectiveVisible = state.visible && original.isNotEmpty()
     val baseDuration = state.durationMs.coerceIn(0L, AodStateWireLimits.MAX_MEDIA_DURATION_MS)
     val duration = if (effectiveVisible && baseDuration <= 0L) {
@@ -443,6 +463,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
                 romanized = line.romanized.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS),
                 translated = line.translated.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS),
                 alignedRight = line.alignedRight,
+                alignedRightMarkers = line.alignedRightMarkers,
                 lineStartMs = line.lineStartMs.coerceAtLeast(0L).let {
                     if (duration > 0L) it.coerceAtMost(duration) else it
                 },
@@ -476,7 +497,10 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             nextLine,
             nextLineRomanized,
             nextLineTranslated,
-            metadata
+            metadata,
+            title,
+            artist,
+            album
         ),
         styleTexts = styleTokens(state),
         words = words,
@@ -526,6 +550,11 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         nextLineRomanized = nextLineRomanized,
         nextLineTranslated = nextLineTranslated,
         metadata = metadata,
+        title = title,
+        artist = artist,
+        album = album,
+        largeMetadata = state.largeMetadata,
+        alignedRightMarkers = state.alignedRightMarkers,
         lineStartMs = lineStart,
         lineEndMs = lineEnd,
         durationMs = duration,
@@ -606,7 +635,12 @@ private fun AodDisplayState.toWireMessage(
             nextLineRomanized = nextLineRomanized,
             nextLineTranslated = nextLineTranslated,
             metadata = metadata,
+            title = title,
+            artist = artist,
+            album = album,
+            largeMetadata = largeMetadata,
             alignedRight = alignedRight,
+            alignedRightMarkers = alignedRightMarkers,
             lineLevelSync = lineLevelSync,
             lineStartMs = lineStartMs,
             lineEndMs = lineEndMs,
@@ -660,6 +694,7 @@ private fun AodDisplayState.toWireMessage(
                     romanized = line.romanized,
                     translated = line.translated,
                     alignedRight = line.alignedRight,
+                    alignedRightMarkers = line.alignedRightMarkers,
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
                     words = line.words.map { word ->

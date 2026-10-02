@@ -606,8 +606,8 @@ class LyriconLyricProducer(
                         translationWords = line.toTranslationWords(),
                         roma = line.roma.orEmpty(),
                         words = line.toLyricWords()?.takeIf { it.isNotEmpty() },
-                        // 对唱分侧随行进入插件链(见 activeAlignedRight)。
-                        alignedRight = activeAlignedRight(index)
+                        // 对唱分侧随行进入插件链(取元数据身份版,与状态里 alignedRight 同源)。
+                        alignedRight = identityAlignedRight(index)
                     )
                 }
             )

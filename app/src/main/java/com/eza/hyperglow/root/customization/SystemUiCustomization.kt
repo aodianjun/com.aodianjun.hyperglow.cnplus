@@ -69,7 +69,10 @@ internal object SystemUiCustomizationValidator {
                 artworkSizeDp = rawLockscreen.artworkSizeDp,
                 backgroundStyle = rawLockscreen.backgroundStyle,
                 cardAlpha = rawLockscreen.cardAlpha,
-                cardColor = rawLockscreen.cardColor
+                cardColor = rawLockscreen.cardColor,
+                metadataParts = rawAod.metadataParts,
+                metadataSeparators = rawAod.metadataSeparators,
+                duetMarkers = rawAod.duetMarkers
             )
         } else {
             rawLockscreen

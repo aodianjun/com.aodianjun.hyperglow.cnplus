@@ -10,8 +10,6 @@ import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricLayoutGroup
 import com.eza.hyperglow.producer.LyricRuby
 import com.eza.hyperglow.producer.LyricWord
-import com.eza.hyperglow.producer.stripDuetMarker
-import com.eza.hyperglow.producer.stripDuetMarkerWords
 
 /**
  * 播放中无歌词 / 纯音乐 / 间奏时的占位符。用 🎶 明确表示「音乐正在播放」，
@@ -78,15 +76,16 @@ internal fun projectToDisplay(
     val hasTimedLyrics = state.hasTimedLyrics
     // 原 fallbackLine 条件：!unsynced && !noLyrics && document == null && status == "ready" && it.isNotBlank()
     // document==null 对应 producer 无行级数据（lyricKind==NONE 但 line 非空 → 生产者塞了无时序一行）。
-    // 行首标记(对唱（男）/（女）/（合）与段落（副歌）/（间奏）等)识别:文档级开关开启时显示侧隐去行首标记文本,
-    // 词表同步剥离(逐字卡拉OK按词绘制,不同步会残留标记);关闭则原样显示。幂等。
-    val duetMarkers = compiled?.duetMarkers != false
+    // 行首标记(对唱（男）/（女）/（合）与段落（副歌）/（间奏）等)识别:显示侧隐去与否改由
+    // 各渲染面自己的「识别对唱标记」开关决定(见 root/aod/LyricCanvasMapper)。此处只下发原始
+    // 文本,不再按文档级开关预先剥离——快照为息屏/锁屏共用,剥离必须推迟到按面渲染时才做。
     val fallbackLine = state.line.takeIf {
         !extrapolationInvalid && !unsynced && !noLyrics && kind == LyricKind.NONE && state.status == "ready" && it.isNotBlank()
-    }?.let { if (duetMarkers) stripDuetMarker(it) else it }
+    }
     val presentable = hasActiveLine || fallbackLine != null
 
-    // --- 元数据（歌名/歌手/专辑按配置选择切片、按配置分隔符组装；`·` 仍是切片边界）---
+    // --- 元数据（原始歌名/歌手/专辑随状态下发，由各渲染面按自己的「歌曲信息内容」组装）---
+    // 保持一份文档级默认组装值作为兜底(旧消费方/降级),真正的按面组装在渲染侧完成。
     val metadata = composeSongMetadata(
         title = state.title,
         artist = state.artist,
@@ -115,8 +114,8 @@ internal fun projectToDisplay(
     )
 
     // --- 原文/罗马音/翻译（原 project() 的 original/romanized/translated 分支）---
+    // 文本一律下发原始形态(含行首标记);隐去标记与否由渲染面按自己的开关决定。
     val presentedLineText = state.line.takeIf { hasActiveLine && !showLargeMetadata }
-        ?.let { if (duetMarkers) stripDuetMarker(it) else it }
     // 中文歌被错误标注日语假名注音(网易云常见:中文歌词配日语 furigana/罗马音),AOD 上
     // 显示出来既难看又误导。语言为 zh 且 ruby 注音含假名时,拒绝整行的 ruby/罗马音
     // (上游 8422d78)。
@@ -124,8 +123,8 @@ internal fun projectToDisplay(
         state.language,
         state.ruby.map { it.reading }
     )
+    // 大元数据引导时,占位符交给渲染面用本面「歌曲信息内容」组装后的文本替换(见 largeMetadata)。
     val original = when {
-        showLargeMetadata -> metadata
         unsynced || noLyrics -> PLAYING_PLACEHOLDER
         presentedLineText != null -> presentedLineText
         hasTimedLyrics || state.status == "loading" -> PLAYING_PLACEHOLDER
@@ -141,7 +140,7 @@ internal fun projectToDisplay(
     val nextLine = if (showLargeMetadata || unsynced || noLyrics) {
         ""
     } else {
-        state.nextLine.let { if (duetMarkers) stripDuetMarker(it) else it }
+        state.nextLine
     }
     // 下一行的辅助文字(音标/翻译):与下一行同门控;文本不剥离对唱标记(与 translatedLine 同口径)。
     val nextLineRomanized = if (showLargeMetadata || unsynced || noLyrics) {
@@ -193,7 +192,7 @@ internal fun projectToDisplay(
     val effectiveWords = if (showLargeMetadata || !hasActiveLine) {
         emptyList()
     } else {
-        state.words.orEmpty().let { if (duetMarkers) stripDuetMarkerWords(it) else it }
+        state.words.orEmpty()
     }
 
     // --- 行级同步标志（统一走整行水平扫光）---
@@ -222,25 +221,25 @@ internal fun projectToDisplay(
     // 生产者已按时间轴重叠预计算候选(契约:投影不选行),这里只做策略与格式转换:
     // 「显示并发歌词(对唱)」关闭时快照永不携带并发行(上游 duetEnabled 同语义:在源头
     // 撤走并发行,画布无 per-build 对唱状态);大元数据引导/无活动行时同样不携带。
-    // 行首标记剥离与主行同源(duetMarkers);语言不一致拒绝同样作用于并发行的罗马音。
+    // 文本与分侧两套原样下发,行首标记剥离由渲染面按本面开关决定;语言不一致拒绝同样
+    // 作用于并发行的罗马音。
     val duetConcurrent = aodProfile?.duetConcurrent ?: true
     val duetLine = if (!duetConcurrent || showLargeMetadata || !hasActiveLine) {
         null
     } else {
         state.duetLine?.let { line ->
-            val duetText = if (duetMarkers) stripDuetMarker(line.text) else line.text
-            if (duetText.isBlank()) {
+            if (line.text.isBlank()) {
                 null
             } else {
                 AodDisplayDuetLine(
-                    text = duetText,
+                    text = line.text,
                     romanized = if (rejectJapaneseReading) "" else line.romanized,
                     translated = line.translated,
                     alignedRight = line.alignedRight,
+                    alignedRightMarkers = line.alignedRightMarkers,
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
-                    words = (if (duetMarkers) stripDuetMarkerWords(line.words) else line.words)
-                        .map(::toDisplayWord)
+                    words = line.words.map(::toDisplayWord)
                 )
             }
         }
@@ -279,7 +278,12 @@ internal fun projectToDisplay(
         nextLineRomanized = nextLineRomanized,
         nextLineTranslated = nextLineTranslated,
         metadata = metadata,
+        title = state.title,
+        artist = state.artist,
+        album = state.album,
+        largeMetadata = showLargeMetadata,
         alignedRight = state.alignedRight,
+        alignedRightMarkers = state.alignedRightMarkers,
         lineLevelSync = lineLevelSync,
         lineStartMs = if (hasActiveLine) state.lineStartMs else 0L,
         lineEndMs = if (hasActiveLine) state.lineEndMs else 0L,

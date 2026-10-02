@@ -140,7 +140,11 @@ object PluginSongBridge {
         // 对唱左右分侧:插件显式声明改了该字段才覆盖(未声明时保留生产者自己的
         // 演唱者身份推导结果,见 producer/resolveDuetAlignment)。
         if (PluginLyricField.IS_ALIGNED_RIGHT in patched.changedLyricFields) {
-            enriched = enriched.copy(alignedRight = active.isAlignedRight)
+            // 插件显式对齐回写两套一起覆盖(插件不区分标记身份,两版等价)。
+            enriched = enriched.copy(
+                alignedRight = active.isAlignedRight,
+                alignedRightMarkers = active.isAlignedRight
+            )
         }
         if (PluginLyricField.WORDS in patched.changedLyricFields) {
             val patchedWords = active.words?.map { word ->

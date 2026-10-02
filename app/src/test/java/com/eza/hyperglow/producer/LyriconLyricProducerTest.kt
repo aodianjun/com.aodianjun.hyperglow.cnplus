@@ -1863,6 +1863,24 @@ class LyriconLyricProducerTest {
     }
 
     @Test
+    fun duetMarkerGateEmitsBothAlignmentVariantsForPerSurfaceRendering() {
+        // 生产者预计算两套分侧随状态下发:alignedRight(元数据身份版)恒 false(该曲无身份元数据),
+        // alignedRightMarkers(标记识别版)按（女）→（男）出现顺序为 false/true。各渲染面按本面
+        // 「识别对唱标记」开关在两版之间选用,从而实现息屏/锁屏按面独立。
+        producer.playerListener.onSongChanged(markerDuetSong())
+
+        producer.playerListener.onPositionChanged(2_000L) // line 0（女）
+        val first = producer.state.value!!
+        assertFalse(first.alignedRight)
+        assertFalse(first.alignedRightMarkers)
+
+        producer.playerListener.onPositionChanged(4_000L) // line 1（男）
+        val second = producer.state.value!!
+        assertFalse(second.alignedRight)
+        assertTrue(second.alignedRightMarkers)
+    }
+
+    @Test
     fun externalSeekLocatesTheActiveLineImmediately() {
         // 跨源 seek 转发与 onSeekTo 同一处理:位置直接落定、活动行立即重选。
         producer.playerListener.onSongChanged(threeLineSong())

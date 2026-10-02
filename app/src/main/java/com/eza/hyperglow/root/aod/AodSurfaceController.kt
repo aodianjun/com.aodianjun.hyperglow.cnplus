@@ -1480,9 +1480,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         val metadataHeight = if (layoutProfile.metadataVisible &&
             layoutProfile.widgets.any { it.type == "metadata" }
         ) {
-            val extraLines = customization?.let {
-                metadataExpectedExtraLines(it.metadataParts, it.metadataSeparators)
-            } ?: 0
+            // 歌曲信息内容(per-surface):高度预算按本面 profile 的 parts/separators 推导,
+            // 与画布按面组装的口径一致(改一面不再影响另一面的布局预算)。
+            val extraLines = metadataExpectedExtraLines(
+                layoutProfile.metadataParts,
+                layoutProfile.metadataSeparators
+            )
             // 歌曲图片槽边长(dp):关闭自适应时取固定自定义边长,静态高度预算需按图片入账,
             // 否则大尺寸图片会被元数据组件裁切。
             val artworkHeightDp = if (layoutProfile.artworkVisible) {

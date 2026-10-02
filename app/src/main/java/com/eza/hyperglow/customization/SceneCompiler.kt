@@ -24,8 +24,10 @@ object SceneCompiler {
         } else {
             safeDefaultDocument()
         }
-        val lockscreenSource = source.profiles[SURFACE_LOCKSCREEN] ?: safeLockscreenProfile()
-        val aodSource = source.profiles[SURFACE_AOD] ?: safeAodProfile()
+        val lockscreenSource = (source.profiles[SURFACE_LOCKSCREEN] ?: safeLockscreenProfile())
+            .withDocumentDefaults(source)
+        val aodSource = (source.profiles[SURFACE_AOD] ?: safeAodProfile())
+            .withDocumentDefaults(source)
         val linkedBase = aodSource.takeIf { source.linkSurfaces }
         val lockscreen = compileProfile(
             SURFACE_LOCKSCREEN,
@@ -129,6 +131,9 @@ object SceneCompiler {
 
     private fun compileProfile(surface: String, profile: SurfaceProfile): CompiledSurfaceProfile {
         val aod = surface == SURFACE_AOD
+        // per-surface 歌曲信息内容:未显式设置(null)时由 withDocumentDefaults 预填文档级默认值;
+        // 这里再兜一层归一化,兼容 compileSafeDefault 直接传入未预填的默认 profile。
+        val parts = normalizeMetadataParts(profile.metadataParts)
         val supportedWidgets = profile.widgets.asSequence()
             .filter { it.visible }
             .filter { it.type in KNOWN_WIDGETS }
@@ -214,9 +219,24 @@ object SceneCompiler {
                 else -> "card"
             },
             cardAlpha = normalizeCardAlpha(profile.cardAlpha),
-            cardColor = normalizeCardColor(profile.cardColor)
+            cardColor = normalizeCardColor(profile.cardColor),
+            metadataParts = parts,
+            metadataSeparators = normalizeMetadataSeparators(profile.metadataSeparators, parts),
+            duetMarkers = profile.duetMarkers != false
         )
     }
+
+    /**
+     * 把 surface profile 里未显式设置(null)的 per-surface 内容项填成文档级默认值,
+     * 使编译期只面对已解析的非空值(旧配置升级语义:未单独设置的曲面沿用文档级值)。
+     */
+    private fun SurfaceProfile.withDocumentDefaults(
+        document: CustomizationDocument
+    ): SurfaceProfile = copy(
+        metadataParts = metadataParts ?: document.metadataParts,
+        metadataSeparators = metadataSeparators ?: document.metadataSeparators,
+        duetMarkers = duetMarkers ?: document.duetMarkers
+    )
 
     private fun normalizeId(value: String): String = value
         .lowercase()

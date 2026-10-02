@@ -579,9 +579,12 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val measured = pendingSnapshot?.toAodCanvasContent(profile)
             ?.copy(metadataVisible = metadataBudgeted)
             ?.let { canvas.measureContentStack(it, measureContentWidth) }
-        val metadataExtraLines = customization?.let {
-            metadataExpectedExtraLines(it.metadataParts, it.metadataSeparators)
-        } ?: 0
+        // 歌曲信息内容(per-surface):高度预算按本面 profile 的 parts/separators 推导,
+        // 与画布按面组装的口径一致(改一面不再影响另一面的布局预算)。
+        val metadataExtraLines = metadataExpectedExtraLines(
+            profile.metadataParts,
+            profile.metadataSeparators
+        )
         // 歌曲图片槽边长(dp):关闭自适应时取固定自定义边长,静态高度估算需按图片入账,
         // 否则大尺寸图片会被元数据组件裁切(实测路径走 measureContentStack 的行实测高)。
         val artworkHeightDp = if (profile.artworkVisible) {

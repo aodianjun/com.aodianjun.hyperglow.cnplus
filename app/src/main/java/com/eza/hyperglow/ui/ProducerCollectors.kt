@@ -117,7 +117,9 @@ private fun LyricProducerState.toPreviewSnapshot(
         parts = metadataParts,
         separators = metadataSeparators
     ).ifBlank { "HyperGlow" },
-    alignedRight = alignedRight,
+    // 本面「识别对唱标记」开启取标记识别版分侧,否则取元数据身份版(与实机按面选用同口径)。
+    alignedRight = if (duetMarkers) alignedRightMarkers else alignedRight,
+    alignedRightMarkers = alignedRightMarkers,
     lineLevelSync = words == null,
     lineStartMs = lineStartMs,
     lineEndMs = lineEndMs,

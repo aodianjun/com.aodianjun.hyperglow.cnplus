@@ -977,6 +977,48 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun contentSettingsArePerSurfaceAcrossCompileValidateAndCanonicalize() {
+        // 「歌曲信息内容」与「识别对唱标记」per-surface:息屏显式设置、锁屏未设置时继承文档级,
+        // 编译后两面各自解析、互不联动,并穿过 SystemUI 校验与仓库 canonicalize 往返。
+        val document = SceneCompiler.safeDefaultDocument().copy(
+            metadataParts = "title,artist",
+            metadataSeparators = "dot",
+            duetMarkers = true,
+            profiles = linkedMapOf(
+                SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(),
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    metadataParts = "album,title",
+                    metadataSeparators = "newline",
+                    duetMarkers = false
+                )
+            )
+        )
+        val compiled = SceneCompiler.compile(document)
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+
+        // 息屏按本面设置;锁屏未显式设置时继承文档级默认值。
+        assertEquals("album,title", aod.metadataParts)
+        assertEquals("newline", aod.metadataSeparators)
+        assertFalse(aod.duetMarkers)
+        assertEquals("title,artist", lockscreen.metadataParts)
+        assertEquals("dot", lockscreen.metadataSeparators)
+        assertTrue(lockscreen.duetMarkers)
+
+        // 校验器与编译同源归一(不改写),否则 wire 的 validate_rewrote_fields 会拒收。
+        assertEquals(compiled, SystemUiCustomizationValidator.validate(compiled))
+
+        // canonicalize 往返后按面独立性保持(锁屏继承值落为显式值,但两面仍各不相同)。
+        val canonical = CustomizationRepository.canonicalizeDocument(document)!!
+        val canonicalAod = canonical.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val canonicalLockscreen = canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        assertEquals("album,title", canonicalAod.metadataParts)
+        assertEquals(false, canonicalAod.duetMarkers)
+        assertEquals("title,artist", canonicalLockscreen.metadataParts)
+        assertEquals(true, canonicalLockscreen.duetMarkers)
+    }
+
+    @Test
     fun legacySingleSeparatorSeedsEveryGapOnce() {
         // 旧文档只带单一分隔符:迁移时按当时槽位重复展开,并清空载体(只播种一次)。
         val legacy = SceneCompiler.safeDefaultDocument().copy(

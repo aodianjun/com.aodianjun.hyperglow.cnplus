@@ -344,10 +344,21 @@ internal fun HomeScreen(
                         // 读取上面的 customizationDocument State:配置一变化该 item 即重绘,
                         // 保证两个预览始终跟随当前外观设置(在"外观"编辑器里改完即生效)。
                         val compiled = SceneCompiler.compile(customizationDocument)
-                        val previewLive = collectLiveSnapshot(
-                            customizationDocument.metadataParts,
-                            customizationDocument.metadataSeparators,
-                            customizationDocument.duetMarkers
+                        val lockscreenProfile = compiled.profiles.getValue(
+                            SceneCompiler.SURFACE_LOCKSCREEN
+                        )
+                        val aodProfile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+                        // 每面各自组装歌曲信息、按本面「识别对唱标记」隐去标记:两张预览不再
+                        // 共用同一份已组装快照,改一面的内容项不影响另一面。
+                        val lockscreenLive = collectLiveSnapshot(
+                            lockscreenProfile.metadataParts,
+                            lockscreenProfile.metadataSeparators,
+                            lockscreenProfile.duetMarkers
+                        )
+                        val aodLive = collectLiveSnapshot(
+                            aodProfile.metadataParts,
+                            aodProfile.metadataSeparators,
+                            aodProfile.duetMarkers
                         )
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -362,20 +373,20 @@ internal fun HomeScreen(
                             ) {
                                 LyricPreviewCard(
                                     title = stringResource(R.string.label_lockscreen_preview),
-                                    profile = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
+                                    profile = lockscreenProfile,
                                     scenario = "Lockscreen · notifications",
-                                    live = previewLive,
-                                    metadataParts = customizationDocument.metadataParts,
-                                    metadataSeparators = customizationDocument.metadataSeparators,
+                                    live = lockscreenLive,
+                                    metadataParts = lockscreenProfile.metadataParts,
+                                    metadataSeparators = lockscreenProfile.metadataSeparators,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 LyricPreviewCard(
                                     title = stringResource(R.string.label_aod_preview),
-                                    profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
+                                    profile = aodProfile,
                                     scenario = "Full AOD",
-                                    live = previewLive,
-                                    metadataParts = customizationDocument.metadataParts,
-                                    metadataSeparators = customizationDocument.metadataSeparators,
+                                    live = aodLive,
+                                    metadataParts = aodProfile.metadataParts,
+                                    metadataSeparators = aodProfile.metadataSeparators,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
