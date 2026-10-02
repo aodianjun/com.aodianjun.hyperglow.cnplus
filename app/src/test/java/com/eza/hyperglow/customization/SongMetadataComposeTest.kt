@@ -158,6 +158,113 @@ class SongMetadataComposeTest {
     }
 
     @Test
+    fun hideAlbumWhenSameAsTitleDropsAlbumSlice() {
+        // 专辑与歌名一致且开关开启:专辑切片按空处理,该槽位不再产出。
+        assertEquals(
+            "Song\nArtist",
+            composeSongMetadata(
+                "Song",
+                "Artist",
+                "Song",
+                "title,artist,album",
+                METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+        // 开关关闭:专辑照常显示(默认行为不变)。
+        assertEquals(
+            "Song\nArtist\nSong",
+            composeSongMetadata(
+                "Song",
+                "Artist",
+                "Song",
+                "title,artist,album",
+                METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = false
+            )
+        )
+        // 专辑与歌名不同:开关无效果。
+        assertEquals(
+            "Song\nArtist\nAlbum",
+            composeSongMetadata(
+                "Song",
+                "Artist",
+                "Album",
+                "title,artist,album",
+                METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+    }
+
+    @Test
+    fun hideAlbumWhenSameAsTitleFoldsAlbumInTheMiddle() {
+        // 专辑夹在中间被抑制:剩余相邻项用前一槽分隔符连接(与「空切片丢弃」同一折叠语义)。
+        assertEquals(
+            "Song · Artist",
+            composeSongMetadata(
+                "Song",
+                "Artist",
+                "Song",
+                "title,album,artist",
+                "dot,dot",
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+    }
+
+    @Test
+    fun hideAlbumComparesTrimmedTitleAndAlbum() {
+        // 比较去两端空白后的文本:仅逐字相等才隐藏。
+        assertEquals(
+            "Song",
+            composeSongMetadata(
+                " Song ",
+                "",
+                "Song",
+                "title,album",
+                METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+        // 空专辑不触发隐藏(无专辑可隐藏)。
+        assertEquals(
+            "Song",
+            composeSongMetadata(
+                "",
+                "",
+                "",
+                "title,album",
+                METADATA_SEPARATOR_NEWLINE,
+                hideAlbumWhenSameAsTitle = true
+            )
+        )
+    }
+
+    @Test
+    fun hideAlbumWhenSameAsTitleResolvesPerSurfaceWithDocumentDefault() {
+        val compiled = SceneCompiler.compile(
+            SceneCompiler.safeDefaultDocument().copy(
+                hideAlbumWhenSameAsTitle = true,
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(hideAlbumWhenSameAsTitle = false)
+                )
+            )
+        )
+        // 文档级开、息屏面显式关:各读自己的值。
+        assertEquals(
+            false,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).hideAlbumWhenSameAsTitle
+        )
+        // 锁屏面未显式设置(null):继承文档级 true。
+        assertEquals(
+            true,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).hideAlbumWhenSameAsTitle
+        )
+        assertEquals(true, compiled.hideAlbumWhenSameAsTitle)
+    }
+
+    @Test
     fun normalizeArtworkShapeRejectsUnknownTokens() {
         assertEquals(ARTWORK_SHAPE_SQUARE, normalizeArtworkShape(ARTWORK_SHAPE_SQUARE))
         assertEquals(ARTWORK_SHAPE_CIRCLE, normalizeArtworkShape(ARTWORK_SHAPE_CIRCLE))

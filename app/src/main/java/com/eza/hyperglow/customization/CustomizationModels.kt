@@ -25,6 +25,12 @@ data class CustomizationDocument(
      */
     val metadataSeparator: String? = null,
     /**
+     * 专辑与歌名一致时隐藏专辑:**文档级默认值**:各 surface 未显式设置时继承本值,
+     * 显式设置后由 [SurfaceProfile.hideAlbumWhenSameAsTitle] 分别承载、互不联动。开启后
+     * 当专辑名与歌名相同(去两端空白后逐字相等)时,歌曲信息组装丢弃专辑切片,避免重复显示。
+     */
+    val hideAlbumWhenSameAsTitle: Boolean = false,
+    /**
      * 识别对唱标记:行首「（男）/（女）/（合）」演唱者标记被识别为演唱者身份——显示时
      * 隐去标记文本,并作为对唱左右分侧的身份输入(元数据身份恒优先,
      * 见 [com.eza.hyperglow.producer.resolveDuetAlignment]);「（副歌）/（间奏）」等段落标记
@@ -155,6 +161,12 @@ data class SurfaceProfile(
     /** 逐槽分隔符序列,见 [METADATA_SEPARATORS];每个 surface 独立设置,null = 继承文档级。 */
     val metadataSeparators: String? = null,
     /**
+     * 专辑与歌名一致时隐藏专辑:开启后当专辑名与歌名相同(去两端空白后逐字相等)时,歌曲信息
+     * 组装丢弃专辑切片。每个 surface 独立设置,null = 继承文档级
+     * [CustomizationDocument.hideAlbumWhenSameAsTitle]。
+     */
+    val hideAlbumWhenSameAsTitle: Boolean? = null,
+    /**
      * 识别对唱标记(行首「（男）/（女）/（合）」演唱者标记),每个 surface 独立设置;
      * null = 继承文档级 [CustomizationDocument.duetMarkers]。
      */
@@ -187,6 +199,8 @@ data class CompiledCustomization(
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 文档级默认歌曲信息逐槽分隔符;仅作各面未显式设置时的兜底。 */
     val metadataSeparators: String = METADATA_SEPARATORS_DEFAULT,
+    /** 文档级默认「专辑与歌名一致时隐藏专辑」;仅作各面未显式设置时的兜底(真实生效值见 [CompiledSurfaceProfile.hideAlbumWhenSameAsTitle])。 */
+    val hideAlbumWhenSameAsTitle: Boolean = false,
     /** 文档级默认识别对唱标记;仅作各面未显式设置时的兜底(真实生效值见 [CompiledSurfaceProfile.duetMarkers])。 */
     val duetMarkers: Boolean = true,
     /** 歌词时间偏移(毫秒);全局生效,由 [CustomizationDocument.lyricTimeOffsetMs] 编译而来。 */
@@ -290,6 +304,8 @@ data class CompiledSurfaceProfile(
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 歌曲信息逐槽分隔符序列;由该 surface 的 [SurfaceProfile.metadataSeparators] 解析编译而来。 */
     val metadataSeparators: String = METADATA_SEPARATORS_DEFAULT,
+    /** 专辑与歌名一致时隐藏专辑;由该 surface 的 [SurfaceProfile.hideAlbumWhenSameAsTitle] 解析编译而来。 */
+    val hideAlbumWhenSameAsTitle: Boolean = false,
     /** 识别对唱标记;由该 surface 的 [SurfaceProfile.duetMarkers] 解析编译而来,每个 surface 独立生效。 */
     val duetMarkers: Boolean = true
 )
@@ -473,18 +489,24 @@ internal fun normalizeMetadataSeparators(value: String?, parts: String): String 
  * [separators] 对应槽位的分隔符连接,逐槽独立(槽位不足回落换行)。每个部分文本内的 `·`
  * 仍视作切片边界(历史行为:部分音源把「歌名·歌手」塞进单字段),同一切片内部与部分之间
  * 共用该部分之后的槽位分隔符;最后一个部分之后无槽位,回落换行。切片两端空白裁剪,空切片丢弃。
+ * [hideAlbumWhenSameAsTitle] 开启且专辑名与歌名(去两端空白后逐字相等)一致时,专辑切片按空
+ * 处理丢弃(该槽位不再产出)。
  */
 internal fun composeSongMetadata(
     title: String,
     artist: String,
     album: String,
     parts: String,
-    separators: String
+    separators: String,
+    hideAlbumWhenSameAsTitle: Boolean = false
 ): String {
+    val effectiveAlbum = album.takeIf {
+        !(hideAlbumWhenSameAsTitle && it.trim().isNotEmpty() && it.trim() == title.trim())
+    }.orEmpty()
     val source = mapOf(
         METADATA_PART_TITLE to title,
         METADATA_PART_ARTIST to artist,
-        METADATA_PART_ALBUM to album
+        METADATA_PART_ALBUM to effectiveAlbum
     )
     val gapTokens = normalizeMetadataSeparators(separators, parts)
         .split(',')

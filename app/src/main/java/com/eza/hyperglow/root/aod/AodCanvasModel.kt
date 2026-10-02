@@ -127,32 +127,50 @@ internal fun duetSharedFitScale(combinedHeightPx: Float, availableHeightPx: Floa
 internal enum class SecondLinePresentation { NONE, AS_SECONDARY, STANDALONE }
 
 /**
+ * 第一行辅助文字是否实际显示(与实机行装配、预览 previewSecondaryLines 同源):
+ * 按辅助文字模式取音标/翻译,该行内容非空即成立。
+ */
+internal fun hasFirstLineAuxText(
+    secondaryMode: String,
+    romanized: String,
+    translated: String
+): Boolean {
+    val showReading = secondaryMode == "Transliteration" || secondaryMode == "Both"
+    val showTranslation = secondaryMode == "Translation" || secondaryMode == "Both"
+    return (showReading && romanized.isNotBlank()) || (showTranslation && translated.isNotBlank())
+}
+
+/**
  * 下一行歌词呈现决策(实机 AodLyricCanvasView 与预览 PreviewComponents 同源):
- * 「辅助文字显示第二行歌词」开启时以辅助文字样式绘制并取代独立的「显示下一行歌词」行;
- * 关闭时维持独立下一行行的既有呈现。
+ * 「辅助文字显示第二行歌词」仅在第一行辅助文字实际显示时生效——此时第二行以辅助文字
+ * 样式绘制并取代独立的「显示下一行歌词」行;第一行没有辅助文字时该开关不产生第二行
+ * 呈现,独立下一行行按「显示下一行歌词」照常。「显示第二行辅助文字」不参与本决策,
+ * 只在辅助形态成立时追加第二行自身的辅助文字行(见 [secondLineAuxRows])。
  * 样式与颜色解耦:辅助文字形态只借辅助文字的字号/亮度档,颜色恒走「下一行颜色」
  * (见 [secondLineColorArgb]),否则该颜色设置对辅助文字形态失效。
  */
 internal fun secondLinePresentation(
     secondaryNextLine: Boolean,
-    nextLineAux: Boolean,
     showNextLine: Boolean,
-    hasLine: Boolean
+    hasLine: Boolean,
+    hasFirstLineAux: Boolean
 ): SecondLinePresentation = when {
     !hasLine -> SecondLinePresentation.NONE
-    secondLineRendersAsSecondary(secondaryNextLine, nextLineAux) ->
+    secondLineRendersAsSecondary(secondaryNextLine, hasFirstLineAux) ->
         SecondLinePresentation.AS_SECONDARY
     showNextLine -> SecondLinePresentation.STANDALONE
     else -> SecondLinePresentation.NONE
 }
 
 /**
- * 第二行是否按辅助文字形态呈现:两个开关任一开启即为真(「显示第二行辅助文字」以
- * 「显示第二行」为前提,开启时即使 [secondaryNextLine] 关闭也按辅助形态绘制)。
+ * 第二行是否按辅助文字形态呈现:仅「辅助文字显示第二行歌词」开启且第一行辅助文字实际
+ * 显示时为真。「显示第二行辅助文字」不改变本判定,只决定第二行自身的辅助文字行是否追加。
  * 绘制期取色/亮度档与行装配共用本判定,防止两处漂移。
  */
-internal fun secondLineRendersAsSecondary(secondaryNextLine: Boolean, nextLineAux: Boolean): Boolean =
-    secondaryNextLine || nextLineAux
+internal fun secondLineRendersAsSecondary(
+    secondaryNextLine: Boolean,
+    hasFirstLineAux: Boolean
+): Boolean = secondaryNextLine && hasFirstLineAux
 
 /** 第二行歌词的辅助文字行(按辅助文字模式取音标/翻译,有内容才出)。 */
 internal enum class SecondLineAuxRow { ROMANIZED, TRANSLATED }

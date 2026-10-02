@@ -223,6 +223,7 @@ object CustomizationRepository {
             linkSurfaces = compiled.linkSurfaces,
             metadataParts = compiled.metadataParts,
             metadataSeparators = compiled.metadataSeparators,
+            hideAlbumWhenSameAsTitle = compiled.hideAlbumWhenSameAsTitle,
             duetMarkers = compiled.duetMarkers,
             lyricTimeOffsetMs = compiled.lyricTimeOffsetMs,
             profiles = linkedMapOf(
@@ -281,6 +282,7 @@ object CustomizationRepository {
         // per-surface 内容项:携带本面已解析值,canonicalize 往返不丢失按面独立性。
         metadataParts = metadataParts,
         metadataSeparators = metadataSeparators,
+        hideAlbumWhenSameAsTitle = hideAlbumWhenSameAsTitle,
         duetMarkers = duetMarkers,
         rubyVisible = rubyVisible,
         weight = weight,

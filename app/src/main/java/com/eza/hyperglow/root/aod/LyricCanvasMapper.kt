@@ -35,7 +35,8 @@ internal fun LyricSnapshot.toAodCanvasContent(
             artist = artist,
             album = album,
             parts = profile?.metadataParts ?: METADATA_PARTS_DEFAULT,
-            separators = profile?.metadataSeparators ?: METADATA_SEPARATORS_DEFAULT
+            separators = profile?.metadataSeparators ?: METADATA_SEPARATORS_DEFAULT,
+            hideAlbumWhenSameAsTitle = profile?.hideAlbumWhenSameAsTitle ?: false
         )
     } else {
         metadata

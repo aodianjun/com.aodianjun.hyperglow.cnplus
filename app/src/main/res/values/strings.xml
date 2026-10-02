@@ -334,6 +334,8 @@
     <string name="choice_song_info_position">Song info position</string>
     <string name="setting_song_info_size">Song info size</string>
     <string name="setting_song_info_parts">Song info content</string>
+    <string name="setting_hide_album_same_as_title">Hide album when it matches the title</string>
+    <string name="summary_hide_album_same_as_title">When the album name is identical to the song title, omit the album so it isn\'t shown twice.</string>
     <string name="setting_show_song_artwork">Show song artwork</string>
     <string name="setting_song_artwork_adaptive">Adaptive size</string>
     <string name="setting_song_artwork_size">Artwork size</string>

@@ -113,6 +113,7 @@ import com.eza.hyperglow.root.aod.rubyReservation
 import com.eza.hyperglow.root.aod.rubySpanGeometry
 import com.eza.hyperglow.root.aod.rubyTextSizePx
 import com.eza.hyperglow.root.aod.lineStartX
+import com.eza.hyperglow.root.aod.hasFirstLineAuxText
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import com.eza.hyperglow.root.aod.secondLineColorArgb
@@ -205,7 +206,12 @@ internal fun AppearanceLivePreview(
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     modifier: Modifier = Modifier
 ) {
-    val live = collectLiveSnapshot(metadataParts, metadataSeparators, duetMarkers)
+    val live = collectLiveSnapshot(
+        metadataParts,
+        metadataSeparators,
+        duetMarkers,
+        profile.hideAlbumWhenSameAsTitle
+    )
     LyricPreviewSurface(
         profile = profile,
         scenario = scenario,
@@ -278,7 +284,11 @@ private fun LyricPreviewSurface(
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
-    val snapshot = live ?: collectDemoSnapshot(metadataParts, metadataSeparators)
+    val snapshot = live ?: collectDemoSnapshot(
+        metadataParts,
+        metadataSeparators,
+        profile.hideAlbumWhenSameAsTitle
+    )
     // 歌曲图片(与实机同一几何公式):实时快照带已校对封面帧则显示真帧;演示态显示
     // 生成占位图,便于调形状/旋转开关所见即所得;实时无帧=不显示(与实机 fail-closed 一致)。
     // 只在歌曲信息行可见且文本非空时露出(与实机「图片随歌曲信息行」同一门槛)。
@@ -467,13 +477,17 @@ private fun LyricPreviewSurface(
                         )
                     }
                     // 下一行歌词呈现与实机同源(secondLinePresentation):「辅助文字显示第二行歌词」
-                    // 或「显示第二行辅助文字」开启时以辅助文字样式(音标行字号公式+亮度档)绘制并
-                    // 取代独立下一行行,颜色仍走「下一行颜色」(secondLineColorArgb)。
+                    // 开启且第一行辅助文字实际显示时以辅助文字样式(音标行字号公式+亮度档)绘制并
+                    // 取代独立下一行行;第一行无辅助文字时该开关不产生呈现。颜色仍走「下一行颜色」。
                     val nextPresentation = secondLinePresentation(
                         profile.secondaryNextLine,
-                        profile.nextLineAux,
                         showNext,
-                        snapshot.nextLine.isNotBlank()
+                        snapshot.nextLine.isNotBlank(),
+                        hasFirstLineAuxText(
+                            profile.secondaryMode,
+                            snapshot.romanized,
+                            snapshot.translated
+                        )
                     )
                     val nextBlockRow = when (nextPresentation) {
                         SecondLinePresentation.AS_SECONDARY -> PreviewBlockRow(

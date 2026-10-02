@@ -91,7 +91,8 @@ internal fun projectToDisplay(
         artist = state.artist,
         album = state.album,
         parts = compiled?.metadataParts ?: METADATA_PARTS_DEFAULT,
-        separators = compiled?.metadataSeparators ?: METADATA_SEPARATORS_DEFAULT
+        separators = compiled?.metadataSeparators ?: METADATA_SEPARATORS_DEFAULT,
+        hideAlbumWhenSameAsTitle = compiled?.hideAlbumWhenSameAsTitle ?: false
     )
 
     // --- 引导大元数据状态（原 project() 的 lyricState 四分支）---

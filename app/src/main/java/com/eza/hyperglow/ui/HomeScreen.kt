@@ -353,12 +353,14 @@ internal fun HomeScreen(
                         val lockscreenLive = collectLiveSnapshot(
                             lockscreenProfile.metadataParts,
                             lockscreenProfile.metadataSeparators,
-                            lockscreenProfile.duetMarkers
+                            lockscreenProfile.duetMarkers,
+                            lockscreenProfile.hideAlbumWhenSameAsTitle
                         )
                         val aodLive = collectLiveSnapshot(
                             aodProfile.metadataParts,
                             aodProfile.metadataSeparators,
-                            aodProfile.duetMarkers
+                            aodProfile.duetMarkers,
+                            aodProfile.hideAlbumWhenSameAsTitle
                         )
                         Column(
                             modifier = Modifier.fillMaxWidth(),

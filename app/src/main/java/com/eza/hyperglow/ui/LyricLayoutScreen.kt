@@ -257,6 +257,8 @@ internal fun LyricLayoutScreen(
     val effectiveMetadataParts = selectedProfile.metadataParts ?: editorState.document.metadataParts
     val effectiveMetadataSeparators =
         selectedProfile.metadataSeparators ?: editorState.document.metadataSeparators
+    val effectiveHideAlbumWhenSameAsTitle =
+        selectedProfile.hideAlbumWhenSameAsTitle ?: editorState.document.hideAlbumWhenSameAsTitle
     val effectiveDuetMarkers = selectedProfile.duetMarkers ?: editorState.document.duetMarkers
     // 预览走与实机相同的编译管线(归一化/白名单),编辑后立即反映最终生效效果,所见即所得
     val compiledPreviewProfile = remember(editorState.document) {
@@ -447,11 +449,15 @@ internal fun LyricLayoutScreen(
                         { enabled -> updateSelected { it.copy(secondaryNextLine = enabled) } },
                         stringResource(R.string.setting_secondary_next_line)
                     )
-                    SwitchPreference(
-                        selectedProfile.nextLineAux,
-                        { enabled -> updateSelected { it.copy(nextLineAux = enabled) } },
-                        stringResource(R.string.setting_next_line_aux)
-                    )
+                    // 「显示第二行辅助文字」以「辅助文字显示第二行歌词」为前提:后者关闭时
+                    // 第二行不以辅助形态出现,本开关无第二行辅助文字行可追加,故不露出。
+                    if (selectedProfile.secondaryNextLine) {
+                        SwitchPreference(
+                            selectedProfile.nextLineAux,
+                            { enabled -> updateSelected { it.copy(nextLineAux = enabled) } },
+                            stringResource(R.string.setting_next_line_aux)
+                        )
+                    }
                     SwitchPreference(
                         selectedProfile.rubyVisible,
                         { visible -> updateSelected { it.copy(rubyVisible = visible) } },
@@ -548,6 +554,21 @@ internal fun LyricLayoutScreen(
                             summary = metadataPartsDisplayLabel(context, effectiveMetadataParts),
                             onClick = { activePartsEditor = true }
                         )
+                        // 专辑与歌名一致时隐藏专辑:仅在专辑作为显示部分时露出(否则无专辑可隐藏)。
+                        if (normalizeMetadataParts(effectiveMetadataParts)
+                                .split(',').contains(METADATA_PART_ALBUM)
+                        ) {
+                            SwitchPreference(
+                                effectiveHideAlbumWhenSameAsTitle,
+                                { enabled ->
+                                    updateSelected {
+                                        it.copy(hideAlbumWhenSameAsTitle = enabled)
+                                    }
+                                },
+                                stringResource(R.string.setting_hide_album_same_as_title),
+                                summary = stringResource(R.string.summary_hide_album_same_as_title)
+                            )
+                        }
                         // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 自适应缩放
                         // (关闭时露出自定义大小拖动条) → 旋转(仅圆形)。
                         SwitchPreference(
@@ -1106,7 +1127,8 @@ internal fun previewEnvironment(
 @Composable
 internal fun collectDemoSnapshot(
     metadataParts: String,
-    metadataSeparators: String
+    metadataSeparators: String,
+    hideAlbumWhenSameAsTitle: Boolean = false
 ): LyricSnapshot {
     var index by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
@@ -1134,7 +1156,8 @@ internal fun collectDemoSnapshot(
             artist = "洛天依",
             album = "专辑示例",
             parts = metadataParts,
-            separators = metadataSeparators
+            separators = metadataSeparators,
+            hideAlbumWhenSameAsTitle = hideAlbumWhenSameAsTitle
         ),
         lineLevelSync = true,
         lineStartMs = 0,

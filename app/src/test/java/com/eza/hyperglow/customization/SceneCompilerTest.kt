@@ -984,12 +984,14 @@ class SceneCompilerTest {
             metadataParts = "title,artist",
             metadataSeparators = "dot",
             duetMarkers = true,
+            hideAlbumWhenSameAsTitle = true,
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(),
                 SceneCompiler.SURFACE_AOD to SurfaceProfile(
                     metadataParts = "album,title",
                     metadataSeparators = "newline",
-                    duetMarkers = false
+                    duetMarkers = false,
+                    hideAlbumWhenSameAsTitle = false
                 )
             )
         )
@@ -1001,9 +1003,11 @@ class SceneCompilerTest {
         assertEquals("album,title", aod.metadataParts)
         assertEquals("newline", aod.metadataSeparators)
         assertFalse(aod.duetMarkers)
+        assertFalse(aod.hideAlbumWhenSameAsTitle)
         assertEquals("title,artist", lockscreen.metadataParts)
         assertEquals("dot", lockscreen.metadataSeparators)
         assertTrue(lockscreen.duetMarkers)
+        assertTrue(lockscreen.hideAlbumWhenSameAsTitle)
 
         // 校验器与编译同源归一(不改写),否则 wire 的 validate_rewrote_fields 会拒收。
         assertEquals(compiled, SystemUiCustomizationValidator.validate(compiled))
@@ -1014,8 +1018,10 @@ class SceneCompilerTest {
         val canonicalLockscreen = canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
         assertEquals("album,title", canonicalAod.metadataParts)
         assertEquals(false, canonicalAod.duetMarkers)
+        assertEquals(false, canonicalAod.hideAlbumWhenSameAsTitle)
         assertEquals("title,artist", canonicalLockscreen.metadataParts)
         assertEquals(true, canonicalLockscreen.duetMarkers)
+        assertEquals(true, canonicalLockscreen.hideAlbumWhenSameAsTitle)
     }
 
     @Test

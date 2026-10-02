@@ -59,6 +59,7 @@ object SceneCompiler {
                 source.metadataSeparators,
                 source.metadataParts
             ),
+            hideAlbumWhenSameAsTitle = source.hideAlbumWhenSameAsTitle,
             duetMarkers = source.duetMarkers,
             lyricTimeOffsetMs = LyricTimeOffset.normalize(source.lyricTimeOffsetMs),
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
@@ -122,6 +123,7 @@ object SceneCompiler {
                 safe.metadataSeparators,
                 safe.metadataParts
             ),
+            hideAlbumWhenSameAsTitle = safe.hideAlbumWhenSameAsTitle,
             duetMarkers = safe.duetMarkers,
             lyricTimeOffsetMs = LyricTimeOffset.normalize(safe.lyricTimeOffsetMs),
             profiles = linkedMapOf(SURFACE_LOCKSCREEN to lockscreen, SURFACE_AOD to aod)
@@ -222,6 +224,7 @@ object SceneCompiler {
             cardColor = normalizeCardColor(profile.cardColor),
             metadataParts = parts,
             metadataSeparators = normalizeMetadataSeparators(profile.metadataSeparators, parts),
+            hideAlbumWhenSameAsTitle = profile.hideAlbumWhenSameAsTitle == true,
             duetMarkers = profile.duetMarkers != false
         )
     }
@@ -235,6 +238,7 @@ object SceneCompiler {
     ): SurfaceProfile = copy(
         metadataParts = metadataParts ?: document.metadataParts,
         metadataSeparators = metadataSeparators ?: document.metadataSeparators,
+        hideAlbumWhenSameAsTitle = hideAlbumWhenSameAsTitle ?: document.hideAlbumWhenSameAsTitle,
         duetMarkers = duetMarkers ?: document.duetMarkers
     )
 

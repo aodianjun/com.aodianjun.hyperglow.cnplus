@@ -84,18 +84,26 @@ internal fun collectConnection(source: LyricSource): androidx.compose.runtime.St
 internal fun collectLiveSnapshot(
     metadataParts: String,
     metadataSeparators: String,
-    duetMarkers: Boolean = true
+    duetMarkers: Boolean = true,
+    hideAlbumWhenSameAsTitle: Boolean = false
 ): LyricSnapshot? {
     val active by collectActiveState()
     // 封面帧出帧后驱动重组(帧到达前字段为空,预览不显示,与实机 fail-closed 一致)。
     val artworkFrame by SongArtworkRepository.current.collectAsState()
-    return active?.toPreviewSnapshot(metadataParts, metadataSeparators, duetMarkers, artworkFrame)
+    return active?.toPreviewSnapshot(
+        metadataParts,
+        metadataSeparators,
+        duetMarkers,
+        hideAlbumWhenSameAsTitle,
+        artworkFrame
+    )
 }
 
 private fun LyricProducerState.toPreviewSnapshot(
     metadataParts: String,
     metadataSeparators: String,
     duetMarkers: Boolean,
+    hideAlbumWhenSameAsTitle: Boolean,
     artworkFrame: ArtworkFrame?
 ): LyricSnapshot {
     val frame = artworkFrame?.takeIf {
@@ -115,7 +123,8 @@ private fun LyricProducerState.toPreviewSnapshot(
         artist = artist,
         album = album,
         parts = metadataParts,
-        separators = metadataSeparators
+        separators = metadataSeparators,
+        hideAlbumWhenSameAsTitle = hideAlbumWhenSameAsTitle
     ).ifBlank { "HyperGlow" },
     // 本面「识别对唱标记」开启取标记识别版分侧,否则取元数据身份版(与实机按面选用同口径)。
     alignedRight = if (duetMarkers) alignedRightMarkers else alignedRight,

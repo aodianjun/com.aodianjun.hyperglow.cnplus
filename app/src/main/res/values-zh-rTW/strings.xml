@@ -304,6 +304,8 @@
     <string name="choice_song_info_position">歌曲信息位置</string>
     <string name="setting_song_info_size">歌曲信息大小</string>
     <string name="setting_song_info_parts">歌曲信息內容</string>
+    <string name="setting_hide_album_same_as_title">專輯與歌名一致時隱藏專輯</string>
+    <string name="summary_hide_album_same_as_title">當專輯名與歌名完全相同時,不顯示專輯,避免重複。</string>
     <string name="setting_show_song_artwork">顯示歌曲圖片</string>
     <string name="setting_song_artwork_adaptive">自適應縮放</string>
     <string name="setting_song_artwork_size">圖片大小</string>

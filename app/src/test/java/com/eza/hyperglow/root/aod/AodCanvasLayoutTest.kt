@@ -653,81 +653,94 @@ class AodCanvasLayoutTest {
 
     @Test
     fun secondLinePresentationNeverStacksBothForms() {
-        // 呈现决策(实机/预览同源):辅助文字形态开启时取代独立下一行行,同一行不重复出现;
-        // 无下行文本时开关都为空呈现。「显示第二行辅助文字」以「显示第二行」为前提:
-        // 开启即为辅助形态(优先于独立下一行行),但无下一行文本时同样为空。
+        // 呈现决策(实机/预览同源):「辅助文字显示第二行歌词」仅在第一行辅助文字实际显示时
+        // 生效,以辅助形态取代独立下一行行,同一行不重复出现;第一行无辅助文字时该开关不产生
+        // 第二行呈现,独立下一行行按「显示下一行歌词」照常;无下行文本时一律为空。
         assertEquals(
             SecondLinePresentation.AS_SECONDARY,
             secondLinePresentation(
                 secondaryNextLine = true,
-                nextLineAux = false,
                 showNextLine = true,
-                hasLine = true
+                hasLine = true,
+                hasFirstLineAux = true
             )
         )
         assertEquals(
             SecondLinePresentation.AS_SECONDARY,
             secondLinePresentation(
                 secondaryNextLine = true,
-                nextLineAux = false,
                 showNextLine = false,
-                hasLine = true
+                hasLine = true,
+                hasFirstLineAux = true
+            )
+        )
+        // 第一行无辅助文字:该开关不产生辅助形态,回落到独立下一行行。
+        assertEquals(
+            SecondLinePresentation.STANDALONE,
+            secondLinePresentation(
+                secondaryNextLine = true,
+                showNextLine = true,
+                hasLine = true,
+                hasFirstLineAux = false
+            )
+        )
+        assertEquals(
+            SecondLinePresentation.NONE,
+            secondLinePresentation(
+                secondaryNextLine = true,
+                showNextLine = false,
+                hasLine = true,
+                hasFirstLineAux = false
             )
         )
         assertEquals(
             SecondLinePresentation.STANDALONE,
             secondLinePresentation(
                 secondaryNextLine = false,
-                nextLineAux = false,
                 showNextLine = true,
-                hasLine = true
+                hasLine = true,
+                hasFirstLineAux = true
             )
         )
         assertEquals(
             SecondLinePresentation.NONE,
             secondLinePresentation(
                 secondaryNextLine = false,
-                nextLineAux = false,
                 showNextLine = false,
-                hasLine = true
+                hasLine = true,
+                hasFirstLineAux = false
             )
         )
         assertEquals(
             SecondLinePresentation.NONE,
             secondLinePresentation(
                 secondaryNextLine = true,
-                nextLineAux = false,
                 showNextLine = true,
-                hasLine = false
+                hasLine = false,
+                hasFirstLineAux = true
             )
         )
-        assertEquals(
-            SecondLinePresentation.AS_SECONDARY,
-            secondLinePresentation(
-                secondaryNextLine = false,
-                nextLineAux = true,
-                showNextLine = false,
-                hasLine = true
-            )
-        )
-        assertEquals(
-            SecondLinePresentation.AS_SECONDARY,
-            secondLinePresentation(
-                secondaryNextLine = false,
-                nextLineAux = true,
-                showNextLine = true,
-                hasLine = true
-            )
-        )
-        assertEquals(
-            SecondLinePresentation.NONE,
-            secondLinePresentation(
-                secondaryNextLine = false,
-                nextLineAux = true,
-                showNextLine = true,
-                hasLine = false
-            )
-        )
+    }
+
+    @Test
+    fun secondLineRendersAsSecondaryRequiresFirstLineAux() {
+        // 辅助形态判定(绘制期取色/亮度档用)与呈现决策同源:两条件同时成立才为真。
+        assertTrue(secondLineRendersAsSecondary(secondaryNextLine = true, hasFirstLineAux = true))
+        assertFalse(secondLineRendersAsSecondary(secondaryNextLine = true, hasFirstLineAux = false))
+        assertFalse(secondLineRendersAsSecondary(secondaryNextLine = false, hasFirstLineAux = true))
+        assertFalse(secondLineRendersAsSecondary(secondaryNextLine = false, hasFirstLineAux = false))
+    }
+
+    @Test
+    fun firstLineAuxTextFollowsModeAndContent() {
+        // 第一行辅助文字是否实际显示(实机行装配/预览同源):按模式取音标/翻译,非空即成立。
+        assertTrue(hasFirstLineAuxText("Transliteration", "roma", ""))
+        assertTrue(hasFirstLineAuxText("Translation", "", "trans"))
+        assertTrue(hasFirstLineAuxText("Both", "roma", "trans"))
+        assertFalse(hasFirstLineAuxText("Main only", "roma", "trans"))
+        assertFalse(hasFirstLineAuxText("Transliteration", "", "trans"))
+        assertFalse(hasFirstLineAuxText("Translation", "roma", ""))
+        assertFalse(hasFirstLineAuxText("Both", "", ""))
     }
 
     @Test
