@@ -15,11 +15,74 @@ import java.lang.reflect.Method
 import java.util.Collections
 import java.util.WeakHashMap
 
+/**
+ * 唤醒请求为何无法服务。三个缺引用的状态是值得具名入日志的故障;
+ * [INTERACTIVE] 是常规抑制,永远不会走到上报路径(上游 99ba119)。
+ */
+internal enum class AodWakeAvailability(val wireValue: String) {
+    READY("ready"),
+    INTERACTIVE("interactive"),
+    NO_HOST("no_host"),
+    NO_METHOD("no_method"),
+    NO_POWER_MANAGER("no_power_manager");
+
+    val isFault: Boolean get() = this != READY && this != INTERACTIVE
+}
+
+/**
+ * 缺引用先于交互性上报:在死宿主上服务的请求是缺陷,而亮屏被抑制的请求不是。
+ * 故障排在前,才让「一个原因」描述每一次被拒的全部理由。
+ */
+internal fun resolveAodWakeAvailability(
+    hostCaptured: Boolean,
+    methodResolved: Boolean,
+    powerManagerResolved: Boolean,
+    interactive: Boolean
+): AodWakeAvailability = when {
+    !hostCaptured -> AodWakeAvailability.NO_HOST
+    !methodResolved -> AodWakeAvailability.NO_METHOD
+    !powerManagerResolved -> AodWakeAvailability.NO_POWER_MANAGER
+    interactive -> AodWakeAvailability.INTERACTIVE
+    else -> AodWakeAvailability.READY
+}
+
+/**
+ * broker 持有的引用是否值得替换。活宿主只在实例不同时收编,重复同一实例不再重复记日志;
+ * null 永远不清掉系统仍在使用的引用。
+ */
+internal fun shouldAdoptAodWakeReference(
+    current: Any?,
+    candidate: Any?
+): Boolean = candidate != null && candidate !== current
+
+/**
+ * 同一原因只上报一次,新的不同原因不被旧原因压掉。此前的单一全局闩锁只报了第一个故障,
+ * 「先丢宿主再丢电源管理器」与「从来就没有宿主」在日志里长得一模一样。
+ */
+internal fun shouldReportAodWakeUnavailable(
+    reason: AodWakeAvailability,
+    lastReported: AodWakeAvailability?
+): Boolean = reason.isFault && reason != lastReported
+
+/**
+ * 拒绝随附的安装原因。只有「缺宿主」有安装故事:另两个故障说的是 broker 手里的引用,
+ * 安装无法影响。
+ */
+internal fun aodWakeUnavailableDetail(
+    reason: AodWakeAvailability,
+    installSkips: String
+): String = if (reason == AodWakeAvailability.NO_HOST) {
+    " install=" + installSkips.ifEmpty { "none" }
+} else {
+    ""
+}
+
 internal object AodWakeBroker {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hookedClassLoaders = Collections.synchronizedSet(
         Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
     )
+    private val recordedInstallSkips = Collections.synchronizedSet(mutableSetOf<String>())
 
     // Use WeakReference for the host to avoid leaking DozeTriggers$TriggerReceiver.
     // The DozeHost is managed by MIUI and can be torn down / recreated. Holding a strong
@@ -31,7 +94,8 @@ internal object AodWakeBroker {
     private var fireAodStateMethod: Method? = null
     private var powerManager: PowerManager? = null
     private var lastRequestElapsedMs = Long.MIN_VALUE
-    private var unavailableLogged = false
+    // 按「不同原因」各报一次的去重闩锁(替代原单一布尔:第二个故障曾被静默)。
+    private var unavailableReason: AodWakeAvailability? = null
     private var installRetryCount = 0
     private var installRetryAttempted = false
     private const val FEATURE_ID = "aod-wake"
@@ -68,6 +132,7 @@ internal object AodWakeBroker {
             }
         }
         if (triggersClass == null) {
+            noteInstallSkip("triggers_class")
             HookLogger.w(TAG, "DozeTriggers class not found; will retry on next classloader")
             return
         }
@@ -83,6 +148,7 @@ internal object AodWakeBroker {
             }.getOrNull()
         }
         if (hostField == null) {
+            noteInstallSkip("m_host")
             HookLogger.w(
                 TAG,
                 "No host field found (tried ${HOST_FIELD_NAMES.joinToString()}); scheduling retry"
@@ -94,11 +160,13 @@ internal object AodWakeBroker {
             triggersClass.getDeclaredField("mContext").apply { isAccessible = true }
         }.getOrNull()
         if (contextField == null) {
+            noteInstallSkip("m_context")
             HookLogger.w(TAG, "mContext field not found; scheduling retry")
             scheduleInstallRetry(module, classLoader)
             return
         }
         if (dozeHostClass == null) {
+            noteInstallSkip("doze_host")
             HookLogger.w(TAG, "DozeHost class not found; scheduling retry")
             scheduleInstallRetry(module, classLoader)
             return
@@ -114,6 +182,7 @@ internal object AodWakeBroker {
             }.getOrNull()
         }
         if (fireAodState == null) {
+            noteInstallSkip("fire_aod_state")
             HookLogger.w(
                 TAG,
                 "No fireAodState method found (tried ${FIRE_AOD_STATE_METHOD_NAMES.joinToString()}); scheduling retry"
@@ -121,6 +190,10 @@ internal object AodWakeBroker {
             scheduleInstallRetry(module, classLoader)
             return
         }
+        // 安装时即登记唤醒方法,而不是只经构造器接缝:早于本 hook 创建的插件实例永远不跑
+        // 构造器,只靠构造器登记的唤醒方法会在此后整个进程里恒为 null,收编也无从服务
+        // (上游 99ba119)。
+        noteWakeMethod(fireAodState)
         if (!hookedClassLoaders.add(classLoader)) return
         installRetryCount = 0
         installRetryAttempted = false
@@ -130,7 +203,7 @@ internal object AodWakeBroker {
                 module,
                 FEATURE_ID,
                 constructor,
-                DozeTriggersConstructorHooker(hostField, contextField, fireAodState)
+                DozeTriggersConstructorHooker(hostField, contextField)
             )
         }
         HookLogger.i(
@@ -151,6 +224,102 @@ internal object AodWakeBroker {
         HookLogger.i(TAG, "Scheduling install retry ${installRetryCount}/$MAX_INSTALL_RETRIES in ${delayMs}ms")
         mainHandler.postDelayed({ install(module, classLoader) }, delayMs)
     }
+
+    /**
+     * 记录一次安装为何退场,但不立刻评判:`install` 按 classloader 逐个跑,健康 ROM 上
+     * 看不到 AOD dex 的 loader 退场、同一 dex 上稍后的 loader 成功并捕获宿主——看到就报
+     * 是假警报。这份记录只在「真的因无宿主被拒」时读取,那才是答案有用的时刻,并随拒绝
+     * 原因一并上报(上游 99ba119)。
+     */
+    private fun noteInstallSkip(reason: String) {
+        if (recordedInstallSkips.add(reason)) {
+            HookLogger.i(TAG, "AOD wake broker install skipped reason=$reason")
+        }
+    }
+
+    @Synchronized
+    private fun installSkipSummary(): String =
+        if (recordedInstallSkips.isEmpty()) {
+            "none"
+        } else {
+            recordedInstallSkips.sorted().joinToString("+")
+        }
+
+    /**
+     * 由进程上下文预置电源管理器。在 SystemUI `onCreate` 播种,交互性判断不再依赖
+     * 「观测到 AOD 插件构造器」——Lyricon 看门狗在从未见到 DozeTriggers 实例的进程里
+     * 也能工作(上游 99ba119)。
+     */
+    @Synchronized
+    fun observeContext(context: android.content.Context) {
+        if (powerManager != null) return
+        powerManager = runCatching {
+            context.getSystemService(PowerManager::class.java)
+        }.getOrNull()
+    }
+
+    /**
+     * 收编由既有 hook 移交给 broker 的活 `DozeHost`。构造器接缝只在 hook 安装之后创建的
+     * 插件实例上触发;ROM 预加载或复用其 AOD 插件时,唤醒路径会在整个进程里死掉,而
+     * wake-broker capability 仍能从符号解析出来。系统自己在调用的实例即已被使用验证,
+     * 它填入与构造器接缝同一份引用(上游 99ba119;CN+ 保持 WeakReference 以免
+     * DozeTriggers$TriggerReceiver 泄漏)。
+     */
+    @Synchronized
+    fun adoptHost(candidate: Any?, source: String) {
+        if (!shouldAdoptAodWakeReference(hostRef?.get(), candidate)) return
+        val live = candidate ?: return
+        hostRef = java.lang.ref.WeakReference(live)
+        unavailableReason = null
+        HookLogger.i(
+            TAG,
+            "AOD wake host captured class=${live.javaClass.name} source=$source"
+        )
+    }
+
+    @Synchronized
+    private fun noteWakeMethod(method: Method) {
+        if (fireAodStateMethod == null) fireAodStateMethod = method
+    }
+
+    @Synchronized
+    private fun readState(): AodWakeState = AodWakeState(
+        host = hostRef?.get(),
+        method = fireAodStateMethod,
+        powerManager = powerManager
+    )
+
+    private fun resolveAvailability(state: AodWakeState): AodWakeAvailability =
+        resolveAodWakeAvailability(
+            hostCaptured = state.host != null,
+            methodResolved = state.method != null,
+            powerManagerResolved = state.powerManager != null,
+            interactive = state.powerManager?.isInteractive == true
+        )
+
+    /**
+     * 同一原因只报一次,后来的不同原因仍要报。单一全局闩锁丢掉第二个故障:它读作
+     * 「已经知道」,而缺的是另一个引用。
+     */
+    @Synchronized
+    private fun noteUnavailable(state: AodWakeState, source: String, deferred: Boolean) {
+        val reason = resolveAvailability(state)
+        if (!shouldReportAodWakeUnavailable(reason, unavailableReason)) return
+        unavailableReason = reason
+        // 安装原因随拒绝一起走。「no host」单独一条说不清宿主是「从未移交」还是
+        // 「安装器从未绑定」,而这正是现场报告必须回答的问题。
+        val detail = aodWakeUnavailableDetail(reason, installSkipSummary())
+        HookLogger.w(
+            TAG,
+            "AOD wake unavailable reason=${reason.wireValue} source=$source deferred=$deferred$detail"
+        )
+    }
+
+    private data class AodWakeState(
+        val host: Any?,
+        val method: Method?,
+        val powerManager: PowerManager?
+    )
 
     fun requestWake(signal: Long): Boolean = enqueueWake(signal, "lyrics", urgent = false)
 
@@ -263,18 +432,9 @@ internal object AodWakeBroker {
                 XiaomiCapability.AOD_WAKE_BROKER
             )
         ) return false
-        val wakeHost = hostRef?.get()
-        val method = fireAodStateMethod
-        val wakePowerManager = powerManager
-        if (wakeHost == null || method == null || wakePowerManager == null ||
-            wakePowerManager.isInteractive
-        ) {
-            if (!unavailableLogged &&
-                (wakeHost == null || method == null || wakePowerManager == null)
-            ) {
-                unavailableLogged = true
-                HookLogger.w(TAG, "AOD wake host unavailable source=$source")
-            }
+        val state = readState()
+        if (resolveAvailability(state) != AodWakeAvailability.READY) {
+            noteUnavailable(state, source, deferred = false)
             return false
         }
         mainHandler.post {
@@ -289,17 +449,13 @@ internal object AodWakeBroker {
                 )
                 return@post
             }
-            val wakeHost = hostRef?.get()
-            val method = fireAodStateMethod
-            val wakePowerManager = powerManager
-            if (wakeHost == null || method == null || wakePowerManager == null) {
-                if (!unavailableLogged) {
-                    unavailableLogged = true
-                    HookLogger.w(TAG, "AOD wake host unavailable source=$source")
-                }
+            val dispatched = readState()
+            if (resolveAvailability(dispatched) != AodWakeAvailability.READY) {
+                noteUnavailable(dispatched, source, deferred = true)
                 return@post
             }
-            if (wakePowerManager.isInteractive) return@post
+            val wakeHost = dispatched.host ?: return@post
+            val method = dispatched.method ?: return@post
             try {
                 method.invoke(wakeHost, true, WAKE_REASON)
                 lastRequestElapsedMs = now
@@ -319,8 +475,7 @@ internal object AodWakeBroker {
 
     private class DozeTriggersConstructorHooker(
         private val hostField: java.lang.reflect.Field,
-        private val contextField: java.lang.reflect.Field,
-        private val fireAodState: Method
+        private val contextField: java.lang.reflect.Field
     ) : Hooker {
         override fun intercept(chain: Chain): Any? {
             val result = chain.proceed()
@@ -328,13 +483,9 @@ internal object AodWakeBroker {
                 val owner = chain.thisObject ?: return result
                 val host = hostField.get(owner) ?: return result
                 val context = contextField.get(owner) as? android.content.Context ?: return result
-                val powerManager = context.getSystemService(PowerManager::class.java) ?: return result
-                AodWakeBroker.hostRef = java.lang.ref.WeakReference(host)
-                fireAodStateMethod = fireAodState
-                AodWakeBroker.powerManager = powerManager
-                unavailableLogged = false
+                AodWakeBroker.observeContext(context)
+                AodWakeBroker.adoptHost(host, "constructor")
                 AodWakeBroker.startLyriconWatchdog()
-                HookLogger.i(TAG, "AOD wake host captured class=${host.javaClass.name}")
             } catch (error: Exception) {
                 HookLogger.w(TAG, "AOD wake host capture failed", error)
             }

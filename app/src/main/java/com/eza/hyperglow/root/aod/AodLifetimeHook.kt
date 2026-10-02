@@ -133,6 +133,10 @@ object AodLifetimeHook {
 
     private class VisibilityTelemetryHooker(private val method: Method) : Hooker {
         override fun intercept(chain: Chain): Any? {
+            // 宿主移交接缝:本 hook 每次可见性变化都拿到活的 DozeHost,是 ROM 预加载/复用
+            // AOD 插件(实例早于构造器 hook)时唯一能供出唤醒宿主的接缝。两个边沿都收编,
+            // 不只 hide,确保 AOD 拉起期间捕获的引用就是稍后服务唤醒的同一份(上游 99ba119)。
+            AodWakeBroker.adoptHost(chain.thisObject, "set_aod_visibility")
             val hidden = chain.args.firstOrNull() as? Boolean == false
             if (hidden) {
                 HookLogger.i(
