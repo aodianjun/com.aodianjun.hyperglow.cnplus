@@ -325,6 +325,13 @@ and (b) unverified paths stay explicit instead of silently assumed.
   the island expanded, confirm the AOD shows no island pill (logcat `AodIslandGuard` gate lines on
   doze entry), wake and confirm the island reappears normally on the lockscreen/unlocked screen,
   and confirm repeated sleep/wake cycles never leave the island stuck.
+  Live-occurrence follow-up (2026-10-02 16:53 device time, guard active): during a real doze
+  session the island root entered doze VISIBLE and the host re-asserted it visible faster than
+  once per second, so the 1s poll alone left visible gaps (the reporter still saw the retained
+  island). The enforcement seam was upgraded to rewrite `View.setFlags` visibility requests at
+  the call site (plus `View.setVisibility`), which must hold the root GONE without flicker;
+  pending a re-check on the upgraded build: the `cause=reassert` log cycle goes silent during
+  doze and the island stays invisible for the whole session.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -507,6 +514,11 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   7/7 干净息屏轮次确认岛在 doze 期间本就被系统隐藏，抑制只是恢复系统自身意图。合并后待真机冒烟：
   播放音乐且岛展开时息屏，确认 AOD 无岛残留（息屏进入时 logcat 有 `AodIslandGuard` 闸门行）、唤醒后
   岛在锁屏/解锁画面正常重现、反复息屏/唤醒循环岛不卡留。
+  真实复现跟进（2026-10-02 16:53 设备时间，守卫已生效）：真实 doze 会话中岛根以 VISIBLE 态进入
+  doze，且宿主以高于每秒一次的频率把它重新置回可见——仅靠 1 秒轮询会在两次压制之间留下可见间隙
+  （报告者仍看到了残留岛）。已把强制接缝升级为在调用点同步改写 `View.setFlags` 的可见性请求
+  （连同 `View.setVisibility`），必须让岛根在 doze 期间无闪烁地持续保持 GONE；升级包待复验：
+  doze 期间 `cause=reassert` 日志周期归于静默、整段息屏岛不再可见。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

@@ -266,8 +266,12 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   island guard captures the island window root
   (`miui.systemui.dynamicisland.window.DynamicIslandWindowView`, loaded from the MIUI SystemUI
   plugin class loader), forces it GONE with a restore ledger, re-asserts on a bounded one-second
-  interval, and rewrites any host visibility request on that root to GONE while recording the
-  host's latest non-GONE intent. On the next interactive observation the recorded belief state is
+  interval, and rewrites host visibility requests on that root to GONE while recording the
+  host's latest non-GONE intent. The rewrite is enforced at both the `View.setVisibility` and
+  `View.setFlags` seams: a live doze occurrence (2026-10-02) showed the host re-asserting the
+  root visible at a higher rate than once per second, so a poll alone leaves visible gaps while
+  the synchronous call-site rewrite holds the root GONE without flicker. On the next interactive
+  observation the recorded belief state is
   restored and stock events keep authority. Missing symbols disable the whole guard, interactive
   behavior is untouched, and every enforcement is logged.
 
@@ -682,7 +686,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 显示电源除此之外归 Xiaomi 所有。传感器或口袋暂停、主动休眠、过期会话与已释放的租约都会到达同一个显示关闭沿，重新唤醒它们会与 Xiaomi 形成自我维持的循环，每隔几秒重新点亮面板。Keepalive 从不把已关闭的 AOD 显示当作持续的唤醒理由，wake broker 的最小请求间隔也不能替代该约束。
 - 已确认的 Spotify 暂停会释放生命周期守卫一次，最迟在该沿之后一个确认窗口内；其冻结卡片仅可在共享的配置超时内、直到 Xiaomi 休眠或直到原生媒体播放器被移除之前保留，以最先结束呈现者为准。
 - 仅锁屏附加或可见本身绝不会抑制 Xiaomi 隐藏策略。
-- 超级岛（DynamicIslandWindow）在设备处于非交互状态时不得渲染。Xiaomi 的岛隐藏链路完全由状态迁移事件驱动（keyguard-showing 变化 collect 进岛的 tempHidden 状态），因此息屏后数秒内若发生一次系统策略发起的唤醒加蓝牙信任解锁，未落地的锁定迁移会被该次事件流吞掉，展开态的岛就会带着息屏前的内容留在 AOD 画面上。当 `PowerManager.isInteractive` 为 false 时，岛守卫捕获岛窗口根视图（`miui.systemui.dynamicisland.window.DynamicIslandWindowView`，来自 MIUI SystemUI 插件 classloader），按台账强制 GONE，以有界的 1 秒周期复断言，并把宿主对该根的任何可见性请求改写为 GONE、同时记录宿主最近的非 GONE 意图。下一次交互态观察时按记录的信念态恢复，存量事件保持权威。符号缺失时整个守卫不安装，交互态行为不受影响，每次强制动作都记日志。
+- 超级岛（DynamicIslandWindow）在设备处于非交互状态时不得渲染。Xiaomi 的岛隐藏链路完全由状态迁移事件驱动（keyguard-showing 变化 collect 进岛的 tempHidden 状态），因此息屏后数秒内若发生一次系统策略发起的唤醒加蓝牙信任解锁，未落地的锁定迁移会被该次事件流吞掉，展开态的岛就会带着息屏前的内容留在 AOD 画面上。当 `PowerManager.isInteractive` 为 false 时，岛守卫捕获岛窗口根视图（`miui.systemui.dynamicisland.window.DynamicIslandWindowView`，来自 MIUI SystemUI 插件 classloader），按台账强制 GONE，以有界的 1 秒周期复断言，并把宿主对该根的可见性请求改写为 GONE、同时记录宿主最近的非 GONE 意图。改写同时落在 `View.setVisibility` 与 `View.setFlags` 两条接缝上：一次真实息屏现场（2026-10-02）实测宿主以高于每秒一次的频率把岛根重新置回可见，仅靠轮询会在两次压制之间留下可见间隙，只有调用点同步改写才能让根在 doze 期间持续保持 GONE、无闪烁。下一次交互态观察时按记录的信念态恢复，存量事件保持权威。符号缺失时整个守卫不安装，交互态行为不受影响，每次强制动作都记日志。
 
 ## 锁屏自定义手势
 
