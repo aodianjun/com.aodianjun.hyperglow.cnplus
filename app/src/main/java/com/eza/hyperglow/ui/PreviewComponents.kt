@@ -130,6 +130,7 @@ import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
 import com.eza.hyperglow.root.aod.syntheticCharTimeWindow
+import com.eza.hyperglow.root.aod.syntheticKaraokeBlocks
 import com.eza.hyperglow.root.aod.textSizeModeMultiplier
 import com.eza.hyperglow.root.aod.timedWordProgress
 import com.eza.hyperglow.root.aod.visualExtents
@@ -889,14 +890,17 @@ private class PreviewMainLayout(
     val unsungColorArgb: Int = 0
 )
 
-/** 预览一行内一个逐字词位:行内 x/宽 + 词时间窗;[longSyllable] 为合成词位的恒长音节标记。 */
+/** 预览一行内一个逐字词位:行内 x/宽 + 词时间窗;[longSyllable] 为合成词位的恒长音节标记;
+ *  [highlightStartMs]/[highlightEndMs] 为合成源所属词块的高亮时间窗(负值=未提供)。 */
 private class PreviewWordRun(
     val text: String,
     val x: Float,
     val width: Float,
     val startMs: Long,
     val endMs: Long,
-    val longSyllable: Boolean = false
+    val longSyllable: Boolean = false,
+    val highlightStartMs: Long = -1L,
+    val highlightEndMs: Long = -1L
 )
 
 /** 预览一行注音:落位于主行基线之上,[placements] 为各注音段的中心 X 与文本。 */
@@ -1104,29 +1108,45 @@ private fun syntheticPreviewWordRuns(
         val runs = ArrayList<PreviewWordRun>()
         var prefix = 0f
         var index = 0
-        while (index < line.text.length) {
-            val charWidth = paint.measureText(line.text, index, index + 1)
-            if (charWidth > 0f && !line.text[index].isWhitespace()) {
-                val window = syntheticCharTimeWindow(
+        for (block in syntheticKaraokeBlocks(line.text)) {
+            while (index < block.first) {
+                prefix += paint.measureText(line.text, index, index + 1)
+                index++
+            }
+            val blockWidth = paint.measureText(line.text, block.first, block.last + 1)
+            val blockWindow = syntheticCharTimeWindow(
+                0L,
+                spanMs,
+                totalWidth,
+                preceding + prefix,
+                blockWidth
+            )
+            var charIndex = block.first
+            while (charIndex <= block.last) {
+                val charWidth = paint.measureText(line.text, charIndex, charIndex + 1)
+                val charWindow = syntheticCharTimeWindow(
                     0L,
                     spanMs,
                     totalWidth,
                     preceding + prefix,
                     charWidth
                 )
-                if (window.last > window.first) {
+                if (charWindow.last > charWindow.first) {
                     runs += PreviewWordRun(
-                        text = line.text.substring(index, index + 1),
+                        text = line.text.substring(charIndex, charIndex + 1),
                         x = prefix,
                         width = charWidth,
-                        startMs = window.first,
-                        endMs = window.last,
-                        longSyllable = true
+                        startMs = charWindow.first,
+                        endMs = charWindow.last,
+                        longSyllable = true,
+                        highlightStartMs = blockWindow.first,
+                        highlightEndMs = blockWindow.last
                     )
                 }
+                prefix += charWidth
+                charIndex++
             }
-            prefix += charWidth
-            index++
+            index = block.last + 1
         }
         preceding += line.width
         out += runs
@@ -1697,7 +1717,16 @@ private fun PreviewMainLayer(
                             width = run.width,
                             playedFraction = timedWordProgress(virtualPosition, run.startMs, run.endMs),
                             durationMs = durationMs,
-                            longSyllable = run.longSyllable || isLongKaraokeSyllable(durationMs)
+                            longSyllable = run.longSyllable || isLongKaraokeSyllable(durationMs),
+                            highlightFraction = if (run.highlightStartMs >= 0L) {
+                                timedWordProgress(
+                                    virtualPosition,
+                                    run.highlightStartMs,
+                                    run.highlightEndMs
+                                )
+                            } else {
+                                -1f
+                            }
                         )
                     }
                     LyricWordKaraokeRenderer.draw(

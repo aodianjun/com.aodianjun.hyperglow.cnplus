@@ -173,6 +173,7 @@ internal class AodLyricCanvasView(
     private var lastRowLayoutLogKey = ""
     private var lastTransformLogKey = ""
     private var lastRotationBoundsKey = ""
+    private var lastRenderModeLogKey = ""
 
     /**
      * 裁剪防呆:padding 异常(left>=right 或 top>=bottom)会让 clipRect 变成空矩形,
@@ -328,6 +329,24 @@ internal class AodLyricCanvasView(
         }
         this.content = nextContent
         syncArtworkBitmap()
+        // 渲染模式留痕(仅变化时记录):实机实际生效的逐字动画档/是否逐字时间源/发光开关/
+        // 行进度效果——「预览有效果实机没有」类反馈靠这条日志即可区分是配置没下发到这侧、
+        // 还是该 surface 未选 BetterLyrics、还是渲染分支问题。字符串构造走 trace 门控。
+        if (HookLogger.traceEnabled) {
+            val renderModeKey = "anim=" + nextContent.animationMode +
+                " timed=" + nextContent.words.any { it.endMs > it.startMs } +
+                " words=" + nextContent.words.size +
+                " glow=" + nextContent.glowMode +
+                " fill=" + resolvedLineSyncFillMode(
+                    nextContent.lineLevelSync,
+                    nextContent.lineSyncFillMode
+                ) +
+                " lineSync=" + nextContent.lineLevelSync
+            if (renderModeKey != lastRenderModeLogKey) {
+                lastRenderModeLogKey = renderModeKey
+                HookLogger.i("AodLyricCanvasView", "Render mode: $renderModeKey")
+            }
+        }
         timingEffectEnabled = hasActiveCanvasTiming(
             nextContent.lineLevelSync,
             nextContent.lineSyncFillMode,
@@ -2299,14 +2318,29 @@ internal class AodLyricCanvasView(
                 wordIndex++
             }
             if (runs.isEmpty() && betterLyrics) {
-                // 行级源合成:每字符一个词位,时间窗按几何宽度分摊(与行级扫光前缘同式);
-                // 正在唱的字恒按长音节放大/辉光(行级源无真实音节时长)。
+                // 行级源合成:按词块划分(中文逐字、西文按词),块内字符各自扫光进度、
+                // 共享块级高亮进度——整块在演唱期间同步放大/辉光(可见),未唱整块下沉、
+                // 唱到逐字上浮;推进前缘与行级扫光几何同式。
                 var prefix = 0f
-                var charIndex = 0
-                while (charIndex < line.text.length) {
-                    val charWidth = originalPaint.measureText(line.text, charIndex, charIndex + 1)
-                    if (charWidth > 0f && !line.text[charIndex].isWhitespace()) {
-                        val window = syntheticCharTimeWindow(
+                var index = 0
+                for (block in syntheticKaraokeBlocks(line.text)) {
+                    while (index < block.first) {
+                        prefix += originalPaint.measureText(line.text, index, index + 1)
+                        index++
+                    }
+                    val blockWidth = originalPaint.measureText(line.text, block.first, block.last + 1)
+                    val blockWindow = syntheticCharTimeWindow(
+                        blockStartMs,
+                        blockEndMs,
+                        totalWidth,
+                        precedingWidth + prefix,
+                        blockWidth
+                    )
+                    val blockHighlight = timedWordProgress(position, blockWindow.first, blockWindow.last)
+                    var charIndex = block.first
+                    while (charIndex <= block.last) {
+                        val charWidth = originalPaint.measureText(line.text, charIndex, charIndex + 1)
+                        val charWindow = syntheticCharTimeWindow(
                             blockStartMs,
                             blockEndMs,
                             totalWidth,
@@ -2317,13 +2351,15 @@ internal class AodLyricCanvasView(
                             text = line.text.substring(charIndex, charIndex + 1),
                             x = line.startX + prefix,
                             width = charWidth,
-                            playedFraction = timedWordProgress(position, window.first, window.last),
-                            durationMs = window.last - window.first,
-                            longSyllable = true
+                            playedFraction = timedWordProgress(position, charWindow.first, charWindow.last),
+                            durationMs = charWindow.last - charWindow.first,
+                            longSyllable = true,
+                            highlightFraction = blockHighlight
                         )
+                        prefix += charWidth
+                        charIndex++
                     }
-                    prefix += charWidth
-                    charIndex++
+                    index = block.last + 1
                 }
             }
             LyricWordKaraokeRenderer.draw(
