@@ -188,6 +188,10 @@ class AodCanvasTextMetricsTest {
         assertEquals(40f, rowOverflow.rowOverflowPx, 0.0001f)
         assertEquals(0f, rowOverflow.effectOverflowPx, 0.0001f)
 
+        // 容差:恰好相切的浮点残差(亚像素)不算越界,否则运行期自检会被噪声刷屏。
+        val subPixel = effectClipCheckPx(100f, 200f, 30f, 30f, 0f, 229.99f)
+        assertTrue("sub-pixel residue must not count as a violation", subPixel.clean)
+
         val invalid = effectClipCheckPx(Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN)
         assertTrue("non-finite inputs must not produce noise", invalid.clean)
     }

@@ -361,8 +361,14 @@ internal data class CanvasEffectClipCheck(
 }
 
 /**
+ * 自检容差(px):余量算准的形状恰好相切,浮点累积误差会留下 ~1e-5 的残差;亚像素差异
+ * 也不构成可见裁切(与横屏越界自检的 1px 容差同量级)。容差内视为在框内。
+ */
+internal const val EFFECT_CLIP_CHECK_TOLERANCE_PX = 1f
+
+/**
  * 「安全栅栏」自检(纯函数):把最终摆放的内容块与内容裁剪框对一遍,分别给出**行盒**
- * 与**绘制外扩**的越界量。
+ * 与**绘制外扩**的越界量(超过 [EFFECT_CLIP_CHECK_TOLERANCE_PX] 才算越界,否则为 0)。
  *
  * 修法([canvasEffectEdgeNeeds])保证已知形状(主行/辅助行的辉光与下沉)恒为 clean ——
  * 本函数的价值在**未知形状**:新增效果或新增行种类若没同步进余量,块沿会重新贴住裁剪沿,
@@ -387,10 +393,13 @@ internal fun effectClipCheckPx(
         (clipTopPx - blockTopPx).coerceAtLeast(0f),
         (blockBottomPx - clipBottomPx).coerceAtLeast(0f)
     )
-    if (rowOverflow > 0f) return CanvasEffectClipCheck(rowOverflow, 0f)
+    if (rowOverflow > EFFECT_CLIP_CHECK_TOLERANCE_PX) return CanvasEffectClipCheck(rowOverflow, 0f)
     val effectOverflow = max(
         (clipTopPx - (blockTopPx - max(0f, topOverdrawPx))).coerceAtLeast(0f),
         ((blockBottomPx + max(0f, bottomOverdrawPx)) - clipBottomPx).coerceAtLeast(0f)
     )
-    return CanvasEffectClipCheck(0f, effectOverflow)
+    return CanvasEffectClipCheck(
+        0f,
+        if (effectOverflow > EFFECT_CLIP_CHECK_TOLERANCE_PX) effectOverflow else 0f
+    )
 }
