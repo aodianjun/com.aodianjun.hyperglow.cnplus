@@ -92,6 +92,10 @@ internal fun HomeScreen(
     onOpenPlugins: () -> Unit,
     onOpenAodBehavior: () -> Unit,
     onOpenAppAppearance: () -> Unit,
+    onOpenHelp: () -> Unit,
+    onOpenChangelog: () -> Unit,
+    onOpenContributors: () -> Unit,
+    onOpenLicenses: () -> Unit,
     floatingNavBar: Boolean
 ) {
     val context = LocalContext.current
@@ -850,6 +854,27 @@ internal fun HomeScreen(
                         )
                     }
                     item { AboutAuthorCard() }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.title_help),
+                                onClick = onOpenHelp
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.title_changelog),
+                                onClick = onOpenChangelog
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.title_contributors),
+                                onClick = onOpenContributors
+                            )
+                            ArrowPreference(
+                                title = stringResource(R.string.title_licenses),
+                                summary = stringResource(R.string.summary_licenses),
+                                onClick = onOpenLicenses
+                            )
+                        }
+                    }
                     item {
                         SettingsCard {
                             ArrowPreference(

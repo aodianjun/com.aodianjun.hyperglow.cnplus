@@ -50,6 +50,13 @@ if (releaseArtifactRequested && !releaseSigningConfigured) {
     )
 }
 
+// 关于页「使用帮助」的文案来源:仓库根 FAQ.md(受私有生成源管理,不在仓库内另存副本),
+// 构建期拷贝进 assets,保证 APK 内内容与 docs 侧单一来源一致。
+val copyFaqAsset = tasks.register<Copy>("copyFaqAsset") {
+    from(rootProject.file("FAQ.md"))
+    into(layout.buildDirectory.dir("generated/faqAssets"))
+}
+
 android {
     namespace = "com.eza.hyperglow"
     compileSdk = 37
@@ -131,6 +138,12 @@ android {
         aidl = true
         buildConfig = true
         compose = true
+    }
+
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(copyFaqAsset)
+        }
     }
 }
 

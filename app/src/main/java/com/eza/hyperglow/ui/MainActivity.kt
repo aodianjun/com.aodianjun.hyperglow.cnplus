@@ -131,6 +131,14 @@ class MainActivity : ComponentActivity() {
                                             appAppearance = loadAppUiAppearance(this@MainActivity)
                                         }
                                     )
+                                } else if (surface == HELP_DESTINATION) {
+                                    HelpScreen(onBack = { editingSurface = null })
+                                } else if (surface == CHANGELOG_DESTINATION) {
+                                    ChangelogScreen(onBack = { editingSurface = null })
+                                } else if (surface == CONTRIBUTORS_DESTINATION) {
+                                    ContributorsScreen(onBack = { editingSurface = null })
+                                } else if (surface == LICENSES_DESTINATION) {
+                                    LicensesScreen(onBack = { editingSurface = null })
                                 } else if (surface != null) {
                                     LyricLayoutScreen(
                                         initialSurface = surface,
@@ -146,6 +154,10 @@ class MainActivity : ComponentActivity() {
                                         onOpenPlugins = { editingSurface = PLUGIN_DESTINATION },
                                         onOpenAodBehavior = { editingSurface = AOD_BEHAVIOR_DESTINATION },
                                         onOpenAppAppearance = { editingSurface = APP_APPEARANCE_DESTINATION },
+                                        onOpenHelp = { editingSurface = HELP_DESTINATION },
+                                        onOpenChangelog = { editingSurface = CHANGELOG_DESTINATION },
+                                        onOpenContributors = { editingSurface = CONTRIBUTORS_DESTINATION },
+                                        onOpenLicenses = { editingSurface = LICENSES_DESTINATION },
                                         floatingNavBar = appAppearance.floatingNavBar
                                     )
                                 }
