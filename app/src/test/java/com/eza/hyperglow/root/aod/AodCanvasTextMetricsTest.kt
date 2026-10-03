@@ -1,6 +1,8 @@
 package com.eza.hyperglow.root.aod
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -112,5 +114,81 @@ class AodCanvasTextMetricsTest {
         val invalid = canvasEffectEdgeNeeds(Float.NaN, Float.NaN, Float.NaN)
         assertEquals(0f, invalid.topPx, 0.0001f)
         assertEquals(0f, invalid.bottomPx, 0.0001f)
+    }
+
+    @Test
+    fun effectAllowanceKeepsBlockExtentsInsideTheClipBox() {
+        // 「安全栅栏」的算术门:复刻 positionRows(顶锚)+ measureContentStack 的记账,
+        // 断言效果外扩恒落在内容裁剪框内(相切或有余量,绝不越界)。三组覆盖:
+        // 余量被行前距完全覆盖(默认字号)、顶部补差额 + 底部全额(xlarge)、超大字号。
+        val cases = listOf(
+            Triple(55f, 24f, 90f),
+            Triple(85f, 24f, 131.8f),
+            Triple(130f, 24f, 200f)
+        )
+        for ((textSizePx, gapBeforePx, rowHeightPx) in cases) {
+            val overdraw = canvasEffectAllowancePx(
+                textSizePx = textSizePx,
+                lineHeightPx = rowHeightPx,
+                glowEnabled = true,
+                floatSinkActive = true
+            )
+            val needs = canvasEffectEdgeNeeds(
+                topRowOverdrawPx = overdraw,
+                topRowGapBeforePx = gapBeforePx,
+                bottomRowOverdrawPx = overdraw
+            )
+            // 锁屏:画布高 = 实测堆叠高(含两端余量),padTop/padBottom 均为 0。
+            val canvasHeight = contentStackHeightPx(
+                rowHeightsPx = listOf(rowHeightPx),
+                rowGapsBeforePx = listOf(gapBeforePx),
+                metadataGapPx = 0f,
+                padTopPx = needs.topPx,
+                padBottomPx = needs.bottomPx
+            )
+            // 放置(顶锚):块起点 = padTop + 顶部余量,首行盒顶 = 起点 + 行前距,末行盒底 = 起点 + 行高 + 行前距。
+            val blockTop = needs.topPx + gapBeforePx
+            val blockBottom = needs.topPx + gapBeforePx + rowHeightPx
+            assertTrue(
+                "top overdraw must stay inside the clip box (text=$textSizePx): $blockTop - $overdraw",
+                blockTop - overdraw >= -0.001f
+            )
+            assertTrue(
+                "bottom overdraw must stay inside the clip box (text=$textSizePx): $blockBottom + $overdraw vs $canvasHeight",
+                blockBottom + overdraw <= canvasHeight + 0.001f
+            )
+            // 同一次摆放喂给「安全栅栏」自检:已知形状必须恒为 clean。
+            assertTrue(
+                "self-check must be clean for known shapes (text=$textSizePx)",
+                effectClipCheckPx(
+                    blockTopPx = blockTop,
+                    blockBottomPx = blockBottom,
+                    topOverdrawPx = overdraw,
+                    bottomOverdrawPx = overdraw,
+                    clipTopPx = 0f,
+                    clipBottomPx = canvasHeight
+                ).clean
+            )
+        }
+    }
+
+    @Test
+    fun effectClipCheckSeparatesRowOverflowFromMissingAllowance() {
+        // 行盒在框内、只有外扩越界 = 余量算漏(新效果/新行种类),单独报出来;
+        // 行盒自己越界是「内容放不下」,不再重复计效果越界;非有限输入视为 clean。
+        val clean = effectClipCheckPx(100f, 200f, 30f, 30f, 0f, 260f)
+        assertTrue("extents inside the clip box are clean", clean.clean)
+
+        val effectOnly = effectClipCheckPx(100f, 200f, 30f, 30f, 0f, 220f)
+        assertFalse("row boxes fit but the overdraw is cut", effectOnly.clean)
+        assertEquals(0f, effectOnly.rowOverflowPx, 0.0001f)
+        assertEquals(10f, effectOnly.effectOverflowPx, 0.0001f)
+
+        val rowOverflow = effectClipCheckPx(100f, 300f, 30f, 30f, 0f, 260f)
+        assertEquals(40f, rowOverflow.rowOverflowPx, 0.0001f)
+        assertEquals(0f, rowOverflow.effectOverflowPx, 0.0001f)
+
+        val invalid = effectClipCheckPx(Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN)
+        assertTrue("non-finite inputs must not produce noise", invalid.clean)
     }
 }

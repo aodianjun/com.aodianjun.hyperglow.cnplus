@@ -346,3 +346,51 @@ internal fun canvasEffectEdgeNeeds(
         bottomPx = max(0f, bottom)
     )
 }
+
+/**
+ * 「安全栅栏」自检结果(纯函数,见 [effectClipCheckPx]):两个越界量,均为 0 = 内容块与
+ * 其绘制外扩都落在内容裁剪框内。
+ */
+internal data class CanvasEffectClipCheck(
+    /** 行盒越界量(px):内容本身放不下(行数/字号/高度上限),既有路径由裁剪兜底。 */
+    val rowOverflowPx: Float,
+    /** 绘制外扩越界量(px):行盒在框内、但辉光/下沉会越界被切平 —— 效果余量算漏了。 */
+    val effectOverflowPx: Float
+) {
+    val clean: Boolean get() = rowOverflowPx <= 0f && effectOverflowPx <= 0f
+}
+
+/**
+ * 「安全栅栏」自检(纯函数):把最终摆放的内容块与内容裁剪框对一遍,分别给出**行盒**
+ * 与**绘制外扩**的越界量。
+ *
+ * 修法([canvasEffectEdgeNeeds])保证已知形状(主行/辅助行的辉光与下沉)恒为 clean ——
+ * 本函数的价值在**未知形状**:新增效果或新增行种类若没同步进余量,块沿会重新贴住裁剪沿,
+ * 此时行盒仍在框内、只有外扩越界(即 [effectOverflowPx] > 0),现场以 W 级日志留痕而不是
+ * 静默被切平。行盒越界是「内容放不下」,与余量无关,单独报以免误判。
+ * 输入含非有限值(未布局/未测量)时视为 clean,不产生噪声。
+ */
+internal fun effectClipCheckPx(
+    blockTopPx: Float,
+    blockBottomPx: Float,
+    topOverdrawPx: Float,
+    bottomOverdrawPx: Float,
+    clipTopPx: Float,
+    clipBottomPx: Float
+): CanvasEffectClipCheck {
+    if (!blockTopPx.isFinite() || !blockBottomPx.isFinite() || !topOverdrawPx.isFinite() ||
+        !bottomOverdrawPx.isFinite() || !clipTopPx.isFinite() || !clipBottomPx.isFinite()
+    ) {
+        return CanvasEffectClipCheck(0f, 0f)
+    }
+    val rowOverflow = max(
+        (clipTopPx - blockTopPx).coerceAtLeast(0f),
+        (blockBottomPx - clipBottomPx).coerceAtLeast(0f)
+    )
+    if (rowOverflow > 0f) return CanvasEffectClipCheck(rowOverflow, 0f)
+    val effectOverflow = max(
+        (clipTopPx - (blockTopPx - max(0f, topOverdrawPx))).coerceAtLeast(0f),
+        ((blockBottomPx + max(0f, bottomOverdrawPx)) - clipBottomPx).coerceAtLeast(0f)
+    )
+    return CanvasEffectClipCheck(0f, effectOverflow)
+}
