@@ -161,15 +161,20 @@ class LyricInfoLyricProducer(
         }
         scope.launch {
             val ctx = contextRef ?: return@launch
-            val component = ComponentName(ctx, LyricInfoNotificationListener::class.java)
-            runCatching { manager?.removeOnActiveSessionsChangedListener(sessionListener) }
-            runCatching { manager?.addOnActiveSessionsChangedListener(sessionListener, component) }
-            controller?.unregisterCallback(controllerCallback)
-            controller = null
-            val sessions = runCatching { manager?.getActiveSessions(component) ?: emptyList() }
-                .getOrDefault(emptyList())
-            AppLog.i("LyricInfoLyricProducer", "restart: re-registered (sessions=${sessions.size})")
-            refreshSessions(sessions)
+            // 契约要求 restart() 不向调用方抛异常:会话注册/注销与 MediaController 回调都跨
+            // 系统服务,MediaController 可能随会话销毁而抛 IllegalStateException;整段兜底,
+            // 避免异常逃出协程(Dispatchers.Default 上未捕获即应用进程崩溃)。
+            runCatching {
+                val component = ComponentName(ctx, LyricInfoNotificationListener::class.java)
+                runCatching { manager?.removeOnActiveSessionsChangedListener(sessionListener) }
+                runCatching { manager?.addOnActiveSessionsChangedListener(sessionListener, component) }
+                runCatching { controller?.unregisterCallback(controllerCallback) }
+                controller = null
+                val sessions = runCatching { manager?.getActiveSessions(component) ?: emptyList() }
+                    .getOrDefault(emptyList())
+                AppLog.i("LyricInfoLyricProducer", "restart: re-registered (sessions=${sessions.size})")
+                refreshSessions(sessions)
+            }.onFailure { AppLog.w("LyricInfoLyricProducer", "restart: rebuild failed", it) }
         }
     }
 

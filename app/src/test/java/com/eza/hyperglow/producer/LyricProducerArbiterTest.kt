@@ -59,9 +59,14 @@ class LyricProducerArbiterTest {
         override val state: StateFlow<LyricProducerState?> = mutableState.asStateFlow()
         var started = false; private set
         var restartCount = 0; private set
+        /** 模拟违约实现(契约要求不抛异常):用于验证仲裁器仍逐源兜底。 */
+        var failRestart = false
         override fun start(context: Context) { started = true }
         override fun stop() { started = false }
-        override fun restart() { restartCount++ }
+        override fun restart() {
+            restartCount++
+            if (failRestart) error("restart failed")
+        }
         fun connect(c: ProducerConnection) { mutableConnection.value = c }
         fun emit(s: LyricProducerState?) { mutableState.value = s }
     }
@@ -665,7 +670,7 @@ class LyricProducerArbiterTest {
     }
 
     @Test
-    fun restartSelected_restartsOnlyTheSelectedProducer() {
+    fun restartAll_rebuildsEveryRegisteredProducerRegardlessOfSelection() {
         val now = 1_000L
         val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.CONNECTED, state("spicy", now))
         val lyricon = FakeProducer(
@@ -673,26 +678,40 @@ class LyricProducerArbiterTest {
         )
         val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { now }
 
-        // 默认首选为 SPICY:只重启它。
-        arbiter.restartSelected()
+        // 默认首选 SPICY(应用侧无可重建订阅的外部推送源)时,回退源 LYRICON 也必须重建
+        // ——只重建选中源就是「勾了重启歌词源、卡死的源却没被重启」的空转面(真机日志实证)。
+        arbiter.restartAll()
         assertEquals(1, spicy.restartCount)
-        assertEquals(0, lyricon.restartCount)
+        assertEquals(1, lyricon.restartCount)
 
-        // 切到 LYRICON 后,只重启新选中源。
+        // 换选 LYRICON 后仍是全量重建,与选择无关。
         arbiter.setPreference(LyricSource.LYRICON)
-        arbiter.restartSelected()
-        assertEquals(1, spicy.restartCount)
+        arbiter.restartAll()
+        assertEquals(2, spicy.restartCount)
+        assertEquals(2, lyricon.restartCount)
+    }
+
+    @Test
+    fun restartAll_sourcesWithoutProducer_areSkippedWithoutThrowing() {
+        // 未注册生产者的源(如仅注册了其他源)跳过即可,不得抛异常。
+        val lyricon = FakeProducer(LyricSource.LYRICON)
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricon)) { 1_000L }
+
+        arbiter.restartAll()
+
         assertEquals(1, lyricon.restartCount)
     }
 
     @Test
-    fun restartSelected_withoutProducerForPreference_isNoOp() {
-        // 首选源无注册生产者(如仅注册了其他源)时不得抛异常。
+    fun restartAll_oneSourceThrowing_doesNotStopTheOthers() {
+        // 契约要求实现不抛异常;仲裁器仍逐源兜底:一个源出错不能让后面的源失去重建机会。
+        val spicy = FakeProducer(LyricSource.SPICY).apply { failRestart = true }
         val lyricon = FakeProducer(LyricSource.LYRICON)
-        val arbiter = LyricProducerArbiter(arbiterMap(lyricon)) { 1_000L }
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 1_000L }
 
-        arbiter.restartSelected()
+        arbiter.restartAll()
 
-        assertEquals(0, lyricon.restartCount)
+        assertEquals(1, spicy.restartCount)
+        assertEquals(1, lyricon.restartCount)
     }
 }

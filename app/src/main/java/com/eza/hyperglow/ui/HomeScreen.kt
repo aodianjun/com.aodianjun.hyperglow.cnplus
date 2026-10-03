@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.DiagnosticLoggingPreferences
@@ -870,26 +871,40 @@ internal fun HomeScreen(
                                 return@TextButton
                             }
                             showRestartDialog = false
-                            // 歌词源重启在应用进程内即时生效(无 root);与挂钩进程重启相互独立。
-                            if (restartLyricSource) {
-                                LyricProducers.arbiterOrNull()?.restartSelected()
-                            }
+                            // 两件事互相独立,顺序有意为之:先启动挂钩进程重启(root 杀进程),
+                            // 再重建歌词源订阅。此前顺序相反——歌词源重建先占住主线程,它抛异常
+                            // 或长时间不返回时,勾选歌词源会把其他进程的重启整段吞掉(真机反馈)。
+                            // 反过来,杀进程已在 IO 线程上跑起来,歌词源侧再出什么问题都不影响它。
                             if (hookTargetSelected) {
                                 scope.launch {
-                                    showRestartResult(
+                                    val restarted = runCatching {
                                         ShellUtils.restartHookedProcesses(
                                             systemUi = restartSystemUiTarget,
                                             miuiAod = restartAodTarget,
                                             hyperglowApp = restartHyperglowTarget
                                         )
-                                    )
+                                    }.getOrDefault(false)
+                                    showRestartResult(restarted)
                                 }
-                            } else {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.toast_lyric_source_restarted),
-                                    Toast.LENGTH_SHORT
-                                ).show()
+                            }
+                            if (restartLyricSource) {
+                                // 全部歌词源一起重建:歌词可能来自回退源,只重建选中源会在
+                                // 默认 SPICY 首选下空转(见 LyricProducerArbiter.restartAll)。
+                                runCatching { LyricProducers.arbiterOrNull()?.restartAll() }
+                                    .onFailure {
+                                        AppLog.w(
+                                            "HomeScreen",
+                                            "restart lyric sources failed",
+                                            it
+                                        )
+                                    }
+                                if (!hookTargetSelected) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.toast_lyric_source_restarted),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             }
                         }
                     )
