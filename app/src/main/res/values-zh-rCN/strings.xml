@@ -413,7 +413,6 @@
     <string name="option_color_black">黑色</string>
     <string name="option_color_white">白色</string>
     <string name="section_colors">颜色</string>
-    <string name="palette_primary_text">主歌词颜色</string>
     <string name="palette_secondary_text">辅助行颜色</string>
     <string name="palette_sung_text">已唱颜色</string>
     <string name="palette_unsung_text">未唱颜色</string>
@@ -421,7 +420,6 @@
     <string name="palette_metadata_text">歌曲信息颜色</string>
     <string name="palette_next_line_text">下一行颜色</string>
     <string name="palette_accent">强调色</string>
-    <string name="palette_surface_scrim">背景遮罩色</string>
     <string name="dialog_pick_color">选择颜色</string>
     <string name="action_reset_color">恢复默认颜色</string>
     <string name="action_apply">应用</string>

@@ -18,21 +18,24 @@ internal const val PALETTE_DIMMED = "dimmed"
  * 歌词渲染层支持的全部语义色键(与 `SceneCompiler` / `SystemUiCustomization` 的
  * `SEMANTIC_COLORS` 白名单一一对应)。每个键都能通过设置页的取色器设为任意颜色,
  * token 缺省(未写入 palette)时回退到 [defaultArgb]。
+ *
+ * 本枚举只收录**渲染侧真正消费**的键:新增键前先确认 AodLyricCanvasView /
+ * LockscreenSurfaceController / PreviewComponents 之一会读它,否则用户会拿到一个
+ * 可调但永不生效的滑块。历史上 `primaryText`(主行实际取 sungText)与 `surfaceScrim`
+ * (无任何消费者)即因只进白名单、不进渲染而被移除。
  */
 internal enum class PaletteColor(
     val token: String,
     @param:StringRes val titleRes: Int,
     val defaultArgb: Int
 ) {
-    PRIMARY_TEXT("primaryText", R.string.palette_primary_text, DEFAULT_TEXT_ARGB),
     SECONDARY_TEXT("secondaryText", R.string.palette_secondary_text, DEFAULT_TEXT_ARGB),
     SUNG_TEXT("sungText", R.string.palette_sung_text, DEFAULT_TEXT_ARGB),
     UNSUNG_TEXT("unsungText", R.string.palette_unsung_text, DEFAULT_TEXT_ARGB),
     GLOW("glow", R.string.palette_glow, DEFAULT_TEXT_ARGB),
     METADATA_TEXT("metadataText", R.string.palette_metadata_text, DEFAULT_METADATA_ARGB),
     NEXT_LINE_TEXT("nextLineText", R.string.palette_next_line_text, DEFAULT_TEXT_ARGB),
-    ACCENT("accent", R.string.palette_accent, DEFAULT_TEXT_ARGB),
-    SURFACE_SCRIM("surfaceScrim", R.string.palette_surface_scrim, DEFAULT_TEXT_ARGB)
+    ACCENT("accent", R.string.palette_accent, DEFAULT_TEXT_ARGB)
 }
 
 /** dimmed 预设把全部语义色键统一压暗;其余名称返回空(表示 default)。 */

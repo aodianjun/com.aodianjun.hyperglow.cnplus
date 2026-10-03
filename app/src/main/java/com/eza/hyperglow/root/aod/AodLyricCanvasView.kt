@@ -1509,7 +1509,9 @@ internal class AodLyricCanvasView(
                 (currentRenderStyle.metadataPaint.textSize -
                     snapshot.renderStyle.originalPaint.textSize) * value
             color = interpolateAodColor(
-                snapshot.renderStyle.palette.primaryText,
+                // 源色取主行实际绘制所用的「已唱颜色」:主行三条渲染路径(静态/扫光块/
+                // 词级卡拉OK)底色一律取 sungText,primaryText 键已移除。
+                snapshot.renderStyle.palette.sungText,
                 currentRenderStyle.palette.metadataText,
                 value
             )
@@ -2972,7 +2974,7 @@ internal class AodLyricCanvasView(
         paint: Paint,
         factor: Float,
         brightness: Float,
-        color: Int = resolvedPalette.primaryText
+        color: Int
     ) {
         paint.color = color
         paint.alpha = (255f * (steadyTextAlpha(factor) * brightness).coerceIn(0f, 1f)).toInt()

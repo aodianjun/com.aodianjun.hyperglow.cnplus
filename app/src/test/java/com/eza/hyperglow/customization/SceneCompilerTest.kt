@@ -858,7 +858,7 @@ class SceneCompilerTest {
 
         val tamperedAod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
             anchor = "screen_center",
-            palette = mapOf("primaryText" to "dimmed")
+            palette = mapOf("sungText" to "dimmed")
         )
         val validated = SystemUiCustomizationValidator.validate(
             compiled.copy(profiles = compiled.profiles + (SceneCompiler.SURFACE_AOD to tamperedAod))
@@ -870,7 +870,7 @@ class SceneCompilerTest {
         )
         assertEquals(
             "dimmed",
-            validated.profiles.getValue(SceneCompiler.SURFACE_AOD).palette["primaryText"]
+            validated.profiles.getValue(SceneCompiler.SURFACE_AOD).palette["sungText"]
         )
         assertNotEquals(compiled.hash, validated.hash)
     }
