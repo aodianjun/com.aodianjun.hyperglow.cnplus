@@ -77,12 +77,13 @@ private fun contentListPadding(innerPadding: PaddingValues): PaddingValues = Pad
 private fun FullScreenStatus(
     text: String,
     retryLabel: String? = null,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
+    innerPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 64.dp),
+            .padding(top = innerPadding.calculateTopPadding() + 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -130,9 +131,13 @@ internal fun HelpScreen(onBack: () -> Unit) {
             failed -> FullScreenStatus(
                 text = stringResource(R.string.help_load_failed),
                 retryLabel = stringResource(R.string.action_retry),
-                onRetry = { attempt++ }
+                onRetry = { attempt++ },
+                innerPadding = innerPadding
             )
-            else -> FullScreenStatus(text = stringResource(R.string.about_content_loading))
+            else -> FullScreenStatus(
+                text = stringResource(R.string.about_content_loading),
+                innerPadding = innerPadding
+            )
         }
     }
 }
@@ -173,9 +178,13 @@ internal fun ChangelogScreen(onBack: () -> Unit) {
             failed -> FullScreenStatus(
                 text = stringResource(R.string.about_content_load_failed),
                 retryLabel = stringResource(R.string.action_retry),
-                onRetry = { attempt++ }
+                onRetry = { attempt++ },
+                innerPadding = innerPadding
             )
-            else -> FullScreenStatus(text = stringResource(R.string.about_content_loading))
+            else -> FullScreenStatus(
+                text = stringResource(R.string.about_content_loading),
+                innerPadding = innerPadding
+            )
         }
     }
 }
@@ -244,9 +253,13 @@ internal fun ContributorsScreen(onBack: () -> Unit) {
             failed -> FullScreenStatus(
                 text = stringResource(R.string.about_content_load_failed),
                 retryLabel = stringResource(R.string.action_retry),
-                onRetry = { attempt++ }
+                onRetry = { attempt++ },
+                innerPadding = innerPadding
             )
-            else -> FullScreenStatus(text = stringResource(R.string.about_content_loading))
+            else -> FullScreenStatus(
+                text = stringResource(R.string.about_content_loading),
+                innerPadding = innerPadding
+            )
         }
     }
 }
