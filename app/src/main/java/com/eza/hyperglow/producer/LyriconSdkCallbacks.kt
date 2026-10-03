@@ -54,10 +54,12 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
     object : ActivePlayerListener {
         override fun onActiveProviderChanged(providerInfo: ProviderInfo?) {
             val pkg = providerInfo?.providerPackageName
-            AppLog.i("LyriconLyricProducer", "provider=$pkg")
+            val playerPkg = providerInfo?.playerPackageName
+            AppLog.i("LyriconLyricProducer", "provider=$pkg player=$playerPkg")
             resetStopDetection()
             if (providerInfo == null) {
                 activeProviderPackage = null
+                activePlayerPackage = null
                 // No active player: clear state, let arbiter fall back / go idle.
                 resetToIdle("onActiveProviderChanged: null (no active player)")
             } else {
@@ -68,6 +70,12 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                     providerSyncPendingSinceMs = clock()
                 }
                 activeProviderPackage = pkg
+                activePlayerPackage = playerPkg
+                // 当前音频源不是音乐(视频应用等):整体释放,后续 onSongChanged 一并忽略
+                // (见 createPlayerListener.onSongChanged)。视频播放不触发歌词显示。
+                if (!activeSourceEligible()) {
+                    resetToIdle("onActiveProviderChanged: non-music player=$playerPkg")
+                }
             }
         }
 
@@ -79,6 +87,16 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 return
             }
             resetStopDetection()
+            // 非音乐源(视频/播客等)期间的歌曲推送一律忽略:视频标题不得进入歌词链。
+            // provider 回调可能晚于歌曲回调,这里独立判定(不依赖上一次 provider 回调的顺序)。
+            if (!activeSourceEligible()) {
+                AppLog.i(
+                    "LyriconLyricProducer",
+                    "non-music source (player=$activePlayerPackage); ignoring song '${song.name}'"
+                )
+                resetToIdle("onSongChanged: non-music source")
+                return
+            }
             AppLog.i(
                 "LyriconLyricProducer",
                 "onSongChanged: id=${song.id} name=${song.name} artist=${song.artist} " +

@@ -218,6 +218,12 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
  * song change). Safe to call at 60 Hz.
  */
 internal fun LyriconLyricProducer.emit() {
+    // 当前音频源不是音乐(视频应用等)时整体静默:位置回调仍在 ~60Hz 到达,这里统一兜底
+    // (provider/song 回调的先后顺序不保证),不发射状态即让仲裁器回退或空闲。
+    if (!activeSourceEligible()) {
+        mutableState.value = null
+        return
+    }
     val song = currentSong ?: run { mutableState.value = null; return }
     val now = clock()
     // 「歌词时间偏移」:发射坐标整体换算到显示时间轴(位置、行窗、词级、nextLine),

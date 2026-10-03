@@ -356,6 +356,17 @@ and (b) unverified paths stay explicit instead of silently assumed.
   after merge: with the switch on, the auxiliary translation lights up in step with the sung line on
   both surfaces (and floats/scales with the BetterLyrics mode when that is selected), the app preview
   shows the same effect, and with the switch off the auxiliary rows render exactly as before.
+- Music-vs-non-music source eligibility (`MediaSourcePolicy` + the "Hide lyrics for video and other
+  non-music audio" switch, default on): a source is excluded only when its player package is a known
+  video app (Bilibili, Douyin, Kuaishou, YouTube, …) or its session declares an explicit
+  MOVIE/SPEECH/SONIFICATION content type; everything else — including the platform-default
+  `CONTENT_TYPE_UNKNOWN` — fails open. LyricInfo skips such sessions when picking (the issue #5
+  fallback keeps working for music apps), Lyricon releases the track and silences its watchdogs
+  while the active player is non-music; SuperLyric (music-only module) and Spicy (Spotify-only by
+  UID) carry no gate. Unit-tested (`MediaSourcePolicyTest` + the Lyricon producer gate cases) —
+  pending a hardware smoke check after merge: playing a video in a listed app must show no lyric
+  card while music playback (including a music app without injected lyrics) is unchanged, and the
+  switch must restore the old behavior when turned off.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -561,6 +572,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 演示歌词跟随界面语言（`LyricLayoutScreen.demoLines` / `demoTrack`：English 显示英文演示曲，其余选择保留中文演示曲；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：界面语言切到 English，主页与外观预览显示英文演示曲；切回后中文演示曲恢复。
 - 传输暂停时 App 内预览回退演示歌词（`ProducerCollectors.presentsLivePreview`：不在播的生产者状态不再接管主页/外观预览，改回退内置演示歌词行——仲裁器有意保留暂停时的冻结状态，此前预览会一直钉在暂停前那句歌词上；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：暂停播放后预览重新循环演示歌词，恢复播放后实时歌词重新接管。
 - 辅助文字逐字效果（`secondaryWordKaraoke` 开关，每个 surface 独立：第一行音译/翻译行经与主行同一共享逐字渲染核心随歌词逐字点亮——源带词级音译时间时按真实词窗，否则按该行自身行窗口合成；行沿用辅助行颜色与亮/暗辅助文字档，「BetterLyrics」档的浮动/放大/辉光随该面逐字动画档；第二行歌词及其自身的辅助行不参与）——合并后待真机冒烟：两曲面开启后辅助翻译随演唱行同步逐字点亮（选 BetterLyrics 时同主行一起浮动/放大），App 内预览呈现同一效果，关闭开关时辅助行与改前逐字节一致。
+- 「当前音频源是不是音乐」判定（`MediaSourcePolicy` + 「视频等非音乐音频不显示歌词」开关，默认开启）：只有播放器包名命中已知视频应用表（哔哩哔哩、抖音、快手、YouTube 等）或会话显式声明 MOVIE/SPEECH/SONIFICATION 内容类型时才排除，其余（含平台默认的 `CONTENT_TYPE_UNKNOWN`）一律 fail-open 放行。LyricInfo 挑选会话时跳过这类会话（issue #5 兜底对音乐应用仍然有效），Lyricon 在活动播放器为非音乐期间释放曲目并静默看门狗；SuperLyric（只挂钩音乐应用的模块）与 Spicy（UID 校验限定 Spotify）不加门控。已有单测（`MediaSourcePolicyTest` + Lyricon 生产者门控用例）——合并后待真机冒烟：在清单内应用播放视频必须不出现歌词卡片，音乐播放（含没有注入歌词的音乐应用兜底路径）行为不变，关闭开关后恢复历史行为。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

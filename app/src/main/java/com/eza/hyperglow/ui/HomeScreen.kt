@@ -222,6 +222,10 @@ internal fun HomeScreen(
     }
     var pauseLingerMs by remember { mutableStateOf(initialConfig.pauseLingerMs) }
     var pauseShowContent by remember { mutableStateOf(initialConfig.pauseShowContent) }
+    // 「视频/非音乐音频不显示歌词」:识别当前音频源,视频/播客等来源播放期间不显示歌词。
+    var filterNonMusicSources by remember {
+        mutableStateOf(initialConfig.filterNonMusicSources)
+    }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
@@ -397,6 +401,22 @@ internal fun HomeScreen(
                     }
                     item { SmallTitle(text = stringResource(R.string.section_lyric_source)) }
                     item { LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true }) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                filterNonMusicSources,
+                                { enabled ->
+                                    if (updateFilterNonMusicSources(context, enabled)) {
+                                        filterNonMusicSources = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_filter_non_music_sources),
+                                summary = stringResource(
+                                    R.string.summary_filter_non_music_sources
+                                )
+                            )
+                        }
+                    }
                     item { SourceSetupHint() }
                     item {
                         SettingsCard {

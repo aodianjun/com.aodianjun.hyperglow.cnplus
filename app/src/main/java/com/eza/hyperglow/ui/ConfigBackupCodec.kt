@@ -143,6 +143,9 @@ internal object ConfigBackupCodec {
         },
         BackupBooleanField(AodRenderPreferences.AOD_DEBUG_SHOW_CANVAS_FRAME) {
             it.aodDebugShowCanvasFrame
+        },
+        BackupBooleanField(AodRenderPreferences.FILTER_NON_MUSIC_SOURCES) {
+            it.filterNonMusicSources
         }
     )
 
@@ -524,7 +527,9 @@ internal object ConfigBackupCodec {
             ?: DEFAULTS.aodDebugShowCanvasFrame,
         aodRefreshRateCap = normalizeAodRefreshRateCap(
             stored.int(AodRenderPreferences.AOD_REFRESH_RATE_CAP) ?: DEFAULTS.aodRefreshRateCap
-        )
+        ),
+        filterNonMusicSources = stored.boolean(AodRenderPreferences.FILTER_NON_MUSIC_SOURCES)
+            ?: DEFAULTS.filterNonMusicSources
     )
 
     private fun JsonObject.boolean(key: String): Boolean? =

@@ -6,6 +6,7 @@ import io.github.proify.lyricon.lyric.model.Song
 import io.github.proify.lyricon.subscriber.ActivePlayerListener
 import io.github.proify.lyricon.subscriber.ConnectionListener
 import io.github.proify.lyricon.subscriber.LyriconSubscriber
+import io.github.proify.lyricon.subscriber.ProviderInfo
 import io.github.proify.lyricon.subscriber.SubscriberInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -396,6 +397,60 @@ class LyriconLyricProducerTest {
     fun onActiveProviderChangedNull_clearsState() {
         producer.playerListener.onSongChanged(threeLineSong())
         producer.playerListener.onActiveProviderChanged(null)
+        assertNull(producer.state.value)
+    }
+
+    // --- 「当前音频源是不是音乐」门控(见 MediaSourcePolicy) ---
+
+    private fun provider(providerPkg: String, playerPkg: String) = ProviderInfo(
+        providerPackageName = providerPkg,
+        playerPackageName = playerPkg
+    )
+
+    @Test
+    fun musicPlayerPackage_emitsSong() {
+        // 播放器是音乐应用(网易云):照常发射。
+        producer.playerListener.onActiveProviderChanged(
+            provider("io.github.proify.lyricon.cmprovider", "com.netease.cloudmusic")
+        )
+        producer.playerListener.onSongChanged(threeLineSong())
+
+        assertEquals("Test Song", producer.state.value?.title)
+    }
+
+    @Test
+    fun videoPlayerPackage_songIsIgnored() {
+        // 播放器是视频应用(哔哩哔哩):视频标题不得进入歌词链。
+        producer.playerListener.onActiveProviderChanged(
+            provider("io.github.proify.lyricon.cmprovider", "tv.danmaku.bili")
+        )
+        producer.playerListener.onSongChanged(threeLineSong())
+
+        assertNull(producer.state.value)
+    }
+
+    @Test
+    fun songArrivingBeforeVideoProviderChange_isSuppressedOnProviderChange() {
+        // 回调顺序不保证:provider 回调晚于歌曲回调时,状态仍须被释放(emit 兜底同源)。
+        producer.playerListener.onSongChanged(threeLineSong())
+        assertNotNull(producer.state.value)
+
+        producer.playerListener.onActiveProviderChanged(
+            provider("io.github.proify.lyricon.cmprovider", "tv.danmaku.bili")
+        )
+
+        assertNull(producer.state.value)
+    }
+
+    @Test
+    fun positionUpdatesWhileVideoPlayerIsActive_emitNothing() {
+        // 位置回调仍在 ~60Hz 到达:非音乐源期间不得借位置回调重新发射状态。
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.playerListener.onActiveProviderChanged(
+            provider("io.github.proify.lyricon.cmprovider", "tv.danmaku.bili")
+        )
+        producer.playerListener.onPositionChanged(2_000L)
+
         assertNull(producer.state.value)
     }
 
