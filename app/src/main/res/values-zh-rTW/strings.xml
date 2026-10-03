@@ -1,9 +1,15 @@
 <resources>
     <string name="app_name">HyperGlow CN+</string>
 
-    <string name="nav_overview">概覽</string>
+    <string name="nav_status">狀態</string>
     <string name="nav_settings">設置</string>
+    <string name="nav_app_settings">App 設置</string>
+    <string name="nav_about">關於</string>
     <string name="section_language">語言</string>
+    <string name="section_developer_options">開發者選項</string>
+    <string name="settings_section_aod">息屏設定</string>
+    <string name="settings_section_lockscreen">鎖屏設定</string>
+    <string name="settings_section_other">其他設定</string>
     <string name="setting_interface_language">界面語言</string>
     <string name="language_system_default">跟隨系統</string>
     <string name="language_english">English</string>
@@ -35,8 +41,6 @@
     <string name="label_systemui_aod">系統界面 / 息屏顯示</string>
     <string name="label_aod_lyrics">息屏歌詞</string>
     <string name="label_lockscreen_lyrics">鎖屏歌詞</string>
-    <string name="label_lockscreen_preview">鎖屏歌詞預覽</string>
-    <string name="label_aod_preview">息屏歌詞預覽</string>
     <string name="label_diagnostic_logging">診斷日誌</string>
     <string name="summary_diagnostic_logging_available">可能降低性能。</string>
     <string name="summary_diagnostic_logging_unavailable">此構建不包含診斷日誌。</string>
@@ -146,7 +150,10 @@
     <string name="section_spotify_integration">Spotify 集成</string>
     <string name="action_download_spicy_ex">下載 Spicy EX</string>
     <string name="action_open_spotify">打開 Spotify</string>
-    <string name="section_project">項目</string>
+    <string name="section_about">關於</string>
+    <string name="about_author_role">作者 · %1$s</string>
+    <string name="about_support">支持</string>
+    <string name="summary_about_support">微信 / 支付寶掃碼讚賞,或給專案點個 Star</string>
     <string name="action_hyperglow_github">在 GitHub 查看 HyperGlow</string>
     <string name="action_hyperglow_cnplus_github">在 GitHub 查看 HyperGlow CN+</string>
 
@@ -193,12 +200,11 @@
     <string name="setting_aod_rotate_with_device">息屏畫布隨設備旋轉</string>
     <string name="summary_aod_rotate_with_device">設備側放時把歌詞畫布旋轉到橫屏。與「隱藏系統息屏內容」設置相互獨立。</string>
 
-    <string name="section_lockscreen_behavior">鎖屏行為</string>
+    <string name="section_lockscreen_wake">鎖屏與喚醒</string>
     <string name="setting_keep_lockscreen_awake">保持鎖屏喚醒</string>
     <string name="summary_keep_lockscreen_awake">會增加耗電。</string>
     <string name="setting_block_lockscreen_customization">阻止鎖屏自定義</string>
     <string name="summary_block_lockscreen_customization">阻止壁紙編輯器和輪播預覽打開。</string>
-    <string name="section_wake_gestures">喚醒手勢</string>
     <string name="setting_raise_to_aod">抬起顯示息屏</string>
     <string name="summary_raise_to_aod">需要啟用 HyperOS 抬起喚醒。</string>
 
@@ -590,6 +596,8 @@
     <string name="setting_control_opacity">控制項不透明度</string>
     <string name="setting_text_color">文字顏色</string>
     <string name="setting_app_font">字體</string>
+    <string name="setting_floating_nav_bar">懸浮底欄</string>
+    <string name="summary_floating_nav_bar">關閉後底欄改用貼底樣式。</string>
     <string name="option_font_follow_system">跟隨系統</string>
     <string name="option_font_serif">襯線</string>
     <string name="option_font_monospace">等寬</string>

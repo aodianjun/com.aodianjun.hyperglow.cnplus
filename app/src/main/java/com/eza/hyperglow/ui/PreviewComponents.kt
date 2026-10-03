@@ -146,8 +146,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -236,45 +238,76 @@ internal fun AppearanceLivePreview(
 }
 
 /**
- * Home lyric-widget preview card. Renders a phone-like dark surface sized to the card and draws a
- * stylized lyric block using the compiled [profile] (text size/weight/alignment, secondary text,
- * metadata, card background, next line) placed via [resolvePreviewPlacement], so the home page
- * gives a quick visual sense of how the lockscreen / AOD lyric control looks.
+ * Home merged lyric-widget preview card. Renders a phone-like dark surface for the selected
+ * surface (text size/weight/alignment, secondary text, metadata, card background, next line)
+ * placed via [resolvePreviewPlacement], so the home page gives a quick visual sense of how the
+ * lockscreen / AOD lyric control looks. The header row carries two text-button chips to switch
+ * between lockscreen and AOD, replacing the previous pair of side-by-side cards (overview
+ * slim-down).
  *
  * The surface height adapts to the rendered content ([PREVIEW_CARD_MIN_HEIGHT_DP]..
  * [PREVIEW_CARD_MAX_HEIGHT_DP]): large text sizes and extra rows grow the card instead of being
  * clipped by a fixed box.
  */
 @Composable
-internal fun LyricPreviewCard(
-    title: String,
-    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
-    scenario: String,
-    live: LyricSnapshot?,
-    metadataParts: String,
-    metadataSeparators: String,
-    modifier: Modifier,
-    artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile)
+internal fun LyricPreviewCardWithSwitch(
+    lockscreenProfile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    aodProfile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    lockscreenLive: LyricSnapshot?,
+    aodLive: LyricSnapshot?,
+    selectedAod: Boolean,
+    onSelectSurface: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val profile = if (selectedAod) aodProfile else lockscreenProfile
     Card(modifier = modifier) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Text(
-                title,
-                fontSize = MiuixTheme.textStyles.headline1.fontSize,
-                fontWeight = FontWeight.Medium,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(
+                        if (selectedAod) R.string.label_aod_lyrics else R.string.label_lockscreen_lyrics
+                    ),
+                    fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.weight(1f)
+                )
+                SurfaceChip(
+                    label = stringResource(R.string.label_lockscreen_lyrics),
+                    selected = !selectedAod,
+                    onClick = { onSelectSurface(false) }
+                )
+                Spacer(Modifier.width(8.dp))
+                SurfaceChip(
+                    label = stringResource(R.string.label_aod_lyrics),
+                    selected = selectedAod,
+                    onClick = { onSelectSurface(true) }
+                )
+            }
             Spacer(Modifier.height(8.dp))
             LyricPreviewSurface(
                 profile = profile,
-                scenario = scenario,
-                live = live,
-                metadataParts = metadataParts,
-                metadataSeparators = metadataSeparators,
-                artwork = artwork,
+                scenario = if (selectedAod) "Full AOD" else "Lockscreen · notifications",
+                live = if (selectedAod) aodLive else lockscreenLive,
+                metadataParts = profile.metadataParts,
+                metadataSeparators = profile.metadataSeparators,
+                artwork = artworkDisplayConfig(profile),
                 modifier = Modifier.fillMaxWidth()
             )
         }
+    }
+}
+
+/** 预览面切换 chip:选中态用主色文本按钮,未选中用默认样式。 */
+@Composable
+private fun SurfaceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    if (selected) {
+        TextButton(text = label, colors = ButtonDefaults.textButtonColorsPrimary(), onClick = onClick)
+    } else {
+        TextButton(text = label, onClick = onClick)
     }
 }
 

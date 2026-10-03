@@ -68,6 +68,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -242,6 +243,12 @@ internal fun AppAppearanceScreen(
                         onSelectedIndexChange = { index ->
                             commit(appearance.copy(fontFamily = fontTokens[index]))
                         }
+                    )
+                    SwitchPreference(
+                        appearance.floatingNavBar,
+                        { enabled -> commit(appearance.copy(floatingNavBar = enabled)) },
+                        stringResource(R.string.setting_floating_nav_bar),
+                        summary = stringResource(R.string.summary_floating_nav_bar)
                     )
                 }
             }

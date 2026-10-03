@@ -82,7 +82,8 @@ class ConfigBackupCodecTest {
             controlOpacityPercent = 33,
             textColorArgb = 0xFFFF8800.toInt(),
             fontFamily = "custom:myfont",
-            systemBarIcons = AppSystemBarIcons.LIGHT
+            systemBarIcons = AppSystemBarIcons.LIGHT,
+            floatingNavBar = false
         ),
         uiLanguage = UiLanguage.SIMPLIFIED_CHINESE,
         diagnosticLogging = true,

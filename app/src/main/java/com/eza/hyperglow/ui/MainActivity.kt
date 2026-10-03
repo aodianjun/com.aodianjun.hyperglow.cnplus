@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                             )
                             var editingSurface by rememberSaveable { mutableStateOf<String?>(null) }
                             var selectedTabName by rememberSaveable {
-                                mutableStateOf(SettingsTab.OVERVIEW.name)
+                                mutableStateOf(SettingsTab.STATUS.name)
                             }
                             AnimatedContent(
                                 targetState = editingSurface,
@@ -145,7 +145,8 @@ class MainActivity : ComponentActivity() {
                                         onOpenLyricLayout = { target -> editingSurface = target },
                                         onOpenPlugins = { editingSurface = PLUGIN_DESTINATION },
                                         onOpenAodBehavior = { editingSurface = AOD_BEHAVIOR_DESTINATION },
-                                        onOpenAppAppearance = { editingSurface = APP_APPEARANCE_DESTINATION }
+                                        onOpenAppAppearance = { editingSurface = APP_APPEARANCE_DESTINATION },
+                                        floatingNavBar = appAppearance.floatingNavBar
                                     )
                                 }
                             }

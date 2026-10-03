@@ -65,6 +65,22 @@ internal fun localApkSha256(context: android.content.Context): String? = runCatc
     digest.digest().joinToString("") { "%02x".format(it) }
 }.getOrNull()
 
+/**
+ * 拉取关于页作者头像(同"检查更新"一样是界面侧的远程读取)。
+ * 放在本文件而非使用处:ArchitectureGuardTest 只允许网络客户端出现在白名单文件
+ * (diagnostics/DiagnosticUploader.kt、ui/SettingsSupport.kt、ui/VersionCheck.kt),
+ * ui/HomeComponents.kt 不在白名单内。
+ */
+internal fun fetchImageBitmap(url: String, timeoutMs: Int = 5_000): android.graphics.Bitmap? =
+    runCatching {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = timeoutMs
+        connection.readTimeout = timeoutMs
+        connection.inputStream.use { stream ->
+            android.graphics.BitmapFactory.decodeStream(stream)
+        }
+    }.getOrNull()
+
 internal fun compareVersions(v1: String, v2: String): Int {
     val a = v1.trim().split(".").mapNotNull { it.toIntOrNull() }
     val b = v2.trim().split(".").mapNotNull { it.toIntOrNull() }

@@ -2,6 +2,8 @@ package com.eza.hyperglow.ui
 
 import android.os.Build
 import android.widget.Toast
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,10 +13,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,8 +28,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.lerp
@@ -33,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
+import com.eza.hyperglow.customization.SceneCompiler
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -51,7 +62,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 /**
  * Home hero section (HyperHome 风格):顶部的模块运行状态卡 + 两个 surface 统计卡 + 系统信息卡。
  * 参照 HyperHome 的主页布局:状态卡用彩色背景 + 大号半透明图标,AOD/锁屏两个统计卡并排,
- * 下方为系统信息列表。
+ * 下方为系统信息列表。统计卡可点击,直达对应曲面的外观编辑器。
  */
 @Composable
 internal fun HomeOverviewHero(
@@ -60,8 +71,75 @@ internal fun HomeOverviewHero(
     aodEnabled: Boolean,
     lockscreenEnabled: Boolean,
     systemUiVersion: String,
-    aodVersion: String
+    aodVersion: String,
+    onOpenSurface: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            HomeStatusCard(
+                working = working,
+                supportLabel = supportLabel,
+                modifier = Modifier.weight(1f).aspectRatio(1f)
+            )
+            Column(
+                Modifier.weight(1f).aspectRatio(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                HomeStatCard(
+                    title = stringResource(R.string.label_aod_lyrics),
+                    value = homeSurfaceState(context, working, aodEnabled),
+                    modifier = Modifier.weight(1f),
+                    onClick = { onOpenSurface(SceneCompiler.SURFACE_AOD) }
+                )
+                HomeStatCard(
+                    title = stringResource(R.string.label_lockscreen_lyrics),
+                    value = homeSurfaceState(context, working, lockscreenEnabled),
+                    modifier = Modifier.weight(1f),
+                    onClick = { onOpenSurface(SceneCompiler.SURFACE_LOCKSCREEN) }
+                )
+            }
+        }
+        Card(
+            colors = CardDefaults.defaultColors(
+                color = appCardContainerColor(),
+                contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+            )
+        ) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                HomeInfoRow(stringResource(R.string.label_compatibility), supportLabel)
+                HomeInfoRow(
+                    stringResource(R.string.label_systemui_aod),
+                    "$systemUiVersion / $aodVersion"
+                )
+                HomeInfoRow(
+                    stringResource(R.string.label_app_version),
+                    BuildConfig.VERSION_NAME
+                )
+                HomeInfoRow(
+                    stringResource(R.string.label_android_version),
+                    Build.VERSION.RELEASE
+                )
+                HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL, last = true)
+            }
+        }
+    }
+}
+
+/**
+ * 关于页主卡(样式参照 HyperCeiler 关于页):居中 App 图标 + 名称 + 版本号,下接检查更新;
+ * 另附设备信息卡(设备型号 / Android 版本 / 系统界面 · 息屏)。所有卡片走 [SettingsCard],
+ * 与其余页面保持同一边距(修复此前卡片满宽无左右边距的显示问题)。
+ */
+@Composable
+internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var checkingUpdate by remember { mutableStateOf(false) }
@@ -87,62 +165,54 @@ internal fun HomeOverviewHero(
         }
     }
 
-    Column(
-        modifier = Modifier.padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+    val appIcon = rememberAppIconBitmap()
+    SettingsCard {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            HomeStatusCard(
-                working = working,
-                supportLabel = supportLabel,
-                modifier = Modifier.weight(1f).aspectRatio(1f)
-            )
-            Column(
-                Modifier.weight(1f).aspectRatio(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                HomeStatCard(
-                    title = stringResource(R.string.label_aod_lyrics),
-                    value = homeSurfaceState(context, working, aodEnabled),
-                    modifier = Modifier.weight(1f)
+            if (appIcon != null) {
+                Image(
+                    bitmap = appIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(72.dp).clip(RoundedCornerShape(18.dp))
                 )
-                HomeStatCard(
-                    title = stringResource(R.string.label_lockscreen_lyrics),
-                    value = homeSurfaceState(context, working, lockscreenEnabled),
-                    modifier = Modifier.weight(1f)
+            } else {
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher),
+                    contentDescription = null,
+                    modifier = Modifier.size(72.dp)
                 )
             }
+            Text(
+                stringResource(R.string.app_name),
+                fontSize = MiuixTheme.textStyles.title3.fontSize,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+            Text(
+                "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Spacer(Modifier.height(12.dp))
+            HomeUpdateRow(
+                checking = checkingUpdate,
+                onClick = { startCheckUpdate() }
+            )
         }
-        Card(
-            colors = CardDefaults.defaultColors(
-                color = appCardContainerColor(),
-                contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+    }
+
+    SettingsCard {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL)
+            HomeInfoRow(stringResource(R.string.label_android_version), Build.VERSION.RELEASE)
+            HomeInfoRow(
+                stringResource(R.string.label_systemui_aod),
+                "$systemUiVersion / $aodVersion",
+                last = true
             )
-        ) {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                HomeInfoRow(stringResource(R.string.label_compatibility), supportLabel)
-                HomeInfoRow(
-                    stringResource(R.string.label_systemui_aod),
-                    "$systemUiVersion / $aodVersion"
-                )
-                HomeInfoRow(
-                    stringResource(R.string.label_app_version),
-                    BuildConfig.VERSION_NAME
-                )
-                HomeUpdateRow(
-                    checking = checkingUpdate,
-                    onClick = { startCheckUpdate() }
-                )
-                HomeInfoRow(
-                    stringResource(R.string.label_android_version),
-                    Build.VERSION.RELEASE
-                )
-                HomeInfoRow(stringResource(R.string.label_device_model), Build.MODEL, last = true)
-            }
         }
     }
 
@@ -171,6 +241,97 @@ internal fun HomeOverviewHero(
                             "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest"
                         )
                     }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 关于页应用图标:直接取系统解析的应用图标(自适应图标 background+foreground 由系统合成,
+ * 与桌面/系统设置里看到的始终一致)——换图标后无需改这里,不再硬编码 drawable。
+ * 渲染失败(理论不会)时由调用方回落 [R.drawable.ic_launcher]。
+ */
+@Composable
+private fun rememberAppIconBitmap(sizePx: Int = 216): ImageBitmap? {
+    val context = LocalContext.current
+    return remember(sizePx) {
+        runCatching {
+            val drawable = context.packageManager.getApplicationIcon(context.packageName)
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                sizePx,
+                sizePx,
+                android.graphics.Bitmap.Config.ARGB_8888
+            )
+            val canvas = android.graphics.Canvas(bitmap)
+            drawable.setBounds(0, 0, sizePx, sizePx)
+            drawable.draw(canvas)
+            bitmap.asImageBitmap()
+        }.getOrNull()
+    }
+}
+
+/** 作者信息与头像地址;头像走 github.com/<user>.png(302 到 avatars 域)。 */
+private const val AUTHOR_GITHUB_URL = "https://github.com/aodianjun"
+private const val AUTHOR_AVATAR_URL = "https://github.com/aodianjun.png"
+private const val AUTHOR_NAME = "凹点菌"
+private const val AUTHOR_HANDLE = "@aodianjun"
+
+/** 作者头像异步拉取(失败时为 null,由调用方回落占位)。 */
+@Composable
+private fun rememberAuthorAvatar(url: String): ImageBitmap? {
+    var avatar by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        avatar = withContext(Dispatchers.IO) {
+            fetchImageBitmap(url)?.asImageBitmap()
+        }
+    }
+    return avatar
+}
+
+/**
+ * 关于页作者卡(参照 HyperCeiler 关于页作者条目):GitHub 头像 + 昵称 + @handle,
+ * 整行可点击打开作者主页;头像未取到时显示纯色圆占位。
+ */
+@Composable
+internal fun AboutAuthorCard() {
+    val context = LocalContext.current
+    val avatar = rememberAuthorAvatar(AUTHOR_AVATAR_URL)
+    SettingsCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { openExternalUrl(context, AUTHOR_GITHUB_URL) }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MiuixTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center
+            ) {
+                if (avatar != null) {
+                    Image(
+                        bitmap = avatar,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    AUTHOR_NAME,
+                    fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    stringResource(R.string.about_author_role, AUTHOR_HANDLE),
+                    fontSize = MiuixTheme.textStyles.body2.fontSize,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
         }
@@ -247,9 +408,14 @@ private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Mod
 }
 
 @Composable
-private fun HomeStatCard(title: String, value: String, modifier: Modifier) {
+private fun HomeStatCard(
+    title: String,
+    value: String,
+    modifier: Modifier,
+    onClick: (() -> Unit)? = null
+) {
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().clickable(enabled = onClick != null) { onClick?.invoke() },
         colors = CardDefaults.defaultColors(
             color = appCardContainerColor(),
             contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
