@@ -670,13 +670,16 @@ internal fun HomeScreen(
                                     ),
                                     enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
                                 )
-                                ArrowPreference(
-                                    title = stringResource(R.string.setting_after_spotify_pauses),
-                                    summary = pauseLingerLabel(context, pauseLingerMs),
-                                    onClick = { showPauseLingerDialog = true },
-                                    enabled = pauseShowContent &&
-                                        runtimeProfileAvailable && (aodSupported || lockscreenSupported)
-                                )
+                                // 「音乐暂停后」不可设置(开关关/模块不可用)时不渲染,可设置再出现——不再灰显。
+                                if (pauseShowContent &&
+                                    runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                                ) {
+                                    ArrowPreference(
+                                        title = stringResource(R.string.setting_after_spotify_pauses),
+                                        summary = pauseLingerLabel(context, pauseLingerMs),
+                                        onClick = { showPauseLingerDialog = true }
+                                    )
+                                }
                             }
                         }
                         item { SmallTitle(text = stringResource(R.string.section_config_backup)) }
