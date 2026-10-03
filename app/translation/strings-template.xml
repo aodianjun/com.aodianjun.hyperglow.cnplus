@@ -179,6 +179,9 @@
     <string name="action_download_spicy_ex">Download Spicy EX</string>
     <string name="action_open_spotify">Open Spotify</string>
     <string name="section_about">About</string>
+    <string name="about_author_role">Author · %1$s</string>
+    <string name="about_support">Support</string>
+    <string name="summary_about_support">Star the project on GitHub</string>
     <string name="action_hyperglow_github">HyperGlow on GitHub</string>
     <string name="action_hyperglow_cnplus_github">HyperGlow CN+ on GitHub</string>
     <string name="section_surfaces">Surfaces</string>

@@ -1,8 +1,10 @@
 package com.eza.hyperglow.ui
 
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,7 +18,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,7 +28,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -37,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.customization.SceneCompiler
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -225,6 +234,80 @@ internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
                             "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest"
                         )
                     }
+                )
+            }
+        }
+    }
+}
+
+/** 作者信息与头像地址;头像走 github.com/<user>.png(302 到 avatars 域)。 */
+private const val AUTHOR_GITHUB_URL = "https://github.com/aodianjun"
+private const val AUTHOR_AVATAR_URL = "https://github.com/aodianjun.png"
+private const val AUTHOR_NAME = "凹点菌"
+private const val AUTHOR_HANDLE = "@aodianjun"
+
+/** 作者头像异步拉取(5s 超时,失败返回 null 由调用方回落占位);仅在组合期内缓存。 */
+@Composable
+private fun rememberAuthorAvatar(url: String): ImageBitmap? {
+    var avatar by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        avatar = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.connectTimeout = 5_000
+                connection.readTimeout = 5_000
+                connection.inputStream.use { stream ->
+                    BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                }
+            }.getOrNull()
+        }
+    }
+    return avatar
+}
+
+/**
+ * 关于页作者卡(参照 HyperCeiler 关于页作者条目):GitHub 头像 + 昵称 + @handle,
+ * 整行可点击打开作者主页;头像未取到时显示纯色圆占位。
+ */
+@Composable
+internal fun AboutAuthorCard() {
+    val context = LocalContext.current
+    val avatar = rememberAuthorAvatar(AUTHOR_AVATAR_URL)
+    SettingsCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { openExternalUrl(context, AUTHOR_GITHUB_URL) }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MiuixTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center
+            ) {
+                if (avatar != null) {
+                    Image(
+                        bitmap = avatar,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    AUTHOR_NAME,
+                    fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    stringResource(R.string.about_author_role, AUTHOR_HANDLE),
+                    fontSize = MiuixTheme.textStyles.body2.fontSize,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
         }

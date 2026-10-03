@@ -146,6 +146,9 @@
     <string name="action_download_spicy_ex">下載 Spicy EX</string>
     <string name="action_open_spotify">打開 Spotify</string>
     <string name="section_about">關於</string>
+    <string name="about_author_role">作者 · %1$s</string>
+    <string name="about_support">支持</string>
+    <string name="summary_about_support">在 GitHub 上給專案點個 Star</string>
     <string name="action_hyperglow_github">在 GitHub 查看 HyperGlow</string>
     <string name="action_hyperglow_cnplus_github">在 GitHub 查看 HyperGlow CN+</string>
 

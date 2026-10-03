@@ -243,6 +243,10 @@ internal fun HomeScreen(
     var logLevel by remember {
         mutableStateOf(DiagnosticLoggingPreferences.readLevel(context))
     }
+    // 画布边框调试开关(自 AodBehaviorScreen 迁入「开发者选项」组)。
+    var aodDebugShowCanvasFrame by remember {
+        mutableStateOf(initialConfig.aodDebugShowCanvasFrame)
+    }
     var persistentNotification by remember {
         mutableStateOf(initialConfig.persistentNotification)
     }
@@ -671,6 +675,22 @@ internal fun HomeScreen(
                     item {
                         SettingsCard {
                             SwitchPreference(
+                                aodDebugShowCanvasFrame,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.AOD_DEBUG_SHOW_CANVAS_FRAME,
+                                        enabled
+                                    ).apply()
+                                    aodDebugShowCanvasFrame = enabled
+                                },
+                                stringResource(R.string.setting_aod_debug_show_canvas_frame),
+                                summary = stringResource(R.string.summary_aod_debug_show_canvas_frame)
+                            )
+                        }
+                    }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
                                 diagnosticLogging,
                                 { enabled ->
                                     if (updateDiagnosticLogging(context, enabled)) {
@@ -764,6 +784,16 @@ internal fun HomeScreen(
                             systemUiVersion = capabilityReport.systemUiVersion,
                             aodVersion = capabilityReport.aodVersion
                         )
+                    }
+                    item { AboutAuthorCard() }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.about_support),
+                                summary = stringResource(R.string.summary_about_support),
+                                onClick = { openExternalUrl(context, GITHUB_CNPLUS_URL) }
+                            )
+                        }
                     }
                     item {
                         SettingsCard {

@@ -89,7 +89,6 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
     var aodLandscapeFullscreenSafeMarginPercent by remember {
         mutableStateOf(initialConfig.aodLandscapeFullscreenSafeMarginPercent)
     }
-    var aodDebugShowCanvasFrame by remember { mutableStateOf(initialConfig.aodDebugShowCanvasFrame) }
     var aodRefreshRateCap by remember { mutableStateOf(initialConfig.aodRefreshRateCap) }
 
     var showKeepAwakeDurationDialog by rememberSaveable { mutableStateOf(false) }
@@ -479,20 +478,6 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
                                 aodLandscapeFullscreenSafeMarginPercent.toInt().toString() + "%",
                             valueRange = 0f..MAX_CANVAS_PADDING_PERCENT,
                             steps = MAX_CANVAS_PADDING_PERCENT.toInt()
-                        )
-                        SwitchPreference(
-                            aodDebugShowCanvasFrame,
-                            { enabled ->
-                                prefs.edit().putBoolean(
-                                    AodRenderPreferences.AOD_DEBUG_SHOW_CANVAS_FRAME,
-                                    enabled
-                                ).apply()
-                                aodDebugShowCanvasFrame = enabled
-                            },
-                            stringResource(R.string.setting_aod_debug_show_canvas_frame),
-                            summary = stringResource(
-                                R.string.summary_aod_debug_show_canvas_frame
-                            )
                         )
                     }
                 }
