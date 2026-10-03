@@ -291,7 +291,7 @@
     <string name="setting_lyric_time_offset">歌詞時間偏移</string>
     <string name="summary_lyric_time_offset">正數延後顯示,負數提前顯示(±5 秒)</string>
 <string name="setting_duet_concurrent">顯示並發歌詞（對唱）</string>
-<string name="summary_duet_concurrent">另一行唱詞與主行播放視窗重疊達到 1 秒時,兩行同時顯示、各畫各的逐字掃光。僅熄屏生效,鎖屏保持單行。</string>
+<string name="summary_duet_concurrent">另一行唱詞與主行播放視窗重疊達到 1 秒時,兩行同時顯示、各畫各的逐字掃光。鎖屏與熄屏各自獨立開關。</string>
     <string name="setting_bright_secondary_text">高亮輔助文字</string>
     <string name="setting_secondary_next_line">輔助文字顯示第二行歌詞</string>
     <string name="setting_next_line_aux">顯示第二行輔助文字</string>

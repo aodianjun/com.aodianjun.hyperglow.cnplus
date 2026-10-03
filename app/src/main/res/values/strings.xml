@@ -321,7 +321,7 @@
     <string name="setting_lyric_time_offset">Lyric time offset</string>
     <string name="summary_lyric_time_offset">Positive values show lyrics later, negative values earlier (±5 s)</string>
 <string name="setting_duet_concurrent">Show concurrent lines (duet)</string>
-<string name="summary_duet_concurrent">When another sung line overlaps the current line by at least one second, show both lines together, each with its own karaoke timing. Always-on display only; the lockscreen card stays solo.</string>
+<string name="summary_duet_concurrent">When another sung line overlaps the current line by at least one second, show both lines together, each with its own karaoke timing. Lockscreen and always-on display switch independently.</string>
     <string name="setting_bright_secondary_text">Bright secondary text</string>
     <string name="setting_secondary_next_line">Show second line as secondary text</string>
     <string name="setting_next_line_aux">Show auxiliary text for the second line</string>

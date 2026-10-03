@@ -391,16 +391,14 @@ internal fun LyricLayoutScreen(
                         stringResource(R.string.setting_duet_alignment),
                         summary = stringResource(R.string.summary_duet_alignment)
                     )
-                    // 显示并发歌词(对唱):并发行是息屏专属(锁屏恒 solo,上游同语义),
-                    // 开关只在息屏面露出;锁屏档内的 duetConcurrent 值编译保留但不消费。
-                    if (editorState.selectedSurface == SceneCompiler.SURFACE_AOD) {
-                        SwitchPreference(
-                            selectedProfile.duetConcurrent,
-                            { enabled -> updateSelected { it.copy(duetConcurrent = enabled) } },
-                            stringResource(R.string.setting_duet_concurrent),
-                            summary = stringResource(R.string.summary_duet_concurrent)
-                        )
-                    }
+                    // 显示并发歌词(对唱):per-surface 开关,锁屏与息屏各自独立
+                    // (上游为 AOD-only,CN+ 扩展到锁屏卡片)。
+                    SwitchPreference(
+                        selectedProfile.duetConcurrent,
+                        { enabled -> updateSelected { it.copy(duetConcurrent = enabled) } },
+                        stringResource(R.string.setting_duet_concurrent),
+                        summary = stringResource(R.string.summary_duet_concurrent)
+                    )
                     // 识别对唱标记(per-surface):标记是内容级解释,息屏与锁屏各自独立生效,
                     // 改本面不影响另一面。本面未显式设置时以文档级值作有效值。
                     SwitchPreference(
