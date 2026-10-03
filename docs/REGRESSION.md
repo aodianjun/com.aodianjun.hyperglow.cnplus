@@ -81,6 +81,18 @@ and (b) unverified paths stay explicit instead of silently assumed.
   line-stream + a translation plugin yields the fourth row; without a plugin result the producer
   value is kept), pending a hardware smoke check on the SuperLyric fallback path. Note: sources
   with no upcoming-line auxiliary data anywhere simply render the rows they have.
+- "Show auxiliary text for the second line" premise relaxation (`nextLineAux` switch: premised on
+  the second lyric line actually showing — exposed when either "show next lyric line" or "second
+  line as secondary text" is on; when on, the second lyric line itself renders with secondary-text
+  styling even with `secondaryNextLine` off, premised on `showNextLine`, and its auxiliary rows are
+  appended in the standalone dimmed form too — device canvas and preview share the same decision) —
+  owner 2026-10-04 report that the premise chain did not hold (the fourth row previously existed
+  only in the auxiliary form: the standalone form could neither enable it in the settings page nor
+  append it at draw time, and the `SurfaceProfile` KDoc promise "renders aux-styled even with
+  `secondaryNextLine` off" was never implemented — this lands it) — pending a hardware smoke check:
+  with only "show next lyric line" + "show auxiliary text for the second line" on, the second line
+  renders aux-styled with its auxiliary row(s); turning the latter off returns the dimmed standalone
+  row without auxiliary rows; both switches off shows nothing; both surfaces.
 - Independent row alignment for song info and the second lyric line (`metadataAlignment` /
   `nextLineAlignment`, `auto` follows the resolved main lyric alignment) — pending a hardware smoke
   check after merge. Note: with both left at `auto`, an explicit main alignment already governed
@@ -444,6 +456,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - AOD surface 挂载韧性修复（power monitor `attach` 空 context 回退 + runCatching 隔离，ArchitectureGuardTest 守卫）——合并后待真机冒烟：息屏必须显示歌词，`adb logcat -s HyperGlow` 出现 `Power state monitor attached` 且无 `Attach failed`。
 - 「辅助文字显示第二行歌词」呈现（`secondaryNextLine` 开关：下一行歌词按辅助文字样式绘制并取代独立下一行行；两种形态颜色均走「下一行颜色」设置）——2026-10-01 真机发现辅助形态以 ≈0.9 倍主行字号渲染、读作第二条主行（`LIVE_CARD_SIZE_MULTIPLIER=0.68` 缩小主行 + 14/13sp 绝对下限顶死辅助字号），修复为下限按有效主行字号等比封顶；合并后待真机冒烟：常规与自定义字号档下辅助形态的第二行都必须明显小于主行，两个 surface 均需确认。已在 0.3.135（162）真机复验通过：锁屏同图 next/main 字形比 0.88 → 0.58（公式预测 0.90 → 0.62），息屏（xlarge）三层对比清楚（证据存档 `adbdiag/live3/`）。
 - 「显示第二行辅助文字」（`nextLineAux` 开关：第二行歌词自身也带出辅助文字行——音标/翻译按辅助文字模式取用——四行呈现：第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字）——0.3.137（164）真机已验证四行顺序（息屏 LyricInfo 源带逐行翻译时）与锁屏呈现；第二行辅助行的折行档改为跟随第二行自身呈现的行数（owner 2026-10-02 反馈「换行效果要跟着第二行不是第一个」），换行动画中第二行辅助行亦改归晋级/入场组（跟随第二行，不再随主行组退场，owner 2026-10-02 反馈），下一行的辅助文字另随插件行表富化回填（SuperLyric 逐行流 + 翻译插件即可出第四行；无插件结果时保留生产者值），待真机复核折行、动画与 SuperLyric 回退三个场景。注：任何来源都没有下一行辅助文字数据时只呈现有内容的部分。
+- 「显示第二行辅助文字」前提放宽（`nextLineAux`：以第二行歌词行实际显示为前提——「显示下一行歌词」或「辅助文字显示第二行歌词」任一开启时露出；开启时第二行歌词行本身也按辅助文字形态呈现——即使「辅助文字显示第二行歌词」关闭，此时以「显示下一行歌词」为前提；第二行歌词行以独立暗行呈现时同样追加其辅助文字行，实机与预览同源）——owner 2026-10-04 反馈前提链不成立（原实现第四行只存在于辅助形态：独立暗行形态下既无法在设置页开启、绘制分支也不追加；SurfaceProfile KDoc 中「开启时即使 secondaryNextLine 关也按辅助形态画」的原始约定从未实现，本修复将其落实）；合并后待真机冒烟：「显示下一行歌词」+「显示第二行辅助文字」开启（「辅助文字显示第二行歌词」关）时第二行按辅助形态呈现并带第四行，关闭「显示第二行辅助文字」后回到独立暗行且无第四行，两个开关全关不显示第二行，两个 surface 均需确认。
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
 - 重启对话框「歌词源」目标改为重建**全部四个**源（原为只重建选中源），并与挂钩进程重启解耦（先派发 root 杀进程，歌词源重建不再能把它吞掉）——合并后待真机冒烟：首选源保持默认 `Spicy`、屏上歌词实际来自回退源（如 `SuperLyric`）时，勾选「歌词源」并确认必须能恢复该回退源（此前为空转）；「歌词源」与系统界面/AOD 同时勾选时两个进程仍正常重启；单个源重建失败不得影响其余源。

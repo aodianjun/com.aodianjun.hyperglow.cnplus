@@ -970,11 +970,14 @@ internal class AodLyricCanvasView(
             fromAlpha = if (
                 secondLineRendersAsSecondary(
                     snapshot.content.secondaryNextLine,
+                    snapshot.content.showNextLine,
+                    snapshot.content.nextLine.isNotBlank(),
                     hasFirstLineAuxText(
                         snapshot.content.secondaryMode,
                         snapshot.content.romanized,
                         snapshot.content.translated
-                    )
+                    ),
+                    snapshot.content.nextLineAux
                 )
             ) {
                 staticSecondaryTextFactor(snapshot.content.secondaryTextBright)
@@ -1221,11 +1224,14 @@ internal class AodLyricCanvasView(
             if (positioned.row.kind == RowKind.NEXT_LINE) {
                 val secondaryForm = secondLineRendersAsSecondary(
                     content.secondaryNextLine,
+                    content.showNextLine,
+                    content.nextLine.isNotBlank(),
                     hasFirstLineAuxText(
                         content.secondaryMode,
                         content.romanized,
                         content.translated
-                    )
+                    ),
+                    content.nextLineAux
                 )
                 setTextAlpha(
                     positioned.row.paint,
@@ -1880,13 +1886,16 @@ internal class AodLyricCanvasView(
         // 下一行歌词呈现与预览同源(secondLinePresentation):「辅助文字显示第二行歌词」
         // 开启且第一行辅助文字实际显示时以辅助文字样式(音标行字号公式+亮度档)绘制并取代
         // 独立下一行行,同一行不重复出现;第一行无辅助文字时该开关不产生第二行呈现。
-        // 颜色恒走「下一行颜色」(secondLineColorArgb),不随形态改用辅助行颜色。
+        // 「显示第二行辅助文字」开启时第二行歌词行本身也按辅助文字形态呈现(即使「辅助
+        // 文字显示第二行歌词」关闭——此时以「显示下一行歌词」为前提),独立下一行行形态
+        // 同样追加其辅助行。颜色恒走「下一行颜色」(secondLineColorArgb),不随形态改用辅助行颜色。
         // 对唱并发行在场时独立下一行行整体让位(见上)。
         if (duet == null || duet.text.isBlank()) when (secondLinePresentation(
             content.secondaryNextLine,
             content.showNextLine,
             content.nextLine.isNotBlank(),
-            hasFirstLineAuxText(content.secondaryMode, content.romanized, content.translated)
+            hasFirstLineAuxText(content.secondaryMode, content.romanized, content.translated),
+            content.nextLineAux
         )) {
             SecondLinePresentation.AS_SECONDARY -> {
                 // 第二行歌词自身布局先行落定:其辅助行的换行档跟随「第二行实际呈现的行数」,
@@ -1907,51 +1916,14 @@ internal class AodLyricCanvasView(
                     nextLineLines
                 )
                 // 「显示第二行辅助文字」:在第二行歌词行之后追加该行自己的辅助文字行
-                // (音标/翻译,按辅助文字模式取用;行清单与预览同源,见 secondLineAuxRows)。
-                secondLineAuxRows(
-                    content.nextLineAux,
-                    content.secondaryMode,
-                    content.nextLineRomanized,
-                    content.nextLineTranslated
-                ).forEach { auxRow ->
-                    when (auxRow) {
-                        SecondLineAuxRow.ROMANIZED -> rows += rowWithLines(
-                            RowKind.ROMANIZED,
-                            content.nextLineRomanized,
-                            romanizedPaint,
-                            ROW_GAP_BEFORE_SECONDARY_DP * density,
-                            wrapSecondaryText(
-                                content,
-                                content.nextLineRomanized,
-                                romanizedPaint,
-                                secondLineAuxPreferredLines(nextLineLines.size),
-                                availableWidth,
-                                alignmentFor(content, RowKind.NEXT_LINE)
-                            )
-                        )
-                        SecondLineAuxRow.TRANSLATED -> rows += rowWithLines(
-                            RowKind.TRANSLATED,
-                            content.nextLineTranslated,
-                            translatedPaint,
-                            ROW_GAP_BEFORE_SECONDARY_DP * density,
-                            wrapSecondaryText(
-                                content,
-                                content.nextLineTranslated,
-                                translatedPaint,
-                                secondLineAuxPreferredLines(nextLineLines.size),
-                                availableWidth,
-                                alignmentFor(content, RowKind.NEXT_LINE)
-                            )
-                        )
-                    }
-                }
+                // (行清单与预览同源,见 appendSecondLineAuxRows)。
+                appendSecondLineAuxRows(rows, content, nextLineLines.size, availableWidth)
             }
-            SecondLinePresentation.STANDALONE -> rows += rowWithLines(
-                RowKind.NEXT_LINE,
-                content.nextLine,
-                nextLinePaint,
-                ROW_GAP_BEFORE_NEXT_LINE_DP * density,
-                wrapSecondaryText(
+            SecondLinePresentation.STANDALONE -> {
+                // 独立下一行行形态同样追加「显示第二行辅助文字」的辅助行(owner 2026-10-04:
+                // 第四行以第二行歌词行为前提,不区分第二行以哪种形态呈现;换行档跟随独立
+                // 下一行行的呈现行数)。
+                val nextLineLines = wrapSecondaryText(
                     content,
                     content.nextLine,
                     nextLinePaint,
@@ -1959,10 +1931,69 @@ internal class AodLyricCanvasView(
                     availableWidth,
                     alignmentFor(content, RowKind.NEXT_LINE)
                 )
-            )
+                rows += rowWithLines(
+                    RowKind.NEXT_LINE,
+                    content.nextLine,
+                    nextLinePaint,
+                    ROW_GAP_BEFORE_NEXT_LINE_DP * density,
+                    nextLineLines
+                )
+                appendSecondLineAuxRows(rows, content, nextLineLines.size, availableWidth)
+            }
             SecondLinePresentation.NONE -> Unit
         }
         return BuiltRows(rows, originalLayout, duetLayout)
+    }
+
+    /**
+     * 「显示第二行辅助文字」:第二行歌词行之后追加其自身的辅助文字行(音标/翻译,按辅助
+     * 文字模式取用;行清单与预览同源,见 [secondLineAuxRows])。辅助形态与独立下一行行形态
+     * 共用本装配,防止两处漂移;换行档跟随第二行歌词自身呈现的行数
+     * ([secondLineAuxPreferredLines])。
+     */
+    private fun appendSecondLineAuxRows(
+        rows: ArrayList<Row>,
+        content: AodCanvasContent,
+        nextLineRenderedLineCount: Int,
+        availableWidth: Float
+    ) {
+        secondLineAuxRows(
+            content.nextLineAux,
+            content.secondaryMode,
+            content.nextLineRomanized,
+            content.nextLineTranslated
+        ).forEach { auxRow ->
+            when (auxRow) {
+                SecondLineAuxRow.ROMANIZED -> rows += rowWithLines(
+                    RowKind.ROMANIZED,
+                    content.nextLineRomanized,
+                    romanizedPaint,
+                    ROW_GAP_BEFORE_SECONDARY_DP * density,
+                    wrapSecondaryText(
+                        content,
+                        content.nextLineRomanized,
+                        romanizedPaint,
+                        secondLineAuxPreferredLines(nextLineRenderedLineCount),
+                        availableWidth,
+                        alignmentFor(content, RowKind.NEXT_LINE)
+                    )
+                )
+                SecondLineAuxRow.TRANSLATED -> rows += rowWithLines(
+                    RowKind.TRANSLATED,
+                    content.nextLineTranslated,
+                    translatedPaint,
+                    ROW_GAP_BEFORE_SECONDARY_DP * density,
+                    wrapSecondaryText(
+                        content,
+                        content.nextLineTranslated,
+                        translatedPaint,
+                        secondLineAuxPreferredLines(nextLineRenderedLineCount),
+                        availableWidth,
+                        alignmentFor(content, RowKind.NEXT_LINE)
+                    )
+                )
+            }
+        }
     }
 
     private fun verticalBounds(state: LayoutState): AodCanvasVerticalBounds? {
@@ -3335,7 +3366,10 @@ internal class AodLyricCanvasView(
         // 「辅助行颜色」,否则"下一行颜色"设置对辅助文字形态完全失效。
         val secondaryForm = secondLineRendersAsSecondary(
             content.secondaryNextLine,
-            hasFirstLineAuxText(content.secondaryMode, content.romanized, content.translated)
+            content.showNextLine,
+            content.nextLine.isNotBlank(),
+            hasFirstLineAuxText(content.secondaryMode, content.romanized, content.translated),
+            content.nextLineAux
         )
         val color = secondLineColorArgb(
             if (secondaryForm) {

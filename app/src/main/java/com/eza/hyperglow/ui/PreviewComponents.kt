@@ -539,7 +539,9 @@ private fun LyricPreviewSurface(
                     }
                     // 下一行歌词呈现与实机同源(secondLinePresentation):「辅助文字显示第二行歌词」
                     // 开启且第一行辅助文字实际显示时以辅助文字样式(音标行字号公式+亮度档)绘制并
-                    // 取代独立下一行行;第一行无辅助文字时该开关不产生呈现。颜色仍走「下一行颜色」。
+                    // 取代独立下一行行;第一行无辅助文字时该开关不产生呈现;「显示第二行辅助文字」
+                    // 开启时第二行歌词行本身也按辅助文字形态呈现(以「显示下一行歌词」为前提)。
+                    // 颜色仍走「下一行颜色」。
                     val nextPresentation = secondLinePresentation(
                         profile.secondaryNextLine,
                         showNext,
@@ -548,7 +550,8 @@ private fun LyricPreviewSurface(
                             profile.secondaryMode,
                             snapshot.romanized,
                             snapshot.translated
-                        )
+                        ),
+                        profile.nextLineAux
                     )
                     val nextBlockRow = when (nextPresentation) {
                         SecondLinePresentation.AS_SECONDARY -> PreviewBlockRow(
@@ -603,12 +606,20 @@ private fun LyricPreviewSurface(
                             adaptiveSectioning = profile.adaptiveSectioning
                         ).size
                     }
-                    val nextAuxPreferredLines =
-                        secondLineAuxPreferredLines(nextLineRenderedLines)
+                    // 独立下一行行形态下第二行恒单行呈现(与实机 wrapSecondaryText
+                    // preferredLines=1 同源),其辅助行换行档随之;辅助形态按第二行自身呈现行数。
+                    val nextAuxPreferredLines = secondLineAuxPreferredLines(
+                        if (nextPresentation == SecondLinePresentation.STANDALONE) {
+                            1
+                        } else {
+                            nextLineRenderedLines
+                        }
+                    )
                     // 「显示第二行辅助文字」:第二行歌词行之后追加其自身的辅助文字行
-                    // (行清单与实机同源,见 secondLineAuxRows;样式沿用辅助文字行)。
+                    // (行清单与实机同源,见 secondLineAuxRows;样式沿用辅助文字行;
+                    // 辅助形态与独立下一行行形态都追加)。
                     val nextAuxRows =
-                        if (nextPresentation == SecondLinePresentation.AS_SECONDARY) {
+                        if (nextPresentation != SecondLinePresentation.NONE) {
                             secondLineAuxRows(
                                 profile.nextLineAux,
                                 profile.secondaryMode,

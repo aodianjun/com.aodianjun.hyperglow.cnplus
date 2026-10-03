@@ -655,14 +655,17 @@ class AodCanvasLayoutTest {
     fun secondLinePresentationNeverStacksBothForms() {
         // 呈现决策(实机/预览同源):「辅助文字显示第二行歌词」仅在第一行辅助文字实际显示时
         // 生效,以辅助形态取代独立下一行行,同一行不重复出现;第一行无辅助文字时该开关不产生
-        // 第二行呈现,独立下一行行按「显示下一行歌词」照常;无下行文本时一律为空。
+        // 第二行呈现,独立下一行行按「显示下一行歌词」照常;「显示第二行辅助文字」开启时
+        // 第二行歌词行本身也按辅助形态呈现(以「显示下一行歌词」为前提,即使「辅助文字显示
+        // 第二行歌词」关闭);两个第二行开关都关闭或无下行文本时一律为空。
         assertEquals(
             SecondLinePresentation.AS_SECONDARY,
             secondLinePresentation(
                 secondaryNextLine = true,
                 showNextLine = true,
                 hasLine = true,
-                hasFirstLineAux = true
+                hasFirstLineAux = true,
+                nextLineAux = false
             )
         )
         assertEquals(
@@ -671,7 +674,8 @@ class AodCanvasLayoutTest {
                 secondaryNextLine = true,
                 showNextLine = false,
                 hasLine = true,
-                hasFirstLineAux = true
+                hasFirstLineAux = true,
+                nextLineAux = false
             )
         )
         // 第一行无辅助文字:该开关不产生辅助形态,回落到独立下一行行。
@@ -681,7 +685,8 @@ class AodCanvasLayoutTest {
                 secondaryNextLine = true,
                 showNextLine = true,
                 hasLine = true,
-                hasFirstLineAux = false
+                hasFirstLineAux = false,
+                nextLineAux = false
             )
         )
         assertEquals(
@@ -690,7 +695,8 @@ class AodCanvasLayoutTest {
                 secondaryNextLine = true,
                 showNextLine = false,
                 hasLine = true,
-                hasFirstLineAux = false
+                hasFirstLineAux = false,
+                nextLineAux = false
             )
         )
         assertEquals(
@@ -699,7 +705,8 @@ class AodCanvasLayoutTest {
                 secondaryNextLine = false,
                 showNextLine = true,
                 hasLine = true,
-                hasFirstLineAux = true
+                hasFirstLineAux = true,
+                nextLineAux = false
             )
         )
         assertEquals(
@@ -708,7 +715,8 @@ class AodCanvasLayoutTest {
                 secondaryNextLine = false,
                 showNextLine = false,
                 hasLine = true,
-                hasFirstLineAux = false
+                hasFirstLineAux = false,
+                nextLineAux = false
             )
         )
         assertEquals(
@@ -717,18 +725,105 @@ class AodCanvasLayoutTest {
                 secondaryNextLine = true,
                 showNextLine = true,
                 hasLine = false,
-                hasFirstLineAux = true
+                hasFirstLineAux = true,
+                nextLineAux = false
+            )
+        )
+        // 「显示第二行辅助文字」开启:第二行歌词行本身按辅助形态呈现(以「显示下一行歌词」
+        // 为前提,即使「辅助文字显示第二行歌词」关闭;第一行无辅助文字同样成立)。
+        assertEquals(
+            SecondLinePresentation.AS_SECONDARY,
+            secondLinePresentation(
+                secondaryNextLine = false,
+                showNextLine = true,
+                hasLine = true,
+                hasFirstLineAux = true,
+                nextLineAux = true
+            )
+        )
+        assertEquals(
+            SecondLinePresentation.AS_SECONDARY,
+            secondLinePresentation(
+                secondaryNextLine = false,
+                showNextLine = true,
+                hasLine = true,
+                hasFirstLineAux = false,
+                nextLineAux = true
+            )
+        )
+        // 两个第二行开关都关闭:没有第二行歌词行,本开关不产生呈现。
+        assertEquals(
+            SecondLinePresentation.NONE,
+            secondLinePresentation(
+                secondaryNextLine = false,
+                showNextLine = false,
+                hasLine = true,
+                hasFirstLineAux = true,
+                nextLineAux = true
             )
         )
     }
 
     @Test
-    fun secondLineRendersAsSecondaryRequiresFirstLineAux() {
-        // 辅助形态判定(绘制期取色/亮度档用)与呈现决策同源:两条件同时成立才为真。
-        assertTrue(secondLineRendersAsSecondary(secondaryNextLine = true, hasFirstLineAux = true))
-        assertFalse(secondLineRendersAsSecondary(secondaryNextLine = true, hasFirstLineAux = false))
-        assertFalse(secondLineRendersAsSecondary(secondaryNextLine = false, hasFirstLineAux = true))
-        assertFalse(secondLineRendersAsSecondary(secondaryNextLine = false, hasFirstLineAux = false))
+    fun secondLineRendersAsSecondaryFollowsPresentation() {
+        // 辅助形态判定(绘制期取色/亮度档用)与呈现决策同源:两处读同一判定,防止漂移。
+        assertTrue(
+            secondLineRendersAsSecondary(
+                secondaryNextLine = true,
+                showNextLine = false,
+                hasLine = true,
+                hasFirstLineAux = true,
+                nextLineAux = false
+            )
+        )
+        assertFalse(
+            secondLineRendersAsSecondary(
+                secondaryNextLine = true,
+                showNextLine = false,
+                hasLine = true,
+                hasFirstLineAux = false,
+                nextLineAux = false
+            )
+        )
+        assertFalse(
+            secondLineRendersAsSecondary(
+                secondaryNextLine = false,
+                showNextLine = false,
+                hasLine = true,
+                hasFirstLineAux = true,
+                nextLineAux = false
+            )
+        )
+        // 「显示第二行辅助文字」开启 + 「显示下一行歌词」开启:即使「辅助文字显示第二行歌词」
+        // 关闭、第一行无辅助文字,第二行也按辅助形态取色/亮度。
+        assertTrue(
+            secondLineRendersAsSecondary(
+                secondaryNextLine = false,
+                showNextLine = true,
+                hasLine = true,
+                hasFirstLineAux = false,
+                nextLineAux = true
+            )
+        )
+        // 「显示下一行歌词」关闭:单独的「显示第二行辅助文字」不产生辅助形态。
+        assertFalse(
+            secondLineRendersAsSecondary(
+                secondaryNextLine = false,
+                showNextLine = false,
+                hasLine = true,
+                hasFirstLineAux = true,
+                nextLineAux = true
+            )
+        )
+        assertFalse(
+            secondLineRendersAsSecondary(
+                secondaryNextLine = false,
+                showNextLine = true,
+                hasLine = false,
+                hasFirstLineAux = false,
+                nextLineAux = true
+            )
+        )
     }
 
     @Test
