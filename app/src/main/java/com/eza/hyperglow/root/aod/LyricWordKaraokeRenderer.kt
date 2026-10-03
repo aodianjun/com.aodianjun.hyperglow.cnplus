@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /**

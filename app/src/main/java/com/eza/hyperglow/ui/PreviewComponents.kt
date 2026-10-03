@@ -79,6 +79,7 @@ import com.eza.hyperglow.root.aod.LyricGlowRenderer
 import com.eza.hyperglow.root.aod.LyricGlowRow
 import com.eza.hyperglow.root.aod.LyricLayoutLine
 import com.eza.hyperglow.root.aod.LyricLayoutResult
+import com.eza.hyperglow.root.aod.LyricLayoutTextLine
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.LYRIC_LINE_EXTRA_HEIGHT_DP
 import com.eza.hyperglow.root.aod.LYRIC_LINE_GAP_DP
@@ -1065,7 +1066,12 @@ private fun buildPreviewMainLayout(
     val wordRuns = when {
         betterLyrics && words.isNotEmpty() ->
             result.lines.map { line -> previewWordRuns(line, text.length, words, paint) }
-        betterLyrics -> syntheticPreviewWordRuns(result.lines, paint, lineSpanMs)
+        // 合成源只吃行文本与行宽(与副文本行同型),主行行表按同一口径转换后共用。
+        betterLyrics -> syntheticPreviewWordRuns(
+            result.lines.map { LyricLayoutTextLine(it.text, it.width) },
+            paint,
+            lineSpanMs
+        )
         else -> emptyList()
     }
     val wordSpanStartMs = wordRuns.asSequence().flatten().minOfOrNull { it.startMs } ?: 0L
@@ -1133,7 +1139,7 @@ private fun previewWordRuns(
  * 与辅助文字行([PreviewSecondaryKaraokeRow])共用本函数,只是各自传入自己的行文本与 paint。
  */
 private fun syntheticPreviewWordRuns(
-    lines: List<LyricLayoutLine>,
+    lines: List<LyricLayoutTextLine>,
     paint: TextPaint,
     lineSpanMs: Long
 ): List<List<PreviewWordRun>> {
@@ -1259,7 +1265,12 @@ private class PreviewBlockRow(
     val gapAbove: Dp,
     val dimAlpha: Float,
     /** 折行档:null = 沿用主行呈现行数;第二行自身的辅助行传第二行呈现行数(实机同源)。 */
-    val preferredLines: Int? = null
+    val preferredLines: Int? = null,
+    /**
+     * 辅助文字逐字效果是否作用于本行:仅第一行辅助文字行(音标/翻译)在开关开启时为真;
+     * 下一行行与第二行自身的辅助行恒假(见 [PreviewRowBlock.auxKaraoke])。
+     */
+    val karaoke: Boolean = false
 )
 
 /**
