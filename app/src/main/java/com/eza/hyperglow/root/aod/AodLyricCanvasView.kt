@@ -173,6 +173,7 @@ internal class AodLyricCanvasView(
     private var lastRowLayoutLogKey = ""
     private var lastTransformLogKey = ""
     private var lastRotationBoundsKey = ""
+    private var lastEffectClipCheckKey = ""
     private var lastRenderModeLogKey = ""
     private var lastIncomingProbeKey = ""
 
@@ -1683,13 +1684,16 @@ internal class AodLyricCanvasView(
             (widthPx - paddingLeft - paddingRight).coerceAtLeast(1).toFloat()
         )
         val metadataRow = built.rows.firstOrNull { it.kind == RowKind.METADATA }
+        // 效果余量计入卡片高度(与 positionRows 同一取值):辉光/下沉会越出行盒,块尾又贴住
+        // 裁剪沿,卡片不长高这部分外扩就会被切平(「歌词刚好叠到画布边缘被裁切」)。
+        val effectNeeds = effectEdges(content, built.rows, built.originalLayout.timed).needs
         val measure = ContentStackMeasure(
             stackHeightPx = contentStackHeightPx(
                 built.rows.map { it.height },
                 built.rows.map { it.gapBefore },
                 metadataGapPx = if (metadataRow != null) METADATA_LYRIC_GAP_DP * density else 0f,
-                padTopPx = paddingTop.toFloat(),
-                padBottomPx = paddingBottom.toFloat()
+                padTopPx = paddingTop.toFloat() + effectNeeds.topPx,
+                padBottomPx = paddingBottom.toFloat() + effectNeeds.bottomPx
             ),
             metadataRowHeightPx = metadataRow?.height ?: 0f
         )
@@ -2014,9 +2018,106 @@ internal class AodLyricCanvasView(
         return Row(kind, text, paint, lineHeight * lines.size, gap, lines, lineHeight, auxKaraokeWindow)
     }
 
+    /**
+     * 效果余量:两端要补的量([needs])与两端行自身的绘制外扩量(自检用,见
+     * [logEffectClipCheck])。
+     */
+    private data class CanvasEffectEdges(
+        val needs: CanvasEffectEdgeNeeds,
+        val topOverdrawPx: Float,
+        val bottomOverdrawPx: Float
+    )
+
+    /**
+     * 内容块两端要补的效果余量(见 [canvasEffectEdgeNeeds]):按视觉首/末行取外扩量。
+     * 是否真会画出辉光/下沉由**共享渲染决策**给出(主行走 [planOriginalLine] 的三选一,
+     * 辅助行走「辅助文字逐字效果」开关),布局余量与渲染同源、不另写一套档位判断;
+     * 歌曲信息行与下一行行静态绘制,恒 0。歌曲信息行按 [AodCanvasContent.metadataAnchor]
+     * 落在上沿或下沿,此时视觉首/末行分别是末条歌词行与歌曲信息行(反向堆叠分支里首行的
+     * 行前距不会被排版落位,故不计入抵扣)。
+     */
+    private fun effectEdges(
+        forContent: AodCanvasContent,
+        rows: List<Row>,
+        timed: Boolean
+    ): CanvasEffectEdges {
+        if (rows.isEmpty()) return CanvasEffectEdges(CanvasEffectEdgeNeeds(0f, 0f), 0f, 0f)
+        val glowOn = forContent.glowMode != "Off"
+        val betterLyrics = forContent.animationMode == "BetterLyrics"
+        // 主行:路径与生效填充档由共享决策函数给出(与 drawOriginal 同一份)。
+        val plan = planOriginalLine(
+            animationMode = forContent.animationMode,
+            timed = timed,
+            lineLevelSync = forContent.lineLevelSync,
+            glowMode = forContent.glowMode,
+            lineSyncFillMode = forContent.lineSyncFillMode,
+            lineStartMs = forContent.lineStartMs,
+            lineEndMs = forContent.lineEndMs
+        )
+        val mainGlow = when (plan.path) {
+            OriginalLinePath.STATIC -> false
+            OriginalLinePath.WORD_KARAOKE -> glowOn
+            OriginalLinePath.BLOCK_SWEEP -> glowOn && plan.fillMode != "None"
+        }
+        val mainSink = plan.path == OriginalLinePath.WORD_KARAOKE && betterLyrics
+        // 辅助行逐字效果:辉光与下沉都只在「BetterLyrics」档出现(共享渲染核心同判)。
+        val auxGlow = betterLyrics && glowOn
+        val metadataAtBottom = forContent.metadataAnchor == "bottom"
+        val topRow = if (metadataAtBottom) {
+            rows.firstOrNull { it.kind != RowKind.METADATA }
+        } else {
+            rows.first()
+        }
+        val topOverdraw = rowEffectOverdrawPx(topRow, mainGlow, mainSink, auxGlow, betterLyrics)
+        val bottomOverdraw = rowEffectOverdrawPx(rows.last(), mainGlow, mainSink, auxGlow, betterLyrics)
+        return CanvasEffectEdges(
+            needs = canvasEffectEdgeNeeds(
+                topRowOverdrawPx = topOverdraw,
+                topRowGapBeforePx = if (metadataAtBottom) 0f else topRow?.gapBefore ?: 0f,
+                bottomRowOverdrawPx = bottomOverdraw
+            ),
+            topOverdrawPx = topOverdraw,
+            bottomOverdrawPx = bottomOverdraw
+        )
+    }
+
+    /**
+     * 单行的绘制外扩量(px):主行(ORIGINAL/DUET_ORIGINAL)走词级卡拉OK/扫光渲染,按
+     * [mainGlow]/[mainSink] 外扩;携带行窗的辅助行(「辅助文字逐字效果」)按
+     * [auxGlow]/[auxSink] 外扩;其余行(歌曲信息/下一行)静态绘制,恒 0。
+     */
+    private fun rowEffectOverdrawPx(
+        row: Row?,
+        mainGlow: Boolean,
+        mainSink: Boolean,
+        auxGlow: Boolean,
+        auxSink: Boolean
+    ): Float {
+        if (row == null) return 0f
+        val (glow, sink) = when (row.kind) {
+            RowKind.ORIGINAL, RowKind.DUET_ORIGINAL -> mainGlow to mainSink
+            RowKind.ROMANIZED, RowKind.TRANSLATED, RowKind.DUET_ROMANIZED, RowKind.DUET_TRANSLATED ->
+                if (row.auxKaraokeWindow == null) false to false else auxGlow to auxSink
+            else -> false to false
+        }
+        if (!glow && !sink) return 0f
+        return canvasEffectAllowancePx(
+            textSizePx = row.paint.textSize,
+            lineHeightPx = row.lineHeight,
+            glowEnabled = glow,
+            floatSinkActive = sink
+        )
+    }
+
     private fun positionRows(rows: List<Row>, originalLayout: OriginalLayout): List<PositionedRow> {
         val positioned = ArrayList<PositionedRow>(rows.size)
         val metadata = rows.firstOrNull { it.kind == RowKind.METADATA }
+        // 效果余量:辉光/下沉会越出行盒,块沿贴住内容裁剪框时被切平(「歌词刚好叠到画布边缘
+        // 被裁切」)。有歌曲信息行时它按锚点贴住一侧、由卡片长高在另一侧让出余量,放置不变;
+        // 无歌曲信息行时整块顶锚,顶部余量要在放置起点里让出。底部余量两种分支都由
+        // measureContentStack 计进卡片高度(块尾与裁剪沿之间没有现成留白)。
+        val effectEdges = effectEdges(content, rows, originalLayout.timed)
+        val effectNeeds = effectEdges.needs
         if (metadata != null) {
             val anchor = when (content.metadataAnchor) {
                 "bottom" -> "bottom"
@@ -2071,8 +2172,10 @@ internal class AodLyricCanvasView(
             }
         } else {
             val total = rows.sumOf { (it.height + it.gapBefore).toDouble() }.toFloat()
-            val topPadding = padTop.toFloat()
-            val bottomPadding = oh - padBottom
+            // 无歌曲信息行:整块顶锚,两端余量都从放置区间让出(底部余量与卡片长高同源,
+            // 卡片变高后块尾自然离裁剪沿 effectNeeds.bottomPx)。
+            val topPadding = padTop.toFloat() + effectNeeds.topPx
+            val bottomPadding = oh - padBottom - effectNeeds.bottomPx
             val available = (bottomPadding - topPadding).coerceAtLeast(0f)
             // issue #63:横屏时行堆叠轴经 90° 旋转映射为画布的视觉横轴,沿用竖屏的 TOP 会让
             // 内容整块贴向画布一侧(现场实测偏约 185px)。横屏的最终摆放统一交给
@@ -2116,12 +2219,58 @@ internal class AodLyricCanvasView(
         }
         val original = positioned.firstOrNull { it.row.kind == RowKind.ORIGINAL }
         val firstLine = originalLayout.lines.firstOrNull()
-        if (original == null || firstLine == null || firstLine.rubyHeight <= 0f) return positioned
+        if (original == null || firstLine == null || firstLine.rubyHeight <= 0f) {
+            logEffectClipCheck(positioned, effectEdges)
+            return positioned
+        }
         val firstBaseBaseline = original.baseline + firstLine.rubyHeight
         val top = rubyClipTop(firstBaseBaseline, originalPaint.fontMetrics.ascent, firstLine.rubyHeight)
         val shift = rubyTopShift(top, paddingTop.toFloat())
-        return if (shift == 0f) positioned else positioned.map {
+        val finalRows = if (shift == 0f) positioned else positioned.map {
             if (it.row.kind == RowKind.METADATA) it else it.copy(baseline = it.baseline + shift)
+        }
+        logEffectClipCheck(finalRows, effectEdges)
+        return finalRows
+    }
+
+    /**
+     * 「安全栅栏」自检(见 [effectClipCheckPx]):把最终摆放(含横屏锚定与注音位移)的内容块
+     * 与其绘制外扩对一遍内容裁剪框。已知形状恒为 clean —— 余量由 [effectEdges] 算准;
+     * 只有**未知形状**(新增效果/新增行种类没同步进余量)或内容本身放不下才越界,以 W 级留痕,
+     * 而不是静默把辉光/下沉切平在裁剪沿上。按几何签名去重,避免每帧刷屏。
+     */
+    private fun logEffectClipCheck(rows: List<PositionedRow>, edges: CanvasEffectEdges) {
+        if (rows.isEmpty()) return
+        var minTop = Float.POSITIVE_INFINITY
+        var maxBottom = Float.NEGATIVE_INFINITY
+        rows.forEach { p ->
+            val top = p.baseline + p.row.paint.fontMetrics.ascent
+            val bottom = p.baseline + p.row.height
+            if (top < minTop) minTop = top
+            if (bottom > maxBottom) maxBottom = bottom
+        }
+        if (!minTop.isFinite() || !maxBottom.isFinite()) return
+        val clipBottom = oh - padBottom
+        val check = effectClipCheckPx(
+            blockTopPx = minTop,
+            blockBottomPx = maxBottom,
+            topOverdrawPx = edges.topOverdrawPx,
+            bottomOverdrawPx = edges.bottomOverdrawPx,
+            clipTopPx = padTop.toFloat(),
+            clipBottomPx = clipBottom.toFloat()
+        )
+        if (check.clean) return
+        val reason = if (check.rowOverflowPx > 0f) {
+            "content taller than the content clip box"
+        } else {
+            "effect allowance insufficient; halo/float would be cut"
+        }
+        val key = "block=${minTop.roundToInt()}..${maxBottom.roundToInt()} " +
+            "clip=$padTop..$clipBottom row=${check.rowOverflowPx} " +
+            "eff=${check.effectOverflowPx} ($reason)"
+        if (key != lastEffectClipCheckKey) {
+            lastEffectClipCheckKey = key
+            HookLogger.w("AodLyricCanvasView", "Effect clip check: $key")
         }
     }
 
