@@ -65,6 +65,8 @@ internal data class AodCanvasContent(
     val adaptiveSectioning: Boolean,
     val palette: Map<String, String>,
     val secondaryTextBright: Boolean = true,
+    /** 辅助文字逐字效果:见 SurfaceProfile.secondaryWordKaraoke。 */
+    val secondaryWordKaraoke: Boolean = false,
     val lyricLineLimit: Int = 3,
     val showNextLine: Boolean = false,
     /** 辅助文字显示第二行歌词:见 SurfaceProfile.secondaryNextLine。 */

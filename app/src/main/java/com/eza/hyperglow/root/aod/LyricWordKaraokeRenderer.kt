@@ -46,6 +46,25 @@ internal const val KARAOKE_FLOAT_DURATION_MS = 450L
 internal fun isLongKaraokeSyllable(durationMs: Long): Boolean =
     durationMs >= KARAOKE_LONG_SYLLABLE_MS
 
+/** 未唱底字不透明度因子(与实机 setTextAlpha(0.35f) 同源)。 */
+private const val KARAOKE_UNSUNG_FACTOR = 0.35f
+
+/**
+ * 已唱字不透明度:[alphaFactor] 为该行的整体亮度档(主行恒 1,辅助文字行取
+ * [steadyTextAlpha] 后的辅助亮度),钳制 0..255。纯函数,可单测。
+ */
+internal fun karaokeSungAlpha(alphaFactor: Float): Int =
+    (255f * alphaFactor.coerceIn(0f, 1f)).roundToInt().coerceIn(0, 255)
+
+/**
+ * 未唱底字不透明度:与已唱同乘 [alphaFactor],保持 [KARAOKE_UNSUNG_FACTOR] 的相对暗度
+ * (辅助文字逐字效果下「高亮辅助文字」关闭时整行一起变暗)。纯函数,可单测。
+ */
+internal fun karaokeUnsungAlpha(alphaFactor: Float): Int =
+    (255f * steadyTextAlpha(KARAOKE_UNSUNG_FACTOR) * alphaFactor.coerceIn(0f, 1f))
+        .roundToInt()
+        .coerceIn(0, 255)
+
 /**
  * 单次播放的放大峰值:BetterLyrics 档长音节放大到 [KARAOKE_LONG_SYLLABLE_SCALE_PEAK],
  * 其余沿用 [KARAOKE_BASE_SCALE_PEAK]。纯函数,可单测。
@@ -160,15 +179,15 @@ internal object LyricWordKaraokeRenderer {
     /** 词内扫光带占词宽比例(与 [LyricGlowRenderer] 同式)。 */
     const val SWEEP_BAND_FRACTION = 0.28f
 
-    /** 未唱底字不透明度因子(与实机 setTextAlpha(0.35f) 同源)。 */
-    private const val UNSUNG_FACTOR = 0.35f
-
     /** 未唱字静态缩放(历史逐字卡拉OK档)。 */
     private const val UNSUNG_SCALE = 0.95f
 
     /**
      * 逐字卡拉OK绘制。[betterLyrics] 为「BetterLyrics」档:启用未唱下沉/已唱上浮与
      * 长音节放大/辉光;否则为历史逐字档(无浮动,短词放大 1.0505)。
+     *
+     * [alphaFactor] 为该行整体亮度档(默认 1=主行语义):已唱/未唱/辉光/扫光四路不透明度
+     * 同乘它,供辅助文字逐字效果沿用「高亮辅助文字」设置而不另建一套取色。
      */
     fun draw(
         canvas: Canvas,
@@ -180,10 +199,12 @@ internal object LyricWordKaraokeRenderer {
         glowColor: Int,
         glowEnabled: Boolean,
         betterLyrics: Boolean,
-        sinkPx: Float
+        sinkPx: Float,
+        alphaFactor: Float = 1f
     ) {
         val textSize = paint.textSize
-        val dimAlpha = (255f * steadyTextAlpha(UNSUNG_FACTOR)).toInt().coerceIn(0, 255)
+        val sungAlpha = karaokeSungAlpha(alphaFactor)
+        val dimAlpha = karaokeUnsungAlpha(alphaFactor)
         var index = 0
         while (index < runs.size) {
             val run = runs[index]
@@ -211,7 +232,7 @@ internal object LyricWordKaraokeRenderer {
             paint.shader = null
             paint.clearShadowLayer()
             paint.color = if (sung) sungColor else unsungColor
-            paint.alpha = if (sung) 255 else dimAlpha
+            paint.alpha = if (sung) sungAlpha else dimAlpha
             canvas.drawText(run.text, run.x, baseline + y, paint)
             if (active) {
                 // 长音节辉光(BetterLyrics 档 + 发光开启):glow 色阴影画在 sung 色文字下,
@@ -220,7 +241,7 @@ internal object LyricWordKaraokeRenderer {
                 if (betterLyrics && glowEnabled && run.longSyllable) {
                     paint.shader = null
                     paint.color = sungColor
-                    paint.alpha = 255
+                    paint.alpha = sungAlpha
                     paint.setShadowLayer(
                         textSize * LyricGlowRenderer.HALO_RADIUS_FRACTION,
                         0f,
@@ -232,7 +253,7 @@ internal object LyricWordKaraokeRenderer {
                 }
                 // 词内扫光:已扫部分 sung 色 + 光带拖尾(与 LyricGlowRenderer Pass 3 同形状)。
                 paint.color = sungColor
-                paint.alpha = 255
+                paint.alpha = sungAlpha
                 applySweepShader(paint, sungColor, run.x, played, run.width)
                 canvas.drawText(run.text, run.x, baseline + y, paint)
                 paint.shader = null

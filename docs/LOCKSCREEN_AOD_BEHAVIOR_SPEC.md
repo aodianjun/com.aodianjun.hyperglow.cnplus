@@ -401,6 +401,20 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   readability floors are capped relative to the effective main size, so the auxiliary form stays
   visibly smaller than the main line at every size setting and never renders as a second main
   line.
+- Auxiliary text can light up word by word ("word-by-word auxiliary text": a per-surface switch,
+  default off). When it is on, the first line's auxiliary rows (transliteration and translation)
+  are drawn through the same shared karaoke renderer as the main line, so their bright/dim
+  progression and sweep — and in the `BetterLyrics` mode the float, long-block scale and glow —
+  follow the main line, while the rows keep the auxiliary color and the bright/dim auxiliary
+  setting. Rows whose source carries word-level romanization light up on those real word windows;
+  everything else is synthesized across the row's own line window with the same geometric front as
+  the synthesized main-line karaoke (CJK per character, western per word, one shared highlight
+  progress per block). A concurrent (duet) line's own auxiliary rows use that line's window. Rows
+  belonging to the second line — the secondary-form second line and its own auxiliary rows — never
+  take the effect (their playback window has not started). The switch is independent of the main
+  line's progress effect: with `None` the main line stays static while the auxiliary rows still
+  animate (and keep the frame clock running). With the switch off the auxiliary rows
+  are byte-for-byte unchanged.
 - Song info and the second lyric line each carry their own per-surface alignment choice (`auto`,
   `start`, `center`, `end`). `auto` follows the resolved main lyric alignment (the main `auto` still
   right-aligns right-to-left lyrics); explicit values align that row independently of the main
@@ -769,6 +783,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现仅在第一行辅助文字实际显示时生效（第一行按「辅助文字」模式没有可显示的辅助文字行时，本开关不产生第二行呈现）；呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；生效时取代独立的下一行歌词行而不与之叠加，不生效时独立下一行呈现保持不变。
 - 「显示第二行辅助文字」（每个 surface 独立，以「辅助文字显示第二行歌词」为前提，仅在该开关开启且第一行辅助文字实际显示时露出）：开启后第二行歌词自身也带出它的辅助文字行（音标/翻译，按辅助文字模式取用，源无内容则不出）——四行呈现，顺序为第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字。其辅助文字行沿用辅助文字行的字号/亮度档与第二行歌词对齐，折行档跟随第二行歌词自身呈现的行数（不得沿用主行行数）；关闭时只呈现第二行歌词行。源没有下一行的辅助文字时只呈现有内容的部分。
 - 辅助文字行（音译、翻译与辅助文字形态的第二行歌词）以约为有效主行字号一半渲染；其可读性下限按有效主行字号等比封顶（不超过约 0.62 倍），任何字号档下辅助形态都必须明显小于主行，不得渲染成第二条主行。
+- 辅助文字可逐字点亮（「辅助文字逐字效果」，每个 surface 独立开关，默认关）：开启后第一行辅助行（音译与翻译）与主行共用同一逐字渲染核心——亮/暗推进与扫光随主行，「BetterLyrics」档下浮动、长块放大与辉光同样随主行；行本身仍取辅助行颜色与「高亮辅助文字」亮度档。源带词级音译时间时按真实词窗点亮；其余按该行自身的行窗口 + 行内几何合成（中文逐字、西文按词，块内共享一个高亮进度），推进前缘与主行行级合成源同式。并发行（对唱）自己的辅助行取并发行窗口。属于第二行的行——辅助文字形态的第二行歌词与其自身的辅助行——不参与（其播放窗口尚未开始）。本开关独立于主行行进度效果：进度效果选 `None` 时主行静态，辅助行照常逐字点亮并维持帧时钟。开关关闭时辅助行逐字节不变。
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
 - 对唱分侧是每个 surface 独立的开关（默认开启）。开启时，行级 `alignedRight` 置位的行绘制在右侧；关闭时忽略该位，所有行按主对齐解析。行级分侧位来源于歌词源：源显式标记（Spicy `alignedRight`、Lyricon `isAlignedRight`、插件 `isAlignedRight`）恒优先，否则由行级演唱者身份元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal`，类型键 `amll:agent-type`/`agent:type`/`agentType`/`vocal:type`）推导——首位歌手居左、其余居右；带显式类型时 `group` 恒左、`other` 起右并随歌手切换翻转。无演唱者信息的曲目保持纯主对齐行为。
 - 识别对唱标记是每个 surface 独立的开关（默认开启；未显式设置的曲面继承文档级默认值）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。快照为息屏/锁屏共用，只携带原始行文本与两套预计算分侧（元数据身份版、标记识别版），隐去标记与选用分侧的决策推迟到各渲染面按本面开关执行——改一面的开关不联动另一面。（副歌）/（间奏）等段落标记同样识别（连写或复合如（男·RAP）的标记串整串剥离），但只隐去文本——不作为演唱者身份、不改动行的分侧。词表外的括号内容按歌词原样保留。纯标记行保留原样显示。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。

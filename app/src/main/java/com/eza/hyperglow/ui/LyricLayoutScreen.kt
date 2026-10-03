@@ -445,6 +445,19 @@ internal fun LyricLayoutScreen(
                             stringResource(R.string.setting_bright_secondary_text)
                         )
                     }
+                    // 辅助文字逐字效果(per-surface):第一行辅助文字行(音标/翻译)随歌词逐字点亮。
+                    // 只在辅助文字模式非「仅主行」时露出(没有第一行辅助文字行时该开关无对象);
+                    // 第二行歌词及其辅助行不参与。
+                    if (selectedProfile.secondaryMode != "Main only") {
+                        SwitchPreference(
+                            selectedProfile.secondaryWordKaraoke,
+                            { enabled ->
+                                updateSelected { it.copy(secondaryWordKaraoke = enabled) }
+                            },
+                            stringResource(R.string.setting_secondary_word_karaoke),
+                            summary = stringResource(R.string.summary_secondary_word_karaoke)
+                        )
+                    }
                     SwitchPreference(
                         selectedProfile.secondaryNextLine,
                         { enabled -> updateSelected { it.copy(secondaryNextLine = enabled) } },

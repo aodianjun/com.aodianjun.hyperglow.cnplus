@@ -365,7 +365,13 @@ internal class AodLyricCanvasView(
             nextContent.lineStartMs,
             nextContent.lineEndMs,
             nextContent.words,
-            nextContent.speed
+            nextContent.speed,
+            // 辅助文字逐字效果:确有第一行辅助文字行时独立驱动帧(主行进度效果 None 也照常)。
+            auxKaraoke = nextContent.secondaryWordKaraoke && hasFirstLineAuxText(
+                nextContent.secondaryMode,
+                nextContent.romanized,
+                nextContent.translated
+            )
         )
         resolvedPalette = resolveAodPalette(nextContent.palette)
         alignment = viewAlignment(
@@ -1201,6 +1207,13 @@ internal class AodLyricCanvasView(
                 rowIndex++
                 continue
             }
+            // 辅助文字逐字效果:携带行窗口的辅助行走逐字渲染(自管取色/亮度),不落静态路径。
+            val auxWindow = positioned.row.auxKaraokeWindow
+            if (auxWindow != null) {
+                drawAuxKaraokeRow(canvas, positioned.row, positioned.baseline, auxWindow)
+                rowIndex++
+                continue
+            }
             // 下一行歌词颜色恒走独立的 nextLineText token(与预览/非行级同步路径同源
             // secondLineColorArgb):「辅助文字显示第二行歌词」只借辅助文字的亮度档,
             // 不借「辅助行颜色」,否则"下一行颜色"设置对该形态完全失效。
@@ -1268,6 +1281,111 @@ internal class AodLyricCanvasView(
             )
             if (line.ruby.isNotEmpty()) drawRuby(canvas, line, lineBaseline, bright)
             precedingRuby += line.rubyHeight
+        }
+    }
+
+    /**
+     * 辅助文字行(第一行音标/翻译,以及并发行自己的辅助行)的逐字效果
+     * (「辅助文字逐字效果」,见 SurfaceProfile.secondaryWordKaraoke):与主行 drawWordKaraoke
+     * 同一共享渲染核心(LyricWordKaraokeRenderer),观感随档——「BetterLyrics」档同主行有
+     * 未唱下沉/已唱上浮、长块放大与辉光,其余档为基础逐字卡拉OK(词内扫光)。
+     *
+     * 时间源两路:源提供逐字音标时间时(transliterationLines 的 timedSegments)按真实词窗
+     * 点亮;翻译行与无逐字音标的音标行按行窗口 + 行内几何合成(syntheticKaraokeBlocks /
+     * syntheticCharTimeWindow,与主行行级源同式,推进前缘与行级扫光几何一致)。
+     * [window] 为该行自身的播放窗口(第一行辅助行=当前行窗口,并发行辅助行=并发行窗口)。
+     * 颜色取辅助行颜色,亮度档沿用「高亮辅助文字」([alphaFactor]),不另建取色体系。
+     */
+    private fun drawAuxKaraokeRow(canvas: Canvas, row: Row, baseline: Float, window: LongRange) {
+        if (row.lines.isEmpty()) return
+        val paint = row.paint
+        val position = projectedPosition()
+        val betterLyrics = content.animationMode == "BetterLyrics"
+        val sinkPx = karaokeFloatSinkPx(row.lineHeight)
+        val alphaFactor = steadyTextAlpha(staticSecondaryTextFactor(content.secondaryTextBright))
+        val totalWidth = row.lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
+        val runs = ArrayList<KaraokeWordRun>(16)
+        var precedingWidth = 0f
+        row.lines.forEachIndexed { lineIndex, line ->
+            val lineBaseline = baseline + lineIndex * row.lineHeight
+            runs.clear()
+            val segments = line.timedSegments
+            if (segments.isNotEmpty()) {
+                // 逐字音标源:每词一段按真实词窗点亮;长词判定/放大/辉光与主行词级路径同式。
+                var x = 0f
+                segments.forEach { segment ->
+                    val durationMs = segment.endMs - segment.startMs
+                    runs += KaraokeWordRun(
+                        text = segment.text,
+                        x = line.startX + x,
+                        width = segment.width,
+                        playedFraction = timedWordProgress(position, segment.startMs, segment.endMs),
+                        durationMs = durationMs,
+                        longSyllable = isLongKaraokeSyllable(durationMs)
+                    )
+                    x += segment.width + segment.gapAfter
+                }
+            } else {
+                // 无逐字时间(翻译行/纯行级音标):按行窗口 + 行内几何合成——中文逐字成块、
+                // 西文按词成块,块内字符各自扫光、共享块级高亮进度(与主行行级源同式)。
+                var prefix = 0f
+                var charIndex = 0
+                for (block in syntheticKaraokeBlocks(line.text)) {
+                    while (charIndex < block.first) {
+                        prefix += paint.measureText(line.text, charIndex, charIndex + 1)
+                        charIndex++
+                    }
+                    val blockWidth = paint.measureText(line.text, block.first, block.last + 1)
+                    val blockWindow = syntheticCharTimeWindow(
+                        window.first,
+                        window.last,
+                        totalWidth,
+                        precedingWidth + prefix,
+                        blockWidth
+                    )
+                    val blockHighlight = timedWordProgress(position, blockWindow.first, blockWindow.last)
+                    val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
+                    var blockChar = block.first
+                    while (blockChar <= block.last) {
+                        val charWidth = paint.measureText(line.text, blockChar, blockChar + 1)
+                        val charWindow = syntheticCharTimeWindow(
+                            window.first,
+                            window.last,
+                            totalWidth,
+                            precedingWidth + prefix,
+                            charWidth
+                        )
+                        runs += KaraokeWordRun(
+                            text = line.text.substring(blockChar, blockChar + 1),
+                            x = line.startX + prefix,
+                            width = charWidth,
+                            playedFraction = timedWordProgress(position, charWindow.first, charWindow.last),
+                            durationMs = charWindow.last - charWindow.first,
+                            longSyllable = blockLong,
+                            highlightFraction = if (blockLong) blockHighlight else -1f
+                        )
+                        prefix += charWidth
+                        blockChar++
+                    }
+                    charIndex = block.last + 1
+                }
+            }
+            if (runs.isNotEmpty()) {
+                LyricWordKaraokeRenderer.draw(
+                    canvas = canvas,
+                    paint = paint,
+                    runs = runs,
+                    baseline = lineBaseline,
+                    sungColor = resolvedPalette.secondaryText,
+                    unsungColor = resolvedPalette.secondaryText,
+                    glowColor = resolvedPalette.glow,
+                    glowEnabled = content.glowMode != "Off",
+                    betterLyrics = betterLyrics,
+                    sinkPx = sinkPx,
+                    alphaFactor = alphaFactor
+                )
+            }
+            precedingWidth += line.width
         }
     }
 
@@ -1656,6 +1774,13 @@ internal class AodLyricCanvasView(
         }
         val showReading = content.secondaryMode == "Transliteration" || content.secondaryMode == "Both"
         val showTranslation = content.secondaryMode == "Translation" || content.secondaryMode == "Both"
+        // 辅助文字逐字效果(见 SurfaceProfile.secondaryWordKaraoke):第一行辅助行取当前行窗口;
+        // 关闭时恒空,行按静态绘制零变化。
+        val auxKaraokeWindow = if (content.secondaryWordKaraoke) {
+            content.lineStartMs..content.lineEndMs
+        } else {
+            null
+        }
         if (showReading && content.romanized.isNotBlank()) {
             val lines = transliterationLines(content, originalLayout, availableWidth)
                 ?: wrapSecondaryText(
@@ -1665,7 +1790,7 @@ internal class AodLyricCanvasView(
                     originalLayout.lineCount,
                     availableWidth
                 )
-            rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, ROW_GAP_BEFORE_SECONDARY_DP * density, lines)
+            rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, ROW_GAP_BEFORE_SECONDARY_DP * density, lines, auxKaraokeWindow)
         }
         if (showTranslation && content.translated.isNotBlank()) {
             rows += rowWithLines(
@@ -1679,7 +1804,8 @@ internal class AodLyricCanvasView(
                     translatedPaint,
                     originalLayout.lineCount,
                     availableWidth
-                )
+                ),
+                auxKaraokeWindow
             )
         }
         // 对唱并发行(仅息屏内容携带,见 SurfaceProfile.duetConcurrent):主行块(原文+辅助行)
@@ -1690,6 +1816,11 @@ internal class AodLyricCanvasView(
         if (duet != null && duet.text.isNotBlank()) {
             val built = buildDuetOriginalLayout(duet, availableWidth)
             duetLayout = built
+            val duetAuxKaraokeWindow = if (content.secondaryWordKaraoke) {
+                duet.lineStartMs..duet.lineEndMs
+            } else {
+                null
+            }
             val metrics = originalPaint.fontMetrics
             val lineHeight = metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density
             rows += Row(
@@ -1719,7 +1850,9 @@ internal class AodLyricCanvasView(
                         built.lineCount,
                         availableWidth,
                         alignmentFor(content, RowKind.DUET_ROMANIZED)
-                    )
+                    ),
+                    // 并发行辅助行取并发行自己的窗口,逐字推进与并发行主行同拍。
+                    duetAuxKaraokeWindow
                 )
             }
             if (showTranslation && duet.translated.isNotBlank()) {
@@ -1735,7 +1868,8 @@ internal class AodLyricCanvasView(
                         built.lineCount,
                         availableWidth,
                         alignmentFor(content, RowKind.DUET_TRANSLATED)
-                    )
+                    ),
+                    duetAuxKaraokeWindow
                 )
             }
         }
@@ -1872,11 +2006,12 @@ internal class AodLyricCanvasView(
         text: String,
         paint: Paint,
         gap: Float,
-        lines: List<TextLine>
+        lines: List<TextLine>,
+        auxKaraokeWindow: LongRange? = null
     ): Row {
         val metrics = paint.fontMetrics
         val lineHeight = safeSecondaryLineHeight(metrics.ascent, metrics.descent, metrics.bottom)
-        return Row(kind, text, paint, lineHeight * lines.size, gap, lines, lineHeight)
+        return Row(kind, text, paint, lineHeight * lines.size, gap, lines, lineHeight, auxKaraokeWindow)
     }
 
     private fun positionRows(rows: List<Row>, originalLayout: OriginalLayout): List<PositionedRow> {
@@ -2882,6 +3017,12 @@ internal class AodLyricCanvasView(
 
     private fun drawText(canvas: Canvas, row: Row, baseline: Float) {
         // 水平 padding 边界已由 drawRows 顶层的共享逻辑裁剪统一施加,无需逐行再次 clip。
+        // 辅助文字逐字效果:携带行窗口的辅助行整行委托逐字渲染(多行共享同一推进前缀)。
+        val auxWindow = row.auxKaraokeWindow
+        if (auxWindow != null) {
+            drawAuxKaraokeRow(canvas, row, baseline, auxWindow)
+            return
+        }
         var lineIndex = 0
         while (lineIndex < row.lines.size) {
             val line = row.lines[lineIndex]
@@ -3090,7 +3231,13 @@ internal class AodLyricCanvasView(
         val height: Float,
         val gapBefore: Float,
         val lines: List<TextLine>,
-        val lineHeight: Float
+        val lineHeight: Float,
+        /**
+         * 辅助文字逐字效果的行窗口(空=不参与,静态绘制):仅第一行辅助文字行与并发行
+         * 辅助行在「辅助文字逐字效果」开启时携带;第二行歌词及其辅助行恒为空(它们的
+         * 播放窗口尚未开始,不能借当前行窗口点亮)。
+         */
+        val auxKaraokeWindow: LongRange? = null
     )
     private data class OriginalLine(
         val text: String,

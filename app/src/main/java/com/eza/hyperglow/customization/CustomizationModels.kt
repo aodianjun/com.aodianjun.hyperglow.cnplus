@@ -75,6 +75,13 @@ data class SurfaceProfile(
     val alignment: String = "auto",
     val secondaryMode: String = "Main only",
     val secondaryTextBright: Boolean = true,
+    /**
+     * 辅助文字逐字效果:第一行辅助文字行(音标/翻译)随歌词逐字点亮——未唱暗、唱到逐字
+     * 变亮并带词内扫光,「BetterLyrics」档下同主行一样有浮动/长块放大/辉光(共享渲染核心)。
+     * 源带逐字音标时间时按真实词窗,否则按行窗口 + 行内几何合成(同主行行级源)。
+     * 只作用于第一行辅助文字;第二行歌词及其辅助行不参与。默认关,关闭时逐字行为零变化。
+     */
+    val secondaryWordKaraoke: Boolean = false,
     val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
     /** Show the upcoming next lyric line dimmed below the active line. */
     val showNextLine: Boolean = false,
@@ -273,6 +280,8 @@ data class CompiledSurfaceProfile(
     val metadataSizePercent: Int = 100,
     val rubyVisible: Boolean = true,
     val secondaryTextBright: Boolean = true,
+    /** 辅助文字逐字效果,见 [SurfaceProfile.secondaryWordKaraoke]。 */
+    val secondaryWordKaraoke: Boolean = false,
     val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
     /** Show the upcoming next lyric line dimmed below the active line. */
     val showNextLine: Boolean = false,

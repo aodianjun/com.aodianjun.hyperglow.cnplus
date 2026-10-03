@@ -128,11 +128,19 @@ internal fun hasActiveCanvasTiming(
     lineStartMs: Long,
     lineEndMs: Long,
     words: List<AodCanvasWord>,
-    speed: Float = 1f
+    speed: Float = 1f,
+    /**
+     * 辅助文字逐字效果是否在本帧内容上生效(开关开启且确有第一行辅助文字行):
+     * 它是独立于主行进度效果的时序动画,行级同步 + 进度效果 None(主行静态)时仍需续帧。
+     */
+    auxKaraoke: Boolean = false
 ): Boolean {
     if (speed <= 0f) return false
-    // 行级同步 + 进度效果选 None:不驱动进度时序,歌词静态呈现(与预览 None 一致)。
-    if (lineLevelSync && resolvedLineSyncFillMode(true, lineSyncFillMode) == "None") return false
+    // 行级同步 + 进度效果选 None:不驱动主行进度时序,歌词静态呈现(与预览 None 一致);
+    // 辅助文字逐字效果不受主行进度效果影响,开启时照常驱动帧。
+    if (lineLevelSync && resolvedLineSyncFillMode(true, lineSyncFillMode) == "None") {
+        return auxKaraoke
+    }
     if (lineEndMs > lineStartMs) return true
     return words.any { it.endMs > it.startMs }
 }
