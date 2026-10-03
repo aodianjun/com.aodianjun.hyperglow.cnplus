@@ -74,6 +74,8 @@
     <string name="summary_lyric_source_lyricon">Uses the Lyricon Xposed module in SystemUI for callback-driven lyrics.</string>
     <string name="summary_lyric_source_superlyric">Uses the SuperLyric Xposed module, which pushes active lines over Binder.</string>
     <string name="summary_lyric_source_lyricinfo">Uses the LyricInfo Xposed module, reading lyrics injected into MediaSession metadata.</string>
+    <string name="setting_filter_non_music_sources">Hide lyrics for video and other non-music audio</string>
+    <string name="summary_filter_non_music_sources">Identifies the current audio source (the player app and the audio content type it declares). Video apps and other non-music sources will not show lyrics.</string>
     <string name="label_active_source">Active source</string>
     <string name="summary_active_source">%1$s · %2$s</string>
     <string name="source_status_connected">Connected</string>

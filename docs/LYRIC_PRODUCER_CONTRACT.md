@@ -50,6 +50,35 @@ internal to the Spicy path and MUST NOT be re-imposed at the `LyricProducer` int
 Projection consumers MUST read `arbiter.active` and MUST NOT read `SpicyBridgeStore.state`
 directly.
 
+## Source eligibility (music vs non-music)
+
+A producer MUST hold back a source that is provably not music. Video apps publish media sessions
+like any player: the LyricInfo fallback session pick and Lyricon's active-player reports would
+otherwise push a video title into the lyric pipeline (device capture: a Douyin clip title became
+the "now playing" track as soon as NetEase stopped; a Bilibili session was followed the same way).
+
+`producer/MediaSourcePolicy` is the single decision point. Given the **player app's** package name
+and, when the session declares one, its `AudioAttributes` content type (read through the public
+`MediaController.playbackInfo`), it classifies the source as music, video, speech, sonification,
+or unknown. Only provable non-music is excluded:
+
+- a package in the known video-app list (Bilibili, Douyin, Kuaishou, YouTube, …), or
+- an explicit `CONTENT_TYPE_MOVIE` / `CONTENT_TYPE_SPEECH` / `CONTENT_TYPE_SONIFICATION`.
+
+Everything else is eligible — including `CONTENT_TYPE_UNKNOWN`, which is what the platform reports
+for any app that never calls `setPlaybackToLocal` (AOSP `MediaSessionRecord.DEFAULT_ATTRIBUTES` is
+`USAGE_MEDIA` with no content type). The rule is deliberately fail-open: a false exclusion silences
+lyrics for a real music app, while a false inclusion only reproduces the historical behavior.
+
+While the active source is non-music, `LyriconLyricProducer` releases the track and emits nothing
+(its position/song watchdogs stay quiet too, so a suppressed source cannot trigger resubscribe
+churn), and `LyricInfoLyricProducer` skips that session when picking — including the issue #5
+fallback path, which keeps working for music sessions without injected lyrics.
+`SuperLyricLyricProducer` needs no gate (the module only hooks music apps) and the Spicy path is
+Spotify-only by UID validation. The user-facing switch is
+`AodRenderPreferences.FILTER_NON_MUSIC_SOURCES` ("Hide lyrics for video and other non-music
+audio", default on); turning it off restores the historical behavior for every producer.
+
 ## Selection refinements
 
 Two rules refine invariant 2. Both exist because a source that is healthy by the letter can still
@@ -157,8 +186,9 @@ keeps the store's lifecycle intact and does not feed projection.
 
 `LyricProducerArbiterTest` asserts the single-active-producer invariant with an injected clock and
 `computeActiveOnce()`, covering selection, fallback, preference switch, and timeout. Producers are
-additionally covered by `SpicyLyricProducerTest`, `LyriconLyricProducerTest`,
-`SuperLyricNextLineTest`, and the `LyricInfo` payload and opening-filter tests.
+additionally covered by `SpicyLyricProducerTest`, `LyriconLyricProducerTest` (including the
+non-music source gate), `SuperLyricNextLineTest`, and the `LyricInfo` payload and opening-filter
+tests. `MediaSourcePolicyTest` pins the music/non-music classification and its fail-open cases.
 
 Unit tests are necessary, not sufficient: anything that changes which source is visible on a
 surface needs the hardware verification path described in `docs/REGRESSION.md` under
@@ -209,6 +239,30 @@ surface needs the hardware verification path described in `docs/REGRESSION.md` u
    并在 `start` 时恢复。
 
 投影消费者必须读 `arbiter.active`，不得直接读 `SpicyBridgeStore.state`。
+
+## 来源资格（是否音乐）
+
+生产者必须挡住可证实不是音乐的音源。视频应用与播放器一样发布媒体会话：没有这条规则时，
+LyricInfo 的兜底选会话与 Lyricon 的活动播放器上报会把视频标题推进歌词管线（真机实证：网易云
+停止后，抖音视频标题立刻成为「正在播放」曲目；哔哩哔哩会话同样被跟随）。
+
+`producer/MediaSourcePolicy` 是唯一判定点。输入是**播放器应用**包名，以及会话声明了内容类型时
+的 `AudioAttributes.contentType`（经公开 API `MediaController.playbackInfo` 读取），输出音乐／
+视频／语音／提示音／未知。只有可证实的非音乐会被排除：
+
+- 包名命中已知视频应用表（哔哩哔哩、抖音、快手、YouTube 等）；或
+- 显式声明 `CONTENT_TYPE_MOVIE` / `CONTENT_TYPE_SPEECH` / `CONTENT_TYPE_SONIFICATION`。
+
+其余一律放行——包括 `CONTENT_TYPE_UNKNOWN`：平台对任何从不调用 `setPlaybackToLocal` 的应用
+都报告它（AOSP `MediaSessionRecord.DEFAULT_ATTRIBUTES` 是 `USAGE_MEDIA` 且不带内容类型）。
+该规则刻意 fail-open：误排除会让真实音乐应用不再显示歌词，误放行只是维持历史行为。
+
+活动来源为非音乐期间：`LyriconLyricProducer` 释放曲目且不发射任何状态（位置/歌曲看门狗一并
+静默，被压制的源不会引发重建订阅的抖动）；`LyricInfoLyricProducer` 挑选会话时跳过它——包括
+issue #5 的兜底路径，该路径对「没有注入歌词的音乐应用」仍然有效。`SuperLyricLyricProducer`
+无需门控（该模块只挂钩音乐应用），Spicy 路径则本就以 UID 校验限定 Spotify。用户开关是
+`AodRenderPreferences.FILTER_NON_MUSIC_SOURCES`（「视频等非音乐音频不显示歌词」，默认开启）；
+关闭后所有生产者恢复历史行为。
 
 ## 选择细化
 

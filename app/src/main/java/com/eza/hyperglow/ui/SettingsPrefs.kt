@@ -289,6 +289,23 @@ internal fun updatePauseShowContent(context: android.content.Context, enabled: B
     return true
 }
 
+/**
+ * 「视频/非音乐音频不显示歌词」开关(应用级偏好):识别当前音频源,视频/播客等非音乐
+ * 来源播放期间不进入歌词显示链(见 producer/MediaSourcePolicy)。生产者懒读该偏好,
+ * 切换立即生效;下发运行时配置保持与其余设置一致的广播行为。
+ */
+internal fun updateFilterNonMusicSources(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.FILTER_NON_MUSIC_SOURCES, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 internal fun updateAodBrightnessBoost(context: android.content.Context, enabled: Boolean): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putBoolean(AodRenderPreferences.AOD_BRIGHTNESS_BOOST, enabled)

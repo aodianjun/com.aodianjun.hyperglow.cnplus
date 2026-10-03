@@ -73,6 +73,8 @@
     <string name="summary_lyric_source_lyricon">通過系統界面中的 Lyricon Xposed 模塊，以回調方式驅動歌詞。</string>
     <string name="summary_lyric_source_superlyric">使用 SuperLyric Xposed 模塊，通過 Binder 實時推送當前歌詞行。</string>
     <string name="summary_lyric_source_lyricinfo">使用 LyricInfo Xposed 模塊，讀取注入到媒體會話元數據中的歌詞。</string>
+    <string name="setting_filter_non_music_sources">影片等非音樂音訊不顯示歌詞</string>
+    <string name="summary_filter_non_music_sources">識別當前音訊源（播放器應用與工作階段宣告的音訊內容類型）：影片、播客等非音樂內容播放時不顯示歌詞。</string>
     <string name="label_active_source">當前歌詞源</string>
     <string name="summary_active_source">%1$s · %2$s</string>
     <string name="source_status_connected">已連接</string>
