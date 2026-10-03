@@ -1,6 +1,5 @@
 package com.eza.hyperglow.ui
 
-import android.graphics.BitmapFactory
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.Image
@@ -44,8 +43,6 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.R
 import com.eza.hyperglow.customization.SceneCompiler
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -246,20 +243,13 @@ private const val AUTHOR_AVATAR_URL = "https://github.com/aodianjun.png"
 private const val AUTHOR_NAME = "凹点菌"
 private const val AUTHOR_HANDLE = "@aodianjun"
 
-/** 作者头像异步拉取(5s 超时,失败返回 null 由调用方回落占位);仅在组合期内缓存。 */
+/** 作者头像异步拉取(失败时为 null,由调用方回落占位)。 */
 @Composable
 private fun rememberAuthorAvatar(url: String): ImageBitmap? {
     var avatar by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(url) {
         avatar = withContext(Dispatchers.IO) {
-            runCatching {
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.connectTimeout = 5_000
-                connection.readTimeout = 5_000
-                connection.inputStream.use { stream ->
-                    BitmapFactory.decodeStream(stream)?.asImageBitmap()
-                }
-            }.getOrNull()
+            fetchImageBitmap(url)?.asImageBitmap()
         }
     }
     return avatar
