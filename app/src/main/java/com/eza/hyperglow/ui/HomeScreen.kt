@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -367,14 +368,11 @@ internal fun HomeScreen(
                         ),
                         selectedTabIndex = settingsSectionIndex,
                         onTabSelected = { settingsSectionIndex = it },
-                        // 接入 App 控件外观体系:自定义控件色/背景图玻璃化/不透明度总控都生效
-                        // (默认无自定义时与 miuix 默认色一致)。轨道取低一档不透明度,
-                        // 选中胶囊更实,靠实度差拉开层次。
+                        // 接入 App 控件外观体系:自定义控件色/背景图玻璃化/不透明度总控都生效。
+                        // 轨道完全透明(HyperOS 分段控件的做法):只留选中的胶囊浮在页面上,
+                        // 自定义控件色时选中态靠胶囊与页面的实度差呈现,不会出现一条突兀的底条。
                         colors = TabRowDefaults.tabRowColors(
-                            backgroundColor = appGlassSurface(
-                                LocalAppControlColor.current ?: MiuixTheme.colorScheme.surface,
-                                APP_GLASS_NAV_ALPHA * 0.6f
-                            ),
+                            backgroundColor = Color.Transparent,
                             contentColor = appControlContentColor(
                                 MiuixTheme.colorScheme.onSurfaceVariantSummary
                             ),
