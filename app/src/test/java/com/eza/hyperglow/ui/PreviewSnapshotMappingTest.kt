@@ -3,6 +3,8 @@ package com.eza.hyperglow.ui
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.ProducerRenderModes
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -16,18 +18,21 @@ class PreviewSnapshotMappingTest {
     private fun state(
         nextLine: String = "",
         nextLineRomanized: String = "",
-        nextLineTranslated: String = ""
+        nextLineTranslated: String = "",
+        playing: Boolean = true,
+        status: String = "connected",
+        line: String = "第一行歌词"
     ) = LyricProducerState(
         producerId = "test",
         generation = 1,
         sequence = 1L,
-        status = "connected",
+        status = status,
         trackUri = "test://track",
         title = "蝴蝶",
         artist = "洛天依",
         album = "",
         imageId = "",
-        line = "第一行歌词",
+        line = line,
         romanizedLine = "dì yī háng gē cí",
         translatedLine = "first line",
         lineIndex = 0,
@@ -35,7 +40,7 @@ class PreviewSnapshotMappingTest {
         durationMs = 200_000L,
         sampledAtElapsedMs = 5_000L,
         speed = 1f,
-        playing = true,
+        playing = playing,
         receivedAtElapsedMs = 5_000L,
         words = null,
         renderModes = ProducerRenderModes("", "", 100, "", "", "", "", "", "", ""),
@@ -80,5 +85,32 @@ class PreviewSnapshotMappingTest {
         assertEquals("第二行歌词", snapshot.nextLine)
         assertEquals("（男）dì èr háng", snapshot.nextLineRomanized)
         assertEquals("（男）second line", snapshot.nextLineTranslated)
+    }
+
+    @Test
+    fun pausedTransportDoesNotTakeOverThePreview() {
+        // 暂停时仲裁器有意保留冻结状态(isFaulted 要求 playing),active 会长期停在暂停前
+        // 那句歌词上。预览若照单全收就冻在旧歌词上,而不是回退到循环播放的演示歌词
+        // (「蝴蝶」演示行)——本用例钉住「不在播即交还演示」的判据。
+        assertFalse(presentsLivePreview(state(playing = false)))
+        // 暂停态即使仍带着完整的歌词内容(行文本/下一行/状态 ready)也不接管预览:
+        // 内容与在播与否无关,不能作为判据。
+        assertFalse(
+            presentsLivePreview(
+                state(
+                    playing = false,
+                    status = "ready",
+                    line = "暂停时残留的歌词",
+                    nextLine = "下一行"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun playingTransportStillTakesOverThePreview() {
+        assertTrue(presentsLivePreview(state(playing = true)))
+        // 逐行推流源(SuperLyric)以有无当前行派生 playing,行文本为空的元数据态不接管。
+        assertTrue(presentsLivePreview(state(playing = true, status = "ready", line = "")))
     }
 }

@@ -344,6 +344,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
   sides; logcat `Landscape content block anchored … center=… frameCenter=…` must show
   `center == frameCenter`), and the landscape vertical anchor still moves the block toward either
   edge.
+- In-app preview demo fallback while transport is paused (`ProducerCollectors.presentsLivePreview`: a non-playing producer state no longer takes over the home/appearance preview, which falls back to the built-in demo lines — the arbiter deliberately keeps a paused state forwarded, so the preview previously froze on the last line sung before the pause; unit-tested) — app-preview-only change, no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: pause playback and confirm the preview cycles the demo lines again, and confirm the live lyric returns on resume.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -545,6 +546,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   + 安全区），不再出现「一条居中、另一条贴边」的口径分叉。合并后待真机冒烟：默认 6% 安全边界下横屏歌词在
   视野正中（两侧留白相等，logcat `Landscape content block anchored … center=… frameCenter=…` 中
   `center == frameCenter`），且「横屏垂直锚点」设置仍能把整块推向顶/底。
+- 传输暂停时 App 内预览回退演示歌词（`ProducerCollectors.presentsLivePreview`：不在播的生产者状态不再接管主页/外观预览，改回退内置演示歌词行——仲裁器有意保留暂停时的冻结状态，此前预览会一直钉在暂停前那句歌词上；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：暂停播放后预览重新循环演示歌词，恢复播放后实时歌词重新接管。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
