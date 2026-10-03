@@ -189,7 +189,6 @@
     <string name="summary_about_support">Buy the author a coffee or star the project</string>
     <string name="action_hyperglow_github">HyperGlow on GitHub</string>
     <string name="action_hyperglow_cnplus_github">HyperGlow CN+ on GitHub</string>
-    <string name="section_surfaces">Surfaces</string>
     <string name="setting_show_aod">Show on AOD</string>
     <string name="summary_show_aod_unsupported">Configured value is preserved, but this profile cannot run AOD lyrics.</string>
     <string name="setting_show_lockscreen">Show on lock screen</string>
