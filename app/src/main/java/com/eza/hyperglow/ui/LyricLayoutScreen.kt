@@ -1124,6 +1124,9 @@ internal fun previewEnvironment(
  * Demo snapshot that cycles through a few sample lines every couple of seconds, so the home
  * preview visibly updates even when no live lyric source is connected. When a real producer
  * starts feeding `arbiter.active`, the preview switches to the live snapshot instead.
+ *
+ * 演示歌词跟随界面语言:English 走英文演示曲([demoLines]、歌名/歌手见 [DEMO_TRACK_ENGLISH]),
+ * 其余(跟随系统/简体中文)走中文演示曲。见 [demoLines]。
  */
 @Composable
 internal fun collectDemoSnapshot(
@@ -1131,14 +1134,17 @@ internal fun collectDemoSnapshot(
     metadataSeparators: String,
     hideAlbumWhenSameAsTitle: Boolean = false
 ): LyricSnapshot {
+    val context = LocalContext.current
+    val lines = demoLines(context)
     var index by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(DEMO_LINE_SWITCH_MS)
-            index = (index + 1) % DEMO_LINES.size
+            index = (index + 1) % lines.size
         }
     }
-    val line = DEMO_LINES[index]
+    val line = lines[index]
+    val track = demoTrack(context)
     return LyricSnapshot(
         revision = index.toLong(),
         trackGeneration = 1,
@@ -1149,13 +1155,13 @@ internal fun collectDemoSnapshot(
         translated = line.translated,
         // 演示快照携带下一行文本与其辅助文字,让「显示下一行歌词」「辅助文字显示第二行歌词」
         // 与「显示第二行辅助文字」在预览可见。
-        nextLine = DEMO_LINES[(index + 1) % DEMO_LINES.size].original,
-        nextLineRomanized = DEMO_LINES[(index + 1) % DEMO_LINES.size].romanized,
-        nextLineTranslated = DEMO_LINES[(index + 1) % DEMO_LINES.size].translated,
+        nextLine = lines[(index + 1) % lines.size].original,
+        nextLineRomanized = lines[(index + 1) % lines.size].romanized,
+        nextLineTranslated = lines[(index + 1) % lines.size].translated,
         metadata = composeSongMetadata(
-            title = "蝴蝶",
-            artist = "洛天依",
-            album = "专辑示例",
+            title = track.title,
+            artist = track.artist,
+            album = track.album,
             parts = metadataParts,
             separators = metadataSeparators,
             hideAlbumWhenSameAsTitle = hideAlbumWhenSameAsTitle
@@ -1163,7 +1169,7 @@ internal fun collectDemoSnapshot(
         lineLevelSync = true,
         lineStartMs = 0,
         lineEndMs = DEMO_LINE_SWITCH_MS,
-        durationMs = DEMO_LINES.size * DEMO_LINE_SWITCH_MS,
+        durationMs = lines.size * DEMO_LINE_SWITCH_MS,
         positionMs = ((index * DEMO_LINE_SWITCH_MS).toFloat()).toLong(),
         sampledAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
         // 演示快照携带逐字时间戳:让「BetterLyrics」档的逐字扫光、未唱下沉/已唱上浮与
@@ -1175,7 +1181,30 @@ internal fun collectDemoSnapshot(
     )
 }
 
-private class DemoLine(
+/**
+ * 演示歌词行按界面语言选择:English 用英文演示曲,其余(跟随系统/简体中文)用中文演示曲。
+ *
+ * 判据复用界面语言策略的 [currentUiLanguage] / [resolveUiLanguage] —— 与「界面语言」设置
+ * 同一来源,不另造一套;系统语言为英文但用户选了「简体中文」时以用户选择为准。
+ */
+@Composable
+private fun demoLines(context: android.content.Context): List<DemoLine> =
+    demoLines(currentUiLanguage(context))
+
+/** 演示曲的歌曲信息(歌名/歌手/专辑),按界面语言选择;与 [demoLines] 同一判据。 */
+@Composable
+private fun demoTrack(context: android.content.Context): DemoTrack =
+    demoTrack(currentUiLanguage(context))
+
+/** 纯函数判据(JVM 可测):只有 English 走英文演示曲,SYSTEM/简体中文都走中文演示曲。 */
+internal fun demoLines(language: UiLanguage): List<DemoLine> =
+    if (language == UiLanguage.ENGLISH) DEMO_LINES_EN else DEMO_LINES_ZH
+
+/** 演示曲的歌曲信息(纯函数,与 [demoLines] 同一判据)。 */
+internal fun demoTrack(language: UiLanguage): DemoTrack =
+    if (language == UiLanguage.ENGLISH) DEMO_TRACK_ENGLISH else DEMO_TRACK_CHINESE
+
+internal class DemoLine(
     val original: String,
     val romanized: String,
     val translated: String,
@@ -1183,7 +1212,21 @@ private class DemoLine(
     val ruby: List<LyricRuby>
 )
 
-private val DEMO_LINES = listOf(
+internal class DemoTrack(
+    val title: String,
+    val artist: String,
+    val album: String
+)
+
+internal val DEMO_TRACK_CHINESE = DemoTrack("蝴蝶", "洛天依", "专辑示例")
+
+internal val DEMO_TRACK_ENGLISH = DemoTrack(
+    "Take My Hand",
+    "DAISHI DANCE, Cécile Corbel",
+    "Take Me Hand"
+)
+
+internal val DEMO_LINES_ZH = listOf(
     DemoLine(
         "你说你来到这世界的那天 神给了每个人快乐入场券",
         "nǐ shuō nǐ lái dào zhè shìjiè de nà tiān",
@@ -1207,6 +1250,39 @@ private val DEMO_LINES = listOf(
         "nǐ wǒ shēnglái shí jiù zhùdìng tiānzhēn ér wěidà",
         "You and I are destined from birth to be innocent and great",
         listOf(LyricRuby(0, 3, "nǐ wǒ shēng"))
+    )
+)
+
+/**
+ * 英文演示歌词行(《Take My Hand》— DAISHI DANCE / Cécile Corbel)。
+ *
+ * 英文曲不需要拼音注音/中译辅助行,故 romanized/translated 与 [ruby] 均留空——预览的
+ * 辅助文字行在无内容时本就不显示,填假内容反而会让「辅助文字」开关的预览失真。
+ */
+internal val DEMO_LINES_EN = listOf(
+    DemoLine(
+        "In my dreams, I feel your light",
+        "",
+        "",
+        emptyList()
+    ),
+    DemoLine(
+        "I feel love is born again",
+        "",
+        "",
+        emptyList()
+    ),
+    DemoLine(
+        "Fireflies in the moonlight",
+        "",
+        "",
+        emptyList()
+    ),
+    DemoLine(
+        "Take my hand now, stay close to me",
+        "",
+        "",
+        emptyList()
     )
 )
 
