@@ -149,7 +149,7 @@
     <string name="section_about">About</string>
     <string name="about_author_role">Author · %1$s</string>
     <string name="about_support">Support</string>
-    <string name="summary_about_support">Star the project on GitHub</string>
+    <string name="summary_about_support">Buy the author a coffee or star the project</string>
     <string name="action_hyperglow_github">HyperGlow on GitHub</string>
     <string name="action_hyperglow_cnplus_github">HyperGlow CN+ on GitHub</string>
 

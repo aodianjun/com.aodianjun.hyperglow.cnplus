@@ -56,7 +56,9 @@ internal const val PLUGIN_DESTINATION = "__plugins__"
 internal const val AOD_BEHAVIOR_DESTINATION = "__aod_behavior__"
 internal const val APP_APPEARANCE_DESTINATION = "__app_appearance__"
 internal const val GITHUB_URL = "https://github.com/amarinne/hyperglow"
-internal const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/hyperglow_CNplus"
+internal const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus"
+/** 项目落地页(GitHub Pages):关于页「支持」入口指向此处,内含微信赞赏码与支付宝收款码。 */
+internal const val PROJECT_SITE_URL = "https://aodianjun.github.io/hyperglow-cnplus-site/"
 internal const val SPICY_EX_GITHUB_URL = "https://github.com/amarinne/spicy-ex/releases"
 
 internal fun currentUiLanguage(context: android.content.Context): UiLanguage {

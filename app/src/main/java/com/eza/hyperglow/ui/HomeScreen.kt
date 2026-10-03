@@ -791,7 +791,7 @@ internal fun HomeScreen(
                             ArrowPreference(
                                 title = stringResource(R.string.about_support),
                                 summary = stringResource(R.string.summary_about_support),
-                                onClick = { openExternalUrl(context, GITHUB_CNPLUS_URL) }
+                                onClick = { openExternalUrl(context, PROJECT_SITE_URL) }
                             )
                         }
                     }

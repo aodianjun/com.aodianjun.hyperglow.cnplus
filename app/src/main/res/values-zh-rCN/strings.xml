@@ -149,7 +149,7 @@
     <string name="section_about">关于</string>
     <string name="about_author_role">作者 · %1$s</string>
     <string name="about_support">支持</string>
-    <string name="summary_about_support">在 GitHub 上给项目点个 Star</string>
+    <string name="summary_about_support">微信 / 支付宝扫码赞赏,或给项目点个 Star</string>
     <string name="action_hyperglow_github">在 GitHub 查看 HyperGlow</string>
     <string name="action_hyperglow_cnplus_github">在 GitHub 查看 HyperGlow CN+</string>
 
