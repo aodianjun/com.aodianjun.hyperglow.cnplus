@@ -136,14 +136,27 @@ class LyricProducerArbiter(
         producer(source)?.connection
 
     /**
-     * 「重启歌词源」:强制重建当前选中源的订阅/回调链路(见 [LyricProducer.restart])。
-     * 无 root、即时生效,用于源卡死时在不重启应用的前提下恢复。只重建订阅,不清空
-     * [active]——重建期间保留当前显示,新状态到达后自然覆盖,避免闪空。
+     * 「重启歌词源」:强制重建**全部**已注册源(SPICY/LYRICON/SUPERLYRIC/LYRICINFO)的
+     * 订阅/回调链路(见 [LyricProducer.restart])。无 root、即时生效,用于源卡死时在不
+     * 重启应用的前提下恢复。只重建订阅,不清空 [active]——重建期间保留当前显示,新状态
+     * 到达后自然覆盖,避免闪空。
+     *
+     * 逐源重建而不是只重建 [preference] 选中的那一个:实际喂歌词的可能是回退源(选中源
+     * 未连接/停滞时仲裁器把 `active` 让给其他源),而默认首选 SPICY 是外部推送、应用侧
+     * 无可重建订阅——只按选中源重启会出现「点了重启歌词源,卡死的却是回退源」的空转
+     * (真机日志实证:pref=SPICY,屏上歌词实际来自 SUPERLYRIC 回退)。重建幂等且健康源
+     * 重建无副作用,故全量覆盖。
+     *
+     * 单源失败不阻断其余源:契约要求 [LyricProducer.restart] 不向调用方抛异常,这里仍
+     * 逐源兜底,保证一个源出错不会让后面的源失去重建机会,也不会冒泡给 UI 调用方。
      */
-    fun restartSelected() {
-        val source = mutablePreference.value
-        AppLog.i("LyricProducerArbiter", "restartSelected: $source")
-        producer(source)?.restart()
+    fun restartAll() {
+        LyricSource.entries.forEach { source ->
+            val target = producer(source) ?: return@forEach
+            AppLog.i("LyricProducerArbiter", "restartAll: $source")
+            runCatching { target.restart() }
+                .onFailure { AppLog.w("LyricProducerArbiter", "restartAll: $source failed", it) }
+        }
     }
 
     /**

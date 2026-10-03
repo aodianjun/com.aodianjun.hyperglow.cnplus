@@ -88,6 +88,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
   song info row to follow the lyric direction (previously pinned to start), and the home preview
   secondary/metadata rows now honor row alignment like the device does (previously always start).
 - Top-right restart entry on the home app bar (quick restart button replacing the former runtime-status list row, same restart dialog and ShellUtils path) — pending a hardware smoke check after merge: the icon opens the target dialog and the confirmed restart brings SystemUI/AOD back.
+- Restart dialog's lyric-source target now rebuilds **all four** producers (was: only the selected one) and is decoupled from the hooked-process restart (the root kill is dispatched first, so a lyric-source rebuild can no longer swallow it) — pending a hardware smoke check after merge: with the preference left at the default `Spicy` while the lyrics actually on screen come from a fallback source (e.g. `SuperLyric`), ticking the lyric-source switch and confirming must recover that fallback source (previously a no-op); ticking it together with System UI/AOD must still restart both processes; one source failing to rebuild must not stop the remaining ones.
 - Adaptive lockscreen card height (the scene rect measures the content row stack at the resolved
   content width and sizes to it; the height setting is now the upper bound and the settings estimate
   only backs pre-content placement) — pending a hardware smoke check after merge: short one-line
@@ -413,6 +414,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 「显示第二行辅助文字」（`nextLineAux` 开关：第二行歌词自身也带出辅助文字行——音标/翻译按辅助文字模式取用——四行呈现：第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字）——0.3.137（164）真机已验证四行顺序（息屏 LyricInfo 源带逐行翻译时）与锁屏呈现；第二行辅助行的折行档改为跟随第二行自身呈现的行数（owner 2026-10-02 反馈「换行效果要跟着第二行不是第一个」），换行动画中第二行辅助行亦改归晋级/入场组（跟随第二行，不再随主行组退场，owner 2026-10-02 反馈），下一行的辅助文字另随插件行表富化回填（SuperLyric 逐行流 + 翻译插件即可出第四行；无插件结果时保留生产者值），待真机复核折行、动画与 SuperLyric 回退三个场景。注：任何来源都没有下一行辅助文字数据时只呈现有内容的部分。
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
+- 重启对话框「歌词源」目标改为重建**全部四个**源（原为只重建选中源），并与挂钩进程重启解耦（先派发 root 杀进程，歌词源重建不再能把它吞掉）——合并后待真机冒烟：首选源保持默认 `Spicy`、屏上歌词实际来自回退源（如 `SuperLyric`）时，勾选「歌词源」并确认必须能恢复该回退源（此前为空转）；「歌词源」与系统界面/AOD 同时勾选时两个进程仍正常重启；单个源重建失败不得影响其余源。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
 - 换行动画速率（`lineTransitionSpeed`：`Normal`/`Slow`/`Fast`，位于换行动画选项正下方；时长按
   130/210ms 基准 ×1.0/×1.5/×0.6，帧配方与缓动不变，未知值规范化为 `Normal`）——合并后待真机

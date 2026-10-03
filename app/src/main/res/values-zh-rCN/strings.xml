@@ -256,7 +256,7 @@
     <string name="dialog_restart_target_systemui">系统界面（含锁屏）</string>
     <string name="dialog_restart_target_aod">息屏显示进程（com.miui.aod）</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow 应用（本应用）</string>
-    <string name="dialog_restart_target_lyric_source">歌词源（重连当前歌词源）</string>
+    <string name="dialog_restart_target_lyric_source">歌词源（重连全部歌词源）</string>
     <string name="toast_restart_no_target">请至少选择一个进程</string>
     <string name="toast_lyric_source_restarted">歌词源已重启</string>
     <string name="option_follow_xiaomi">跟随小米</string>

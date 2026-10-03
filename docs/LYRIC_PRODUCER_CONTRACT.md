@@ -97,9 +97,12 @@ re-published even when the signature is unchanged.
   callback thread needs no extra synchronization.
 - `LyricProducers` publishes the arbiter through a `@Volatile` instance; consumers must call
   `start(context)` first.
-- `start` and `stop` are idempotent. `restartSelected()` rebuilds only the selected producer's
-  subscription and deliberately keeps the current `active`, so the surface does not blank while the
-  source recovers.
+- `start` and `stop` are idempotent. `restartAll()` rebuilds **every registered producer's**
+  subscription (all four sources) and deliberately keeps the current `active`, so the surface does
+  not blank while the source recovers. It covers all sources rather than only the selected one
+  because the lyrics actually on screen may come from a fallback producer, and the default
+  preference (`SPICY`) has no app-side subscription to rebuild. A source whose `restart()` throws
+  must not stop the remaining sources; the arbiter isolates each call.
 
 ## State machine
 
@@ -245,8 +248,9 @@ surface needs the hardware verification path described in `docs/REGRESSION.md` u
 - 生产者从各自入口的线程发射——Spicy 与 Lyricon 的回调、SuperLyric 的 Binder 线程、通知回调。
   `MutableStateFlow` 线程安全，因此从回调线程发射无需额外同步。
 - `LyricProducers` 通过 `@Volatile` 实例发布仲裁者；消费者必须先调用 `start(context)`。
-- `start` 与 `stop` 幂等。`restartSelected()` 只重建被选中源的订阅，并有意保留当前 `active`，避免
-  恢复期间画面闪空。
+- `start` 与 `stop` 幂等。`restartAll()` 重建**全部已注册生产者**的订阅（四个源），并有意保留当前
+  `active`，避免恢复期间画面闪空。之所以不是只重建被选中源：屏上歌词可能来自回退生产者，而默认首选
+  `SPICY` 应用侧无可重建的订阅。某个源的 `restart()` 抛异常不得影响其余源，仲裁器逐源隔离。
 
 ## 状态机
 
