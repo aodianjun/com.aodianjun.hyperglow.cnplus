@@ -271,13 +271,13 @@ private fun rememberAppIconBitmap(sizePx: Int = 216): ImageBitmap? {
     }
 }
 
-/** 作者信息与头像地址;头像走 github.com/<user>.png(302 到 avatars 域)。 */
+/** 作者信息与头像;头像直连 avatars CDN(github.com 域国内常不可达,重定向会超时)。 */
 private const val AUTHOR_GITHUB_URL = "https://github.com/aodianjun"
-private const val AUTHOR_AVATAR_URL = "https://github.com/aodianjun.png"
+private const val AUTHOR_AVATAR_URL = "https://avatars.githubusercontent.com/u/130821781"
 private const val AUTHOR_NAME = "凹点菌"
 private const val AUTHOR_HANDLE = "@aodianjun"
 
-/** 作者头像异步拉取(失败时为 null,由调用方回落占位)。 */
+/** 作者头像异步拉取(失败时为 null,由调用方回落 APK 内置头像)。 */
 @Composable
 private fun rememberAuthorAvatar(url: String): ImageBitmap? {
     var avatar by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -315,6 +315,13 @@ internal fun AboutAuthorCard() {
                 if (avatar != null) {
                     Image(
                         bitmap = avatar,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    // 网络拉取失败时的兜底:APK 内置作者头像,保证条目永远有图。
+                    Image(
+                        painter = painterResource(R.drawable.author_avatar),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize()
                     )
