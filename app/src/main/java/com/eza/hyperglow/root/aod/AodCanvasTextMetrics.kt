@@ -274,6 +274,9 @@ internal fun normalizeAodAnimation(mode: String): String = when (mode) {
  * ([metadataGapPx];无元数据行时传 0)。与 AodLyricCanvasView.positionRows 的顶锚排版
  * 同式:元数据多行时行高公式已含多出行高(positionRows 的 metadataExtraHeight 避让
  * 与 rowWithLines 的 height = n * lineHeight 同账),无需另补。
+ *
+ * [padTopPx]/[padBottomPx] 传「画布内边距 + 效果余量」(见 [canvasEffectEdgeNeeds]):
+ * 与 positionRows 同一取值,卡片高度才与内容放置同步长高。
  */
 internal fun contentStackHeightPx(
     rowHeightsPx: List<Float>,
@@ -287,4 +290,59 @@ internal fun contentStackHeightPx(
         stack += rowHeightsPx[index] + rowGapsBeforePx.getOrElse(index) { 0f }
     }
     return padTopPx + padBottomPx + stack
+}
+
+/**
+ * 画布上下「效果余量」(纯函数):歌词绘制会越出行盒的外扩量 —— 辉光光晕半径
+ * (字号 × [LyricGlowRenderer.HALO_RADIUS_FRACTION],与光晕裁剪矩形 [haloClipRect]
+ * 同一取值)与「BetterLyrics」档未唱字下沉量(行高 × [KARAOKE_FLOAT_SINK_FRACTION])。
+ *
+ * 内容块顶/底贴住内容裁剪框时,这部分外扩会被切平(现场即「歌词刚好叠到画布边缘被裁切」:
+ * 竖屏画布上下内边距为 0,锁屏卡片又按实测内容定高,块沿与裁剪沿必然重合)。故内容块两端
+ * 要按 [canvasEffectEdgeNeeds] 让出余量:放置内缩、自适应卡片同步长高。两项效果都关闭时
+ * 无外扩,返回 0(既有布局逐像素不变)。
+ */
+internal fun canvasEffectAllowancePx(
+    textSizePx: Float,
+    lineHeightPx: Float,
+    glowEnabled: Boolean,
+    floatSinkActive: Boolean
+): Float {
+    val halo = if (glowEnabled && textSizePx.isFinite() && textSizePx > 0f) {
+        textSizePx * LyricGlowRenderer.HALO_RADIUS_FRACTION
+    } else {
+        0f
+    }
+    val sink = if (floatSinkActive && lineHeightPx.isFinite() && lineHeightPx > 0f) {
+        karaokeFloatSinkPx(lineHeightPx)
+    } else {
+        0f
+    }
+    return max(halo, sink)
+}
+
+/** 内容块上下要补的效果余量(px):顶部 [topPx]、底部 [bottomPx]。 */
+internal data class CanvasEffectEdgeNeeds(val topPx: Float, val bottomPx: Float)
+
+/**
+ * 内容块两端要补的效果余量(纯函数)。只有会画出外扩的行(主行、带行窗的辅助行)才需要,
+ * 且两端既有留白已经提供的部分不重复计入:
+ *  - 顶部:首行行前距([topRowGapBeforePx])就是块沿到裁剪沿的现成间距,只补差额 ——
+ *    默认字号下 8dp 行前距已覆盖 6.8dp 光晕半径,内容位置零变化;
+ *  - 底部:块尾(末行盒底)与裁剪沿之间没有留白,外扩量全额计入。
+ * 放置(AodLyricCanvasView.positionRows)与自适应卡片高度测量(measureContentStack)
+ * 取同一结果,卡片长高与内容内缩才同步。
+ */
+internal fun canvasEffectEdgeNeeds(
+    topRowOverdrawPx: Float,
+    topRowGapBeforePx: Float,
+    bottomRowOverdrawPx: Float
+): CanvasEffectEdgeNeeds {
+    val top = if (topRowOverdrawPx.isFinite()) topRowOverdrawPx else 0f
+    val gap = if (topRowGapBeforePx.isFinite()) topRowGapBeforePx else 0f
+    val bottom = if (bottomRowOverdrawPx.isFinite()) bottomRowOverdrawPx else 0f
+    return CanvasEffectEdgeNeeds(
+        topPx = max(0f, top - max(0f, gap)),
+        bottomPx = max(0f, bottom)
+    )
 }
