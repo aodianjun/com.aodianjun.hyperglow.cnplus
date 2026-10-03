@@ -356,6 +356,18 @@ and (b) unverified paths stay explicit instead of silently assumed.
   after merge: with the switch on, the auxiliary translation lights up in step with the sung line on
   both surfaces (and floats/scales with the BetterLyrics mode when that is selected), the app preview
   shows the same effect, and with the switch off the auxiliary rows render exactly as before.
+- Lyrics no longer sit flush against the canvas content clip (canvas effect allowance: the row stack
+  reserves the vertical overdraw of its outermost rows — the glow halo radius (36% of the text size)
+  and the `BetterLyrics` unsung-word sink — before the clip edge; the leading row gap is credited
+  against the top, the trailing edge is charged in full and grows the measured lockscreen card height
+  by the same amount; pure functions `canvasEffectAllowancePx` / `canvasEffectEdgeNeeds` are
+  unit-tested, `ArchitectureGuardTest.canvasKeepsRenderEffectsOffTheContentClipEdge` machine-gates the
+  wiring into both placement and measurement, and a keyed W-level self-check (`Effect clip check: …`)
+  reports any shape whose overdraw the allowance missed) — pending a hardware smoke check after
+  merge: with glow on (and the `BetterLyrics` mode selected) the halo of the first and last lyric
+  rows fades out instead of ending on a hard line at the canvas/card edge, the card is only as much
+  taller as the room reserved, logcat shows no `Effect clip check` warning, and with glow off in a
+  non-BetterLyrics mode the layout is pixel-identical to before.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -561,6 +573,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 演示歌词跟随界面语言（`LyricLayoutScreen.demoLines` / `demoTrack`：English 显示英文演示曲，其余选择保留中文演示曲；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：界面语言切到 English，主页与外观预览显示英文演示曲；切回后中文演示曲恢复。
 - 传输暂停时 App 内预览回退演示歌词（`ProducerCollectors.presentsLivePreview`：不在播的生产者状态不再接管主页/外观预览，改回退内置演示歌词行——仲裁器有意保留暂停时的冻结状态，此前预览会一直钉在暂停前那句歌词上；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：暂停播放后预览重新循环演示歌词，恢复播放后实时歌词重新接管。
 - 辅助文字逐字效果（`secondaryWordKaraoke` 开关，每个 surface 独立：第一行音译/翻译行经与主行同一共享逐字渲染核心随歌词逐字点亮——源带词级音译时间时按真实词窗，否则按该行自身行窗口合成；行沿用辅助行颜色与亮/暗辅助文字档，「BetterLyrics」档的浮动/放大/辉光随该面逐字动画档；第二行歌词及其自身的辅助行不参与）——合并后待真机冒烟：两曲面开启后辅助翻译随演唱行同步逐字点亮（选 BetterLyrics 时同主行一起浮动/放大），App 内预览呈现同一效果，关闭开关时辅助行与改前逐字节一致。
+- 歌词不再贴住画布内容裁剪框（画布效果余量：内容块按最外侧两行的绘制外扩量——辉光光晕半径（字号 × 36%）与「BetterLyrics」档未唱字下沉量——预留垂直余量；顶部抵扣首行行前距，底部块尾无现成留白按全额计入并同步计入锁屏卡片实测高度；纯函数 `canvasEffectAllowancePx` / `canvasEffectEdgeNeeds` 已有单测，`ArchitectureGuardTest.canvasKeepsRenderEffectsOffTheContentClipEdge` 机器门钉住「放置 + 自适应高度两侧同接共享余量」，另有按几何签名去重的 W 级自检（`Effect clip check: …`）兜未知形状）——合并后待真机冒烟：发光开启（且选中「BetterLyrics」档）时首/末行歌词的辉光在画布/卡片边缘自然淡出、不再被切平成一条直线，卡片只按让出的余量长高，logcat 无 `Effect clip check` 告警行，关闭发光且非 BetterLyrics 档时布局与改前逐像素一致。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

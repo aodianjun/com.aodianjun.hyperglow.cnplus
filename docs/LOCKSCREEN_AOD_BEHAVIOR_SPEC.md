@@ -72,6 +72,13 @@ opacity are used when native media width is unavailable. The scene rect height i
 it measures the content row stack at the resolved content width and sizes the card to that stack
 plus progress spacing and card padding. The height setting remains the upper bound and the bounded
 minimum remains the floor; the settings-based height estimate only backs pre-content placement.
+Rendered rows never sit flush against the canvas content clip: the block reserves the vertical
+overdraw of its outermost rows — the glow halo radius (36% of the text size) and the `BetterLyrics`
+unsung-word sink — before the clip edge, so the halo and float of a first or last row are not cut
+flat at the canvas edge. The leading row gap already provides part of that room and is credited
+against it; the trailing edge has none and is charged in full, which grows the measured card height
+by the same amount. Rows that draw no such effect (song info, next line) and surfaces with the
+effects off reserve nothing.
 
 Notification geometry uses an 8 dp dead band against the last applied bounds. Smaller animation
 jitter keeps the current lyric-card placement; larger movement updates collision placement normally.
@@ -686,7 +693,7 @@ minimum safe scene area
 
 该视图仅为视觉呈现：不可点击、不可聚焦、不可长按、不拦截触摸、不可被无障碍聚焦。Xiaomi 父视图的 alpha/可见性始终是权威来源。
 
-默认锁屏场景使用 Xiaomi 的 `getClockBottom()` 锚点。可选的内置卡片 scrim 在垂直方向与当前渲染的行紧密贴合，在歌词过渡期间对离场/入场边界取并集，并在可用时跟随可见的媒体卡片宽度。当原生媒体宽度不可用时，使用有界的 92% 宽度与深色卡片不透明度。场景矩形高度自适应内容：按已定内容宽实测内容行堆叠高度（含进度条间距与卡片上下留白）定高，「高度」设置仍是上限，有界最小高度仍是下限；基于设置的高度估算仅在内容就绪前兜底位置。
+默认锁屏场景使用 Xiaomi 的 `getClockBottom()` 锚点。可选的内置卡片 scrim 在垂直方向与当前渲染的行紧密贴合，在歌词过渡期间对离场/入场边界取并集，并在可用时跟随可见的媒体卡片宽度。当原生媒体宽度不可用时，使用有界的 92% 宽度与深色卡片不透明度。场景矩形高度自适应内容：按已定内容宽实测内容行堆叠高度（含进度条间距与卡片上下留白）定高，「高度」设置仍是上限，有界最小高度仍是下限；基于设置的高度估算仅在内容就绪前兜底位置。渲染行不会贴住画布内容裁剪框：内容块按最外侧两行的绘制外扩量（辉光光晕半径 = 字号 × 36%，以及「BetterLyrics」档未唱字下沉量）预先让出垂直余量，首/末行的辉光与浮动不会被切平在画布边缘。顶部已由首行行前距提供的部分不重复计入；底部块尾与裁剪沿之间没有留白，按全额计入并同步计入实测卡片高度。不画这类效果的行（歌曲信息、下一行）与效果关闭的曲面不产生余量。
 
 通知几何对上次应用的边界采用 8 dp 死区。较小的动画抖动保持当前歌词卡片的位置不变；较大的移动则正常更新碰撞位置。
 
