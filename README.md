@@ -127,7 +127,7 @@ before opening a pull request:
   from its GPL-3.0 C#/Win2D codebase is used.
 - [LuckyPray/DexKit](https://github.com/LuckyPray/DexKit) — runtime Dex symbol resolution behind
   the capability probes.
-- [miuix](https://github.com/miuix-kotlin/miuix) — the Compose UI library the entire settings
+- [miuix](https://github.com/compose-miuix-ui/miuix) — the Compose UI library the entire settings
   interface is built with.
 - The lyrics sources that make this possible:
   [Spicy EX](https://github.com/amarinne/spicy-ex), [Lyricon](https://github.com/tomakino/lyricon),
@@ -225,7 +225,7 @@ JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 - [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics) —— 歌词时间轴规整（词级对齐、重叠仲裁）借鉴了 AMLL 公开的思路与阈值；仅借鉴思路与阈值，未使用其（AGPL）代码。
 - [jayfunc/BetterLyrics](https://github.com/jayfunc/BetterLyrics) —— 「BetterLyrics」逐字动画档的播放效果（长音节放大与辉光、未唱音节下沉与唱到上浮的浮动节奏、词块级高亮节奏）参考了其 LyricsAnimator / LyricsEffectSettings 的阈值与观感；仅借鉴思路与参数，未使用其（GPL-3.0）代码。
 - [LuckyPray/DexKit](https://github.com/LuckyPray/DexKit) —— 能力探测背后的运行期 Dex 符号解析。
-- [miuix](https://github.com/miuix-kotlin/miuix) —— 整个设置界面所基于的 Compose UI 组件库。
+- [miuix](https://github.com/compose-miuix-ui/miuix) —— 整个设置界面所基于的 Compose UI 组件库。
 - 让这一切成为可能的歌词源：[Spicy EX](https://github.com/amarinne/spicy-ex)、
   [Lyricon](https://github.com/tomakino/lyricon)、[SuperLyric](https://github.com/HChenX/SuperLyric)
   与 [LyricInfo](https://github.com/limczhh/LyricInfo)。
