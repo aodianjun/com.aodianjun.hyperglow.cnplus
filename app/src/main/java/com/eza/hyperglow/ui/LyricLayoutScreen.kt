@@ -461,9 +461,10 @@ internal fun LyricLayoutScreen(
                         { enabled -> updateSelected { it.copy(secondaryNextLine = enabled) } },
                         stringResource(R.string.setting_secondary_next_line)
                     )
-                    // 「显示第二行辅助文字」以「辅助文字显示第二行歌词」为前提:后者关闭时
-                    // 第二行不以辅助形态出现,本开关无第二行辅助文字行可追加,故不露出。
-                    if (selectedProfile.secondaryNextLine) {
+                    // 「显示第二行辅助文字」以第二行歌词行实际显示为前提:「显示下一行歌词」
+                    // 或「辅助文字显示第二行歌词」任一开启时露出;两者都关时没有第二行歌词行,
+                    // 本开关无第二行辅助文字行可追加,故不露出。
+                    if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine) {
                         SwitchPreference(
                             selectedProfile.nextLineAux,
                             { enabled -> updateSelected { it.copy(nextLineAux = enabled) } },
