@@ -81,10 +81,10 @@ class BetterLyricsWordEffectsTest {
         assertEquals(143, karaokeSungAlpha(0.56f))
         assertEquals(80, karaokeUnsungAlpha(0.56f))
         assertTrue(karaokeUnsungAlpha(0.56f) < karaokeSungAlpha(0.56f))
-        // 钳制:越界因子不产生负值/溢出。
+        // 钳制:越界因子不产生负值/溢出;未唱上限恒为 0.56 相对暗度封顶(143,永不到 255)。
         assertEquals(0, karaokeSungAlpha(-1f))
         assertEquals(255, karaokeSungAlpha(2f))
         assertEquals(0, karaokeUnsungAlpha(-1f))
-        assertEquals(255, karaokeUnsungAlpha(2f))
+        assertEquals(143, karaokeUnsungAlpha(2f))
     }
 }
