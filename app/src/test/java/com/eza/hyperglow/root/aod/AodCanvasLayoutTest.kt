@@ -1405,6 +1405,15 @@ class AodCanvasLayoutTest {
         assertFalse(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, emptyList()))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, words, speed = 0f))
+        // 辅助文字逐字效果独立于主行进度效果:None 下主行静态,辅助行仍要续帧;暂停恒停。
+        assertTrue(
+            hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words, auxKaraoke = true)
+        )
+        assertFalse(
+            hasActiveCanvasTiming(
+                true, "None", 1_000L, 2_000L, words, speed = 0f, auxKaraoke = true
+            )
+        )
     }
 
     @Test

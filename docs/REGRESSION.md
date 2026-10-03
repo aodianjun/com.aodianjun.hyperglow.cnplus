@@ -347,6 +347,15 @@ and (b) unverified paths stay explicit instead of silently assumed.
   edge.
 - Demo lyric lines follow the interface language (`LyricLayoutScreen.demoLines` / `demoTrack`: an English interface shows the English demo track, every other selection keeps the Chinese demo track; unit-tested) — app-preview-only change, no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: switch the interface language to English and confirm the home and appearance previews show the English demo track, then switch back and confirm the Chinese demo returns.
 - In-app preview demo fallback while transport is paused (`ProducerCollectors.presentsLivePreview`: a non-playing producer state no longer takes over the home/appearance preview, which falls back to the built-in demo lines — the arbiter deliberately keeps a paused state forwarded, so the preview previously froze on the last line sung before the pause; unit-tested) — app-preview-only change, no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: pause playback and confirm the preview cycles the demo lines again, and confirm the live lyric returns on resume.
+- Word-by-word auxiliary text (`secondaryWordKaraoke` switch, per surface: the first line's
+  transliteration/translation rows light up word by word through the same shared karaoke renderer as
+  the main line — real per-word windows when the source carries word-level romanization, otherwise
+  synthesized from the row's own line window; the rows keep the auxiliary color and bright/dim
+  setting, and the `BetterLyrics` float/scale/glow flavour follows the surface's animation mode; the
+  second line and its own auxiliary rows never take the effect) — pending a hardware smoke check
+  after merge: with the switch on, the auxiliary translation lights up in step with the sung line on
+  both surfaces (and floats/scales with the BetterLyrics mode when that is selected), the app preview
+  shows the same effect, and with the switch off the auxiliary rows render exactly as before.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -551,6 +560,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   `center == frameCenter`），且「横屏垂直锚点」设置仍能把整块推向顶/底。
 - 演示歌词跟随界面语言（`LyricLayoutScreen.demoLines` / `demoTrack`：English 显示英文演示曲，其余选择保留中文演示曲；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：界面语言切到 English，主页与外观预览显示英文演示曲；切回后中文演示曲恢复。
 - 传输暂停时 App 内预览回退演示歌词（`ProducerCollectors.presentsLivePreview`：不在播的生产者状态不再接管主页/外观预览，改回退内置演示歌词行——仲裁器有意保留暂停时的冻结状态，此前预览会一直钉在暂停前那句歌词上；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：暂停播放后预览重新循环演示歌词，恢复播放后实时歌词重新接管。
+- 辅助文字逐字效果（`secondaryWordKaraoke` 开关，每个 surface 独立：第一行音译/翻译行经与主行同一共享逐字渲染核心随歌词逐字点亮——源带词级音译时间时按真实词窗，否则按该行自身行窗口合成；行沿用辅助行颜色与亮/暗辅助文字档，「BetterLyrics」档的浮动/放大/辉光随该面逐字动画档；第二行歌词及其自身的辅助行不参与）——合并后待真机冒烟：两曲面开启后辅助翻译随演唱行同步逐字点亮（选 BetterLyrics 时同主行一起浮动/放大），App 内预览呈现同一效果，关闭开关时辅助行与改前逐字节一致。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

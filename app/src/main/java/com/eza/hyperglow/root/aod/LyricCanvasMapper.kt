@@ -93,6 +93,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     textSizeCustom = profile?.textSizeCustom ?: textSizeCustom,
     secondaryMode = profile?.secondaryMode ?: secondaryMode,
     secondaryTextBright = profile?.secondaryTextBright ?: true,
+    secondaryWordKaraoke = profile?.secondaryWordKaraoke ?: false,
     lyricLineLimit = profile?.lyricLineLimit ?: 3,
     animationMode = profile?.animation ?: animationMode,
     glowMode = profile?.glow ?: glowMode,
