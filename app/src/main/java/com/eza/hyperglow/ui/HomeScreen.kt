@@ -60,6 +60,7 @@ import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -105,6 +106,8 @@ internal fun HomeScreen(
     var showClearLogsDialog by rememberSaveable { mutableStateOf(false) }
     var showLanguageDialog by rememberSaveable { mutableStateOf(false) }
     var showSourceDialog by rememberSaveable { mutableStateOf(false) }
+    // 设置页顶部分段:0=息屏设置 1=锁屏设置 2=其他设置。
+    var settingsSectionIndex by rememberSaveable { mutableStateOf(0) }
     var showResetDefaultsDialog by rememberSaveable { mutableStateOf(false) }
     val selectedTab = SettingsTab.entries.firstOrNull { it.name == selectedTabName }
         ?: SettingsTab.STATUS
@@ -346,12 +349,33 @@ internal fun HomeScreen(
             beyondViewportPageCount = 1,
             verticalAlignment = Alignment.Top
         ) { page ->
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    top = innerPadding.calculateTopPadding() + 12.dp,
-                    bottom = innerPadding.calculateBottomPadding() + 20.dp
-                )
-            ) {
+            val isSettingsPage = SettingsTab.entries[page] == SettingsTab.SETTINGS
+            Column(Modifier.fillMaxSize()) {
+                if (isSettingsPage) {
+                    // 设置页顶部分段选择器:息屏设置 / 锁屏设置 / 其他设置(固定在列表上方)。
+                    TabRow(
+                        tabs = listOf(
+                            stringResource(R.string.settings_section_aod),
+                            stringResource(R.string.settings_section_lockscreen),
+                            stringResource(R.string.settings_section_other)
+                        ),
+                        selectedTabIndex = settingsSectionIndex,
+                        onTabSelected = { settingsSectionIndex = it },
+                        modifier = Modifier.padding(
+                            top = innerPadding.calculateTopPadding() + 8.dp,
+                            start = 12.dp,
+                            end = 12.dp,
+                            bottom = 4.dp
+                        )
+                    )
+                }
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(
+                        top = if (isSettingsPage) 8.dp else innerPadding.calculateTopPadding() + 12.dp,
+                        bottom = innerPadding.calculateBottomPadding() + 20.dp
+                    )
+                ) {
                 when (SettingsTab.entries[page]) {
                 SettingsTab.STATUS -> {
                     item { SmallTitle(text = stringResource(R.string.section_home_status)) }
@@ -450,180 +474,199 @@ internal fun HomeScreen(
                     }
                 }
 
-                SettingsTab.SETTINGS -> {
-                    item { SmallTitle(text = stringResource(R.string.section_surfaces)) }
-                    item {
-                        SettingsCard {
-                            SwitchPreference(
-                                aodEnabled,
-                                { enabled ->
-                                    if (!aodSupported) return@SwitchPreference
-                                    if (updateCustomizationSurfaceEnabled(
-                                            context,
-                                            SceneCompiler.SURFACE_AOD,
-                                            enabled
+                SettingsTab.SETTINGS -> when (settingsSectionIndex) {
+                    // 0 = 息屏设置
+                    0 -> {
+                        item { SmallTitle(text = stringResource(R.string.section_surfaces)) }
+                        item {
+                            SettingsCard {
+                                SwitchPreference(
+                                    aodEnabled,
+                                    { enabled ->
+                                        if (!aodSupported) return@SwitchPreference
+                                        if (updateCustomizationSurfaceEnabled(
+                                                context,
+                                                SceneCompiler.SURFACE_AOD,
+                                                enabled
+                                            )
+                                        ) {
+                                            aodEnabled = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_show_aod),
+                                    summary = if (aodSupported) {
+                                        null
+                                    } else {
+                                        stringResource(R.string.summary_show_aod_unsupported)
+                                    },
+                                    enabled = aodSupported
+                                )
+                            }
+                        }
+                        item { SmallTitle(text = stringResource(R.string.section_appearance)) }
+                        item {
+                            SettingsCard {
+                                ArrowPreference(
+                                    title = stringResource(R.string.title_aod_appearance),
+                                    onClick = { onOpenLyricLayout(SceneCompiler.SURFACE_AOD) }
+                                )
+                            }
+                        }
+                        item { SmallTitle(text = stringResource(R.string.section_aod_behavior)) }
+                        item {
+                            SettingsCard {
+                                ArrowPreference(
+                                    title = stringResource(R.string.title_aod_behavior_settings),
+                                    summary = stringResource(R.string.summary_aod_behavior_entry),
+                                    onClick = onOpenAodBehavior,
+                                    enabled = aodSupported
+                                )
+                            }
+                        }
+                    }
+                    // 1 = 锁屏设置
+                    1 -> {
+                        item { SmallTitle(text = stringResource(R.string.section_surfaces)) }
+                        item {
+                            SettingsCard {
+                                SwitchPreference(
+                                    lockscreenEnabled,
+                                    { enabled ->
+                                        if (!lockscreenSupported) {
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.toast_lockscreen_unsupported),
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            return@SwitchPreference
+                                        }
+                                        if (updateCustomizationSurfaceEnabled(
+                                                context,
+                                                SceneCompiler.SURFACE_LOCKSCREEN,
+                                                enabled
+                                            )
+                                        ) {
+                                            lockscreenEnabled = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_show_lockscreen),
+                                    summary = if (lockscreenSupported) {
+                                        null
+                                    } else {
+                                        stringResource(R.string.summary_unavailable_systemui_version)
+                                    },
+                                    enabled = lockscreenSupported
+                                )
+                            }
+                        }
+                        item { SmallTitle(text = stringResource(R.string.section_appearance)) }
+                        item {
+                            SettingsCard {
+                                ArrowPreference(
+                                    title = stringResource(R.string.title_lockscreen_appearance),
+                                    onClick = { onOpenLyricLayout(SceneCompiler.SURFACE_LOCKSCREEN) }
+                                )
+                            }
+                        }
+                        item { SmallTitle(text = stringResource(R.string.section_lockscreen_wake)) }
+                        item {
+                            SettingsCard {
+                                SwitchPreference(
+                                    lockscreenKeepAwake,
+                                    { enabled ->
+                                        if (updateLockscreenKeepAwake(context, enabled)) {
+                                            lockscreenKeepAwake = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_keep_lockscreen_awake),
+                                    summary =
+                                        stringResource(R.string.summary_keep_lockscreen_awake),
+                                    enabled = lockscreenSupported && lockscreenEnabled
+                                )
+                                SwitchPreference(
+                                    suppressLockscreenEditorLongPress,
+                                    { enabled ->
+                                        if (updateLockscreenEditorLongPress(context, enabled)) {
+                                            suppressLockscreenEditorLongPress = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_block_lockscreen_customization),
+                                    summary = if (lockscreenEditorGestureSupported) {
+                                        stringResource(R.string.summary_block_lockscreen_customization)
+                                    } else {
+                                        stringResource(R.string.summary_unavailable_systemui_version)
+                                    },
+                                    enabled = lockscreenEditorGestureSupported
+                                )
+                                SwitchPreference(
+                                    raiseToAod,
+                                    { enabled ->
+                                        if (updateRaiseToAod(context, enabled)) {
+                                            raiseToAod = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_raise_to_aod),
+                                    summary = if (raiseToAodSupported) {
+                                        stringResource(R.string.summary_raise_to_aod)
+                                    } else {
+                                        stringResource(R.string.summary_unavailable_systemui_version)
+                                    },
+                                    enabled = raiseToAodSupported
+                                )
+                            }
+                        }
+                    }
+                    // 2 = 其他设置
+                    else -> {
+                        item { SmallTitle(text = stringResource(R.string.section_playback_behavior)) }
+                        item {
+                            SettingsCard {
+                                SwitchPreference(
+                                    pauseShowContent,
+                                    { enabled ->
+                                        if (updatePauseShowContent(context, enabled)) {
+                                            pauseShowContent = enabled
+                                        }
+                                    },
+                                    stringResource(R.string.setting_pause_show_content),
+                                    summary = stringResource(
+                                        R.string.summary_pause_show_content,
+                                        stringResource(R.string.setting_after_spotify_pauses)
+                                    ),
+                                    enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                                )
+                                ArrowPreference(
+                                    title = stringResource(R.string.setting_after_spotify_pauses),
+                                    summary = pauseLingerLabel(context, pauseLingerMs),
+                                    onClick = { showPauseLingerDialog = true },
+                                    enabled = pauseShowContent &&
+                                        runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                                )
+                            }
+                        }
+                        item { SmallTitle(text = stringResource(R.string.section_config_backup)) }
+                        item {
+                            SettingsCard {
+                                ArrowPreference(
+                                    title = stringResource(R.string.setting_export_config),
+                                    summary = stringResource(R.string.summary_export_config),
+                                    onClick = { exportConfigLauncher.launch("hyperglow-config.json") }
+                                )
+                                ArrowPreference(
+                                    title = stringResource(R.string.setting_import_config),
+                                    summary = stringResource(R.string.summary_import_config),
+                                    onClick = {
+                                        importConfigLauncher.launch(
+                                            arrayOf("application/json", "text/plain", "application/octet-stream")
                                         )
-                                    ) {
-                                        aodEnabled = enabled
                                     }
-                                },
-                                stringResource(R.string.setting_show_aod),
-                                summary = if (aodSupported) {
-                                    null
-                                } else {
-                                    stringResource(R.string.summary_show_aod_unsupported)
-                                },
-                                enabled = aodSupported
-                            )
-                            SwitchPreference(
-                                lockscreenEnabled,
-                                { enabled ->
-                                    if (!lockscreenSupported) {
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.toast_lockscreen_unsupported),
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                        return@SwitchPreference
-                                    }
-                                    if (updateCustomizationSurfaceEnabled(
-                                            context,
-                                            SceneCompiler.SURFACE_LOCKSCREEN,
-                                            enabled
-                                        )
-                                    ) {
-                                        lockscreenEnabled = enabled
-                                    }
-                                },
-                                stringResource(R.string.setting_show_lockscreen),
-                                summary = if (lockscreenSupported) {
-                                    null
-                                } else {
-                                    stringResource(R.string.summary_unavailable_systemui_version)
-                                },
-                                enabled = lockscreenSupported
-                            )
-                        }
-                    }
-                    item { SmallTitle(text = stringResource(R.string.section_appearance)) }
-                    item {
-                        SettingsCard {
-                            ArrowPreference(
-                                title = stringResource(R.string.title_aod_appearance),
-                                onClick = { onOpenLyricLayout(SceneCompiler.SURFACE_AOD) }
-                            )
-                            ArrowPreference(
-                                title = stringResource(R.string.title_lockscreen_appearance),
-                                onClick = { onOpenLyricLayout(SceneCompiler.SURFACE_LOCKSCREEN) }
-                            )
-                        }
-                    }
-                    item { SmallTitle(text = stringResource(R.string.section_playback_behavior)) }
-                    item {
-                        SettingsCard {
-                            SwitchPreference(
-                                pauseShowContent,
-                                { enabled ->
-                                    if (updatePauseShowContent(context, enabled)) {
-                                        pauseShowContent = enabled
-                                    }
-                                },
-                                stringResource(R.string.setting_pause_show_content),
-                                summary = stringResource(
-                                    R.string.summary_pause_show_content,
-                                    stringResource(R.string.setting_after_spotify_pauses)
-                                ),
-                                enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
-                            )
-                            ArrowPreference(
-                                title = stringResource(R.string.setting_after_spotify_pauses),
-                                summary = pauseLingerLabel(context, pauseLingerMs),
-                                onClick = { showPauseLingerDialog = true },
-                                enabled = pauseShowContent &&
-                                    runtimeProfileAvailable && (aodSupported || lockscreenSupported)
-                            )
-                        }
-                    }
-                    item { SmallTitle(text = stringResource(R.string.section_aod_behavior)) }
-                    item {
-                        SettingsCard {
-                            ArrowPreference(
-                                title = stringResource(R.string.title_aod_behavior_settings),
-                                summary = stringResource(R.string.summary_aod_behavior_entry),
-                                onClick = onOpenAodBehavior,
-                                enabled = aodSupported
-                            )
-                        }
-                    }
-                    item { SmallTitle(text = stringResource(R.string.section_lockscreen_wake)) }
-                    item {
-                        SettingsCard {
-                            SwitchPreference(
-                                lockscreenKeepAwake,
-                                { enabled ->
-                                    if (updateLockscreenKeepAwake(context, enabled)) {
-                                        lockscreenKeepAwake = enabled
-                                    }
-                                },
-                                stringResource(R.string.setting_keep_lockscreen_awake),
-                                summary =
-                                    stringResource(R.string.summary_keep_lockscreen_awake),
-                                enabled = lockscreenSupported && lockscreenEnabled
-                            )
-                            SwitchPreference(
-                                suppressLockscreenEditorLongPress,
-                                { enabled ->
-                                    if (updateLockscreenEditorLongPress(context, enabled)) {
-                                        suppressLockscreenEditorLongPress = enabled
-                                    }
-                                },
-                                stringResource(R.string.setting_block_lockscreen_customization),
-                                summary = if (lockscreenEditorGestureSupported) {
-                                    stringResource(R.string.summary_block_lockscreen_customization)
-                                } else {
-                                    stringResource(R.string.summary_unavailable_systemui_version)
-                                },
-                                enabled = lockscreenEditorGestureSupported
-                            )
-                            SwitchPreference(
-                                raiseToAod,
-                                { enabled ->
-                                    if (updateRaiseToAod(context, enabled)) {
-                                        raiseToAod = enabled
-                                    }
-                                },
-                                stringResource(R.string.setting_raise_to_aod),
-                                summary = if (raiseToAodSupported) {
-                                    stringResource(R.string.summary_raise_to_aod)
-                                } else {
-                                    stringResource(R.string.summary_unavailable_systemui_version)
-                                },
-                                enabled = raiseToAodSupported
-                            )
-                        }
-                    }
-                    item { SmallTitle(text = stringResource(R.string.section_config_backup)) }
-                    item {
-                        SettingsCard {
-                            ArrowPreference(
-                                title = stringResource(R.string.setting_export_config),
-                                summary = stringResource(R.string.summary_export_config),
-                                onClick = { exportConfigLauncher.launch("hyperglow-config.json") }
-                            )
-                            ArrowPreference(
-                                title = stringResource(R.string.setting_import_config),
-                                summary = stringResource(R.string.summary_import_config),
-                                onClick = {
-                                    importConfigLauncher.launch(
-                                        arrayOf("application/json", "text/plain", "application/octet-stream")
-                                    )
-                                }
-                            )
-                            ArrowPreference(
-                                title = stringResource(R.string.setting_reset_defaults),
-                                summary = stringResource(R.string.summary_reset_defaults),
-                                onClick = { showResetDefaultsDialog = true }
-                            )
+                                )
+                                ArrowPreference(
+                                    title = stringResource(R.string.setting_reset_defaults),
+                                    summary = stringResource(R.string.summary_reset_defaults),
+                                    onClick = { showResetDefaultsDialog = true }
+                                )
+                            }
                         }
                     }
                 }
@@ -813,6 +856,7 @@ internal fun HomeScreen(
                     }
                 }
 
+                }
                 }
             }
         }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -164,16 +165,25 @@ internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
         }
     }
 
+    val appIcon = rememberAppIconBitmap()
     SettingsCard {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Image(
-                painter = painterResource(R.drawable.ic_launcher),
-                contentDescription = null,
-                modifier = Modifier.size(72.dp)
-            )
+            if (appIcon != null) {
+                Image(
+                    bitmap = appIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(72.dp).clip(RoundedCornerShape(18.dp))
+                )
+            } else {
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher),
+                    contentDescription = null,
+                    modifier = Modifier.size(72.dp)
+                )
+            }
             Text(
                 stringResource(R.string.app_name),
                 fontSize = MiuixTheme.textStyles.title3.fontSize,
@@ -234,6 +244,30 @@ internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
                 )
             }
         }
+    }
+}
+
+/**
+ * 关于页应用图标:直接取系统解析的应用图标(自适应图标 background+foreground 由系统合成,
+ * 与桌面/系统设置里看到的始终一致)——换图标后无需改这里,不再硬编码 drawable。
+ * 渲染失败(理论不会)时由调用方回落 [R.drawable.ic_launcher]。
+ */
+@Composable
+private fun rememberAppIconBitmap(sizePx: Int = 216): ImageBitmap? {
+    val context = LocalContext.current
+    return remember(sizePx) {
+        runCatching {
+            val drawable = context.packageManager.getApplicationIcon(context.packageName)
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                sizePx,
+                sizePx,
+                android.graphics.Bitmap.Config.ARGB_8888
+            )
+            val canvas = android.graphics.Canvas(bitmap)
+            drawable.setBounds(0, 0, sizePx, sizePx)
+            drawable.draw(canvas)
+            bitmap.asImageBitmap()
+        }.getOrNull()
     }
 }
 

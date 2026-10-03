@@ -7,6 +7,9 @@
     <string name="nav_about">關於</string>
     <string name="section_language">語言</string>
     <string name="section_developer_options">開發者選項</string>
+    <string name="settings_section_aod">息屏設定</string>
+    <string name="settings_section_lockscreen">鎖屏設定</string>
+    <string name="settings_section_other">其他設定</string>
     <string name="setting_interface_language">界面語言</string>
     <string name="language_system_default">跟隨系統</string>
     <string name="language_english">English</string>
@@ -388,7 +391,6 @@
     <string name="option_color_black">黑色</string>
     <string name="option_color_white">白色</string>
     <string name="section_colors">顏色</string>
-    <string name="palette_primary_text">主歌詞顏色</string>
     <string name="palette_secondary_text">輔助行顏色</string>
     <string name="palette_sung_text">已唱顏色</string>
     <string name="palette_unsung_text">未唱顏色</string>
@@ -396,7 +398,6 @@
     <string name="palette_metadata_text">歌曲資訊顏色</string>
     <string name="palette_next_line_text">下一行顏色</string>
     <string name="palette_accent">強調色</string>
-    <string name="palette_surface_scrim">背景遮罩色</string>
     <string name="dialog_pick_color">選擇顏色</string>
     <string name="action_reset_color">恢復預設顏色</string>
     <string name="action_apply">套用</string>

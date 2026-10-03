@@ -7,6 +7,9 @@
     <string name="nav_about">About</string>
     <string name="section_language">Language</string>
     <string name="section_developer_options">Developer options</string>
+    <string name="settings_section_aod">AOD</string>
+    <string name="settings_section_lockscreen">Lockscreen</string>
+    <string name="settings_section_other">Other</string>
     <string name="setting_interface_language">Interface language</string>
     <string name="language_system_default">System default</string>
     <string name="language_english">English</string>
@@ -417,7 +420,6 @@
     <string name="option_color_black">Black</string>
     <string name="option_color_white">White</string>
     <string name="section_colors">Colors</string>
-    <string name="palette_primary_text">Main lyric color</string>
     <string name="palette_secondary_text">Secondary line color</string>
     <string name="palette_sung_text">Sung color</string>
     <string name="palette_unsung_text">Unsung color</string>
@@ -425,7 +427,6 @@
     <string name="palette_metadata_text">Song info color</string>
     <string name="palette_next_line_text">Next line color</string>
     <string name="palette_accent">Accent color</string>
-    <string name="palette_surface_scrim">Background scrim color</string>
     <string name="dialog_pick_color">Pick a color</string>
     <string name="action_reset_color">Reset to default</string>
     <string name="action_apply">Apply</string>
