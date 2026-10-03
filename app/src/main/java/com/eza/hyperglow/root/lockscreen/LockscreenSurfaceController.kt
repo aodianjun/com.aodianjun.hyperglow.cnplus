@@ -493,7 +493,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             ) {
                 logRenderProfileProbe(eligibleSnapshot, renderProfile)
                 canvas.setContent(
-                    eligibleSnapshot.toAodCanvasContent(renderProfile)
+                    eligibleSnapshot.toAodCanvasContent(renderProfile, duet = true)
                 )
                 lastRenderContent = renderContent
                 lastRenderedProfile = renderProfile
@@ -584,7 +584,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val measureContentWidth = (sceneWidth - horizontalInset * 2).coerceAtLeast(1)
         val metadataBudgeted = profile.metadataVisible &&
             profile.widgets.any { it.type == "metadata" }
-        val measured = pendingSnapshot?.toAodCanvasContent(profile)
+        val measured = pendingSnapshot?.toAodCanvasContent(profile, duet = true)
             ?.copy(metadataVisible = metadataBudgeted)
             ?.let { canvas.measureContentStack(it, measureContentWidth) }
         // 歌曲信息内容(per-surface):高度预算按本面 profile 的 parts/separators 推导,

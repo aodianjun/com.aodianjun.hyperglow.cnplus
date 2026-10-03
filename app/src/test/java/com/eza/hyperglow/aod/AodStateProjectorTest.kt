@@ -849,7 +849,31 @@ class AodStateProjectorTest {
         ).copy(
             duetLine = LyricDuetLine(text = "second", lineStartMs = 500L, lineEndMs = 3_000L)
         )
+        // 两面都关闭 → 源头撤行(任一曲面开启即携带,见下一条用例)。
         val gated = compiled.copy(
+            profiles = linkedMapOf(
+                SceneCompiler.SURFACE_LOCKSCREEN to
+                    compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+                        .copy(duetConcurrent = false),
+                SceneCompiler.SURFACE_AOD to
+                    aodProfile(enabled = true, metadataVisible = true).copy(duetConcurrent = false)
+            )
+        )
+        val out = project(s, compiled = gated)
+        assertNull(out.duetLine)
+    }
+
+    @Test
+    fun duetConcurrentCarriesCandidateWhenOnlyLockscreenWantsIt() {
+        // 锁屏开、息屏关:数据面仍携带候选(锁屏 mapper 会渲染,息屏 mapper 按自己的档位撤下)。
+        val s = state(
+            line = "main",
+            lineIndex = 0,
+            words = listOf(LyricWord("main", "", 0L, 2_000L, false))
+        ).copy(
+            duetLine = LyricDuetLine(text = "second", lineStartMs = 500L, lineEndMs = 3_000L)
+        )
+        val lockscreenOnly = compiled.copy(
             profiles = linkedMapOf(
                 SceneCompiler.SURFACE_LOCKSCREEN to
                     compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
@@ -857,8 +881,9 @@ class AodStateProjectorTest {
                     aodProfile(enabled = true, metadataVisible = true).copy(duetConcurrent = false)
             )
         )
-        val out = project(s, compiled = gated)
-        assertNull(out.duetLine)
+        val out = project(s, compiled = lockscreenOnly)
+        assertNotNull(out.duetLine)
+        assertEquals("second", out.duetLine!!.text)
     }
 
     @Test

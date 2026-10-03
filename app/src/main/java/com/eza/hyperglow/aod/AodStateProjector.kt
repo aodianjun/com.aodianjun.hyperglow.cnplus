@@ -171,9 +171,9 @@ internal fun projectToDisplay(
     // compiled 缺失（降级 / 旧文档）时仍回落 renderModes，行为与改前一致。
     val modes = state.renderModes
     val aodProfile = compiled?.profiles?.get(SceneCompiler.SURFACE_AOD)
+    val lockscreenProfile = compiled?.profiles?.get(SceneCompiler.SURFACE_LOCKSCREEN)
     val aodEnabled = aodProfile?.enabled ?: prefs.aodEnabled
-    val lockscreenEnabled = compiled?.profiles?.get(SceneCompiler.SURFACE_LOCKSCREEN)?.enabled
-        ?: prefs.lockscreenEnabled
+    val lockscreenEnabled = lockscreenProfile?.enabled ?: prefs.lockscreenEnabled
 
     // --- 保活（原 project() 的 persistentKeepAlive + powerDecision）---
     val persistentKeepAlive = shouldKeepAodAliveFor(
@@ -226,13 +226,16 @@ internal fun projectToDisplay(
     }
     val layoutGroups = if (showLargeMetadata || !hasActiveLine) emptyList() else state.layoutGroups.map(::toDisplayLayoutGroup)
 
-    // --- 对唱并发行(仅息屏消费,移植上游 99ba119d4 duet/secondLine)---
+    // --- 对唱并发行(息屏 + 锁屏卡片,移植上游 99ba119d4 duet/secondLine)---
     // 生产者已按时间轴重叠预计算候选(契约:投影不选行),这里只做策略与格式转换:
-    // 「显示并发歌词(对唱)」关闭时快照永不携带并发行(上游 duetEnabled 同语义:在源头
-    // 撤走并发行,画布无 per-build 对唱状态);大元数据引导/无活动行时同样不携带。
+    // 任一曲面开启即让快照携带候选(数据面);各曲面 mapper 再按自己的 duetConcurrent
+    // 门控渲染(锁屏与息屏各自独立——上游为 AOD-only,CN+ 扩展到锁屏卡片);两面都
+    // 关闭时快照永不携带并发行(上游 duetEnabled 同语义:在源头撤走并发行,画布无
+    // per-build 对唱状态);大元数据引导/无活动行时同样不携带。
     // 文本与分侧两套原样下发,行首标记剥离由渲染面按本面开关决定;语言不一致拒绝同样
     // 作用于并发行的罗马音。
-    val duetConcurrent = aodProfile?.duetConcurrent ?: true
+    val duetConcurrent = (aodProfile?.duetConcurrent ?: true) ||
+        (lockscreenProfile?.duetConcurrent ?: true)
     val duetLine = if (!duetConcurrent || showLargeMetadata || !hasActiveLine) {
         null
     } else {
