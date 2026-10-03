@@ -7,6 +7,7 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
+import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.customization.LyricTimeOffset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -151,6 +152,13 @@ class LyricInfoLyricProducer(
     }
 
     /**
+     * 「视频/非音乐音频不显示歌词」开关(应用级偏好,见 [MediaSourcePolicy])。
+     * 懒读:开关切换立即生效,不必等会话变化;偏好读取本身有缓存(见 AodRenderPreferences.read)。
+     */
+    private fun filterNonMusicSources(): Boolean =
+        contextRef?.let { AodRenderPreferences.read(it).filterNonMusicSources } ?: true
+
+    /**
      * 「重启歌词源」:重新注册 MediaSession 会话监听,并重新挑选活动会话、重建其回调,
      * 用于跨应用歌词注入链路(会话回调)卡死时恢复。
      */
@@ -161,15 +169,20 @@ class LyricInfoLyricProducer(
         }
         scope.launch {
             val ctx = contextRef ?: return@launch
-            val component = ComponentName(ctx, LyricInfoNotificationListener::class.java)
-            runCatching { manager?.removeOnActiveSessionsChangedListener(sessionListener) }
-            runCatching { manager?.addOnActiveSessionsChangedListener(sessionListener, component) }
-            controller?.unregisterCallback(controllerCallback)
-            controller = null
-            val sessions = runCatching { manager?.getActiveSessions(component) ?: emptyList() }
-                .getOrDefault(emptyList())
-            AppLog.i("LyricInfoLyricProducer", "restart: re-registered (sessions=${sessions.size})")
-            refreshSessions(sessions)
+            // 契约要求 restart() 不向调用方抛异常:会话注册/注销与 MediaController 回调都跨
+            // 系统服务,MediaController 可能随会话销毁而抛 IllegalStateException;整段兜底,
+            // 避免异常逃出协程(Dispatchers.Default 上未捕获即应用进程崩溃)。
+            runCatching {
+                val component = ComponentName(ctx, LyricInfoNotificationListener::class.java)
+                runCatching { manager?.removeOnActiveSessionsChangedListener(sessionListener) }
+                runCatching { manager?.addOnActiveSessionsChangedListener(sessionListener, component) }
+                runCatching { controller?.unregisterCallback(controllerCallback) }
+                controller = null
+                val sessions = runCatching { manager?.getActiveSessions(component) ?: emptyList() }
+                    .getOrDefault(emptyList())
+                AppLog.i("LyricInfoLyricProducer", "restart: re-registered (sessions=${sessions.size})")
+                refreshSessions(sessions)
+            }.onFailure { AppLog.w("LyricInfoLyricProducer", "restart: rebuild failed", it) }
         }
     }
 
@@ -189,7 +202,20 @@ class LyricInfoLyricProducer(
     }
 
     private fun refreshSessions(sessions: List<MediaController>) {
-        val picked = pickMediaSession(sessions)
+        val filterNonMusic = filterNonMusicSources()
+        val picked = pickMediaSession(sessions, filterNonMusic)
+        if (picked == null && sessions.isNotEmpty() && filterNonMusic) {
+            val dropped = sessions.filterNot { isLyricEligibleSource(it, filterNonMusic) }
+            if (dropped.isNotEmpty()) {
+                // 真机实证:网易云停止后,「任意在播会话」兜底会把抖音/哔哩哔哩的视频会话
+                // 当歌曲上屏。这里留痕,便于现场判定是「无会话」还是「会话被非音乐过滤」。
+                AppLog.i(
+                    "LyricInfoLyricProducer",
+                    "sessions filtered as non-music: " +
+                        dropped.joinToString { it.packageName.orEmpty() }
+                )
+            }
+        }
         if (picked == null) {
             if (controller != null) {
                 controller?.unregisterCallback(controllerCallback)
@@ -605,10 +631,33 @@ class LyricInfoLyricProducer(
  * (injected lyrics); if none exists, fall back to any active media session so playback metadata
  * and MediaSession position are still available when the lyric injection module is absent or when
  * another producer (Lyricon) dies — the recovery path for issue #5.
+ *
+ * [filterNonMusicSources] 为 true 时先剔除可证实的非音乐会话(视频应用包名 / 显式 MOVIE 等
+ * 内容类型,见 [MediaSourcePolicy])：视频播放不得触发歌词显示。兜底路径本身保持不变 ——
+ * 音乐应用没有注入歌词时仍可被选中;全部会话都被判定为非音乐时等同于「无会话」,
+ * 让仲裁器回退或进入空闲。
  */
-internal fun pickMediaSession(sessions: List<MediaController>): MediaController? =
-    sessions.firstOrNull { it.metadata?.getString(LyricInfoLyricProducer.LYRIC_INFO_KEY) != null }
-        ?: sessions.firstOrNull()
+internal fun pickMediaSession(
+    sessions: List<MediaController>,
+    filterNonMusicSources: Boolean = true
+): MediaController? {
+    val eligible = sessions.filter { isLyricEligibleSource(it, filterNonMusicSources) }
+    return eligible.firstOrNull { it.metadata?.getString(LyricInfoLyricProducer.LYRIC_INFO_KEY) != null }
+        ?: eligible.firstOrNull()
+}
+
+/**
+ * 该会话的来源是否允许进入歌词链。内容类型经 `MediaController.playbackInfo` 读取会话声明的
+ * `AudioAttributes`(公开 API);读取失败按未声明处理(fail-open,见 [MediaSourcePolicy])。
+ */
+internal fun isLyricEligibleSource(
+    controller: MediaController,
+    filterNonMusicSources: Boolean
+): Boolean = MediaSourcePolicy.isLyricEligible(
+    packageName = controller.packageName,
+    contentType = runCatching { controller.playbackInfo?.audioAttributes?.contentType }.getOrNull(),
+    filterEnabled = filterNonMusicSources
+)
 
 /**
  * Select the active line for [positionMs]; returns null once the position has passed the final

@@ -719,6 +719,33 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun secondaryWordKaraokeCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 辅助文字逐字效果开关必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返
+        // (compile -> toSurfaceProfile):任一环节漏字段都会让开关保存后弹回关闭;并且
+        // 它是 per-surface 的——只开一面时另一面必须保持关闭(与 secondaryNextLine 同回归面)。
+        val document = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(secondaryWordKaraoke = true)
+            )
+        )
+        val compiled = SceneCompiler.compile(document)
+        assertTrue(compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).secondaryWordKaraoke)
+        assertFalse(compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).secondaryWordKaraoke)
+
+        val validated = SystemUiCustomizationValidator.validate(SceneCompiler.compile(document))!!
+        assertTrue(validated.profiles.getValue(SceneCompiler.SURFACE_AOD).secondaryWordKaraoke)
+
+        val canonical = CustomizationRepository.canonicalizeDocument(document)!!
+        assertTrue(canonical.profiles.getValue(SceneCompiler.SURFACE_AOD).secondaryWordKaraoke)
+        assertFalse(canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).secondaryWordKaraoke)
+        // 默认文档保持关闭:不改变既有用户的辅助文字呈现。
+        assertFalse(
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).secondaryWordKaraoke
+        )
+    }
+
+    @Test
     fun rowAlignmentsCompileValidateAndSurviveCanonicalizeRoundTrip() {
         // 歌曲信息/第二行歌词独立对齐必须穿过 compile、SystemUI 二次校验与仓库
         // canonicalize 往返(compile -> toSurfaceProfile):任一环节漏字段都会让设置
@@ -858,7 +885,7 @@ class SceneCompilerTest {
 
         val tamperedAod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
             anchor = "screen_center",
-            palette = mapOf("primaryText" to "dimmed")
+            palette = mapOf("sungText" to "dimmed")
         )
         val validated = SystemUiCustomizationValidator.validate(
             compiled.copy(profiles = compiled.profiles + (SceneCompiler.SURFACE_AOD to tamperedAod))
@@ -870,7 +897,7 @@ class SceneCompilerTest {
         )
         assertEquals(
             "dimmed",
-            validated.profiles.getValue(SceneCompiler.SURFACE_AOD).palette["primaryText"]
+            validated.profiles.getValue(SceneCompiler.SURFACE_AOD).palette["sungText"]
         )
         assertNotEquals(compiled.hash, validated.hash)
     }

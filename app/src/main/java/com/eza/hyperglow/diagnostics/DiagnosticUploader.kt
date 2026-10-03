@@ -110,6 +110,25 @@ internal fun mapDiagnosticUploadException(error: Exception): DiagnosticUploadRes
         }
     )
 
+/**
+ * Historical HTTPS intake client. It is **not invoked by the current UI**: a report is finalized
+ * locally into a receipt plus a ready-to-open GitHub issue draft, and nothing leaves the device
+ * unless the user attaches it somewhere (`docs/DIAGNOSTIC_REPORTING_SPEC.md`,
+ * `DIAGNOSTIC_DATA_POLICY.md`). `DiagnosticsScreen` constructs a [DiagnosticReportReceipt] itself
+ * and never reaches this class.
+ *
+ * Kept rather than deleted for two reasons: the intake protocol stays recoverable without
+ * re-deriving it, and `ArchitectureGuardTest.networkClientsStayInAllowlistedFiles` pins the
+ * app-side network allowlist to this path. Both are deliberate, not oversights — do not read the
+ * presence of this file as "diagnostics upload somewhere".
+ *
+ * Reviving it means re-opening a user-visible data flow, so it requires the policy documents to be
+ * updated first, not just a call site.
+ */
+@Deprecated(
+    "Historical intake client; not invoked by the current UI. " +
+        "See docs/DIAGNOSTIC_REPORTING_SPEC.md before wiring it anywhere."
+)
 internal class DiagnosticUploader(private val endpoint: String) {
     suspend fun upload(report: DiagnosticReportEnvelope): DiagnosticUploadResult =
         withContext(Dispatchers.IO) {

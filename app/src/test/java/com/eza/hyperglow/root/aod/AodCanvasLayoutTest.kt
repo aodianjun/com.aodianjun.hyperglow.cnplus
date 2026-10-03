@@ -22,13 +22,13 @@ class AodCanvasLayoutTest {
         val default = resolveAodPalette(emptyMap())
         val dimmed = resolveAodPalette(
             mapOf(
-                "primaryText" to "dimmed",
+                "sungText" to "dimmed",
                 "metadataText" to "dimmed",
                 "glow" to "external"
             )
         )
 
-        assertNotEquals(default.primaryText, dimmed.primaryText)
+        assertNotEquals(default.sungText, dimmed.sungText)
         assertNotEquals(default.metadataText, dimmed.metadataText)
         assertEquals(default.glow, dimmed.glow)
     }
@@ -113,8 +113,8 @@ class AodCanvasLayoutTest {
     @Test
     fun paletteHexTokensResolveToOpaqueColors() {
         // "#RRGGBB" 自定义字体颜色 → 不透明 ARGB
-        val warm = resolveAodPalette(mapOf("primaryText" to "#FFD9A0", "glow" to "#FFD9A0"))
-        assertEquals(0xFFFFD9A0.toInt(), warm.primaryText)
+        val warm = resolveAodPalette(mapOf("sungText" to "#FFD9A0", "glow" to "#FFD9A0"))
+        assertEquals(0xFFFFD9A0.toInt(), warm.sungText)
         assertEquals(0xFFFFD9A0.toInt(), warm.glow)
         // "#AARRGGBB" 丢弃 alpha;短格式 "#RGB" 展开;非法 token 回退默认白
         assertEquals(0xFF00AABB.toInt(), parseOpaqueColorOrNull("#CC00AABB"))
@@ -1405,6 +1405,15 @@ class AodCanvasLayoutTest {
         assertFalse(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, emptyList()))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, words, speed = 0f))
+        // 辅助文字逐字效果独立于主行进度效果:None 下主行静态,辅助行仍要续帧;暂停恒停。
+        assertTrue(
+            hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words, auxKaraoke = true)
+        )
+        assertFalse(
+            hasActiveCanvasTiming(
+                true, "None", 1_000L, 2_000L, words, speed = 0f, auxKaraoke = true
+            )
+        )
     }
 
     @Test

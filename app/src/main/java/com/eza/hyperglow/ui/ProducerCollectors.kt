@@ -73,6 +73,10 @@ internal fun collectConnection(source: LyricSource): androidx.compose.runtime.St
  * 当前歌词源上报的 [LyricProducerState],映射成预览所需的 [LyricSnapshot]。无实时数据时返回
  * null,由调用方回退到静态示例快照。
  *
+ * 已暂停的传输同样返回 null:仲裁器有意保留暂停时的冻结状态(见 `isFaulted`,暂停的位置
+ * 流天然静默,不算故障),因此 `active` 在暂停后会一直停在暂停前那句歌词上——预览跟着
+ * 冻在一句旧歌词上,而不是回退到演示歌词。判据见 [presentsLivePreview]。
+ *
  * 歌曲信息按 [metadataParts]/[metadataSeparators](外观文档全局配置)用与实机投影层相同的
  * [composeSongMetadata] 组装,保证预览与实机所见即所得。歌曲图片同样与实机同源:
  * 订阅 [SongArtworkRepository.current](出帧后驱动重组),取与当前曲目同曲的已校对帧。
@@ -90,7 +94,8 @@ internal fun collectLiveSnapshot(
     val active by collectActiveState()
     // 封面帧出帧后驱动重组(帧到达前字段为空,预览不显示,与实机 fail-closed 一致)。
     val artworkFrame by SongArtworkRepository.current.collectAsState()
-    return active?.toPreviewSnapshot(
+    val state = active?.takeIf { presentsLivePreview(it) } ?: return null
+    return state.toPreviewSnapshot(
         metadataParts,
         metadataSeparators,
         duetMarkers,
@@ -99,7 +104,23 @@ internal fun collectLiveSnapshot(
     )
 }
 
-private fun LyricProducerState.toPreviewSnapshot(
+/**
+ * 预览是否呈现这份实时状态:只有**正在播放**的状态才接管预览。
+ *
+ * 背景:仲裁器刻意不清暂停时的冻结状态(暂停的位置流不推进是正常现象,而 AOD 要保留
+ * 最后一句歌词),所以 `active` 在暂停后长期非 null 且内容停在暂停那一刻。若预览照单
+ * 全收,就会一直显示那句旧歌词(用户看到的「预览卡住不变」),而不是回退到循环播放的
+ * 演示歌词。这里把「在播」作为预览接管判据,与概览页「正在播放」/`projection state`
+ * 的 paused 判定同一口径(见 LyricSourceComponents)。
+ *
+ * 锁屏/AOD 实机侧不受本函数影响——那是投影层的保留语义,本函数只服务于 App 内预览。
+ * SuperLyric 以「有无当前行」派生 playing,暂停后该位仍为真,故其预览最长冻结到
+ * 12 秒的 stale 窗口结束(届时仲裁器清 `active`,预览回退演示);这是既有派生语义,
+ * 修正它属于生产者改动,会牵动实机保留行为,不在此处变更。
+ */
+internal fun presentsLivePreview(state: LyricProducerState): Boolean = state.playing
+
+internal fun LyricProducerState.toPreviewSnapshot(
     metadataParts: String,
     metadataSeparators: String,
     duetMarkers: Boolean,
@@ -118,6 +139,10 @@ private fun LyricProducerState.toPreviewSnapshot(
     romanized = romanizedLine,
     translated = translatedLine,
     nextLine = if (duetMarkers) stripDuetMarker(nextLine) else nextLine,
+    // 下一行辅助文字原样透传(与实机 projectToDisplay 同口径,不剥对唱标记);
+    // 「显示第二行辅助文字」预览行构建直接消费这两个字段,缺了预览就少第四行。
+    nextLineRomanized = nextLineRomanized,
+    nextLineTranslated = nextLineTranslated,
     metadata = composeSongMetadata(
         title = title,
         artist = artist,

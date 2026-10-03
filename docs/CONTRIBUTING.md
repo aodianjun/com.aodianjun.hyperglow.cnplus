@@ -10,10 +10,12 @@ which rules are easy to miss.
 ## Read in this order
 
 1. `docs/ARCHITECTURE.md` — package/process ownership, trust boundaries, capability gates.
-2. `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md` — behavior contract for lockscreen/AOD surfaces.
-3. `docs/STYLE_GUIDE.md` — implementation and review patterns (fail-closed, lifecycle, hot paths).
-4. `docs/DIAGNOSTIC_REPORTING_SPEC.md` + `DIAGNOSTIC_DATA_POLICY.md` — diagnostics contract.
-5. `docs/RELEASE_CONVENTIONS.md` and `UPSTREAM_SYNC.md` — release mechanics and upstream porting.
+2. `docs/LYRIC_PRODUCER_CONTRACT.md` — multi-source lyric ingress: producer invariants, arbitration,
+   staleness, threading.
+3. `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md` — behavior contract for lockscreen/AOD surfaces.
+4. `docs/STYLE_GUIDE.md` — implementation and review patterns (fail-closed, lifecycle, hot paths).
+5. `docs/DIAGNOSTIC_REPORTING_SPEC.md` + `DIAGNOSTIC_DATA_POLICY.md` — diagnostics contract.
+6. `docs/RELEASE_CONVENTIONS.md` and `UPSTREAM_SYNC.md` — release mechanics and upstream porting.
 
 ## Standing rules
 
@@ -79,10 +81,11 @@ reports are triaged against `docs/DEVICE_COMPAT_MATRIX.md`.
 ## 按此顺序阅读
 
 1. `docs/ARCHITECTURE.md` —— 包/进程所有权、信任边界、能力门控。
-2. `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md` —— 锁屏/AOD 的行为契约。
-3. `docs/STYLE_GUIDE.md` —— 实现与评审模式（fail-closed、生命周期、热路径）。
-4. `docs/DIAGNOSTIC_REPORTING_SPEC.md` + `DIAGNOSTIC_DATA_POLICY.md` —— 诊断契约。
-5. `docs/RELEASE_CONVENTIONS.md` 与 `UPSTREAM_SYNC.md` —— 发版机制与上游移植。
+2. `docs/LYRIC_PRODUCER_CONTRACT.md` —— 多源歌词入口：生产者不变量、仲裁、staleness、线程模型。
+3. `docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md` —— 锁屏/AOD 的行为契约。
+4. `docs/STYLE_GUIDE.md` —— 实现与评审模式（fail-closed、生命周期、热路径）。
+5. `docs/DIAGNOSTIC_REPORTING_SPEC.md` + `DIAGNOSTIC_DATA_POLICY.md` —— 诊断契约。
+6. `docs/RELEASE_CONVENTIONS.md` 与 `UPSTREAM_SYNC.md` —— 发版机制与上游移植。
 
 ## 长期规则
 

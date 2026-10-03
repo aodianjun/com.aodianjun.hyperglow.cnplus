@@ -16,6 +16,11 @@ import org.robolectric.annotation.Config
  * lyrics when available, but fall back to any active media session when it does not — the recovery
  * path for issue #5 (Lyricon shared-memory position source dies after screen-off).
  *
+ * 兜底只对**音乐**会话生效:视频/播客等可证实的非音乐会话在挑选前被剔除(见
+ * [MediaSourcePolicy])。Robolectric 的会话包名固定为被测应用自身、播放属性也无法注入,
+ * 因此这里只能钉住「包名未命中视频表时的兜底行为」;视频包名与内容类型的判定由
+ * [MediaSourcePolicyTest] 覆盖。
+ *
  * [MediaController] is created from a [MediaSession] because its constructor is not public; the
  * test only inspects selection decisions, not playback-state timing. Robolectric's shadow does not
  * expose [MediaMetadata.Builder.setExtras], so the "lyricInfo preferred" branch is verified by the

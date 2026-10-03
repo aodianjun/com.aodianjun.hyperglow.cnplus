@@ -166,7 +166,16 @@ internal class AodLyricClient(
         override fun onConfiguration(configuration: Bundle?) {
             if (configuration == null) return
             synchronized(this@AodLyricClient) {
-                if (stopped || generation != bindingGeneration) return
+                if (stopped || generation != bindingGeneration) {
+                    // 「预览有效果实机没有」类反馈的关键判别点:配置在投递前就被代次门控丢掉
+                    // 时此处是唯一的可见痕迹,此前三个 return 全部静默,整条链路等于黑盒。
+                    HookLogger.w(
+                        TAG,
+                        "Configuration dropped before delivery stopped=$stopped " +
+                            "gen=$generation binding=$bindingGeneration"
+                    )
+                    return
+                }
             }
             // This callback is one-way Binder. Never retain its Bundle past this method.
             val ownedPayload = try {
@@ -185,8 +194,20 @@ internal class AodLyricClient(
                         currentGeneration = bindingGeneration,
                         value = ownedPayload
                     )
-                ) return
+                ) {
+                    HookLogger.w(
+                        TAG,
+                        "Configuration dropped at mailbox stopped=$stopped " +
+                            "gen=$generation binding=$bindingGeneration"
+                    )
+                    return
+                }
             }
+            HookLogger.w(
+                TAG,
+                "Configuration queued rev=${ownedPayload.revision} " +
+                    "hash=${ownedPayload.hash.take(8)} gen=$generation"
+            )
             mainHandler.removeCallbacks(deliverConfiguration)
             mainHandler.post(deliverConfiguration)
         }

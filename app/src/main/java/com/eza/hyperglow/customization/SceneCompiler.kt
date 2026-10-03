@@ -177,6 +177,7 @@ object SceneCompiler {
             alignment = profile.alignment.takeIf { it in ALIGNMENTS } ?: "auto",
             secondaryMode = profile.secondaryMode.takeIf { it in SECONDARY_MODES } ?: "Main only",
             secondaryTextBright = profile.secondaryTextBright,
+            secondaryWordKaraoke = profile.secondaryWordKaraoke,
             lyricLineLimit = normalizeLyricLineLimit(profile.lyricLineLimit),
             showNextLine = profile.showNextLine,
             secondaryNextLine = profile.secondaryNextLine,
@@ -312,15 +313,13 @@ object SceneCompiler {
         else -> "Left to right (main only)"
     }
     private val SEMANTIC_COLORS = setOf(
-        "primaryText",
         "secondaryText",
         "metadataText",
         "nextLineText",
         "sungText",
         "unsungText",
         "glow",
-        "accent",
-        "surfaceScrim"
+        "accent"
     )
     private val PALETTE_VALUES = setOf("default", "clock", "wallpaper", "white", "dimmed")
 

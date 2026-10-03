@@ -174,7 +174,8 @@ internal data class LyricSnapshot(
         metadataVisible,
         metadataAnchor,
         adaptiveSectioning,
-        artworkKey
+        artworkKey,
+        duetLine
     )
 }
 
@@ -225,7 +226,12 @@ internal data class LyricRenderContent(
      * 变更指纹只带封面键不带 JPEG 字节:每次 wire 解码都会产出新 ByteArray,
      * 按内容比对会让逐帧重渲染判定失效,按键比对则同帧重播仍是「无变化」。
      */
-    val artworkKey: String = ""
+    val artworkKey: String = "",
+    /**
+     * 对唱并发行(锁屏/息屏各自按自己的开关门控后)。纳入变更指纹:主行不变而并发行
+     * 单独加入/离开时,控制器也要重投内容(与 artworkKey 同为内容级指纹)。
+     */
+    val duetLine: LyricDuetLine? = null
 )
 
 internal data class LyricKeepAliveSignal(

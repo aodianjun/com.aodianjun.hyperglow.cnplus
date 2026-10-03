@@ -6,6 +6,7 @@ import android.media.session.MediaSessionManager
 import android.os.Build
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
+import com.eza.hyperglow.aod.AodRenderPreferences
 import io.github.proify.lyricon.lyric.model.RichLyricLine
 import io.github.proify.lyricon.lyric.model.Song
 import io.github.proify.lyricon.lyric.model.extensions.TimingNavigator
@@ -39,7 +40,7 @@ import kotlinx.coroutines.launch
  * sourced from [CustomizationRepository.loadCompiled] (the AOD [CompiledSurfaceProfile]).
  * Snapshot is cached and refreshed on song change — never read at 60 Hz.
  *
- * Contract (see `.archcore/lyricon-integration/lyric-producer-contract.spec.md`):
+ * Contract (see `docs/LYRIC_PRODUCER_CONTRACT.md`):
  * - Requires API >= 27 (O_MR1). Below that, `LyriconFactory.createSubscriber` returns
  *   `EmptyLyriconSubscriber`, so this producer is a no-op (spec: API<27 → no-op).
  * - Requires lyricon's Xposed module active in SystemUI; its absence MUST NOT crash HyperGlow.
@@ -105,6 +106,12 @@ class LyriconLyricProducer(
     // 播放状态:STATE_NONE / STATE_STOPPED / null 判定为「已停止」,按 onSongChanged(null)
     // 清空曲目;STATE_PAUSED 判定为「暂停」保留(现有暂停驻留链路负责后续超时清除)。
     @Volatile internal var activeProviderPackage: String? = null
+    /**
+     * 活动**播放器**应用包名(`ProviderInfo.playerPackageName`)。与 [activeProviderPackage]
+     * (歌词提供端插件包名)不同,这是「谁在播」的答案,「当前音频源是不是音乐」的判定输入
+     * (见 [activeSourceEligible])。
+     */
+    @Volatile internal var activePlayerPackage: String? = null
     @Volatile private var stopConverged = false
     @Volatile private var stoppedStreak = 0
     private var mediaSessionManager: MediaSessionManager? = null
@@ -351,6 +358,21 @@ class LyriconLyricProducer(
     }
 
     /**
+     * 当前活动音频源是否为音乐(见 [MediaSourcePolicy]):输入是 Lyricon 上报的**播放器**
+     * 包名([ProviderInfo.playerPackageName]),不是歌词提供端插件包名 —— 真机日志里
+     * `provider=io.github.proify.lyricon.cmprovider` 是提供端(网易云插件),对识别
+     * 「谁在播」无用。播放器包名缺失/未知时 fail-open 放行。
+     *
+     * 视频应用播放期间本生产者整体静默(不发射状态、看门狗不重建订阅),让仲裁器回退到
+     * 其他源或进入空闲;关闭「视频/非音乐音频不显示歌词」开关即恢复历史行为。
+     */
+    internal fun activeSourceEligible(): Boolean = MediaSourcePolicy.isLyricEligible(
+        packageName = activePlayerPackage,
+        contentType = null,
+        filterEnabled = contextRef?.let { AodRenderPreferences.read(it).filterNonMusicSources } ?: true
+    )
+
+    /**
      * Clear all song/lyrics/position ingress and emit a null state — the same idempotent teardown
      * used by `onSongChanged(null)` / `onActiveProviderChanged(null)`. Backs the MediaSession stop
      * detector (issue #27) so a stale-active-but-stopped player is fully released.
@@ -496,6 +518,9 @@ class LyriconLyricProducer(
     private suspend fun positionWatchdogLoop() {
         while (watchdogScope.isActive) {
             delay(POSITION_WATCHDOG_POLL_MS)
+            // 非音乐源(视频等)期间看门狗静默:此时「位置在推、歌曲缺失」是预期状态,
+            // 重建订阅只会拿到同一首被忽略的「歌」,白耗 IPC。
+            if (!activeSourceEligible()) continue
             refreshSessionPlaying()
             maybeResubscribeOnPositionSilence()
             maybeResubscribeOnSongFeed()

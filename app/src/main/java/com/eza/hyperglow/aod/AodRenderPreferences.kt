@@ -114,7 +114,13 @@ data class AodRenderConfig(
      * 渲染刷新率上限档(issue #68 #12):0=跟随现有行为(16ms≈60fps);
      * 60/90/120=用户可选上限,随配置下发到 SystemUI 侧帧调度。
      */
-    val aodRefreshRateCap: Int = 0
+    val aodRefreshRateCap: Int = 0,
+    /**
+     * 「视频/非音乐音频不显示歌词」:识别当前音频源(播放器包名 + 会话声明的音频内容类型),
+     * 视频、播客等可证实的非音乐来源播放期间不进入歌词显示链(见
+     * [com.eza.hyperglow.producer.MediaSourcePolicy])。默认开启;关闭后恢复历史行为。
+     */
+    val filterNonMusicSources: Boolean = true
 ) {
     companion object {
         /** 出厂默认配置;备份解码时用于逐字段回退缺失/类型错误的值。 */
@@ -348,6 +354,7 @@ object AodRenderPreferences {
     const val AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT = "aod_canvas_padding_landscape_y_percent"
     const val AOD_DEBUG_SHOW_CANVAS_FRAME = "aod_debug_show_canvas_frame"
     const val AOD_REFRESH_RATE_CAP = "aod_refresh_rate_cap"
+    const val FILTER_NON_MUSIC_SOURCES = "filter_non_music_sources"
 
     // SharedPreferences throws ClassCastException when an older/imported value has the wrong
     // primitive type. Treat malformed entries as missing so a bad setting cannot crash startup.
@@ -450,7 +457,8 @@ object AodRenderPreferences {
             prefs.safeInt(AOD_BRIGHTNESS_LEVEL, DEFAULT_AOD_BRIGHTNESS_LEVEL)
                 .coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS),
             prefs.safeBoolean(AOD_DEBUG_SHOW_CANVAS_FRAME, false),
-            normalizeAodRefreshRateCap(prefs.safeInt(AOD_REFRESH_RATE_CAP, 0))
+            normalizeAodRefreshRateCap(prefs.safeInt(AOD_REFRESH_RATE_CAP, 0)),
+            prefs.safeBoolean(FILTER_NON_MUSIC_SOURCES, true)
         ).also { cachedConfig = it }
     }
 

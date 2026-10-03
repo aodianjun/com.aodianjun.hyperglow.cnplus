@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
  * `nextLineStartMs`, `nextLine`) are not available and stay at defaults — projection renders the
  * pushed line directly.
  *
- * Contract (see `.archcore/lyricon-integration/lyric-producer-contract.spec.md`):
+ * Contract (see `docs/LYRIC_PRODUCER_CONTRACT.md`):
  * - Requires the SuperLyric module active in the system service. Its absence MUST NOT crash
  *   HyperGlow: until the service is reachable, [connection] stays [ProducerConnection.DISCONNECTED]
  *   and [state] stays null, so the arbiter falls back automatically.

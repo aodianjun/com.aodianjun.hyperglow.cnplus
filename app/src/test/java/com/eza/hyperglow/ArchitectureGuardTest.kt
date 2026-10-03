@@ -199,6 +199,43 @@ class ArchitectureGuardTest {
         )
     }
 
+    @Test
+    fun canvasKeepsRenderEffectsOffTheContentClipEdge() {
+        // 「歌词刚好叠到画布边缘被裁切」的机器门(2026-10-03):歌词行的辉光光晕(字号 × 36%)
+        // 与「BetterLyrics」档未唱字下沉会越出行盒,而竖屏画布上下内边距为 0、锁屏卡片又按
+        // 实测内容定高 —— 块沿与内容裁剪沿必然重合,首/末行的外扩被切平成一条直线。
+        //
+        // 回归形状:余量只接一侧(只让卡片长高、放置没内缩,或反之),或画布退回自己私算
+        // 0.36/0.10 字面量 —— 两者都会让块沿重新贴住裁剪沿。余量必须来自共享纯函数
+        // (canvasEffectAllowancePx / canvasEffectEdgeNeeds),且同时接进「放置」(positionRows)
+        // 与「自适应卡片高度测量」(measureContentStack)。
+        val base = mainSourceDir() ?: return
+        val canvas = File(base, "root/aod/AodLyricCanvasView.kt")
+        assertTrue("root/aod/AodLyricCanvasView.kt exists", canvas.isFile)
+        val text = canvas.readText()
+        val required = listOf("canvasEffectAllowancePx(", "canvasEffectEdgeNeeds(")
+        val missing = required.filterNot { text.contains(it) }
+        assertTrue(
+            "canvas effect allowance must delegate to the shared pure functions, missing: $missing",
+            missing.isEmpty()
+        )
+        // 顶部/底部余量各须出现在放置与测量两处(每处一处,合计 ≥2)。
+        for (symbol in listOf("effectNeeds.topPx", "effectNeeds.bottomPx")) {
+            val count = text.split(symbol).size - 1
+            assertTrue(
+                "$symbol must be wired into both placement and adaptive-height measurement, " +
+                    "found $count occurrence(s)",
+                count >= 2
+            )
+        }
+        // 光晕半径/下沉比例只允许来自共享核心(LyricGlowRenderer / LyricWordKaraokeRenderer)。
+        val literals = Regex("""0\.36f|0\.10f""").findAll(text).map { it.value }.toList()
+        assertTrue(
+            "halo radius / sink fraction must come from the shared core, found literals: $literals",
+            literals.isEmpty()
+        )
+    }
+
     // --- helpers ---
 
     private fun mainSourceDir(): File? {

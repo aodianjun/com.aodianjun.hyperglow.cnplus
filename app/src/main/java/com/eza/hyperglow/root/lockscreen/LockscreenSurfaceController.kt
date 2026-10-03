@@ -317,6 +317,13 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
 
     override fun onCustomization(configuration: CompiledCustomization) {
         customization = configuration
+        val receivedLock = configuration.profiles[SceneCompiler.SURFACE_LOCKSCREEN]
+        // 诊断留痕:与 AodSurfaceController 同款,确认锁屏控制器收到配置及收到的档位。
+        HookLogger.w(
+            TAG,
+            "Customization received: lockAnim=${receivedLock?.animation} " +
+                "lockGlow=${receivedLock?.glow} rtNull=${runtimeProfile == null}"
+        )
         // 「暂停时显示歌曲信息、歌词」关闭(或驻留时长已过)时,丢弃暂停驻留快照并立即隐藏,
         // 与 AOD 侧同一语义:开关切换立即生效,不等下一条暂停边。
         val retained = retainedMediaSnapshot?.takeIf { snapshot ->
@@ -484,8 +491,9 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             if (!wasVisible || renderContent != lastRenderContent ||
                 renderProfile != lastRenderedProfile
             ) {
+                logRenderProfileProbe(eligibleSnapshot, renderProfile)
                 canvas.setContent(
-                    eligibleSnapshot.toAodCanvasContent(renderProfile)
+                    eligibleSnapshot.toAodCanvasContent(renderProfile, duet = true)
                 )
                 lastRenderContent = renderContent
                 lastRenderedProfile = renderProfile
@@ -576,7 +584,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val measureContentWidth = (sceneWidth - horizontalInset * 2).coerceAtLeast(1)
         val metadataBudgeted = profile.metadataVisible &&
             profile.widgets.any { it.type == "metadata" }
-        val measured = pendingSnapshot?.toAodCanvasContent(profile)
+        val measured = pendingSnapshot?.toAodCanvasContent(profile, duet = true)
             ?.copy(metadataVisible = metadataBudgeted)
             ?.let { canvas.measureContentStack(it, measureContentWidth) }
         // 歌曲信息内容(per-surface):高度预算按本面 profile 的 parts/separators 推导,
@@ -1293,6 +1301,21 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
 
     private fun currentLockscreenProfile(): CompiledSurfaceProfile =
         lockscreenProfile() ?: DEFAULT_LOCKSCREEN_PROFILE
+
+    private var lastRenderProbeKey = ""
+
+    /**
+     * 诊断探针(配置下发排查):与 AodSurfaceController 同款,记录锁屏渲染时实际
+     * 读到的 profile 档位与快照档位,只在值变化时留痕。
+     */
+    private fun logRenderProfileProbe(snapshot: LyricSnapshot, profile: CompiledSurfaceProfile) {
+        val key = "custNull=${customization == null} rtNull=${runtimeProfile == null} " +
+            "profileAnim=${profile.animation} profileGlow=${profile.glow} " +
+            "snapAnim=${snapshot.animationMode} snapGlow=${snapshot.glowMode}"
+        if (key == lastRenderProbeKey) return
+        lastRenderProbeKey = key
+        HookLogger.w(TAG, "Render profile probe: $key")
+    }
 
     private fun isSceneActive(): Boolean = sceneRole != LinkageSceneRole.INACTIVE
 

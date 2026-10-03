@@ -14,7 +14,8 @@ import com.eza.hyperglow.root.projection.LyricWord
 
 /**
  * 映射到画布内容;[artwork] 默认取自 [profile](per-surface 歌曲图片配置),可显式覆盖。
- * [duet] 仅息屏调用方传 true(对唱并发行是息屏专属,锁屏卡片恒 solo,上游同语义);
+ * [duet] 曲面参与对唱渲染(息屏与锁屏调用方都传 true),再与该曲面自己的
+ * `duetConcurrent` 开关相与——锁屏与息屏各自独立(上游为 AOD-only,CN+ 扩展到锁屏卡片);
  * 并发行的 alignedRight 经同一「对唱分侧」门控。
  *
  * **按面独立(per-surface)**:「歌曲信息内容」「识别对唱标记」由本面 [profile] 决定——
@@ -92,6 +93,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     textSizeCustom = profile?.textSizeCustom ?: textSizeCustom,
     secondaryMode = profile?.secondaryMode ?: secondaryMode,
     secondaryTextBright = profile?.secondaryTextBright ?: true,
+    secondaryWordKaraoke = profile?.secondaryWordKaraoke ?: false,
     lyricLineLimit = profile?.lyricLineLimit ?: 3,
     animationMode = profile?.animation ?: animationMode,
     glowMode = profile?.glow ?: glowMode,
@@ -130,7 +132,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     artworkAdaptiveScale = artwork.adaptiveScale,
     artworkSizeDp = artwork.sizeDp,
     playbackPaused = pauseRetentionEligible,
-    duetLine = if (duet) {
+    duetLine = if (duet && (profile?.duetConcurrent ?: true)) {
         duetLine?.let { line ->
             // 本面「识别对唱标记」:同源剥离并发行文本与逐字词表;剥空(纯标记行)整条丢弃。
             val duetText = if (duetMarkers) stripDuetMarker(line.text) else line.text

@@ -9,6 +9,16 @@ package com.eza.hyperglow.producer
  * - Enhanced LRC: `[mm:ss.xxx]<mm:ss.xxx>word<mm:ss.xxx>word` — the `<...>` markers give each
  *   word's start time; the text between markers is that word.
  *
+ * Timestamp grammar (LRC/SPL): minutes 1-3 digits, seconds 1-2 digits, milliseconds 1-6 digits and
+ * omittable; a fraction shorter than 3 digits is right-padded with zeros, so `[3:12.5]` is
+ * 3:12.500, not 3:12.005. `.` or `:` may separate seconds from milliseconds. So `[mm:ss]`,
+ * `[mm:ss.x]` … `[mm:ss.xxxxxx]` are all valid, and `<...>` word markers take the same shapes.
+ *
+ * A token that does not match this grammar is not a timestamp: a leading one leaves the line
+ * without timing (so the line is dropped), and a `<...>` marker that does not match stays literal
+ * text. Narrower grammar used to silently drop every line whose fraction had 4-6 digits or none at
+ * all, and to leak such `<...>` markers into the displayed lyric.
+ *
  * A [TimedLine] carries a [startMs]/[endMs] and, when word timing is present, a
  * [LyricWord] list (per-word karaoke). Words are sorted ascending by start; the last word's
  * end is filled from the line's end.
@@ -23,8 +33,8 @@ object ElrcParser {
         val words: List<LyricWord>?
     )
 
-    private val TIME_REGEX = Regex("""^\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3})?)]""")
-    private val WORD_REGEX = Regex("""<(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3})?)>""")
+    private val TIME_REGEX = Regex("""^\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,6})?)?]""")
+    private val WORD_REGEX = Regex("""<(\d{1,3}):(\d{1,2})(?:[.:](\d{1,6})?)?>""")
 
     // 零宽不可见字符(U+200B 零宽空格/U+2060 词连接符/U+FEFF BOM):部分歌词源会混入,
     // 会污染逐字高亮的词界与文本比对,行/词文本统一剥离(与 Bridge LyricTextSanitizer 同集合)。
@@ -106,6 +116,7 @@ object ElrcParser {
     private fun toMs(g: List<String>): Long {
         val min = g[1].toLong()
         val sec = g[2].toLong()
+        // 毫秒 1-6 位(可省略):不足 3 位右侧补零,超过 3 位截到毫秒("345678" -> 345)。
         val fracStr = g.getOrNull(3).orEmpty()
         val frac = if (fracStr.isEmpty()) 0L else fracStr.padEnd(3, '0').substring(0, 3).toLong()
         return min * 60_000L + sec * 1_000L + frac

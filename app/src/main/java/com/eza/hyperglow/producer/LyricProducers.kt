@@ -4,25 +4,19 @@ import android.content.Context
 import com.eza.hyperglow.customization.CustomizationRepository
 
 /**
- * Process-wide holder for the [LyricProducerArbiter] and its two producers.
+ * Process-wide holder for the [LyricProducerArbiter] and its four producers.
  *
  * Created once at app startup (see [HyperGlowApplication]); projection consumers read
  * [arbiter].[LyricProducerArbiter.active] instead of `SpicyBridgeStore.state` directly,
- * per the `lyric-producer-contract` spec.
+ * per `docs/LYRIC_PRODUCER_CONTRACT.md`.
  *
- * Phase 3 status: the lyricon producer now emits complete, engine-ready [LyricProducerState]
- * (active line + per-word progress via `TimingNavigator`, plus the row-level fields
- * `lyricKind`/`lineStartMs`/`lineEndMs`/`hasTimedLyrics`/`nextLineStartMs` — spec clause 6).
- * The Spicy producer still wraps `SpicyBridgeStore.state` 1:1 and emits the row-level fields at
- * defaults; its per-word timing lives in `SpicyBridgeDocumentStore`, which `AodProjectionEngine`
- * still reads directly for its `project()` internals on the Spicy path (spec clause 9 — the one
- * remaining deviation).
- *
- * The engine's switch to `arbiter.active` as its sole ingress is the final step: it requires
- * the Spicy producer to populate the row-level fields from `SpicyBridgeDocumentStore` (computing
- * the active row via `primaryRowAt`) so the engine can stop reading the document store. Until
- * then `arbiter.active` mirrors `SpicyBridgeStore.state` for the Spicy path, keeping it
- * regression-free.
+ * The lyricon producer emits complete, engine-ready [LyricProducerState] (active line + per-word
+ * progress via `TimingNavigator`, plus the row-level fields
+ * `lyricKind`/`lineStartMs`/`lineEndMs`/`hasTimedLyrics`/`nextLineStartMs` — spec clause 6), and
+ * the Spicy producer populates the same row-level fields from `SpicyBridgeDocumentStore` by
+ * computing the active row via `primaryRowAt` (spec clause 9). `AodProjectionEngine` reads only
+ * `arbiter.active` for projection (spec clause 30); its remaining `SpicyBridgeStore.expireIfStale()`
+ * call is a background lifecycle sweep that does not feed projection.
  */
 object LyricProducers {
     @Volatile private var instance: LyricProducerArbiter? = null

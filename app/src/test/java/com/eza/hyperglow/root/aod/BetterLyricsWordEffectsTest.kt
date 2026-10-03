@@ -69,4 +69,22 @@ class BetterLyricsWordEffectsTest {
         assertEquals(listOf(0 until 1, 2 until 3), syntheticKaraokeBlocks("你 好"))
         assertEquals(emptyList<IntRange>(), syntheticKaraokeBlocks("   "))
     }
+
+    @Test
+    fun karaokeAlphaFollowsRowBrightnessFactorAndKeepsUnsungRelativeDim() {
+        // 主行语义(因子 1):已唱满亮,未唱沿用 0.35 相对暗度(steadyTextAlpha(0.35)=0.56,
+        // 与历史逐字档逐值一致)。
+        assertEquals(255, karaokeSungAlpha(1f))
+        assertEquals(143, karaokeUnsungAlpha(1f))
+        // 辅助文字行语义:「高亮辅助文字」关闭时整行一起变暗(因子 0.56),已唱=行亮度、
+        // 未唱按同一比例更暗(255×0.56=142.8→143;255×0.56×0.56=79.968→80)。
+        assertEquals(143, karaokeSungAlpha(0.56f))
+        assertEquals(80, karaokeUnsungAlpha(0.56f))
+        assertTrue(karaokeUnsungAlpha(0.56f) < karaokeSungAlpha(0.56f))
+        // 钳制:越界因子不产生负值/溢出;未唱上限恒为 0.56 相对暗度封顶(143,永不到 255)。
+        assertEquals(0, karaokeSungAlpha(-1f))
+        assertEquals(255, karaokeSungAlpha(2f))
+        assertEquals(0, karaokeUnsungAlpha(-1f))
+        assertEquals(143, karaokeUnsungAlpha(2f))
+    }
 }

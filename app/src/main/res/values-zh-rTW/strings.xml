@@ -77,6 +77,8 @@
     <string name="summary_lyric_source_lyricon">通過系統界面中的 Lyricon Xposed 模塊，以回調方式驅動歌詞。</string>
     <string name="summary_lyric_source_superlyric">使用 SuperLyric Xposed 模塊，通過 Binder 實時推送當前歌詞行。</string>
     <string name="summary_lyric_source_lyricinfo">使用 LyricInfo Xposed 模塊，讀取注入到媒體會話元數據中的歌詞。</string>
+    <string name="setting_filter_non_music_sources">影片等非音樂音訊不顯示歌詞</string>
+    <string name="summary_filter_non_music_sources">識別當前音訊源（播放器應用與工作階段宣告的音訊內容類型）：影片、播客等非音樂內容播放時不顯示歌詞。</string>
     <string name="label_active_source">當前歌詞源</string>
     <string name="summary_active_source">%1$s · %2$s</string>
     <string name="source_status_connected">已連接</string>
@@ -233,7 +235,7 @@
     <string name="dialog_restart_target_systemui">系統界面（含鎖屏）</string>
     <string name="dialog_restart_target_aod">息屏顯示進程（com.miui.aod）</string>
     <string name="dialog_restart_target_hyperglow">HyperGlow 應用程式（本應用程式）</string>
-    <string name="dialog_restart_target_lyric_source">歌詞來源（重新連接目前來源）</string>
+    <string name="dialog_restart_target_lyric_source">歌詞來源（重新連接全部來源）</string>
     <string name="toast_lyric_source_restarted">歌詞來源已重啟</string>
     <string name="toast_restart_no_target">請至少選擇一個進程</string>
     <string name="option_follow_xiaomi">跟隨小米</string>
@@ -297,8 +299,10 @@
     <string name="setting_lyric_time_offset">歌詞時間偏移</string>
     <string name="summary_lyric_time_offset">正數延後顯示,負數提前顯示(±5 秒)</string>
 <string name="setting_duet_concurrent">顯示並發歌詞（對唱）</string>
-<string name="summary_duet_concurrent">另一行唱詞與主行播放視窗重疊達到 1 秒時,兩行同時顯示、各畫各的逐字掃光。僅熄屏生效,鎖屏保持單行。</string>
+<string name="summary_duet_concurrent">另一行唱詞與主行播放視窗重疊達到 1 秒時,兩行同時顯示、各畫各的逐字掃光。鎖屏與熄屏各自獨立開關。</string>
     <string name="setting_bright_secondary_text">高亮輔助文字</string>
+    <string name="setting_secondary_word_karaoke">輔助文字逐字效果</string>
+    <string name="summary_secondary_word_karaoke">第一行輔助文字(音標/翻譯)隨歌詞逐字點亮;來源未提供逐字時間時依行視窗合成推進。第二行歌詞及其輔助文字不受影響。</string>
     <string name="setting_secondary_next_line">輔助文字顯示第二行歌詞</string>
     <string name="setting_next_line_aux">顯示第二行輔助文字</string>
     <string name="setting_show_furigana">顯示振假名</string>

@@ -88,6 +88,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
   song info row to follow the lyric direction (previously pinned to start), and the home preview
   secondary/metadata rows now honor row alignment like the device does (previously always start).
 - Top-right restart entry on the home app bar (quick restart button replacing the former runtime-status list row, same restart dialog and ShellUtils path) — pending a hardware smoke check after merge: the icon opens the target dialog and the confirmed restart brings SystemUI/AOD back.
+- Restart dialog's lyric-source target now rebuilds **all four** producers (was: only the selected one) and is decoupled from the hooked-process restart (the root kill is dispatched first, so a lyric-source rebuild can no longer swallow it) — pending a hardware smoke check after merge: with the preference left at the default `Spicy` while the lyrics actually on screen come from a fallback source (e.g. `SuperLyric`), ticking the lyric-source switch and confirming must recover that fallback source (previously a no-op); ticking it together with System UI/AOD must still restart both processes; one source failing to rebuild must not stop the remaining ones.
 - Adaptive lockscreen card height (the scene rect measures the content row stack at the resolved
   content width and sizes to it; the height setting is now the upper bound and the settings estimate
   only backs pre-content placement) — pending a hardware smoke check after merge: short one-line
@@ -181,7 +182,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
   area — pending a hardware smoke check after merge: a duet song on each wired source (Spicy /
   Lyricon / LyricInfo) shows both lines through their shared window, the concurrent line follows
   the duet left/right split, turning the switch off restores the exact solo rendering, the
-  lockscreen card stays solo, SuperLyric songs show no concurrent line, and the next-line row
+  lockscreen card shows both lines through its own switch, SuperLyric songs show no concurrent line, and the next-line row
   returns when the duet window ends.
 - Lyricon position-feed log/state churn fix (a repeated position callback within the writer's
   ~40 ms update cadence no longer trips stall extrapolation: below the 500 ms floor the last
@@ -344,6 +345,40 @@ and (b) unverified paths stay explicit instead of silently assumed.
   sides; logcat `Landscape content block anchored … center=… frameCenter=…` must show
   `center == frameCenter`), and the landscape vertical anchor still moves the block toward either
   edge.
+- Demo lyric lines follow the interface language (`LyricLayoutScreen.demoLines` / `demoTrack`: an English interface shows the English demo track, every other selection keeps the Chinese demo track; unit-tested) — app-preview-only change, no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: switch the interface language to English and confirm the home and appearance previews show the English demo track, then switch back and confirm the Chinese demo returns.
+- In-app preview demo fallback while transport is paused (`ProducerCollectors.presentsLivePreview`: a non-playing producer state no longer takes over the home/appearance preview, which falls back to the built-in demo lines — the arbiter deliberately keeps a paused state forwarded, so the preview previously froze on the last line sung before the pause; unit-tested) — app-preview-only change, no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: pause playback and confirm the preview cycles the demo lines again, and confirm the live lyric returns on resume.
+- Word-by-word auxiliary text (`secondaryWordKaraoke` switch, per surface: the first line's
+  transliteration/translation rows light up word by word through the same shared karaoke renderer as
+  the main line — real per-word windows when the source carries word-level romanization, otherwise
+  synthesized from the row's own line window; the rows keep the auxiliary color and bright/dim
+  setting, and the `BetterLyrics` float/scale/glow flavour follows the surface's animation mode; the
+  second line and its own auxiliary rows never take the effect) — pending a hardware smoke check
+  after merge: with the switch on, the auxiliary translation lights up in step with the sung line on
+  both surfaces (and floats/scales with the BetterLyrics mode when that is selected), the app preview
+  shows the same effect, and with the switch off the auxiliary rows render exactly as before.
+- Lyrics no longer sit flush against the canvas content clip (canvas effect allowance: the row stack
+  reserves the vertical overdraw of its outermost rows — the glow halo radius (36% of the text size)
+  and the `BetterLyrics` unsung-word sink — before the clip edge; the leading row gap is credited
+  against the top, the trailing edge is charged in full and grows the measured lockscreen card height
+  by the same amount; pure functions `canvasEffectAllowancePx` / `canvasEffectEdgeNeeds` are
+  unit-tested, `ArchitectureGuardTest.canvasKeepsRenderEffectsOffTheContentClipEdge` machine-gates the
+  wiring into both placement and measurement, and a keyed W-level self-check (`Effect clip check: …`)
+  reports any shape whose overdraw the allowance missed) — pending a hardware smoke check after
+  merge: with glow on (and the `BetterLyrics` mode selected) the halo of the first and last lyric
+  rows fades out instead of ending on a hard line at the canvas/card edge, the card is only as much
+  taller as the room reserved, logcat shows no `Effect clip check` warning, and with glow off in a
+  non-BetterLyrics mode the layout is pixel-identical to before.
+- Music-vs-non-music source eligibility (`MediaSourcePolicy` + the "Hide lyrics for video and other
+  non-music audio" switch, default on): a source is excluded only when its player package is a known
+  video app (Bilibili, Douyin, Kuaishou, YouTube, …) or its session declares an explicit
+  MOVIE/SPEECH/SONIFICATION content type; everything else — including the platform-default
+  `CONTENT_TYPE_UNKNOWN` — fails open. LyricInfo skips such sessions when picking (the issue #5
+  fallback keeps working for music apps), Lyricon releases the track and silences its watchdogs
+  while the active player is non-music; SuperLyric (music-only module) and Spicy (Spotify-only by
+  UID) carry no gate. Unit-tested (`MediaSourcePolicyTest` + the Lyricon producer gate cases) —
+  pending a hardware smoke check after merge: playing a video in a listed app must show no lyric
+  card while music playback (including a music app without injected lyrics) is unchanged, and the
+  switch must restore the old behavior when turned off.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -411,6 +446,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 「显示第二行辅助文字」（`nextLineAux` 开关：第二行歌词自身也带出辅助文字行——音标/翻译按辅助文字模式取用——四行呈现：第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字）——0.3.137（164）真机已验证四行顺序（息屏 LyricInfo 源带逐行翻译时）与锁屏呈现；第二行辅助行的折行档改为跟随第二行自身呈现的行数（owner 2026-10-02 反馈「换行效果要跟着第二行不是第一个」），换行动画中第二行辅助行亦改归晋级/入场组（跟随第二行，不再随主行组退场，owner 2026-10-02 反馈），下一行的辅助文字另随插件行表富化回填（SuperLyric 逐行流 + 翻译插件即可出第四行；无插件结果时保留生产者值），待真机复核折行、动画与 SuperLyric 回退三个场景。注：任何来源都没有下一行辅助文字数据时只呈现有内容的部分。
 - 歌曲信息/第二行歌词独立对齐（`metadataAlignment`/`nextLineAlignment`，`auto` 跟随主歌词对齐的解析结果）——合并后待真机冒烟确认。注意：两者默认 `auto` 时，主对齐显式值原本就作用于歌曲信息；行为变化仅在主对齐 `auto` 且歌词右起（RTL）时歌曲信息改为跟随歌词方向（原先固定起始侧），以及主页预览的副文本/歌曲信息行从此与实机一样按行对齐渲染（原先恒起始侧）。
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
+- 重启对话框「歌词源」目标改为重建**全部四个**源（原为只重建选中源），并与挂钩进程重启解耦（先派发 root 杀进程，歌词源重建不再能把它吞掉）——合并后待真机冒烟：首选源保持默认 `Spicy`、屏上歌词实际来自回退源（如 `SuperLyric`）时，勾选「歌词源」并确认必须能恢复该回退源（此前为空转）；「歌词源」与系统界面/AOD 同时勾选时两个进程仍正常重启；单个源重建失败不得影响其余源。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
 - 换行动画速率（`lineTransitionSpeed`：`Normal`/`Slow`/`Fast`，位于换行动画选项正下方；时长按
   130/210ms 基准 ×1.0/×1.5/×0.6，帧配方与缓动不变，未知值规范化为 `Normal`）——合并后待真机
@@ -437,7 +473,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   旋转、缩放)观感与参考动画一致(旧行先离场、新行收位);翻转方向与应用内预览一致;速率档
   对预设同样生效;`Fade up` 与历史一致。
 - 对唱分侧（`duetAlignment`，每 surface 独立，默认开启）：源显式标记（`alignedRight`/`isAlignedRight`）或演唱者身份元数据判为后位歌手的行绘制在右侧；关闭开关后所有行按主对齐解析。歌词源不带演唱者信息的曲目零变化——合并后待真机冒烟：歌词源标注了两位演唱者的对唱歌曲左右交替、关闭开关后全部居左、翻译/下一行行不受影响。
-- 显示并发歌词（对唱）（`duetConcurrent`，每 surface 独立，默认开启，仅息屏）：与主行播放窗口重叠达到 1 秒的唱词行紧邻主行块堆叠、各画各的逐字扫光，加入时 180ms 静音淡入，在场时取代独立「下一行」行，整块超出歌词区按共享系数缩小——合并后待真机冒烟：三个接入源（Spicy/Lyricon/LyricInfo）的对唱歌曲在共享窗口内两行同显、并发行跟随「对唱分侧」、关闭开关后与 solo 呈现逐字一致、锁屏恒单行、SuperLyric 歌曲无并发行、对唱窗口结束后独立下一行恢复。
+- 显示并发歌词（对唱）（`duetConcurrent`，每 surface 独立，默认开启，仅息屏）：与主行播放窗口重叠达到 1 秒的唱词行紧邻主行块堆叠、各画各的逐字扫光，加入时 180ms 静音淡入，在场时取代独立「下一行」行，整块超出歌词区按共享系数缩小——合并后待真机冒烟：三个接入源（Spicy/Lyricon/LyricInfo）的对唱歌曲在共享窗口内两行同显、并发行跟随「对唱分侧」、关闭开关后与 solo 呈现逐字一致、锁屏卡片按自己的开关同样双行同显、SuperLyric 歌曲无并发行、对唱窗口结束后独立下一行恢复。
 - Lyricon 位置通道日志/状态刷屏修复（写入端 ~40ms 更新节奏内的重复位置回调不再触发停滞外推：低于 500ms 下限保持最后真实位置且不发状态；仲裁器仅在来源身份（源+歌曲代）真变时才记「active changed」，同源例行转发不再逐帧刷日志）——合并后待真机冒烟：开诊断日志播歌，`diagnostic-trace.log` 不再被逐帧 `position stalled/resumed`（约 45 行/秒）与逐帧 `active changed` 刷满轮转；真实息屏停滞仍外推且各记一条，换行/换源日志保留。
 - 识别对唱标记（`duetMarkers`，per-surface，锁屏与息屏各自独立、默认开启；未显式设置的曲面继承文档级默认值）：行首（男）/（女）/（合）标记被隐去并（无元数据时）驱动对唱左右分侧（按标记出现顺序，先出现者居左）；（副歌）/（间奏）等段落标记同样隐去但不参与分侧；纯标记行（只有标记没有歌词）保留原样显示且可唱估时按 0 字计；关闭后原样显示标记、标记不参与分侧。快照只下发原始行文本与两套预计算分侧（元数据身份版/标记识别版），隐去与选侧推迟到各渲染面按本面开关执行——改一面的开关不联动另一面。同行落地 ingest 时间轴修复（间隙吞进行窗向词对齐/钳制、可疑词级降级）与跨源 seek 转发——合并后待真机冒烟：网易云对唱曲（如《讲男讲女》）按（男）/（女）出现顺序左右分侧且文本无标记、带段落标记的行文本干净（如「（副歌）爱你一万年」显示为「爱你一万年」）且分侧不变、整行（间奏）原样保留不被重锚、逐句起唱点正确（下一句不再提前上屏）、关闭开关恢复原样标记、拖动进度条歌词立即跟手。钳制刻意保守（孤立长窗行原样保留，真实长音安全）：另验慢歌收尾长音按真实起唱点上屏、英文/拉长音歌曲无误钳。
 - 应用外观设置页重做并新增背景模糊（主题模式/主题颜色/系统栏图标改为行内下拉直接选、行上显示当前值；
@@ -545,6 +581,11 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   + 安全区），不再出现「一条居中、另一条贴边」的口径分叉。合并后待真机冒烟：默认 6% 安全边界下横屏歌词在
   视野正中（两侧留白相等，logcat `Landscape content block anchored … center=… frameCenter=…` 中
   `center == frameCenter`），且「横屏垂直锚点」设置仍能把整块推向顶/底。
+- 演示歌词跟随界面语言（`LyricLayoutScreen.demoLines` / `demoTrack`：English 显示英文演示曲，其余选择保留中文演示曲；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：界面语言切到 English，主页与外观预览显示英文演示曲；切回后中文演示曲恢复。
+- 传输暂停时 App 内预览回退演示歌词（`ProducerCollectors.presentsLivePreview`：不在播的生产者状态不再接管主页/外观预览，改回退内置演示歌词行——仲裁器有意保留暂停时的冻结状态，此前预览会一直钉在暂停前那句歌词上；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：暂停播放后预览重新循环演示歌词，恢复播放后实时歌词重新接管。
+- 辅助文字逐字效果（`secondaryWordKaraoke` 开关，每个 surface 独立：第一行音译/翻译行经与主行同一共享逐字渲染核心随歌词逐字点亮——源带词级音译时间时按真实词窗，否则按该行自身行窗口合成；行沿用辅助行颜色与亮/暗辅助文字档，「BetterLyrics」档的浮动/放大/辉光随该面逐字动画档；第二行歌词及其自身的辅助行不参与）——合并后待真机冒烟：两曲面开启后辅助翻译随演唱行同步逐字点亮（选 BetterLyrics 时同主行一起浮动/放大），App 内预览呈现同一效果，关闭开关时辅助行与改前逐字节一致。
+- 歌词不再贴住画布内容裁剪框（画布效果余量：内容块按最外侧两行的绘制外扩量——辉光光晕半径（字号 × 36%）与「BetterLyrics」档未唱字下沉量——预留垂直余量；顶部抵扣首行行前距，底部块尾无现成留白按全额计入并同步计入锁屏卡片实测高度；纯函数 `canvasEffectAllowancePx` / `canvasEffectEdgeNeeds` 已有单测，`ArchitectureGuardTest.canvasKeepsRenderEffectsOffTheContentClipEdge` 机器门钉住「放置 + 自适应高度两侧同接共享余量」，另有按几何签名去重的 W 级自检（`Effect clip check: …`）兜未知形状）——合并后待真机冒烟：发光开启（且选中「BetterLyrics」档）时首/末行歌词的辉光在画布/卡片边缘自然淡出、不再被切平成一条直线，卡片只按让出的余量长高，logcat 无 `Effect clip check` 告警行，关闭发光且非 BetterLyrics 档时布局与改前逐像素一致。
+- 「当前音频源是不是音乐」判定（`MediaSourcePolicy` + 「视频等非音乐音频不显示歌词」开关，默认开启）：只有播放器包名命中已知视频应用表（哔哩哔哩、抖音、快手、YouTube 等）或会话显式声明 MOVIE/SPEECH/SONIFICATION 内容类型时才排除，其余（含平台默认的 `CONTENT_TYPE_UNKNOWN`）一律 fail-open 放行。LyricInfo 挑选会话时跳过这类会话（issue #5 兜底对音乐应用仍然有效），Lyricon 在活动播放器为非音乐期间释放曲目并静默看门狗；SuperLyric（只挂钩音乐应用的模块）与 Spicy（UID 校验限定 Spotify）不加门控。已有单测（`MediaSourcePolicyTest` + Lyricon 生产者门控用例）——合并后待真机冒烟：在清单内应用播放视频必须不出现歌词卡片，音乐播放（含没有注入歌词的音乐应用兜底路径）行为不变，关闭开关后恢复历史行为。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

@@ -72,6 +72,13 @@ opacity are used when native media width is unavailable. The scene rect height i
 it measures the content row stack at the resolved content width and sizes the card to that stack
 plus progress spacing and card padding. The height setting remains the upper bound and the bounded
 minimum remains the floor; the settings-based height estimate only backs pre-content placement.
+Rendered rows never sit flush against the canvas content clip: the block reserves the vertical
+overdraw of its outermost rows — the glow halo radius (36% of the text size) and the `BetterLyrics`
+unsung-word sink — before the clip edge, so the halo and float of a first or last row are not cut
+flat at the canvas edge. The leading row gap already provides part of that room and is credited
+against it; the trailing edge has none and is charged in full, which grows the measured card height
+by the same amount. Rows that draw no such effect (song info, next line) and surfaces with the
+effects off reserve nothing.
 
 Notification geometry uses an 8 dp dead band against the last applied bounds. Smaller animation
 jitter keeps the current lyric-card placement; larger movement updates collision placement normally.
@@ -373,6 +380,13 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   to the default), main alignment, song-info anchor, and adaptive sectioning. Producers must not
   report an animation value that the AOD value normalizer would rewrite — the historical
   `Karaoke fill` is not part of the current vocabulary.
+- The built-in demo lyric lines shown by the in-app preview (used whenever no live lyric state is presented) follow the interface language: an English interface shows the English demo track, and every other selection (system default / Simplified Chinese) shows the Chinese demo track. Only an explicit English selection switches; a device set to English while the user explicitly picks Simplified Chinese keeps the Chinese demo.
+- The in-app preview falls back to the built-in demo lyric lines whenever no **playing** lyric
+  state is available. The arbiter deliberately keeps a paused state forwarded (a paused position
+  feed is silent by nature, not a fault), so a paused transport must not keep the preview pinned
+  to the last lyric line sung before the pause; when playback resumes the live state takes the
+  preview back. This is a preview-only rule: the lockscreen/AOD presentation keeps its own
+  paused-retention semantics unchanged.
 - Each surface profile may also show the upcoming lyric line (second lyric line) as secondary text.
   That presentation borrows the secondary-text sizing and the profile's bright/dim secondary
   selection but keeps the next-line color setting; when enabled it replaces the standalone next-line
@@ -394,6 +408,20 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   readability floors are capped relative to the effective main size, so the auxiliary form stays
   visibly smaller than the main line at every size setting and never renders as a second main
   line.
+- Auxiliary text can light up word by word ("word-by-word auxiliary text": a per-surface switch,
+  default off). When it is on, the first line's auxiliary rows (transliteration and translation)
+  are drawn through the same shared karaoke renderer as the main line, so their bright/dim
+  progression and sweep — and in the `BetterLyrics` mode the float, long-block scale and glow —
+  follow the main line, while the rows keep the auxiliary color and the bright/dim auxiliary
+  setting. Rows whose source carries word-level romanization light up on those real word windows;
+  everything else is synthesized across the row's own line window with the same geometric front as
+  the synthesized main-line karaoke (CJK per character, western per word, one shared highlight
+  progress per block). A concurrent (duet) line's own auxiliary rows use that line's window. Rows
+  belonging to the second line — the secondary-form second line and its own auxiliary rows — never
+  take the effect (their playback window has not started). The switch is independent of the main
+  line's progress effect: with `None` the main line stays static while the auxiliary rows still
+  animate (and keep the frame clock running). With the switch off the auxiliary rows
+  are byte-for-byte unchanged.
 - Song info and the second lyric line each carry their own per-surface alignment choice (`auto`,
   `start`, `center`, `end`). `auto` follows the resolved main lyric alignment (the main `auto` still
   right-aligns right-to-left lyrics); explicit values align that row independently of the main
@@ -418,7 +446,7 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   vocabulary stays as lyric content. A line that is only markers keeps displaying as-is. When the
   switch is off, lines display as-is and markers take no part in the split.
   Explicit per-line sides still win in either state.
-- Show concurrent lines (duet) is a per-surface switch (default on), AOD-only: producers holding a
+- Show concurrent lines (duet) is a per-surface switch (default on; lockscreen and AOD independent — CN+ extends upstream's AOD-only scope to the lockscreen card): producers holding a
   whole-song line list (Spicy document, Lyricon, LyricInfo) pre-compute the concurrent candidate —
   a sung line whose playback window overlaps the primary line by at least one second (pure
   time-overlap; no singer metadata is involved and interlude rows never join). Projection only
@@ -430,7 +458,8 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   ends (exit buffer), so a duet section never collapses mid-passage. When the combined stack exceeds
   the lyric area the whole block scales by one shared factor with a 0.3 absolute floor (below the
   floor the overflow clips). While a concurrent line is present it replaces the standalone
-  next-line row. The lockscreen always renders the primary alone. SuperLyric (a line-push source
+  next-line row. The projection carries the candidate while either surface wants it, and each
+  surface renders the concurrent section only when its own switch is on. SuperLyric (a line-push source
   without a whole-song view) never produces a concurrent candidate. The upstream slot-inheritance
   and per-section transition machinery is intentionally simplified in this port (v1); the selection
   semantics otherwise match upstream 99ba119d4.
@@ -664,7 +693,7 @@ minimum safe scene area
 
 该视图仅为视觉呈现：不可点击、不可聚焦、不可长按、不拦截触摸、不可被无障碍聚焦。Xiaomi 父视图的 alpha/可见性始终是权威来源。
 
-默认锁屏场景使用 Xiaomi 的 `getClockBottom()` 锚点。可选的内置卡片 scrim 在垂直方向与当前渲染的行紧密贴合，在歌词过渡期间对离场/入场边界取并集，并在可用时跟随可见的媒体卡片宽度。当原生媒体宽度不可用时，使用有界的 92% 宽度与深色卡片不透明度。场景矩形高度自适应内容：按已定内容宽实测内容行堆叠高度（含进度条间距与卡片上下留白）定高，「高度」设置仍是上限，有界最小高度仍是下限；基于设置的高度估算仅在内容就绪前兜底位置。
+默认锁屏场景使用 Xiaomi 的 `getClockBottom()` 锚点。可选的内置卡片 scrim 在垂直方向与当前渲染的行紧密贴合，在歌词过渡期间对离场/入场边界取并集，并在可用时跟随可见的媒体卡片宽度。当原生媒体宽度不可用时，使用有界的 92% 宽度与深色卡片不透明度。场景矩形高度自适应内容：按已定内容宽实测内容行堆叠高度（含进度条间距与卡片上下留白）定高，「高度」设置仍是上限，有界最小高度仍是下限；基于设置的高度估算仅在内容就绪前兜底位置。渲染行不会贴住画布内容裁剪框：内容块按最外侧两行的绘制外扩量（辉光光晕半径 = 字号 × 36%，以及「BetterLyrics」档未唱字下沉量）预先让出垂直余量，首/末行的辉光与浮动不会被切平在画布边缘。顶部已由首行行前距提供的部分不重复计入；底部块尾与裁剪沿之间没有留白，按全额计入并同步计入实测卡片高度。不画这类效果的行（歌曲信息、下一行）与效果关闭的曲面不产生余量。
 
 通知几何对上次应用的边界采用 8 dp 死区。较小的动画抖动保持当前歌词卡片的位置不变；较大的移动则正常更新碰撞位置。
 
@@ -757,14 +786,16 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。行级同步标志在有活动行且不处于大元数据引导态时为真——逐字源与行级源一视同仁。主行的渲染路径（静态全亮＝`Minimal` 档或 `None` 效果、词级卡拉OK、共享扫光块）由同一个共享决策给出，实机画布（锁屏与息屏共用同一画布）与 App 内预览读同一份，输入为行级同步标志、源类型、行窗、逐字动画档与发光偏好。因此整块横扫只在显式选择该档时出现，绝不作为逐字源的回退。
 - 逐字动画接受 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表（每个 surface 独立选择）。`BetterLyrics` 档（参考 jayfunc/BetterLyrics）把歌词源交给共享逐字卡拉OK渲染核心（实机画布与 App 内预览同源）：逐字/音节级时间源用真实词窗；行级（无逐字时间）源按字符合成时间窗——推进前缘与行级扫光几何完全一致，因此效果对两类源同样适用：每个音节演唱中自左向右填充；未唱音节下沉约 10% 行高、唱到时在约 450ms 内上浮回基线；长音节（≥700ms；合成源按合成块时长判定——中文逐字块、西文按词块——快速掠过的短词块只有扫光、不放大不发光）演唱中放大到 1.15、唱完回落原大，长音节块内字符共享块级进度、整块同步放大/辉光；仅在发光偏好开启时，演唱中的长音节带 glow 色光晕（半径约为字号的 36%）。短音节保持既有卡拉OK运动（峰值 1.0505）；发光关闭时运动不变。「行进度效果=None」仍解析为静态全亮；仅息屏的对唱并发行保留共享扫光管线；`BetterLyrics` 档绝不走共享行级扫光（带行窗的逐字源也不例外），恒走词级卡拉OK路径；profile 未知值仍规范化为 `Gradient`。
-- 渲染面上呈现的渲染模式取值，一律先从编译后的 per-surface profile 解析，仅在没有编译产物时（降级 / 旧文档）才回落到歌词源上报的 renderModes。App 内预览渲染的正是这份编译产物，两端必须读同一个来源；只经由歌词源 renderModes 传递的设置属于同源契约破口，不是某个源的特例默认值。覆盖字段：字重、字号档与其自定义百分比、辅助文字模式、逐字动画、发光、行进度效果、折行裁剪、字体族、换行动画（profile 的 `Auto` 退默认解析）、主对齐、歌曲信息锚点、自适应分节。生产者不得上报会被息屏取值归一化改写的逐字动画值——历史遗留的 `Karaoke fill` 不在现行词表内。
+- 渲染面上呈现的渲染模式取值，一律先从编译后的 per-surface profile 解析，仅在没有编译产物时（降级 / 旧文档）才回落到歌词源上报的 renderModes。App 内预览渲染的正是这份编译产物，两端必须读同一个来源；只经由歌词源 renderModes 传递的设置属于同源契约破口，不是某个源的特例默认值。没有**正在播放**的歌词状态时，App 内预览一律回退到内置演示歌词行：仲裁器有意保留暂停时的冻结状态（暂停的位置流天然静默，不是故障），因此暂停后预览不得继续钉在暂停前那句歌词上，恢复播放后实时状态重新接管预览。本条只约束 App 内预览——锁屏/息屏的暂停保留语义不变。覆盖字段：字重、字号档与其自定义百分比、辅助文字模式、逐字动画、发光、行进度效果、折行裁剪、字体族、换行动画（profile 的 `Auto` 退默认解析）、主对齐、歌曲信息锚点、自适应分节。生产者不得上报会被息屏取值归一化改写的逐字动画值——历史遗留的 `Karaoke fill` 不在现行词表内。
+- App 内预览的内置演示歌词行（没有实时歌词状态可呈现时使用）跟随界面语言：English 显示英文演示曲，其余选择（跟随系统 / 简体中文）显示中文演示曲。仅显式 English 才切换；设备语言为英文但用户显式选择「简体中文」时保留中文演示曲。
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现仅在第一行辅助文字实际显示时生效（第一行按「辅助文字」模式没有可显示的辅助文字行时，本开关不产生第二行呈现）；呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；生效时取代独立的下一行歌词行而不与之叠加，不生效时独立下一行呈现保持不变。
 - 「显示第二行辅助文字」（每个 surface 独立，以「辅助文字显示第二行歌词」为前提，仅在该开关开启且第一行辅助文字实际显示时露出）：开启后第二行歌词自身也带出它的辅助文字行（音标/翻译，按辅助文字模式取用，源无内容则不出）——四行呈现，顺序为第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字。其辅助文字行沿用辅助文字行的字号/亮度档与第二行歌词对齐，折行档跟随第二行歌词自身呈现的行数（不得沿用主行行数）；关闭时只呈现第二行歌词行。源没有下一行的辅助文字时只呈现有内容的部分。
 - 辅助文字行（音译、翻译与辅助文字形态的第二行歌词）以约为有效主行字号一半渲染；其可读性下限按有效主行字号等比封顶（不超过约 0.62 倍），任何字号档下辅助形态都必须明显小于主行，不得渲染成第二条主行。
+- 辅助文字可逐字点亮（「辅助文字逐字效果」，每个 surface 独立开关，默认关）：开启后第一行辅助行（音译与翻译）与主行共用同一逐字渲染核心——亮/暗推进与扫光随主行，「BetterLyrics」档下浮动、长块放大与辉光同样随主行；行本身仍取辅助行颜色与「高亮辅助文字」亮度档。源带词级音译时间时按真实词窗点亮；其余按该行自身的行窗口 + 行内几何合成（中文逐字、西文按词，块内共享一个高亮进度），推进前缘与主行行级合成源同式。并发行（对唱）自己的辅助行取并发行窗口。属于第二行的行——辅助文字形态的第二行歌词与其自身的辅助行——不参与（其播放窗口尚未开始）。本开关独立于主行行进度效果：进度效果选 `None` 时主行静态，辅助行照常逐字点亮并维持帧时钟。开关关闭时辅助行逐字节不变。
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
 - 对唱分侧是每个 surface 独立的开关（默认开启）。开启时，行级 `alignedRight` 置位的行绘制在右侧；关闭时忽略该位，所有行按主对齐解析。行级分侧位来源于歌词源：源显式标记（Spicy `alignedRight`、Lyricon `isAlignedRight`、插件 `isAlignedRight`）恒优先，否则由行级演唱者身份元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal`，类型键 `amll:agent-type`/`agent:type`/`agentType`/`vocal:type`）推导——首位歌手居左、其余居右；带显式类型时 `group` 恒左、`other` 起右并随歌手切换翻转。无演唱者信息的曲目保持纯主对齐行为。
 - 识别对唱标记是每个 surface 独立的开关（默认开启；未显式设置的曲面继承文档级默认值）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。快照为息屏/锁屏共用，只携带原始行文本与两套预计算分侧（元数据身份版、标记识别版），隐去标记与选用分侧的决策推迟到各渲染面按本面开关执行——改一面的开关不联动另一面。（副歌）/（间奏）等段落标记同样识别（连写或复合如（男·RAP）的标记串整串剥离），但只隐去文本——不作为演唱者身份、不改动行的分侧。词表外的括号内容按歌词原样保留。纯标记行保留原样显示。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。
-- 显示并发歌词(对唱)是每个 surface 独立的开关(默认开启),仅息屏生效:持有整首行表的生产者(Spicy 文档、Lyricon、LyricInfo)在发射前预计算并发行候选——与主行播放窗口重叠达到 1 秒的另一唱词行(纯时间轴重叠判定,不依赖任何歌手标记;间奏行不参与)。投影层只做开关与格式转换,不从原始行表选行。开关开启且快照携带候选时,息屏画布把并发行作为与主行同尺寸的段落紧邻主行块堆叠(锚顶布局主行位置保持稳定;锚底/居中布局整块重排),各画各的逐字扫光;并发行加入时 180ms 静音淡入;已唱完的重叠行由退出缓冲保留到主行行末,双行段不在对唱中途塌掉;整块超出歌词区时按同一共享系数缩小(0.3 绝对下限,低于下限溢出裁切)。并发行在场时取代独立「下一行」行。锁屏恒只渲染主行。SuperLyric(只推当前行的逐行源)不产出并发行。本次移植有意省去上游的槽位继承/双段独立过渡机制(v1 简化),选取语义与上游 99ba119d4 一致。
+- 显示并发歌词(对唱)是每个 surface 独立的开关(默认开启,锁屏与息屏各自独立;上游为 AOD-only,CN+ 扩展到锁屏卡片):持有整首行表的生产者(Spicy 文档、Lyricon、LyricInfo)在发射前预计算并发行候选——与主行播放窗口重叠达到 1 秒的另一唱词行(纯时间轴重叠判定,不依赖任何歌手标记;间奏行不参与)。投影层只做开关与格式转换,不从原始行表选行。开关开启且快照携带候选时,息屏画布把并发行作为与主行同尺寸的段落紧邻主行块堆叠(锚顶布局主行位置保持稳定;锚底/居中布局整块重排),各画各的逐字扫光;并发行加入时 180ms 静音淡入;已唱完的重叠行由退出缓冲保留到主行行末,双行段不在对唱中途塌掉;整块超出歌词区时按同一共享系数缩小(0.3 绝对下限,低于下限溢出裁切)。并发行在场时取代独立「下一行」行。任一曲面开启时投影即携带候选,各曲面按自己的开关渲染。SuperLyric(只推当前行的逐行源)不产出并发行。本次移植有意省去上游的槽位继承/双段独立过渡机制(v1 简化),选取语义与上游 99ba119d4 一致。
 - 生产者 ingest 在选行/渲染之前修复明显失真的行窗口：行窗远大于文本可唱时长的行（逐字合成把乐器间隙吞进行窗的产物，真机实测单行偏差可达十余秒），词级跨距可信时行窗向词对齐，否则丢弃可疑词级、回退行级填充，头部贴附的行窗从 `end-估时` 起算。正常行零变化。行首钳制仅在全曲出现至少两个损坏行时启用（真实损坏是整首系统性的，真实长音则是孤立的长窗行）；孤立长窗行保持原有行窗不变。估时忽略行首标记——标记不发声；纯标记行按 0 字计。
 - 任一生产者观测到 seek 时跨源转发给其他生产者（`onExternalSeek`），位置源冻结/漏发 seek 回调的生产者立即落到权威位置，不再滞后。
 - 歌词时间偏移是文档级全局滑杆（默认 0ms,范围 ±5 秒,按 50ms 档量化;语义参考 HyperLyric 的歌词时间偏移）:时间轴源生产者（Lyricon、LyricInfo、Spicy）的选行查询与发射坐标——`positionMs`、行窗、词级时间与 `nextLineStartMs`——统一落在「播放位置 − 偏移」的显示时间轴上,正数延后显示、负数提前显示。机制层（位置外推、残留拒绝、seek 判定与跨源 seek 转发、歌尾钳制）保持原始媒体坐标,仅发射的显示坐标平移,逐字扫光与所选行保持同轴。拖动滑杆立即生效（设置变更即刷新生产者缓存）。SuperLyric 为逐行推流源（行到达即上屏）,不受偏移影响。偏移同时作用于息屏与锁屏;插件链的整首快照保持原始时间轴。
