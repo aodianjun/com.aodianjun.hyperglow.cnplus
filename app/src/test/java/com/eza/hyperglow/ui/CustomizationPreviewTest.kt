@@ -77,7 +77,7 @@ class CustomizationPreviewTest {
         assertNull(palette[PaletteColor.METADATA_TEXT.token])
         assertEquals(PALETTE_DEFAULT, paletteValue(palette, PaletteColor.METADATA_TEXT))
         assertEquals("#123456", palette[PaletteColor.NEXT_LINE_TEXT.token])
-        assertEquals("#123456", palette[PaletteColor.PRIMARY_TEXT.token])
+        assertEquals("#123456", palette[PaletteColor.SUNG_TEXT.token])
     }
 
     @Test
@@ -96,8 +96,8 @@ class CustomizationPreviewTest {
         assertEquals(
             0xFFB8B8B8.toInt(),
             paletteEffectiveArgb(
-                mapOf(PaletteColor.PRIMARY_TEXT.token to PALETTE_DIMMED),
-                PaletteColor.PRIMARY_TEXT
+                mapOf(PaletteColor.SUNG_TEXT.token to PALETTE_DIMMED),
+                PaletteColor.SUNG_TEXT
             )
         )
     }
@@ -139,7 +139,8 @@ class CustomizationPreviewTest {
 
     @Test
     fun everyPaletteKeySurvivesSceneCompilation() {
-        // 9 个语义色键全部通过编译白名单(SceneCompiler / SystemUi 两侧 SEMANTIC_COLORS)
+        // 每个语义色键都必须通过编译白名单(SceneCompiler / SystemUi 两侧 SEMANTIC_COLORS),
+        // 数量随枚举走,不写死 —— 否则删/加键后本测试会静默放过漏配的白名单。
         val palette = PaletteColor.entries.associate { it.token to "#123456" }
         val compiled = SceneCompiler.compile(
             com.eza.hyperglow.customization.CustomizationDocument(

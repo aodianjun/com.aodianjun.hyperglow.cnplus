@@ -312,15 +312,13 @@ object SceneCompiler {
         else -> "Left to right (main only)"
     }
     private val SEMANTIC_COLORS = setOf(
-        "primaryText",
         "secondaryText",
         "metadataText",
         "nextLineText",
         "sungText",
         "unsungText",
         "glow",
-        "accent",
-        "surfaceScrim"
+        "accent"
     )
     private val PALETTE_VALUES = setOf("default", "clock", "wallpaper", "white", "dimmed")
 

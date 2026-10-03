@@ -4,7 +4,6 @@ import android.graphics.Color
 import kotlin.math.roundToInt
 
 internal data class AodResolvedPalette(
-    val primaryText: Int,
     val secondaryText: Int,
     val metadataText: Int,
     val nextLineText: Int,
@@ -16,7 +15,6 @@ internal data class AodResolvedPalette(
 
 internal fun resolveAodPalette(tokens: Map<String, String>): AodResolvedPalette =
     AodResolvedPalette(
-        primaryText = resolvePaletteColor(tokens["primaryText"], Color.WHITE),
         secondaryText = resolvePaletteColor(tokens["secondaryText"], Color.WHITE),
         metadataText = resolvePaletteColor(tokens["metadataText"], 0xFFB3B3B3.toInt()),
         nextLineText = resolvePaletteColor(tokens["nextLineText"], Color.WHITE),

@@ -188,15 +188,13 @@ internal object SystemUiCustomizationValidator {
         .ifBlank { "default" }
 
     private val SEMANTIC_COLORS = setOf(
-        "primaryText",
         "secondaryText",
         "metadataText",
         "nextLineText",
         "sungText",
         "unsungText",
         "glow",
-        "accent",
-        "surfaceScrim"
+        "accent"
     )
     private val ANCHORS = setOf(
         "below_stock_clock",

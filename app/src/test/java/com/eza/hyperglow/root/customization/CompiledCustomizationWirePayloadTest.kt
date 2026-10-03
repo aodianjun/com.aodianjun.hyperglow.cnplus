@@ -117,15 +117,13 @@ class CompiledCustomizationWirePayloadTest {
     @Test
     fun customPaletteColorsRoundTripWithoutValidateMutation() {
         val palette = mapOf(
-            "primaryText" to "#A9D9FF",
             "secondaryText" to "dimmed",
             "metadataText" to "#80FFFFFF",
             "nextLineText" to "#FFF",
-            "sungText" to "wallpaper",
+            "sungText" to "#A9D9FF",
             "unsungText" to "white",
             "glow" to "#FF8800",
-            "accent" to "clock",
-            "surfaceScrim" to "#20202020"
+            "accent" to "clock"
         )
         val document = SceneCompiler.safeDefaultDocument().copy(
             profiles = mapOf(
@@ -163,11 +161,11 @@ class CompiledCustomizationWirePayloadTest {
         assertEquals(configuration, parsed)
         assertEquals(
             "#A9D9FF",
-            parsed?.profiles?.get(SceneCompiler.SURFACE_LOCKSCREEN)?.palette?.get("primaryText")
+            parsed?.profiles?.get(SceneCompiler.SURFACE_LOCKSCREEN)?.palette?.get("sungText")
         )
         assertEquals(
-            "#20202020",
-            parsed?.profiles?.get(SceneCompiler.SURFACE_AOD)?.palette?.get("surfaceScrim")
+            "#FF8800",
+            parsed?.profiles?.get(SceneCompiler.SURFACE_AOD)?.palette?.get("glow")
         )
     }
 
