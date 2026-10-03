@@ -2,11 +2,14 @@ package com.eza.hyperglow.aod
 
 import android.content.Context
 import android.os.SystemClock
+import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.bridge.SpicyBridgeDocument
 import com.eza.hyperglow.bridge.SpicyBridgeState
 import com.eza.hyperglow.bridge.SpicyBridgeStore
+import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
@@ -423,7 +426,24 @@ object AodProjectionEngine {
                 current = LyricProducers.arbiter.active.value
             ) || !isCurrentActive(state) || !state.playing
         ) return
+        logRenderModeProbe(compiled, projectedState)
         AodStateBridge.publish(projectedState)
+    }
+
+    private var lastRenderProbeKey = ""
+
+    /**
+     * 诊断探针(配置下发排查):发布快照的渲染模式取值来源(编译 profile 覆盖 vs
+     * renderModes 兜底)。只在值变化时留痕,与 SystemUI 侧 AodSurfaceController 的
+     * 「Render profile probe」配对,定位「配置已下发但画布仍渲染旧档」断在哪一跳。
+     */
+    private fun logRenderModeProbe(compiled: CompiledCustomization?, state: AodDisplayState) {
+        val profile = compiled?.profiles?.get(SceneCompiler.SURFACE_AOD)
+        val key = "profile=${profile != null} anim=${state.animationMode} glow=${state.glowMode} " +
+            "profileAnim=${profile?.animation} profileGlow=${profile?.glow}"
+        if (key == lastRenderProbeKey) return
+        lastRenderProbeKey = key
+        AppLog.w("AodProjectionEngine", "Render mode probe: $key")
     }
 
     private fun publishCustomizationIfDue(now: Long) {

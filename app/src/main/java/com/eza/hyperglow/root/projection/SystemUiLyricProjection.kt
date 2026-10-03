@@ -281,8 +281,26 @@ internal class SystemUiLyricProjection(
         val current = latestConfiguration
         if (current != null && current.revision == configuration.revision &&
             current.hash == configuration.hash
-        ) return false
+        ) {
+            // 配置已持有相同 revision/hash 时静默返回,此前无任何痕迹;「设置改了实机不变」
+            // 类反馈要靠这条区分「没收到」与「收到但判定为重复而丢弃」。
+            HookLogger.w(
+                TAG,
+                "Configuration deduplicated rev=${configuration.revision} " +
+                    "hash=${configuration.hash.take(8)}"
+            )
+            return false
+        }
         latestConfiguration = configuration
+        val animationSummary = configuration.profiles.entries.joinToString(",") { (surface, profile) ->
+            "$surface=${profile.animation}"
+        }
+        HookLogger.w(
+            TAG,
+            "Configuration applied rev=${configuration.revision} " +
+                "hash=${configuration.hash.take(8)} subscribers=${subscribers.size} " +
+                "anim=[$animationSummary]"
+        )
         subscribers.keys.toList().forEach { it.onCustomization(configuration) }
         return true
     }

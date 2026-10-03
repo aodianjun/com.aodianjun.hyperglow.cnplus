@@ -50,12 +50,18 @@ object HookLogger {
     }
 
     fun w(area: String, message: String, error: Throwable? = null) {
-        Log.w(TAG, "[$area] $message", error)
-        module?.log(Log.WARN, TAG, "[$area] $message", error)
+        // 日志不得影响业务:JVM 单测下 android.util.Log 是未 mock 的 stub(调用即抛),
+        // 真机极端情况下 log 调用也可能失败;与 app 侧 AppLog.w 的 runCatching 语义对齐。
+        runCatching {
+            Log.w(TAG, "[$area] $message", error)
+            module?.log(Log.WARN, TAG, "[$area] $message", error)
+        }
     }
 
     fun e(area: String, message: String, error: Throwable? = null) {
-        Log.e(TAG, "[$area] $message", error)
-        module?.log(Log.ERROR, TAG, "[$area] $message", error)
+        runCatching {
+            Log.e(TAG, "[$area] $message", error)
+            module?.log(Log.ERROR, TAG, "[$area] $message", error)
+        }
     }
 }

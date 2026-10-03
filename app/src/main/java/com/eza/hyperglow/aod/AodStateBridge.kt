@@ -162,7 +162,15 @@ object AodStateBridge {
     @Synchronized
     fun register(callback: IAodLyricCallback) {
         callbacks.register(callback)
-        latestConfiguration?.let { configuration ->
+        val cached = latestConfiguration
+        // 新订阅端接入时的补推路径:缓存为空则完全静默跳过。hook 进程重启后配置迟迟
+        // 不生效的场景,要靠这条日志区分「补推了」还是「根本没得补推」。
+        AppLog.w(
+            TAG,
+            "Callback registered; cached configuration " +
+                (if (cached != null) "replayed" else "absent")
+        )
+        cached?.let { configuration ->
             try {
                 callback.onConfiguration(Bundle(configuration))
             } catch (error: Exception) {
@@ -209,10 +217,18 @@ object AodStateBridge {
         experimentalMode: Boolean = false
     ) {
         if (configuration.hash == lastConfigurationHash) return
+        val animationSummary = configuration.profiles.entries.joinToString(",") { (surface, profile) ->
+            "$surface=${profile.animation}"
+        }
         val bundle = CompiledCustomizationBundleCodec.toBundle(configuration, userId, experimentalMode)
         lastConfigurationHash = configuration.hash
         latestConfiguration = bundle
         val count = callbacks.beginBroadcast()
+        AppLog.w(
+            TAG,
+            "Configuration publish hash=${configuration.hash.take(8)} userId=$userId " +
+                "callbacks=$count anim=[$animationSummary]"
+        )
         try {
             for (index in 0 until count) {
                 try {
