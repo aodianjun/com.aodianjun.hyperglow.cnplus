@@ -345,6 +345,7 @@ and (b) unverified paths stay explicit instead of silently assumed.
   `center == frameCenter`), and the landscape vertical anchor still moves the block toward either
   edge.
 - Demo lyric lines follow the interface language (`LyricLayoutScreen.demoLines` / `demoTrack`: an English interface shows the English demo track, every other selection keeps the Chinese demo track; unit-tested) — app-preview-only change, no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: switch the interface language to English and confirm the home and appearance previews show the English demo track, then switch back and confirm the Chinese demo returns.
+- In-app preview demo fallback while transport is paused (`ProducerCollectors.presentsLivePreview`: a non-playing producer state no longer takes over the home/appearance preview, which falls back to the built-in demo lines — the arbiter deliberately keeps a paused state forwarded, so the preview previously froze on the last line sung before the pause; unit-tested) — app-preview-only change, no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: pause playback and confirm the preview cycles the demo lines again, and confirm the live lyric returns on resume.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -547,6 +548,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
   视野正中（两侧留白相等，logcat `Landscape content block anchored … center=… frameCenter=…` 中
   `center == frameCenter`），且「横屏垂直锚点」设置仍能把整块推向顶/底。
 - 演示歌词跟随界面语言（`LyricLayoutScreen.demoLines` / `demoTrack`：English 显示英文演示曲，其余选择保留中文演示曲；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：界面语言切到 English，主页与外观预览显示英文演示曲；切回后中文演示曲恢复。
+- 传输暂停时 App 内预览回退演示歌词（`ProducerCollectors.presentsLivePreview`：不在播的生产者状态不再接管主页/外观预览，改回退内置演示歌词行——仲裁器有意保留暂停时的冻结状态，此前预览会一直钉在暂停前那句歌词上；已有单测）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：暂停播放后预览重新循环演示歌词，恢复播放后实时歌词重新接管。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
