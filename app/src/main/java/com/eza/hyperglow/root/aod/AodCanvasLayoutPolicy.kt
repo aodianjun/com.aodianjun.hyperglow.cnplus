@@ -160,6 +160,45 @@ internal fun resolvedLineSyncFillMode(lineLevelSync: Boolean, configuredMode: St
         else -> "Left to right (main only)"
     }
 
+/** 同行内容稳定化的宽限窗:行开始前这段时间内仍接受「无词→带词」升级。 */
+internal const val LINE_ENHANCEMENT_UPGRADE_GRACE_MS = 300L
+
+/** 折行签名:词表文本序列 + 布局组(折行引擎据此选路径/折行;时间戳与罗马音不进签名)。 */
+internal fun aodLineLayoutSignature(
+    words: List<AodCanvasWord>,
+    groups: List<AodCanvasLayoutGroup>
+): Pair<List<String>, List<AodCanvasLayoutGroup>> = words.map { it.text } to groups
+
+/**
+ * 同一行内容稳定化决策 —— 是否采用来件的增强数据(词表 / 布局组 / 注音)。
+ *
+ * 同一行会被上游两阶段下发(SuperLyric 推来的 SuperLyricLine 里带不带 words 取决于它那一笔),
+ * 而折行引擎按「有无词表」走两条不同路径(layoutWordLines / layoutTextByGroups),于是每次形态
+ * 切换都会重排:换行瞬间下一行被顶下去一行高、填充映射被换掉(owner 真机录屏逐帧实测:下一行
+ * 下移 80px、填充前缘中途倒退重填)。这里按行身份(见 [aodCanvasLineIdentity])稳定化:
+ *
+ *  1. 换行(行身份变了)→ 采用;
+ *  2. 同行且折行签名未变(只有时间戳/罗马音细化)→ 采用(不会重排);
+ *  3. 同行且来件是「无词 → 带词」升级 → 仅在行开始前的 [graceMs] 宽限窗内采用(此时该行
+ *     尚未演唱,重排不可见);
+ *  4. 其余(「带词 → 无词」回退、演唱中词表文本变化)→ 拒绝,沿用当前版本。
+ *
+ * 纯函数,可单测。
+ */
+internal fun shouldAdoptLineEnhancements(
+    sameLine: Boolean,
+    layoutSignatureChanged: Boolean,
+    incomingEnriches: Boolean,
+    positionMs: Long,
+    lineStartMs: Long,
+    graceMs: Long = LINE_ENHANCEMENT_UPGRADE_GRACE_MS
+): Boolean = when {
+    !sameLine -> true
+    !layoutSignatureChanged -> true
+    incomingEnriches -> positionMs <= lineStartMs + graceMs
+    else -> false
+}
+
 internal fun resolvedLyricLayoutLineLimit(
     configuredLimit: Int,
     originalLength: Int,

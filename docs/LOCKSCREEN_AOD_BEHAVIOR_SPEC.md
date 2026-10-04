@@ -372,6 +372,15 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   line keeps the shared sweep pipeline; a `BetterLyrics` profile never takes the shared
   line-level sweep — word-timed sources carrying a line window included — and always renders
   through the word-karaoke path; unknown profile values still normalize to `Gradient`.
+- Upstream emits the same line in two stages (whether a pushed line carries `words` depends on that
+  particular push), and the layout engine takes two different paths depending on the word list
+  (word layout vs. balanced group wrapping), so switching forms re-flows the whole block and swaps
+  the fill mapping — measured frame by frame on device: at the line change the next line drops by
+  one row height (80 px) and the fill front retreats and re-fills. The canvas therefore stabilises
+  enhancements by line identity: a line keeps the wrap form it was first seen with, accepting a
+  "words appear" upgrade only inside the 300 ms grace window before the line starts (nothing has
+  been sung yet, so the re-flow is invisible); "words disappear" downgrades and mid-line word-text
+  changes are rejected (`shouldAdoptLineEnhancements`).
 - Render-mode values shown on a surface are resolved from the compiled per-surface profile first,
   and only fall back to the lyric producer's reported render modes when no compiled profile is
   available (degraded / legacy document). The in-app preview renders from that same compiled
@@ -788,6 +797,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。行级同步标志在有活动行且不处于大元数据引导态时为真——逐字源与行级源一视同仁。主行的渲染路径（静态全亮＝`Minimal` 档或 `None` 效果、词级卡拉OK、共享扫光块）由同一个共享决策给出，实机画布（锁屏与息屏共用同一画布）与 App 内预览读同一份，输入为行级同步标志、源类型、行窗、逐字动画档与发光偏好。因此整块横扫只在显式选择该档时出现，绝不作为逐字源的回退。
 - 逐字动画接受 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表（每个 surface 独立选择）。`BetterLyrics` 档（参考 jayfunc/BetterLyrics）把歌词源交给共享逐字卡拉OK渲染核心（实机画布与 App 内预览同源）：逐字/音节级时间源用真实词窗；行级（无逐字时间）源按字符合成时间窗——推进前缘与行级扫光几何完全一致，因此效果对两类源同样适用：**该档不做逐字扫光**——所有音节「开始唱即整块按已唱色亮起」，不出现填充前缘（换行后的新行同理；辉光仍只挂长音节词块）；未唱音节下沉约 10% 行高、唱到时在约 450ms 内上浮回基线；长音节（≥700ms；合成源按合成块时长判定——中文逐字块、西文按词块——短词块不放大不发光）演唱中放大到 1.15、唱完回落原大，长音节块内字符共享块级进度、整块同步放大/辉光；仅在发光偏好开启时，演唱中的长音节带 glow 色光晕（半径约为字号的 36%）。短音节保留既有放大运动（峰值 1.0505）；发光关闭时该运动不变、光晕消失（整块亮起与无扫光不变）。「行进度效果=None」仍解析为静态全亮；仅息屏的对唱并发行保留共享扫光管线；`BetterLyrics` 档绝不走共享行级扫光（带行窗的逐字源也不例外），恒走词级卡拉OK路径；profile 未知值仍规范化为 `Gradient`。
+- 同一行会被上游两阶段下发（逐行源推来的行里带不带词表取决于它那一笔），而折行引擎按「有无词表」走两条不同路径（词行布局 / 分组均衡折行），形态切换会重排整块并更换填充映射——真机录屏逐帧实测：换行瞬间下一行被顶下去一行高（80px）、填充前缘中途倒退重填。画布按行身份稳定增强数据：同一行只认第一次的折行形态，仅在行开始前的 300ms 宽限窗内接受「无词→带词」升级（此时尚未演唱、重排不可见）；「带词→无词」回退与演唱中的词表文本变化一律拒绝（见 `shouldAdoptLineEnhancements`）。
 - 渲染面上呈现的渲染模式取值，一律先从编译后的 per-surface profile 解析，仅在没有编译产物时（降级 / 旧文档）才回落到歌词源上报的 renderModes。App 内预览渲染的正是这份编译产物，两端必须读同一个来源；只经由歌词源 renderModes 传递的设置属于同源契约破口，不是某个源的特例默认值。没有**正在播放**的歌词状态时，App 内预览一律回退到内置演示歌词行：仲裁器有意保留暂停时的冻结状态（暂停的位置流天然静默，不是故障），因此暂停后预览不得继续钉在暂停前那句歌词上，恢复播放后实时状态重新接管预览。本条只约束 App 内预览——锁屏/息屏的暂停保留语义不变。覆盖字段：字重、字号档与其自定义百分比、辅助文字模式、逐字动画、发光、行进度效果、折行裁剪、字体族、换行动画（profile 的 `Auto` 退默认解析）、主对齐、歌曲信息锚点、自适应分节。生产者不得上报会被息屏取值归一化改写的逐字动画值——历史遗留的 `Karaoke fill` 不在现行词表内。
 - App 内预览的内置演示歌词行（没有实时歌词状态可呈现时使用）跟随界面语言：English 显示英文演示曲，其余选择（跟随系统 / 简体中文）显示中文演示曲。仅显式 English 才切换；设备语言为英文但用户显式选择「简体中文」时保留中文演示曲。
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现仅在第一行辅助文字实际显示时生效（第一行按「辅助文字」模式没有可显示的辅助文字行时，本开关不产生第二行呈现）；呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；生效时取代独立的下一行歌词行而不与之叠加，不生效时独立下一行呈现保持不变。
