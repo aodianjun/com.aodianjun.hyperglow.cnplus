@@ -1822,7 +1822,8 @@ private fun PreviewMainLayer(
         if (useWordKaraoke) {
             // 「BetterLyrics」档逐字卡拉OK(与实机 drawWordKaraoke(betterLyrics=true) 同源):
             // 演示进度按词位总时间跨度映射为虚拟播放位置,逐词取已唱比例;共享渲染核心负责
-            // 未唱下沉/已唱上浮、长音节放大/辉光(长音节整块亮起、不逐字扫光)与短音节词内扫光。
+            // 未唱下沉/已唱上浮、长音节放大/辉光(行内触发长音节时整行整块亮起、不逐字扫光)
+            // 与无长音节行的词内扫光。
             val virtualPosition = layout.wordSpanStartMs +
                 ((layout.wordSpanEndMs - layout.wordSpanStartMs) * progress.coerceIn(0f, 1f)).toLong()
             drawIntoCanvas { canvas ->
