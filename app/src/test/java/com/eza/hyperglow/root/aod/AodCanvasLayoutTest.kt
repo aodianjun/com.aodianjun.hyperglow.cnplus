@@ -1312,6 +1312,68 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun missingOffsetsAlignWordsToLineTextInOrder() {
+        // 插件词表(无原文区间)按行文本顺序补全:词间空白即分隔符,词距取实测宽。
+        val aligned = alignMissingWordOffsets(
+            "Take my hand",
+            listOf(
+                AodCanvasWord("Take", "", 0L, 1L, true),
+                AodCanvasWord("my", "", 1L, 2L, true),
+                AodCanvasWord("hand", "", 2L, 3L, true)
+            )
+        )
+        assertEquals(
+            listOf(0 until 4, 5 until 7, 8 until 12),
+            aligned.map { it.sourceStart until it.sourceEnd }
+        )
+        assertEquals(" ", authoredWordSeparator("Take my hand", aligned[0], aligned[1]))
+        assertEquals(" ", authoredWordSeparator("Take my hand", aligned[1], aligned[2]))
+    }
+
+    @Test
+    fun adjacentCjkWordsAlignWithoutSyntheticSeparator() {
+        // 中文行无空白:补全后相邻,分隔符为空串 → 词距 0(与整段绘制/预览同源,不再回退兜底 gap)。
+        val aligned = alignMissingWordOffsets(
+            "甲乙丙",
+            listOf(
+                AodCanvasWord("甲乙", "", 0L, 1L, true),
+                AodCanvasWord("丙", "", 1L, 2L, true)
+            )
+        )
+        assertEquals(listOf(0 until 2, 2 until 3), aligned.map { it.sourceStart until it.sourceEnd })
+        assertEquals("", authoredWordSeparator("甲乙丙", aligned[0], aligned[1]))
+    }
+
+    @Test
+    fun wordsCarryingOwnWhitespaceKeepItInsideTheSpan() {
+        // 词文本自带前导空白(TTML span 拼接风格):空白计入词宽、分隔符为空 → 不会双重间距。
+        val aligned = alignMissingWordOffsets(
+            "Take my hand",
+            listOf(
+                AodCanvasWord("Take", "", 0L, 1L, true),
+                AodCanvasWord(" my", "", 1L, 2L, true),
+                AodCanvasWord(" hand", "", 2L, 3L, true)
+            )
+        )
+        assertEquals(
+            listOf(0 until 4, 4 until 7, 7 until 12),
+            aligned.map { it.sourceStart until it.sourceEnd }
+        )
+        assertEquals("", authoredWordSeparator("Take my hand", aligned[0], aligned[1]))
+        assertEquals("", authoredWordSeparator("Take my hand", aligned[1], aligned[2]))
+    }
+
+    @Test
+    fun unmatchedWordListKeepsOffsetsUntouched() {
+        // 词表与行文本不一致(顺序定位失败)时整体放弃:区间保持缺失,调用方沿用原兜底词距。
+        val words = listOf(
+            AodCanvasWord("Take", "", 0L, 1L, true),
+            AodCanvasWord("xxx", "", 1L, 2L, true)
+        )
+        assertEquals(words, alignMissingWordOffsets("Take my hand", words))
+    }
+
+    @Test
     fun rubyCrossingTwoRangesCoalescesWithoutSyntheticBoundaryGap() {
         val words = coalesceRubyWords(
             "甲乙",

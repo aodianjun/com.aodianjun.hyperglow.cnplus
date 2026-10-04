@@ -78,6 +78,25 @@ class LyricLayoutEngineTest {
     }
 
     @Test
+    fun missingWordOffsetsUseAuthoredSeparatorInsteadOfFallbackGap() {
+        // 插件词表不带原文区间:按行文本对齐补全后词距取原文空格实测宽(mono=10f),
+        // 不再回退 wordGapPx(8f)——布局宽与整段绘制文本/预览同源(50f 而非 48f)。
+        val words = listOf(
+            AodCanvasWord("aa", "", 0L, 100L, boundaryAfter = true),
+            AodCanvasWord("bb", "", 100L, 200L, boundaryAfter = true)
+        )
+        val result = layoutOriginalLines(
+            "aa bb", words, emptyList(), emptyList(), mono(),
+            availableWidth = 500f, lineLimit = 5, wordGapPx = 8f, wrap = true, adaptiveSectioning = false
+        )
+        assertEquals(1, result.lines.size)
+        assertEquals(50f, result.lines[0].width, 0.0001f)
+        assertEquals("aa bb", result.lines[0].text)
+        assertEquals(0 until 2, result.lines[0].words[0].offset)
+        assertEquals(3 until 5, result.lines[0].words[1].offset)
+    }
+
+    @Test
     fun secondaryWrapCapsTwoLinesAndBalancesTokens() {
         val lines = layoutSecondaryLines(
             text = "aa bb cc dd",
