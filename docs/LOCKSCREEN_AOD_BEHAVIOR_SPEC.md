@@ -360,12 +360,13 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   the real word windows; line-level (untimed) sources synthesize per-character windows whose advance
   front coincides with the row-level sweep geometry, so the effects apply to both kinds of source —
   each syllable fills left-to-right as it is sung; unplayed syllables sit about 10% of the line
-  height lower and rise back to the baseline over ≈450 ms as they are sung; long syllables (≥700 ms;
-  on synthesized sources the synthesized per-block duration decides — CJK per character, Western per
-  word — so quickly passed short words only sweep, without scaling or glow) scale up to 1.15 while
-  playing and fall back to rest size when sung; and — only when the glow preference is on — the
-  playing long syllable carries a glow-colored halo (radius ≈ 36% of the text size). Short syllables
-  keep the base karaoke motion (peak 1.0505); glow off leaves the motion unchanged. The line-progress
+  height lower and rise back to the baseline over ≈450 ms as they are sung; the word block being
+  sung scales up to 1.15 while playing and falls back to rest size when sung — the scale applies to
+  every active block regardless of duration, matching the in-app preview (the ≥700 ms long-syllable
+  judgment only selects the synthesized block-level highlight window on synthesized sources: CJK per
+  character, Western per word); and — only when the glow preference is on — the playing block
+  carries a glow-colored halo (radius ≈ 36% of the text size). The legacy base karaoke motion
+  (peak 1.0505) applies to non-`BetterLyrics` modes; glow off leaves the motion unchanged. The line-progress
   effect `None` still resolves to the static all-bright presentation; the AOD-only concurrent duet
   line keeps the shared sweep pipeline; a `BetterLyrics` profile never takes the shared
   line-level sweep — word-timed sources carrying a line window included — and always renders
@@ -411,7 +412,7 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
 - Auxiliary text can light up word by word ("word-by-word auxiliary text": a per-surface switch,
   default off). When it is on, the first line's auxiliary rows (transliteration and translation)
   are drawn through the same shared karaoke renderer as the main line, so their bright/dim
-  progression and sweep — and in the `BetterLyrics` mode the float, long-block scale and glow —
+  progression and sweep — and in the `BetterLyrics` mode the float, active-block scale and glow —
   follow the main line, while the rows keep the auxiliary color and the bright/dim auxiliary
   setting. Rows whose source carries word-level romanization light up on those real word windows;
   everything else is synthesized across the row's own line window with the same geometric front as
@@ -785,13 +786,13 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 未知组件会被丢弃。不存在有效歌词组件时，退回到内置安全 profile。
 - 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。行级同步标志在有活动行且不处于大元数据引导态时为真——逐字源与行级源一视同仁。主行的渲染路径（静态全亮＝`Minimal` 档或 `None` 效果、词级卡拉OK、共享扫光块）由同一个共享决策给出，实机画布（锁屏与息屏共用同一画布）与 App 内预览读同一份，输入为行级同步标志、源类型、行窗、逐字动画档与发光偏好。因此整块横扫只在显式选择该档时出现，绝不作为逐字源的回退。
-- 逐字动画接受 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表（每个 surface 独立选择）。`BetterLyrics` 档（参考 jayfunc/BetterLyrics）把歌词源交给共享逐字卡拉OK渲染核心（实机画布与 App 内预览同源）：逐字/音节级时间源用真实词窗；行级（无逐字时间）源按字符合成时间窗——推进前缘与行级扫光几何完全一致，因此效果对两类源同样适用：每个音节演唱中自左向右填充；未唱音节下沉约 10% 行高、唱到时在约 450ms 内上浮回基线；长音节（≥700ms；合成源按合成块时长判定——中文逐字块、西文按词块——快速掠过的短词块只有扫光、不放大不发光）演唱中放大到 1.15、唱完回落原大，长音节块内字符共享块级进度、整块同步放大/辉光；仅在发光偏好开启时，演唱中的长音节带 glow 色光晕（半径约为字号的 36%）。短音节保持既有卡拉OK运动（峰值 1.0505）；发光关闭时运动不变。「行进度效果=None」仍解析为静态全亮；仅息屏的对唱并发行保留共享扫光管线；`BetterLyrics` 档绝不走共享行级扫光（带行窗的逐字源也不例外），恒走词级卡拉OK路径；profile 未知值仍规范化为 `Gradient`。
+- 逐字动画接受 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表（每个 surface 独立选择）。`BetterLyrics` 档（参考 jayfunc/BetterLyrics）把歌词源交给共享逐字卡拉OK渲染核心（实机画布与 App 内预览同源）：逐字/音节级时间源用真实词窗；行级（无逐字时间）源按字符合成时间窗——推进前缘与行级扫光几何完全一致，因此效果对两类源同样适用：每个音节演唱中自左向右填充；未唱音节下沉约 10% 行高、唱到时在约 450ms 内上浮回基线；**正在唱的词块**演唱中放大到 1.15、唱完回落原大——放大对每个活动词块生效、不区分时长，与 App 内预览演示数据的观感一致（≥700ms 长音节判定仅用于合成源选择块级高亮窗口：中文逐字块、西文按词块）；仅在发光偏好开启时，演唱中的词块带 glow 色光晕（半径约为字号的 36%）。历史基础卡拉OK运动（峰值 1.0505）仅用于非 `BetterLyrics` 档；发光关闭时运动不变。「行进度效果=None」仍解析为静态全亮；仅息屏的对唱并发行保留共享扫光管线；`BetterLyrics` 档绝不走共享行级扫光（带行窗的逐字源也不例外），恒走词级卡拉OK路径；profile 未知值仍规范化为 `Gradient`。
 - 渲染面上呈现的渲染模式取值，一律先从编译后的 per-surface profile 解析，仅在没有编译产物时（降级 / 旧文档）才回落到歌词源上报的 renderModes。App 内预览渲染的正是这份编译产物，两端必须读同一个来源；只经由歌词源 renderModes 传递的设置属于同源契约破口，不是某个源的特例默认值。没有**正在播放**的歌词状态时，App 内预览一律回退到内置演示歌词行：仲裁器有意保留暂停时的冻结状态（暂停的位置流天然静默，不是故障），因此暂停后预览不得继续钉在暂停前那句歌词上，恢复播放后实时状态重新接管预览。本条只约束 App 内预览——锁屏/息屏的暂停保留语义不变。覆盖字段：字重、字号档与其自定义百分比、辅助文字模式、逐字动画、发光、行进度效果、折行裁剪、字体族、换行动画（profile 的 `Auto` 退默认解析）、主对齐、歌曲信息锚点、自适应分节。生产者不得上报会被息屏取值归一化改写的逐字动画值——历史遗留的 `Karaoke fill` 不在现行词表内。
 - App 内预览的内置演示歌词行（没有实时歌词状态可呈现时使用）跟随界面语言：English 显示英文演示曲，其余选择（跟随系统 / 简体中文）显示中文演示曲。仅显式 English 才切换；设备语言为英文但用户显式选择「简体中文」时保留中文演示曲。
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现仅在第一行辅助文字实际显示时生效（第一行按「辅助文字」模式没有可显示的辅助文字行时，本开关不产生第二行呈现）；呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；生效时取代独立的下一行歌词行而不与之叠加，不生效时独立下一行呈现保持不变。
 - 「显示第二行辅助文字」（每个 surface 独立，以第二行歌词行实际显示为前提——「显示下一行歌词」或「辅助文字显示第二行歌词」任一开启时露出；两者都关时没有第二行歌词行，该开关不露出）：开启后第二行歌词自身也带出它的辅助文字行（音标/翻译，按辅助文字模式取用，源无内容则不出）——四行呈现，顺序为第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字。开启时第二行歌词行本身也按辅助文字形态呈现（即使「辅助文字显示第二行歌词」关闭——此时以「显示下一行歌词」为前提）；第二行歌词行以独立下一行行呈现时同样追加其辅助文字行（实机与预览同源）。其辅助文字行沿用辅助文字行的字号/亮度档与第二行歌词对齐，折行档跟随第二行歌词自身呈现的行数（不得沿用主行行数）；关闭时第二行歌词行按其所属开关的形态呈现、不追加辅助行。源没有下一行的辅助文字时只呈现有内容的部分。
 - 辅助文字行（音译、翻译与辅助文字形态的第二行歌词）以约为有效主行字号一半渲染；其可读性下限按有效主行字号等比封顶（不超过约 0.62 倍），任何字号档下辅助形态都必须明显小于主行，不得渲染成第二条主行。
-- 辅助文字可逐字点亮（「辅助文字逐字效果」，每个 surface 独立开关，默认关）：开启后第一行辅助行（音译与翻译）与主行共用同一逐字渲染核心——亮/暗推进与扫光随主行，「BetterLyrics」档下浮动、长块放大与辉光同样随主行；行本身仍取辅助行颜色与「高亮辅助文字」亮度档。源带词级音译时间时按真实词窗点亮；其余按该行自身的行窗口 + 行内几何合成（中文逐字、西文按词，块内共享一个高亮进度），推进前缘与主行行级合成源同式。并发行（对唱）自己的辅助行取并发行窗口。属于第二行的行——辅助文字形态的第二行歌词与其自身的辅助行——不参与（其播放窗口尚未开始）。本开关独立于主行行进度效果：进度效果选 `None` 时主行静态，辅助行照常逐字点亮并维持帧时钟。开关关闭时辅助行逐字节不变。
+- 辅助文字可逐字点亮（「辅助文字逐字效果」，每个 surface 独立开关，默认关）：开启后第一行辅助行（音译与翻译）与主行共用同一逐字渲染核心——亮/暗推进与扫光随主行，「BetterLyrics」档下浮动、活动词放大与辉光同样随主行；行本身仍取辅助行颜色与「高亮辅助文字」亮度档。源带词级音译时间时按真实词窗点亮；其余按该行自身的行窗口 + 行内几何合成（中文逐字、西文按词，块内共享一个高亮进度），推进前缘与主行行级合成源同式。并发行（对唱）自己的辅助行取并发行窗口。属于第二行的行——辅助文字形态的第二行歌词与其自身的辅助行——不参与（其播放窗口尚未开始）。本开关独立于主行行进度效果：进度效果选 `None` 时主行静态，辅助行照常逐字点亮并维持帧时钟。开关关闭时辅助行逐字节不变。
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
 - 对唱分侧是每个 surface 独立的开关（默认开启）。开启时，行级 `alignedRight` 置位的行绘制在右侧；关闭时忽略该位，所有行按主对齐解析。行级分侧位来源于歌词源：源显式标记（Spicy `alignedRight`、Lyricon `isAlignedRight`、插件 `isAlignedRight`）恒优先，否则由行级演唱者身份元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal`，类型键 `amll:agent-type`/`agent:type`/`agentType`/`vocal:type`）推导——首位歌手居左、其余居右；带显式类型时 `group` 恒左、`other` 起右并随歌手切换翻转。无演唱者信息的曲目保持纯主对齐行为。
 - 识别对唱标记是每个 surface 独立的开关（默认开启；未显式设置的曲面继承文档级默认值）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。快照为息屏/锁屏共用，只携带原始行文本与两套预计算分侧（元数据身份版、标记识别版），隐去标记与选用分侧的决策推迟到各渲染面按本面开关执行——改一面的开关不联动另一面。（副歌）/（间奏）等段落标记同样识别（连写或复合如（男·RAP）的标记串整串剥离），但只隐去文本——不作为演唱者身份、不改动行的分侧。词表外的括号内容按歌词原样保留。纯标记行保留原样显示。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。

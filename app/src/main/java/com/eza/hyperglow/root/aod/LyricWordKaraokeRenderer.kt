@@ -67,11 +67,14 @@ internal fun karaokeUnsungAlpha(alphaFactor: Float): Int =
         .coerceIn(0, 255)
 
 /**
- * 单次播放的放大峰值:BetterLyrics 档长音节放大到 [KARAOKE_LONG_SYLLABLE_SCALE_PEAK],
- * 其余沿用 [KARAOKE_BASE_SCALE_PEAK]。纯函数,可单测。
+ * 单次播放的放大峰值:BetterLyrics 档**所有正在唱的词块**放大到
+ * [KARAOKE_LONG_SYLLABLE_SCALE_PEAK](对齐预览观感:演示数据下每个词块演唱期间
+ * 同步放大,不再要求 ≥700ms 长音节);非 BetterLyrics 档沿用 [KARAOKE_BASE_SCALE_PEAK]。
+ * [longSyllable] 保留入参以维持调用方与合成源的块级高亮语义,不参与峰值选择。
+ * 纯函数,可单测。
  */
 internal fun karaokeScalePeak(betterLyrics: Boolean, longSyllable: Boolean): Float =
-    if (betterLyrics && longSyllable) KARAOKE_LONG_SYLLABLE_SCALE_PEAK else KARAOKE_BASE_SCALE_PEAK
+    if (betterLyrics) KARAOKE_LONG_SYLLABLE_SCALE_PEAK else KARAOKE_BASE_SCALE_PEAK
 
 /** 演唱中放大曲线:经峰值再回落 1.0(历史逐字档同式,峰值参数化)。纯函数,可单测。 */
 internal fun karaokeScaleAt(playedFraction: Float, peak: Float): Float {
@@ -164,13 +167,14 @@ private fun isCjkKaraokeChar(ch: Char): Boolean =
 
 /**
  * 逐字卡拉OK的共享渲染核心 —— 预览(PreviewComponents)与实机(AodLyricCanvasView)
- * 调用同一实现:底字亮度、词内扫光带、演唱中放大、未唱下沉/已唱上浮、长音节辉光
+ * 调用同一实现:底字亮度、词内扫光带、演唱中放大、未唱下沉/已唱上浮、活动词辉光
  * 只在此定义一次,杜绝"两份手工同步的拷贝"造成的漂移。
  *
  * 效果参考 jayfunc/BetterLyrics(WinUI3/Win2D)的逐字效果:未唱字下沉(行高 10%),
- * 唱到后 450ms 内弹回基线(「已唱上浮」);长音节(≥700ms)演唱中放大到 1.15、唱完
- * 回落;长音节 + 发光开启时活动词带 glow 色辉光。短音节沿用历史逐字卡拉OK运动
- * (峰值 1.0505、词内扫光),既有观感不变。
+ * 唱到后 450ms 内弹回基线(「已唱上浮」);**正在唱的词块**放大到 1.15、唱完回落,
+ * 发光开启时带 glow 色辉光(与预览演示数据观感一致:每个词块演唱期间同步放大发光,
+ * 不区分长/短音节——700ms 长音节判定仅用于合成源的块级高亮窗口)。非 BetterLyrics
+ * 档沿用历史逐字卡拉OK运动(峰值 1.0505、词内扫光),既有观感不变。
  *
  * 行级源(无逐字时间戳)由调用方用 [syntheticCharTimeWindow] 合成每字符的时间窗后
  * 走同一渲染:下沉/上浮与逐字点亮同样适用;合成词位恒标长音节——「正在唱的字」
@@ -236,10 +240,11 @@ internal object LyricWordKaraokeRenderer {
             paint.alpha = if (sung) sungAlpha else dimAlpha
             canvas.drawText(run.text, run.x, baseline + y, paint)
             if (active) {
-                // 长音节辉光(BetterLyrics 档 + 发光开启):glow 色阴影画在 sung 色文字下,
+                // 活动词辉光(BetterLyrics 档 + 发光开启):glow 色阴影画在 sung 色文字下,
                 // 光从文字背后透出(与共享 LyricGlowRenderer Pass 2 同式);shader 置空规避
-                // 硬件加速下 shadow+shader 同置导致发光丢失。
-                if (betterLyrics && glowEnabled && run.longSyllable) {
+                // 硬件加速下 shadow+shader 同置导致发光丢失。正在唱的词块恒有辉光——与
+                // 放大峰值同口径对齐预览观感(演示数据下每个词块演唱期间同步发光)。
+                if (betterLyrics && glowEnabled) {
                     paint.shader = null
                     paint.color = sungColor
                     paint.alpha = sungAlpha

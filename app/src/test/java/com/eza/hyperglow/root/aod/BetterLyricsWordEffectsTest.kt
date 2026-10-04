@@ -15,11 +15,14 @@ class BetterLyricsWordEffectsTest {
     }
 
     @Test
-    fun longSyllablesScaleToBetterLyricsPeakOnlyInBetterLyricsMode() {
+    fun betterLyricsModeScalesEveryActiveWordToPeak() {
+        // 正在唱的词块恒放大到 BetterLyrics 峰值(对齐预览演示数据观感),
+        // 不再要求 ≥700ms 长音节——长音节判定仅用于合成源的块级高亮窗口。
         assertEquals(1.15f, karaokeScalePeak(betterLyrics = true, longSyllable = true))
-        // 短音节与非 BetterLyrics 档沿用基础峰值(既有逐字卡拉OK观感不变)。
-        assertEquals(1.0505f, karaokeScalePeak(betterLyrics = true, longSyllable = false))
+        assertEquals(1.15f, karaokeScalePeak(betterLyrics = true, longSyllable = false))
+        // 非 BetterLyrics 档沿用基础峰值(既有逐字卡拉OK观感不变)。
         assertEquals(1.0505f, karaokeScalePeak(betterLyrics = false, longSyllable = true))
+        assertEquals(1.0505f, karaokeScalePeak(betterLyrics = false, longSyllable = false))
     }
 
     @Test
