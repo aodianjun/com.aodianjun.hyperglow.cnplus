@@ -121,6 +121,25 @@
     <string name="plugin_toast_invalid_number">請輸入有效數字</string>
     <string name="plugin_setting_empty_value">（未設定）</string>
     <string name="plugin_setting_action_unsupported">此宿主不支援動作型設定。</string>
+    <string name="plugin_section_cache">快取</string>
+    <string name="plugin_action_manage_cache">管理快取</string>
+    <string name="plugin_cache_title">快取管理</string>
+    <string name="plugin_cache_section_entries">快取項目</string>
+    <string name="plugin_cache_empty">暫無快取項目</string>
+    <string name="plugin_cache_unavailable">該插件未提供快取管理</string>
+    <string name="plugin_cache_clear_all">清空全部快取</string>
+    <string name="plugin_cache_clear_confirm_title">清空全部快取？</string>
+    <string name="plugin_cache_clear_confirm_summary">將刪除該插件的全部快取項目，需要時會重新取得。</string>
+    <string name="plugin_cache_delete_entry">刪除此項</string>
+    <string name="plugin_cache_toast_entry_deleted">已刪除該快取項目</string>
+    <string name="plugin_cache_toast_entry_missing">快取項目不存在</string>
+    <string name="plugin_cache_field_size">大小</string>
+    <string name="plugin_cache_field_updated">更新時間</string>
+    <string name="plugin_cache_unknown_time">未知</string>
+    <string name="title_lyric_enhancement">歌詞增強</string>
+    <string name="summary_lyric_enhancement">管理歌詞處理插件（翻譯、逐字歌詞等）</string>
+    <string name="lyric_enhancement_empty">未安裝歌詞增強插件</string>
+    <string name="lyric_enhancement_empty_summary">在「歌詞插件」頁面安裝提供歌詞處理的插件</string>
 
     <string name="section_live_status">實時狀態</string>
     <string name="label_now_playing">正在播放</string>

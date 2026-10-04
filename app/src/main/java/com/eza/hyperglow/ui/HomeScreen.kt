@@ -98,6 +98,7 @@ internal fun HomeScreen(
     onOpenChangelog: () -> Unit,
     onOpenContributors: () -> Unit,
     onOpenLicenses: () -> Unit,
+    onOpenLyricEnhancement: () -> Unit,
     floatingNavBar: Boolean,
     predictiveBackEnabled: Boolean,
     onPredictiveBackChanged: (Boolean) -> Unit,
@@ -672,6 +673,15 @@ internal fun HomeScreen(
                 // 息屏设置/锁屏设置两个分段在上面的外观分段分支里渲染(即歌词外观设置本体),
                 // 走到这个 LazyColumn 的只可能是「其他设置」。
                 SettingsTab.SETTINGS -> {
+                        item {
+                            SettingsCard {
+                                ArrowPreference(
+                                    title = stringResource(R.string.title_lyric_enhancement),
+                                    summary = stringResource(R.string.summary_lyric_enhancement),
+                                    onClick = onOpenLyricEnhancement
+                                )
+                            }
+                        }
                         item { SmallTitle(text = stringResource(R.string.section_playback_behavior)) }
                         item {
                             SettingsCard {

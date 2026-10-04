@@ -167,6 +167,25 @@
     <string name="plugin_toast_invalid_number">Enter a valid number</string>
     <string name="plugin_setting_empty_value">(not set)</string>
     <string name="plugin_setting_action_unsupported">Action settings are not supported by this host.</string>
+    <string name="plugin_section_cache">Cache</string>
+    <string name="plugin_action_manage_cache">Manage cache</string>
+    <string name="plugin_cache_title">Cache management</string>
+    <string name="plugin_cache_section_entries">Cached entries</string>
+    <string name="plugin_cache_empty">No cached entries</string>
+    <string name="plugin_cache_unavailable">This plugin does not provide cache management</string>
+    <string name="plugin_cache_clear_all">Clear all cache</string>
+    <string name="plugin_cache_clear_confirm_title">Clear all cache?</string>
+    <string name="plugin_cache_clear_confirm_summary">All cached entries for this plugin will be deleted and fetched again when needed.</string>
+    <string name="plugin_cache_delete_entry">Delete this entry</string>
+    <string name="plugin_cache_toast_entry_deleted">Cache entry deleted</string>
+    <string name="plugin_cache_toast_entry_missing">Cache entry not found</string>
+    <string name="plugin_cache_field_size">Size</string>
+    <string name="plugin_cache_field_updated">Updated</string>
+    <string name="plugin_cache_unknown_time">Unknown</string>
+    <string name="title_lyric_enhancement">Lyric enhancement</string>
+    <string name="summary_lyric_enhancement">Manage lyric processing plugins (translation, word-level lyrics)</string>
+    <string name="lyric_enhancement_empty">No lyric enhancement plugins installed</string>
+    <string name="lyric_enhancement_empty_summary">Install lyric processing plugins from the Lyric plugins page</string>
 
     <string name="section_live_status">Live status</string>
     <string name="label_now_playing">Now playing</string>

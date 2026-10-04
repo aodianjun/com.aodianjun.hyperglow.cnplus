@@ -2,6 +2,7 @@ package com.eza.hyperglow.ui
 
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -19,10 +20,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -79,14 +78,17 @@ import java.util.Locale
  * 否则条目滚出可视区被回收时对话框会被意外关闭。
  */
 @Composable
-internal fun PluginManagementScreen(onBack: () -> Unit) {
+internal fun PluginManagementScreen(
+    onBack: () -> Unit,
+    onOpenSettings: (String) -> Unit,
+    onOpenCache: (String) -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var plugins by remember { mutableStateOf(PluginRuntime.installed()) }
     var processingEnabled by remember {
         mutableStateOf(AodRenderPreferences.read(context).pluginProcessingEnabled)
     }
-    var openSettingsPluginId by remember { mutableStateOf<String?>(null) }
     var uninstallPluginId by remember { mutableStateOf<String?>(null) }
     // 管线输入状态(与 PluginPipeline.maybeProcess 同源):Spicy 源按文档状态提示,
     // 逐行源(Lyricon/SuperLyric/LyricInfo)已接入插件链,固定显示接入提示。
@@ -135,6 +137,8 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
     fun pickPluginZip() {
         installLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
     }
+
+    BackHandler(onBack = onBack)
 
     Scaffold(
         containerColor = appSurfaceColor(),
@@ -237,26 +241,12 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
                 items(plugins, key = { it.manifest.id }) { plugin ->
                     PluginCard(
                         plugin = plugin,
-                        onOpenSettings = { openSettingsPluginId = plugin.manifest.id },
-                        onRequestUninstall = { uninstallPluginId = plugin.manifest.id },
-                        onChanged = { refresh() }
+                        onOpenSettings = { onOpenSettings(plugin.manifest.id) },
+                        onOpenCache = { onOpenCache(plugin.manifest.id) },
+                        onRequestUninstall = { uninstallPluginId = plugin.manifest.id }
                     )
                 }
             }
-        }
-    }
-
-    // 设置对话框：宿主状态提升，插件列表刷新后按 id 重新取最新实例。
-    openSettingsPluginId?.let { pluginId ->
-        val settingsPlugin = PluginRuntime.installed(pluginId)
-        if (settingsPlugin != null) {
-            PluginSettingsDialog(
-                plugin = settingsPlugin,
-                onDismiss = { openSettingsPluginId = null }
-            )
-        } else {
-            // 插件在对话框打开期间被卸载：清掉悬空的 id，避免重装后对话框意外复现。
-            LaunchedEffect(pluginId) { openSettingsPluginId = null }
         }
     }
 
@@ -310,18 +300,17 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
     }
 }
 
-/** 单个插件的卡片：名称/作者/版本、加载状态、激活开关、设置/缓存/卸载入口。 */
+/** 单个插件的卡片:名称/作者/版本、加载状态、激活开关、设置/缓存管理/卸载入口。 */
 @Composable
 private fun PluginCard(
     plugin: PluginRuntime.LoadedPlugin,
     onOpenSettings: () -> Unit,
-    onRequestUninstall: () -> Unit,
-    onChanged: () -> Unit
+    onOpenCache: () -> Unit,
+    onRequestUninstall: () -> Unit
 ) {
     val context = LocalContext.current
     val languageTag = currentLanguageTag(context)
     val manifest = plugin.manifest
-    var cacheRevision by remember(manifest.id) { mutableStateOf(0) }
 
     SettingsCard {
         Column(Modifier.padding(top = 14.dp, start = 16.dp, end = 16.dp, bottom = 2.dp)) {
@@ -391,21 +380,13 @@ private fun PluginCard(
             )
         }
         if (manifest.cacheScopes.isNotEmpty()) {
-            val cacheBytes = remember(manifest.id, cacheRevision) {
+            val cacheBytes = remember(manifest.id) {
                 PluginRuntime.cacheSizeBytes(manifest.id)
             }
             ArrowPreference(
-                title = stringResource(R.string.plugin_action_clear_cache, formatBytes(cacheBytes)),
-                onClick = {
-                    PluginRuntime.clearCache(manifest.id)
-                    cacheRevision++
-                    Toast.makeText(
-                        context,
-                        context.getString(R.string.plugin_toast_cache_cleared),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    onChanged()
-                },
+                title = stringResource(R.string.plugin_action_manage_cache),
+                summary = formatBytes(cacheBytes),
+                onClick = onOpenCache,
                 enabled = plugin.plugin != null
             )
         }
@@ -416,78 +397,9 @@ private fun PluginCard(
     }
 }
 
-/**
- * 插件设置对话框：按 manifest 声明渲染全部设置项。
- * [revision] 在每次写入后自增，整棵树重读 SharedPreferences。
- */
-@Composable
-private fun PluginSettingsDialog(
-    plugin: PluginRuntime.LoadedPlugin,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val languageTag = currentLanguageTag(context)
-    val manifest = plugin.manifest
-    var revision by remember(manifest.id) { mutableStateOf(0) }
-    var editSetting by remember(manifest.id) { mutableStateOf<PluginSettingData?>(null) }
-
-    fun writeSetting(setting: PluginSettingData, put: () -> Unit) {
-        put()
-        if (setting.type == PluginSettingType.SWITCH &&
-            PluginSettingsStore.getBoolean(context, manifest.id, setting)
-        ) {
-            // conflictsWith 语义（HyperLyric）：开启一个开关时关闭所有与其冲突的开关。
-            setting.conflictsWith.forEach { conflictKey ->
-                manifest.settings.firstOrNull {
-                    it.key == conflictKey && it.type == PluginSettingType.SWITCH
-                }?.let { conflict ->
-                    PluginSettingsStore.putBoolean(context, manifest.id, conflict.key, false)
-                }
-            }
-        }
-        PluginRuntime.notifyConfigChanged(manifest.id)
-        revision++
-    }
-
-    WindowDialog(
-        title = manifest.localizedName(languageTag),
-        show = true,
-        onDismissRequest = onDismiss
-    ) {
-        Column(
-            Modifier
-                .heightIn(max = 440.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            manifest.settings.forEach { setting ->
-                // revision 参与组合键：写入后强制本行重读存储。
-                key(setting.key, revision) {
-                    PluginSettingRow(
-                        pluginId = manifest.id,
-                        setting = setting,
-                        languageTag = languageTag,
-                        onEdit = { editSetting = setting },
-                        onWrite = { put -> writeSetting(setting, put) }
-                    )
-                }
-            }
-        }
-    }
-
-    editSetting?.let { setting ->
-        PluginSettingEditDialog(
-            pluginId = manifest.id,
-            setting = setting,
-            languageTag = languageTag,
-            onDismiss = { editSetting = null },
-            onWrite = { put -> writeSetting(setting, put) }
-        )
-    }
-}
-
 /** 单条设置的宿主渲染，按 [PluginSettingType] 分派到 miuix 偏好组件。 */
 @Composable
-private fun PluginSettingRow(
+internal fun PluginSettingRow(
     pluginId: String,
     setting: PluginSettingData,
     languageTag: String,
@@ -609,7 +521,7 @@ private fun PluginSettingRow(
 
 /** 标量/单选/多选设置的编辑子对话框。 */
 @Composable
-private fun PluginSettingEditDialog(
+internal fun PluginSettingEditDialog(
     pluginId: String,
     setting: PluginSettingData,
     languageTag: String,
@@ -777,7 +689,7 @@ private fun PluginSettingEditDialog(
 internal fun currentLanguageTag(context: Context): String =
     context.resources.configuration.locales[0].toLanguageTag()
 
-private fun formatBytes(bytes: Long): String = when {
+internal fun formatBytes(bytes: Long): String = when {
     bytes >= 1024L * 1024L ->
         String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f))
     bytes >= 1024L ->

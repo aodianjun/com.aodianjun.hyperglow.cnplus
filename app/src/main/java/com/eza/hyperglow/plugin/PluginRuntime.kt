@@ -7,6 +7,8 @@ import com.eza.hyperglow.AppLog
 import com.lidesheng.hyperlyric.plugin.api.HyperLyricExtension
 import com.lidesheng.hyperlyric.plugin.api.HyperLyricPlugin
 import com.lidesheng.hyperlyric.plugin.api.LyricProcessorExtension
+import com.lidesheng.hyperlyric.plugin.api.PluginCacheEntry
+import com.lidesheng.hyperlyric.plugin.api.PluginCacheExtension
 import com.lidesheng.hyperlyric.plugin.api.PluginMediaInfo
 import com.lidesheng.hyperlyric.plugin.api.PluginProcessingContext
 import com.lidesheng.hyperlyric.plugin.api.PluginProcessorStage
@@ -209,6 +211,33 @@ object PluginRuntime {
         val size = installed(pluginId)?.hostContext?.cacheSizeBytes() ?: 0L
         AppLog.i(TAG, "cache size for $pluginId = ${size}B")
         return size
+    }
+
+    /**
+     * 读取插件缓存条目的元数据(标题/摘要/大小/更新时间)。
+     * 插件未实现 [PluginCacheExtension] 时返回 null,由界面呈现"未提供缓存管理"。
+     * 调用方应在 IO 线程调用(插件侧会读缓存索引文件)。
+     */
+    fun listCacheEntries(pluginId: String): List<PluginCacheEntry>? {
+        val extension = installed(pluginId)?.hostContext?.cacheExtension() ?: return null
+        return runCatching { extension.listEntries() }
+            .onSuccess { AppLog.i(TAG, "listEntries for $pluginId: ${it.size} entry(ies)") }
+            .onFailure { error -> AppLog.w(TAG, "listEntries failed for $pluginId", error) }
+            .getOrNull()
+    }
+
+    /**
+     * 删除单条缓存条目,返回条目是否存在并已删除。
+     * 插件未实现 [PluginCacheExtension] 或条目不存在时返回 false。
+     */
+    fun clearCacheEntry(pluginId: String, entryId: String): Boolean {
+        val extension = installed(pluginId)?.hostContext?.cacheExtension() ?: return false
+        return runCatching { extension.clearEntry(entryId) }
+            .onSuccess { removed ->
+                AppLog.i(TAG, "clearEntry for $pluginId removed=$removed")
+            }
+            .onFailure { error -> AppLog.w(TAG, "clearEntry failed for $pluginId", error) }
+            .getOrDefault(false)
     }
 
     /**
