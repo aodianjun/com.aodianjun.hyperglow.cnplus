@@ -52,9 +52,13 @@ if (releaseArtifactRequested && !releaseSigningConfigured) {
 
 // 关于页「使用帮助」的文案来源:仓库根 FAQ.md(受私有生成源管理,不在仓库内另存副本),
 // 构建期拷贝进 assets,保证 APK 内内容与 docs 侧单一来源一致。
+// 注意:AGP 9 的 SourceSet API 拒绝 Provider(任务输出)作为源目录,因此这里注册普通
+// 目录并显式声明「assets 合并任务依赖拷贝任务」,顺序由下方 tasks.matching 保证。
+val faqAssetOutputDir = layout.buildDirectory.dir("generated/faqAssets")
+
 val copyFaqAsset = tasks.register<Copy>("copyFaqAsset") {
     from(rootProject.file("FAQ.md"))
-    into(layout.buildDirectory.dir("generated/faqAssets"))
+    into(faqAssetOutputDir)
 }
 
 android {
@@ -142,10 +146,16 @@ android {
 
     sourceSets {
         getByName("main") {
-            assets.srcDir(copyFaqAsset)
+            assets.srcDir(faqAssetOutputDir.get().asFile)
         }
     }
 }
+
+// assets 合并任务(merge<Variant>Assets)必须先看到 copyFaqAsset 的产物。
+tasks.matching { task -> task.name.startsWith("merge") && task.name.endsWith("Assets") }
+    .configureEach {
+        dependsOn(copyFaqAsset)
+    }
 
 dependencies {
     // HyperLyric 插件 API(FQCN 兼容):App 直接实现宿主侧接口,同时插件 dex 经
