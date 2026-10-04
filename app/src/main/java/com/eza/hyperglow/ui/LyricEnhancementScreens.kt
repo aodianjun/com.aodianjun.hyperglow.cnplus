@@ -1,7 +1,6 @@
 package com.eza.hyperglow.ui
 
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -78,8 +77,6 @@ internal fun LyricEnhancementScreen(
     val languageTag = currentLanguageTag(context)
     // 已加载且提供歌词处理器的插件即"歌词增强"插件;加载失败/纯缓存类插件不在此列。
     val plugins = remember { PluginRuntime.installed().filter { it.processors.isNotEmpty() } }
-
-    BackHandler(onBack = onBack)
 
     Scaffold(
         containerColor = appSurfaceColor(),
@@ -187,8 +184,6 @@ internal fun PluginSettingsScreen(
         if (manifest != null) PluginRuntime.notifyConfigChanged(manifest.id)
         revision++
     }
-
-    BackHandler(onBack = onBack)
 
     Scaffold(
         containerColor = appSurfaceColor(),
@@ -345,8 +340,6 @@ internal fun PluginCacheScreen(
         if (result == null) unavailable = true else entries = result
     }
 
-    BackHandler(onBack = onBack)
-
     Scaffold(
         containerColor = appSurfaceColor(),
         topBar = {
@@ -390,8 +383,10 @@ internal fun PluginCacheScreen(
                     item {
                         SettingsCard {
                             ArrowPreference(
-                                title = stringResource(R.string.plugin_action_clear_cache),
-                                summary = formatBytes(PluginRuntime.cacheSizeBytes(pluginId)),
+                                title = stringResource(
+                                    R.string.plugin_action_clear_cache,
+                                    formatBytes(PluginRuntime.cacheSizeBytes(pluginId))
+                                ),
                                 onClick = {
                                     scope.launch {
                                         withContext(Dispatchers.IO) {
