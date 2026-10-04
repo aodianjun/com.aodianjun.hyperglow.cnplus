@@ -25,3 +25,8 @@ include(":app")
 // ClassLoader 提供,绝不打进插件 ZIP);demo 为参考实现插件模块。
 include(":plugins:api")
 include(":plugins:demo")
+// 补充插件(可安装,不参与宿主 APK 构建):
+// - lyricfetch: 在线取词 + 多格式解析(accompanist-lyrics-core 随插件打进 dex)
+// - scriptconvert: 歌词简繁字形转换(OpenCC 词典内嵌)
+include(":plugins:lyricfetch")
+include(":plugins:scriptconvert")
