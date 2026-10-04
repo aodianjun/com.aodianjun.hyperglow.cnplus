@@ -2643,14 +2643,19 @@ internal class AodLyricCanvasView(
                 val placed = line.words[wordIndex]
                 val word = placed.word
                 val durationMs = word.endMs - word.startMs
-                runs += KaraokeWordRun(
-                    text = word.text,
-                    x = line.startX + x,
-                    width = placed.width,
-                    playedFraction = timedWordProgress(position, word.startMs, word.endMs),
-                    durationMs = durationMs,
-                    longSyllable = isLongKaraokeSyllable(durationMs)
-                )
+                // 布局分组合成的占位词(无词表行 + layoutGroups 时由 layoutTextByGroups 生成,
+                // 时间窗恒 0..0)不构成词级时间源:跳过它,让整行走下方行级合成(逐字)——否则
+                // timedWordProgress(pos, 0, 0) 对零窗恒返回 1(全亮),整行呈静态全亮、与 Minimal 档同观感。
+                if (isTimedKaraokeWord(word.startMs, word.endMs)) {
+                    runs += KaraokeWordRun(
+                        text = word.text,
+                        x = line.startX + x,
+                        width = placed.width,
+                        playedFraction = timedWordProgress(position, word.startMs, word.endMs),
+                        durationMs = durationMs,
+                        longSyllable = isLongKaraokeSyllable(durationMs)
+                    )
+                }
                 x += placed.width + placed.gapAfter
                 wordIndex++
             }
@@ -2700,6 +2705,20 @@ internal class AodLyricCanvasView(
                         charIndex++
                     }
                     index = block.last + 1
+                }
+            }
+            if (lineIndex == 0) {
+                // 诊断探针(「BetterLyrics 效果和最简一样」排查):打印词级卡拉OK的全部输入现场值。
+                HookLogger.iThrottled(
+                    "karaoke-probe", 2_000L, "AodLyricCanvasView"
+                ) {
+                    val firstRun = runs.firstOrNull()
+                    val firstWord = line.words.firstOrNull()?.word
+                    "Karaoke probe: pos=$position lStart=${content.lineStartMs} " +
+                        "lEnd=${content.lineEndMs} lineSync=${content.lineLevelSync} " +
+                        "words=${content.words.size} runs=${runs.size} " +
+                        "run0=[${firstRun?.text} played=${firstRun?.playedFraction}] " +
+                        "word0=[${firstWord?.startMs}..${firstWord?.endMs}]"
                 }
             }
             LyricWordKaraokeRenderer.draw(

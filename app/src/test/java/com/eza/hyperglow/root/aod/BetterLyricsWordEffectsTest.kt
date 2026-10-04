@@ -7,6 +7,17 @@ import org.junit.Test
 
 class BetterLyricsWordEffectsTest {
     @Test
+    fun timedKaraokeWordRequiresValidWindow() {
+        // 布局分组合成的占位词(0..0)不是词级时间源:词位路径必须跳过,
+        // 否则 timedWordProgress 对零窗恒返回 1(全亮)、整行与 Minimal 档同观感。
+        assertFalse(isTimedKaraokeWord(0L, 0L))
+        assertFalse(isTimedKaraokeWord(500L, 500L))
+        assertFalse(isTimedKaraokeWord(500L, 400L))
+        assertTrue(isTimedKaraokeWord(0L, 1L))
+        assertTrue(isTimedKaraokeWord(95_507L, 95_687L))
+    }
+
+    @Test
     fun longSyllableThresholdMatchesReferenceSevenHundredMillis() {
         assertTrue(isLongKaraokeSyllable(700L))
         assertTrue(isLongKaraokeSyllable(1_500L))
