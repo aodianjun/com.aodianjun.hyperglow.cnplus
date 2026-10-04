@@ -635,6 +635,13 @@
     <string name="option_bar_icons_auto">Automatic</string>
     <string name="option_bar_icons_light">Light icons</string>
     <string name="option_bar_icons_dark">Dark icons</string>
+    <string name="section_app_navigation">Navigation</string>
+    <string name="setting_predictive_back">Predictive back</string>
+    <string name="summary_predictive_back">The page follows your finger while you swipe back, previewing the page underneath.</string>
+    <string name="summary_predictive_back_disabled">Back still works, but without the finger-following preview.</string>
+    <string name="setting_back_trigger_threshold">Back trigger threshold</string>
+    <string name="summary_back_trigger_threshold">Releasing before this share of the screen keeps the current page (a quick flick still goes back). 0% leaves the decision to the system.</string>
+    <string name="option_back_trigger_system">System</string>
     <string name="action_back">Back</string>
     <string name="title_aod_behavior_settings">AOD behavior settings</string>
     <string name="diagnostic_preview_section_raw">Raw diagnostics</string>

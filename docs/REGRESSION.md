@@ -396,13 +396,17 @@ and (b) unverified paths stay explicit instead of silently assumed.
   `android:enableOnBackInvokedCallback="true"`; the five screens' `androidx.activity` `BackHandler`s
   are removed — `NavDisplay` owns system back, miuix dialogs keep consuming it while open, and the
   four About pages, which previously had no back handling at all, now pop with the rest; the covered
-  page fades out via `AppNavTransition` instead of resting at the miuix-default alpha 0.9, which
+  page fades out via `appNavTransition` instead of resting at the miuix-default alpha 0.9, which
   would show through the transparent page surface of the background-image mode) — app-only change,
   no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: the system back
   gesture follows the finger 1:1 on every sub-page (Home → any sub-page), releasing past the
   threshold pops to Home while releasing early springs back, back on the Home root still exits the
   app, tapping a sub-page item twice does not wedge the stack, and the transition reads correctly
-  with a background image set.
+  with a background image set. App → Navigation adds a predictive-back switch and a back trigger
+  threshold: with the switch off the page no longer follows the finger (back still pops on
+  release), with the threshold above 0% a release short of it springs the page back instead of
+  popping (a quick flick still goes back), and a back button / hardware back is never gated by
+  the threshold.
 - Add new entries here whenever a feature lands without device evidence, and remove them once
   evidence exists.
 
@@ -611,7 +615,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 辅助文字逐字效果（`secondaryWordKaraoke` 开关，每个 surface 独立：第一行音译/翻译行经与主行同一共享逐字渲染核心随歌词逐字点亮——源带词级音译时间时按真实词窗，否则按该行自身行窗口合成；行沿用辅助行颜色与亮/暗辅助文字档，「BetterLyrics」档的浮动/放大/辉光随该面逐字动画档；第二行歌词及其自身的辅助行不参与）——合并后待真机冒烟：两曲面开启后辅助翻译随演唱行同步逐字点亮（选 BetterLyrics 时同主行一起浮动/放大），App 内预览呈现同一效果，关闭开关时辅助行与改前逐字节一致。
 - 歌词不再贴住画布内容裁剪框（画布效果余量：内容块按最外侧两行的绘制外扩量——辉光光晕半径（字号 × 36%）与「BetterLyrics」档未唱字下沉量——预留垂直余量；顶部抵扣首行行前距，底部块尾无现成留白按全额计入并同步计入锁屏卡片实测高度；纯函数 `canvasEffectAllowancePx` / `canvasEffectEdgeNeeds` 已有单测，`ArchitectureGuardTest.canvasKeepsRenderEffectsOffTheContentClipEdge` 机器门钉住「放置 + 自适应高度两侧同接共享余量」，另有按几何签名去重的 W 级自检（`Effect clip check: …`）兜未知形状）——合并后待真机冒烟：发光开启（且选中「BetterLyrics」档）时首/末行歌词的辉光在画布/卡片边缘自然淡出、不再被切平成一条直线，卡片只按让出的余量长高，logcat 无 `Effect clip check` 告警行，关闭发光且非 BetterLyrics 档时布局与改前逐像素一致。
 - 「当前音频源是不是音乐」判定（`MediaSourcePolicy` + 「视频等非音乐音频不显示歌词」开关，默认开启）：只有播放器包名命中已知视频应用表（哔哩哔哩、抖音、快手、YouTube 等）或会话显式声明 MOVIE/SPEECH/SONIFICATION 内容类型时才排除，其余（含平台默认的 `CONTENT_TYPE_UNKNOWN`）一律 fail-open 放行。LyricInfo 挑选会话时跳过这类会话（issue #5 兜底对音乐应用仍然有效），Lyricon 在活动播放器为非音乐期间释放曲目并静默看门狗；SuperLyric（只挂钩音乐应用的模块）与 Spicy（UID 校验限定 Spotify）不加门控。已有单测（`MediaSourcePolicyTest` + Lyricon 生产者门控用例）——合并后待真机冒烟：在清单内应用播放视频必须不出现歌词卡片，音乐播放（含没有注入歌词的音乐应用兜底路径）行为不变，关闭开关后恢复历史行为。
-- App 内预测性返回导航（miuix-nav `NavDisplay` 返回栈取代 `editingSurface` 字符串 + `AnimatedContent` 切换器；manifest 置 `android:enableOnBackInvokedCallback="true"`；五个屏的 `androidx.activity` `BackHandler` 全部移除——系统返回由 `NavDisplay` 接管，弹窗打开时仍由 miuix 弹窗自身消费，此前完全没有返回处理的关于页四屏现在也随栈返回；被覆盖页经 `AppNavTransition` 淡出，而不是停在 miuix 默认的 alpha 0.9——背景图片模式下页面容器色透明，0.9 会让下层卡片透出）——仅应用内改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：任意子页（主页 → 子页）的系统返回手势 1:1 跟手，过阈值松手回到主页、未过阈值弹回原页，主页根上返回仍退出应用，同一入口连点两次不会卡住返回栈，设置背景图片时转场观感正确。
+- App 内预测性返回导航（miuix-nav `NavDisplay` 返回栈取代 `editingSurface` 字符串 + `AnimatedContent` 切换器；manifest 置 `android:enableOnBackInvokedCallback="true"`；五个屏的 `androidx.activity` `BackHandler` 全部移除——系统返回由 `NavDisplay` 接管，弹窗打开时仍由 miuix 弹窗自身消费，此前完全没有返回处理的关于页四屏现在也随栈返回；被覆盖页经 `appNavTransition` 淡出，而不是停在 miuix 默认的 alpha 0.9——背景图片模式下页面容器色透明，0.9 会让下层卡片透出）——仅应用内改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：任意子页（主页 → 子页）的系统返回手势 1:1 跟手，过阈值松手回到主页、未过阈值弹回原页，主页根上返回仍退出应用，同一入口连点两次不会卡住返回栈，设置背景图片时转场观感正确。App → 界面导航新增「预测性返回」开关与「返回触发阈值」：开关关闭后页面不再跟手（松手仍返回上一页）；阈值大于 0% 时拖动不足该比例松手会弹回原页（轻快一甩仍返回）；返回键/顶栏返回按钮不受阈值限制。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

@@ -644,6 +644,13 @@
     <string name="option_bar_icons_auto">自动</string>
     <string name="option_bar_icons_light">浅色图标</string>
     <string name="option_bar_icons_dark">深色图标</string>
+    <string name="section_app_navigation">界面导航</string>
+    <string name="setting_predictive_back">预测性返回</string>
+    <string name="summary_predictive_back">返回手势跟手预览：拖动时当前页跟随手指，露出下一页。</string>
+    <string name="summary_predictive_back_disabled">返回仍可用，只是不再跟手预览。</string>
+    <string name="setting_back_trigger_threshold">返回触发阈值</string>
+    <string name="summary_back_trigger_threshold">拖动不足该屏幕比例时松手不返回（页面弹回）；轻快一甩仍可返回。0% 表示由系统判定。</string>
+    <string name="option_back_trigger_system">系统</string>
     <string name="action_back">返回</string>
     <string name="title_aod_behavior_settings">息屏行为设置</string>
     <string name="diagnostic_preview_section_raw">原始诊断数据</string>
