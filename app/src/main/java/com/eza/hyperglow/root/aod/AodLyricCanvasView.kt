@@ -2702,6 +2702,20 @@ internal class AodLyricCanvasView(
                     index = block.last + 1
                 }
             }
+            if (lineIndex == 0) {
+                // 诊断探针(「BetterLyrics 效果和最简一样」排查):打印词级卡拉OK的全部输入现场值。
+                HookLogger.iThrottled(
+                    "karaoke-probe", 2_000L, "AodLyricCanvasView"
+                ) {
+                    val firstRun = runs.firstOrNull()
+                    val firstWord = line.words.firstOrNull()?.word
+                    "Karaoke probe: pos=$position lStart=${content.lineStartMs} " +
+                        "lEnd=${content.lineEndMs} lineSync=${content.lineLevelSync} " +
+                        "words=${content.words.size} runs=${runs.size} " +
+                        "run0=[${firstRun?.text} played=${firstRun?.playedFraction}] " +
+                        "word0=[${firstWord?.startMs}..${firstWord?.endMs}]"
+                }
+            }
             LyricWordKaraokeRenderer.draw(
                 canvas = canvas,
                 paint = originalPaint,
