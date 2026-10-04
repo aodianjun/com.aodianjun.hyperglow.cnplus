@@ -1,0 +1,78 @@
+{
+    "id": "com.example.hyperglow.scriptconvert",
+    "name": "HyperGlow Script Convert Plugin",
+    "nameLocales": {
+        "zh-CN": "HyperGlow 歌词字形转换",
+        "zh-TW": "HyperGlow 歌詞字形轉換"
+    },
+    "author": "HyperGlow CN+",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "entry": "com.example.hyperglow.scriptconvert.ScriptConvertPlugin",
+    "activationSettingKey": "scriptconvert_enabled",
+    "settings": [
+        {
+            "type": "switch",
+            "key": "scriptconvert_enabled",
+            "title": "Enable script conversion",
+            "titleLocales": {
+                "zh-CN": "启用字形转换",
+                "zh-TW": "啟用字形轉換"
+            },
+            "summary": "Convert every processed lyric line to the selected Chinese script.",
+            "summaryLocales": {
+                "zh-CN": "把处理到的每一行歌词转换为所选字形。",
+                "zh-TW": "把處理到的每一行歌詞轉換為所選字形。"
+            },
+            "default": false
+        },
+        {
+            "type": "select",
+            "key": "scriptconvert_target",
+            "title": "Target script",
+            "titleLocales": {
+                "zh-CN": "目标字形",
+                "zh-TW": "目標字形"
+            },
+            "summary": "Simplified converts traditional lyrics to simplified and vice versa.",
+            "summaryLocales": {
+                "zh-CN": "选「简体」把繁体歌词转为简体，反之亦然。",
+                "zh-TW": "選「簡體」把繁體歌詞轉為簡體，反之亦然。"
+            },
+            "default": "simplified",
+            "options": [
+                {
+                    "value": "simplified",
+                    "label": "Simplified Chinese",
+                    "labelLocales": {
+                        "zh-CN": "简体",
+                        "zh-TW": "簡體"
+                    }
+                },
+                {
+                    "value": "traditional",
+                    "label": "Traditional Chinese",
+                    "labelLocales": {
+                        "zh-CN": "繁体",
+                        "zh-TW": "繁體"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "switch",
+            "key": "scriptconvert_translation",
+            "title": "Convert translation too",
+            "titleLocales": {
+                "zh-CN": "同时转换翻译",
+                "zh-TW": "同時轉換翻譯"
+            },
+            "summary": "Apply the same script conversion to translated lyric lines.",
+            "summaryLocales": {
+                "zh-CN": "对翻译歌词行应用相同的字形转换。",
+                "zh-TW": "對翻譯歌詞行套用相同的字形轉換。"
+            },
+            "default": true
+        }
+    ]
+}
