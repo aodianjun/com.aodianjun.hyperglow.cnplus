@@ -5,6 +5,18 @@
 Animated lock screen and always-on display lyrics for HyperOS 3, with support for Chinese music apps.
 HyperOS 3 的锁屏与息屏（AOD）歌词动画，支持国内音乐软件。
 
+<p>
+  <a href="https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License GPL-3.0"/></a>
+  <a href="https://android.com"><img src="https://img.shields.io/badge/Android-13.0%20--%2016-3DDC84.svg" alt="Android Support"/></a>
+  <a href="https://github.com/compose-miuix-ui/miuix"><img src="https://img.shields.io/badge/UI--Framework-Miuix--Compose-0084FF.svg" alt="Miuix UI"/></a>
+  <a href="https://github.com/libxposed/api"><img src="https://img.shields.io/badge/Hook--Framework-libxposed%20102-purple.svg" alt="libxposed"/></a>
+  <a href="https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases"><img src="https://img.shields.io/github/downloads/aodianjun/com.aodianjun.hyperglow.cnplus/total?style=flat&color=orange" alt="Downloads"/></a>
+</p>
+
+<p>
+  <a href="https://qm.qq.com/q/qZN8paJoFq"><img src="https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-0084FF?style=flat&logo=qq&logoColor=white" alt="QQ Group"/></a>
+</p>
+
 Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarinne/spicy-ex), [Lyricon](https://github.com/tomakino/lyricon), [SuperLyric](https://github.com/HChenX/SuperLyric) or [LyricInfo](https://github.com/limczhh/LyricInfo)).
 需要 root、LSPosed 以及一个歌词源（[Spicy EX](https://github.com/amarinne/spicy-ex)、[Lyricon](https://github.com/tomakino/lyricon)、[SuperLyric](https://github.com/HChenX/SuperLyric) 或 [LyricInfo](https://github.com/limczhh/LyricInfo)）。
 
