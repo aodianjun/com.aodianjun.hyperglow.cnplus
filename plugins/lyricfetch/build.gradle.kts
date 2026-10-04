@@ -16,13 +16,15 @@ plugins {
 
 kotlin {
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        // 对齐 JVM 21：accompanist-lyrics-core 是 Java 21 字节码，而它的 inline API 会把
+        // 库字节码内联进本模块——目标不一致时 Kotlin 直接报错（与 app 模块对齐 miuix 同理）。
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 dependencies {
