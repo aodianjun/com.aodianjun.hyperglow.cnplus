@@ -10,6 +10,21 @@
     "apiVersion": 1,
     "entry": "com.example.hyperglow.lyricfetch.LyricFetchPlugin",
     "activationSettingKey": "lyricfetch_enabled",
+    "cacheScopes": [
+        {
+            "id": "lyricfetch_songs",
+            "title": "Fetched lyrics",
+            "titleLocales": {
+                "zh-CN": "已取词歌曲",
+                "zh-TW": "已取詞歌曲"
+            },
+            "summary": "Online lookups kept per song (hits and misses), used to avoid refetching. Delete an entry to look the song up again.",
+            "summaryLocales": {
+                "zh-CN": "按曲目保留的在线取词结果（含未命中），用于避免重复联网。删除条目即可重新取词。",
+                "zh-TW": "依曲目保留的線上取詞結果（含未命中），用於避免重複連網。刪除條目即可重新取詞。"
+            }
+        }
+    ],
     "settings": [
         {
             "type": "switch",

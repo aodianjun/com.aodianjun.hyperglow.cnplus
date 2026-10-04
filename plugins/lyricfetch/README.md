@@ -53,13 +53,40 @@ HyperGlow 插件体系里可安装的一个插件。
 | 更新模式 | `REPLACE` | 行数与时间轴都换成在线版本 |
 | 行角色 | `metadata["role"] = "LEAD" / "BG"` | 与 Spicy 文档桥同一约定；和声行是独立行 |
 | 分侧继承 | `isAlignedRight` 按起始时间就近（≤700ms）从原行继承 | REPLACE 不该丢掉生产者推导的对唱分侧 |
-| 缓存 | 按"曲目 + 设置"键缓存，**含负缓存** | 逐行源每 15s 重跑插件链，必须避免重复打网络 |
+| 缓存 | 宿主 `PluginCache`（持久，进程重启仍在）+ 内存一级缓存；**含负缓存** | 逐行源每 15s 重跑插件链，必须避免重复打网络；条目 7 天过期、上限 100 条 |
+| 缓存管理 | 声明 `cacheScopes` + 注册 `PluginCacheExtension` | 宿主设置页出现「缓存」区，可列出/删除单条/清空（见下） |
 | 时间预算 | 总 30s（宿主上限 40s），按剩余时间逐来源下发，单请求连接 ≤3s / 读取 ≤5s | 宁可不取词，也不能把宿主链拖到超时被丢弃 |
 | 失败语义 | 任何异常/超时/未命中 → 返回 `null`（透传） | 取词失败绝不能让宿主链抛异常 |
 | 幂等 | 同会话重复调用命中缓存，返回同一结果 | — |
 
 **升级策略**（设置项 `lyricfetch_upgrade_only`，默认开）：只在在线版本**有逐字**而当前没有时才替换；
 关闭则"只要匹配到就替换"（即使在线版本只有行级）。当前歌词已是逐字时直接透传，省一次网络往返。
+
+## 缓存管理
+
+宿主的插件缓存管理有两道门，插件必须都配合，否则用户既看不到也清不掉：
+
+1. **`manifest.json` 声明 `cacheScopes`** —— 设置页才会出现「缓存」区（显示宿主侧占用）。
+   更关键的是：`HostPluginContext.cache` **只在声明了 scope 时**才是真实的文件缓存
+   （`files/plugin_cache/<pluginId>/`，每插件 16 MiB 配额），否则是 `NoopPluginCache`，
+   写入会被静默丢弃——不声明 scope 的插件"用了 cache"其实什么也没存下。
+2. **注册 `PluginCacheExtension`** —— 缓存页据此列出条目、删除单条、清空。
+   不注册时宿主只能显示「未提供缓存管理」，用户唯一的办法是清空整个缓存目录。
+
+本插件的实现（`LyricCache`）：
+
+- 条目按「曲目 + 设置」键存储（命中存原文，未命中存负缓存），**跨进程重启仍在**；
+- `PluginCache` 没有键枚举能力，因此每次写入同步维护一条索引记录
+  （id / 标题「曲名 — 艺人」/ 摘要「来源 · 行数 · 逐字 · 含翻译」/ 大小 / 时间），
+  `listEntries()` 直接读索引并剔除已消失的条目；
+- `clearEntry` 会**同时清掉内存一级缓存**，否则界面上删了、插件仍在用旧结果；
+- 条目 7 天过期（在线歌词会更新，过期即重新取词）、最多 100 条（按时间淘汰最旧的）。
+
+用户在 设置 → 插件管理 → 在线歌词增强 → 缓存 里能看到取过哪些歌、每条的大小与时间，
+匹配错了删掉那一条即可重新取词，不必重启 App。
+
+`scriptconvert` **有意不暴露缓存**：它的记忆表是纯函数派生（输入相同则输出相同），
+清不清都不改变任何可见行为，给个按钮反而误导。
 
 ## 设置项
 
@@ -96,8 +123,10 @@ HyperGlow 插件体系里可安装的一个插件。
 
 ## 验证情况（本地实跑）
 
-- **39 个单元测试全绿**，其中响应解析全部用**真实抓取的载荷**（`src/test/.../Fixtures.kt`）：
+- **46 个单元测试全绿**，其中响应解析全部用**真实抓取的载荷**（`src/test/.../Fixtures.kt`）：
   网易云 cloudsearch/YRC+tlyric、QQ 搜索 + 真实 base64 歌词全量载荷、LRCLIB get/search；
+  另含 7 个缓存管理用例（条目元数据、负缓存标注、删单条/清空后重新取词、
+  **跨实例命中持久缓存**、TTL 过期）；
 - **真实 API 端到端 12 项断言全过**（三个来源实测）：
   - Adele《Hello》：网易云 → 51 行、逐字、49 行翻译；QQ → 47 行行级；LRCLIB → 行级；
   - 周杰伦《晴天》：网易云搜索首位的翻唱版（"晴天 (原唱 周杰伦) - RyaVocal"）被**艺人硬否决**
@@ -134,8 +163,11 @@ A HyperLyric-API-v1 plugin that combines two lyric libraries into an installable
 it looks up the current song online (NetEase / QQ Music / LRCLIB, all anonymous endpoints),
 parses the raw text with accompanist-lyrics-core (LRC / Enhanced LRC / YRC / KRC / TTML /
 Lyricify Syllable via `AutoParser`), merges translation and latin syllables (Lyricify
-semantics), and returns a REPLACE result. It runs in the `LYRIC_REPLACEMENT` stage, caches
-per song including negative results, and enforces a 30s total network budget under the host's
-40s processor limit. Word-level timing is only available from NetEase (QQ's QRC is not
-reachable anonymously; the community 3DES key no longer decrypts it), so with the default
-"upgrade only" policy the plugin stays a no-op when no better version exists.
+semantics), and returns a REPLACE result. It runs in the `LYRIC_REPLACEMENT` stage, caches per
+song including negative results in the **host-owned persistent cache** (declared via
+`cacheScopes`; entries expire after 7 days, capped at 100) and exposes them through a
+`PluginCacheExtension`, so the host's cache page can list and delete entries — a wrong match
+can be re-fetched without restarting the app. It also enforces a 30s total network budget
+under the host's 40s processor limit. Word-level timing is only available from NetEase (QQ's
+QRC is not reachable anonymously; the community 3DES key no longer decrypts it), so with the
+default "upgrade only" policy the plugin stays a no-op when no better version exists.
