@@ -65,6 +65,63 @@ internal fun attachedWordRanges(words: List<AodCanvasWord>): List<IntRange> {
     return ranges
 }
 
+/**
+ * 缺省词表区间补全:词表未携带原文区间时(插件词表、部分生产者),按词文本在行文本中
+ * **顺序**定位补出区间——词间被跳过的空白即原文分隔符,[authoredWordSeparator] 据此取到
+ * 真实词距(空白实测宽),不再回退到固定兜底 gap。兜底 gap 只在区间缺失时生效,而它被计入
+ * 布局宽(换行点/行宽/对齐)却不被整段绘制路径(静态/共享扫光)与预览画出——同一句歌词的
+ * 词距会随渲染路径变化、换行点也与预览不一致;补全区间后布局宽与绘制文本同源。
+ *
+ * 定位规则(游标只向前):
+ *  - 词文本原样命中游标处(含词自带的首尾空白)→ 区间即命中段,自带空白计入词宽;
+ *  - 否则跳过游标处空白后按去首尾空白的词文本命中 → 跳过的空白计入分隔符;
+ *  - 纯空白词(上游词表的独立分隔词)认领游标处空白段为区间,布局层随后按空白过滤,
+ *    其宽度由相邻词间分隔符还原;无可认领空白时原样放行、不推进游标;
+ *  - 任一词在预期位置找不到(词表与行文本不一致)→ 整体放弃、原样返回(调用方沿用兜底词距);
+ *  - 已带有效区间的词原样保留,游标随其末端推进(混合词表只补缺失项)。
+ */
+internal fun alignMissingWordOffsets(text: String, words: List<AodCanvasWord>): List<AodCanvasWord> {
+    if (words.isEmpty()) return words
+    if (words.all { transportedWordOffset(text, it) != null }) return words
+    var cursor = 0
+    val out = ArrayList<AodCanvasWord>(words.size)
+    for (word in words) {
+        val existing = transportedWordOffset(text, word)
+        if (existing != null) {
+            out += word
+            cursor = maxOf(cursor, existing.last + 1)
+            continue
+        }
+        val token = word.text
+        if (token.isBlank()) {
+            // 纯空白词(上游词表的独立分隔词):区间取游标处的空白段;无可认领空白时原样放行、
+            // 不推进游标。布局层随后按空白过滤,其宽度由相邻词间分隔符还原。
+            var end = cursor
+            while (end < text.length && text[end].isWhitespace()) end++
+            out += if (end > cursor) word.copy(sourceStart = cursor, sourceEnd = end) else word
+            cursor = end
+            continue
+        }
+        val rawMatch = text.startsWith(token, cursor)
+        val start: Int
+        val length: Int
+        if (rawMatch) {
+            start = cursor
+            length = token.length
+        } else {
+            var index = cursor
+            while (index < text.length && text[index].isWhitespace()) index++
+            val trimmed = token.trim()
+            if (trimmed.isEmpty() || !text.startsWith(trimmed, index)) return words
+            start = index
+            length = trimmed.length
+        }
+        out += word.copy(sourceStart = start, sourceEnd = start + length)
+        cursor = start + length
+    }
+    return out
+}
+
 internal fun authoredWordSeparator(
     text: String,
     current: AodCanvasWord,

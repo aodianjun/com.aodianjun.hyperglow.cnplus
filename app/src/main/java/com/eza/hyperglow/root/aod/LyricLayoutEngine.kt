@@ -110,6 +110,9 @@ internal fun layoutMetadataLines(
  * 主歌词换行/词行布局(与实机 buildOriginalLayout 同一决策树,不含 ruby 注入):
  * 词非空走词行布局;词空时 adaptiveSectioning 走分组均衡,否则整段折行。
  * 行数门控沿用各路径原有口径(词行=合并后词数、分组=组合块数、整段=原始词数)。
+ *
+ * 词表缺省原文区间先按行文本对齐补全([alignMissingWordOffsets]):词距统一取原文分隔符
+ * 实测宽,与整段绘制路径/预览同源(见该函数 KDoc)。
  */
 internal fun layoutOriginalLines(
     original: String,
@@ -123,7 +126,8 @@ internal fun layoutOriginalLines(
     wrap: Boolean,
     adaptiveSectioning: Boolean
 ): LyricLayoutResult {
-    val coalesced = coalesceRubyWords(original, words.filter { it.text.isNotBlank() }, ruby)
+    val aligned = alignMissingWordOffsets(original, words)
+    val coalesced = coalesceRubyWords(original, aligned.filter { it.text.isNotBlank() }, ruby)
     val lines = if (coalesced.isEmpty()) {
         if (adaptiveSectioning) {
             layoutTextByGroups(original, layoutGroups, metrics, availableWidth, lineLimit, wordGapPx, wrap, words.size)
