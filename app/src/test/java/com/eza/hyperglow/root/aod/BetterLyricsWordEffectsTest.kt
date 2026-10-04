@@ -34,6 +34,17 @@ class BetterLyricsWordEffectsTest {
     }
 
     @Test
+    fun betterLyricsLongSyllableFillsSolidWithoutSweep() {
+        // 触发长音节(BetterLyrics 档)后不再逐字填充:整块按已唱色一次亮起。
+        assertTrue(karaokeLongSyllableFillsSolid(betterLyrics = true, longSyllable = true))
+        // 短音节保持词内扫光。
+        assertFalse(karaokeLongSyllableFillsSolid(betterLyrics = true, longSyllable = false))
+        // 非 BetterLyrics 档(基础卡拉OK路径)长音节保持词内扫光,历史观感不变。
+        assertFalse(karaokeLongSyllableFillsSolid(betterLyrics = false, longSyllable = true))
+        assertFalse(karaokeLongSyllableFillsSolid(betterLyrics = false, longSyllable = false))
+    }
+
+    @Test
     fun scaleCurveRisesToPeakThenFallsBackToOne() {
         assertEquals(0.95, karaokeScaleAt(0f, 1.15f).toDouble(), 1e-5)
         assertEquals(1.15, karaokeScaleAt(0.7f, 1.15f).toDouble(), 1e-5)

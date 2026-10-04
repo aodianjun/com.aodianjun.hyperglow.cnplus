@@ -10,7 +10,8 @@ import kotlin.math.roundToLong
 
 /**
  * 逐字卡拉OK的一个词位(行内绝对坐标):[playedFraction] 为该词已唱比例 0..1
- * (0=未唱、1=已唱完、之间=正在唱),驱动底字亮度/扫光/未唱下沉/已唱上浮;
+ * (0=未唱、1=已唱完、之间=正在唱),驱动底字亮度/扫光(BetterLyrics 档长音节整块
+ * 亮起、无扫光)/未唱下沉/已唱上浮;
  * [durationMs] 为词时长,驱动上浮动画的加速段;[longSyllable] 标记长音节
  * (「BetterLyrics」档放大/辉光只作用于长音节)。
  *
@@ -82,6 +83,15 @@ internal fun karaokeUnsungAlpha(alphaFactor: Float): Int =
  */
 internal fun karaokeScalePeak(betterLyrics: Boolean, longSyllable: Boolean): Float =
     if (betterLyrics && longSyllable) KARAOKE_LONG_SYLLABLE_SCALE_PEAK else KARAOKE_BASE_SCALE_PEAK
+
+/**
+ * 「BetterLyrics」档长音节是否整块亮起(不再逐字扫光):发光与放大本身就是强调,长音节
+ * 演唱中一次性画满已唱色,不出现填充前缘。此前发光开启时靠「辉光趟已把整块画满、扫光带
+ * 叠同色不可见」被动达成,发光关闭时长音节仍是可见的填充;现在两档统一为整块亮起。
+ * 非 BetterLyrics 档(基础卡拉OK路径)长音节保持词内扫光,历史观感不变。纯函数,可单测。
+ */
+internal fun karaokeLongSyllableFillsSolid(betterLyrics: Boolean, longSyllable: Boolean): Boolean =
+    betterLyrics && longSyllable
 
 /** 演唱中放大曲线:经峰值再回落 1.0(历史逐字档同式,峰值参数化)。纯函数,可单测。 */
 internal fun karaokeScaleAt(playedFraction: Float, peak: Float): Float {
@@ -179,15 +189,16 @@ private fun isCjkKaraokeChar(ch: Char): Boolean =
  *
  * 效果参考 jayfunc/BetterLyrics(WinUI3/Win2D)的逐字效果:未唱字下沉(行高 10%),
  * 唱到后 450ms 内弹回基线(「已唱上浮」);长音节(≥700ms)演唱中放大到 1.15、唱完
- * 回落;长音节 + 发光开启时活动词带 glow 色辉光。短音节沿用历史逐字卡拉OK运动
- * (峰值 1.0505、词内扫光),既有观感不变。
+ * 回落,整块按已唱色一次亮起、不再逐字扫光([karaokeLongSyllableFillsSolid]),
+ * 发光开启时同趟带 glow 色辉光。短音节沿用历史逐字卡拉OK运动(峰值 1.0505、词内
+ * 扫光),既有观感不变。
  *
  * 行级源(无逐字时间戳)由调用方用 [syntheticCharTimeWindow] 合成每字符的时间窗后
- * 走同一渲染:下沉/上浮与逐字点亮同样适用;合成词位恒标长音节——「正在唱的字」
- * 放大并(发光开启时)辉光,行级源没有真实音节时长,以当前被唱到的字承担该强调。
+ * 走同一渲染:下沉/上浮与逐字点亮同样适用;合成块按块时长判定长音节(中文逐字块、
+ * 西文按词块,≥700ms 才算),长块整块同步放大/辉光/亮起,短块只有扫光。
  */
 internal object LyricWordKaraokeRenderer {
-    /** 词内扫光带占词宽比例(与 [LyricGlowRenderer] 同式)。 */
+    /** 词内扫光带占词宽比例(与 [LyricGlowRenderer] 同式;BetterLyrics 档长音节整块亮起,不适用)。 */
     const val SWEEP_BAND_FRACTION = 0.28f
 
     /** 未唱字静态缩放(历史逐字卡拉OK档)。 */
@@ -246,28 +257,32 @@ internal object LyricWordKaraokeRenderer {
             paint.alpha = if (sung) sungAlpha else dimAlpha
             canvas.drawText(run.text, run.x, baseline + y, paint)
             if (active) {
-                // 长音节辉光(BetterLyrics 档 + 发光开启):glow 色阴影画在 sung 色文字下,
-                // 光从文字背后透出(与共享 LyricGlowRenderer Pass 2 同式);shader 置空规避
-                // 硬件加速下 shadow+shader 同置导致发光丢失。
-                if (betterLyrics && glowEnabled && run.longSyllable) {
+                if (karaokeLongSyllableFillsSolid(betterLyrics, run.longSyllable)) {
+                    // 「BetterLyrics」档长音节:发光/放大即强调,整块按已唱色一次亮起、不逐字
+                    // 填充(见 [karaokeLongSyllableFillsSolid])。发光开启时同趟带光晕——glow 色
+                    // 阴影画在 sung 色文字下,光从文字背后透出(与共享 LyricGlowRenderer Pass 2
+                    // 同式);shader 置空规避硬件加速下 shadow+shader 同置导致发光丢失。
                     paint.shader = null
                     paint.color = sungColor
                     paint.alpha = sungAlpha
-                    paint.setShadowLayer(
-                        textSize * LyricGlowRenderer.HALO_RADIUS_FRACTION,
-                        0f,
-                        0f,
-                        glowColor
-                    )
+                    if (glowEnabled) {
+                        paint.setShadowLayer(
+                            textSize * LyricGlowRenderer.HALO_RADIUS_FRACTION,
+                            0f,
+                            0f,
+                            glowColor
+                        )
+                    }
                     canvas.drawText(run.text, run.x, baseline + y, paint)
                     paint.clearShadowLayer()
+                } else {
+                    // 词内扫光:已扫部分 sung 色 + 光带拖尾(与 LyricGlowRenderer Pass 3 同形状)。
+                    paint.color = sungColor
+                    paint.alpha = sungAlpha
+                    applySweepShader(paint, sungColor, run.x, played, run.width)
+                    canvas.drawText(run.text, run.x, baseline + y, paint)
+                    paint.shader = null
                 }
-                // 词内扫光:已扫部分 sung 色 + 光带拖尾(与 LyricGlowRenderer Pass 3 同形状)。
-                paint.color = sungColor
-                paint.alpha = sungAlpha
-                applySweepShader(paint, sungColor, run.x, played, run.width)
-                canvas.drawText(run.text, run.x, baseline + y, paint)
-                paint.shader = null
             }
             canvas.restoreToCount(save)
         }
