@@ -14,9 +14,9 @@ class LongScreenshotDragAccumulatorTest {
     fun upwardDragAccumulatesPositiveScroll() {
         val accumulator = LongScreenshotDragAccumulator()
 
-        accumulator.onDown(1_600f)
-        accumulator.onMove(1_200f)
-        accumulator.onMove(800f)
+        accumulator.onDown(1_600f, 0L)
+        accumulator.onMove(1_200f, 16L)
+        accumulator.onMove(800f, 32L)
 
         assertEquals(800, accumulator.scrollY)
     }
@@ -25,9 +25,9 @@ class LongScreenshotDragAccumulatorTest {
     fun eachStepReportsIncrementForMiuiEndDetection() {
         val accumulator = LongScreenshotDragAccumulator()
 
-        accumulator.onDown(1_600f)
+        accumulator.onDown(1_600f, 0L)
         val before = accumulator.scrollY
-        accumulator.onMove(1_000f)
+        accumulator.onMove(1_000f, 16L)
 
         assertEquals(600, accumulator.scrollY - before)
     }
@@ -36,8 +36,8 @@ class LongScreenshotDragAccumulatorTest {
     fun moveWithoutDownDoesNotCountAsDrag() {
         val accumulator = LongScreenshotDragAccumulator()
 
-        accumulator.onMove(1_000f)
-        accumulator.onMove(400f)
+        accumulator.onMove(1_000f, 16L)
+        accumulator.onMove(400f, 32L)
 
         assertEquals(0, accumulator.scrollY)
     }
@@ -46,11 +46,11 @@ class LongScreenshotDragAccumulatorTest {
     fun gestureEndResetsStartButKeepsTotal() {
         val accumulator = LongScreenshotDragAccumulator()
 
-        accumulator.onDown(1_600f)
-        accumulator.onMove(1_000f)
-        accumulator.onEnd()
-        accumulator.onDown(1_600f)
-        accumulator.onMove(1_300f)
+        accumulator.onDown(1_600f, 0L)
+        accumulator.onMove(1_000f, 16L)
+        accumulator.onEnd(32L)
+        accumulator.onDown(1_600f, 48L)
+        accumulator.onMove(1_300f, 64L)
 
         assertEquals(900, accumulator.scrollY)
     }
@@ -59,9 +59,54 @@ class LongScreenshotDragAccumulatorTest {
     fun downwardDragSubtracts() {
         val accumulator = LongScreenshotDragAccumulator()
 
-        accumulator.onDown(800f)
-        accumulator.onMove(1_200f)
+        accumulator.onDown(800f, 0L)
+        accumulator.onMove(1_200f, 16L)
 
         assertEquals(-400, accumulator.scrollY)
+    }
+
+    /** 触顶后累计值冻结(增量 0),MIUI 据此结束采集,不再无限拼接。 */
+    @Test
+    fun scrollOffsetFreezesAtCapSoMiuiSeesTheEnd() {
+        val accumulator = LongScreenshotDragAccumulator(maxScrollPx = 1_000)
+
+        accumulator.onDown(10_000f, 0L)
+        accumulator.onMove(9_000f, 16L)
+        assertEquals(1_000, accumulator.scrollY)
+
+        val frozen = accumulator.scrollY
+        accumulator.onMove(8_000f, 32L)
+        accumulator.onMove(7_000f, 48L)
+
+        assertEquals(frozen, accumulator.scrollY)
+        assertEquals(0, accumulator.scrollY - frozen)
+    }
+
+    /** 触顶后的新一次长截屏(间隔超过会话阈值)重新计数,第二次采集不因旧值退化成单屏。 */
+    @Test
+    fun newSessionAfterCapResetsTheOffset() {
+        val accumulator = LongScreenshotDragAccumulator(maxScrollPx = 1_000)
+
+        accumulator.onDown(10_000f, 0L)
+        accumulator.onMove(8_000f, 16L)
+        accumulator.onEnd(32L)
+        assertEquals(1_000, accumulator.scrollY)
+
+        accumulator.onDown(10_000f, 32L + 5_000L)
+        assertEquals(0, accumulator.scrollY)
+    }
+
+    /** 同一次采集内的连续步进(间隔很短)不重置,累计值保持单调递增。 */
+    @Test
+    fun stepsWithinOneSessionDoNotResetTheOffset() {
+        val accumulator = LongScreenshotDragAccumulator(maxScrollPx = 1_000)
+
+        accumulator.onDown(10_000f, 0L)
+        accumulator.onMove(8_000f, 16L)
+        accumulator.onEnd(32L)
+        accumulator.onDown(10_000f, 64L)
+        accumulator.onMove(9_000f, 80L)
+
+        assertEquals(1_000, accumulator.scrollY)
     }
 }
