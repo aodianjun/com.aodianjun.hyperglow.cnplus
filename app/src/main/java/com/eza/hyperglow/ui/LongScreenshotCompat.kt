@@ -20,7 +20,7 @@ import com.eza.hyperglow.AppLog
  * if (!"androidx.compose.ui.platform.AndroidComposeView".equals(view.getClass().getName())) {
  *     return view.canScrollVertically(1) || atWhiteList(view);
  * }
- * Log.i(TAG, "can not run invoke canScrollVertically on background thread");
+ * // 此处打一行 "can not run invoke canScrollVertically on background thread" 后:
  * return false;
  * ```
  *
