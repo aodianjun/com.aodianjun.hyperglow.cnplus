@@ -168,7 +168,9 @@ internal fun LyricLayoutScreen(
     }
 
     BackHandler(
-        enabled = activeChoice == null && activeColorPicker == null && !showResetDialog,
+        // 弹窗层全部关闭才把返回手势交给宿主；漏掉任何一个弹窗（如歌曲信息项目选择 activePartsEditor）都会让手势穿透弹窗直接退出应用。
+        enabled = activeChoice == null && activeColorPicker == null &&
+            !activePartsEditor && !showResetDialog,
         onBack = onBack
     )
 
