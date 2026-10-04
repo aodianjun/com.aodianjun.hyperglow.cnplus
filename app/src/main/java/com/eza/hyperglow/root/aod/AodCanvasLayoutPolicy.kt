@@ -160,6 +160,17 @@ internal fun resolvedLineSyncFillMode(lineLevelSync: Boolean, configuredMode: St
         else -> "Left to right (main only)"
     }
 
+/**
+ * 下一行文本是否「未就绪」:与主行同文即视为未就绪。
+ *
+ * 换行时旧「下一行」被晋级成主行,而上游的 nextLine 要等下一句推来才推进——中间这段时间
+ * 来件 nextLine 仍等于刚被晋级的那句(真机实测:换行后 0.5s 内下一行行与主行同文)。
+ * 此时不能把它当新下一行:行集合/行高随文本切换会重排整块,表现为「换行动画后跳一下」。
+ * 纯函数,可单测。
+ */
+internal fun isNextLineStale(nextLine: String, original: String): Boolean =
+    nextLine.isNotBlank() && nextLine.trim() == original.trim()
+
 /** 同行内容稳定化的宽限窗:行开始前这段时间内仍接受「无词→带词」升级。 */
 internal const val LINE_ENHANCEMENT_UPGRADE_GRACE_MS = 300L
 

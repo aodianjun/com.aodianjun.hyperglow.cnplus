@@ -297,6 +297,9 @@ internal class AodLyricCanvasView(
     private var stableLineGroups: List<AodCanvasLayoutGroup> = emptyList()
     private var stableLineRuby: List<AodCanvasRuby> = emptyList()
 
+    /** 下一行文本稳定化(见 [isNextLineStale]):最近一次「已就绪」的下一行文本。 */
+    private var stableNextLine: String = ""
+
     /**
      * 按行身份稳定增强数据:同一行在显示期间只认第一次的折行形态,仅允许行开始前的
      * 「无词→带词」升级(见 [shouldAdoptLineEnhancements])——上游对同一行两阶段下发时
@@ -313,7 +316,7 @@ internal class AodLyricCanvasView(
             positionMs = incoming.positionMs,
             lineStartMs = incoming.lineStartMs
         )
-        val result = if (adopt) {
+        val adopted = if (adopt) {
             incoming
         } else {
             incoming.copy(
@@ -321,6 +324,14 @@ internal class AodLyricCanvasView(
                 layoutGroups = stableLineGroups,
                 ruby = stableLineRuby
             )
+        }
+        // 下一行:与主行同文 = 未就绪(刚被晋级的那句,新下一行尚未到达),沿用上一版文本——
+        // 否则换行后行集合/行高随文本切换重排整块(「换行动画后跳一下」)。
+        val result = if (isNextLineStale(adopted.nextLine, adopted.original)) {
+            adopted.copy(nextLine = stableNextLine)
+        } else {
+            stableNextLine = adopted.nextLine
+            adopted
         }
         stableLineIdentity = identity
         stableLineWords = result.words

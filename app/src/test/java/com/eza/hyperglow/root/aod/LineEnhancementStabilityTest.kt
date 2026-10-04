@@ -51,6 +51,16 @@ class LineEnhancementStabilityTest {
     }
 
     @Test
+    fun nextLineEqualToMainLineIsStaleAndBlankOrDifferentIsNot() {
+        // 换行后上游 nextLine 仍等于刚被晋级的主行文本 → 未就绪(不能当新下一行用)。
+        assertTrue(isNextLineStale("却没有漂亮的鳞片", "却没有漂亮的鳞片"))
+        assertTrue(isNextLineStale("  却没有漂亮的鳞片 ", "却没有漂亮的鳞片"))
+        // 真正的新下一行、或空文本(未推来)→ 不算未就绪(空文本由渲染侧按无内容处理)。
+        assertFalse(isNextLineStale("它依然飞过了田野", "却没有漂亮的鳞片"))
+        assertFalse(isNextLineStale("", "却没有漂亮的鳞片"))
+    }
+
+    @Test
     fun layoutSignatureTracksWordTextsButIgnoresTiming() {
         val base = listOf(AodCanvasWord("你", "", 0L, 100L, true))
         val refined = listOf(AodCanvasWord("你", "ni", 5L, 200L, false))
