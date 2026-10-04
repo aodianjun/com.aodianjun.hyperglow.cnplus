@@ -2,7 +2,6 @@ package com.eza.hyperglow.ui
 
 import android.content.Context
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -136,8 +135,6 @@ internal fun PluginManagementScreen(onBack: () -> Unit) {
     fun pickPluginZip() {
         installLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
     }
-
-    BackHandler(onBack = onBack)
 
     Scaffold(
         containerColor = appSurfaceColor(),
