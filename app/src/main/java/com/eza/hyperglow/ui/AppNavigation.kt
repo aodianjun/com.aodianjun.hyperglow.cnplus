@@ -46,6 +46,18 @@ internal sealed interface AppRoute : NavKey {
 
     @Serializable
     data object Licenses : AppRoute
+
+    /** 歌词增强:列出已安装的歌词处理插件。 */
+    @Serializable
+    data object LyricEnhancement : AppRoute
+
+    /** 单个歌词增强插件的设置页。 */
+    @Serializable
+    data class PluginSettings(val pluginId: String) : AppRoute
+
+    /** 单个插件的缓存管理页。 */
+    @Serializable
+    data class PluginCache(val pluginId: String) : AppRoute
 }
 
 /**

@@ -155,6 +155,9 @@ class MainActivity : ComponentActivity() {
                                             onOpenChangelog = { backStack.pushRoute(AppRoute.Changelog) },
                                             onOpenContributors = { backStack.pushRoute(AppRoute.Contributors) },
                                             onOpenLicenses = { backStack.pushRoute(AppRoute.Licenses) },
+                                            onOpenLyricEnhancement = {
+                                                backStack.pushRoute(AppRoute.LyricEnhancement)
+                                            },
                                             floatingNavBar = appAppearance.floatingNavBar,
                                             predictiveBackEnabled = predictiveBackEnabled,
                                             onPredictiveBackChanged = { enabled ->
@@ -183,7 +186,17 @@ class MainActivity : ComponentActivity() {
                                         DiagnosticsScreen(onBack = { backStack.popRoute() })
                                     }
                                     entry<AppRoute.Plugins> {
-                                        PluginManagementScreen(onBack = { backStack.popRoute() })
+                                        PluginManagementScreen(
+                                            onBack = { backStack.popRoute() },
+                                            onOpenSettings = { pluginId ->
+                                                backStack.pushRoute(
+                                                    AppRoute.PluginSettings(pluginId)
+                                                )
+                                            },
+                                            onOpenCache = { pluginId ->
+                                                backStack.pushRoute(AppRoute.PluginCache(pluginId))
+                                            }
+                                        )
                                     }
                                     entry<AppRoute.AodBehavior> {
                                         AodBehaviorScreen(onBack = { backStack.popRoute() })
@@ -200,6 +213,31 @@ class MainActivity : ComponentActivity() {
                                     entry<AppRoute.Changelog> { ChangelogScreen(onBack = { backStack.popRoute() }) }
                                     entry<AppRoute.Contributors> { ContributorsScreen(onBack = { backStack.popRoute() }) }
                                     entry<AppRoute.Licenses> { LicensesScreen(onBack = { backStack.popRoute() }) }
+                                    entry<AppRoute.LyricEnhancement> {
+                                        LyricEnhancementScreen(
+                                            onBack = { backStack.popRoute() },
+                                            onOpenPluginSettings = { pluginId ->
+                                                backStack.pushRoute(
+                                                    AppRoute.PluginSettings(pluginId)
+                                                )
+                                            }
+                                        )
+                                    }
+                                    entry<AppRoute.PluginSettings> { route ->
+                                        PluginSettingsScreen(
+                                            pluginId = route.pluginId,
+                                            onBack = { backStack.popRoute() },
+                                            onOpenCache = { pluginId ->
+                                                backStack.pushRoute(AppRoute.PluginCache(pluginId))
+                                            }
+                                        )
+                                    }
+                                    entry<AppRoute.PluginCache> { route ->
+                                        PluginCacheScreen(
+                                            pluginId = route.pluginId,
+                                            onBack = { backStack.popRoute() }
+                                        )
+                                    }
                                 }
                                 if (!predictiveBackEnabled) {
                                     // 关闭预测性返回:自己消费返回手势(不做跟手预览),松手直接返回上一页。

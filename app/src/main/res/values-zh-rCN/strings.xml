@@ -122,6 +122,25 @@
     <string name="plugin_toast_invalid_number">请输入有效数字</string>
     <string name="plugin_setting_empty_value">（未设置）</string>
     <string name="plugin_setting_action_unsupported">此宿主不支持动作型设置。</string>
+    <string name="plugin_section_cache">缓存</string>
+    <string name="plugin_action_manage_cache">管理缓存</string>
+    <string name="plugin_cache_title">缓存管理</string>
+    <string name="plugin_cache_section_entries">缓存条目</string>
+    <string name="plugin_cache_empty">暂无缓存条目</string>
+    <string name="plugin_cache_unavailable">该插件未提供缓存管理</string>
+    <string name="plugin_cache_clear_all">清空全部缓存</string>
+    <string name="plugin_cache_clear_confirm_title">清空全部缓存？</string>
+    <string name="plugin_cache_clear_confirm_summary">将删除该插件的全部缓存条目，需要时会重新获取。</string>
+    <string name="plugin_cache_delete_entry">删除此条</string>
+    <string name="plugin_cache_toast_entry_deleted">已删除该缓存条目</string>
+    <string name="plugin_cache_toast_entry_missing">缓存条目不存在</string>
+    <string name="plugin_cache_field_size">大小</string>
+    <string name="plugin_cache_field_updated">更新时间</string>
+    <string name="plugin_cache_unknown_time">未知</string>
+    <string name="title_lyric_enhancement">歌词增强</string>
+    <string name="summary_lyric_enhancement">管理歌词处理插件（翻译、逐字歌词等）</string>
+    <string name="lyric_enhancement_empty">未安装歌词增强插件</string>
+    <string name="lyric_enhancement_empty_summary">在「歌词插件」页面安装提供歌词处理的插件</string>
 
     <string name="section_live_status">实时状态</string>
     <string name="label_now_playing">正在播放</string>
