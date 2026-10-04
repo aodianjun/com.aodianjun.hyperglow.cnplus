@@ -47,6 +47,16 @@ internal const val KARAOKE_FLOAT_DURATION_MS = 450L
 internal fun isLongKaraokeSyllable(durationMs: Long): Boolean =
     durationMs >= KARAOKE_LONG_SYLLABLE_MS
 
+/**
+ * 词级时间源判据:时间窗有效(endMs>startMs)才构成词级时间源。
+ *
+ * 布局分组合成的占位词(无词表行 + layoutGroups 时由 `layoutTextByGroups` 生成,
+ * 时间窗恒 0..0)必须排除在词级卡拉OK之外——`timedWordProgress(pos, 0, 0)` 对零窗
+ * 恒返回 1(全亮),且它们会让词位列表非空、跳过行级合成,整行呈静态全亮
+ * (与 Minimal 档同观感)。排除后整行自然落到行级合成逐字路径。纯函数,可单测。
+ */
+internal fun isTimedKaraokeWord(startMs: Long, endMs: Long): Boolean = endMs > startMs
+
 /** 未唱底字不透明度因子(与实机 setTextAlpha(0.35f) 同源)。 */
 private const val KARAOKE_UNSUNG_FACTOR = 0.35f
 
