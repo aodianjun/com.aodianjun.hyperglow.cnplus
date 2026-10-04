@@ -164,6 +164,10 @@ internal fun PluginSettingsScreen(
     val manifest = plugin?.manifest
     var revision by remember(pluginId) { mutableStateOf(0) }
     var editSetting by remember(pluginId) { mutableStateOf<PluginSettingData?>(null) }
+    // 激活开关状态提升到 LazyColumn 之外:LazyListScope 不是 @Composable 上下文,不能在其中 remember。
+    var activated by remember(pluginId) {
+        mutableStateOf(manifest?.let { PluginSettingsStore.isActivated(context, it) } ?: false)
+    }
 
     fun writeSetting(setting: PluginSettingData, put: () -> Unit) {
         put()
@@ -231,9 +235,6 @@ internal fun PluginSettingsScreen(
             )
         ) {
             if (manifest.activationSettingKey != null) {
-                var activated by remember(manifest.id) {
-                    mutableStateOf(PluginSettingsStore.isActivated(context, manifest))
-                }
                 item {
                     SettingsCard {
                         SwitchPreference(
