@@ -151,11 +151,15 @@ android {
     }
 }
 
-// assets 合并任务(merge<Variant>Assets)必须先看到 copyFaqAsset 的产物。
-tasks.matching { task -> task.name.startsWith("merge") && task.name.endsWith("Assets") }
-    .configureEach {
-        dependsOn(copyFaqAsset)
-    }
+// assets 合并任务(merge<Variant>Assets)与 lint 任务都必须先看到 copyFaqAsset 的产物:
+// lint 的 generate<Variant>Lint*ReportModel 同样把 assets 源目录列为任务输入,漏声明会在
+// release job 的 lintVital 阶段触发 Gradle 9 的隐式依赖校验失败(PR #164 合并 run 实证)。
+tasks.matching { task ->
+    (task.name.startsWith("merge") && task.name.endsWith("Assets")) ||
+        task.name.contains("Lint")
+}.configureEach {
+    dependsOn(copyFaqAsset)
+}
 
 dependencies {
     // HyperLyric 插件 API(FQCN 兼容):App 直接实现宿主侧接口,同时插件 dex 经
