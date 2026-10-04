@@ -267,7 +267,7 @@ internal fun LyricAppearanceSection(
         selectedProfile.hideAlbumWhenSameAsTitle ?: editorState.document.hideAlbumWhenSameAsTitle
     val effectiveDuetMarkers = selectedProfile.duetMarkers ?: editorState.document.duetMarkers
     // 预览走与实机相同的编译管线(归一化/白名单),编辑后立即反映最终生效效果,所见即所得
-    val compiledPreviewProfile = remember(editorState.document) {
+    val compiledPreviewProfile = remember(editorState.document, editorState.selectedSurface) {
         SceneCompiler.compile(editorState.document)
             .profiles.getValue(editorState.selectedSurface)
     }
