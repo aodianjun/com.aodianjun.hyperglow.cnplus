@@ -443,6 +443,22 @@ and (b) unverified paths stay explicit instead of silently assumed.
   hardware smoke check after merge: no row re-flow at line changes (the next line keeps its
   position), no fill retreat/re-fill mid-line, and word-timed lines still light up on their real
   word windows when the words arrive before the line starts.
+- MIUI long-screenshot proxy (`LongScreenshotScrollProxyView` + `LongScreenshotDragAccumulator`,
+  installed from `MainActivity.installLongScreenshotProxy` on Xiaomi/Redmi/POCO builds): MIUI's
+  `LongScreenshotUtils$ContentPort` cannot pick a main scroll view inside a Compose host — in debug
+  builds the host's exact class name hits its "not scrollable" branch (device log
+  `can not run invoke canScrollVertically on background thread`), while in release builds R8 renames
+  the class so MIUI falls back to `view.canScrollVertically(1)`, which is also false for Compose
+  without an active gesture; the capture then degrades to a single screen (`scrolledY == 0
+  isEnd:true`). The proxy sits under the Compose host (real touches never reach it), reports itself
+  scrollable so MIUI selects it, forwards MIUI's injected drags to the host on the main thread, and
+  reports the accumulated drag as its `scrollY` (capped at 60k px so a capture cannot run away; a
+  new long screenshot after a pause starts counting from zero). Unit-tested
+  (`LongScreenshotDragAccumulatorTest`) — pending a hardware smoke check: on a Xiaomi device a long
+  screenshot of a long page yields a multi-screen stitched image, normal touch/scroll behaviour is
+  unchanged, and logcat shows `long screenshot proxy installed`. The existing device evidence comes
+  from a debug build; the release-build path (renamed class -> fallback branch) still needs device
+  confirmation.
 
 ## How this ledger is used
 
@@ -655,6 +671,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 同行内容稳定化（`shouldAdoptLineEnhancements`，`AodCanvasLayoutPolicy.kt`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：上游对同一行两阶段下发（带/不带词表，真机实测同一行窗下 `words=13 ↔ words=0`），而折行引擎按形态走两条路径，于是每次切换都重排——owner 录屏逐帧实测：换行瞬间下一行下移 80px、填充前缘倒退重填。现在同一行只认第一次的折行形态；「无词→带词」升级仅在行开始前 300ms 内接受，「带词→无词」回退与演唱中词表文本变化一律拒绝。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行时不再重排（下一行位置不动）、填充不再倒退重填，词表在行开始前到达的行仍按真实词窗点亮。
 - 下一行文本稳定化（`isNextLineStale`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：换行时旧「下一行」被晋级成主行，而上游 `nextLine` 要等下一句推来才推进——真机录屏实测换行后 0.5s 内下一行行与主行同文，随后文本切换改变行集合/行高，表现为「换行动画后跳一下」。现在与主行同文的下一行视为「未就绪」，沿用上一版文本，行占位与行高保持稳定。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行后下一行行不出现与主行同文的重复、也不因文本切换而跳位；真正的新下一行到达后正常替换。
 - 换行动画改吃「歌词时钟」（`lineTransitionClockAtPosition` + 位置高水位，接入 `AodLyricCanvasView` 三段式过渡）：过渡进度不再用挂钟（`elapsedRealtime` 起点）计时，改由歌词位置推导——过渡开始时记下位置（同源 `projectedPosition()`），各段按位置推进量在既有时间线上换算，段顺序/时长配方/缓动全不变。修复目标：内容（位置/行窗/`nextLine`）在飞行途中才到齐时目标几何被中途重算，表现为「换行后两段位移/单帧跳」（60fps 逐帧实测 813 帧/13.55s/三次换行）。暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动，倒退超过 300ms 采样回漂容差）时立即结束过渡而不反向「追」位置。已有单测（`AodCanvasTransitionTest.positionClock*`）——合并后待真机冒烟：60fps 录屏逐帧核晋级行 y 单调、单帧位移 ≤8px、无方向反转；暂停时过渡冻结在当前进度、恢复播放后续播；拖动进度条 seek 时过渡立即结束（静态新内容）、不出现反向追赶。
+- MIUI 长截屏代理（`LongScreenshotScrollProxyView` + `LongScreenshotDragAccumulator`，由 `MainActivity.installLongScreenshotProxy` 在小米/Redmi/POCO 上安装）：MIUI 的 `LongScreenshotUtils$ContentPort` 在 Compose 宿主里选不出主滚动视图——debug 包宿主类名命中其「不可滚动」精确匹配分支（真机日志 `can not run invoke canScrollVertically on background thread`），release 包该类名已被 R8 改名、落到 `view.canScrollVertically(1)` 兜底分支（Compose 宿主无进行中手势时同样返回 false），长截屏因此退化成「只截当前一屏」（`scrolledY == 0 isEnd:true`）。代理挂在 Compose 宿主之下（真实触摸到不了它），自报可滚动让 MIUI 选中，把 MIUI 注入的假拖拽在主线程转发给宿主，并以累计拖拽位移充当 `scrollY`（封顶 60k px 防失控，暂停后重新发起的长截屏从零计数）。已有单测（`LongScreenshotDragAccumulatorTest`）——合并后待真机冒烟：小米设备上对长页面截长屏得到多屏拼接长图，正常触摸/滚动行为不变，logcat 出现 `long screenshot proxy installed`。⚠️ 现有真机证据取自 debug 包；release 包（类名被改名→兜底分支）这一环待真机复核。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
