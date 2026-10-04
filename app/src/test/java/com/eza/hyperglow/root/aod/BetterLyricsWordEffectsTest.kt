@@ -34,14 +34,11 @@ class BetterLyricsWordEffectsTest {
     }
 
     @Test
-    fun betterLyricsLineFillsSolidWhenItCarriesALongSyllable() {
-        // 行内触发长音节(BetterLyrics 档):整行整块亮起、不再逐字扫光(含行内短音节)。
-        assertTrue(karaokeLineFillsSolid(betterLyrics = true, lineHasLongSyllable = true))
-        // 没有长音节的行保持历史词内扫光。
-        assertFalse(karaokeLineFillsSolid(betterLyrics = true, lineHasLongSyllable = false))
-        // 非 BetterLyrics 档(基础卡拉OK路径)恒走词内扫光,历史观感不变。
-        assertFalse(karaokeLineFillsSolid(betterLyrics = false, lineHasLongSyllable = true))
-        assertFalse(karaokeLineFillsSolid(betterLyrics = false, lineHasLongSyllable = false))
+    fun betterLyricsDisablesTheInWordSweep() {
+        // 「BetterLyrics」档整档不做逐字扫光:所有词块「开始唱即整块亮起」(含换行后的新行)。
+        assertFalse(karaokeSweepEnabled(betterLyrics = true))
+        // 非 BetterLyrics 档(基础卡拉OK路径)保持词内扫光,历史观感不变。
+        assertTrue(karaokeSweepEnabled(betterLyrics = false))
     }
 
     @Test

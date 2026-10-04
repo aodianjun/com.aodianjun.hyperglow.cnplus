@@ -1295,8 +1295,8 @@ internal class AodLyricCanvasView(
      * 辅助文字行(第一行音标/翻译,以及并发行自己的辅助行)的逐字效果
      * (「辅助文字逐字效果」,见 SurfaceProfile.secondaryWordKaraoke):与主行 drawWordKaraoke
      * 同一共享渲染核心(LyricWordKaraokeRenderer),观感随档——「BetterLyrics」档同主行有
-     * 未唱下沉/已唱上浮、长块放大与辉光(行内触发长块时整行整块亮起、不逐字扫光),
-     * 其余档为基础逐字卡拉OK(词内扫光)。
+     * 未唱下沉/已唱上浮、长块放大与辉光(整档不做逐字扫光、整块亮起),其余档为基础
+     * 逐字卡拉OK(词内扫光)。
      *
      * 时间源两路:源提供逐字音标时间时(transliterationLines 的 timedSegments)按真实词窗
      * 点亮;翻译行与无逐字音标的音标行按行窗口 + 行内几何合成(syntheticKaraokeBlocks /
@@ -2605,8 +2605,8 @@ internal class AodLyricCanvasView(
      * 未唱下沉、已唱上浮、长音节辉光统一委托共享渲染核心 [LyricWordKaraokeRenderer]
      * （预览同源，杜绝效果漂移）。逐字时间源用真词时间窗;行级源（[betterLyrics] 且
      * 行无词）按字符合成时间窗（[syntheticCharTimeWindow],与行级扫光前缘同式）,
-     * 合成块按块时长判定长音节（≥700ms）——行内有长块时整行整块亮起、不再逐字扫光,
-     * 否则整行保持词内扫光。
+     * 合成块按块时长判定长音节（≥700ms）。「BetterLyrics」档整档不做逐字扫光
+     * （见 karaokeSweepEnabled）：所有词块「开始唱即整块亮起」,只有长块放大/辉光。
      */
     private fun drawWordKaraoke(
         canvas: Canvas,
@@ -2681,9 +2681,9 @@ internal class AodLyricCanvasView(
                         blockWidth
                     )
                     val blockHighlight = timedWordProgress(position, blockWindow.first, blockWindow.last)
-                    // 长音节按合成块时长判定:快速掠过的短词块(不足 700ms)只有扫光,不放大、
-                    // 不辉光;被拖长的长词块整块同步放大+辉光(块内共享高亮进度)。行内出现长块
-                    // 后整行都整块亮起、不再逐字扫光(见 karaokeLineFillsSolid)。
+                    // 长音节按合成块时长判定:短词块(不足 700ms)不放大、不辉光;被拖长的长词块
+                    // 整块同步放大+辉光(块内共享高亮进度)。「BetterLyrics」档整档不做逐字扫光
+                    // (见 karaokeSweepEnabled):所有块「开始唱即整块亮起」。
                     val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
                     var charIndex = block.first
                     while (charIndex <= block.last) {
