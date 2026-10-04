@@ -255,6 +255,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // MIUI 长截屏(截长屏)兼容:代理 View 必须在 setContent 之后挂载(见 LongScreenshotCompat.kt)。
+        installLongScreenshotProxy()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
