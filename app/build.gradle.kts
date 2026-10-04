@@ -134,8 +134,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        // miuix 0.9.4 的产物编译在 JVM target 21:NavDisplay 的 entry/rememberNavBackStack 等
+        // inline API 会把库字节码内联进调用方,目标不一致时 Kotlin 报
+        // "Cannot inline bytecode built with JVM target 21 into bytecode that is being built
+        // with JVM target 17"。应用因此与 miuix 对齐到 21(CI 用 JDK 21,D8/R8 支持 class file 65)。
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     buildFeatures {
@@ -143,6 +147,12 @@ android {
         buildConfig = true
         compose = true
     }
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
+}
 
     sourceSets {
         getByName("main") {
@@ -177,6 +187,9 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.4")
     // 背景生效时顶栏的渐变模糊(backdrop 渐进式纹理模糊,RuntimeShader 路径需 API 33+,与 minSdk 一致)。
     implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4")
+    // miuix-nav:连续栈深度导航运行时,承载 App 内界面返回栈;系统预测性返回手势按 1:1
+    // 跟手驱动转场(NavDisplay 内置 PredictiveBackHandler,经 androidx.navigationevent 接入)。
+    implementation("top.yukonga.miuix.kmp:miuix-nav-android:0.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
     // DexKit — dynamic symbol resolution for Xiaomi symbols that get renamed across ROM

@@ -8,14 +8,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -42,7 +34,12 @@ import com.eza.hyperglow.aod.AodLyricBridgeService
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.nav.core.NavDisplay
+import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
+import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
+import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.WindowNavigationEventScope
 
 class MainActivity : ComponentActivity() {
     /** 最近一次外观设置与解析后的深色状态:窗口重新获焦时据此再下发一次系统栏图标(见 [onWindowFocusChanged])。 */
@@ -88,78 +85,76 @@ class MainActivity : ComponentActivity() {
                                 darkTheme = darkTheme,
                                 layerBackdrop = layerBackdrop
                             )
-                            var editingSurface by rememberSaveable { mutableStateOf<String?>(null) }
+                            val backStack = rememberNavBackStack<AppRoute>(AppRoute.Home)
                             var selectedTabName by rememberSaveable {
                                 mutableStateOf(SettingsTab.STATUS.name)
                             }
-                            AnimatedContent(
-                                targetState = editingSurface,
-                                modifier = Modifier.fillMaxSize(),
-                                transitionSpec = {
-                                    if (targetState != null) {
-                                        (slideInHorizontally(
-                                            animationSpec = tween(320, easing = FastOutSlowInEasing),
-                                            initialOffsetX = { it }
-                                        ) + fadeIn(tween(220))) togetherWith
-                                            (slideOutHorizontally(
-                                                animationSpec = tween(320, easing = FastOutSlowInEasing),
-                                                targetOffsetX = { -it }
-                                            ) + fadeOut(tween(180)))
-                                    } else {
-                                        (slideInHorizontally(
-                                            animationSpec = tween(320, easing = FastOutSlowInEasing),
-                                            initialOffsetX = { -it }
-                                        ) + fadeIn(tween(220))) togetherWith
-                                            (slideOutHorizontally(
-                                                animationSpec = tween(320, easing = FastOutSlowInEasing),
-                                                targetOffsetX = { it }
-                                            ) + fadeOut(tween(180)))
+                            val navCornerRadius = rememberNavSystemCornerRadius()
+                            val navEffects = remember(navCornerRadius) {
+                                NavDisplayEffects(
+                                    cornerClipRadius = navCornerRadius,
+                                    // 调暗遮罩关闭:背景图片模式下页面容器色为透明(appSurfaceColor()),
+                                    // 静止态的下层遮罩会整体压暗壁纸;被覆盖层的观感由 AppNavTransition 负责。
+                                    dimAmount = 0f
+                                )
+                            }
+                            // 显式提供本窗口的返回事件派发器(与 miuix 窗口组件同一机制):
+                            // NavDisplay 的预测性返回处理器读 LocalNavigationEventDispatcherOwner,
+                            // 取不到时会静默失活(返回手势完全无响应),这里从视图树解析后下发。
+                            WindowNavigationEventScope {
+                                NavDisplay(
+                                    backStack = backStack,
+                                    modifier = Modifier.fillMaxSize(),
+                                    onBack = { backStack.popRoute() },
+                                    transition = AppNavTransition,
+                                    effects = navEffects
+                                ) {
+                                    entry<AppRoute.Home> {
+                                        HomeScreen(
+                                            showRestartResult = ::showRestartResult,
+                                            selectedTabName = selectedTabName,
+                                            onSelectTab = { selectedTabName = it },
+                                            onOpenDiagnostics = { backStack.pushRoute(AppRoute.Diagnostics) },
+                                            onOpenLyricLayout = { surface ->
+                                                backStack.pushRoute(AppRoute.LyricLayout(surface))
+                                            },
+                                            onOpenPlugins = { backStack.pushRoute(AppRoute.Plugins) },
+                                            onOpenAodBehavior = { backStack.pushRoute(AppRoute.AodBehavior) },
+                                            onOpenAppAppearance = { backStack.pushRoute(AppRoute.AppAppearance) },
+                                            onOpenHelp = { backStack.pushRoute(AppRoute.Help) },
+                                            onOpenChangelog = { backStack.pushRoute(AppRoute.Changelog) },
+                                            onOpenContributors = { backStack.pushRoute(AppRoute.Contributors) },
+                                            onOpenLicenses = { backStack.pushRoute(AppRoute.Licenses) },
+                                            floatingNavBar = appAppearance.floatingNavBar
+                                        )
                                     }
-                                },
-                                label = "settingsDestination"
-                            ) { surface ->
-                                if (surface == DIAGNOSTICS_DESTINATION) {
-                                    DiagnosticsScreen(onBack = { editingSurface = null })
-                                } else if (surface == PLUGIN_DESTINATION) {
-                                    PluginManagementScreen(onBack = { editingSurface = null })
-                                } else if (surface == AOD_BEHAVIOR_DESTINATION) {
-                                    AodBehaviorScreen(onBack = { editingSurface = null })
-                                } else if (surface == APP_APPEARANCE_DESTINATION) {
-                                    AppAppearanceScreen(
-                                        onBack = { editingSurface = null },
-                                        onAppearanceChanged = {
-                                            appAppearance = loadAppUiAppearance(this@MainActivity)
-                                        }
-                                    )
-                                } else if (surface == HELP_DESTINATION) {
-                                    HelpScreen(onBack = { editingSurface = null })
-                                } else if (surface == CHANGELOG_DESTINATION) {
-                                    ChangelogScreen(onBack = { editingSurface = null })
-                                } else if (surface == CONTRIBUTORS_DESTINATION) {
-                                    ContributorsScreen(onBack = { editingSurface = null })
-                                } else if (surface == LICENSES_DESTINATION) {
-                                    LicensesScreen(onBack = { editingSurface = null })
-                                } else if (surface != null) {
-                                    LyricLayoutScreen(
-                                        initialSurface = surface,
-                                        onBack = { editingSurface = null }
-                                    )
-                                } else {
-                                    HomeScreen(
-                                        showRestartResult = ::showRestartResult,
-                                        selectedTabName = selectedTabName,
-                                        onSelectTab = { selectedTabName = it },
-                                        onOpenDiagnostics = { editingSurface = DIAGNOSTICS_DESTINATION },
-                                        onOpenLyricLayout = { target -> editingSurface = target },
-                                        onOpenPlugins = { editingSurface = PLUGIN_DESTINATION },
-                                        onOpenAodBehavior = { editingSurface = AOD_BEHAVIOR_DESTINATION },
-                                        onOpenAppAppearance = { editingSurface = APP_APPEARANCE_DESTINATION },
-                                        onOpenHelp = { editingSurface = HELP_DESTINATION },
-                                        onOpenChangelog = { editingSurface = CHANGELOG_DESTINATION },
-                                        onOpenContributors = { editingSurface = CONTRIBUTORS_DESTINATION },
-                                        onOpenLicenses = { editingSurface = LICENSES_DESTINATION },
-                                        floatingNavBar = appAppearance.floatingNavBar
-                                    )
+                                    entry<AppRoute.Diagnostics> {
+                                        DiagnosticsScreen(onBack = { backStack.popRoute() })
+                                    }
+                                    entry<AppRoute.Plugins> {
+                                        PluginManagementScreen(onBack = { backStack.popRoute() })
+                                    }
+                                    entry<AppRoute.AodBehavior> {
+                                        AodBehaviorScreen(onBack = { backStack.popRoute() })
+                                    }
+                                    entry<AppRoute.AppAppearance> {
+                                        AppAppearanceScreen(
+                                            onBack = { backStack.popRoute() },
+                                            onAppearanceChanged = {
+                                                appAppearance = loadAppUiAppearance(this@MainActivity)
+                                            }
+                                        )
+                                    }
+                                    entry<AppRoute.Help> { HelpScreen(onBack = { backStack.popRoute() }) }
+                                    entry<AppRoute.Changelog> { ChangelogScreen(onBack = { backStack.popRoute() }) }
+                                    entry<AppRoute.Contributors> { ContributorsScreen(onBack = { backStack.popRoute() }) }
+                                    entry<AppRoute.Licenses> { LicensesScreen(onBack = { backStack.popRoute() }) }
+                                    entry<AppRoute.LyricLayout> { route ->
+                                        LyricLayoutScreen(
+                                            initialSurface = route.surface,
+                                            onBack = { backStack.popRoute() }
+                                        )
+                                    }
                                 }
                             }
                         }

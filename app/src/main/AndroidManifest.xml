@@ -13,9 +13,12 @@
         <package android:name="org.lsposed.manager" />
     </queries>
 
+    <!-- enableOnBackInvokedCallback:预测性返回手势(API 33+)的显式开关。App 内导航
+         走 miuix-nav 的 NavDisplay,它经 androidx.navigationevent 接收逐帧返回进度。 -->
     <application
         android:name=".HyperGlowApplication"
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"

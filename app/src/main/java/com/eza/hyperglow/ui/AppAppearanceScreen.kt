@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -126,8 +125,6 @@ internal fun AppAppearanceScreen(
     // 已导入字体被删除后旧令牌不再出现在选项里,展示层回落跟随系统(实际渲染同步回落)。
     val effectiveFontToken = fontTokens.firstOrNull { it == appearance.fontFamily }
         ?: FONT_FAMILY_SYSTEM
-
-    BackHandler(onBack = onBack)
 
     Scaffold(
         containerColor = appSurfaceColor(),

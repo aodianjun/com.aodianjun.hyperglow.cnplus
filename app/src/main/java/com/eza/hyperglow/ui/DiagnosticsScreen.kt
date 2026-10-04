@@ -8,7 +8,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -146,8 +145,6 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
             Toast.LENGTH_LONG
         ).show()
     }
-
-    BackHandler(onBack = onBack)
 
     LaunchedEffect(activeCapture?.startedAtElapsedMillis) {
         while (activeCapture != null) {

@@ -1,7 +1,6 @@
 package com.eza.hyperglow.ui
 
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -97,8 +96,6 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
     var showRotationModeDialog by rememberSaveable { mutableStateOf(false) }
     var showRotationSettleDialog by rememberSaveable { mutableStateOf(false) }
     var showRefreshRateCapDialog by rememberSaveable { mutableStateOf(false) }
-
-    BackHandler(onBack = onBack)
 
     Scaffold(
         containerColor = appSurfaceColor(),
