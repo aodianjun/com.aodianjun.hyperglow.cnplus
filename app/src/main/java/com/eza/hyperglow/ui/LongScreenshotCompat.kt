@@ -58,10 +58,14 @@ internal class LongScreenshotScrollProxyView(context: Context) : View(context) {
     override fun canScrollVertically(direction: Int): Boolean = true
 
     /**
-     * MIUI 以本值的增量判断是否还有可滚内容;用累计拖拽位移代替真实 scrollY。
-     * 注意:Kotlin 不能用属性形式覆盖 Java 合成属性,只能覆盖 getter 函数(本地桩编译实证)。
+     * MIUI 以 `getScrollY()` 的增量判断是否还有可滚内容;这里把累计拖拽位移写进 mScrollY。
+     *
+     * `View.getScrollY()` 在 SDK 里是 final(CI 实证),不能覆盖,只能通过公开的 `scrollTo()`
+     * 写入 —— 代理没有子视图与背景,位移不产生任何绘制效果。
      */
-    override fun getScrollY(): Int = drag.scrollY
+    private fun syncScrollOffset() {
+        scrollTo(0, drag.scrollY)
+    }
 
     /**
      * 返回 false:MIUI 不检查返回值;而真实触摸若落到这里也不应被吞掉。
@@ -75,6 +79,7 @@ internal class LongScreenshotScrollProxyView(context: Context) : View(context) {
                 MotionEvent.ACTION_MOVE -> drag.onMove(event.y)
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> drag.onEnd()
             }
+            syncScrollOffset()
             // 代理与宿主同处内容层,坐标系通常一致;仍按屏幕位置差偏移一次以防布局差异。
             val dx = (left - target.left).toFloat()
             val dy = (top - target.top).toFloat()
