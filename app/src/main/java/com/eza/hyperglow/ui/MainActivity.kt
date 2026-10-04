@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +39,7 @@ import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
 import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
+import top.yukonga.miuix.kmp.nav.gesture.PredictiveBackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.WindowNavigationEventScope
 
@@ -89,12 +91,27 @@ class MainActivity : ComponentActivity() {
                             var selectedTabName by rememberSaveable {
                                 mutableStateOf(SettingsTab.STATUS.name)
                             }
+                            var predictiveBackEnabled by remember {
+                                mutableStateOf(
+                                    AppNavigationPreferences.readPredictiveBack(this@MainActivity)
+                                )
+                            }
+                            var backTriggerPercent by remember {
+                                mutableStateOf(
+                                    AppNavigationPreferences.readBackTriggerPercent(this@MainActivity)
+                                )
+                            }
+                            val backGestureTracker = remember { AppBackGestureTracker() }
+                            val backVeto = remember { AppBackVetoState() }
+                            val navTransition = remember { appNavTransition(backGestureTracker) }
+                            // 否决恢复:pop 被组合观察到之后再压回同一路由(见 AppBackVetoState)。
+                            LaunchedEffect(backStack.size) { backVeto.restoreIfPending(backStack) }
                             val navCornerRadius = rememberNavSystemCornerRadius()
                             val navEffects = remember(navCornerRadius) {
                                 NavDisplayEffects(
                                     cornerClipRadius = navCornerRadius,
                                     // 调暗遮罩关闭:背景图片模式下页面容器色为透明(appSurfaceColor()),
-                                    // 静止态的下层遮罩会整体压暗壁纸;被覆盖层的观感由 AppNavTransition 负责。
+                                    // 静止态的下层遮罩会整体压暗壁纸;被覆盖层的观感由 appNavTransition 负责。
                                     dimAmount = 0f
                                 )
                             }
@@ -105,8 +122,24 @@ class MainActivity : ComponentActivity() {
                                 NavDisplay(
                                     backStack = backStack,
                                     modifier = Modifier.fillMaxSize(),
-                                    onBack = { backStack.popRoute() },
-                                    transition = AppNavTransition,
+                                    onBack = {
+                                        val release = backGestureTracker.release()
+                                        val belowThreshold = predictiveBackEnabled &&
+                                            backTriggerPercent > 0 &&
+                                            release != null &&
+                                            !backTriggerReached(
+                                                progress = release.progress,
+                                                velocity = release.velocity,
+                                                thresholdPercent = backTriggerPercent
+                                            )
+                                        if (belowThreshold) {
+                                            // 拖动不足阈值:否决这次提交,页面弹回(跟手预览保持原生)。
+                                            backVeto.veto(backStack)
+                                        } else {
+                                            backStack.popRoute()
+                                        }
+                                    },
+                                    transition = navTransition,
                                     effects = navEffects
                                 ) {
                                     entry<AppRoute.Home> {
@@ -125,7 +158,28 @@ class MainActivity : ComponentActivity() {
                                             onOpenChangelog = { backStack.pushRoute(AppRoute.Changelog) },
                                             onOpenContributors = { backStack.pushRoute(AppRoute.Contributors) },
                                             onOpenLicenses = { backStack.pushRoute(AppRoute.Licenses) },
-                                            floatingNavBar = appAppearance.floatingNavBar
+                                            floatingNavBar = appAppearance.floatingNavBar,
+                                            predictiveBackEnabled = predictiveBackEnabled,
+                                            onPredictiveBackChanged = { enabled ->
+                                                if (AppNavigationPreferences.writePredictiveBack(
+                                                        this@MainActivity,
+                                                        enabled
+                                                    )
+                                                ) {
+                                                    predictiveBackEnabled = enabled
+                                                }
+                                            },
+                                            backTriggerPercent = backTriggerPercent,
+                                            onBackTriggerPercentChanged = { percent ->
+                                                val normalized = normalizeBackTriggerPercent(percent)
+                                                if (normalized != backTriggerPercent) {
+                                                    backTriggerPercent = normalized
+                                                    AppNavigationPreferences.writeBackTriggerPercent(
+                                                        this@MainActivity,
+                                                        normalized
+                                                    )
+                                                }
+                                            }
                                         )
                                     }
                                     entry<AppRoute.Diagnostics> {
@@ -155,6 +209,16 @@ class MainActivity : ComponentActivity() {
                                             onBack = { backStack.popRoute() }
                                         )
                                     }
+                                }
+                                if (!predictiveBackEnabled) {
+                                    // 关闭预测性返回:自己消费返回手势(不做跟手预览),松手直接返回上一页。
+                                    // 组合在 NavDisplay 之后 → 注册更晚 → 仲裁优先;弹窗比本处理器更晚组合,仍先消费。
+                                    PredictiveBackHandler(
+                                        enabled = backStack.size > 1,
+                                        onProgress = { _ -> },
+                                        onCommit = { backStack.popRoute() },
+                                        onCancel = {}
+                                    )
                                 }
                             }
                         }

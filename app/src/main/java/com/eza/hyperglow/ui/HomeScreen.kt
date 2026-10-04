@@ -73,6 +73,7 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
+import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -98,7 +99,11 @@ internal fun HomeScreen(
     onOpenChangelog: () -> Unit,
     onOpenContributors: () -> Unit,
     onOpenLicenses: () -> Unit,
-    floatingNavBar: Boolean
+    floatingNavBar: Boolean,
+    predictiveBackEnabled: Boolean,
+    onPredictiveBackChanged: (Boolean) -> Unit,
+    backTriggerPercent: Int,
+    onBackTriggerPercentChanged: (Int) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -724,6 +729,35 @@ internal fun HomeScreen(
                                     currentUiLanguage(context)
                                 ),
                                 onClick = { showLanguageDialog = true }
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = stringResource(R.string.section_app_navigation)) }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                predictiveBackEnabled,
+                                onPredictiveBackChanged,
+                                stringResource(R.string.setting_predictive_back),
+                                summary = stringResource(
+                                    if (predictiveBackEnabled) R.string.summary_predictive_back
+                                    else R.string.summary_predictive_back_disabled
+                                )
+                            )
+                            SliderPreference(
+                                value = backTriggerPercent.toFloat(),
+                                onValueChange = { onBackTriggerPercentChanged(it.toInt()) },
+                                title = stringResource(R.string.setting_back_trigger_threshold),
+                                summary = stringResource(R.string.summary_back_trigger_threshold),
+                                valueText = if (backTriggerPercent == 0) {
+                                    stringResource(R.string.option_back_trigger_system)
+                                } else {
+                                    "$backTriggerPercent%"
+                                },
+                                valueRange = 0f..AppNavigationPreferences.MAX_BACK_TRIGGER_PERCENT.toFloat(),
+                                steps = AppNavigationPreferences.MAX_BACK_TRIGGER_PERCENT /
+                                    AppNavigationPreferences.BACK_TRIGGER_STEP_PERCENT - 1,
+                                enabled = predictiveBackEnabled
                             )
                         }
                     }
