@@ -269,7 +269,7 @@ private fun ContributorRow(entry: ContributorEntry) {
     val context = LocalContext.current
     var avatar by remember(entry.login) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(entry.login, entry.avatarUrl) {
-        avatar = withContext(Dispatchers.IO) { fetchBitmap(entry.avatarUrl) }
+        avatar = withContext(Dispatchers.IO) { fetchImageBitmap(entry.avatarUrl) }
     }
     Row(
         modifier = Modifier
