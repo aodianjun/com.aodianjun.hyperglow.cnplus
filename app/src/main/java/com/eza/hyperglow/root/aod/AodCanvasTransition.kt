@@ -267,6 +267,60 @@ internal fun lineTransitionEnterProgress(elapsedMs: Long, timeline: LineTransiti
     else ((elapsedMs - timeline.enterStartMs).toFloat() / timeline.enterMs.toFloat()).coerceIn(0f, 1f)
 
 /**
+ * 位置式换行过渡时钟:三段进度由歌词位置推导,而不是挂钟计时 —— 过渡开始时记下当时的
+ * 歌词位置 [startPositionMs](调用方取画布既有的 projectedPosition()),之后每帧按
+ * 「位置高水位 − 起点位置」在 [timeline] 的三段时长上换算(复用 [lineTransitionExitProgress] /
+ * [lineTransitionMoveProgress] / [lineTransitionEnterProgress],段顺序/时长配方/缓动不动)。
+ * 内容(位置/行窗/nextLine)晚到不再"飞着改目标":进度与位置同轴,内容到达顺序不影响动画状态。
+ *
+ * 高水位([highWaterPositionMs])由调用方在帧间存回:位置源 stall/resume 的毫秒级回漂
+ * (同 producer 侧 EXTRAPOLATION_RESUME_TOLERANCE_MS 的语义)不倒带动画,进度只进不退。
+ *
+ * 边界语义:
+ * - 正常推进:位置推进量即过渡进度,推进到总时长即走完([completed],末帧即静态形态);
+ * - 暂停(位置冻结):位置不变 → 时钟不变,过渡停在当前进度;
+ * - 位置跳变(seek/拖动):倒退超出采样回漂容差 [TRANSITION_REWIND_TOLERANCE_MS] 判
+ *   [interrupted],进度钳在 0..1 且立即结束过渡,不允许反向"追"新位置;前进越过总时长
+ *   同样钳到 1 并以 [completed] 结束(无挂钟无法区分快进与前进跳变,按位置推进处理)。
+ */
+internal data class LineTransitionClock(
+    val exitProgress: Float,
+    val moveProgress: Float,
+    val enterProgress: Float,
+    /** 本次采样后的位置高水位,调用方存回供下一帧沿用。 */
+    val highWaterPositionMs: Long,
+    /** 位置已推进到过渡总时长:过渡正常走完(末帧即静态形态)。 */
+    val completed: Boolean,
+    /** 位置倒退超出容差(seek/拖动跳变):过渡立即结束,不得反向"追"位置。 */
+    val interrupted: Boolean
+)
+
+/**
+ * 位置回漂容差:位置源 stall/resume 恢复时真实位置可能略低于外推值,属采样回漂而非
+ * 跳变(producer 侧同类容差 300ms,见 LyriconLyricProducer.EXTRAPOLATION_RESUME_TOLERANCE_MS
+ * 的注释);倒退超过该量才判 seek/拖动跳变并立即结束过渡。
+ */
+internal const val TRANSITION_REWIND_TOLERANCE_MS = 300L
+
+internal fun lineTransitionClockAtPosition(
+    positionMs: Long,
+    startPositionMs: Long,
+    highWaterPositionMs: Long,
+    timeline: LineTransitionTimeline
+): LineTransitionClock {
+    val highWater = maxOf(highWaterPositionMs, positionMs, startPositionMs)
+    val delta = (highWater - startPositionMs).coerceIn(0L, timeline.totalMs)
+    return LineTransitionClock(
+        exitProgress = lineTransitionExitProgress(delta, timeline),
+        moveProgress = lineTransitionMoveProgress(delta, timeline),
+        enterProgress = lineTransitionEnterProgress(delta, timeline),
+        highWaterPositionMs = highWater,
+        completed = highWater - startPositionMs >= timeline.totalMs,
+        interrupted = positionMs < highWater - TRANSITION_REWIND_TOLERANCE_MS
+    )
+}
+
+/**
  * 晋级位移段单帧([progress] 已过 [moveTransitionEase]):被晋升行自旧槽位平移到当前行
  * 槽位([translateFraction] 1→0,乘两槽基线差),按两槽字号比 [sizeRatio](当前行字号/
  * 下一行字号,≥1)自小放大到落位,并自旧行亮度 [fromAlpha] 升至全亮。单层即换:旧行
@@ -619,9 +673,6 @@ private fun sample(p: Float, stops: FloatArray): Float {
         else -> stops[i] + (stops[i + 1] - stops[i]) * (x - i)
     }
 }
-
-internal fun isExitTransitionExpired(startedAtMs: Long, nowMs: Long, durationMs: Long): Boolean =
-    startedAtMs > 0L && nowMs - startedAtMs >= durationMs
 
 /** 换行退场缓动(历史档):起步慢、加速离场,避免线性滑出显得僵硬。 */
 internal fun transitionExitEasing(progress: Float): Float {
