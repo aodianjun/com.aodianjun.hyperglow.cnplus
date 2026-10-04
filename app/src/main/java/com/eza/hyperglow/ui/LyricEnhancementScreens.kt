@@ -55,17 +55,29 @@ import java.util.Locale
  * 歌词增强能力(AI 翻译、AMLL TTML 等),对应上游 HyperLyric 的「歌词增强」入口。
  */
 
-/** 设置项按 manifest 分组拆分:先无组项,再按声明顺序的各分组。 */
-private fun splitSettingsByGroup(
+/**
+ * 设置项按 manifest 分组拆分:未声明 settingGroups 时全部平铺(无标题);
+ * 声明后按声明顺序分组,未标注 group(或引用未声明组)的项归入第一个组。
+ *
+ * 生态惯例(hyperlyric.ai.translation):manifest 声明「基础设置(default)/高级设置(generation)」
+ * 两组,基础项不写 group 字段、仅高级项标注 group —— 只按显式 group 匹配会让第一个组
+ * 永远为空、分组标题缺失,与上游界面(「基础设置」标题下平铺基础项)不一致。
+ */
+internal fun splitSettingsByGroup(
     settings: List<PluginSettingData>,
     groups: List<PluginSettingGroupData>
 ): Pair<List<PluginSettingData>, List<Pair<PluginSettingGroupData, List<PluginSettingData>>>> {
-    val ungrouped = settings.filter { it.group == null }
+    if (groups.isEmpty()) return settings to emptyList()
+    val declaredIds = groups.mapTo(mutableSetOf()) { it.id }
+    val firstGroupId = groups.first().id
     val grouped = groups.mapNotNull { group ->
-        val members = settings.filter { it.group == group.id }
+        val members = settings.filter { setting ->
+            setting.group == group.id ||
+                (group.id == firstGroupId && setting.group !in declaredIds)
+        }
         if (members.isEmpty()) null else group to members
     }
-    return ungrouped to grouped
+    return emptyList<PluginSettingData>() to grouped
 }
 
 @Composable
