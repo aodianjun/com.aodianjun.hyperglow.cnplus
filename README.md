@@ -10,7 +10,7 @@ HyperOS 3 的锁屏与息屏（AOD）歌词动画，支持国内音乐软件。
   <a href="https://android.com"><img src="https://img.shields.io/badge/Android-13.0%20--%2016-3DDC84.svg" alt="Android Support"/></a>
   <a href="https://github.com/compose-miuix-ui/miuix"><img src="https://img.shields.io/badge/UI--Framework-Miuix--Compose-0084FF.svg" alt="Miuix UI"/></a>
   <a href="https://github.com/libxposed/api"><img src="https://img.shields.io/badge/Hook--Framework-libxposed%20102-purple.svg" alt="libxposed"/></a>
-  <a href="https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases"><img src="https://img.shields.io/github/downloads/aodianjun/com.aodianjun.hyperglow.cnplus/total?style=flat&color=orange" alt="Downloads"/></a>
+  <a href="https://modules.lsposed.org/module/com.aodianjun.hyperglow.cnplus"><img src="https://img.shields.io/github/downloads/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/total?style=flat&color=orange" alt="Downloads"/></a>
 </p>
 
 <p>
