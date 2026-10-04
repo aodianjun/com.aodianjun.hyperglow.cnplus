@@ -97,6 +97,52 @@ class LyricLayoutEngineTest {
     }
 
     @Test
+    fun oversizeWordSplitsIntoCharPiecesSoWrappingStillWorks() {
+        // 单个词宽于可用宽(行级源的整行合成词 / 插件词表的整句 span):按字符兜底切分后正常换行,
+        // 不再整行超宽被裁。mono=10f/字、可用宽 50f → 切成 5 字一片。
+        val words = listOf(
+            AodCanvasWord("abcdefghij", "", 0L, 1_000L, boundaryAfter = true, sourceStart = 0, sourceEnd = 10)
+        )
+        val result = layoutOriginalLines(
+            "abcdefghij", words, emptyList(), emptyList(), mono(),
+            availableWidth = 50f, lineLimit = 5, wordGapPx = 10f, wrap = true, adaptiveSectioning = true
+        )
+        assertEquals(listOf("abcde", "fghij"), result.lines.map { it.text })
+        assertTrue(result.lines.all { it.width <= 50f })
+        // 切片词窗按宽度比例分摊:首片起点=整词起点、末片终点=整词终点;相邻切片无额外词距。
+        val pieces = result.lines.flatMap { it.words }.map { it.word }
+        assertEquals(0L, pieces.first().startMs)
+        assertEquals(1_000L, pieces.last().endMs)
+        assertEquals(0f, result.lines[0].words.last().gapAfter, 0.0001f)
+    }
+
+    @Test
+    fun oversizeWordSplitsAlsoWrapInLegacyPath() {
+        // 关闭自适应分段(legacy 贪心)时同样不再整行超宽:超宽词切片 + 超宽附着块拆词。
+        val words = listOf(AodCanvasWord("abcdefghij", "", 0L, 0L, boundaryAfter = true))
+        val result = layoutOriginalLines(
+            "abcdefghij", words, emptyList(), emptyList(), mono(),
+            availableWidth = 50f, lineLimit = 5, wordGapPx = 8f, wrap = true, adaptiveSectioning = false
+        )
+        assertEquals(listOf("abcde", "fghij"), result.lines.map { it.text })
+        assertTrue(result.lines.all { it.width <= 50f })
+    }
+
+    @Test
+    fun oversizeWordSplitKeepsProhibitedPunctuationOffLineStart() {
+        // 切点走 CJK 避头尾:可用宽 20f(2 字)时「。」不落在下一片行首。
+        val words = listOf(
+            AodCanvasWord("你好。世界", "", 0L, 0L, boundaryAfter = true, sourceStart = 0, sourceEnd = 5)
+        )
+        val result = layoutOriginalLines(
+            "你好。世界", words, emptyList(), emptyList(), mono(),
+            availableWidth = 20f, lineLimit = 5, wordGapPx = 10f, wrap = true, adaptiveSectioning = true
+        )
+        assertEquals(listOf("你", "好。", "世界"), result.lines.map { it.text })
+        assertTrue(result.lines.none { it.text.startsWith("。") })
+    }
+
+    @Test
     fun secondaryWrapCapsTwoLinesAndBalancesTokens() {
         val lines = layoutSecondaryLines(
             text = "aa bb cc dd",
