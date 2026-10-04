@@ -271,6 +271,80 @@ class AodCanvasTransitionTest {
     }
 
     @Test
+    fun positionClockDrivesPhasesFromLyricPositionOnly() {
+        // 位置式过渡时钟:三段进度由「当前位置高水位 − 起点位置」在既有时间线上换算,
+        // 段顺序/时长配方/缓动不变,与挂钟无关(见 lineTransitionClockAtPosition)。
+        val timeline = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
+        val start = lineTransitionClockAtPosition(10_000L, 10_000L, 10_000L, timeline)
+        assertEquals(0f, start.exitProgress, 1e-6f)
+        assertEquals(0f, start.moveProgress, 1e-6f)
+        assertEquals(0f, start.enterProgress, 1e-6f)
+        assertFalse(start.completed)
+        assertFalse(start.interrupted)
+        // 退场段中段:位置 +150 → 退场 0.5,其余段仍为 0。
+        val exitMid = lineTransitionClockAtPosition(10_150L, 10_000L, 10_150L, timeline)
+        assertEquals(0.5f, exitMid.exitProgress, 1e-6f)
+        assertEquals(0f, exitMid.moveProgress, 1e-6f)
+        assertEquals(0f, exitMid.enterProgress, 1e-6f)
+        // 晋级位移段中段:位置 +410(300 退场 + 110 位移)→ 位移 0.5。
+        val moveMid = lineTransitionClockAtPosition(10_410L, 10_000L, 10_410L, timeline)
+        assertEquals(1f, moveMid.exitProgress, 1e-6f)
+        assertEquals(0.5f, moveMid.moveProgress, 1e-6f)
+        assertEquals(0f, moveMid.enterProgress, 1e-6f)
+        // 入场段中段:位置 +745(520 + 225)→ 入场 0.5;推进到总时长即 completed。
+        val enterMid = lineTransitionClockAtPosition(10_745L, 10_000L, 10_745L, timeline)
+        assertEquals(0.5f, enterMid.enterProgress, 1e-6f)
+        assertFalse(enterMid.completed)
+        val settled = lineTransitionClockAtPosition(10_970L, 10_000L, 10_970L, timeline)
+        assertEquals(1f, settled.enterProgress, 1e-6f)
+        assertTrue(settled.completed)
+    }
+
+    @Test
+    fun positionClockFreezesWhenPositionIsFrozen() {
+        // 暂停(位置冻结):时钟逐帧相同,过渡停在当前进度,不因挂钟流逝而结束。
+        val timeline = lineTransitionTimeline("Fade up", "Normal", false)
+        val first = lineTransitionClockAtPosition(20_080L, 20_000L, 20_000L, timeline)
+        val later = lineTransitionClockAtPosition(20_080L, 20_000L, first.highWaterPositionMs, timeline)
+        assertEquals(first, later)
+        assertFalse(later.completed)
+        assertFalse(later.interrupted)
+        assertTrue(later.exitProgress > 0f)
+    }
+
+    @Test
+    fun positionClockClampsAndEndsOnPositionJump() {
+        val timeline = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
+        // 倒退跳变(seek/拖动):超出采样回漂容差 → 立即结束(interrupted),进度钳在 0..1。
+        val rewound = lineTransitionClockAtPosition(6_000L, 10_000L, 10_400L, timeline)
+        assertTrue(rewound.interrupted)
+        assertTrue(rewound.exitProgress in 0f..1f)
+        assertTrue(rewound.moveProgress in 0f..1f)
+        assertTrue(rewound.enterProgress in 0f..1f)
+        // 前进跳变越过总时长:钳到 1 并以 completed 结束。
+        val jumpedAhead = lineTransitionClockAtPosition(30_000L, 10_000L, 30_000L, timeline)
+        assertTrue(jumpedAhead.completed)
+        assertFalse(jumpedAhead.interrupted)
+        assertEquals(1f, jumpedAhead.exitProgress, 1e-6f)
+        assertEquals(1f, jumpedAhead.moveProgress, 1e-6f)
+        assertEquals(1f, jumpedAhead.enterProgress, 1e-6f)
+    }
+
+    @Test
+    fun positionClockToleratesSmallBackwardDriftWithoutRewinding() {
+        // 位置源 stall/resume 的毫秒级回漂(容差 300ms):不判跳变、不倒带动画进度(高水位)。
+        val timeline = lineTransitionTimeline("Fade up", "Normal", false)
+        val before = lineTransitionClockAtPosition(10_100L, 10_000L, 10_000L, timeline)
+        val drifted = lineTransitionClockAtPosition(10_020L, 10_000L, before.highWaterPositionMs, timeline)
+        assertFalse(drifted.interrupted)
+        assertEquals(before.exitProgress, drifted.exitProgress, 1e-6f)
+        assertEquals(10_100L, drifted.highWaterPositionMs)
+        // 位置恢复推进后进度继续只进不退。
+        val resumed = lineTransitionClockAtPosition(10_160L, 10_000L, drifted.highWaterPositionMs, timeline)
+        assertTrue(resumed.exitProgress > drifted.exitProgress)
+    }
+
+    @Test
     fun promotionRoleFollowsContentContinuity() {
         // 内容延续判定:旧「下一行」== 新「主行」才晋级;跳行/空白/跨曲都走整体退场+进场。
         assertTrue(lineTransitionPromotes("第二句", "第二句"))

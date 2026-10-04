@@ -1626,8 +1626,10 @@ class AodCanvasLayoutTest {
     fun exitTransitionDrivesFramesForUntimedIncomingUntilSettled() {
         assertEquals(16L, frameIntervalForTiming(true, false, true))
         assertEquals(0L, frameIntervalForTiming(true, false, false))
-        assertFalse(isExitTransitionExpired(1_000L, 1_209L, 210L))
-        assertTrue(isExitTransitionExpired(1_000L, 1_210L, 210L))
+        // 位置式过渡时钟(挂钟 expiry 已移除):位置推进到总时长才算走完。
+        val transition = lineTransitionTimeline("Fade up", "Normal", promoting = false)
+        assertFalse(lineTransitionClockAtPosition(1_339L, 1_000L, 1_000L, transition).completed)
+        assertTrue(lineTransitionClockAtPosition(1_340L, 1_000L, 1_000L, transition).completed)
     }
 
     @Test
