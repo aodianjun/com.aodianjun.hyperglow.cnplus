@@ -171,7 +171,6 @@
     <string name="licenses_summary">HyperGlow CN+ 基于 GPL-3.0 许可开源,并依赖以下开源项目。</string>
     <string name="help_load_failed">帮助内容加载失败</string>
 
-    <string name="section_surfaces">显示区域</string>
     <string name="setting_show_aod">在息屏显示</string>
     <string name="summary_show_aod_unsupported">已保留配置，但此配置无法运行息屏歌词。</string>
     <string name="setting_show_lockscreen">在锁屏显示</string>

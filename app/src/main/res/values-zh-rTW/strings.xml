@@ -170,7 +170,6 @@
     <string name="licenses_summary">HyperGlow CN+ 以 GPL-3.0 授權開源,並依賴以下開源專案。</string>
     <string name="help_load_failed">說明內容載入失敗</string>
 
-    <string name="section_surfaces">顯示區域</string>
     <string name="setting_show_aod">在息屏顯示</string>
     <string name="summary_show_aod_unsupported">已保留配置，但此配置無法運行息屏歌詞。</string>
     <string name="setting_show_lockscreen">在鎖屏顯示</string>
