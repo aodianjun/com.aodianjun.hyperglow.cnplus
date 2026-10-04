@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 演示歌词跟随界面语言的钉子(LyricLayoutScreen.demoLines / demoTrack):
+ * 演示歌词跟随界面语言的钉子(LyricAppearanceSection.kt 的 demoLines / demoTrack):
  * English 走《Take My Hand》,其余(跟随系统/简体中文)走中文演示曲。判据必须与「界面语言」
  * 设置同一来源([UiLanguage]),系统语言为英文但用户显式选了「简体中文」时以用户选择为准
  * —— 过去演示歌词是编译期常量,语言切换对它无影响,这里防止再退回那一形态。

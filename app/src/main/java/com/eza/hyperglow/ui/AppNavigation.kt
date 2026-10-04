@@ -46,10 +46,6 @@ internal sealed interface AppRoute : NavKey {
 
     @Serializable
     data object Licenses : AppRoute
-
-    /** 外观编辑页:曲面(aod/lockscreen)是路由值的一部分,两个曲面可各自在栈上留一份。 */
-    @Serializable
-    data class LyricLayout(val surface: String) : AppRoute
 }
 
 /**

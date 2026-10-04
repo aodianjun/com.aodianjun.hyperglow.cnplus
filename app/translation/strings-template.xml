@@ -207,8 +207,6 @@
     <string name="setting_show_lockscreen">Show on lock screen</string>
     <string name="summary_unavailable_systemui_version">Unavailable on this System UI version.</string>
     <string name="section_appearance">Appearance</string>
-    <string name="title_aod_appearance">AOD appearance</string>
-    <string name="title_lockscreen_appearance">Lock screen appearance</string>
     <string name="section_playback_behavior">Playback behavior</string>
     <string name="setting_after_spotify_pauses">After music pauses</string>
     <string name="section_aod_behavior">AOD behavior</string>

@@ -1,6 +1,5 @@
 package com.eza.hyperglow.ui
 
-import com.eza.hyperglow.customization.SceneCompiler
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -24,23 +23,6 @@ class AppNavigationTest {
         stack.pushRoute(AppRoute.Diagnostics)
 
         assertEquals(listOf(AppRoute.Home, AppRoute.Diagnostics), stack.toList())
-    }
-
-    @Test
-    fun pushRouteKeepsSameDestinationOnDistinctSurfaces() {
-        val stack = navBackStackOf(AppRoute.Home)
-
-        stack.pushRoute(AppRoute.LyricLayout(SceneCompiler.SURFACE_AOD))
-        stack.pushRoute(AppRoute.LyricLayout(SceneCompiler.SURFACE_LOCKSCREEN))
-
-        assertEquals(
-            listOf(
-                AppRoute.Home,
-                AppRoute.LyricLayout(SceneCompiler.SURFACE_AOD),
-                AppRoute.LyricLayout(SceneCompiler.SURFACE_LOCKSCREEN)
-            ),
-            stack.toList()
-        )
     }
 
     @Test

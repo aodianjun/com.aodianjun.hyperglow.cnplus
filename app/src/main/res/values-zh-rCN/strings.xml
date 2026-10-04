@@ -177,8 +177,6 @@
     <string name="summary_unavailable_systemui_version">此系统界面版本不可用。</string>
 
     <string name="section_appearance">外观</string>
-    <string name="title_aod_appearance">息屏外观</string>
-    <string name="title_lockscreen_appearance">锁屏外观</string>
     <string name="section_playback_behavior">播放行为</string>
     <string name="setting_after_spotify_pauses">音乐暂停后</string>
 
