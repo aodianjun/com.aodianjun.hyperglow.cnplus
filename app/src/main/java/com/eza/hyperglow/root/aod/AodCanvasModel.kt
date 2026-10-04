@@ -71,7 +71,7 @@ internal data class AodCanvasContent(
     val showNextLine: Boolean = false,
     /** 辅助文字显示第二行歌词:见 SurfaceProfile.secondaryNextLine。 */
     val secondaryNextLine: Boolean = false,
-    /** 显示第二行辅助文字:见 SurfaceProfile.nextLineAux。 */
+    /** 显示第二行辅助文字:以第二行歌词行实际显示为前提;见 SurfaceProfile.nextLineAux。 */
     val nextLineAux: Boolean = false,
     /** 歌曲信息对齐(auto/start/center/end),auto 跟随主对齐解析;见 SurfaceProfile.metadataAlignment。 */
     val metadataAlignment: String = "auto",
@@ -146,8 +146,10 @@ internal fun hasFirstLineAuxText(
  * 下一行歌词呈现决策(实机 AodLyricCanvasView 与预览 PreviewComponents 同源):
  * 「辅助文字显示第二行歌词」仅在第一行辅助文字实际显示时生效——此时第二行以辅助文字
  * 样式绘制并取代独立的「显示下一行歌词」行;第一行没有辅助文字时该开关不产生第二行
- * 呈现,独立下一行行按「显示下一行歌词」照常。「显示第二行辅助文字」不参与本决策,
- * 只在辅助形态成立时追加第二行自身的辅助文字行(见 [secondLineAuxRows])。
+ * 呈现,独立下一行行按「显示下一行歌词」照常。「显示第二行辅助文字」开启时,第二行
+ * 歌词行本身也按辅助文字形态呈现(即使 [secondaryNextLine] 关闭——此时以「显示下一行
+ * 歌词」为前提;两个第二行开关都关闭时不产生第二行呈现),并在成立时追加其自身的
+ * 辅助文字行(见 [secondLineAuxRows],独立下一行行形态同样追加)。
  * 样式与颜色解耦:辅助文字形态只借辅助文字的字号/亮度档,颜色恒走「下一行颜色」
  * (见 [secondLineColorArgb]),否则该颜色设置对辅助文字形态失效。
  */
@@ -155,24 +157,39 @@ internal fun secondLinePresentation(
     secondaryNextLine: Boolean,
     showNextLine: Boolean,
     hasLine: Boolean,
-    hasFirstLineAux: Boolean
+    hasFirstLineAux: Boolean,
+    nextLineAux: Boolean
 ): SecondLinePresentation = when {
     !hasLine -> SecondLinePresentation.NONE
-    secondLineRendersAsSecondary(secondaryNextLine, hasFirstLineAux) ->
+    secondLineRendersAsSecondary(
+        secondaryNextLine,
+        showNextLine,
+        hasLine,
+        hasFirstLineAux,
+        nextLineAux
+    ) ->
         SecondLinePresentation.AS_SECONDARY
     showNextLine -> SecondLinePresentation.STANDALONE
     else -> SecondLinePresentation.NONE
 }
 
 /**
- * 第二行是否按辅助文字形态呈现:仅「辅助文字显示第二行歌词」开启且第一行辅助文字实际
- * 显示时为真。「显示第二行辅助文字」不改变本判定,只决定第二行自身的辅助文字行是否追加。
- * 绘制期取色/亮度档与行装配共用本判定,防止两处漂移。
+ * 第二行是否按辅助文字形态呈现(绘制期取色/亮度档与行装配共用本判定,防止两处漂移):
+ * 「辅助文字显示第二行歌词」开启且第一行辅助文字实际显示;或「显示第二行辅助文字」开启
+ * 且第二行歌词行会显示(「显示下一行歌词」开启)——后者即使「辅助文字显示第二行歌词」
+ * 关闭也成立(owner 2026-10-04:第四行以第二行歌词行为前提,第二行歌词行本身沿用辅助
+ * 文字形态,不区分其以哪种形态呈现)。
  */
 internal fun secondLineRendersAsSecondary(
     secondaryNextLine: Boolean,
-    hasFirstLineAux: Boolean
-): Boolean = secondaryNextLine && hasFirstLineAux
+    showNextLine: Boolean,
+    hasLine: Boolean,
+    hasFirstLineAux: Boolean,
+    nextLineAux: Boolean
+): Boolean = hasLine && (
+    (secondaryNextLine && hasFirstLineAux) ||
+        (nextLineAux && showNextLine)
+    )
 
 /** 第二行歌词的辅助文字行(按辅助文字模式取音标/翻译,有内容才出)。 */
 internal enum class SecondLineAuxRow { ROMANIZED, TRANSLATED }
