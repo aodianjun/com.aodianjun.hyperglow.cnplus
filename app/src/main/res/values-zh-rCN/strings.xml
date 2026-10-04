@@ -157,6 +157,19 @@
     <string name="summary_about_support">微信 / 支付宝扫码赞赏,或给项目点个 Star</string>
     <string name="action_hyperglow_github">在 GitHub 查看 HyperGlow</string>
     <string name="action_hyperglow_cnplus_github">在 GitHub 查看 HyperGlow CN+</string>
+    <string name="title_help">使用帮助</string>
+    <string name="title_changelog">更新日志</string>
+    <string name="title_contributors">贡献者</string>
+    <string name="title_licenses">开源许可</string>
+    <string name="summary_licenses">本应用依赖的开源项目</string>
+    <string name="about_content_loading">正在加载…</string>
+    <string name="about_content_load_failed">加载失败</string>
+    <string name="action_retry">重试</string>
+    <string name="changelog_empty">暂无更新日志</string>
+    <string name="contributors_contributions">%1$d 次贡献</string>
+    <string name="contributors_empty">暂无贡献者</string>
+    <string name="licenses_summary">HyperGlow CN+ 基于 GPL-3.0 许可开源,并依赖以下开源项目。</string>
+    <string name="help_load_failed">帮助内容加载失败</string>
 
     <string name="setting_show_aod">在息屏显示</string>
     <string name="summary_show_aod_unsupported">已保留配置，但此配置无法运行息屏歌词。</string>
