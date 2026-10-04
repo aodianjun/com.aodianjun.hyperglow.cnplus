@@ -432,8 +432,17 @@ and (b) unverified paths stay explicit instead of silently assumed.
   left-to-right fill front (before or after a line change), the 1.15 long-syllable scale, the halo
   on the long block and the unsung sink / sung float are unchanged, and non-BetterLyrics modes are
   pixel-identical to before.
-- Add new entries here whenever a feature lands without device evidence, and remove them once
-  evidence exists.
+- Same-line content stabilisation (`shouldAdoptLineEnhancements` in `AodCanvasLayoutPolicy.kt`, wired
+  into `AodLyricCanvasView.stabilizeLineEnhancements`): upstream emits the same line twice (with and
+  without `words`; verified on device — `words=13 ↔ words=0` for the same line window), and the
+  layout engine picks a different wrap path per form, so every switch re-flowed the block (owner
+  screen recording, frame by frame: the next line dropped 80 px at the line change, the fill front
+  retreated and re-filled). A line now keeps the wrap form it was first seen with; a "words appear"
+  upgrade is accepted only within 300 ms before the line starts, "words disappear" downgrades and
+  mid-line word-text changes are rejected. Unit-tested (`LineEnhancementStabilityTest`) — pending a
+  hardware smoke check after merge: no row re-flow at line changes (the next line keeps its
+  position), no fill retreat/re-fill mid-line, and word-timed lines still light up on their real
+  word windows when the words arrive before the line starts.
 
 ## How this ledger is used
 
@@ -643,6 +652,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - App 内预测性返回导航（miuix-nav `NavDisplay` 返回栈取代 `editingSurface` 字符串 + `AnimatedContent` 切换器；manifest 置 `android:enableOnBackInvokedCallback="true"`；五个屏的 `androidx.activity` `BackHandler` 全部移除——系统返回由 `NavDisplay` 接管，弹窗打开时仍由 miuix 弹窗自身消费，此前完全没有返回处理的关于页四屏现在也随栈返回；被覆盖页经 `appNavTransition` 淡出，而不是停在 miuix 默认的 alpha 0.9——背景图片模式下页面容器色透明，0.9 会让下层卡片透出）——仅应用内改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：任意子页（主页 → 子页）的系统返回手势 1:1 跟手，过阈值松手回到主页、未过阈值弹回原页，主页根上返回仍退出应用，同一入口连点两次不会卡住返回栈，设置背景图片时转场观感正确。App → 界面导航新增「预测性返回」开关与「返回触发阈值」：开关关闭后页面不再跟手（松手仍返回上一页）；阈值大于 0% 时拖动不足该比例松手会弹回原页（轻快一甩仍返回）；返回键/顶栏返回按钮不受阈值限制。
 - 歌词外观设置并入「设置」页（独立外观编辑器页与「息屏外观/锁屏外观」入口行取消）：编辑器本体——可折叠实时预览 + 位置/文字与语言/效果/颜色/锁屏卡片/两个显示区域——改由 `LyricAppearanceSection` 渲染在设置页的息屏/锁屏分段内（该面歌词总开关排在列表首，息屏行为入口/锁屏唤醒排在列表尾）；原先打开编辑器的状态页外观卡改为切到对应分段。仅应用内改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：两个分段直接铺开全部外观项、实时预览常驻列表上方（折叠后让位给长列表），各控件改的仍是同一份文档、切分段即换编辑面，状态屏外观卡落在正确分段。
 - 「BetterLyrics」档整档不做逐字扫光（共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数 `karaokeSweepEnabled(betterLyrics) = !betterLyrics`：所有词块「开始唱即整块亮起」，不出现填充前缘——换行后的新行同理；辉光仍只挂长音节词块；非 BetterLyrics 档保持词内扫光不变）。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）——两版都留下「行内音节全短时整行照旧逐字填」的残留；真机探针（网易云《蝴蝶》）实测该曲每个词首窗仅 200ms 级，任何口径都不触发，故观感与改前无差别；owner 2026-10-05 复核后定案整档关闭。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweep`）——合并后待真机冒烟：BetterLyrics 档任何行（含换行后新行）都没有从左往右的填充前缘，长音节放大 1.15、光晕只挂长音节、未唱下沉/已唱上浮不变，非 BetterLyrics 档与改前逐像素一致。
+- 同行内容稳定化（`shouldAdoptLineEnhancements`，`AodCanvasLayoutPolicy.kt`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：上游对同一行两阶段下发（带/不带词表，真机实测同一行窗下 `words=13 ↔ words=0`），而折行引擎按形态走两条路径，于是每次切换都重排——owner 录屏逐帧实测：换行瞬间下一行下移 80px、填充前缘倒退重填。现在同一行只认第一次的折行形态；「无词→带词」升级仅在行开始前 300ms 内接受，「带词→无词」回退与演唱中词表文本变化一律拒绝。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行时不再重排（下一行位置不动）、填充不再倒退重填，词表在行开始前到达的行仍按真实词窗点亮。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

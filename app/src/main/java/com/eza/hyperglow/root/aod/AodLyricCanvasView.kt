@@ -291,6 +291,44 @@ internal class AodLyricCanvasView(
         setLayerType(LAYER_TYPE_NONE, null)
     }
 
+    /** 同行内容稳定化(见 [shouldAdoptLineEnhancements]):当前行的行身份与增强数据。 */
+    private var stableLineIdentity: AodCanvasLineIdentity? = null
+    private var stableLineWords: List<AodCanvasWord> = emptyList()
+    private var stableLineGroups: List<AodCanvasLayoutGroup> = emptyList()
+    private var stableLineRuby: List<AodCanvasRuby> = emptyList()
+
+    /**
+     * 按行身份稳定增强数据:同一行在显示期间只认第一次的折行形态,仅允许行开始前的
+     * 「无词→带词」升级(见 [shouldAdoptLineEnhancements])——上游对同一行两阶段下发时
+     * 不再重排(修「歌词位置重载」:换行瞬间下一行被顶下去一行高、填充映射中途切换)。
+     */
+    private fun stabilizeLineEnhancements(incoming: AodCanvasContent): AodCanvasContent {
+        val identity = aodCanvasLineIdentity(incoming)
+        val sameLine = stableLineIdentity == identity
+        val adopt = shouldAdoptLineEnhancements(
+            sameLine = sameLine,
+            layoutSignatureChanged = aodLineLayoutSignature(incoming.words, incoming.layoutGroups) !=
+                aodLineLayoutSignature(stableLineWords, stableLineGroups),
+            incomingEnriches = incoming.words.isNotEmpty() && stableLineWords.isEmpty(),
+            positionMs = incoming.positionMs,
+            lineStartMs = incoming.lineStartMs
+        )
+        val result = if (adopt) {
+            incoming
+        } else {
+            incoming.copy(
+                words = stableLineWords,
+                layoutGroups = stableLineGroups,
+                ruby = stableLineRuby
+            )
+        }
+        stableLineIdentity = identity
+        stableLineWords = result.words
+        stableLineGroups = result.layoutGroups
+        stableLineRuby = result.ruby
+        return result
+    }
+
     fun setContent(incomingContent: AodCanvasContent) {
         if (HookLogger.traceEnabled) {
             // 诊断探针(配置下发排查):记录画布实例与「收到」的档位,与控制器侧
@@ -303,10 +341,12 @@ internal class AodLyricCanvasView(
                 HookLogger.i("AodLyricCanvasView", "setContent in: $incomingKey")
             }
         }
-        val nextContent = incomingContent.copy(
-            animationMode = normalizeAodAnimation(incomingContent.animationMode),
-            motionMode = normalizeAodMotion(incomingContent.motionMode),
-            overflowMode = normalizeAodOverflow(incomingContent.overflowMode)
+        val nextContent = stabilizeLineEnhancements(
+            incomingContent.copy(
+                animationMode = normalizeAodAnimation(incomingContent.animationMode),
+                motionMode = normalizeAodMotion(incomingContent.motionMode),
+                overflowMode = normalizeAodOverflow(incomingContent.overflowMode)
+            )
         )
         val lineChanged = this.content.original.isNotBlank() &&
             aodCanvasLineIdentity(this.content) != aodCanvasLineIdentity(nextContent)
