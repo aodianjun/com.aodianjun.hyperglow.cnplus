@@ -156,7 +156,7 @@ android {
 // release job 的 lintVital 阶段触发 Gradle 9 的隐式依赖校验失败(PR #164 合并 run 实证)。
 tasks.matching { task ->
     (task.name.startsWith("merge") && task.name.endsWith("Assets")) ||
-        task.name.contains("Lint")
+        task.name.contains("lint", ignoreCase = true)
 }.configureEach {
     dependsOn(copyFaqAsset)
 }
