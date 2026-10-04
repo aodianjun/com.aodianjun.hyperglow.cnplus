@@ -158,7 +158,6 @@
     <string name="action_hyperglow_github">在 GitHub 查看 HyperGlow</string>
     <string name="action_hyperglow_cnplus_github">在 GitHub 查看 HyperGlow CN+</string>
 
-    <string name="section_surfaces">显示区域</string>
     <string name="setting_show_aod">在息屏显示</string>
     <string name="summary_show_aod_unsupported">已保留配置，但此配置无法运行息屏歌词。</string>
     <string name="setting_show_lockscreen">在锁屏显示</string>

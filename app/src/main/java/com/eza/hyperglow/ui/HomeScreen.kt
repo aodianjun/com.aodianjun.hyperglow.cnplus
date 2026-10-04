@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -62,6 +63,7 @@ import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
+import top.yukonga.miuix.kmp.basic.TabRowDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -366,6 +368,23 @@ internal fun HomeScreen(
                         ),
                         selectedTabIndex = settingsSectionIndex,
                         onTabSelected = { settingsSectionIndex = it },
+                        // 接入 App 控件外观体系:自定义控件色/背景图玻璃化/不透明度总控都生效。
+                        // 轨道完全透明(HyperOS 分段控件的做法):只留选中的胶囊浮在页面上,
+                        // 自定义控件色时选中态靠胶囊与页面的实度差呈现,不会出现一条突兀的底条。
+                        colors = TabRowDefaults.tabRowColors(
+                            backgroundColor = Color.Transparent,
+                            contentColor = appControlContentColor(
+                                MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            ),
+                            selectedBackgroundColor = appGlassSurface(
+                                LocalAppControlColor.current
+                                    ?: MiuixTheme.colorScheme.surfaceContainer,
+                                APP_GLASS_NAV_ALPHA
+                            ),
+                            selectedContentColor = appControlContentColor(
+                                MiuixTheme.colorScheme.onBackground
+                            )
+                        ),
                         modifier = Modifier.padding(
                             top = innerPadding.calculateTopPadding() + 8.dp,
                             start = 12.dp,
@@ -496,9 +515,8 @@ internal fun HomeScreen(
                 }
 
                 SettingsTab.SETTINGS -> when (settingsSectionIndex) {
-                    // 0 = 息屏设置
+                    // 0 = 息屏设置(条目自带名称,不再套「外观/息屏行为」冗余分组标题)
                     0 -> {
-                        item { SmallTitle(text = stringResource(R.string.section_surfaces)) }
                         item {
                             SettingsCard {
                                 SwitchPreference(
@@ -524,7 +542,6 @@ internal fun HomeScreen(
                                 )
                             }
                         }
-                        item { SmallTitle(text = stringResource(R.string.section_appearance)) }
                         item {
                             SettingsCard {
                                 ArrowPreference(
@@ -533,7 +550,6 @@ internal fun HomeScreen(
                                 )
                             }
                         }
-                        item { SmallTitle(text = stringResource(R.string.section_aod_behavior)) }
                         item {
                             SettingsCard {
                                 ArrowPreference(
@@ -545,9 +561,8 @@ internal fun HomeScreen(
                             }
                         }
                     }
-                    // 1 = 锁屏设置
+                    // 1 = 锁屏设置(同上,开关与外观入口不再套分组标题)
                     1 -> {
-                        item { SmallTitle(text = stringResource(R.string.section_surfaces)) }
                         item {
                             SettingsCard {
                                 SwitchPreference(
@@ -580,7 +595,6 @@ internal fun HomeScreen(
                                 )
                             }
                         }
-                        item { SmallTitle(text = stringResource(R.string.section_appearance)) }
                         item {
                             SettingsCard {
                                 ArrowPreference(
@@ -656,13 +670,16 @@ internal fun HomeScreen(
                                     ),
                                     enabled = runtimeProfileAvailable && (aodSupported || lockscreenSupported)
                                 )
-                                ArrowPreference(
-                                    title = stringResource(R.string.setting_after_spotify_pauses),
-                                    summary = pauseLingerLabel(context, pauseLingerMs),
-                                    onClick = { showPauseLingerDialog = true },
-                                    enabled = pauseShowContent &&
-                                        runtimeProfileAvailable && (aodSupported || lockscreenSupported)
-                                )
+                                // 「音乐暂停后」不可设置(开关关/模块不可用)时不渲染,可设置再出现——不再灰显。
+                                if (pauseShowContent &&
+                                    runtimeProfileAvailable && (aodSupported || lockscreenSupported)
+                                ) {
+                                    ArrowPreference(
+                                        title = stringResource(R.string.setting_after_spotify_pauses),
+                                        summary = pauseLingerLabel(context, pauseLingerMs),
+                                        onClick = { showPauseLingerDialog = true }
+                                    )
+                                }
                             }
                         }
                         item { SmallTitle(text = stringResource(R.string.section_config_backup)) }
