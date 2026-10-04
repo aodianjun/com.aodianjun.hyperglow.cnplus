@@ -91,7 +91,6 @@ internal fun HomeScreen(
     selectedTabName: String,
     onSelectTab: (String) -> Unit,
     onOpenDiagnostics: () -> Unit,
-    onOpenLyricLayout: (String) -> Unit,
     onOpenPlugins: () -> Unit,
     onOpenAodBehavior: () -> Unit,
     onOpenAppAppearance: () -> Unit,
@@ -299,6 +298,13 @@ internal fun HomeScreen(
         if (initialConfig.hideBackgroundCard) applyHideFromRecents(context, true)
     }
 
+    // 外观设置已并入「设置」页的息屏/锁屏分段(不再有独立编辑器页与入口行):
+    // 状态页的外观卡直接切到对应分段,与手动切分段等价。
+    val openAppearanceSection: (String) -> Unit = { surface ->
+        settingsSectionIndex = if (surface == SceneCompiler.SURFACE_AOD) 0 else 1
+        onSelectTab(SettingsTab.SETTINGS.name)
+    }
+
     Scaffold(
         containerColor = appSurfaceColor(),
         topBar = {
@@ -366,6 +372,17 @@ internal fun HomeScreen(
             verticalAlignment = Alignment.Top
         ) { page ->
             val isSettingsPage = SettingsTab.entries[page] == SettingsTab.SETTINGS
+            // 息屏设置/锁屏设置分段就是歌词外观设置本体(原独立外观编辑器整块并入,实时预览常驻
+            // 在列表上方);它自带滚动,所以这两个分段不走下面的 LazyColumn,其余页面/分段照旧。
+            val appearanceSurface = if (isSettingsPage) {
+                when (settingsSectionIndex) {
+                    0 -> SceneCompiler.SURFACE_AOD
+                    1 -> SceneCompiler.SURFACE_LOCKSCREEN
+                    else -> null
+                }
+            } else {
+                null
+            }
             Column(Modifier.fillMaxSize()) {
                 if (isSettingsPage) {
                     // 设置页顶部分段选择器:息屏设置 / 锁屏设置 / 其他设置(固定在列表上方)。
@@ -402,6 +419,135 @@ internal fun HomeScreen(
                         )
                     )
                 }
+                if (appearanceSurface != null) {
+                    LyricAppearanceSection(
+                        surface = appearanceSurface,
+                        contentPadding = PaddingValues(
+                            top = 8.dp,
+                            bottom = innerPadding.calculateBottomPadding() + 20.dp
+                        ),
+                        modifier = Modifier.weight(1f),
+                        // 分段自己的条目:该曲面的歌词总开关排在列表首,行为入口/锁屏唤醒排在列表尾。
+                        header = {
+                            if (appearanceSurface == SceneCompiler.SURFACE_AOD) {
+                                SettingsCard {
+                                    SwitchPreference(
+                                        aodEnabled,
+                                        { enabled ->
+                                            if (!aodSupported) return@SwitchPreference
+                                            if (updateCustomizationSurfaceEnabled(
+                                                    context,
+                                                    SceneCompiler.SURFACE_AOD,
+                                                    enabled
+                                                )
+                                            ) {
+                                                aodEnabled = enabled
+                                            }
+                                        },
+                                        stringResource(R.string.setting_show_aod),
+                                        summary = if (aodSupported) {
+                                            null
+                                        } else {
+                                            stringResource(R.string.summary_show_aod_unsupported)
+                                        },
+                                        enabled = aodSupported
+                                    )
+                                }
+                            } else {
+                                SettingsCard {
+                                    SwitchPreference(
+                                        lockscreenEnabled,
+                                        { enabled ->
+                                            if (!lockscreenSupported) {
+                                                Toast.makeText(
+                                                    context,
+                                                    context.getString(R.string.toast_lockscreen_unsupported),
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                                return@SwitchPreference
+                                            }
+                                            if (updateCustomizationSurfaceEnabled(
+                                                    context,
+                                                    SceneCompiler.SURFACE_LOCKSCREEN,
+                                                    enabled
+                                                )
+                                            ) {
+                                                lockscreenEnabled = enabled
+                                            }
+                                        },
+                                        stringResource(R.string.setting_show_lockscreen),
+                                        summary = if (lockscreenSupported) {
+                                            null
+                                        } else {
+                                            stringResource(R.string.summary_unavailable_systemui_version)
+                                        },
+                                        enabled = lockscreenSupported
+                                    )
+                                }
+                            }
+                        },
+                        footer = {
+                            if (appearanceSurface == SceneCompiler.SURFACE_AOD) {
+                                SettingsCard {
+                                    ArrowPreference(
+                                        title = stringResource(R.string.title_aod_behavior_settings),
+                                        summary = stringResource(R.string.summary_aod_behavior_entry),
+                                        onClick = onOpenAodBehavior,
+                                        enabled = aodSupported
+                                    )
+                                }
+                            } else {
+                                Column {
+                                    SmallTitle(text = stringResource(R.string.section_lockscreen_wake))
+                                    SettingsCard {
+                                        SwitchPreference(
+                                            lockscreenKeepAwake,
+                                            { enabled ->
+                                                if (updateLockscreenKeepAwake(context, enabled)) {
+                                                    lockscreenKeepAwake = enabled
+                                                }
+                                            },
+                                            stringResource(R.string.setting_keep_lockscreen_awake),
+                                            summary =
+                                                stringResource(R.string.summary_keep_lockscreen_awake),
+                                            enabled = lockscreenSupported && lockscreenEnabled
+                                        )
+                                        SwitchPreference(
+                                            suppressLockscreenEditorLongPress,
+                                            { enabled ->
+                                                if (updateLockscreenEditorLongPress(context, enabled)) {
+                                                    suppressLockscreenEditorLongPress = enabled
+                                                }
+                                            },
+                                            stringResource(R.string.setting_block_lockscreen_customization),
+                                            summary = if (lockscreenEditorGestureSupported) {
+                                                stringResource(R.string.summary_block_lockscreen_customization)
+                                            } else {
+                                                stringResource(R.string.summary_unavailable_systemui_version)
+                                            },
+                                            enabled = lockscreenEditorGestureSupported
+                                        )
+                                        SwitchPreference(
+                                            raiseToAod,
+                                            { enabled ->
+                                                if (updateRaiseToAod(context, enabled)) {
+                                                    raiseToAod = enabled
+                                                }
+                                            },
+                                            stringResource(R.string.setting_raise_to_aod),
+                                            summary = if (raiseToAodSupported) {
+                                                stringResource(R.string.summary_raise_to_aod)
+                                            } else {
+                                                stringResource(R.string.summary_unavailable_systemui_version)
+                                            },
+                                            enabled = raiseToAodSupported
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    )
+                } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(
@@ -425,7 +571,7 @@ internal fun HomeScreen(
                             lockscreenEnabled = lockscreenEnabled,
                             systemUiVersion = capabilityReport.systemUiVersion,
                             aodVersion = capabilityReport.aodVersion,
-                            onOpenSurface = onOpenLyricLayout
+                            onOpenSurface = openAppearanceSection
                         )
                     }
                     item { SmallTitle(text = stringResource(R.string.section_live_status)) }
@@ -523,145 +669,9 @@ internal fun HomeScreen(
                     }
                 }
 
-                SettingsTab.SETTINGS -> when (settingsSectionIndex) {
-                    // 0 = 息屏设置(条目自带名称,不再套「外观/息屏行为」冗余分组标题)
-                    0 -> {
-                        item {
-                            SettingsCard {
-                                SwitchPreference(
-                                    aodEnabled,
-                                    { enabled ->
-                                        if (!aodSupported) return@SwitchPreference
-                                        if (updateCustomizationSurfaceEnabled(
-                                                context,
-                                                SceneCompiler.SURFACE_AOD,
-                                                enabled
-                                            )
-                                        ) {
-                                            aodEnabled = enabled
-                                        }
-                                    },
-                                    stringResource(R.string.setting_show_aod),
-                                    summary = if (aodSupported) {
-                                        null
-                                    } else {
-                                        stringResource(R.string.summary_show_aod_unsupported)
-                                    },
-                                    enabled = aodSupported
-                                )
-                            }
-                        }
-                        item {
-                            SettingsCard {
-                                ArrowPreference(
-                                    title = stringResource(R.string.title_aod_appearance),
-                                    onClick = { onOpenLyricLayout(SceneCompiler.SURFACE_AOD) }
-                                )
-                            }
-                        }
-                        item {
-                            SettingsCard {
-                                ArrowPreference(
-                                    title = stringResource(R.string.title_aod_behavior_settings),
-                                    summary = stringResource(R.string.summary_aod_behavior_entry),
-                                    onClick = onOpenAodBehavior,
-                                    enabled = aodSupported
-                                )
-                            }
-                        }
-                    }
-                    // 1 = 锁屏设置(同上,开关与外观入口不再套分组标题)
-                    1 -> {
-                        item {
-                            SettingsCard {
-                                SwitchPreference(
-                                    lockscreenEnabled,
-                                    { enabled ->
-                                        if (!lockscreenSupported) {
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(R.string.toast_lockscreen_unsupported),
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                            return@SwitchPreference
-                                        }
-                                        if (updateCustomizationSurfaceEnabled(
-                                                context,
-                                                SceneCompiler.SURFACE_LOCKSCREEN,
-                                                enabled
-                                            )
-                                        ) {
-                                            lockscreenEnabled = enabled
-                                        }
-                                    },
-                                    stringResource(R.string.setting_show_lockscreen),
-                                    summary = if (lockscreenSupported) {
-                                        null
-                                    } else {
-                                        stringResource(R.string.summary_unavailable_systemui_version)
-                                    },
-                                    enabled = lockscreenSupported
-                                )
-                            }
-                        }
-                        item {
-                            SettingsCard {
-                                ArrowPreference(
-                                    title = stringResource(R.string.title_lockscreen_appearance),
-                                    onClick = { onOpenLyricLayout(SceneCompiler.SURFACE_LOCKSCREEN) }
-                                )
-                            }
-                        }
-                        item { SmallTitle(text = stringResource(R.string.section_lockscreen_wake)) }
-                        item {
-                            SettingsCard {
-                                SwitchPreference(
-                                    lockscreenKeepAwake,
-                                    { enabled ->
-                                        if (updateLockscreenKeepAwake(context, enabled)) {
-                                            lockscreenKeepAwake = enabled
-                                        }
-                                    },
-                                    stringResource(R.string.setting_keep_lockscreen_awake),
-                                    summary =
-                                        stringResource(R.string.summary_keep_lockscreen_awake),
-                                    enabled = lockscreenSupported && lockscreenEnabled
-                                )
-                                SwitchPreference(
-                                    suppressLockscreenEditorLongPress,
-                                    { enabled ->
-                                        if (updateLockscreenEditorLongPress(context, enabled)) {
-                                            suppressLockscreenEditorLongPress = enabled
-                                        }
-                                    },
-                                    stringResource(R.string.setting_block_lockscreen_customization),
-                                    summary = if (lockscreenEditorGestureSupported) {
-                                        stringResource(R.string.summary_block_lockscreen_customization)
-                                    } else {
-                                        stringResource(R.string.summary_unavailable_systemui_version)
-                                    },
-                                    enabled = lockscreenEditorGestureSupported
-                                )
-                                SwitchPreference(
-                                    raiseToAod,
-                                    { enabled ->
-                                        if (updateRaiseToAod(context, enabled)) {
-                                            raiseToAod = enabled
-                                        }
-                                    },
-                                    stringResource(R.string.setting_raise_to_aod),
-                                    summary = if (raiseToAodSupported) {
-                                        stringResource(R.string.summary_raise_to_aod)
-                                    } else {
-                                        stringResource(R.string.summary_unavailable_systemui_version)
-                                    },
-                                    enabled = raiseToAodSupported
-                                )
-                            }
-                        }
-                    }
-                    // 2 = 其他设置
-                    else -> {
+                // 息屏设置/锁屏设置两个分段在上面的外观分段分支里渲染(即歌词外观设置本体),
+                // 走到这个 LazyColumn 的只可能是「其他设置」。
+                SettingsTab.SETTINGS -> {
                         item { SmallTitle(text = stringResource(R.string.section_playback_behavior)) }
                         item {
                             SettingsCard {
@@ -716,7 +726,6 @@ internal fun HomeScreen(
                             }
                         }
                     }
-                }
 
                 SettingsTab.APP -> {
                     item { SmallTitle(text = stringResource(R.string.section_language)) }
@@ -953,6 +962,7 @@ internal fun HomeScreen(
                     }
                 }
 
+                }
                 }
                 }
             }

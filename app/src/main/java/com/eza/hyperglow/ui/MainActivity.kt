@@ -148,9 +148,6 @@ class MainActivity : ComponentActivity() {
                                             selectedTabName = selectedTabName,
                                             onSelectTab = { selectedTabName = it },
                                             onOpenDiagnostics = { backStack.pushRoute(AppRoute.Diagnostics) },
-                                            onOpenLyricLayout = { surface ->
-                                                backStack.pushRoute(AppRoute.LyricLayout(surface))
-                                            },
                                             onOpenPlugins = { backStack.pushRoute(AppRoute.Plugins) },
                                             onOpenAodBehavior = { backStack.pushRoute(AppRoute.AodBehavior) },
                                             onOpenAppAppearance = { backStack.pushRoute(AppRoute.AppAppearance) },
@@ -203,12 +200,6 @@ class MainActivity : ComponentActivity() {
                                     entry<AppRoute.Changelog> { ChangelogScreen(onBack = { backStack.popRoute() }) }
                                     entry<AppRoute.Contributors> { ContributorsScreen(onBack = { backStack.popRoute() }) }
                                     entry<AppRoute.Licenses> { LicensesScreen(onBack = { backStack.popRoute() }) }
-                                    entry<AppRoute.LyricLayout> { route ->
-                                        LyricLayoutScreen(
-                                            initialSurface = route.surface,
-                                            onBack = { backStack.popRoute() }
-                                        )
-                                    }
                                 }
                                 if (!predictiveBackEnabled) {
                                     // 关闭预测性返回:自己消费返回手势(不做跟手预览),松手直接返回上一页。

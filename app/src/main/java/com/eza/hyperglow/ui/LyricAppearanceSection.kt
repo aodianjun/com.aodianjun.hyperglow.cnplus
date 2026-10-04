@@ -90,7 +90,6 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.ColorPicker
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -101,17 +100,29 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
+/**
+ * 歌词外观设置本体(息屏/锁屏共用一份实现,[surface] 决定编辑哪一面):顶部常驻可折叠实时预览
+ * + 位置/文字与语言/效果/颜色/锁屏卡片/两个显示区域全部外观项 + 各选项弹窗。
+ *
+ * 原独立外观编辑器页已整块并入「设置」页的息屏/锁屏分段(去掉入口行),本组件即该分段的内容:
+ * 自带滚动(预览常驻在列表上方,调节下方选项时效果实时可见),调用方以 weight 占满剩余高度,
+ * [header]/[footer] 用来把分段自己的条目(息屏歌词开关 / 息屏行为入口 / 锁屏唤醒)插在列表首尾。
+ */
 @Composable
-internal fun LyricLayoutScreen(
-    initialSurface: String,
-    onBack: () -> Unit
+internal fun LyricAppearanceSection(
+    surface: String,
+    contentPadding: PaddingValues,
+    modifier: Modifier = Modifier,
+    header: (@Composable () -> Unit)? = null,
+    footer: (@Composable () -> Unit)? = null
 ) {
     val context = LocalContext.current
-    var editorState by remember {
+    // 状态按曲面重建:两个分段复用同一实现,切分段即换编辑面(文档同源,各自只改本面)。
+    var editorState by remember(surface) {
         mutableStateOf(
             CustomizationEditorState(
                 CustomizationRepository.loadDocument(context),
-                initialSurface
+                surface
             )
         )
     }
@@ -256,621 +267,602 @@ internal fun LyricLayoutScreen(
         selectedProfile.hideAlbumWhenSameAsTitle ?: editorState.document.hideAlbumWhenSameAsTitle
     val effectiveDuetMarkers = selectedProfile.duetMarkers ?: editorState.document.duetMarkers
     // 预览走与实机相同的编译管线(归一化/白名单),编辑后立即反映最终生效效果,所见即所得
-    val compiledPreviewProfile = remember(editorState.document) {
+    val compiledPreviewProfile = remember(editorState.document, editorState.selectedSurface) {
         SceneCompiler.compile(editorState.document)
             .profiles.getValue(editorState.selectedSurface)
     }
     var previewCollapsed by rememberSaveable { mutableStateOf(false) }
 
-    Scaffold(
-        containerColor = appSurfaceColor(),
-        topBar = {
-            AppTopBar(
-                title = if (editorState.selectedSurface == SceneCompiler.SURFACE_AOD) {
-                    stringResource(R.string.title_aod_appearance)
-                } else {
-                    stringResource(R.string.title_lockscreen_appearance)
-                },
-                onBack = onBack
+    Column(modifier.fillMaxWidth()) {
+        // 顶部常驻悬浮预览:调节下方选项时效果实时可见;点击标题栏可折叠让位给长列表
+        AppearancePreviewHeader(
+            expanded = !previewCollapsed,
+            onToggle = { previewCollapsed = !previewCollapsed }
+        )
+        AnimatedVisibility(visible = !previewCollapsed) {
+            AppearanceLivePreview(
+                profile = compiledPreviewProfile,
+                scenario = editorState.selectedSurface,
+                // 内容项取本面编译后的已解析值(含文档级兜底),预览与实机同源。
+                metadataParts = compiledPreviewProfile.metadataParts,
+                metadataSeparators = compiledPreviewProfile.metadataSeparators,
+                duetMarkers = compiledPreviewProfile.duetMarkers
             )
         }
-    ) { innerPadding ->
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(top = innerPadding.calculateTopPadding())
+        LazyColumn(
+            contentPadding = contentPadding,
+            modifier = Modifier.weight(1f)
         ) {
-            // 顶部常驻悬浮预览:调节下方选项时效果实时可见;点击标题栏可折叠让位给长列表
-            AppearancePreviewHeader(
-                expanded = !previewCollapsed,
-                onToggle = { previewCollapsed = !previewCollapsed }
-            )
-            AnimatedVisibility(visible = !previewCollapsed) {
-                AppearanceLivePreview(
-                    profile = compiledPreviewProfile,
-                    scenario = editorState.selectedSurface,
-                    // 内容项取本面编译后的已解析值(含文档级兜底),预览与实机同源。
-                    metadataParts = compiledPreviewProfile.metadataParts,
-                    metadataSeparators = compiledPreviewProfile.metadataSeparators,
-                    duetMarkers = compiledPreviewProfile.duetMarkers
-                )
-            }
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    top = 4.dp,
-                    bottom = innerPadding.calculateBottomPadding() + 20.dp
-                ),
-                modifier = Modifier.weight(1f)
-            ) {
-            item { SmallTitle(text = stringResource(R.string.section_placement)) }
-            item {
-                SettingsCard {
-                    AodChoiceRow(AodChoiceKind.POSITION, selectedProfile.anchor) {
+        header?.let { slot -> item { slot() } }
+        item { SmallTitle(text = stringResource(R.string.section_placement)) }
+        item {
+            SettingsCard {
+                AodChoiceRow(AodChoiceKind.POSITION, selectedProfile.anchor) {
+                    openChoice(
+                        AodChoiceKind.POSITION,
+                        listOf(
+                            "below_stock_clock",
+                            "screen_center",
+                            "screen_top_safe",
+                            "screen_bottom_safe",
+                            "custom_vertical_bias"
+                        ),
+                        selectedProfile.anchor
+                    ) { value -> updateSelected { it.copy(anchor = value) } }
+                }
+                AodChoiceRow(AodChoiceKind.WIDTH, selectedProfile.widthFraction.toString()) {
+                    openChoice(
+                        AodChoiceKind.WIDTH,
+                        listOf("0.7", "0.88", "1.0"),
+                        selectedProfile.widthFraction.toString()
+                    ) { value -> updateSelected { it.copy(widthFraction = value.toFloat()) } }
+                }
+                // 息屏没有卡片背景,高度档位无视觉意义(编译期固定为最小档),
+                // 不提供高度设置;锁屏卡片保留高度档位。
+                if (editorState.selectedSurface != SceneCompiler.SURFACE_AOD) {
+                    AodChoiceRow(
+                        AodChoiceKind.HEIGHT,
+                        selectedProfile.maxHeightFraction.toString()
+                    ) {
                         openChoice(
-                            AodChoiceKind.POSITION,
-                            listOf(
-                                "below_stock_clock",
-                                "screen_center",
-                                "screen_top_safe",
-                                "screen_bottom_safe",
-                                "custom_vertical_bias"
-                            ),
-                            selectedProfile.anchor
-                        ) { value -> updateSelected { it.copy(anchor = value) } }
-                    }
-                    AodChoiceRow(AodChoiceKind.WIDTH, selectedProfile.widthFraction.toString()) {
-                        openChoice(
-                            AodChoiceKind.WIDTH,
-                            listOf("0.7", "0.88", "1.0"),
-                            selectedProfile.widthFraction.toString()
-                        ) { value -> updateSelected { it.copy(widthFraction = value.toFloat()) } }
-                    }
-                    // 息屏没有卡片背景,高度档位无视觉意义(编译期固定为最小档),
-                    // 不提供高度设置;锁屏卡片保留高度档位。
-                    if (editorState.selectedSurface != SceneCompiler.SURFACE_AOD) {
-                        AodChoiceRow(
                             AodChoiceKind.HEIGHT,
+                            listOf("0.4", "0.5", "0.6", "0.7"),
                             selectedProfile.maxHeightFraction.toString()
-                        ) {
-                            openChoice(
-                                AodChoiceKind.HEIGHT,
-                                listOf("0.4", "0.5", "0.6", "0.7"),
-                                selectedProfile.maxHeightFraction.toString()
-                            ) { value ->
-                                updateSelected {
-                                    it.copy(maxHeightFraction = value.toFloat())
-                                }
+                        ) { value ->
+                            updateSelected {
+                                it.copy(maxHeightFraction = value.toFloat())
                             }
                         }
-                    }
-                    SliderPreference(
-                        value = selectedProfile.verticalBias * 100f,
-                        onValueChange = { pct ->
-                            updateSelected {
-                                it.copy(
-                                    anchor = "custom_vertical_bias",
-                                    verticalBias = (pct / 100f).coerceIn(0f, 1f)
-                                )
-                            }
-                        },
-                        title = stringResource(R.string.setting_custom_position),
-                        summary = stringResource(R.string.summary_custom_position),
-                        valueText = "${(selectedProfile.verticalBias * 100).roundToInt()}%",
-                        valueRange = 0f..100f,
-                        steps = 20
-                    )
-                    AodChoiceRow(AodChoiceKind.OVERLAP, selectedProfile.collisionPolicy) {
-                        openChoice(
-                            AodChoiceKind.OVERLAP,
-                            listOf("avoid", "behind_system", "hide_optional", "hide_scene"),
-                            selectedProfile.collisionPolicy
-                        ) { value -> updateSelected { it.copy(collisionPolicy = value) } }
                     }
                 }
+                SliderPreference(
+                    value = selectedProfile.verticalBias * 100f,
+                    onValueChange = { pct ->
+                        updateSelected {
+                            it.copy(
+                                anchor = "custom_vertical_bias",
+                                verticalBias = (pct / 100f).coerceIn(0f, 1f)
+                            )
+                        }
+                    },
+                    title = stringResource(R.string.setting_custom_position),
+                    summary = stringResource(R.string.summary_custom_position),
+                    valueText = "${(selectedProfile.verticalBias * 100).roundToInt()}%",
+                    valueRange = 0f..100f,
+                    steps = 20
+                )
+                AodChoiceRow(AodChoiceKind.OVERLAP, selectedProfile.collisionPolicy) {
+                    openChoice(
+                        AodChoiceKind.OVERLAP,
+                        listOf("avoid", "behind_system", "hide_optional", "hide_scene"),
+                        selectedProfile.collisionPolicy
+                    ) { value -> updateSelected { it.copy(collisionPolicy = value) } }
+                }
             }
-            item { SmallTitle(text = stringResource(R.string.section_text_language)) }
-            item {
-                SettingsCard {
-                    AodChoiceRow(AodChoiceKind.ALIGNMENT, selectedProfile.alignment) {
-                        openChoice(
-                            AodChoiceKind.ALIGNMENT,
-                            listOf("auto", "start", "center", "end"),
-                            selectedProfile.alignment
-                        ) { value -> updateSelected { it.copy(alignment = value) } }
-                    }
-                    // 对唱分侧:仅在主对齐为「自动」时可感知(显式对齐整体覆盖分侧结果)。
+        }
+        item { SmallTitle(text = stringResource(R.string.section_text_language)) }
+        item {
+            SettingsCard {
+                AodChoiceRow(AodChoiceKind.ALIGNMENT, selectedProfile.alignment) {
+                    openChoice(
+                        AodChoiceKind.ALIGNMENT,
+                        listOf("auto", "start", "center", "end"),
+                        selectedProfile.alignment
+                    ) { value -> updateSelected { it.copy(alignment = value) } }
+                }
+                // 对唱分侧:仅在主对齐为「自动」时可感知(显式对齐整体覆盖分侧结果)。
+                SwitchPreference(
+                    selectedProfile.duetAlignment,
+                    { enabled -> updateSelected { it.copy(duetAlignment = enabled) } },
+                    stringResource(R.string.setting_duet_alignment),
+                    summary = stringResource(R.string.summary_duet_alignment)
+                )
+                // 显示并发歌词(对唱):per-surface 开关,锁屏与息屏各自独立
+                // (上游为 AOD-only,CN+ 扩展到锁屏卡片)。
+                SwitchPreference(
+                    selectedProfile.duetConcurrent,
+                    { enabled -> updateSelected { it.copy(duetConcurrent = enabled) } },
+                    stringResource(R.string.setting_duet_concurrent),
+                    summary = stringResource(R.string.summary_duet_concurrent)
+                )
+                // 识别对唱标记(per-surface):标记是内容级解释,息屏与锁屏各自独立生效,
+                // 改本面不影响另一面。本面未显式设置时以文档级值作有效值。
+                SwitchPreference(
+                    effectiveDuetMarkers,
+                    { enabled -> updateSelected { it.copy(duetMarkers = enabled) } },
+                    stringResource(R.string.setting_duet_markers),
+                    summary = stringResource(R.string.summary_duet_markers)
+                )
+                // 歌词时间偏移(文档级全局):显示时间轴 = 播放位置 − 偏移,正数延后、
+                // 负数提前(参考 HyperLyric 同名能力);50ms 量化、±5s 封顶,编译归一,
+                // 息屏与锁屏同源生效。
+                SliderPreference(
+                    value = editorState.document.lyricTimeOffsetMs.toFloat(),
+                    onValueChange = { raw ->
+                        val quantized = LyricTimeOffset.normalize(
+                            (raw / LyricTimeOffset.STEP_MS.toFloat()).roundToInt() * LyricTimeOffset.STEP_MS
+                        )
+                        updateDocument { it.copy(lyricTimeOffsetMs = quantized) }
+                    },
+                    title = stringResource(R.string.setting_lyric_time_offset),
+                    summary = stringResource(R.string.summary_lyric_time_offset),
+                    valueText = run {
+                        val v = editorState.document.lyricTimeOffsetMs
+                        if (v > 0) "+$v ms" else "$v ms"
+                    },
+                    valueRange = LyricTimeOffset.MIN_OFFSET_MS.toFloat()..LyricTimeOffset.MAX_OFFSET_MS.toFloat(),
+                    steps = 199
+                )
+                AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
+                    openChoice(
+                        AodChoiceKind.SECONDARY_TEXT,
+                        listOf("Main only", "Transliteration", "Translation", "Both"),
+                        selectedProfile.secondaryMode
+                    ) { value -> updateSelected { it.copy(secondaryMode = value) } }
+                }
+                if (selectedProfile.secondaryMode != "Main only" ||
+                    selectedProfile.secondaryNextLine
+                ) {
                     SwitchPreference(
-                        selectedProfile.duetAlignment,
-                        { enabled -> updateSelected { it.copy(duetAlignment = enabled) } },
-                        stringResource(R.string.setting_duet_alignment),
-                        summary = stringResource(R.string.summary_duet_alignment)
+                        selectedProfile.secondaryTextBright,
+                        { bright -> updateSelected { it.copy(secondaryTextBright = bright) } },
+                        stringResource(R.string.setting_bright_secondary_text)
                     )
-                    // 显示并发歌词(对唱):per-surface 开关,锁屏与息屏各自独立
-                    // (上游为 AOD-only,CN+ 扩展到锁屏卡片)。
+                }
+                // 辅助文字逐字效果(per-surface):第一行辅助文字行(音标/翻译)随歌词逐字点亮。
+                // 只在辅助文字模式非「仅主行」时露出(没有第一行辅助文字行时该开关无对象);
+                // 第二行歌词及其辅助行不参与。
+                if (selectedProfile.secondaryMode != "Main only") {
                     SwitchPreference(
-                        selectedProfile.duetConcurrent,
-                        { enabled -> updateSelected { it.copy(duetConcurrent = enabled) } },
-                        stringResource(R.string.setting_duet_concurrent),
-                        summary = stringResource(R.string.summary_duet_concurrent)
-                    )
-                    // 识别对唱标记(per-surface):标记是内容级解释,息屏与锁屏各自独立生效,
-                    // 改本面不影响另一面。本面未显式设置时以文档级值作有效值。
-                    SwitchPreference(
-                        effectiveDuetMarkers,
-                        { enabled -> updateSelected { it.copy(duetMarkers = enabled) } },
-                        stringResource(R.string.setting_duet_markers),
-                        summary = stringResource(R.string.summary_duet_markers)
-                    )
-                    // 歌词时间偏移(文档级全局):显示时间轴 = 播放位置 − 偏移,正数延后、
-                    // 负数提前(参考 HyperLyric 同名能力);50ms 量化、±5s 封顶,编译归一,
-                    // 息屏与锁屏同源生效。
-                    SliderPreference(
-                        value = editorState.document.lyricTimeOffsetMs.toFloat(),
-                        onValueChange = { raw ->
-                            val quantized = LyricTimeOffset.normalize(
-                                (raw / LyricTimeOffset.STEP_MS.toFloat()).roundToInt() * LyricTimeOffset.STEP_MS
-                            )
-                            updateDocument { it.copy(lyricTimeOffsetMs = quantized) }
+                        selectedProfile.secondaryWordKaraoke,
+                        { enabled ->
+                            updateSelected { it.copy(secondaryWordKaraoke = enabled) }
                         },
-                        title = stringResource(R.string.setting_lyric_time_offset),
-                        summary = stringResource(R.string.summary_lyric_time_offset),
-                        valueText = run {
-                            val v = editorState.document.lyricTimeOffsetMs
-                            if (v > 0) "+$v ms" else "$v ms"
-                        },
-                        valueRange = LyricTimeOffset.MIN_OFFSET_MS.toFloat()..LyricTimeOffset.MAX_OFFSET_MS.toFloat(),
-                        steps = 199
+                        stringResource(R.string.setting_secondary_word_karaoke),
+                        summary = stringResource(R.string.summary_secondary_word_karaoke)
                     )
-                    AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
-                        openChoice(
-                            AodChoiceKind.SECONDARY_TEXT,
-                            listOf("Main only", "Transliteration", "Translation", "Both"),
-                            selectedProfile.secondaryMode
-                        ) { value -> updateSelected { it.copy(secondaryMode = value) } }
-                    }
-                    if (selectedProfile.secondaryMode != "Main only" ||
-                        selectedProfile.secondaryNextLine
-                    ) {
-                        SwitchPreference(
-                            selectedProfile.secondaryTextBright,
-                            { bright -> updateSelected { it.copy(secondaryTextBright = bright) } },
-                            stringResource(R.string.setting_bright_secondary_text)
-                        )
-                    }
-                    // 辅助文字逐字效果(per-surface):第一行辅助文字行(音标/翻译)随歌词逐字点亮。
-                    // 只在辅助文字模式非「仅主行」时露出(没有第一行辅助文字行时该开关无对象);
-                    // 第二行歌词及其辅助行不参与。
-                    if (selectedProfile.secondaryMode != "Main only") {
-                        SwitchPreference(
-                            selectedProfile.secondaryWordKaraoke,
-                            { enabled ->
-                                updateSelected { it.copy(secondaryWordKaraoke = enabled) }
-                            },
-                            stringResource(R.string.setting_secondary_word_karaoke),
-                            summary = stringResource(R.string.summary_secondary_word_karaoke)
-                        )
-                    }
+                }
+                SwitchPreference(
+                    selectedProfile.secondaryNextLine,
+                    { enabled -> updateSelected { it.copy(secondaryNextLine = enabled) } },
+                    stringResource(R.string.setting_secondary_next_line)
+                )
+                // 「显示第二行辅助文字」以第二行歌词行实际显示为前提:「显示下一行歌词」
+                // 或「辅助文字显示第二行歌词」任一开启时露出;两者都关时没有第二行歌词行,
+                // 本开关无第二行辅助文字行可追加,故不露出。
+                if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine) {
                     SwitchPreference(
-                        selectedProfile.secondaryNextLine,
-                        { enabled -> updateSelected { it.copy(secondaryNextLine = enabled) } },
-                        stringResource(R.string.setting_secondary_next_line)
+                        selectedProfile.nextLineAux,
+                        { enabled -> updateSelected { it.copy(nextLineAux = enabled) } },
+                        stringResource(R.string.setting_next_line_aux)
                     )
-                    // 「显示第二行辅助文字」以第二行歌词行实际显示为前提:「显示下一行歌词」
-                    // 或「辅助文字显示第二行歌词」任一开启时露出;两者都关时没有第二行歌词行,
-                    // 本开关无第二行辅助文字行可追加,故不露出。
-                    if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine) {
-                        SwitchPreference(
-                            selectedProfile.nextLineAux,
-                            { enabled -> updateSelected { it.copy(nextLineAux = enabled) } },
-                            stringResource(R.string.setting_next_line_aux)
-                        )
-                    }
-                    SwitchPreference(
-                        selectedProfile.rubyVisible,
-                        { visible -> updateSelected { it.copy(rubyVisible = visible) } },
-                        stringResource(R.string.setting_show_furigana)
-                    )
-                    AodChoiceRow(AodChoiceKind.LONG_LINES, selectedProfile.overflow) {
+                }
+                SwitchPreference(
+                    selectedProfile.rubyVisible,
+                    { visible -> updateSelected { it.copy(rubyVisible = visible) } },
+                    stringResource(R.string.setting_show_furigana)
+                )
+                AodChoiceRow(AodChoiceKind.LONG_LINES, selectedProfile.overflow) {
+                    openChoice(
+                        AodChoiceKind.LONG_LINES,
+                        listOf("Wrap", "Clip"),
+                        selectedProfile.overflow
+                    ) { value -> updateSelected { it.copy(overflow = value) } }
+                }
+                if (selectedProfile.overflow == "Wrap") {
+                    AodChoiceRow(AodChoiceKind.LYRIC_LINES, selectedProfile.lyricLineLimit.toString()) {
                         openChoice(
-                            AodChoiceKind.LONG_LINES,
-                            listOf("Wrap", "Clip"),
-                            selectedProfile.overflow
-                        ) { value -> updateSelected { it.copy(overflow = value) } }
-                    }
-                    if (selectedProfile.overflow == "Wrap") {
-                        AodChoiceRow(AodChoiceKind.LYRIC_LINES, selectedProfile.lyricLineLimit.toString()) {
-                            openChoice(
-                                AodChoiceKind.LYRIC_LINES,
-                                listOf("1", "2", "3", "4", "5", "0"),
-                                selectedProfile.lyricLineLimit.toString()
-                            ) { value ->
-                                updateSelected { it.copy(lyricLineLimit = value.toInt()) }
-                            }
+                            AodChoiceKind.LYRIC_LINES,
+                            listOf("1", "2", "3", "4", "5", "0"),
+                            selectedProfile.lyricLineLimit.toString()
+                        ) { value ->
+                            updateSelected { it.copy(lyricLineLimit = value.toInt()) }
                         }
                     }
-                    SwitchPreference(
-                        selectedProfile.adaptiveSectioning,
-                        { enabled -> updateSelected { it.copy(adaptiveSectioning = enabled) } },
-                        stringResource(R.string.setting_keep_phrases_together)
-                    )
-                    SwitchPreference(
-                        selectedProfile.showNextLine,
-                        { enabled -> updateSelected { it.copy(showNextLine = enabled) } },
-                        stringResource(R.string.setting_show_next_line)
-                    )
-                    if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine ||
-                        selectedProfile.nextLineAux
+                }
+                SwitchPreference(
+                    selectedProfile.adaptiveSectioning,
+                    { enabled -> updateSelected { it.copy(adaptiveSectioning = enabled) } },
+                    stringResource(R.string.setting_keep_phrases_together)
+                )
+                SwitchPreference(
+                    selectedProfile.showNextLine,
+                    { enabled -> updateSelected { it.copy(showNextLine = enabled) } },
+                    stringResource(R.string.setting_show_next_line)
+                )
+                if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine ||
+                    selectedProfile.nextLineAux
+                ) {
+                    AodChoiceRow(
+                        AodChoiceKind.SECOND_LINE_ALIGNMENT,
+                        selectedProfile.nextLineAlignment
                     ) {
-                        AodChoiceRow(
+                        openChoice(
                             AodChoiceKind.SECOND_LINE_ALIGNMENT,
+                            listOf("auto", "start", "center", "end"),
                             selectedProfile.nextLineAlignment
-                        ) {
-                            openChoice(
-                                AodChoiceKind.SECOND_LINE_ALIGNMENT,
-                                listOf("auto", "start", "center", "end"),
-                                selectedProfile.nextLineAlignment
-                            ) { value -> updateSelected { it.copy(nextLineAlignment = value) } }
-                        }
+                        ) { value -> updateSelected { it.copy(nextLineAlignment = value) } }
                     }
-                    SwitchPreference(
-                        selectedProfile.metadataVisible,
-                        { visible -> updateSelected { withMetadataVisible(it, visible) } },
-                        stringResource(R.string.setting_show_song_info)
-                    )
-                    if (selectedProfile.metadataVisible) {
-                        AodChoiceRow(AodChoiceKind.SONG_INFO_POSITION, selectedProfile.metadataAnchor) {
-                            openChoice(
-                                AodChoiceKind.SONG_INFO_POSITION,
-                                listOf("top", "bottom"),
-                                selectedProfile.metadataAnchor
-                            ) { value -> updateSelected { it.copy(metadataAnchor = value) } }
-                        }
-                        AodChoiceRow(
+                }
+                SwitchPreference(
+                    selectedProfile.metadataVisible,
+                    { visible -> updateSelected { withMetadataVisible(it, visible) } },
+                    stringResource(R.string.setting_show_song_info)
+                )
+                if (selectedProfile.metadataVisible) {
+                    AodChoiceRow(AodChoiceKind.SONG_INFO_POSITION, selectedProfile.metadataAnchor) {
+                        openChoice(
+                            AodChoiceKind.SONG_INFO_POSITION,
+                            listOf("top", "bottom"),
+                            selectedProfile.metadataAnchor
+                        ) { value -> updateSelected { it.copy(metadataAnchor = value) } }
+                    }
+                    AodChoiceRow(
+                        AodChoiceKind.SONG_INFO_ALIGNMENT,
+                        selectedProfile.metadataAlignment
+                    ) {
+                        openChoice(
                             AodChoiceKind.SONG_INFO_ALIGNMENT,
+                            listOf("auto", "start", "center", "end"),
                             selectedProfile.metadataAlignment
-                        ) {
-                            openChoice(
-                                AodChoiceKind.SONG_INFO_ALIGNMENT,
-                                listOf("auto", "start", "center", "end"),
-                                selectedProfile.metadataAlignment
-                            ) { value -> updateSelected { it.copy(metadataAlignment = value) } }
-                        }
-                        TextSizePreference(
-                            title = stringResource(R.string.setting_song_info_size),
-                            percent = selectedProfile.metadataSizePercent.coerceIn(50, 200),
-                            onDecrease = {
-                                updateSelected {
-                                    it.copy(
-                                        metadataSizePercent =
-                                            (it.metadataSizePercent - 5).coerceIn(50, 200)
-                                    )
-                                }
-                            },
-                            onIncrease = {
-                                updateSelected {
-                                    it.copy(
-                                        metadataSizePercent =
-                                            (it.metadataSizePercent + 5).coerceIn(50, 200)
-                                    )
-                                }
-                            }
-                        )
-                        // 内容编辑:勾选/排序显示部分(歌名/歌手/专辑),并逐槽独立选择相邻两项之间的分隔符。
-                        ArrowPreference(
-                            title = stringResource(R.string.setting_song_info_parts),
-                            summary = metadataPartsDisplayLabel(context, effectiveMetadataParts),
-                            onClick = { activePartsEditor = true }
-                        )
-                        // 专辑与歌名一致时隐藏专辑:仅在专辑作为显示部分时露出(否则无专辑可隐藏)。
-                        if (normalizeMetadataParts(effectiveMetadataParts)
-                                .split(',').contains(METADATA_PART_ALBUM)
-                        ) {
-                            SwitchPreference(
-                                effectiveHideAlbumWhenSameAsTitle,
-                                { enabled ->
-                                    updateSelected {
-                                        it.copy(hideAlbumWhenSameAsTitle = enabled)
-                                    }
-                                },
-                                stringResource(R.string.setting_hide_album_same_as_title),
-                                summary = stringResource(R.string.summary_hide_album_same_as_title)
-                            )
-                        }
-                        // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 自适应缩放
-                        // (关闭时露出自定义大小拖动条) → 旋转(仅圆形)。
-                        SwitchPreference(
-                            selectedProfile.artworkVisible,
-                            { visible -> updateSelected { it.copy(artworkVisible = visible) } },
-                            stringResource(R.string.setting_show_song_artwork)
-                        )
-                        if (selectedProfile.artworkVisible) {
-                            AodChoiceRow(
-                                AodChoiceKind.SONG_ARTWORK_SHAPE,
-                                selectedProfile.artworkShape
-                            ) {
-                                openChoice(
-                                    AodChoiceKind.SONG_ARTWORK_SHAPE,
-                                    ARTWORK_SHAPES,
-                                    selectedProfile.artworkShape
-                                ) { value ->
-                                    updateSelected {
-                                        it.copy(artworkShape = normalizeArtworkShape(value))
-                                    }
-                                }
-                            }
-                            // 自适应缩放:开启时边长随歌曲信息字号缩放;关闭时露出自定义大小拖动条。
-                            SwitchPreference(
-                                selectedProfile.artworkAdaptiveScale,
-                                { adaptive ->
-                                    updateSelected { it.copy(artworkAdaptiveScale = adaptive) }
-                                },
-                                stringResource(R.string.setting_song_artwork_adaptive)
-                            )
-                            if (!selectedProfile.artworkAdaptiveScale) {
-                                val sizeDp = normalizeArtworkSizeDp(selectedProfile.artworkSizeDp)
-                                SliderPreference(
-                                    value = sizeDp.toFloat(),
-                                    onValueChange = { value ->
-                                        updateSelected {
-                                            it.copy(
-                                                artworkSizeDp =
-                                                    normalizeArtworkSizeDp(value.roundToInt())
-                                            )
-                                        }
-                                    },
-                                    title = stringResource(R.string.setting_song_artwork_size),
-                                    summary = stringResource(R.string.summary_song_artwork_size),
-                                    valueText = "${sizeDp}dp",
-                                    valueRange =
-                                        ARTWORK_SIZE_MIN_DP.toFloat()..ARTWORK_SIZE_MAX_DP.toFloat(),
-                                    steps = ARTWORK_SIZE_MAX_DP - ARTWORK_SIZE_MIN_DP - 1
-                                )
-                            }
-                            if (selectedProfile.artworkShape == ARTWORK_SHAPE_CIRCLE) {
-                                SwitchPreference(
-                                    selectedProfile.artworkSpin,
-                                    { spin -> updateSelected { it.copy(artworkSpin = spin) } },
-                                    stringResource(R.string.setting_song_artwork_spin)
-                                )
-                                if (selectedProfile.artworkSpin) {
-                                    SwitchPreference(
-                                        selectedProfile.artworkSpinWhenPaused,
-                                        { enabled ->
-                                            updateSelected { it.copy(artworkSpinWhenPaused = enabled) }
-                                        },
-                                        stringResource(R.string.setting_song_artwork_spin_paused)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    AodChoiceRow(AodChoiceKind.TEXT_WEIGHT, selectedProfile.weight) {
-                        openChoice(
-                            AodChoiceKind.TEXT_WEIGHT,
-                            listOf("Regular", "Medium", "Bold"),
-                            selectedProfile.weight
-                        ) { value -> updateSelected { it.copy(weight = value) } }
-                    }
-                    AodChoiceRow(AodChoiceKind.TEXT_SIZE, selectedProfile.textSize) {
-                        openChoice(
-                            AodChoiceKind.TEXT_SIZE,
-                            listOf("small", "normal", "large", "xlarge", "custom"),
-                            selectedProfile.textSize
-                        ) { value -> updateSelected { it.copy(textSize = value) } }
+                        ) { value -> updateSelected { it.copy(metadataAlignment = value) } }
                     }
                     TextSizePreference(
-                        title = stringResource(R.string.setting_lyric_size),
-                        percent = effectiveTextSizePercent(selectedProfile),
+                        title = stringResource(R.string.setting_song_info_size),
+                        percent = selectedProfile.metadataSizePercent.coerceIn(50, 200),
                         onDecrease = {
                             updateSelected {
                                 it.copy(
-                                    textSize = "custom",
-                                    textSizeCustom = (effectiveTextSizePercent(it) - 5).coerceIn(50, 200)
+                                    metadataSizePercent =
+                                        (it.metadataSizePercent - 5).coerceIn(50, 200)
                                 )
                             }
                         },
                         onIncrease = {
                             updateSelected {
                                 it.copy(
-                                    textSize = "custom",
-                                    textSizeCustom = (effectiveTextSizePercent(it) + 5).coerceIn(50, 200)
+                                    metadataSizePercent =
+                                        (it.metadataSizePercent + 5).coerceIn(50, 200)
                                 )
                             }
                         }
                     )
-                    AodChoiceRow(AodChoiceKind.FONT, selectedProfile.fontFamily, customFontNames) {
-                        openChoice(
-                            AodChoiceKind.FONT,
-                            buildList {
-                                add("noto")
-                                add("spotify")
-                                add("apple")
-                                add(LyricTypefaceResolver.FAMILY_NOTO_SC)
-                                customFonts.forEach {
-                                    add(CustomFontContract.customFontFamily(it.id))
-                                }
-                                // 当前选中的自定义字体(含历史单槽)已被删除时仍列出,保证可见可改。
-                                val currentId = CustomFontContract.fontIdOf(selectedProfile.fontFamily)
-                                if (currentId != null && customFonts.none { it.id == currentId }) {
-                                    add(CustomFontContract.customFontFamily(currentId))
-                                }
-                            },
-                            selectedProfile.fontFamily
-                        ) { value -> updateSelected { it.copy(fontFamily = value) } }
-                    }
+                    // 内容编辑:勾选/排序显示部分(歌名/歌手/专辑),并逐槽独立选择相邻两项之间的分隔符。
                     ArrowPreference(
-                        title = stringResource(R.string.action_import_custom_font),
-                        onClick = { fontImportLauncher.launch(arrayOf("*/*")) }
+                        title = stringResource(R.string.setting_song_info_parts),
+                        summary = metadataPartsDisplayLabel(context, effectiveMetadataParts),
+                        onClick = { activePartsEditor = true }
                     )
-                }
-            }
-            item { SmallTitle(text = stringResource(R.string.section_effects)) }
-            item {
-                SettingsCard {
-                    AodChoiceRow(AodChoiceKind.WORD_ANIMATION, selectedProfile.animation) {
-                        openChoice(
-                            AodChoiceKind.WORD_ANIMATION,
-                            listOf("Minimal", "Gradient", "BetterLyrics"),
-                            selectedProfile.animation
-                        ) { value -> updateSelected { it.copy(animation = value) } }
-                    }
-                    AodChoiceRow(AodChoiceKind.GLOW, selectedProfile.glow) {
-                        openChoice(AodChoiceKind.GLOW, listOf("Off", "On"), selectedProfile.glow) { value ->
-                            updateSelected { it.copy(glow = value) }
-                        }
-                    }
-                    AodChoiceRow(AodChoiceKind.LINE_PROGRESS, selectedProfile.lineSyncFillMode) {
-                        openChoice(
-                            AodChoiceKind.LINE_PROGRESS,
-                            listOf(
-                                "None",
-                                "Top to bottom",
-                                "Left to right (main only)",
-                                "Left to right (whole block)"
-                            ),
-                            selectedProfile.lineSyncFillMode
-                        ) { value -> updateSelected { it.copy(lineSyncFillMode = value) } }
-                    }
-                    AodChoiceRow(AodChoiceKind.LINE_TRANSITION, selectedProfile.lineTransition) {
-                        openChoice(
-                            AodChoiceKind.LINE_TRANSITION,
-                            LINE_TRANSITION_MODES,
-                            selectedProfile.lineTransition
-                        ) { value -> updateSelected { it.copy(lineTransition = value) } }
-                    }
-                    AodChoiceRow(AodChoiceKind.LINE_TRANSITION_SPEED, selectedProfile.lineTransitionSpeed) {
-                        openChoice(
-                            AodChoiceKind.LINE_TRANSITION_SPEED,
-                            LINE_TRANSITION_SPEEDS,
-                            selectedProfile.lineTransitionSpeed
-                        ) { value -> updateSelected { it.copy(lineTransitionSpeed = value) } }
-                    }
-                    AodChoiceRow(AodChoiceKind.TEXT_BRIGHTNESS, palettePresetName(selectedProfile.palette)) {
-                        openChoice(
-                            AodChoiceKind.TEXT_BRIGHTNESS,
-                            listOf("default", "dimmed"),
-                            palettePresetName(selectedProfile.palette)
-                        ) { value -> updateSelected { it.copy(palette = palettePreset(value)) } }
-                    }
-                    AodChoiceRow(AodChoiceKind.TRANSITION_SPEED,
-                        selectedProfile.transition.durationMs.toString()
+                    // 专辑与歌名一致时隐藏专辑:仅在专辑作为显示部分时露出(否则无专辑可隐藏)。
+                    if (normalizeMetadataParts(effectiveMetadataParts)
+                            .split(',').contains(METADATA_PART_ALBUM)
                     ) {
-                        openChoice(
-                            AodChoiceKind.TRANSITION_SPEED,
-                            listOf("200", "320", "500"),
-                            selectedProfile.transition.durationMs.toString()
-                        ) { value ->
-                            updateSelected {
-                                it.copy(transition = it.transition.copy(durationMs = value.toInt()))
-                            }
-                        }
-                    }
-                }
-            }
-            item { SmallTitle(text = stringResource(R.string.section_colors)) }
-            item {
-                SettingsCard {
-                    PaletteColor.entries.forEach { paletteKey ->
-                        val currentToken = paletteValue(selectedProfile.palette, paletteKey)
-                        ArrowPreference(
-                            title = stringResource(paletteKey.titleRes),
-                            summary = colorTokenLabel(context, currentToken),
-                            startAction = {
-                                ColorSwatch(
-                                    argb = paletteEffectiveArgb(selectedProfile.palette, paletteKey)
-                                )
-                            },
-                            onClick = {
-                                activeColorPicker = paletteKey
-                            }
-                        )
-                    }
-                }
-            }
-            if (editorState.selectedSurface == SceneCompiler.SURFACE_LOCKSCREEN) {
-                item { SmallTitle(text = stringResource(R.string.section_lockscreen_card)) }
-                item {
-                    SettingsCard {
                         SwitchPreference(
-                            selectedProfile.backgroundStyle != "none",
+                            effectiveHideAlbumWhenSameAsTitle,
                             { enabled ->
                                 updateSelected {
-                                    it.copy(backgroundStyle = if (enabled) "card" else "none")
+                                    it.copy(hideAlbumWhenSameAsTitle = enabled)
                                 }
                             },
-                            stringResource(R.string.setting_show_lyric_card)
+                            stringResource(R.string.setting_hide_album_same_as_title),
+                            summary = stringResource(R.string.summary_hide_album_same_as_title)
                         )
-                        if (selectedProfile.backgroundStyle == "card") {
-                            AodChoiceRow(AodChoiceKind.CARD_COLOR, selectedProfile.cardColor) {
-                                openChoice(
-                                    AodChoiceKind.CARD_COLOR,
-                                    com.eza.hyperglow.customization.CARD_COLOR_VALUES.toList(),
-                                    selectedProfile.cardColor
-                                ) { value -> updateSelected { it.copy(cardColor = value) } }
+                    }
+                    // 歌曲图片(歌曲信息左侧):显示开关 → 形状(方形/圆形) → 自适应缩放
+                    // (关闭时露出自定义大小拖动条) → 旋转(仅圆形)。
+                    SwitchPreference(
+                        selectedProfile.artworkVisible,
+                        { visible -> updateSelected { it.copy(artworkVisible = visible) } },
+                        stringResource(R.string.setting_show_song_artwork)
+                    )
+                    if (selectedProfile.artworkVisible) {
+                        AodChoiceRow(
+                            AodChoiceKind.SONG_ARTWORK_SHAPE,
+                            selectedProfile.artworkShape
+                        ) {
+                            openChoice(
+                                AodChoiceKind.SONG_ARTWORK_SHAPE,
+                                ARTWORK_SHAPES,
+                                selectedProfile.artworkShape
+                            ) { value ->
+                                updateSelected {
+                                    it.copy(artworkShape = normalizeArtworkShape(value))
+                                }
                             }
+                        }
+                        // 自适应缩放:开启时边长随歌曲信息字号缩放;关闭时露出自定义大小拖动条。
+                        SwitchPreference(
+                            selectedProfile.artworkAdaptiveScale,
+                            { adaptive ->
+                                updateSelected { it.copy(artworkAdaptiveScale = adaptive) }
+                            },
+                            stringResource(R.string.setting_song_artwork_adaptive)
+                        )
+                        if (!selectedProfile.artworkAdaptiveScale) {
+                            val sizeDp = normalizeArtworkSizeDp(selectedProfile.artworkSizeDp)
                             SliderPreference(
-                                value = selectedProfile.cardAlpha.toFloat(),
+                                value = sizeDp.toFloat(),
                                 onValueChange = { value ->
                                     updateSelected {
-                                        it.copy(cardAlpha = value.roundToInt())
-                                    }
-                                },
-                                title = stringResource(R.string.setting_card_transparency),
-                                summary = stringResource(R.string.summary_card_transparency),
-                                valueText = "${selectedProfile.cardAlpha}%",
-                                valueRange = 0f..100f,
-                                steps = 19
-                            )
-                        }
-                        val progressEnabled = selectedProfile.widgets.any { it.type == "media_progress" }
-                        SwitchPreference(
-                            progressEnabled,
-                            { enabled ->
-                                updateSelected { profile ->
-                                    val widgets = profile.widgets.filterNot {
-                                        it.type == "media_progress"
-                                    }.toMutableList()
-                                    if (enabled) {
-                                        widgets += com.eza.hyperglow.customization.WidgetSpec(
-                                            "media_progress",
-                                            optional = true
+                                        it.copy(
+                                            artworkSizeDp =
+                                                normalizeArtworkSizeDp(value.roundToInt())
                                         )
                                     }
-                                    profile.copy(widgets = widgets)
+                                },
+                                title = stringResource(R.string.setting_song_artwork_size),
+                                summary = stringResource(R.string.summary_song_artwork_size),
+                                valueText = "${sizeDp}dp",
+                                valueRange =
+                                    ARTWORK_SIZE_MIN_DP.toFloat()..ARTWORK_SIZE_MAX_DP.toFloat(),
+                                steps = ARTWORK_SIZE_MAX_DP - ARTWORK_SIZE_MIN_DP - 1
+                            )
+                        }
+                        if (selectedProfile.artworkShape == ARTWORK_SHAPE_CIRCLE) {
+                            SwitchPreference(
+                                selectedProfile.artworkSpin,
+                                { spin -> updateSelected { it.copy(artworkSpin = spin) } },
+                                stringResource(R.string.setting_song_artwork_spin)
+                            )
+                            if (selectedProfile.artworkSpin) {
+                                SwitchPreference(
+                                    selectedProfile.artworkSpinWhenPaused,
+                                    { enabled ->
+                                        updateSelected { it.copy(artworkSpinWhenPaused = enabled) }
+                                    },
+                                    stringResource(R.string.setting_song_artwork_spin_paused)
+                                )
+                            }
+                        }
+                    }
+                }
+                AodChoiceRow(AodChoiceKind.TEXT_WEIGHT, selectedProfile.weight) {
+                    openChoice(
+                        AodChoiceKind.TEXT_WEIGHT,
+                        listOf("Regular", "Medium", "Bold"),
+                        selectedProfile.weight
+                    ) { value -> updateSelected { it.copy(weight = value) } }
+                }
+                AodChoiceRow(AodChoiceKind.TEXT_SIZE, selectedProfile.textSize) {
+                    openChoice(
+                        AodChoiceKind.TEXT_SIZE,
+                        listOf("small", "normal", "large", "xlarge", "custom"),
+                        selectedProfile.textSize
+                    ) { value -> updateSelected { it.copy(textSize = value) } }
+                }
+                TextSizePreference(
+                    title = stringResource(R.string.setting_lyric_size),
+                    percent = effectiveTextSizePercent(selectedProfile),
+                    onDecrease = {
+                        updateSelected {
+                            it.copy(
+                                textSize = "custom",
+                                textSizeCustom = (effectiveTextSizePercent(it) - 5).coerceIn(50, 200)
+                            )
+                        }
+                    },
+                    onIncrease = {
+                        updateSelected {
+                            it.copy(
+                                textSize = "custom",
+                                textSizeCustom = (effectiveTextSizePercent(it) + 5).coerceIn(50, 200)
+                            )
+                        }
+                    }
+                )
+                AodChoiceRow(AodChoiceKind.FONT, selectedProfile.fontFamily, customFontNames) {
+                    openChoice(
+                        AodChoiceKind.FONT,
+                        buildList {
+                            add("noto")
+                            add("spotify")
+                            add("apple")
+                            add(LyricTypefaceResolver.FAMILY_NOTO_SC)
+                            customFonts.forEach {
+                                add(CustomFontContract.customFontFamily(it.id))
+                            }
+                            // 当前选中的自定义字体(含历史单槽)已被删除时仍列出,保证可见可改。
+                            val currentId = CustomFontContract.fontIdOf(selectedProfile.fontFamily)
+                            if (currentId != null && customFonts.none { it.id == currentId }) {
+                                add(CustomFontContract.customFontFamily(currentId))
+                            }
+                        },
+                        selectedProfile.fontFamily
+                    ) { value -> updateSelected { it.copy(fontFamily = value) } }
+                }
+                ArrowPreference(
+                    title = stringResource(R.string.action_import_custom_font),
+                    onClick = { fontImportLauncher.launch(arrayOf("*/*")) }
+                )
+            }
+        }
+        item { SmallTitle(text = stringResource(R.string.section_effects)) }
+        item {
+            SettingsCard {
+                AodChoiceRow(AodChoiceKind.WORD_ANIMATION, selectedProfile.animation) {
+                    openChoice(
+                        AodChoiceKind.WORD_ANIMATION,
+                        listOf("Minimal", "Gradient", "BetterLyrics"),
+                        selectedProfile.animation
+                    ) { value -> updateSelected { it.copy(animation = value) } }
+                }
+                AodChoiceRow(AodChoiceKind.GLOW, selectedProfile.glow) {
+                    openChoice(AodChoiceKind.GLOW, listOf("Off", "On"), selectedProfile.glow) { value ->
+                        updateSelected { it.copy(glow = value) }
+                    }
+                }
+                AodChoiceRow(AodChoiceKind.LINE_PROGRESS, selectedProfile.lineSyncFillMode) {
+                    openChoice(
+                        AodChoiceKind.LINE_PROGRESS,
+                        listOf(
+                            "None",
+                            "Top to bottom",
+                            "Left to right (main only)",
+                            "Left to right (whole block)"
+                        ),
+                        selectedProfile.lineSyncFillMode
+                    ) { value -> updateSelected { it.copy(lineSyncFillMode = value) } }
+                }
+                AodChoiceRow(AodChoiceKind.LINE_TRANSITION, selectedProfile.lineTransition) {
+                    openChoice(
+                        AodChoiceKind.LINE_TRANSITION,
+                        LINE_TRANSITION_MODES,
+                        selectedProfile.lineTransition
+                    ) { value -> updateSelected { it.copy(lineTransition = value) } }
+                }
+                AodChoiceRow(AodChoiceKind.LINE_TRANSITION_SPEED, selectedProfile.lineTransitionSpeed) {
+                    openChoice(
+                        AodChoiceKind.LINE_TRANSITION_SPEED,
+                        LINE_TRANSITION_SPEEDS,
+                        selectedProfile.lineTransitionSpeed
+                    ) { value -> updateSelected { it.copy(lineTransitionSpeed = value) } }
+                }
+                AodChoiceRow(AodChoiceKind.TEXT_BRIGHTNESS, palettePresetName(selectedProfile.palette)) {
+                    openChoice(
+                        AodChoiceKind.TEXT_BRIGHTNESS,
+                        listOf("default", "dimmed"),
+                        palettePresetName(selectedProfile.palette)
+                    ) { value -> updateSelected { it.copy(palette = palettePreset(value)) } }
+                }
+                AodChoiceRow(AodChoiceKind.TRANSITION_SPEED,
+                    selectedProfile.transition.durationMs.toString()
+                ) {
+                    openChoice(
+                        AodChoiceKind.TRANSITION_SPEED,
+                        listOf("200", "320", "500"),
+                        selectedProfile.transition.durationMs.toString()
+                    ) { value ->
+                        updateSelected {
+                            it.copy(transition = it.transition.copy(durationMs = value.toInt()))
+                        }
+                    }
+                }
+            }
+        }
+        item { SmallTitle(text = stringResource(R.string.section_colors)) }
+        item {
+            SettingsCard {
+                PaletteColor.entries.forEach { paletteKey ->
+                    val currentToken = paletteValue(selectedProfile.palette, paletteKey)
+                    ArrowPreference(
+                        title = stringResource(paletteKey.titleRes),
+                        summary = colorTokenLabel(context, currentToken),
+                        startAction = {
+                            ColorSwatch(
+                                argb = paletteEffectiveArgb(selectedProfile.palette, paletteKey)
+                            )
+                        },
+                        onClick = {
+                            activeColorPicker = paletteKey
+                        }
+                    )
+                }
+            }
+        }
+        if (editorState.selectedSurface == SceneCompiler.SURFACE_LOCKSCREEN) {
+            item { SmallTitle(text = stringResource(R.string.section_lockscreen_card)) }
+            item {
+                SettingsCard {
+                    SwitchPreference(
+                        selectedProfile.backgroundStyle != "none",
+                        { enabled ->
+                            updateSelected {
+                                it.copy(backgroundStyle = if (enabled) "card" else "none")
+                            }
+                        },
+                        stringResource(R.string.setting_show_lyric_card)
+                    )
+                    if (selectedProfile.backgroundStyle == "card") {
+                        AodChoiceRow(AodChoiceKind.CARD_COLOR, selectedProfile.cardColor) {
+                            openChoice(
+                                AodChoiceKind.CARD_COLOR,
+                                com.eza.hyperglow.customization.CARD_COLOR_VALUES.toList(),
+                                selectedProfile.cardColor
+                            ) { value -> updateSelected { it.copy(cardColor = value) } }
+                        }
+                        SliderPreference(
+                            value = selectedProfile.cardAlpha.toFloat(),
+                            onValueChange = { value ->
+                                updateSelected {
+                                    it.copy(cardAlpha = value.roundToInt())
                                 }
                             },
-                            stringResource(R.string.setting_show_playback_progress),
-                            summary = stringResource(R.string.summary_show_playback_progress)
+                            title = stringResource(R.string.setting_card_transparency),
+                            summary = stringResource(R.string.summary_card_transparency),
+                            valueText = "${selectedProfile.cardAlpha}%",
+                            valueRange = 0f..100f,
+                            steps = 19
                         )
                     }
-                }
-            }
-            item { SmallTitle(text = stringResource(R.string.section_both_surfaces)) }
-            item {
-                Card(
-                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                    colors = CardDefaults.defaultColors(
-                        color = appCardContainerColor(),
-                        contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+                    val progressEnabled = selectedProfile.widgets.any { it.type == "media_progress" }
+                    SwitchPreference(
+                        progressEnabled,
+                        { enabled ->
+                            updateSelected { profile ->
+                                val widgets = profile.widgets.filterNot {
+                                    it.type == "media_progress"
+                                }.toMutableList()
+                                if (enabled) {
+                                    widgets += com.eza.hyperglow.customization.WidgetSpec(
+                                        "media_progress",
+                                        optional = true
+                                    )
+                                }
+                                profile.copy(widgets = widgets)
+                            }
+                        },
+                        stringResource(R.string.setting_show_playback_progress),
+                        summary = stringResource(R.string.summary_show_playback_progress)
                     )
-                ) {
-                    Column {
-                        ArrowPreference(
-                            title = stringResource(R.string.action_import_appearance),
-                            onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) }
-                        )
-                        ArrowPreference(
-                            title = stringResource(R.string.action_export_appearance),
-                            onClick = { exportLauncher.launch("hyperglow-profile.json") }
-                        )
-                        ArrowPreference(
-                            title = stringResource(R.string.action_reset_surfaces),
-                            onClick = { showResetDialog = true }
-                        )
-                    }
                 }
             }
+        }
+        item { SmallTitle(text = stringResource(R.string.section_both_surfaces)) }
+        item {
+            Card(
+                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                colors = CardDefaults.defaultColors(
+                    color = appCardContainerColor(),
+                    contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
+                )
+            ) {
+                Column {
+                    ArrowPreference(
+                        title = stringResource(R.string.action_import_appearance),
+                        onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) }
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.action_export_appearance),
+                        onClick = { exportLauncher.launch("hyperglow-profile.json") }
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.action_reset_surfaces),
+                        onClick = { showResetDialog = true }
+                    )
+                }
             }
+        }
+        footer?.let { slot -> item { slot() } }
         }
     }
 
