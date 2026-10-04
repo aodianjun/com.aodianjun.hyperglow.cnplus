@@ -1283,6 +1283,28 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun oversizedAttachedChunkSplitsIntoWordsInsteadOfOverflowing() {
+        // 附着块整块排不下时按词拆开(否则独占一行仍超宽、被画布裁剪);放得下的块不拆
+        // (见 adaptiveOffNeverWrapsBetweenAttachedWordFragments)。
+        val words = listOf(
+            AodCanvasWord("aa", "", 0L, 1L, false),
+            AodCanvasWord("bb", "", 1L, 2L, false),
+            AodCanvasWord("cc", "", 2L, 3L, false)
+        )
+
+        assertEquals(
+            listOf(0 until 1, 1 until 2, 2 until 3),
+            legacyAttachedWordLineRanges(
+                words = words,
+                wordWidths = listOf(60f, 60f, 60f),
+                gapAfters = listOf(0f, 0f, 0f),
+                available = 100f,
+                maxLines = 3
+            )
+        )
+    }
+
+    @Test
     fun camouflageFragmentsUseTrailingEdgeBoundaries() {
         val words = listOf(
             AodCanvasWord("My", "My", 0L, 100L, true),

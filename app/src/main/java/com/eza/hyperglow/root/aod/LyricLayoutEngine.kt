@@ -229,6 +229,66 @@ private fun splitOversizeToken(
     return pieces
 }
 
+/**
+ * 超宽词兜底切分:单个词宽于可用宽时(行级源的整行合成词、插件词表的整句 span、无空白长
+ * CJK 短语),分块均衡与 legacy 贪心都排不下它 —— [balancedChunkRanges] 对单个块直接单行、
+ * [legacyWordLineRanges] 对单个块同样不断行 —— 结果整行超宽、被画布裁剪。这里按字符切分
+ * (breakText + CJK 避头尾,与 [splitOversizeToken] 同式),让后续换行路径照常工作。
+ *
+ * 词窗按宽度比例分摊([syntheticCharTimeWindow] 与行级源合成逐字同式):扫光前缘连续推进、
+ * 长音节判定沿用原词时长口径;原文区间按切片落位(相邻切片分隔符为空串 → 词距 0,不引入
+ * 兜底间距);[AodCanvasWord.boundaryAfter] 仅在有原文区间时置位——无区间时置 false,否则
+ * 相邻切片之间会回退到兜底 gap;注音文本保留在首片(辅助行只呈现一次)。
+ */
+private fun splitOversizeWord(
+    placed: PlacedWord,
+    metrics: TextMeasurePort,
+    availableWidth: Float
+): List<PlacedWord> {
+    val word = placed.word
+    val pieces = splitOversizeToken(word.text, metrics, availableWidth)
+    if (pieces.size <= 1) return listOf(placed)
+    val offset = placed.offset
+    val totalWidth = placed.width.coerceAtLeast(1f)
+    var charCursor = 0
+    var prefixWidth = 0f
+    return pieces.mapIndexed { index, piece ->
+        val pieceWidth = metrics.measure(piece)
+        val window = syntheticCharTimeWindow(
+            word.startMs,
+            word.endMs,
+            totalWidth,
+            prefixWidth,
+            pieceWidth
+        )
+        val pieceOffset = offset?.let { parent ->
+            val start = parent.first + charCursor
+            start until (start + piece.length)
+        }
+        charCursor += piece.length
+        prefixWidth += pieceWidth
+        PlacedWord(
+            word.copy(
+                text = piece,
+                romanized = if (index == 0) word.romanized else "",
+                startMs = window.first,
+                // `until` 区间取 last+1 还原窗口末端(空窗 0 until 0 亦得 0,零窗语义不变)。
+                endMs = window.last + 1,
+                boundaryAfter = if (offset != null) {
+                    index < pieces.lastIndex || word.boundaryAfter
+                } else {
+                    false
+                },
+                sourceStart = pieceOffset?.first ?: -1,
+                sourceEnd = pieceOffset?.let { it.last + 1 } ?: -1
+            ),
+            pieceWidth,
+            if (index == pieces.lastIndex) placed.gapAfter else 0f,
+            pieceOffset
+        )
+    }
+}
+
 /** 整段折行(与实机 wrapText 同算法):非 Wrap 单行;否则 breakText+CJK 断点循环到行数上限。 */
 private fun wrapTextLines(
     text: String,
@@ -318,12 +378,22 @@ private fun layoutWordLines(
         }
         PlacedWord(word, wordWidth, gapAfter, offsets[index])
     }
+        // 超宽词兜底:单个词宽于可用宽时(行级源的整行合成词、插件词表的整句 span、无空白长
+        // CJK 短语),分组均衡与 legacy 贪心都排不下它 → 整行超宽被裁。先按字符切分
+        // (见 splitOversizeWord),让下面的分块/均衡照常工作。
+        .flatMap { item ->
+            if (item.width > availableWidth && item.word.text.length > 1) {
+                splitOversizeWord(item, metrics, availableWidth)
+            } else {
+                listOf(item)
+            }
+        }
     if (!wrap) {
         return listOf(wordLine(original, placed))
     }
     if (!adaptiveSectioning) {
         return legacyAttachedWordLineRanges(
-            words,
+            placed.map(PlacedWord::word),
             placed.map(PlacedWord::width),
             placed.map(PlacedWord::gapAfter),
             availableWidth,
@@ -332,7 +402,7 @@ private fun layoutWordLines(
             wordLine(original, range.map(placed::get))
         }
     }
-    val groupIds = lexicalGroupIds(offsets, layoutGroups)
+    val groupIds = lexicalGroupIds(placed.map(PlacedWord::offset), layoutGroups)
     val chunks = ArrayList<List<PlacedWord>>()
     var index = 0
     while (index < placed.size) {

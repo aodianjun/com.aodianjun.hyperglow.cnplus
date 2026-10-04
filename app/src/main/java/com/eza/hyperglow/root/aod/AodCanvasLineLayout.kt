@@ -134,7 +134,13 @@ internal fun legacyAttachedWordLineRanges(
     maxLines: Int
 ): List<IntRange> {
     if (words.size != wordWidths.size || words.size != gapAfters.size) return emptyList()
-    val chunks = attachedWordRanges(words)
+    // 超宽附着块(整块排不下,如非 Spicy 源把整行词标为附着)按词拆开:否则该块独占一行仍超宽、
+    // 被画布裁剪(与均衡路径「超宽组合块先拆词」同式)。放得下的附着块保持整块不拆。
+    val chunks = attachedWordRanges(words).flatMap { range ->
+        val chunkWidth = range.sumOf { index -> (wordWidths[index] + gapAfters[index]).toDouble() }
+            .toFloat() - gapAfters[range.last]
+        if (chunkWidth > available && range.count() > 1) range.map { it..it } else listOf(range)
+    }
     if (chunks.isEmpty()) return emptyList()
     val chunkWidths = chunks.map { range ->
         range.sumOf { index -> (wordWidths[index] + gapAfters[index]).toDouble() }.toFloat() -
