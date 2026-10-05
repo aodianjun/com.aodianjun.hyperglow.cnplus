@@ -83,6 +83,15 @@ python tools/gen_opencc_tables.py         # 重新生成转换表（会校验上
 生成物是 OpenCC 数据的衍生物，随本插件按 Apache-2.0 分发；上游版权与许可声明见
 OpenCC 仓库 `LICENSE`。
 
+## 致谢
+
+- **[OpenCC](https://github.com/BYVoid/OpenCC)**（Apache-2.0，作者 BYVoid 等）—— 简繁转换
+  词典数据的唯一来源；生成器钉住上游 commit 并逐文件校验 sha256，词典裁剪规则写在
+  `tools/gen_opencc_tables.py` 里。
+- **[Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)**（Apache-2.0，
+  作者 WXRIW）—— 「歌词字形转换」这一能力项的来源参考（其 `ChineseHelper` 提供简繁转换），
+  本插件按插件体系的需要重写为纯 Kotlin 实现。
+
 ## 已知限制
 
 - 匹配策略是从左到右的**贪心最长匹配**（短语优先，未命中回落单字表），不是 OpenCC 的
