@@ -516,23 +516,34 @@ and (b) unverified paths stay explicit instead of silently assumed.
   playing, `adb logcat -s HyperGlow` shows the projection dropping only backlog revisions (no
   repeated same-frame snapshot applications), lyrics neither freeze nor clear mid-song, and pause
   retention / track changes behave as before.
-- Line transition smoothness: no isolated single-frame spikes + compressed old-backlog replay
-  (`advanceTransitionPosition` / `isTransitionSeekJump` rate-limit the position clock to the
-  playback rate, so a doze batch jump — two positions ~2 s apart within one millisecond, measured
-  as isolated -68 px single frames on hardware — is consumed at real time; `shouldSkipLineTransition`
-  hits, wired into `AodLyricCanvasView.setContent` through `AodCanvasContent.updatedAtElapsedMs`
-  and the same-frame arrival counter, now play a compressed replay of the same three phases from
-  the on-screen geometry to the last snapshot's geometry instead of landing statically in one
-  frame: ~140 ms total, every segment ≥ 40 ms, wall-clock bounded, seek/drag still ends it
-  immediately on the raw-position high-water). Unit-tested
-  (`AodCanvasTransitionTest.smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` /
-  `transitionPosition*` / `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` /
-  `sameFrameMultipleLineChangesSkipFullTransition`) — pending a hardware smoke check after merge:
-  60 fps capture of AOD line changes shows the promoted row's y monotonic, no isolated single-frame
-  spike (no frame consumes ≥ 1/4 of the promotion travel; ≤ 2× local neighbours), the doze backlog
-  is no longer replayed after screen-off, a stale/batched line change reads as a quick but
-  continuous exit→move→enter (~140 ms) instead of a pop, and a seek/drag still lands statically
-  immediately.
+- Line transition smoothness: velocity-capped promotion travel + compressed old-backlog replay
+  (round 2; round 1's position-clock rate limit + compressed replay landed but the hardware A/B
+  re-verification still measured an isolated -76 px single frame: the promotion segment was still
+  scheduled by a fixed 220 ms × speed duration, and the FastOutSlowIn mid-curve peak (~2.7× the
+  average velocity) put 216 px into ~7 frames). `moveTransitionMs` now schedules the promotion
+  travel by a peak-velocity cap: duration = `max(max(distance × 2.75 / 500, 220 ms) × speed scale,
+  distance × 2.75 / 500)`, with `distance` the largest start-layout next-line → target-layout
+  main-line baseline delta (main + auxiliary pairs, computed after the target layout is rebuilt)
+  and 2.75 the measured FastOutSlowIn peak slope, so the instantaneous peak stays ≤ 500 px/s
+  (≈ 8.3 px per 60 fps frame, the ≤ 8 px criterion; 216 px → ~1.2 s); the speed multiplier keeps
+  its semantics (Slow 1.5× slower, Fast 0.6× shorter on short travels) but no speed may break the
+  cap, and an unavailable distance falls back to the historical 220 ms × speed base.
+  `advanceTransitionPosition` / `isTransitionSeekJump` still rate-limit the position clock to the
+  playback rate, and `compressedLineTransitionTimeline` keeps the velocity-capped move while
+  compressing exit/enter into the ~140 ms budget (≥ 40 ms each), so a stale/batched line change
+  travels later/slower instead of popping in one frame; seek/drag still ends it immediately on the
+  raw-position high-water. Unit-tested
+  (`AodCanvasTransitionTest.velocityCappedPromotionKeepsEveryFrameWithinTenPxAtSixtyFps` /
+  `moveEasePeakFactorMatchesMeasuredSlope` / `moveDistanceUsesLargestRowBaselineDelta` /
+  `moveDurationFollowsVelocityCapAtDefaultSpeed` / `moveDurationNeverBreaksVelocityCapAcrossSpeeds` /
+  `promotionTimelineCarriesVelocityCappedMove` / `compressedReplayAlsoRespectsMoveVelocityCap` /
+  `smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` / `transitionPosition*` /
+  `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` /
+  `sameFrameMultipleLineChangesSkipFullTransition`) — pending a hardware smoke check after merge
+  (same flow as the failing A/B: steady AOD → trigger → 60 fps capture → per-frame strip tracking):
+  every promotion single-frame displacement ≤ ~10 px (60 fps equivalent) and the max frame ≤ 1.6×
+  the mean of its neighbouring frames; seek/drag still lands statically and immediately; the 187
+  (position-clock) and 191 (start-frozen target geometry) properties unchanged.
 
 - Lyric-source frozen-fallback retention + stall-diagnostic de-duplication (the fallback path now
   applies the same `isFaulted` predicate as selection: a stale-paused candidate with content is
@@ -770,7 +781,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 「BetterLyrics」档恢复逐字扫光（口径 B；共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数改为 `karaokeSweepEnabled(betterLyrics, longSyllable) = !(betterLyrics && longSyllable)`，在 draw 循环内逐词块判定）：长音节（≥700ms）仍「开始唱即整块按已唱色亮起」、不出现填充前缘（发光开启时光晕只挂长音节），其余音节恢复历史词内扫光带；非 BetterLyrics 档长/短音节全部扫光不变。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）→ 整档关闭（0.3.156 (183)，PR #177）→ 本次恢复短音节扫光（2026-10-05）：当初逼出整档关闭的四条跳变成因已修（同行形态稳定化 / 下一行文本稳定化 / 位置时钟过渡 / 摄取归一），短音节扫光不再带当初的跳变观感。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweepOnlyForLongSyllables`），并已用桩 `android.graphics` 编译真实渲染文件实调 `draw()` 双向验证（同一套断言在改前文件上按预期 FAIL：短音节无扫光渐变）——合并后待真机冒烟：BetterLyrics 档长音节整块亮起（发光开启时光晕只挂长音节）、短音节逐字扫光带恢复、换行无跳变；非 BetterLyrics 档与改前逐像素一致。
 - 插件链合并结果的行窗/词窗归一（`PluginChainMerger.normalizeMergedTimeline`，在 `PluginRuntime.processChain` 合并循环之后、交给下游之前的单一落点调用）：本链有被接受的处理器结果声明 `WORDS` 时，插件词表（文本 + 时间戳）整份生效、其词窗即最终值，合并文档逐行过 ingest 同一套 `LyricTimelineNormalizer` 归一——① 词窗超出行窗 → 行窗扩到并集；② 行窗远超可唱估时且词级跨距可信 → 向词对齐；③ 其余（含正常拖尾）逐字节原样；未声明 `WORDS`（宿主词表）时合并结果原样返回，不重复归一宿主词窗。已有单测（`PluginTimelineNormalizeTest`）——合并后待真机冒烟：装带词级时间的插件（如 lyricfetch）时，插件词窗越出行窗的行不再提前交接/词级卡拉OK不再中途消失，正常歌曲换行节奏与改前一致，未声明 `WORDS` 的插件对宿主行零影响。
 - 投递边界丢弃过期快照（`shouldDropStaleSnapshot` + `droppedSnapshotKeepAliveSignal`，接入 `SystemUiLyricProjection.accept`）：可见快照年龄超过 `STALE_SNAPSHOT_DROP_AGE_MS`（1.5 秒，与 producer 的全量发布/心跳节奏同拍）即在投递边界丢弃；换歌/换源（track generation 变化）、隐藏与暂停驻留边沿、绑定后的首条快照恒投递；被丢快照仍推进 revision 水位，并在其 keepalive/wake 标量与持有态不同时按最新值更新，keepalive 链绝不因此断开。已有单测（`SystemUiLyricProjectionTest` 的边界/换源/隐藏边沿/租约兜底用例）——合并后待真机冒烟：息屏 AOD + 网易云在播时 `adb logcat -s HyperGlow` 只看到积压 revision 被丢（同帧反复应用多条快照的情况消失），歌词不中途冻结/清场，暂停驻留与切歌行为与改前一致。
-- 换行过渡平滑化 + 旧账压缩补播（`advanceTransitionPosition` / `isTransitionSeekJump` 把位置时钟限速到播放速率：doze 批投递的位置跳变——真机实测同一毫秒两条位置、跨度约 2 秒，逐帧条带单帧尖峰 -68px ≈ 60fps 的 64px/帧——按实时速率补齐，各段以自身时长平滑播完；`shouldSkipLineTransition` 命中时不再一帧硬切，改以屏上现有旧快照为起点、最后一条快照为目标几何（起点定死）播放压缩补播：同一三段序列（段顺序/缓动/帧配方不变）压缩到总长 ~140ms、每段 ≥40ms，按挂钟计时，seek/拖动仍按原始位置高水位立即结束）。已有单测（`AodCanvasTransitionTest.smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` / `transitionPosition*` / `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` / `sameFrameMultipleLineChangesSkipFullTransition`）——合并后待真机冒烟（owner 配合：设备置为「息屏 AOD + 网易云在播 + 无线调试在线」，60fps 录屏 + `bh_transition_stream2.py` 逐帧量）：换行前后晋级行 y 单调、无孤立尖峰（任一帧位移不超过总位移 1/4、不超过相邻帧 2 倍）、无方向反转；doze 批投递不再一帧跳完（位移段以自身时长平滑播完）；旧账场景可见 ~140ms 快速但连续的退场→位移→入场而不是「啪一下」；seek/拖动仍静态立即落位。
+- 换行位移段速度上限 + 旧账压缩补播（第二轮：第一轮的位置时钟限速 + 压缩补播已合并，但真机 A/B 复验仍测到孤立 -76px 单帧——位移段仍按固定 220ms × 速率倍率排时长，FastOutSlowIn 中段峰值瞬时速度（≈平均 2.7 倍）把 216px 塞进约 7 帧）。现在 `moveTransitionMs` 按**速度上限**排位移段：时长 = `max(max(距离 × 2.75 / 500, 220ms) × 速率倍率, 距离 × 2.75 / 500)`，距离取起点布局「下一行」与目标布局「主行」逐行基线差的最大值（主行对 + 辅助行对，目标布局重建后计算），2.75 为 FastOutSlowIn 实测峰值斜率，峰值瞬时速度因此 ≤500px/s（60fps 等效 ≈8.3px/帧，满足「单帧 ≤8px」判据；216px → ~1.2s）；速率倍率语义保留（Slow 1.5× 更慢、Fast 0.6× 更短，短距离段完整生效），但任何档位不得突破上限（长距离时 Fast 被硬下限钳回），取不到距离时回退历史 220ms × 速率倍率。`advanceTransitionPosition` / `isTransitionSeekJump` 的位置时钟限速与 seek 判定不变；`compressedLineTransitionTimeline` 命中时退场/入场仍压缩到 ~140ms 预算（每段 ≥40ms），位移段保留速度上限时长（旧账「晚一点、慢一点」补完，不再 40ms 一帧暴跳），seek/拖动仍按原始位置高水位立即结束）。已有单测（`AodCanvasTransitionTest.velocityCappedPromotionKeepsEveryFrameWithinTenPxAtSixtyFps` / `moveEasePeakFactorMatchesMeasuredSlope` / `moveDistanceUsesLargestRowBaselineDelta` / `moveDurationFollowsVelocityCapAtDefaultSpeed` / `moveDurationNeverBreaksVelocityCapAcrossSpeeds` / `promotionTimelineCarriesVelocityCappedMove` / `compressedReplayAlsoRespectsMoveVelocityCap` / `smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` / `transitionPosition*` / `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` / `sameFrameMultipleLineChangesSkipFullTransition`）——合并后待真机冒烟（与失败 A/B 同流程：稳态 AOD → 等触发行 → 60fps 录屏 → 逐帧条带）：位移段任意单帧位移 ≤ ~10px（60fps 等效）且单帧最大值 ≤ 相邻帧均值的 1.6 倍；seek/拖动仍静态立即落位；187（位置时钟）/191（起点定死目标几何）性质不回归。
 - 歌词源冻结回退保留 + 停滞诊断去抖（回退路径现在与选源共用 `isFaulted` 谓词：stale 暂停且带内容的候选会被转发，stale 在播或无内容的候选仍被跳过；逐 tick 回退链与 `sources stalled` 汇总改为结构变化 + 30 秒心跳记录）——待真机冒烟：首选源断连时暂停歌曲，AOD 必须继续显示已连接回退源（如 Lyricon）的冻结行而非清屏；恢复播放必须切回实时源；`adb logcat -s HyperGlow` 中回退链在停滞起点只出现一次并每 30 秒一条心跳，而非约 60 行/秒。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 

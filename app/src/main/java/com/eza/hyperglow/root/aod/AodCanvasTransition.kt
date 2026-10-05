@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.aod
 
 import android.graphics.Color
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
@@ -216,12 +217,67 @@ internal fun lineTransitionPreset(mode: String): LineTransitionPreset? =
 internal fun lineTransitionPromotes(oldNextLine: String, newOriginal: String): Boolean =
     oldNextLine.isNotBlank() && oldNextLine == newOriginal
 
-/** 换行「晋级位移」段基准时长(同 HyperLyric 下一句晋级 220ms),与退场/入场同速率缩放。 */
+/** 换行「晋级位移」段基准时长(同 HyperLyric 下一句晋级 220ms),同时是位移段的最小可视时长。 */
 internal const val MOVE_TRANSITION_MS = 220L
 
-/** 晋级位移时长:220ms 基准 × 速率倍率,与 [enterTransitionMs] / [exitTransitionMs] 同语义。 */
-internal fun moveTransitionMs(speed: String): Long =
-    (MOVE_TRANSITION_MS * lineTransitionDurationScale(speed)).toLong()
+/**
+ * 晋级位移速度上限(px/s,按缓动**峰值**瞬时速度计):500px/s × 16.7ms ≈ 8.3px,
+ * 即 60fps 等效单帧位移不超过 8.3px(判据「单帧 ≤8px」)。位移段按「距离 / 上限」定
+ * 时长时还必须乘上缓动峰值因子 [MOVE_EASE_PEAK_FACTOR]——FastOutSlowIn 中段的瞬时
+ * 速度可达平均速度的 ~2.7 倍,直接按平均速度定时长会让中段单帧位移重新顶破判据
+ * (真机 A/B 实测:216px 位移段在 132ms 内走完,单帧峰值 -76px ≈ 5100px/s)。
+ */
+internal const val MOVE_MAX_VELOCITY_PX_PER_S = 500f
+
+/**
+ * 晋级位移缓动([moveTransitionEase] = FastOutSlowIn,cubic-bezier(0.4,0,0.2,1))的
+ * 峰值速度倍数:数值求导实测 ≈2.7346(峰值出现在进度 ≈0.30 处),取 2.75 保守。
+ * 单测 [AodCanvasTransitionTest.moveEasePeakFactorMatchesMeasuredSlope] 用真实曲线
+ * 数值复核该常量,防止缓动改动后速度上限静默失效。
+ */
+internal const val MOVE_EASE_PEAK_FACTOR = 2.75f
+
+/**
+ * 晋级位移时长(纯函数):按**速度上限**定时长,而不是固定 220ms——
+ *
+ * `时长 = max(max(距离 × [MOVE_EASE_PEAK_FACTOR] / [MOVE_MAX_VELOCITY_PX_PER_S],
+ * [MOVE_TRANSITION_MS]) × 速率倍率, 距离 × [MOVE_EASE_PEAK_FACTOR] / [MOVE_MAX_VELOCITY_PX_PER_S])`
+ *
+ * 即:Normal 档 = max(距离 × 5.5ms, 220ms);Slow 档 1.5×(更慢);Fast 档 0.6×(更快),
+ * 但**任何速率档都不得突破速度上限**——长距离时 Fast 被硬下限钳回上限允许的最短时长
+ * (位移段不再出现「Fast 档一帧暴跳」;倍率语义在短距离段与 Slow 档完整保留)。
+ * [distancePx] ≤ 0 或非有限(取不到行位差)时回退历史固定时长
+ * [MOVE_TRANSITION_MS] × 速率倍率,行为与改前逐帧一致。
+ *
+ * 距离由 [lineTransitionMoveDistancePx] 从起点布局与目标布局的实际行位差给出。
+ */
+internal fun moveTransitionMs(speed: String, distancePx: Float = 0f): Long {
+    val scale = lineTransitionDurationScale(speed)
+    if (!distancePx.isFinite() || distancePx <= 0f) {
+        return (MOVE_TRANSITION_MS * scale).toLong()
+    }
+    val velocityMs = distancePx * MOVE_EASE_PEAK_FACTOR / MOVE_MAX_VELOCITY_PX_PER_S * 1000f
+    val normalMs = maxOf(velocityMs, MOVE_TRANSITION_MS.toFloat())
+    return maxOf(normalMs * scale, velocityMs).roundToLong()
+}
+
+/**
+ * 晋级位移距离(px,纯函数):取起点布局与目标布局逐行基线差的绝对值最大者——主行对
+ * (旧「下一行」基线 → 新「主行」基线)与辅助行对(旧下一行辅助行 → 新主行辅助行,
+ * 与 [AodLyricCanvasView.drawPromotedAuxLayer] 同一配对)在位移段内以同一缓动推进,
+ * 距离取最大者才能保证任一层单帧位移都不超速度上限。空列表/非有限值返回 0
+ * (调用方回退固定时长)。
+ */
+internal fun lineTransitionMoveDistancePx(pairs: List<Pair<Float, Float>>): Float {
+    var maxDistance = 0f
+    pairs.forEach { (fromPx, toPx) ->
+        if (fromPx.isFinite() && toPx.isFinite()) {
+            val distance = abs(toPx - fromPx)
+            if (distance.isFinite() && distance > maxDistance) maxDistance = distance
+        }
+    }
+    return maxDistance
+}
 
 /**
  * 换行三段时间线:严格序列「退场 → 晋级位移 → 入场」,任意时刻至多一段在播 ——
@@ -239,16 +295,19 @@ internal data class LineTransitionTimeline(
 }
 
 /**
- * 时间线求解:[promoting] 为真时插入晋级位移段(220ms×速率),否则退场直接接入场。
- * 退场/入场时长沿用各档配方([exitTransitionMs] / [enterTransitionMs])。
+ * 时间线求解:[promoting] 为真时插入晋级位移段,否则退场直接接入场。退场/入场时长沿用
+ * 各档配方([exitTransitionMs] / [enterTransitionMs]);位移段按速度上限定时长
+ * ([moveTransitionMs],吃起点→目标布局的实际行位差 [moveDistancePx],取不到时回退
+ * 历史 220ms 基准)。
  */
 internal fun lineTransitionTimeline(
     mode: String,
     speed: String,
-    promoting: Boolean
+    promoting: Boolean,
+    moveDistancePx: Float = 0f
 ): LineTransitionTimeline = LineTransitionTimeline(
     exitMs = exitTransitionMs(mode, speed),
-    moveMs = if (promoting) moveTransitionMs(speed) else 0L,
+    moveMs = if (promoting) moveTransitionMs(speed, moveDistancePx) else 0L,
     enterMs = enterTransitionMs(mode, speed)
 )
 
@@ -392,19 +451,37 @@ internal const val COMPRESSED_TRANSITION_MIN_SEGMENT_MS = 40L
 
 /**
  * 旧账压缩补播时间线(纯函数):按 [lineTransitionTimeline] 的同一三段序列(同一档位
- * 配方)等比压缩到 [COMPRESSED_TRANSITION_TOTAL_MS],每段不低于
- * [COMPRESSED_TRANSITION_MIN_SEGMENT_MS]——压缩后总时长落在 ~120–160ms。仅用于
+ * 配方)压缩,退场/入场压到 [COMPRESSED_TRANSITION_TOTAL_MS] 预算内、每段不低于
+ * [COMPRESSED_TRANSITION_MIN_SEGMENT_MS]——压缩后两段合计 ~140ms。仅用于
  * [shouldSkipLineTransition] 命中的恢复路径:旧账快照已过期,再播整段只会把旧目标
  * 飞着改一遍;压缩补播让眼睛看到「快速但连续」而不是「啪一下」。段顺序/缓动/帧配方
  * 与正常过渡完全一致,目标几何仍在起点定死。基线总长本就不超过压缩总长时原样返回。
+ *
+ * 位移段同样吃速度上限([moveDistancePx] > 0 时保留 [moveTransitionMs] 给出的限速时长,
+ * 不再压到 40ms 一帧暴跳——旧账场景的位移「晚一点、慢一点」补完);退场/入场不产生
+ * 位移,维持原有短时长。距离取不到时维持历史行为:三段整体等比压缩到 ~140ms。
  */
 internal fun compressedLineTransitionTimeline(
     mode: String,
     speed: String,
-    promoting: Boolean
+    promoting: Boolean,
+    moveDistancePx: Float = 0f
 ): LineTransitionTimeline {
-    val base = lineTransitionTimeline(mode, speed, promoting)
+    val base = lineTransitionTimeline(mode, speed, promoting, moveDistancePx)
     if (base.totalMs <= COMPRESSED_TRANSITION_TOTAL_MS) return base
+    if (base.moveMs > 0L && moveDistancePx.isFinite() && moveDistancePx > 0f) {
+        val fixedMs = (base.exitMs + base.enterMs).coerceAtLeast(1L)
+        val scale = COMPRESSED_TRANSITION_TOTAL_MS.toDouble() / fixedMs.toDouble()
+        fun compressedFixed(segmentMs: Long): Long = maxOf(
+            COMPRESSED_TRANSITION_MIN_SEGMENT_MS,
+            (segmentMs * scale).roundToLong()
+        )
+        return LineTransitionTimeline(
+            exitMs = compressedFixed(base.exitMs),
+            moveMs = base.moveMs,
+            enterMs = compressedFixed(base.enterMs)
+        )
+    }
     val scale = COMPRESSED_TRANSITION_TOTAL_MS.toDouble() / base.totalMs.toDouble()
     fun compressed(segmentMs: Long): Long = maxOf(
         COMPRESSED_TRANSITION_MIN_SEGMENT_MS,
@@ -887,8 +964,8 @@ internal fun shouldStartLineTransition(
 
 /**
  * 过渡不追旧账的跳过判据(纯函数,接入 [AodLyricCanvasView.setContent]):满足任一条即
- * 不播整段过渡,改走压缩补播路径([compressedLineTransitionTimeline],总长 ~140ms、
- * 每段 ≥40ms 的连续三段,不再是旧版的一帧硬切)——
+ * 不播整段过渡,改走压缩补播路径([compressedLineTransitionTimeline]:退场/入场压到
+ * ~140ms、每段 ≥40ms,位移段保留速度上限时长,不再是旧版的一帧硬切)——
  *
  * - 快照年龄超过本次过渡总时长([transitionTotalMs] = 退场 + 晋级位移 + 入场):内容与
  *   位置都来自过期批次,再补整段动画只会把旧目标飞着改一遍;doze 批投递实测 19ms 内
