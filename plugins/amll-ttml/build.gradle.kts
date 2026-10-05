@@ -29,7 +29,11 @@ java {
 
 dependencies {
     compileOnly(project(":plugins:api"))
-    // TTML 解析内核（与 lyricfetch 同款依赖；AMLL TTML 用其中的 TTMLParser）。
+    // 测试源集要访问 API 类型(TtmlMapper 返回 PluginLyricLine 等):compileOnly 不传递给
+    // test 源集,须显式声明;它只影响 :test 编译/运行,不进 dex(main 的 dex 输入仍是
+    // runtimeClasspath,api 依旧只是 compileOnly)。
+    testImplementation(project(":plugins:api"))
+    // TTML 解析内核(与 lyricfetch 同款依赖;AMLL TTML 用其中的 TTMLParser)。
     implementation("com.mocharealm.accompanist:lyrics-core:0.4.7")
     // org.json 由 Android 平台提供（插件进程内解析为平台副本），因此 compileOnly：
     // 编译期需要、绝不打进 dex。JVM 单测没有平台副本，故测试侧显式引入同一实现。
