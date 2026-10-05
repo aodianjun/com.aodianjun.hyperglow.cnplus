@@ -968,6 +968,12 @@ internal fun HomeScreen(
                                     openExternalUrl(context, GITHUB_CNPLUS_URL)
                                 }
                             )
+                            ArrowPreference(
+                                title = stringResource(R.string.action_hyperglow_qq_group),
+                                onClick = {
+                                    openExternalUrl(context, QQ_GROUP_URL)
+                                }
+                            )
                         }
                     }
                 }
