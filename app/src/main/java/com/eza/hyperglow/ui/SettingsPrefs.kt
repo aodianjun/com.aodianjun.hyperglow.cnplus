@@ -164,7 +164,8 @@ internal fun exportAllConfig(context: android.content.Context): String =
     )
 
 internal fun importAllConfig(context: android.content.Context, raw: String): Boolean {
-    val result = ConfigBackupCodec.decode(raw.toByteArray())
+    // 以当前生效配置为基底:载荷缺省的键保持现状(旧备份没有的新键不被清成默认值)。
+    val result = ConfigBackupCodec.decode(raw.toByteArray(), AodRenderPreferences.read(context))
     if (result !is ConfigBackupDecodeResult.Success) return false
     if (!configBackupWritePreferences(context, result.preferences)) return false
     val document = result.customizationDocument
@@ -179,6 +180,8 @@ private fun collectSideSettings(context: android.content.Context): ConfigBackupS
         lyricSource = AodRenderPreferences.readLyricSource(context),
         appUiAppearance = loadAppUiAppearance(context),
         uiLanguage = currentUiLanguage(context),
+        predictiveBack = AppNavigationPreferences.readPredictiveBack(context),
+        backTriggerPercent = AppNavigationPreferences.readBackTriggerPercent(context),
         diagnosticLogging = DiagnosticLoggingPreferences.read(context),
         logRetentionDays = DiagnosticLoggingPreferences.readRetentionDays(context),
         logLevel = DiagnosticLoggingPreferences.readLevel(context),
@@ -203,6 +206,11 @@ private fun applySideSettings(context: android.content.Context, side: ConfigBack
         updateAppUiAppearance(context, restored)
     }
     side.uiLanguage?.let { setUiLanguage(context, it) }
+    // 导航设置即时写盘;界面侧在 Activity 重建后读取新值(与导入提示「部分设置需重启生效」一致)。
+    side.predictiveBack?.let { AppNavigationPreferences.writePredictiveBack(context, it) }
+    side.backTriggerPercent?.let {
+        AppNavigationPreferences.writeBackTriggerPercent(context, it)
+    }
     side.diagnosticLogging?.let { updateDiagnosticLogging(context, it) }
     side.logRetentionDays?.let { updateLogRetentionDays(context, it) }
     side.logLevel?.let { updateLogLevel(context, it) }

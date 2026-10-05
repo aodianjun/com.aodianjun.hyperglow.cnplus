@@ -15,7 +15,6 @@ import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
 import com.eza.hyperglow.aod.normalizeAodRefreshRateCap
 import com.eza.hyperglow.aod.normalizeAodRotationMode
 import com.eza.hyperglow.aod.normalizeAodRotationSettleMs
-import com.eza.hyperglow.aod.AOD_ROTATION_MODE_AUTO
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.normalizeDiagnosticLogLevel
@@ -45,9 +44,11 @@ import kotlinx.serialization.json.put
  *
  * 在 v1 信封([PREFERENCES_KEY] + [CUSTOMIZATION_KEY])之上,格式按纯加法约定补齐了全部
  * 用户设置:[LYRIC_SOURCE_KEY](歌词源)、[APP_UI_KEY](应用外观)、[UI_LANGUAGE_KEY](界面语言)、
- * [DIAGNOSTICS_KEY](诊断开关与日志保留)、[PLUGIN_SETTINGS_KEY](插件设置,按 manifest 的
- * `backup` 标记过滤)。加法演进不抬版本号:老版本按"未知 key 忽略"照常导入它认识的部分,
- * 新版本对未含新键的旧备份一律"缺省即保持现状",不会把新设置面清成默认值。资源类文件
+ * [APP_NAVIGATION_KEY](界面导航:预测性返回与返回触发阈值)、[DIAGNOSTICS_KEY](诊断开关与日志
+ * 保留)、[PLUGIN_SETTINGS_KEY](插件设置,按 manifest 的 `backup` 标记过滤)。加法演进不抬
+ * 版本号:老版本按"未知 key 忽略"照常导入它认识的部分,新版本对未含新键的旧备份一律
+ * "缺省即保持现状",不会把新设置面清成默认值——该三态语义(缺省=保持现状、错形=回落默认、
+ * 有效=取载荷值)对 [PREFERENCES_KEY] 里的每个键同样成立,见 [decodePreferences]。资源类文件
  * (自定义字体、背景图片、插件安装包)不进 JSON,配置备份只承载设置。
  */
 internal sealed interface ConfigBackupDecodeResult {
@@ -76,6 +77,9 @@ internal data class ConfigBackupSideSettings(
     val lyricSource: LyricSource? = null,
     val appUiAppearance: AppUiAppearance? = null,
     val uiLanguage: UiLanguage? = null,
+    /** 应用内导航:预测性返回开关与返回触发阈值(null = 载荷未含该键,导入端保持现状)。 */
+    val predictiveBack: Boolean? = null,
+    val backTriggerPercent: Int? = null,
     val diagnosticLogging: Boolean? = null,
     val logRetentionDays: Int? = null,
     val logLevel: DiagnosticLogLevel? = null,
@@ -230,6 +234,12 @@ internal object ConfigBackupCodec {
         side.lyricSource?.let { out[LYRIC_SOURCE_KEY] = JsonPrimitive(it.name) }
         side.appUiAppearance?.let { out[APP_UI_KEY] = encodeAppUiAppearance(it) }
         side.uiLanguage?.let { out[UI_LANGUAGE_KEY] = JsonPrimitive(it.name) }
+        if (side.predictiveBack != null || side.backTriggerPercent != null) {
+            out[APP_NAVIGATION_KEY] = buildJsonObject {
+                side.predictiveBack?.let { put(PREDICTIVE_BACK_KEY, it) }
+                side.backTriggerPercent?.let { put(BACK_TRIGGER_PERCENT_KEY, it) }
+            }
+        }
         if (side.diagnosticLogging != null || side.logRetentionDays != null ||
             side.logLevel != null
         ) {
@@ -320,7 +330,15 @@ internal object ConfigBackupCodec {
         }
     }
 
-    fun decode(payload: ByteArray): ConfigBackupDecodeResult {
+    /**
+     * 解码载荷。[base] 是导入端的当前配置:载荷里缺省的键保持 [base] 值(旧备份没有的新键
+     * 保持现状,不会被清成默认值),键在但形状不符才回落该键默认值。纯函数,不接触 Android;
+     * 调用方(见 [importAllConfig])传入当前生效配置,测试默认以出厂默认值为基底。
+     */
+    fun decode(
+        payload: ByteArray,
+        base: AodRenderConfig = AodRenderConfig.DEFAULTS
+    ): ConfigBackupDecodeResult {
         // 在任何解析花费之前先拒绝超大载荷。
         if (payload.size > MAX_BYTES) return ConfigBackupDecodeResult.Rejected(
             ConfigBackupRejection.OVERSIZE
@@ -341,7 +359,7 @@ internal object ConfigBackupCodec {
         }
 
         val stored = envelope[PREFERENCES_KEY] as? JsonObject ?: JsonObject(emptyMap())
-        val preferences = decodePreferences(stored)
+        val preferences = decodePreferences(stored, base)
 
         val document = when (val rawCustomization = envelope[CUSTOMIZATION_KEY]) {
             null -> null
@@ -366,6 +384,7 @@ internal object ConfigBackupCodec {
             ?.takeIf { it.isString }?.content
         val languageName = (envelope[UI_LANGUAGE_KEY] as? JsonPrimitive)
             ?.takeIf { it.isString }?.content
+        val navigation = envelope[APP_NAVIGATION_KEY] as? JsonObject
         val diagnostics = envelope[DIAGNOSTICS_KEY] as? JsonObject
         return ConfigBackupSideSettings(
             lyricSource = lyricName?.let { name ->
@@ -375,6 +394,15 @@ internal object ConfigBackupCodec {
                 ?.let { decodeAppUiAppearance(it) },
             uiLanguage = languageName?.let { name ->
                 UiLanguage.entries.firstOrNull { it.name == name } ?: UiLanguage.SYSTEM
+            },
+            predictiveBack = navigation?.let {
+                it.boolean(PREDICTIVE_BACK_KEY) ?: AppNavigationPreferences.DEFAULT_PREDICTIVE_BACK
+            },
+            backTriggerPercent = navigation?.let {
+                normalizeBackTriggerPercent(
+                    it.int(BACK_TRIGGER_PERCENT_KEY)
+                        ?: AppNavigationPreferences.DEFAULT_BACK_TRIGGER_PERCENT
+                )
             },
             diagnosticLogging = diagnostics?.let { it.boolean(DIAGNOSTIC_LOGGING_KEY) ?: false },
             logRetentionDays = diagnostics?.let {
@@ -422,117 +450,267 @@ internal object ConfigBackupCodec {
         return out
     }
 
-    private fun decodePreferences(stored: JsonObject): AodRenderConfig = AodRenderConfig(
-        aodEnabled = stored.boolean(AodRenderPreferences.AOD_ENABLED) ?: DEFAULTS.aodEnabled,
-        lockscreenEnabled = stored.boolean(AodRenderPreferences.LOCKSCREEN_ENABLED)
-            ?: DEFAULTS.lockscreenEnabled,
-        alignment = stored.string(AodRenderPreferences.ALIGNMENT) ?: DEFAULTS.alignment,
-        secondaryMode = stored.string(AodRenderPreferences.SECONDARY) ?: DEFAULTS.secondaryMode,
-        overflowMode = stored.string(AodRenderPreferences.OVERFLOW) ?: DEFAULTS.overflowMode,
-        metadataVisible = stored.string(AodRenderPreferences.METADATA_VISIBLE)
-            ?: DEFAULTS.metadataVisible,
-        metadataAnchor = stored.string(AodRenderPreferences.METADATA_ANCHOR)
-            ?: DEFAULTS.metadataAnchor,
-        metadataSizePercent = (stored.int(AodRenderPreferences.METADATA_SIZE)
-            ?: DEFAULTS.metadataSizePercent).coerceIn(50, 200),
-        weight = stored.string(AodRenderPreferences.WEIGHT) ?: DEFAULTS.weight,
-        textSize = stored.string(AodRenderPreferences.TEXT_SIZE) ?: DEFAULTS.textSize,
-        textSizeCustom = (stored.int(AodRenderPreferences.TEXT_SIZE_CUSTOM)
-            ?: DEFAULTS.textSizeCustom).coerceIn(50, 200),
-        fontFamily = stored.string(AodRenderPreferences.FONT_FAMILY) ?: DEFAULTS.fontFamily,
-        animation = stored.string(AodRenderPreferences.ANIMATION) ?: DEFAULTS.animation,
-        glow = stored.string(AodRenderPreferences.GLOW) ?: DEFAULTS.glow,
-        adaptiveSectioning = stored.boolean(AodRenderPreferences.ADAPTIVE_SECTIONING)
-            ?: DEFAULTS.adaptiveSectioning,
-        keepAwake = stored.boolean(AodRenderPreferences.KEEP_AWAKE) ?: DEFAULTS.keepAwake,
-        aodClockFollow = stored.boolean(AodRenderPreferences.AOD_CLOCK_FOLLOW)
-            ?: DEFAULTS.aodClockFollow,
-        aodClockYOffset = stored.int(AodRenderPreferences.AOD_CLOCK_Y_OFFSET)
-            ?.let(::normalizeAodClockYOffset) ?: DEFAULTS.aodClockYOffset,
-        keepAwakeUnsynced = stored.boolean(AodRenderPreferences.KEEP_AWAKE_UNSYNCED)
-            ?: DEFAULTS.keepAwakeUnsynced,
-        keepAwakeDurationMs = stored.long(AodRenderPreferences.KEEP_AWAKE_DURATION_MS)
-            ?: DEFAULTS.keepAwakeDurationMs,
-        experimentalPositionFollowing = stored.boolean(
-            AodRenderPreferences.EXPERIMENTAL_POSITION_FOLLOWING
-        ) ?: DEFAULTS.experimentalPositionFollowing,
-        burnInPattern = stored.string(AodRenderPreferences.BURN_IN_PATTERN)
-            ?: DEFAULTS.burnInPattern,
-        burnInIntervalMs = stored.long(AodRenderPreferences.BURN_IN_INTERVAL_MS)
-            ?: DEFAULTS.burnInIntervalMs,
-        pauseLingerMs = stored.long(AodRenderPreferences.PAUSE_LINGER_MS)
-            ?: DEFAULTS.pauseLingerMs,
-        pauseShowContent = stored.boolean(AodRenderPreferences.PAUSE_SHOW_CONTENT)
-            ?: DEFAULTS.pauseShowContent,
-        lockscreenKeepAwake = stored.boolean(AodRenderPreferences.LOCKSCREEN_KEEP_AWAKE)
-            ?: DEFAULTS.lockscreenKeepAwake,
-        raiseToAod = stored.boolean(AodRenderPreferences.RAISE_TO_AOD) ?: DEFAULTS.raiseToAod,
-        suppressLockscreenEditorLongPress = stored.boolean(
-            AodRenderPreferences.SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS
-        ) ?: DEFAULTS.suppressLockscreenEditorLongPress,
-        experimentalMode = stored.boolean(AodRenderPreferences.EXPERIMENTAL_MODE)
-            ?: DEFAULTS.experimentalMode,
-        persistentNotification = stored.boolean(AodRenderPreferences.PERSISTENT_NOTIFICATION)
-            ?: DEFAULTS.persistentNotification,
-        hideBackgroundCard = stored.boolean(AodRenderPreferences.HIDE_BACKGROUND_CARD)
-            ?: DEFAULTS.hideBackgroundCard,
-        hideLauncherIcon = stored.boolean(AodRenderPreferences.HIDE_LAUNCHER_ICON)
-            ?: DEFAULTS.hideLauncherIcon,
-        aodBrightnessBoost = stored.boolean(AodRenderPreferences.AOD_BRIGHTNESS_BOOST)
-            ?: DEFAULTS.aodBrightnessBoost,
-        pluginProcessingEnabled = stored.boolean(AodRenderPreferences.PLUGIN_PROCESSING_ENABLED)
-            ?: DEFAULTS.pluginProcessingEnabled,
-        suppressStockAodContent = stored.boolean(
-            AodRenderPreferences.SUPPRESS_STOCK_AOD_CONTENT
-        ) ?: DEFAULTS.suppressStockAodContent,
-        aodRotateWithDevice = stored.boolean(AodRenderPreferences.AOD_ROTATE_WITH_DEVICE)
-            ?: DEFAULTS.aodRotateWithDevice,
-        aodRotationMode = stored.string(AodRenderPreferences.AOD_ROTATION_MODE)
-            ?.let(::normalizeAodRotationMode)
-            ?: if (stored.boolean(AodRenderPreferences.AOD_ROTATE_WITH_DEVICE) == true) {
-                AOD_ROTATION_MODE_AUTO
+    /**
+     * 渲染偏好解码。三态语义与侧设置面一致:键缺省 → 取 [base](导入端保持现状,旧备份里
+     * 不存在的新键不会被清成默认值);键在但形状不符 → 回落该键默认值;否则取载荷值。
+     */
+    private fun decodePreferences(stored: JsonObject, base: AodRenderConfig): AodRenderConfig =
+        AodRenderConfig(
+            aodEnabled = stored.resolveBoolean(
+                AodRenderPreferences.AOD_ENABLED, base.aodEnabled, DEFAULTS.aodEnabled
+            ),
+            lockscreenEnabled = stored.resolveBoolean(
+                AodRenderPreferences.LOCKSCREEN_ENABLED,
+                base.lockscreenEnabled,
+                DEFAULTS.lockscreenEnabled
+            ),
+            alignment = stored.resolveString(
+                AodRenderPreferences.ALIGNMENT, base.alignment, DEFAULTS.alignment
+            ),
+            secondaryMode = stored.resolveString(
+                AodRenderPreferences.SECONDARY, base.secondaryMode, DEFAULTS.secondaryMode
+            ),
+            overflowMode = stored.resolveString(
+                AodRenderPreferences.OVERFLOW, base.overflowMode, DEFAULTS.overflowMode
+            ),
+            metadataVisible = stored.resolveString(
+                AodRenderPreferences.METADATA_VISIBLE,
+                base.metadataVisible,
+                DEFAULTS.metadataVisible
+            ),
+            metadataAnchor = stored.resolveString(
+                AodRenderPreferences.METADATA_ANCHOR, base.metadataAnchor, DEFAULTS.metadataAnchor
+            ),
+            metadataSizePercent = stored.resolveInt(
+                AodRenderPreferences.METADATA_SIZE,
+                base.metadataSizePercent,
+                DEFAULTS.metadataSizePercent
+            ).coerceIn(50, 200),
+            weight = stored.resolveString(
+                AodRenderPreferences.WEIGHT, base.weight, DEFAULTS.weight
+            ),
+            textSize = stored.resolveString(
+                AodRenderPreferences.TEXT_SIZE, base.textSize, DEFAULTS.textSize
+            ),
+            textSizeCustom = stored.resolveInt(
+                AodRenderPreferences.TEXT_SIZE_CUSTOM,
+                base.textSizeCustom,
+                DEFAULTS.textSizeCustom
+            ).coerceIn(50, 200),
+            fontFamily = stored.resolveString(
+                AodRenderPreferences.FONT_FAMILY, base.fontFamily, DEFAULTS.fontFamily
+            ),
+            animation = stored.resolveString(
+                AodRenderPreferences.ANIMATION, base.animation, DEFAULTS.animation
+            ),
+            glow = stored.resolveString(AodRenderPreferences.GLOW, base.glow, DEFAULTS.glow),
+            adaptiveSectioning = stored.resolveBoolean(
+                AodRenderPreferences.ADAPTIVE_SECTIONING,
+                base.adaptiveSectioning,
+                DEFAULTS.adaptiveSectioning
+            ),
+            keepAwake = stored.resolveBoolean(
+                AodRenderPreferences.KEEP_AWAKE, base.keepAwake, DEFAULTS.keepAwake
+            ),
+            aodClockFollow = stored.resolveBoolean(
+                AodRenderPreferences.AOD_CLOCK_FOLLOW,
+                base.aodClockFollow,
+                DEFAULTS.aodClockFollow
+            ),
+            aodClockYOffset = normalizeAodClockYOffset(
+                stored.resolveInt(
+                    AodRenderPreferences.AOD_CLOCK_Y_OFFSET,
+                    base.aodClockYOffset,
+                    DEFAULTS.aodClockYOffset
+                )
+            ),
+            keepAwakeUnsynced = stored.resolveBoolean(
+                AodRenderPreferences.KEEP_AWAKE_UNSYNCED,
+                base.keepAwakeUnsynced,
+                DEFAULTS.keepAwakeUnsynced
+            ),
+            keepAwakeDurationMs = stored.resolveLong(
+                AodRenderPreferences.KEEP_AWAKE_DURATION_MS,
+                base.keepAwakeDurationMs,
+                DEFAULTS.keepAwakeDurationMs
+            ),
+            experimentalPositionFollowing = stored.resolveBoolean(
+                AodRenderPreferences.EXPERIMENTAL_POSITION_FOLLOWING,
+                base.experimentalPositionFollowing,
+                DEFAULTS.experimentalPositionFollowing
+            ),
+            burnInPattern = stored.resolveString(
+                AodRenderPreferences.BURN_IN_PATTERN, base.burnInPattern, DEFAULTS.burnInPattern
+            ),
+            burnInIntervalMs = stored.resolveLong(
+                AodRenderPreferences.BURN_IN_INTERVAL_MS,
+                base.burnInIntervalMs,
+                DEFAULTS.burnInIntervalMs
+            ),
+            pauseLingerMs = stored.resolveLong(
+                AodRenderPreferences.PAUSE_LINGER_MS, base.pauseLingerMs, DEFAULTS.pauseLingerMs
+            ),
+            pauseShowContent = stored.resolveBoolean(
+                AodRenderPreferences.PAUSE_SHOW_CONTENT,
+                base.pauseShowContent,
+                DEFAULTS.pauseShowContent
+            ),
+            lockscreenKeepAwake = stored.resolveBoolean(
+                AodRenderPreferences.LOCKSCREEN_KEEP_AWAKE,
+                base.lockscreenKeepAwake,
+                DEFAULTS.lockscreenKeepAwake
+            ),
+            raiseToAod = stored.resolveBoolean(
+                AodRenderPreferences.RAISE_TO_AOD, base.raiseToAod, DEFAULTS.raiseToAod
+            ),
+            suppressLockscreenEditorLongPress = stored.resolveBoolean(
+                AodRenderPreferences.SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS,
+                base.suppressLockscreenEditorLongPress,
+                DEFAULTS.suppressLockscreenEditorLongPress
+            ),
+            experimentalMode = stored.resolveBoolean(
+                AodRenderPreferences.EXPERIMENTAL_MODE,
+                base.experimentalMode,
+                DEFAULTS.experimentalMode
+            ),
+            persistentNotification = stored.resolveBoolean(
+                AodRenderPreferences.PERSISTENT_NOTIFICATION,
+                base.persistentNotification,
+                DEFAULTS.persistentNotification
+            ),
+            hideBackgroundCard = stored.resolveBoolean(
+                AodRenderPreferences.HIDE_BACKGROUND_CARD,
+                base.hideBackgroundCard,
+                DEFAULTS.hideBackgroundCard
+            ),
+            hideLauncherIcon = stored.resolveBoolean(
+                AodRenderPreferences.HIDE_LAUNCHER_ICON,
+                base.hideLauncherIcon,
+                DEFAULTS.hideLauncherIcon
+            ),
+            aodBrightnessBoost = stored.resolveBoolean(
+                AodRenderPreferences.AOD_BRIGHTNESS_BOOST,
+                base.aodBrightnessBoost,
+                DEFAULTS.aodBrightnessBoost
+            ),
+            pluginProcessingEnabled = stored.resolveBoolean(
+                AodRenderPreferences.PLUGIN_PROCESSING_ENABLED,
+                base.pluginProcessingEnabled,
+                DEFAULTS.pluginProcessingEnabled
+            ),
+            suppressStockAodContent = stored.resolveBoolean(
+                AodRenderPreferences.SUPPRESS_STOCK_AOD_CONTENT,
+                base.suppressStockAodContent,
+                DEFAULTS.suppressStockAodContent
+            ),
+            aodRotateWithDevice = stored.resolveBoolean(
+                AodRenderPreferences.AOD_ROTATE_WITH_DEVICE,
+                base.aodRotateWithDevice,
+                DEFAULTS.aodRotateWithDevice
+            ),
+            // 旋转模式的读取联动(portrait→auto)在 AodRenderPreferences.read 里完成,
+            // 这里键缺省时直接沿用 base 的生效模式,不再自行推导。
+            aodRotationMode = if (stored.containsKey(AodRenderPreferences.AOD_ROTATION_MODE)) {
+                stored.string(AodRenderPreferences.AOD_ROTATION_MODE)
+                    ?.let(::normalizeAodRotationMode)
+                    ?: DEFAULTS.aodRotationMode
             } else {
-                DEFAULTS.aodRotationMode
+                base.aodRotationMode
             },
-        aodRotationSettleMs = stored.long(AodRenderPreferences.AOD_ROTATION_SETTLE_MS)
-            ?.let(::normalizeAodRotationSettleMs) ?: DEFAULTS.aodRotationSettleMs,
-        aodCanvasAnchorLandscape = stored.float(
-            AodRenderPreferences.AOD_CANVAS_ANCHOR_LANDSCAPE
-        )?.let(::normalizeAodCanvasAnchor) ?: DEFAULTS.aodCanvasAnchorLandscape,
-        aodLandscapeTextScale = stored.float(AodRenderPreferences.AOD_LANDSCAPE_TEXT_SCALE)
-            ?.let(::normalizeAodLandscapeTextScale) ?: DEFAULTS.aodLandscapeTextScale,
-        aodLandscapeHideStock = stored.boolean(AodRenderPreferences.AOD_LANDSCAPE_HIDE_STOCK)
-            ?: DEFAULTS.aodLandscapeHideStock,
-        aodLandscapeFullscreen = stored.boolean(AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN)
-            ?: DEFAULTS.aodLandscapeFullscreen,
-        aodLandscapeFullscreenSafeMarginPercent = stored.float(
-            AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT
-        )?.let(::normalizeAodFullscreenSafeMarginPercent)
-            ?: DEFAULTS.aodLandscapeFullscreenSafeMarginPercent,
-        aodCanvasPaddingPortraitXPercent = stored.float(
-            AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT
-        )?.let(::normalizeAodCanvasPaddingPercent) ?: DEFAULTS.aodCanvasPaddingPortraitXPercent,
-        aodCanvasPaddingPortraitYPercent = stored.float(
-            AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_Y_PERCENT
-        )?.let(::normalizeAodCanvasPaddingPercent) ?: DEFAULTS.aodCanvasPaddingPortraitYPercent,
-        aodCanvasPaddingLandscapeXPercent = stored.float(
-            AodRenderPreferences.AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT
-        )?.let(::normalizeAodCanvasPaddingPercent) ?: DEFAULTS.aodCanvasPaddingLandscapeXPercent,
-        aodCanvasPaddingLandscapeYPercent = stored.float(
-            AodRenderPreferences.AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT
-        )?.let(::normalizeAodCanvasPaddingPercent) ?: DEFAULTS.aodCanvasPaddingLandscapeYPercent,
-        aodBrightnessOverride = stored.boolean(AodRenderPreferences.AOD_BRIGHTNESS_OVERRIDE)
-            ?: DEFAULTS.aodBrightnessOverride,
-        aodBrightnessLevel = (stored.int(AodRenderPreferences.AOD_BRIGHTNESS_LEVEL)
-            ?: DEFAULTS.aodBrightnessLevel).coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS),
-        aodDebugShowCanvasFrame = stored.boolean(AodRenderPreferences.AOD_DEBUG_SHOW_CANVAS_FRAME)
-            ?: DEFAULTS.aodDebugShowCanvasFrame,
-        aodRefreshRateCap = normalizeAodRefreshRateCap(
-            stored.int(AodRenderPreferences.AOD_REFRESH_RATE_CAP) ?: DEFAULTS.aodRefreshRateCap
-        ),
-        filterNonMusicSources = stored.boolean(AodRenderPreferences.FILTER_NON_MUSIC_SOURCES)
-            ?: DEFAULTS.filterNonMusicSources
-    )
+            aodRotationSettleMs = normalizeAodRotationSettleMs(
+                stored.resolveLong(
+                    AodRenderPreferences.AOD_ROTATION_SETTLE_MS,
+                    base.aodRotationSettleMs,
+                    DEFAULTS.aodRotationSettleMs
+                )
+            ),
+            aodCanvasAnchorLandscape = normalizeAodCanvasAnchor(
+                stored.resolveFloat(
+                    AodRenderPreferences.AOD_CANVAS_ANCHOR_LANDSCAPE,
+                    base.aodCanvasAnchorLandscape,
+                    DEFAULTS.aodCanvasAnchorLandscape
+                )
+            ),
+            aodLandscapeTextScale = normalizeAodLandscapeTextScale(
+                stored.resolveFloat(
+                    AodRenderPreferences.AOD_LANDSCAPE_TEXT_SCALE,
+                    base.aodLandscapeTextScale,
+                    DEFAULTS.aodLandscapeTextScale
+                )
+            ),
+            aodLandscapeHideStock = stored.resolveBoolean(
+                AodRenderPreferences.AOD_LANDSCAPE_HIDE_STOCK,
+                base.aodLandscapeHideStock,
+                DEFAULTS.aodLandscapeHideStock
+            ),
+            aodLandscapeFullscreen = stored.resolveBoolean(
+                AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN,
+                base.aodLandscapeFullscreen,
+                DEFAULTS.aodLandscapeFullscreen
+            ),
+            aodLandscapeFullscreenSafeMarginPercent = normalizeAodFullscreenSafeMarginPercent(
+                stored.resolveFloat(
+                    AodRenderPreferences.AOD_LANDSCAPE_FULLSCREEN_SAFE_MARGIN_PERCENT,
+                    base.aodLandscapeFullscreenSafeMarginPercent,
+                    DEFAULTS.aodLandscapeFullscreenSafeMarginPercent
+                )
+            ),
+            aodCanvasPaddingPortraitXPercent = normalizeAodCanvasPaddingPercent(
+                stored.resolveFloat(
+                    AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_X_PERCENT,
+                    base.aodCanvasPaddingPortraitXPercent,
+                    DEFAULTS.aodCanvasPaddingPortraitXPercent
+                )
+            ),
+            aodCanvasPaddingPortraitYPercent = normalizeAodCanvasPaddingPercent(
+                stored.resolveFloat(
+                    AodRenderPreferences.AOD_CANVAS_PADDING_PORTRAIT_Y_PERCENT,
+                    base.aodCanvasPaddingPortraitYPercent,
+                    DEFAULTS.aodCanvasPaddingPortraitYPercent
+                )
+            ),
+            aodCanvasPaddingLandscapeXPercent = normalizeAodCanvasPaddingPercent(
+                stored.resolveFloat(
+                    AodRenderPreferences.AOD_CANVAS_PADDING_LANDSCAPE_X_PERCENT,
+                    base.aodCanvasPaddingLandscapeXPercent,
+                    DEFAULTS.aodCanvasPaddingLandscapeXPercent
+                )
+            ),
+            aodCanvasPaddingLandscapeYPercent = normalizeAodCanvasPaddingPercent(
+                stored.resolveFloat(
+                    AodRenderPreferences.AOD_CANVAS_PADDING_LANDSCAPE_Y_PERCENT,
+                    base.aodCanvasPaddingLandscapeYPercent,
+                    DEFAULTS.aodCanvasPaddingLandscapeYPercent
+                )
+            ),
+            aodBrightnessOverride = stored.resolveBoolean(
+                AodRenderPreferences.AOD_BRIGHTNESS_OVERRIDE,
+                base.aodBrightnessOverride,
+                DEFAULTS.aodBrightnessOverride
+            ),
+            aodBrightnessLevel = stored.resolveInt(
+                AodRenderPreferences.AOD_BRIGHTNESS_LEVEL,
+                base.aodBrightnessLevel,
+                DEFAULTS.aodBrightnessLevel
+            ).coerceIn(MIN_AOD_BRIGHTNESS, MAX_AOD_BRIGHTNESS),
+            aodDebugShowCanvasFrame = stored.resolveBoolean(
+                AodRenderPreferences.AOD_DEBUG_SHOW_CANVAS_FRAME,
+                base.aodDebugShowCanvasFrame,
+                DEFAULTS.aodDebugShowCanvasFrame
+            ),
+            aodRefreshRateCap = normalizeAodRefreshRateCap(
+                stored.resolveInt(
+                    AodRenderPreferences.AOD_REFRESH_RATE_CAP,
+                    base.aodRefreshRateCap,
+                    DEFAULTS.aodRefreshRateCap
+                )
+            ),
+            filterNonMusicSources = stored.resolveBoolean(
+                AodRenderPreferences.FILTER_NON_MUSIC_SOURCES,
+                base.filterNonMusicSources,
+                DEFAULTS.filterNonMusicSources
+            )
+        )
 
     private fun JsonObject.boolean(key: String): Boolean? =
         (this[key] as? JsonPrimitive)?.booleanOrNull
@@ -550,6 +728,25 @@ internal object ConfigBackupCodec {
     private fun JsonObject.string(key: String): String? =
         (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
+    /**
+     * 三态读取:键缺省 → [base](保持现状);键在但形状不符 → [default](回落默认);
+     * 否则取载荷值。见类 KDoc 的加法演进约定。
+     */
+    private fun JsonObject.resolveBoolean(key: String, base: Boolean, default: Boolean): Boolean =
+        if (!containsKey(key)) base else boolean(key) ?: default
+
+    private fun JsonObject.resolveInt(key: String, base: Int, default: Int): Int =
+        if (!containsKey(key)) base else int(key) ?: default
+
+    private fun JsonObject.resolveLong(key: String, base: Long, default: Long): Long =
+        if (!containsKey(key)) base else long(key) ?: default
+
+    private fun JsonObject.resolveFloat(key: String, base: Float, default: Float): Float =
+        if (!containsKey(key)) base else float(key) ?: default
+
+    private fun JsonObject.resolveString(key: String, base: String, default: String): String =
+        if (!containsKey(key)) base else string(key) ?: default
+
     private const val FORMAT_KEY = "format"
     private const val VERSION_KEY = "version"
     private const val PREFERENCES_KEY = "renderPreferences"
@@ -557,6 +754,9 @@ internal object ConfigBackupCodec {
     private const val LYRIC_SOURCE_KEY = "lyricSource"
     private const val APP_UI_KEY = "appUiAppearance"
     private const val UI_LANGUAGE_KEY = "uiLanguage"
+    private const val APP_NAVIGATION_KEY = "appNavigation"
+    private const val PREDICTIVE_BACK_KEY = "predictiveBack"
+    private const val BACK_TRIGGER_PERCENT_KEY = "backTriggerPercent"
     private const val DIAGNOSTICS_KEY = "diagnostics"
     private const val PLUGIN_SETTINGS_KEY = "pluginSettings"
     private const val DIAGNOSTIC_LOGGING_KEY = "diagnostic_logging"
