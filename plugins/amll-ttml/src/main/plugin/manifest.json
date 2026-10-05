@@ -1,0 +1,130 @@
+{
+    "id": "com.example.hyperglow.amllttml",
+    "name": "HyperGlow AMLL TTML Plugin",
+    "nameLocales": {
+        "zh-CN": "HyperGlow AMLL 逐字歌词",
+        "zh-TW": "HyperGlow AMLL 逐字歌詞"
+    },
+    "summary": "Fetch word-level lyrics (translation/roma/background vocals/duet) from the AMLL TTML database; falls back to the current lyric source on miss.",
+    "summaryLocales": {
+        "zh-CN": "从 AMLL TTML 歌词库获取高质量逐字歌词（翻译/罗马音/和声/对唱），未命中时保持当前歌词源。",
+        "zh-TW": "從 AMLL TTML 歌詞庫取得高品質逐字歌詞（翻譯/羅馬音/和聲/對唱），未命中時保持目前歌詞來源。"
+    },
+    "author": "HyperGlow CN+",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "entry": "com.example.hyperglow.amllttml.AmllTtmlPlugin",
+    "activationSettingKey": "amll_ttml_enabled",
+    "cacheScopes": [
+        {
+            "id": "amll_ttml_songs",
+            "title": "AMLL lyrics cache",
+            "titleLocales": {
+                "zh-CN": "AMLL 歌词缓存",
+                "zh-TW": "AMLL 歌詞快取"
+            },
+            "summary": "Per-song lookup results (hits and misses) kept to avoid refetching. Delete an entry to look the song up again.",
+            "summaryLocales": {
+                "zh-CN": "按曲目保留的取词结果（含未命中），用于避免重复联网。删除条目即可重新取词。",
+                "zh-TW": "依曲目保留的取詞結果（含未命中），用於避免重複連網。刪除項目即可重新取詞。"
+            }
+        }
+    ],
+    "settings": [
+        {
+            "type": "switch",
+            "key": "amll_ttml_enabled",
+            "title": "AMLL TTML word-level lyrics",
+            "titleLocales": {
+                "zh-CN": "启用 AMLL TTML 逐字歌词",
+                "zh-TW": "啟用 AMLL TTML 逐字歌詞"
+            },
+            "summary": "Look up the current song in the AMLL TTML database and replace lyrics with the word-level version.",
+            "summaryLocales": {
+                "zh-CN": "在 AMLL TTML 歌词库中查找当前歌曲，命中时替换为逐字歌词。",
+                "zh-TW": "在 AMLL TTML 歌詞庫中尋找目前歌曲，命中時取代為逐字歌詞。"
+            },
+            "default": false
+        },
+        {
+            "type": "text",
+            "key": "amll_ttml_api_base_url",
+            "title": "Lyrics API base URL",
+            "titleLocales": {
+                "zh-CN": "歌词 API 地址",
+                "zh-TW": "歌詞 API 網址"
+            },
+            "summary": "Base URL of the AMLL TTML API service.",
+            "summaryLocales": {
+                "zh-CN": "AMLL TTML API 服务地址（自建服务可改此处）。",
+                "zh-TW": "AMLL TTML API 服務網址（自建服務可改此處）。"
+            },
+            "emptyValueSummary": "https://api.amll.dev",
+            "emptyValueSummaryLocales": {
+                "zh-CN": "默认 https://api.amll.dev",
+                "zh-TW": "預設 https://api.amll.dev"
+            },
+            "default": "https://api.amll.dev"
+        },
+        {
+            "type": "switch",
+            "key": "amll_ttml_duet",
+            "title": "Duet performance",
+            "titleLocales": {
+                "zh-CN": "启用对唱表演",
+                "zh-TW": "啟用對唱表演"
+            },
+            "summary": "Align duet lines to the left/right sides according to their performer (ttm:agent).",
+            "summaryLocales": {
+                "zh-CN": "按演唱者（ttm:agent）把对唱行左右分侧对齐显示。",
+                "zh-TW": "依演唱者（ttm:agent）把對唱行左右分側對齊顯示。"
+            },
+            "default": true
+        },
+        {
+            "type": "switch",
+            "key": "amll_ttml_translation",
+            "title": "Use online translation",
+            "titleLocales": {
+                "zh-CN": "使用在线翻译",
+                "zh-TW": "使用線上翻譯"
+            },
+            "summary": "Attach translated lines embedded in the TTML when available.",
+            "summaryLocales": {
+                "zh-CN": "TTML 内嵌翻译时一并挂载。",
+                "zh-TW": "TTML 內嵌翻譯時一併掛載。"
+            },
+            "default": true
+        },
+        {
+            "type": "switch",
+            "key": "amll_ttml_background",
+            "title": "Keep background vocals",
+            "titleLocales": {
+                "zh-CN": "保留和声行",
+                "zh-TW": "保留和聲行"
+            },
+            "summary": "Emit background-vocal lines (x-bg) as separate rows.",
+            "summaryLocales": {
+                "zh-CN": "把和声（x-bg）行作为独立行输出。",
+                "zh-TW": "把和聲（x-bg）行作為獨立行輸出。"
+            },
+            "default": true
+        },
+        {
+            "type": "switch",
+            "key": "amll_ttml_upgrade_only",
+            "title": "Only upgrade to word-level",
+            "titleLocales": {
+                "zh-CN": "仅升级为逐字歌词",
+                "zh-TW": "僅升級為逐字歌詞"
+            },
+            "summary": "Replace only when the database version has word-level timing and the current one does not.",
+            "summaryLocales": {
+                "zh-CN": "只在库中版本有逐字时间轴、而当前没有时才替换。",
+                "zh-TW": "只在庫中版本有逐字時間軸、而目前沒有時才取代。"
+            },
+            "default": true
+        }
+    ]
+}
