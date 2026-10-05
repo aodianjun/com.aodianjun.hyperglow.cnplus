@@ -28,5 +28,7 @@ include(":plugins:demo")
 // 补充插件(可安装,不参与宿主 APK 构建):
 // - lyricfetch: 在线取词 + 多格式解析(accompanist-lyrics-core 随插件打进 dex)
 // - scriptconvert: 歌词简繁字形转换(OpenCC 词典内嵌)
+// - amll-ttml: AMLL TTML 逐字歌词(api.amll.dev 取词;TTML 解析同用 accompanist-lyrics-core)
 include(":plugins:lyricfetch")
 include(":plugins:scriptconvert")
+include(":plugins:amll-ttml")
