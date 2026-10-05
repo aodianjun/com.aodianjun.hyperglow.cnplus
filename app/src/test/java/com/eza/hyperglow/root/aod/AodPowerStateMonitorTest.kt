@@ -7,7 +7,8 @@ import org.junit.Test
 
 /**
  * Unit tests for [isAodPowerSaverActive] — the pure AOD power-saver predicate:
- * battery low while discharging, or device thermally throttled (≥ MODERATE).
+ * battery low while discharging, or device thermally throttled (≥ MODERATE) — and for
+ * [isAodPowerSaverEffective], the user-switch gate in front of it.
  */
 class AodPowerStateMonitorTest {
 
@@ -59,5 +60,19 @@ class AodPowerStateMonitorTest {
         assertTrue(
             isAodPowerSaverActive(batteryPercent = 90, charging = false, thermalStatus = 3)
         )
+    }
+
+    /**
+     * 用户开关总闸:关闭时任何电量/温度状态都不降帧(画布恒按帧上限渲染);
+     * 开关缺省(null,旧配置/旧生产者不带该字段)按开启处理,保持历史降帧行为。
+     */
+    @Test
+    fun userSwitchGatesTheSaver() {
+        assertFalse(isAodPowerSaverEffective(switchEnabled = false, saverActive = true))
+        assertFalse(isAodPowerSaverEffective(switchEnabled = false, saverActive = false))
+        assertTrue(isAodPowerSaverEffective(switchEnabled = true, saverActive = true))
+        assertFalse(isAodPowerSaverEffective(switchEnabled = true, saverActive = false))
+        assertTrue(isAodPowerSaverEffective(switchEnabled = null, saverActive = true))
+        assertFalse(isAodPowerSaverEffective(switchEnabled = null, saverActive = false))
     }
 }

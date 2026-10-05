@@ -30,6 +30,17 @@ internal const val AOD_POWER_SAVER_THERMAL_STATUS = 2 // PowerManager.THERMAL_ST
 private const val THERMAL_RECHECK_MS = 30_000L
 
 /**
+ * 降帧总闸(纯谓词,可单测):用户开关与运行状态同时命中才降帧。
+ * [switchEnabled] 来自编译配置 `CompiledCustomization.aodPowerSaver`,缺省(null)按开启
+ * 处理——旧生产者/旧配置不带该字段时必须保持历史降帧行为(fail-open 到既有语义,
+ * 而不是静默换档)。开关关闭时恒不降帧,画布始终按帧上限渲染。
+ */
+internal fun isAodPowerSaverEffective(
+    switchEnabled: Boolean?,
+    saverActive: Boolean
+): Boolean = (switchEnabled ?: true) && saverActive
+
+/**
  * SystemUI 侧电量/温控状态缓存,驱动 AOD 歌词画布的省电降帧。
  *
  * 查询策略遵循热路径规则:attach 时读一次粘性电量广播与当前热状态,之后全部由系统推送

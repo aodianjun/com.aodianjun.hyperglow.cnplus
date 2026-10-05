@@ -47,6 +47,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
 
 | 2026-10-05 | 0.3.164 (191) | Lyric source arbitration | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | No lyrics on the AOD with the preferred LyricInfo source: the video session was filtered as non-music (`DISCONNECTED`) while Lyricon's callback chain had died at a pause and sat frozen on a valid paused line (age 1930 s, `play=0`), and the fallback path rejected every stale state — `active` stayed null and the surface blanked. The stall also re-logged the whole fallback chain every 100 ms tick (~60 lines/s), rotating the bounded diagnostic mirror away. Fix (one fault predicate across the preferred/fallback paths + stale-paused fallback forwarded only with content + stall-diagnostic de-dup with a 30 s heartbeat) lands with this entry; update to pass + device-verified after hardware re-check. |
 
+| 2026-10-06 | 0.3.165 (192) | Brightness and battery protection | partial | Redmi K80 Pro (`miro`) / DEV-2313.0.0.1-11211901 (22313001) | trace-observed | AOD word animation stepped at ≈5 fps while the device was hot and charging (owner report: AOD below 10 fps). Root cause traced to the built-in power-saver frame drop — `POWER_SAVER_FRAME_INTERVAL_MS` = 200 ms, engaged when `isAodPowerSaverActive` sees thermal status ≥ MODERATE (measured status 3, skin ≈50 °C during the reported window). The panel was never the limiter (SDM `FPS cur:120`, `vsync_period` 8.33 ms; AOD window present gaps 8.3/16.6 ms) and the canvas kept ≈62 draws/s on the lockscreen; after the device cooled (status 0, skin 46 °C, `Power state monitor attached saver=false`) the cadence returned. Fix (user switch `aodPowerSaver`, default on, delivered through the compiled customization; off ⇒ the canvas never drops below the frame cap) lands with this entry; update to pass + device-verified after hardware re-check. |
+
 ## Known unverified paths
 
 - Translation redundancy pair across the producer/plugin bridge (`translationWords` backfills the translation text when the text is missing, crosses `PluginLyricLine.translationWords` unchanged, and word-only plugin results apply on the reverse path; unit-tested) — pending a hardware smoke check after merge: a source delivering word-level translations only must show the auxiliary translation line on the AOD, and a song whose translations arrive as plain text must be unchanged.
@@ -533,6 +535,13 @@ and (b) unverified paths stay explicit instead of silently assumed.
   switch back to the live source, and `adb logcat -s HyperGlow` must show the fallback chain once
   at stall onset plus a 30 s heartbeat instead of ~60 lines/s.
 
+- AOD power-saver frame drop behind a user switch (`aodPowerSaver`, default on; off ⇒ the canvas
+  never drops below the frame cap) — pending a hardware smoke check after merge: with the switch
+  off and the device hot (or `adb shell cmd thermalservice override-status 3`; reset with
+  `cmd thermalservice reset`), the AOD word animation must keep the configured frame rate
+  (`AodLyricCanvasView` `draw={count=…}` ≈ 310 per 5 s) and must step coarsely (≈ 25 per 5 s)
+  with the switch on and the same override.
+
 ## How this ledger is used
 
 - Before merging a change that touches an area, check the most recent entry for that area; if the
@@ -586,6 +595,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 | 2026-10-01 | 0.3.133 (160) | 辅助文本取数 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | device-verified | 「辅助文字显示第二行歌词」的辅助形态把下一行歌词渲染到 ≈0.9 倍主行字号、读作第二条主行（锁屏）：`LIVE_CARD_SIZE_MULTIPLIER=0.68` 把主行压到 ≈15.6sp，而 14/13sp 绝对可读性下限顶死了辅助字号（真机字形实测 44/40/37px 与 15.6/14/13sp 公式逐一对上；截图已存档）。修复（下限按有效主行字号等比封顶；预览共用同一公式、随本修复一并生效）随本条目落地；真机复验后更新为 pass + device-verified。 |
 
 | 2026-10-05 | 0.3.164 (191) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | 首选 LyricInfo 下 AOD 无歌词：视频会话被非音乐过滤（`DISCONNECTED`），而 Lyricon 回调链死在暂停时刻、冻结在一条有效暂停行上（age=1930s，`play=0`），回退路径又拒绝一切 stale 状态——`active` 恒 null、屏面清空。停滞期间还按每个 100ms tick 重打整条回退链（约 60 行/秒），把有界诊断镜像刷掉。修复（首选/回退同一故障谓词 + stale 暂停回退仅在带内容时转发 + 停滞诊断去抖与 30 秒心跳）随本条落地；真机复检后更新为 pass + device-verified。 |
+
+| 2026-10-06 | 0.3.165 (192) | 亮度与电池保护 | partial | Redmi K80 Pro (`miro`) / DEV-2313.0.0.1-11211901 (22313001) | trace-observed | 设备发热且充电时息屏逐字动画按 ≈5fps 步进（owner 反馈：AOD 帧率 10 都不到）。根因定位到内置省电降帧——`POWER_SAVER_FRAME_INTERVAL_MS` = 200ms，`isAodPowerSaverActive` 在热状态 ≥ MODERATE 时命中（上报窗口实测状态 3、皮肤 ≈50°C）。屏幕从来不是瓶颈（SDM `FPS cur:120`、`vsync_period` 8.33ms；AOD 窗口出帧间隔 8.3/16.6ms），锁屏画布始终 ≈62 draws/s；设备降温后（状态 0、皮肤 46°C、`Power state monitor attached saver=false`）节拍恢复。修复（用户开关 `aodPowerSaver`，默认开启，随编译配置下发；关闭后画布绝不降到帧上限以下）随本条目落地；真机复检后更新为 pass + device-verified。 |
 
 ## 已知未验证路径
 
@@ -754,6 +765,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 过渡不追旧账（`shouldSkipLineTransition`，经 `AodCanvasContent.updatedAtElapsedMs` 与同帧到达计数接入 `AodLyricCanvasView.setContent`）：来料快照年龄超过整条过渡时间线（退场 + 晋级位移 + 入场），或同一帧内到达 ≥2 条换行快照时，跳过三段动画、静态落到目标几何。已有单测（`AodCanvasTransitionTest.staleSnapshotSkipsLineTransitionAndLandsDirectly` / `sameFrameMultipleLineChangesSkipLineTransition`）——合并后待真机冒烟（owner 配合：设备置为「息屏 AOD + 网易云在播 + 无线调试在线」，60fps 录屏 + `bh_v6.py` 逐帧量）：换行前后晋级行 y 单调、单帧位移 ≤8px、无方向反转，且息屏后不再回放 doze 积压的换行旧账。
 - 歌词源冻结回退保留 + 停滞诊断去抖（回退路径现在与选源共用 `isFaulted` 谓词：stale 暂停且带内容的候选会被转发，stale 在播或无内容的候选仍被跳过；逐 tick 回退链与 `sources stalled` 汇总改为结构变化 + 30 秒心跳记录）——待真机冒烟：首选源断连时暂停歌曲，AOD 必须继续显示已连接回退源（如 Lyricon）的冻结行而非清屏；恢复播放必须切回实时源；`adb logcat -s HyperGlow` 中回退链在停滞起点只出现一次并每 30 秒一条心跳，而非约 60 行/秒。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
+
+- AOD 省电降帧的用户开关（`aodPowerSaver`，默认开启；关闭后画布绝不降到帧上限以下）——合并后待真机冒烟：关闭开关并把设备加热（或 `adb shell cmd thermalservice override-status 3`，`cmd thermalservice reset` 复原），AOD 逐字动画必须保持配置帧率（`AodLyricCanvasView` `draw={count=…}` 约 310/5 秒）；开关开启 + 同一强制过热下必须按粗粒度步进（约 25/5 秒）。
 
 ## 台账的使用方式
 

@@ -1312,6 +1312,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 )
                 // 省电降帧是纯优化,attach 失败不得中断 surface 构建(真机 NPE 曾致 AOD 整段空白):
                 // 后果只是降帧失效,由 isPowerSaverActive() 恒 false 兜底。
+                // 降帧还受用户开关(CompiledCustomization.aodPowerSaver,缺省开启)门控:
+                // 关闭时总闸恒 false,画布始终按帧上限渲染。
                 runCatching { AodPowerStateMonitor.attach(context) }
                     .onFailure {
                         HookLogger.w(TAG, "Power state monitor attach failed; saver disabled", it)
@@ -1319,7 +1321,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 lyricCanvas = AodLyricCanvasView(
                     context,
                     useDozeHandlerCadence = true,
-                    powerSaverProvider = { AodPowerStateMonitor.isPowerSaverActive() },
+                    powerSaverProvider = {
+                        isAodPowerSaverEffective(
+                            customization?.aodPowerSaver,
+                            AodPowerStateMonitor.isPowerSaverActive()
+                        )
+                    },
                     refreshRateCapProvider = { customization?.aodRefreshRateCap ?: 0 }
                 ).also {
                     it.layoutParams = LinearLayout.LayoutParams(

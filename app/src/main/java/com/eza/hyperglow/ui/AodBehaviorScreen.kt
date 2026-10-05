@@ -89,6 +89,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
         mutableStateOf(initialConfig.aodLandscapeFullscreenSafeMarginPercent)
     }
     var aodRefreshRateCap by remember { mutableStateOf(initialConfig.aodRefreshRateCap) }
+    var aodPowerSaver by remember { mutableStateOf(initialConfig.aodPowerSaver) }
 
     var showKeepAwakeDurationDialog by rememberSaveable { mutableStateOf(false) }
     var showBurnInPatternDialog by rememberSaveable { mutableStateOf(false) }
@@ -278,6 +279,17 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
                         },
                         stringResource(R.string.setting_suppress_stock_aod),
                         summary = stringResource(R.string.summary_suppress_stock_aod),
+                        enabled = aodSupported
+                    )
+                    SwitchPreference(
+                        aodPowerSaver,
+                        { enabled ->
+                            if (updateAodPowerSaver(context, enabled)) {
+                                aodPowerSaver = enabled
+                            }
+                        },
+                        stringResource(R.string.setting_aod_power_saver),
+                        summary = stringResource(R.string.summary_aod_power_saver),
                         enabled = aodSupported
                     )
                     ArrowPreference(

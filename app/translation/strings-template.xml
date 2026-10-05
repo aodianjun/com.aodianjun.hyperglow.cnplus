@@ -255,6 +255,8 @@
     <string name="setting_aod_refresh_rate_cap">Render refresh rate cap</string>
     <string name="refresh_rate_cap_follow">Follow default (60 fps)</string>
     <string name="refresh_rate_cap_hz">%1$d Hz</string>
+    <string name="setting_aod_power_saver">Power-saving frame drop</string>
+    <string name="summary_aod_power_saver">Steps the AOD word animation coarsely (~5 fps) when the battery is low or the device is hot. Off: always render at the full frame rate.</string>
     <string name="setting_aod_brightness_custom">Custom brightness</string>
     <string name="summary_aod_brightness_custom_off">Off: boost brightness automatically per scene to a readable level.</string>
     <string name="summary_aod_brightness_custom_on">On: use a fixed custom brightness for AOD lyrics. Adjust with the "Custom brightness level" slider.</string>
