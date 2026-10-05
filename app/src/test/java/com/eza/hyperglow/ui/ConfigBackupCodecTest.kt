@@ -86,6 +86,8 @@ class ConfigBackupCodecTest {
             floatingNavBar = false
         ),
         uiLanguage = UiLanguage.SIMPLIFIED_CHINESE,
+        predictiveBack = false,
+        backTriggerPercent = 35,
         diagnosticLogging = true,
         logRetentionDays = 15,
         logLevel = DiagnosticLogLevel.VERBOSE,
@@ -181,6 +183,8 @@ class ConfigBackupCodecTest {
         assertNull(side.lyricSource)
         assertNull(side.appUiAppearance)
         assertNull(side.uiLanguage)
+        assertNull(side.predictiveBack)
+        assertNull(side.backTriggerPercent)
         assertNull(side.diagnosticLogging)
         assertNull(side.logRetentionDays)
         assertNull(side.pluginSettings)
@@ -203,8 +207,104 @@ class ConfigBackupCodecTest {
         assertEquals(LyricSource.SPICY, side.lyricSource)
         assertNull(side.appUiAppearance)
         assertNull(side.uiLanguage)
+        assertNull(side.predictiveBack)
+        assertNull(side.backTriggerPercent)
         assertNull(side.diagnosticLogging)
         assertNull(side.pluginSettings)
+    }
+
+    @Test
+    fun navigationSettingsRoundTripAndNormalize() {
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "appNavigation": {
+                "predictiveBack": false,
+                "backTriggerPercent": 37
+              }
+            }
+        """.trimIndent()
+
+        val side = (ConfigBackupCodec.decode(payload.toByteArray())
+            as ConfigBackupDecodeResult.Success).sideSettings
+
+        assertEquals(false, side.predictiveBack)
+        // 阈值与设置页写入同口径归一(37 → 35,步进 5)。
+        assertEquals(35, side.backTriggerPercent)
+
+        // 对象在但缺键 → 该键回落默认值;超界阈值收敛到上限。
+        val clamped = (ConfigBackupCodec.decode("""
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "appNavigation": {"backTriggerPercent": 999}
+            }
+        """.trimIndent().toByteArray()) as ConfigBackupDecodeResult.Success).sideSettings
+
+        assertEquals(true, clamped.predictiveBack)
+        assertEquals(AppNavigationPreferences.MAX_BACK_TRIGGER_PERCENT, clamped.backTriggerPercent)
+    }
+
+    @Test
+    fun malformedNavigationValuesFallBackToDefaults() {
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "appNavigation": {
+                "predictiveBack": "yes",
+                "backTriggerPercent": "far"
+              }
+            }
+        """.trimIndent()
+
+        val side = (ConfigBackupCodec.decode(payload.toByteArray())
+            as ConfigBackupDecodeResult.Success).sideSettings
+
+        assertEquals(AppNavigationPreferences.DEFAULT_PREDICTIVE_BACK, side.predictiveBack)
+        assertEquals(
+            AppNavigationPreferences.DEFAULT_BACK_TRIGGER_PERCENT,
+            side.backTriggerPercent
+        )
+    }
+
+    @Test
+    fun absentRenderKeysKeepBaseInsteadOfResettingToDefaults() {
+        // 旧备份里不存在的新键在导入时保持现状:以 base(当前生效配置)为底,只有载荷
+        // 实际包含的键被覆盖;键在但形状不符才回落默认值——两种情形必须可区分。
+        val base = nonDefaultPreferences()
+        val missing = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "renderPreferences": {
+                "${AodRenderPreferences.KEEP_AWAKE}": true
+              }
+            }
+        """.trimIndent()
+
+        val decoded = (ConfigBackupCodec.decode(missing.toByteArray(), base)
+            as ConfigBackupDecodeResult.Success).preferences
+
+        assertEquals(true, decoded.keepAwake)
+        assertEquals(base.copy(keepAwake = true), decoded)
+
+        val malformed = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "renderPreferences": {
+                "${AodRenderPreferences.KEEP_AWAKE_DURATION_MS}": 300000.5
+              }
+            }
+        """.trimIndent()
+
+        val malformedDecoded = (ConfigBackupCodec.decode(malformed.toByteArray(), base)
+            as ConfigBackupDecodeResult.Success).preferences
+
+        assertEquals(-1L, malformedDecoded.keepAwakeDurationMs)
+        assertEquals(base.copy(keepAwakeDurationMs = -1L), malformedDecoded)
     }
 
     @Test

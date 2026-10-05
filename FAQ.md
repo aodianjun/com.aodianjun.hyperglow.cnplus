@@ -89,8 +89,9 @@ No. Any diagnostic report upload requires your manual confirmation.
 
 **Export config** writes every app setting into one JSON file: render preferences (AOD and lock
 screen appearance and behavior), the lyric layout document, the lyrics source choice, app theme
-and background dim/blur, the interface language, diagnostic logging preferences, and settings of
-installed plugins (keys a plugin declares as `backup=false` are skipped).
+and background dim/blur, the interface language, app navigation behavior (predictive back and its
+trigger threshold), diagnostic logging preferences, and settings of installed plugins (keys a
+plugin declares as `backup=false` are skipped).
 
 **Import config** restores exactly what the file contains; settings absent from an older file are
 left untouched.
@@ -189,8 +190,8 @@ Spicy EX 使用单独的、仅限 Spotify 的作用域。
 ### 配置备份包含哪些内容？
 
 **导出配置**会把全部应用设置写入一个 JSON 文件：渲染偏好（息屏与锁屏的外观与行为）、
-歌词布局文档、歌词源选择、应用主题与背景压暗/模糊、界面语言、诊断日志偏好，以及已安装插件的
-设置（插件标记为 `backup=false` 的键不参与）。
+歌词布局文档、歌词源选择、应用主题与背景压暗/模糊、界面语言、界面导航（预测性返回与返回触发
+阈值）、诊断日志偏好，以及已安装插件的设置（插件标记为 `backup=false` 的键不参与）。
 
 **导入配置**只恢复文件里实际包含的内容；旧文件没有的设置项保持现状、不会被清成默认值。
 
