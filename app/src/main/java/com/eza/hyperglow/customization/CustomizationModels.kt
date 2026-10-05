@@ -241,7 +241,13 @@ data class CompiledCustomization(
      * 渲染刷新率上限档(issue #68 #12):0=跟随现有行为(16ms);60/90/120=用户可选
      * 上限。App 端运行时开关,随配置下发到 SystemUI 侧 AodLyricCanvasView 帧调度。
      */
-    val aodRefreshRateCap: Int = 0
+    val aodRefreshRateCap: Int = 0,
+    /**
+     * 「息屏省电降帧」开关(默认开启):电量低或设备过热时把息屏逐字动画降为粗粒度
+     * 步进(约 5fps);关闭后始终按 [aodRefreshRateCap] 的帧上限渲染。App 端运行时
+     * 开关,随配置下发到 SystemUI 侧 AodLyricCanvasView 的降帧总闸。
+     */
+    val aodPowerSaver: Boolean = true
 )
 
 @Serializable

@@ -379,6 +379,18 @@ internal fun updateAodRefreshRateCap(
     return true
 }
 
+internal fun updateAodPowerSaver(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.AOD_POWER_SAVER, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 internal fun updateAodRotationMode(
     context: android.content.Context,
     mode: String

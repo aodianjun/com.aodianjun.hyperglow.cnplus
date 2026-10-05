@@ -225,6 +225,8 @@
     <string name="setting_aod_refresh_rate_cap">渲染刷新率上限</string>
     <string name="refresh_rate_cap_follow">跟隨預設 (60 fps)</string>
     <string name="refresh_rate_cap_hz">%1$d Hz</string>
+    <string name="setting_aod_power_saver">息屏省電降幀</string>
+    <string name="summary_aod_power_saver">電量低或裝置過熱時，把息屏逐字動畫降為粗粒度步進（約 5 fps）。關閉後始終按完整幀率渲染。</string>
     <string name="setting_suppress_stock_aod">隱藏系統息屏內容</string>
     <string name="summary_suppress_stock_aod">自繪全螢幕歌詞畫布顯示時，強制隱藏小米系統息屏元素（時鐘/天氣等）。與「息屏畫布隨設備旋轉」設置相互獨立。</string>
     <string name="setting_aod_rotate_with_device">息屏畫布隨設備旋轉</string>

@@ -150,7 +150,8 @@ internal object ConfigBackupCodec {
         },
         BackupBooleanField(AodRenderPreferences.FILTER_NON_MUSIC_SOURCES) {
             it.filterNonMusicSources
-        }
+        },
+        BackupBooleanField(AodRenderPreferences.AOD_POWER_SAVER) { it.aodPowerSaver }
     )
 
     internal val intFields = listOf(
@@ -709,6 +710,11 @@ internal object ConfigBackupCodec {
                 AodRenderPreferences.FILTER_NON_MUSIC_SOURCES,
                 base.filterNonMusicSources,
                 DEFAULTS.filterNonMusicSources
+            ),
+            aodPowerSaver = stored.resolveBoolean(
+                AodRenderPreferences.AOD_POWER_SAVER,
+                base.aodPowerSaver,
+                DEFAULTS.aodPowerSaver
             )
         )
 

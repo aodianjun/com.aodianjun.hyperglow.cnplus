@@ -127,6 +127,7 @@ class AodRenderPreferencesTest {
         assertFalse(config.experimentalMode)
         assertEquals(true, config.aodBrightnessBoost)
         assertEquals(0, config.aodRefreshRateCap)
+        assertEquals(true, config.aodPowerSaver)
     }
 
     @Test
