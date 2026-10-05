@@ -431,7 +431,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
   pending a hardware smoke check after merge: no line in the `BetterLyrics` mode shows a
   left-to-right fill front (before or after a line change), the 1.15 long-syllable scale, the halo
   on the long block and the unsung sink / sung float are unchanged, and non-BetterLyrics modes are
-  pixel-identical to before.
+  pixel-identical to before. (Superseded by the scope-B restore below, 2026-10-05: short-syllable
+  sweeps are back; only long syllables keep the solid fill.)
 - Same-line content stabilisation (`shouldAdoptLineEnhancements` in `AodCanvasLayoutPolicy.kt`, wired
   into `AodLyricCanvasView.stabilizeLineEnhancements`): upstream emits the same line twice (with and
   without `words`; verified on device — `words=13 ↔ words=0` for the same line window), and the
@@ -472,6 +473,22 @@ and (b) unverified paths stay explicit instead of silently assumed.
   SuperLyric sources the line-change cadence and fill front of normal songs are unchanged (normal
   tails byte-identical), and a line whose word window sticks out no longer contradicts its own line
   window (no mid-line fill retreat/re-fill).
+- `BetterLyrics` sweep restored under scope B (the shared karaoke core `LyricWordKaraokeRenderer`'s
+  pure predicate becomes `karaokeSweepEnabled(betterLyrics, longSyllable) = !(betterLyrics && longSyllable)`,
+  evaluated per word block inside the draw loop): in the `BetterLyrics` mode a long syllable
+  (≥700 ms) still lights up solid the moment it starts being sung with no fill front (the halo
+  stays on the long block when glow is on), while every other syllable goes back to the historical
+  in-word fill band; non-BetterLyrics modes keep sweeping everything. Scope history: long syllable
+  only (2026-10-04) → the row carrying one (2026-10-04 night) → the whole preset, 0.3.156 (183),
+  PR #177 → this restore (2026-10-05): the four jump causes that forced the whole-preset-off are
+  fixed (same-line form stabilisation, next-line text stabilisation, position-driven transition
+  clock, producer-ingest window normalisation), so short-syllable sweeps no longer carry that jump.
+  Unit-tested (`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweepOnlyForLongSyllables`);
+  stub-compiled `draw()` behaviour verified in both directions (the same assertions FAIL on the
+  pre-change file, whose short syllables have no sweep) — pending a hardware smoke check after
+  merge: in the `BetterLyrics` mode a long syllable lights up solid (halo on the long block only
+  when glow is on) while short syllables show the left-to-right fill band, with no jump at line
+  changes; non-BetterLyrics modes pixel-identical to before.
 
 ## How this ledger is used
 
@@ -680,12 +697,13 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 「当前音频源是不是音乐」判定（`MediaSourcePolicy` + 「视频等非音乐音频不显示歌词」开关，默认开启）：只有播放器包名命中已知视频应用表（哔哩哔哩、抖音、快手、YouTube 等）或会话显式声明 MOVIE/SPEECH/SONIFICATION 内容类型时才排除，其余（含平台默认的 `CONTENT_TYPE_UNKNOWN`）一律 fail-open 放行。LyricInfo 挑选会话时跳过这类会话（issue #5 兜底对音乐应用仍然有效），Lyricon 在活动播放器为非音乐期间释放曲目并静默看门狗；SuperLyric（只挂钩音乐应用的模块）与 Spicy（UID 校验限定 Spotify）不加门控。已有单测（`MediaSourcePolicyTest` + Lyricon 生产者门控用例）——合并后待真机冒烟：在清单内应用播放视频必须不出现歌词卡片，音乐播放（含没有注入歌词的音乐应用兜底路径）行为不变，关闭开关后恢复历史行为。
 - App 内预测性返回导航（miuix-nav `NavDisplay` 返回栈取代 `editingSurface` 字符串 + `AnimatedContent` 切换器；manifest 置 `android:enableOnBackInvokedCallback="true"`；五个屏的 `androidx.activity` `BackHandler` 全部移除——系统返回由 `NavDisplay` 接管，弹窗打开时仍由 miuix 弹窗自身消费，此前完全没有返回处理的关于页四屏现在也随栈返回；被覆盖页经 `appNavTransition` 淡出，而不是停在 miuix 默认的 alpha 0.9——背景图片模式下页面容器色透明，0.9 会让下层卡片透出）——仅应用内改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：任意子页（主页 → 子页）的系统返回手势 1:1 跟手，过阈值松手回到主页、未过阈值弹回原页，主页根上返回仍退出应用，同一入口连点两次不会卡住返回栈，设置背景图片时转场观感正确。App → 界面导航新增「预测性返回」开关与「返回触发阈值」：开关关闭后页面不再跟手（松手仍返回上一页）；阈值大于 0% 时拖动不足该比例松手会弹回原页（轻快一甩仍返回）；返回键/顶栏返回按钮不受阈值限制。
 - 歌词外观设置并入「设置」页（独立外观编辑器页与「息屏外观/锁屏外观」入口行取消）：编辑器本体——可折叠实时预览 + 位置/文字与语言/效果/颜色/锁屏卡片/两个显示区域——改由 `LyricAppearanceSection` 渲染在设置页的息屏/锁屏分段内（该面歌词总开关排在列表首，息屏行为入口/锁屏唤醒排在列表尾）；原先打开编辑器的状态页外观卡改为切到对应分段。仅应用内改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：两个分段直接铺开全部外观项、实时预览常驻列表上方（折叠后让位给长列表），各控件改的仍是同一份文档、切分段即换编辑面，状态屏外观卡落在正确分段。
-- 「BetterLyrics」档整档不做逐字扫光（共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数 `karaokeSweepEnabled(betterLyrics) = !betterLyrics`：所有词块「开始唱即整块亮起」，不出现填充前缘——换行后的新行同理；辉光仍只挂长音节词块；非 BetterLyrics 档保持词内扫光不变）。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）——两版都留下「行内音节全短时整行照旧逐字填」的残留；真机探针（网易云《蝴蝶》）实测该曲每个词首窗仅 200ms 级，任何口径都不触发，故观感与改前无差别；owner 2026-10-05 复核后定案整档关闭。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweep`）——合并后待真机冒烟：BetterLyrics 档任何行（含换行后新行）都没有从左往右的填充前缘，长音节放大 1.15、光晕只挂长音节、未唱下沉/已唱上浮不变，非 BetterLyrics 档与改前逐像素一致。
+- 「BetterLyrics」档整档不做逐字扫光（共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数 `karaokeSweepEnabled(betterLyrics) = !betterLyrics`：所有词块「开始唱即整块亮起」，不出现填充前缘——换行后的新行同理；辉光仍只挂长音节词块；非 BetterLyrics 档保持词内扫光不变）。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）——两版都留下「行内音节全短时整行照旧逐字填」的残留；真机探针（网易云《蝴蝶》）实测该曲每个词首窗仅 200ms 级，任何口径都不触发，故观感与改前无差别；owner 2026-10-05 复核后定案整档关闭。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweep`）——合并后待真机冒烟：BetterLyrics 档任何行（含换行后新行）都没有从左往右的填充前缘，长音节放大 1.15、光晕只挂长音节、未唱下沉/已唱上浮不变，非 BetterLyrics 档与改前逐像素一致。（已被下方口径 B 恢复条目取代，2026-10-05：短音节扫光回归，仅长音节保持整块亮起。）
 - 同行内容稳定化（`shouldAdoptLineEnhancements`，`AodCanvasLayoutPolicy.kt`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：上游对同一行两阶段下发（带/不带词表，真机实测同一行窗下 `words=13 ↔ words=0`），而折行引擎按形态走两条路径，于是每次切换都重排——owner 录屏逐帧实测：换行瞬间下一行下移 80px、填充前缘倒退重填。现在同一行只认第一次的折行形态；「无词→带词」升级仅在行开始前 300ms 内接受，「带词→无词」回退与演唱中词表文本变化一律拒绝。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行时不再重排（下一行位置不动）、填充不再倒退重填，词表在行开始前到达的行仍按真实词窗点亮。
 - 下一行文本稳定化（`isNextLineStale`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：换行时旧「下一行」被晋级成主行，而上游 `nextLine` 要等下一句推来才推进——真机录屏实测换行后 0.5s 内下一行行与主行同文，随后文本切换改变行集合/行高，表现为「换行动画后跳一下」。现在与主行同文的下一行视为「未就绪」，沿用上一版文本，行占位与行高保持稳定。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行后下一行行不出现与主行同文的重复、也不因文本切换而跳位；真正的新下一行到达后正常替换。
 - 换行动画改吃「歌词时钟」（`lineTransitionClockAtPosition` + 位置高水位，接入 `AodLyricCanvasView` 三段式过渡）：过渡进度不再用挂钟（`elapsedRealtime` 起点）计时，改由歌词位置推导——过渡开始时记下位置（同源 `projectedPosition()`），各段按位置推进量在既有时间线上换算，段顺序/时长配方/缓动全不变。修复目标：内容（位置/行窗/`nextLine`）在飞行途中才到齐时目标几何被中途重算，表现为「换行后两段位移/单帧跳」（60fps 逐帧实测 813 帧/13.55s/三次换行）。暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动，倒退超过 300ms 采样回漂容差）时立即结束过渡而不反向「追」位置。已有单测（`AodCanvasTransitionTest.positionClock*`）——合并后待真机冒烟：60fps 录屏逐帧核晋级行 y 单调、单帧位移 ≤8px、无方向反转；暂停时过渡冻结在当前进度、恢复播放后续播；拖动进度条 seek 时过渡立即结束（静态新内容）、不出现反向追赶。
 - MIUI 长截屏代理（`LongScreenshotScrollProxyView` + `LongScreenshotDragAccumulator`，由 `MainActivity.installLongScreenshotProxy` 在小米/Redmi/POCO 上安装）：MIUI 的 `LongScreenshotUtils$ContentPort` 在 Compose 宿主里选不出主滚动视图——debug 包宿主类名命中其「不可滚动」精确匹配分支（真机日志 `can not run invoke canScrollVertically on background thread`），release 包该类名已被 R8 改名、落到 `view.canScrollVertically(1)` 兜底分支（Compose 宿主无进行中手势时同样返回 false），长截屏因此退化成「只截当前一屏」（`scrolledY == 0 isEnd:true`）。代理挂在 Compose 宿主之下（真实触摸到不了它），自报可滚动让 MIUI 选中，把 MIUI 注入的假拖拽在主线程转发给宿主，并以累计拖拽位移充当 `scrollY`（封顶 60k px 防失控，暂停后重新发起的长截屏从零计数）。已有单测（`LongScreenshotDragAccumulatorTest`）——合并后待真机冒烟：小米设备上对长页面截长屏得到多屏拼接长图，正常触摸/滚动行为不变，logcat 出现 `long screenshot proxy installed`。⚠️ 现有真机证据取自 debug 包；release 包（类名被改名→兜底分支）这一环待真机复核。
 - 生产者 ingest 行窗/词窗基准统一（`LyricTimelineNormalizer`，接入 Lyricon P0 修复与 SuperLyric 逐行推送 emit）：只治自相矛盾的两类形状——词窗超出行窗时行窗扩到并集；行窗远超可唱估时且词级跨距可信时向词对齐（沿用既有 Lyricon 判据/阈值，全仓单一副本）；正常拖尾（如行窗 8000ms、词窗并集 3000ms、估时 3000ms）原样返回，不带词窗的一笔保持行窗原样。LyricInfo 已在 ingest 对带词行无条件词锚定、Spicy 的行尾钳制是上游 8422d78 语义，两者评估后不动。已有单测（`LyricTimelineNormalizerTest`、`LyriconTimelineRepairTest`、`SuperLyricTimelineNormalizeTest`）——合并后待真机冒烟：Lyricon 与 SuperLyric 源下正常歌曲的换行节奏与填充前缘不变（正常拖尾逐字节一致），词窗越出行窗的行不再自相矛盾（不再出现演唱中填充前缘倒退重填）。
+- 「BetterLyrics」档恢复逐字扫光（口径 B；共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数改为 `karaokeSweepEnabled(betterLyrics, longSyllable) = !(betterLyrics && longSyllable)`，在 draw 循环内逐词块判定）：长音节（≥700ms）仍「开始唱即整块按已唱色亮起」、不出现填充前缘（发光开启时光晕只挂长音节），其余音节恢复历史词内扫光带；非 BetterLyrics 档长/短音节全部扫光不变。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）→ 整档关闭（0.3.156 (183)，PR #177）→ 本次恢复短音节扫光（2026-10-05）：当初逼出整档关闭的四条跳变成因已修（同行形态稳定化 / 下一行文本稳定化 / 位置时钟过渡 / 摄取归一），短音节扫光不再带当初的跳变观感。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweepOnlyForLongSyllables`），并已用桩 `android.graphics` 编译真实渲染文件实调 `draw()` 双向验证（同一套断言在改前文件上按预期 FAIL：短音节无扫光渐变）——合并后待真机冒烟：BetterLyrics 档长音节整块亮起（发光开启时光晕只挂长音节）、短音节逐字扫光带恢复、换行无跳变；非 BetterLyrics 档与改前逐像素一致。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式
