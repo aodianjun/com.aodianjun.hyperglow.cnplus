@@ -489,6 +489,18 @@ and (b) unverified paths stay explicit instead of silently assumed.
   merge: in the `BetterLyrics` mode a long syllable lights up solid (halo on the long block only
   when glow is on) while short syllables show the left-to-right fill band, with no jump at line
   changes; non-BetterLyrics modes pixel-identical to before.
+- Plugin-chain merged timeline normalization (`PluginChainMerger.normalizeMergedTimeline`, called
+  once from `PluginRuntime.processChain` after the merge loop, before the result is handed
+  downstream): when an accepted processor result declares `WORDS`, the plugin word table (text and
+  timestamps) applies wholesale and the merged document's line windows run through the same
+  `LyricTimelineNormalizer` gate as the producer ingest — union expansion (word window beyond the
+  line window) and word re-anchoring (gross line window with a plausible word span) only, normal
+  tails byte-identical; without a `WORDS` declaration the merged document is returned as merged
+  (the host word table already passed the ingest normalization). Unit-tested
+  (`PluginTimelineNormalizeTest`) — pending a hardware smoke check after merge: with a word-timing
+  plugin (e.g. lyricfetch) active, a line whose plugin word window sticks out keeps its full
+  karaoke fill without an early line hand-off, normal songs keep the same line-change cadence, and
+  a plugin that does not declare `WORDS` leaves host rows untouched.
 
 ## How this ledger is used
 
@@ -704,6 +716,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - MIUI 长截屏代理（`LongScreenshotScrollProxyView` + `LongScreenshotDragAccumulator`，由 `MainActivity.installLongScreenshotProxy` 在小米/Redmi/POCO 上安装）：MIUI 的 `LongScreenshotUtils$ContentPort` 在 Compose 宿主里选不出主滚动视图——debug 包宿主类名命中其「不可滚动」精确匹配分支（真机日志 `can not run invoke canScrollVertically on background thread`），release 包该类名已被 R8 改名、落到 `view.canScrollVertically(1)` 兜底分支（Compose 宿主无进行中手势时同样返回 false），长截屏因此退化成「只截当前一屏」（`scrolledY == 0 isEnd:true`）。代理挂在 Compose 宿主之下（真实触摸到不了它），自报可滚动让 MIUI 选中，把 MIUI 注入的假拖拽在主线程转发给宿主，并以累计拖拽位移充当 `scrollY`（封顶 60k px 防失控，暂停后重新发起的长截屏从零计数）。已有单测（`LongScreenshotDragAccumulatorTest`）——合并后待真机冒烟：小米设备上对长页面截长屏得到多屏拼接长图，正常触摸/滚动行为不变，logcat 出现 `long screenshot proxy installed`。⚠️ 现有真机证据取自 debug 包；release 包（类名被改名→兜底分支）这一环待真机复核。
 - 生产者 ingest 行窗/词窗基准统一（`LyricTimelineNormalizer`，接入 Lyricon P0 修复与 SuperLyric 逐行推送 emit）：只治自相矛盾的两类形状——词窗超出行窗时行窗扩到并集；行窗远超可唱估时且词级跨距可信时向词对齐（沿用既有 Lyricon 判据/阈值，全仓单一副本）；正常拖尾（如行窗 8000ms、词窗并集 3000ms、估时 3000ms）原样返回，不带词窗的一笔保持行窗原样。LyricInfo 已在 ingest 对带词行无条件词锚定、Spicy 的行尾钳制是上游 8422d78 语义，两者评估后不动。已有单测（`LyricTimelineNormalizerTest`、`LyriconTimelineRepairTest`、`SuperLyricTimelineNormalizeTest`）——合并后待真机冒烟：Lyricon 与 SuperLyric 源下正常歌曲的换行节奏与填充前缘不变（正常拖尾逐字节一致），词窗越出行窗的行不再自相矛盾（不再出现演唱中填充前缘倒退重填）。
 - 「BetterLyrics」档恢复逐字扫光（口径 B；共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数改为 `karaokeSweepEnabled(betterLyrics, longSyllable) = !(betterLyrics && longSyllable)`，在 draw 循环内逐词块判定）：长音节（≥700ms）仍「开始唱即整块按已唱色亮起」、不出现填充前缘（发光开启时光晕只挂长音节），其余音节恢复历史词内扫光带；非 BetterLyrics 档长/短音节全部扫光不变。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）→ 整档关闭（0.3.156 (183)，PR #177）→ 本次恢复短音节扫光（2026-10-05）：当初逼出整档关闭的四条跳变成因已修（同行形态稳定化 / 下一行文本稳定化 / 位置时钟过渡 / 摄取归一），短音节扫光不再带当初的跳变观感。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweepOnlyForLongSyllables`），并已用桩 `android.graphics` 编译真实渲染文件实调 `draw()` 双向验证（同一套断言在改前文件上按预期 FAIL：短音节无扫光渐变）——合并后待真机冒烟：BetterLyrics 档长音节整块亮起（发光开启时光晕只挂长音节）、短音节逐字扫光带恢复、换行无跳变；非 BetterLyrics 档与改前逐像素一致。
+- 插件链合并结果的行窗/词窗归一（`PluginChainMerger.normalizeMergedTimeline`，在 `PluginRuntime.processChain` 合并循环之后、交给下游之前的单一落点调用）：本链有被接受的处理器结果声明 `WORDS` 时，插件词表（文本 + 时间戳）整份生效、其词窗即最终值，合并文档逐行过 ingest 同一套 `LyricTimelineNormalizer` 归一——① 词窗超出行窗 → 行窗扩到并集；② 行窗远超可唱估时且词级跨距可信 → 向词对齐；③ 其余（含正常拖尾）逐字节原样；未声明 `WORDS`（宿主词表）时合并结果原样返回，不重复归一宿主词窗。已有单测（`PluginTimelineNormalizeTest`）——合并后待真机冒烟：装带词级时间的插件（如 lyricfetch）时，插件词窗越出行窗的行不再提前交接/词级卡拉OK不再中途消失，正常歌曲换行节奏与改前一致，未声明 `WORDS` 的插件对宿主行零影响。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

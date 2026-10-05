@@ -9,6 +9,7 @@ import com.lidesheng.hyperlyric.plugin.api.HyperLyricPlugin
 import com.lidesheng.hyperlyric.plugin.api.LyricProcessorExtension
 import com.lidesheng.hyperlyric.plugin.api.PluginCacheEntry
 import com.lidesheng.hyperlyric.plugin.api.PluginCacheExtension
+import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
 import com.lidesheng.hyperlyric.plugin.api.PluginMediaInfo
 import com.lidesheng.hyperlyric.plugin.api.PluginProcessingContext
 import com.lidesheng.hyperlyric.plugin.api.PluginProcessorStage
@@ -259,6 +260,7 @@ object PluginRuntime {
         val startedAtMs = SystemClock.elapsedRealtime()
         var processorRuns = 0
         var acceptedResults = 0
+        var pluginDeclaredWords = false
         AppLog.i(
             TAG,
             "processChain begin song=${describeSong(song)} rows=${song.lyrics?.size ?: 0} " +
@@ -302,6 +304,9 @@ object PluginRuntime {
                     continue
                 }
                 acceptedResults++
+                if (PluginLyricField.WORDS in result.changedLyricFields) {
+                    pluginDeclaredWords = true
+                }
                 AppLog.i(
                     TAG,
                     "accepted result from ${plugin.manifest.id}/${processor.id}: " +
@@ -317,7 +322,14 @@ object PluginRuntime {
             "processChain end runs=$processorRuns accepted=$acceptedResults " +
                 "changed=${current != song} elapsed=${SystemClock.elapsedRealtime() - startedAtMs}ms"
         )
-        return current
+        // 合并结果的单一收尾:插件声明 WORDS 时其词表(文本 + 时间戳)整份生效、词窗即最终值,
+        // 合并文档的行窗在此过 ingest 同一套归一(见 [PluginChainMerger.normalizeMergedTimeline]);
+        // 未声明 WORDS(宿主词表已在 ingest 归一)或全部行未动时原样返回。
+        val normalized = PluginChainMerger.normalizeMergedTimeline(current, pluginDeclaredWords)
+        if (normalized !== current) {
+            AppLog.i(TAG, "processChain normalized merged timeline (plugin-declared words)")
+        }
+        return normalized
     }
 
     private suspend fun runProcessorSafely(

@@ -497,6 +497,18 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   is an isolated long window); an isolated long-window row keeps its exact original window.
   Estimation ignores leading markers, which are not sung; a line that is only markers counts as
   zero sung characters.
+- The plugin chain keeps field-level priority — a processor result's declared
+  `changedFields`/`changedLyricFields` decide which host fields it overrides, and a result that
+  declares `WORDS` takes its word table (text and timestamps) wholesale — while the merged
+  document itself stays self-consistent: after the merge, when an accepted result declared
+  `WORDS`, every row's line window runs through the same producer-ingest normalization above (a
+  word window beyond the line window expands the line to the union; a line window far beyond the
+  plausible singing span with a plausible word span re-anchors to the words; every other shape, a
+  normal tail included, is returned byte-identical; a row without words has nothing to normalize).
+  Without a `WORDS` declaration the merged document is handed downstream exactly as merged — the
+  host word table already passed the ingest normalization, and the host never infers changes by
+  comparing DTOs. Plugin word timestamps therefore keep priority without ever contradicting the
+  line windows they land in.
 - A seek observed by one producer is forwarded to the others (`onExternalSeek`), so a producer
   whose own position source froze or dropped its seek callback snaps to the authoritative
   position at once instead of lagging behind.
@@ -831,6 +843,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 识别对唱标记是每个 surface 独立的开关（默认开启；未显式设置的曲面继承文档级默认值）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。快照为息屏/锁屏共用，只携带原始行文本与两套预计算分侧（元数据身份版、标记识别版），隐去标记与选用分侧的决策推迟到各渲染面按本面开关执行——改一面的开关不联动另一面。（副歌）/（间奏）等段落标记同样识别（连写或复合如（男·RAP）的标记串整串剥离），但只隐去文本——不作为演唱者身份、不改动行的分侧。词表外的括号内容按歌词原样保留。纯标记行保留原样显示。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。
 - 显示并发歌词(对唱)是每个 surface 独立的开关(默认开启,锁屏与息屏各自独立;上游为 AOD-only,CN+ 扩展到锁屏卡片):持有整首行表的生产者(Spicy 文档、Lyricon、LyricInfo)在发射前预计算并发行候选——与主行播放窗口重叠达到 1 秒的另一唱词行(纯时间轴重叠判定,不依赖任何歌手标记;间奏行不参与)。投影层只做开关与格式转换,不从原始行表选行。开关开启且快照携带候选时,息屏画布把并发行作为与主行同尺寸的段落紧邻主行块堆叠(锚顶布局主行位置保持稳定;锚底/居中布局整块重排),各画各的逐字扫光;并发行加入时 180ms 静音淡入;已唱完的重叠行由退出缓冲保留到主行行末,双行段不在对唱中途塌掉;整块超出歌词区时按同一共享系数缩小(0.3 绝对下限,低于下限溢出裁切)。并发行在场时取代独立「下一行」行。任一曲面开启时投影即携带候选,各曲面按自己的开关渲染。SuperLyric(只推当前行的逐行源)不产出并发行。本次移植有意省去上游的槽位继承/双段独立过渡机制(v1 简化),选取语义与上游 99ba119d4 一致。
 - 生产者 ingest 在选行/渲染之前把行窗与词窗的时间基准统一，只治自相矛盾的两类形状、正常拖尾逐字节不动：(1) 词窗超出行窗（词比行还长）→ 行窗扩到词窗并集（`行首 = min(词窗起点, 原行首)`、`行尾 = max(词窗终点, 原行尾)`）；(2) 行窗远大于文本可唱时长（逐字合成把乐器间隙吞进行窗的产物，真机实测单行偏差可达十余秒）且词级跨距可信 → 行窗向词对齐（首词起点/末词终点）；词级跨距同样失真时行窗保持原样、丢弃可疑词级并回退行级填充，头部贴附的行窗从 `end-估时` 起算；(3) 其余形状（含行窗比词窗并集长但差距在正常范围的正常拖尾）原样返回。不带词窗的一笔没有数据可归一，保持行窗原样（渲染侧稳定化已覆盖）。正常行零变化。行首钳制仅在全曲出现至少两个损坏行时启用（真实损坏是整首系统性的，真实长音则是孤立的长窗行）；孤立长窗行保持原有行窗不变。估时忽略行首标记——标记不发声；纯标记行按 0 字计。
+- 插件链保持字段级优先——处理器结果声明的 `changedFields`/`changedLyricFields` 决定它覆盖宿主哪些字段，声明 `WORDS` 的结果其词表（文本 + 时间戳）整份生效——同时合并文档自身保持时间轴自洽：合并后若有被接受的结果声明过 `WORDS`，逐行走与生产者 ingest 同一套归一（词窗超出行窗 → 行窗扩到并集；行窗远超可唱估时且词级跨距可信 → 向词对齐；其余形状含正常拖尾逐字节原样；无词窗的行没有数据可归一）。未声明 `WORDS` 时合并文档原样交给下游——宿主词表已在 ingest 过同一道门，宿主也绝不做 DTO 对比推断。插件词表时间戳由此既保持优先、又不与所在行窗自相矛盾。
 - 任一生产者观测到 seek 时跨源转发给其他生产者（`onExternalSeek`），位置源冻结/漏发 seek 回调的生产者立即落到权威位置，不再滞后。
 - 歌词时间偏移是文档级全局滑杆（默认 0ms,范围 ±5 秒,按 50ms 档量化;语义参考 HyperLyric 的歌词时间偏移）:时间轴源生产者（Lyricon、LyricInfo、Spicy）的选行查询与发射坐标——`positionMs`、行窗、词级时间与 `nextLineStartMs`——统一落在「播放位置 − 偏移」的显示时间轴上,正数延后显示、负数提前显示。机制层（位置外推、残留拒绝、seek 判定与跨源 seek 转发、歌尾钳制）保持原始媒体坐标,仅发射的显示坐标平移,逐字扫光与所选行保持同轴。拖动滑杆立即生效（设置变更即刷新生产者缓存）。SuperLyric 为逐行推流源（行到达即上屏）,不受偏移影响。偏移同时作用于息屏与锁屏;插件链的整首快照保持原始时间轴。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
