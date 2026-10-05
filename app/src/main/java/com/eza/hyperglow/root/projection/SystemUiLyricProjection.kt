@@ -37,6 +37,19 @@ internal const val LYRIC_SNAPSHOT_FRESH_MS = 5_000L
  * 15 s window keeps both surfaces stable without retaining stale content after playback stops.
  */
 internal const val LYRIC_PLAYBACK_FRESH_MS = 15_000L
+
+/**
+ * 投递边界的快照最大存活年龄:年龄超过它的快照按「过期旧账」丢弃(见
+ * [shouldDropStaleSnapshot])。
+ *
+ * MIUI doze 会把 SystemUI 冻结成 ~20.15s 一批、每次解冻只跑 ~20ms,app 侧积压的快照于是
+ * 成批投递(真机实测 19ms 内连用 12 条,卡拉OK 位置跨度约 18s,每条约 1.5s 播放内容)。
+ * producer 的全量发布与心跳同为 1.5s 节奏(AodProjectionEngine.KEEP_ALIVE_INTERVAL_MS),
+ * 因此超过一个发布周期的快照必然已有更新的状态在途;投递边界只保留最新,旧批不再逐个
+ * 应用——内容/位置都来自过期批次时,渲染侧的过渡会追着旧账反复重置。
+ */
+internal const val STALE_SNAPSHOT_DROP_AGE_MS = 1_500L
+
 private const val MAX_WIRE_FUTURE_SKEW_MS = 1_000L
 private const val TAG = "SystemUiProjection"
 
@@ -46,6 +59,54 @@ internal fun lyricFreshnessWindowMs(playbackActive: Boolean): Long =
 internal fun isPlausibleWireTimestamp(updatedAtElapsedMs: Long, nowElapsedMs: Long): Boolean =
     updatedAtElapsedMs >= 0L && nowElapsedMs >= 0L &&
         updatedAtElapsedMs - nowElapsedMs <= MAX_WIRE_FUTURE_SKEW_MS
+
+/**
+ * 投递边界判据:是否丢弃一条过期快照(纯函数,接入 [SystemUiLyricProjection.accept])。
+ *
+ * - 只过滤可见内容快照:隐藏消息不携带内容/位置,只表达可见性、传输间隙与暂停驻留边沿,
+ *   丢了会破坏边沿语义,一律放行;
+ * - `trackGeneration` 变化(换歌/换源)恒放行:新歌内容不是旧账,即使批投递迟到也必须落;
+ * - 尚无持有快照时放行:首条内容不丢——否则随后同 revision 的心跳会因「无快照可续」整链
+ *   被拒,恢复要等下一次全量重发;
+ * - 其余按年龄:年龄严格大于 [STALE_SNAPSHOT_DROP_AGE_MS] 才丢(恰好等于阈值仍接受,
+ *   按 `<=` 口径)。
+ */
+internal fun shouldDropStaleSnapshot(
+    snapshot: LyricSnapshot,
+    heldTrackGeneration: Long?,
+    nowElapsedMs: Long
+): Boolean {
+    if (!snapshot.visible) return false
+    if (heldTrackGeneration == null) return false
+    if (snapshot.trackGeneration != heldTrackGeneration) return false
+    return nowElapsedMs - snapshot.updatedAtElapsedMs > STALE_SNAPSHOT_DROP_AGE_MS
+}
+
+/**
+ * 被丢弃的过期快照是否携带与持有态不同的租约/可见性标量:是则返回等价 KeepAlive 信号
+ * (只续期/更新标量字段、不重放内容),与持有态完全一致时返回 null——既不续期也不打扰
+ * 订阅者。这是投递边界丢弃的兜底:一条被丢的快照可能是 KeepAlive 的唯一来源时,租约链
+ * 不能断。
+ */
+internal fun droppedSnapshotKeepAliveSignal(
+    dropped: LyricSnapshot,
+    held: LyricSnapshot
+): LyricKeepAliveSignal? {
+    val changed = dropped.keepAlive != held.keepAlive ||
+        dropped.wakeSignal != held.wakeSignal ||
+        dropped.playbackActive != held.playbackActive ||
+        dropped.pauseRetentionEligible != held.pauseRetentionEligible
+    if (!changed) return null
+    return LyricKeepAliveSignal(
+        revision = dropped.revision,
+        updatedAtElapsedMs = dropped.updatedAtElapsedMs,
+        keepAlive = dropped.keepAlive,
+        wakeSignal = dropped.wakeSignal,
+        playbackActive = dropped.playbackActive,
+        pauseRetentionEligible = dropped.pauseRetentionEligible,
+        userId = dropped.userId
+    )
+}
 
 internal fun currentProcessUserId(): Int =
     UserHandle.getUserHandleForUid(Process.myUid()).hashCode()
@@ -185,6 +246,13 @@ internal class SystemUiLyricProjection(
         if (message.revision == lastRevision && message.updatedAtElapsedMs <= lastUpdatedAt) {
             return rejected("stamp=${message.updatedAtElapsedMs} held=$lastUpdatedAt")
         }
+        // 投递边界丢弃过期旧账:doze 批投递里除最新一条外的快照内容/位置都是过去时,
+        // 逐个应用会让渲染侧过渡反复重置(owner 报的「换行后跳两次」的真根因)。
+        if (message is LyricProjectionMessage.Snapshot &&
+            shouldDropStaleSnapshot(message.value, latestSnapshot?.trackGeneration, elapsedRealtime())
+        ) {
+            return dropStaleSnapshot(message)
+        }
         return when (message) {
             is LyricProjectionMessage.Snapshot -> {
                 lastRevision = message.revision
@@ -218,6 +286,41 @@ internal class SystemUiLyricProjection(
                 true
             }
         }
+    }
+
+    /**
+     * 丢弃一条过期快照:不应用其内容,但保留两样东西 ——
+     * 1) revision/updatedAt 水位照常推进:producer 的心跳携带同一 revision,不推进会让
+     *    随后整条心跳链被「keepalive revision=... held=...」拒绝,恢复只能等下一次全量重发;
+     * 2) 若被丢快照携带与持有态不同的租约标量(keepAlive/wakeSignal/playbackActive/
+     *    pauseRetentionEligible),按 KeepAlive 等价路径只更新标量、通知订阅者,绝不重放内容。
+     */
+    @Synchronized
+    private fun dropStaleSnapshot(message: LyricProjectionMessage.Snapshot): Boolean {
+        val dropped = message.value
+        lastRevision = message.revision
+        lastUpdatedAt = message.updatedAtElapsedMs
+        val held = latestSnapshot
+        if (held != null) {
+            droppedSnapshotKeepAliveSignal(dropped, held)?.let { signal ->
+                val merged = held.copy(
+                    updatedAtElapsedMs = signal.updatedAtElapsedMs,
+                    keepAlive = signal.keepAlive,
+                    wakeSignal = signal.wakeSignal,
+                    playbackActive = signal.playbackActive,
+                    pauseRetentionEligible = signal.pauseRetentionEligible
+                )
+                latestSnapshot = merged
+                if (merged.visible) latestVisibleSnapshot = merged
+                scheduleExpiry(merged)
+                subscribers.keys.toList().forEach { it.onLyricKeepAlive(signal) }
+            }
+        }
+        return rejected(
+            "stale snapshot rev=${message.revision} " +
+                "age=${elapsedRealtime() - dropped.updatedAtElapsedMs}ms " +
+                "track=${dropped.trackGeneration}"
+        )
     }
 
     /**

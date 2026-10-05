@@ -84,6 +84,12 @@ internal class AodLyricCanvasView(
     /** 位置式过渡时钟高水位:过渡期间见过的最大位置,保证进度只进不退。 */
     private var transitionHighWaterPositionMs = 0L
     private var transitionTimeline: LineTransitionTimeline? = null
+    /**
+     * 同一帧到达窗口内的换行快照计数(见 [shouldSkipLineTransition]):与上一条换行内容的
+     * 到达间隔不超过 [SAME_FRAME_ARRIVAL_WINDOW_MS](≈60Hz 一帧)时累加,否则重新计 1。
+     */
+    private var lineChangesInFrame = 0
+    private var lastLineChangeAtElapsedMs = 0L
     // 对唱并发行(duetLine)加入淡入状态:内容键变化即重计时,淡入完成后归零(恒全亮)。
     private var duetLineKey: String? = null
     private var duetJoinStartedAt = 0L
@@ -364,6 +370,18 @@ internal class AodLyricCanvasView(
             aodCanvasLineIdentity(this.content) != aodCanvasLineIdentity(nextContent)
         val resuming = suppressNextLineTransition
         suppressNextLineTransition = false
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        if (lineChanged) {
+            // 同一帧判定:两条换行内容的到达间隔不超过约 60Hz 一帧即按同帧计(doze 批投递
+            // 实测 1–3ms 间隔);间隔过大则重新计 1,避免画布停绘期间把不同拍的内容累计成同帧。
+            lineChangesInFrame =
+                if (nowElapsedMs - lastLineChangeAtElapsedMs <= SAME_FRAME_ARRIVAL_WINDOW_MS) {
+                    lineChangesInFrame + 1
+                } else {
+                    1
+                }
+            lastLineChangeAtElapsedMs = nowElapsedMs
+        }
         if (shouldStartLineTransition(
                 lineChanged,
                 nextContent.transitionMode,
@@ -371,20 +389,32 @@ internal class AodLyricCanvasView(
                 resuming
             )
         ) {
-            exitSnapshot = CanvasSnapshot(content, layout, currentRenderStyle)
-            // 位置式过渡时钟:起点取过渡开始时的歌词位置(同源 projectedPosition()),
-            // 之后三段进度由位置推进量推导,不再挂钟计时(见 lineTransitionClockAtPosition)。
-            transitionStartPositionMs = projectedPosition()
-            transitionHighWaterPositionMs = transitionStartPositionMs
             // 角色分流在起点定死:旧「下一行」文本 == 新「主行」文本且旧布局真有下一行行时
             // 晋级(内容延续,只位移),否则旧行组整体退场、新行组整体进场。
             val promoting = layout.rows.any { it.row.kind == RowKind.NEXT_LINE } &&
                 lineTransitionPromotes(content.nextLine, nextContent.original)
-            transitionTimeline = lineTransitionTimeline(
+            val timeline = lineTransitionTimeline(
                 nextContent.transitionMode,
                 nextContent.lineTransitionSpeed,
                 promoting
             )
+            val snapshotAgeMs = nextContent.updatedAtElapsedMs
+                .takeIf { it > 0L }
+                ?.let { (nowElapsedMs - it).coerceAtLeast(0L) }
+            if (shouldSkipLineTransition(snapshotAgeMs, timeline.totalMs, lineChangesInFrame)) {
+                // 旧账不追:过期快照/同帧多条一律静态落到目标几何,不播退场/晋级/入场三段。
+                exitSnapshot = null
+                transitionStartPositionMs = 0L
+                transitionHighWaterPositionMs = 0L
+                transitionTimeline = null
+            } else {
+                exitSnapshot = CanvasSnapshot(content, layout, currentRenderStyle)
+                // 位置式过渡时钟:起点取过渡开始时的歌词位置(同源 projectedPosition()),
+                // 之后三段进度由位置推进量推导,不再挂钟计时(见 lineTransitionClockAtPosition)。
+                transitionStartPositionMs = projectedPosition()
+                transitionHighWaterPositionMs = transitionStartPositionMs
+                transitionTimeline = timeline
+            }
         } else if (resuming || nextContent.transitionMode == "None") {
             exitSnapshot = null
             transitionStartPositionMs = 0L
@@ -3596,6 +3626,13 @@ internal class AodLyricCanvasView(
     companion object {
         /** 对唱并发行加入淡入时长(毫秒);期间静音态绘制,完成恢复共享发光管线。 */
         private const val DUET_JOIN_FADE_MS = 180L
+
+        /**
+         * 同一帧到达窗口(≈60Hz 一帧):两条换行快照的到达间隔不超过它即按同帧计
+         * (doze 批投递实测 1–3ms 间隔、19ms 内 12 条)。超过则视为不同拍,重新计 1,
+         * 避免画布停绘期间把不同拍的内容累计成同帧。
+         */
+        private const val SAME_FRAME_ARRIVAL_WINDOW_MS = 16L
         private const val CADENCE_DIAGNOSTIC_WINDOW_MS = 10_000L
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_HALO_ALPHA = 235

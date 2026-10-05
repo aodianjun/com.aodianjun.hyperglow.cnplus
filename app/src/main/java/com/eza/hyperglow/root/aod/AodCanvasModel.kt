@@ -41,6 +41,12 @@ internal data class AodCanvasContent(
     val lineEndMs: Long,
     val positionMs: Long,
     val sampledAtElapsedMs: Long,
+    /**
+     * 快照的投递时间基准(producer 侧 `updatedAtElapsedMs`):画布用它判「过期旧账」——
+     * 年龄超过一次过渡总时长时跳过换行三段动画(见 [shouldSkipLineTransition])。
+     * 0 = 未知(预览/直接构造),年龄判据不生效。
+     */
+    val updatedAtElapsedMs: Long = 0L,
     val speed: Float,
     val words: List<AodCanvasWord>,
     val ruby: List<AodCanvasRuby>,

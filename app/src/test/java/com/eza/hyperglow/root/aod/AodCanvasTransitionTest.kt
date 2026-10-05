@@ -568,4 +568,33 @@ class AodCanvasTransitionTest {
             1e-4f
         )
     }
+
+    @Test
+    fun staleSnapshotSkipsLineTransitionAndLandsDirectly() {
+        // 过渡不追旧账:年龄超过一次过渡总时长即跳过退场/晋级/入场三段,静态落到目标几何。
+        val timeline = lineTransitionTimeline("Fade up", "Normal", false)
+        assertEquals(340L, timeline.totalMs)
+        assertTrue(shouldSkipLineTransition(timeline.totalMs + 1L, timeline.totalMs, 1))
+        // 恰好等于总时长仍照常播过渡(严格「超过」才跳过)。
+        assertFalse(shouldSkipLineTransition(timeline.totalMs, timeline.totalMs, 1))
+        // 年轻单条:照常播过渡;年龄未知(预览/直接构造)同样不按年龄跳过。
+        assertFalse(shouldSkipLineTransition(0L, timeline.totalMs, 1))
+        assertFalse(shouldSkipLineTransition(null, timeline.totalMs, 1))
+        // 长档 + 晋级段(970ms)同样只按「超过」判。
+        val promoting = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
+        assertTrue(shouldSkipLineTransition(promoting.totalMs + 1L, promoting.totalMs, 1))
+        assertFalse(shouldSkipLineTransition(promoting.totalMs, promoting.totalMs, 1))
+    }
+
+    @Test
+    fun sameFrameMultipleLineChangesSkipLineTransition() {
+        // 同一帧内到达 ≥2 条换行快照:即便年轻也跳过,直接落最后一条的静态几何。
+        val timeline = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
+        assertFalse(shouldSkipLineTransition(0L, timeline.totalMs, 1))
+        assertTrue(shouldSkipLineTransition(0L, timeline.totalMs, 2))
+        // doze 批投递实测形状:19ms 内 12 条(计数按到达窗口累加)。
+        assertTrue(shouldSkipLineTransition(120L, timeline.totalMs, 12))
+        // 年轻单条且未超时长:正常播过渡。
+        assertFalse(shouldSkipLineTransition(120L, 340L, 1))
+    }
 }
