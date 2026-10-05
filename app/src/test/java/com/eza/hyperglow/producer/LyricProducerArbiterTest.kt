@@ -648,6 +648,108 @@ class LyricProducerArbiterTest {
         assertFalse(arbiter.isFaulted(state("x", 4_900L, playing = true)))
     }
 
+    // --- 回退源冻结暂停态(2026-10-05 真机:首选断连 + 回退源冻结在暂停态且带行,
+    //     旧回退路径无条件跳过任何 stale 源 → active 恒 null、屏上无歌词)。 ---
+
+    @Test
+    fun fallbackStalePausedWithLine_isForwarded() {
+        // 首选 SPICY 断连;LYRICON 连接、状态冻结在暂停态(age 远超 3s)且带歌词行。
+        // 暂停不是故障(isFaulted=false),回退路径必须像首选路径一样转发该冻结行。
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 0L, playing = false, line = "还有我 陪你在雨里放肆奔跑啊")
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 1_930_000L }
+
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("lyricon", active?.producerId)
+        assertEquals("还有我 陪你在雨里放肆奔跑啊", active?.line)
+        assertEquals(LyricSource.LYRICON, arbiter.activeSource.value)
+    }
+
+    @Test
+    fun fallbackStalePausedWithWordTimingOnly_isForwarded() {
+        // 「带内容」与冻结态让位同门槛:行文本为空但带词级时间戳时仍算有内容。
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED,
+            timedState("superlyric", 0L).copy(playing = false, line = "", hasTimedLyrics = true)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, superLyric)) { 5_000L }
+
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    @Test
+    fun fallbackStalePausedContentless_isSkipped() {
+        // stale 暂停但无内容(空行、无词级时间)的回退源会清空 surface,仍须跳过。
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 0L, playing = false, line = "")
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
+
+        assertNull(arbiter.computeActiveOnce())
+    }
+
+    @Test
+    fun fallbackStalePlaying_isStillSkipped() {
+        // 回归护栏:stale 且仍在播 = 故障(写者已死),回退路径不得转发。
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 0L, playing = true, line = "stale but playing")
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(spicy, lyricon)) { 5_000L }
+
+        assertNull(arbiter.computeActiveOnce())
+    }
+
+    @Test
+    fun fallbackStalePaused_enumOrderStillWins() {
+        // 多个冻结暂停回退源同时命中时仍按枚举顺序取最早(SUPERLYRIC 先于 LYRICINFO)。
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED,
+            state("superlyric", 0L, playing = false, line = "super")
+        )
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED,
+            state("lyricinfo", 0L, playing = false, line = "info")
+        )
+        val arbiter = LyricProducerArbiter(
+            arbiterMap(spicy, superLyric, lyricInfo)
+        ) { 5_000L }
+
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    @Test
+    fun fallbackFrozenPaused_neverBeatsLivePlayingSource() {
+        // 0.3.120 教训回归护栏:冻结暂停态只是兜底档。LYRICON(枚举序在前)冻结但带内容,
+        // SUPERLYRIC 正在播且带内容 —— 必须取活的 SUPERLYRIC,不能让冻结行压过活源。
+        val spicy = FakeProducer(LyricSource.SPICY, ProducerConnection.DISCONNECTED)
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", 0L, playing = false, line = "frozen old line")
+        )
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED,
+            state("superlyric", 4_500L, playing = true, line = "live line")
+        )
+        val arbiter = LyricProducerArbiter(
+            arbiterMap(spicy, lyricon, superLyric)
+        ) { 5_000L }
+
+        val active = arbiter.computeActiveOnce()
+
+        assertEquals("superlyric", active?.producerId)
+        assertEquals("live line", active?.line)
+    }
+
     @Test
     fun shouldPublishActive_signatureChanged_publishes() {
         assertTrue(shouldPublishActive("a:1:2", "a:1:1", activeIsNull = false))
@@ -667,6 +769,38 @@ class LyricProducerArbiterTest {
     @Test
     fun shouldPublishActive_clearedActiveWithNullNext_staysSilent() {
         assertFalse(shouldPublishActive(null, null, activeIsNull = true))
+    }
+
+    // --- 停滞诊断去抖:结构签名未变时不再每 tick 重打回退链。 ---
+
+    @Test
+    fun shouldLogFallbackDiagnostic_changedSignature_logsImmediately() {
+        // 签名变化(连接/身份/故障位改变)→ 立即记录,不受心跳限制。
+        assertTrue(
+            shouldLogFallbackDiagnostic(
+                signature = "b", lastSignature = "a", sinceLastLogMs = 0L, heartbeatMs = 30_000L
+            )
+        )
+    }
+
+    @Test
+    fun shouldLogFallbackDiagnostic_unchangedWithinHeartbeat_isSuppressed() {
+        // 停滞画面原样且未到心跳 → 抑制(旧行为:每 100ms 一整套)。
+        assertFalse(
+            shouldLogFallbackDiagnostic(
+                signature = "a", lastSignature = "a", sinceLastLogMs = 29_999L, heartbeatMs = 30_000L
+            )
+        )
+    }
+
+    @Test
+    fun shouldLogFallbackDiagnostic_unchangedAtHeartbeat_logs() {
+        // 恰好到达心跳(>= 口径)→ 补一条现场。
+        assertTrue(
+            shouldLogFallbackDiagnostic(
+                signature = "a", lastSignature = "a", sinceLastLogMs = 30_000L, heartbeatMs = 30_000L
+            )
+        )
     }
 
     @Test

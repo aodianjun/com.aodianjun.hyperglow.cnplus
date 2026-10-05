@@ -45,6 +45,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
 | 2026-09-29 | 0.3.129 (156) | Auxiliary secondary-text sourcing | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | Auxiliary translation line missing on the AOD for Sunshine (OneRepublic, NetEase CloudMusic via LyriconProvider): the render configuration was correct (`secondaryMode=Translation` on both surfaces) and the render gate is pass-through, while the plugin chain's `跳过 AI 翻译: reason=existing_translation` at chain time proves the bridge input carried non-blank translation text (the plugin skip loop reads only `PluginLyricLine.getTranslation` with `isBlank`, the same predicate as the display gate) and all 67 rows were displayed as the active line — the visual symptom itself is a user report, not a capture. Verified adjacent defect: the host dropped the translation word list at every producer/plugin boundary (`translationWords` never crossed the bridge, word-only plugin results never applied). Fix (translation text/word-list redundancy pair honored at the three boundaries) lands with this entry; residual suspects for the symptom are sparse translation coverage in the installed provider build or a runtime display condition — re-check on hardware and update to pass + device-verified. |
 | 2026-10-01 | 0.3.133 (160) | Auxiliary secondary-text sourcing | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | device-verified | The "second line as secondary text" auxiliary form rendered the next lyric line at ≈0.9× the main size — visually a second main line — on the lockscreen: `LIVE_CARD_SIZE_MULTIPLIER=0.68` scales the main to ~15.6 sp while the 14/13 sp absolute readability floors cap the auxiliary sizes (on-device glyph measurements 44/40/37 px match the 15.6/14/13 sp formulas exactly; screenshots archived). Fix (the floors are capped relative to the effective main size; the preview shares the formulas and is fixed by the same change) lands with this entry; update to pass + device-verified after hardware re-check. |
 
+| 2026-10-05 | 0.3.164 (191) | Lyric source arbitration | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | No lyrics on the AOD with the preferred LyricInfo source: the video session was filtered as non-music (`DISCONNECTED`) while Lyricon's callback chain had died at a pause and sat frozen on a valid paused line (age 1930 s, `play=0`), and the fallback path rejected every stale state — `active` stayed null and the surface blanked. The stall also re-logged the whole fallback chain every 100 ms tick (~60 lines/s), rotating the bounded diagnostic mirror away. Fix (one fault predicate across the preferred/fallback paths + stale-paused fallback forwarded only with content + stall-diagnostic de-dup with a 30 s heartbeat) lands with this entry; update to pass + device-verified after hardware re-check. |
+
 ## Known unverified paths
 
 - Translation redundancy pair across the producer/plugin bridge (`translationWords` backfills the translation text when the text is missing, crosses `PluginLyricLine.translationWords` unchanged, and word-only plugin results apply on the reverse path; unit-tested) — pending a hardware smoke check after merge: a source delivering word-level translations only must show the auxiliary translation line on the AOD, and a song whose translations arrive as plain text must be unchanged.
@@ -522,6 +524,15 @@ and (b) unverified paths stay explicit instead of silently assumed.
   60 fps capture of AOD line changes shows the promoted row's y monotonic, single-frame movement
   ≤8 px and no direction reversal, and the doze backlog is no longer replayed after screen-off.
 
+- Lyric-source frozen-fallback retention + stall-diagnostic de-duplication (the fallback path now
+  applies the same `isFaulted` predicate as selection: a stale-paused candidate with content is
+  forwarded, a stale-playing or contentless one is not; the per-tick fallback chain and the
+  `sources stalled` summary log on structural change with a 30 s heartbeat) — pending a hardware
+  smoke check after merge: pause a song while the preferred source is disconnected and the AOD must
+  keep the frozen line from a connected fallback (e.g. Lyricon) instead of blanking, resume must
+  switch back to the live source, and `adb logcat -s HyperGlow` must show the fallback chain once
+  at stall onset plus a 30 s heartbeat instead of ~60 lines/s.
+
 ## How this ledger is used
 
 - Before merging a change that touches an area, check the most recent entry for that area; if the
@@ -573,6 +584,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 | 2026-09-29 | 0.3.129 (156) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | 《淑女的品格》整首无歌词（最后 2m43s 全占位）：SDK 先投递订阅补发的 `onSongChanged`、12ms 后才回调 `connected`，迟到的连接回调把 issue #56 补发判定窗口重新打开，2 分钟后的真·切歌被误判为重同步（保留旧位置、清空精确匹配残留过滤、门控敞开）；上一首冻结的共享内存残留（164072ms）被当真实位置接受，活动行跳到歌尾（`idx=58/62`），外推到歌长后钳制稳定占位。同一残留值几分钟后在另两首歌上被关闸的门控正确拒收 —— 门控本身无损，问题只在判定被乱序抢先。修复（判定窗口只在订阅动作处武装 + 重同步分支保留残留过滤 + 补发换歌 id 时归零但门控保持敞开）随本条目落地；真机复验后更新为 pass + device-verified。 |
 | 2026-09-29 | 0.3.129 (156) | 辅助文本取数 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | Sunshine（OneRepublic，网易云经 LyriconProvider）息屏翻译辅助行缺失：渲染配置正确（两个 surface 均 `secondaryMode=Translation`）、渲染门控是直通的；而插件链入链时的 `跳过 AI 翻译: reason=existing_translation` 证明桥输入带非空翻译文本（插件 skip 循环只读 `PluginLyricLine.getTranslation` 加 `isBlank`，与显示门控同一谓词），且 67 行全部作为活动行上过屏 —— 视觉症状本身是用户目击、无截图。已证实的相邻缺陷：宿主在每个生产者/插件边界都丢翻译词表（`translationWords` 从不过桥、只给词表的插件结果从不回填）。修复（翻译文本/词表冗余对在三处边界按兜底取文）随本条目落地；症状的残余嫌疑为已装 provider 构建的翻译覆盖稀疏或运行时显示条件 —— 真机复验后更新为 pass + device-verified。 |
 | 2026-10-01 | 0.3.133 (160) | 辅助文本取数 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | device-verified | 「辅助文字显示第二行歌词」的辅助形态把下一行歌词渲染到 ≈0.9 倍主行字号、读作第二条主行（锁屏）：`LIVE_CARD_SIZE_MULTIPLIER=0.68` 把主行压到 ≈15.6sp，而 14/13sp 绝对可读性下限顶死了辅助字号（真机字形实测 44/40/37px 与 15.6/14/13sp 公式逐一对上；截图已存档）。修复（下限按有效主行字号等比封顶；预览共用同一公式、随本修复一并生效）随本条目落地；真机复验后更新为 pass + device-verified。 |
+
+| 2026-10-05 | 0.3.164 (191) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | 首选 LyricInfo 下 AOD 无歌词：视频会话被非音乐过滤（`DISCONNECTED`），而 Lyricon 回调链死在暂停时刻、冻结在一条有效暂停行上（age=1930s，`play=0`），回退路径又拒绝一切 stale 状态——`active` 恒 null、屏面清空。停滞期间还按每个 100ms tick 重打整条回退链（约 60 行/秒），把有界诊断镜像刷掉。修复（首选/回退同一故障谓词 + stale 暂停回退仅在带内容时转发 + 停滞诊断去抖与 30 秒心跳）随本条落地；真机复检后更新为 pass + device-verified。 |
 
 ## 已知未验证路径
 
@@ -739,6 +752,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 插件链合并结果的行窗/词窗归一（`PluginChainMerger.normalizeMergedTimeline`，在 `PluginRuntime.processChain` 合并循环之后、交给下游之前的单一落点调用）：本链有被接受的处理器结果声明 `WORDS` 时，插件词表（文本 + 时间戳）整份生效、其词窗即最终值，合并文档逐行过 ingest 同一套 `LyricTimelineNormalizer` 归一——① 词窗超出行窗 → 行窗扩到并集；② 行窗远超可唱估时且词级跨距可信 → 向词对齐；③ 其余（含正常拖尾）逐字节原样；未声明 `WORDS`（宿主词表）时合并结果原样返回，不重复归一宿主词窗。已有单测（`PluginTimelineNormalizeTest`）——合并后待真机冒烟：装带词级时间的插件（如 lyricfetch）时，插件词窗越出行窗的行不再提前交接/词级卡拉OK不再中途消失，正常歌曲换行节奏与改前一致，未声明 `WORDS` 的插件对宿主行零影响。
 - 投递边界丢弃过期快照（`shouldDropStaleSnapshot` + `droppedSnapshotKeepAliveSignal`，接入 `SystemUiLyricProjection.accept`）：可见快照年龄超过 `STALE_SNAPSHOT_DROP_AGE_MS`（1.5 秒，与 producer 的全量发布/心跳节奏同拍）即在投递边界丢弃；换歌/换源（track generation 变化）、隐藏与暂停驻留边沿、绑定后的首条快照恒投递；被丢快照仍推进 revision 水位，并在其 keepalive/wake 标量与持有态不同时按最新值更新，keepalive 链绝不因此断开。已有单测（`SystemUiLyricProjectionTest` 的边界/换源/隐藏边沿/租约兜底用例）——合并后待真机冒烟：息屏 AOD + 网易云在播时 `adb logcat -s HyperGlow` 只看到积压 revision 被丢（同帧反复应用多条快照的情况消失），歌词不中途冻结/清场，暂停驻留与切歌行为与改前一致。
 - 过渡不追旧账（`shouldSkipLineTransition`，经 `AodCanvasContent.updatedAtElapsedMs` 与同帧到达计数接入 `AodLyricCanvasView.setContent`）：来料快照年龄超过整条过渡时间线（退场 + 晋级位移 + 入场），或同一帧内到达 ≥2 条换行快照时，跳过三段动画、静态落到目标几何。已有单测（`AodCanvasTransitionTest.staleSnapshotSkipsLineTransitionAndLandsDirectly` / `sameFrameMultipleLineChangesSkipLineTransition`）——合并后待真机冒烟（owner 配合：设备置为「息屏 AOD + 网易云在播 + 无线调试在线」，60fps 录屏 + `bh_v6.py` 逐帧量）：换行前后晋级行 y 单调、单帧位移 ≤8px、无方向反转，且息屏后不再回放 doze 积压的换行旧账。
+- 歌词源冻结回退保留 + 停滞诊断去抖（回退路径现在与选源共用 `isFaulted` 谓词：stale 暂停且带内容的候选会被转发，stale 在播或无内容的候选仍被跳过；逐 tick 回退链与 `sources stalled` 汇总改为结构变化 + 30 秒心跳记录）——待真机冒烟：首选源断连时暂停歌曲，AOD 必须继续显示已连接回退源（如 Lyricon）的冻结行而非清屏；恢复播放必须切回实时源；`adb logcat -s HyperGlow` 中回退链在停滞起点只出现一次并每 30 秒一条心跳，而非约 60 行/秒。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 ## 台账的使用方式

@@ -93,6 +93,16 @@ be the wrong thing to show:
   stale and another source is connected, non-stale, actually playing, and carries content (word
   timing or a non-blank line), the arbiter yields to it. The content requirement is what preserves
   pause retention: the arbiter never yields to an empty source that would blank the surface.
+- **Frozen fallback retention.** The fault predicate does not depend on which slot a source
+  occupies: a stale-but-paused fallback candidate is not faulted either, and the arbiter forwards
+  it while it carries content (word timing or a non-blank line). A preferred source that
+  disconnected while playback is paused therefore no longer blanks the surface while a usable
+  frozen line exists elsewhere. A frozen candidate is a last resort: healthy (connected,
+  non-stale) fallback candidates win first in enum order, so a live playing source never loses to
+  a frozen line (the 0.3.120 lesson). A stale fallback that is still playing stays skipped (its
+  writer is dead), and a stale-paused fallback with no content stays skipped so an empty state
+  never blanks the surface (2026-10-05 capture: preferred LyricInfo filtered the video session out
+  while Lyricon sat frozen on a paused line and `active` stayed null).
 
 ## Staleness and the fault predicate
 
@@ -118,6 +128,12 @@ re-published even when the signature is unchanged.
   not re-emit merely because time passed.
 - The stale sweep runs every `STALE_SWEEP_TICK_MS = 500` ms and clears `active` when the currently
   forwarded state becomes faulted between ticks.
+- The fallback chain's per-source diagnostics are de-duplicated by a structural signature
+  (preference, reason category, each producer's connection/state identity/fault bit — never the
+  per-second age) with a 30 s heartbeat, and the `sources stalled` summary de-duplicates on the
+  same structural picture. A source that stays unusable logs its stall onset instead of ~60
+  lines/s for the whole stall, so the bounded diagnostic mirror keeps the onset instead of being
+  rotated away.
 - `active`, `activeSource`, and `preference` are `StateFlow`, so collectors are race-free and
   redundant emissions are de-duplicated.
 - `setPreference` is thread-safe and may be called from the UI thread.
@@ -159,7 +175,9 @@ selected producer connected && state != null && !isFaulted
     ├─ selected is stale but not faulted (paused), and
     │  a fresher playing source has content ──────▶ forward that source
     └─ otherwise ─────────────────────────────────▶ forward selected
-otherwise ────────────────────────────────────────▶ fallback in enum order, else null
+otherwise ────────────────────────────────────────▶ fallback in enum order
+                                                      (faulted skipped; stale-paused
+                                                      forwarded only with content), else null
 ```
 
 ## Clause index
@@ -275,6 +293,12 @@ issue #5 的兜底路径，该路径对「没有注入歌词的音乐应用」�
   以长期霸占选中位。若被选中状态已 stale，而另一个源已连接、非 stale、确实在播且带内容（词级时
   间戳或非空歌词行），仲裁者让位给它。「带内容」这一门槛正是暂停保留语义的护栏：仲裁者绝不向一个
   会把 surface 清空的空源让位。
+- **冻结回退保留。** 故障谓词与源占据哪个槽位无关：stale 但暂停的回退候选同样不是故障，只要带
+  内容（词级时间戳或非空歌词行）就转发。首选源在暂停期间断连时，surface 不再因为别处还有一条可用
+  冻结行而清空。冻结候选只是**兜底档**：健康（已连接、非 stale）回退候选按枚举顺序优先，活着的在播
+  源绝不输给一条冻结行（0.3.120 教训）。stale 且仍在播的回退源仍跳过（写者已死），stale 暂停且无
+  内容的回退源也跳过，空态绝不清屏（2026-10-05 真机：首选 LyricInfo 把视频会话过滤掉，Lyricon
+  冻结在暂停行上，`active` 恒 null）。
 
 ## Staleness 与故障谓词
 
@@ -297,6 +321,9 @@ issue #5 的兜底路径，该路径对「没有注入歌词的音乐应用」�
   `combine()` 各条 flow，以保持 staleness 判定与时间相关；`combine` 不会仅因时间流逝而重新发射。
 - stale sweep 每 `STALE_SWEEP_TICK_MS = 500` 毫秒跑一次，在两次 tick 之间发现当前转发的状态变成
   故障时清空 `active`。
+- 回退链的逐源诊断按结构签名去重（preference、不可用类别、各生产者的连接/状态身份/故障位，绝不
+  含每秒都变的年龄），并带 30 秒心跳；`sources stalled` 汇总按同一结构画面去重。持续不可用的源只留
+  停滞起点，而不是整段停滞期约 60 行/秒——有界诊断镜像因此保住现场而非被刷掉。
 - `active`、`activeSource`、`preference` 都是 `StateFlow`，因此收集端无竞态，重复发射会被去重。
 - `setPreference` 线程安全，可以从 UI 线程调用。
 - 生产者从各自入口的线程发射——Spicy 与 Lyricon 的回调、SuperLyric 的 Binder 线程、通知回调。
@@ -331,7 +358,9 @@ DISCONNECTED ──connect──▶ CONNECTED ──drop──▶ DISCONNECTED
     ├─ 被选中源 stale 但未判故障（暂停），且存在
     │  更新的、在播且带内容的源 ─────────────────▶ 转发该源
     └─ 其他情况 ─────────────────────────────────▶ 转发被选中源
-否则 ────────────────────────────────────────────▶ 按枚举顺序回退，否则 null
+否则 ────────────────────────────────────────────▶ 按枚举顺序回退
+                                                    （故障跳过；stale 暂停
+                                                    仅在带内容时转发），否则 null
 ```
 
 ## 条款索引

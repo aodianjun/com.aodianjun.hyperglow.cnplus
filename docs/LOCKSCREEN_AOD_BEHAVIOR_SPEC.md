@@ -52,6 +52,15 @@ customization, and fallback.
 - Live lyrics require `playbackActive=true`. The one shared `After Spotify pauses` setting applies to
   lockscreen and AOD: clear immediately, 5 seconds, 10 seconds, 30 seconds, or keep indefinitely.
   The default is 5 seconds. Other media players cannot start or extend the timer.
+- Lyric source selection applies one fault predicate to the preferred and fallback paths alike: a
+  stale-but-paused producer state is a frozen state, not a fault. When the preferred source is
+  unusable, a fallback source holding such a frozen state is forwarded while it carries content (a
+  non-blank line or word timing), so a paused session keeps its last line instead of blanking
+  beside an empty fallback. Healthy (connected, non-stale) fallback candidates win first in enum
+  order — the frozen state is a last resort. A stale state that is still playing, or a stale-paused
+  state with no content, is never forwarded. Stall diagnostics are de-duplicated by the same
+  structural picture (with a 30 s heartbeat) so a long stall cannot rotate the bounded diagnostic
+  mirror away.
 
 ## Lockscreen visibility and privacy
 
@@ -732,6 +741,7 @@ above and must fail back to Xiaomi's original target.
 - AOD keepalive 与锁屏亮屏策略保持相互独立。任一策略都不能仅凭另一 surface 的状态而激活。
 - `playbackActive` 仅来自经过 UID 校验的 Spotify bridge，并被显式传输。其他媒体播放器无法激活歌词 keepalive。
 - 实时歌词要求 `playbackActive=true`。唯一的共享设置 `After Spotify pauses` 同时适用于锁屏和 AOD：立即清除、5 秒、10 秒、30 秒或无限期保留。默认为 5 秒。其他媒体播放器无法启动或延长该计时器。
+- 歌词源选择在首选与回退两条路径上使用同一故障谓词：stale 但暂停的生产者状态是冻结态、不是故障。首选源不可用时，回退源持有的此类冻结态只要带内容（非空歌词行或词级时间戳）就会被转发——暂停的会话保住最后一行歌词，而不会在空回退源旁清屏。健康（已连接、非 stale）回退候选按枚举顺序优先，冻结态只是兜底档。stale 且仍在播、或 stale 暂停但无内容的状态绝不转发。停滞诊断按同一结构画面去重（30 秒心跳），长时间停滞不会把有界诊断镜像刷掉。
 
 ## 锁屏可见性与隐私
 
