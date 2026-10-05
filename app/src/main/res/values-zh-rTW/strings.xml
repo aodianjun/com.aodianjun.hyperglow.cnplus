@@ -175,6 +175,7 @@
     <string name="summary_about_support">微信 / 支付寶掃碼讚賞,或給專案點個 Star</string>
     <string name="action_hyperglow_github">在 GitHub 查看 HyperGlow</string>
     <string name="action_hyperglow_cnplus_github">在 GitHub 查看 HyperGlow CN+</string>
+<string name="action_hyperglow_qq_group">加入 QQ 交流群</string>
     <string name="title_help">使用說明</string>
     <string name="title_changelog">更新日誌</string>
     <string name="title_contributors">貢獻者</string>

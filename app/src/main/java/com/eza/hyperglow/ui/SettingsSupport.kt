@@ -56,6 +56,8 @@ internal const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/com.aodianj
 /** 项目落地页(GitHub Pages):关于页「支持」入口指向此处,内含微信赞赏码与支付宝收款码。 */
 internal const val PROJECT_SITE_URL = "https://aodianjun.github.io/hyperglow-cnplus-site/"
 internal const val SPICY_EX_GITHUB_URL = "https://github.com/amarinne/spicy-ex/releases"
+/** QQ 交流群邀请链接(与 README、落地页共用同一个群)。 */
+internal const val QQ_GROUP_URL = "https://qm.qq.com/q/qZN8paJoFq"
 
 internal fun currentUiLanguage(context: android.content.Context): UiLanguage {
     val tags = context.getSystemService(LocaleManager::class.java)
