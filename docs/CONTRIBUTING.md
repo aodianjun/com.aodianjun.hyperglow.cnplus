@@ -16,6 +16,8 @@ which rules are easy to miss.
 4. `docs/STYLE_GUIDE.md` — implementation and review patterns (fail-closed, lifecycle, hot paths).
 5. `docs/DIAGNOSTIC_REPORTING_SPEC.md` + `DIAGNOSTIC_DATA_POLICY.md` — diagnostics contract.
 6. `docs/RELEASE_CONVENTIONS.md` and `UPSTREAM_SYNC.md` — release mechanics and upstream porting.
+7. `docs/PLUGIN_RELEASE_CONVENTIONS.md` — packaging, versioning, documentation, credits and
+   verification gates for anything under `plugins/`.
 
 ## Standing rules
 
@@ -64,6 +66,9 @@ which rules are easy to miss.
   (`default` / `notrace`), unit tests, and debug builds on every PR.
 - Releases are versionCode-versionName tags built from `main` by the `release` job; prereleases
   must exist before CI publishes (see `docs/RELEASE_CONVENTIONS.md`).
+- Plugins are released separately: the `publish-plugins` job builds every plugin on PRs (build
+  only) and refreshes the rolling `plugins` pre-release on `main` pushes. See
+  `docs/PLUGIN_RELEASE_CONVENTIONS.md`.
 
 ## Where to ask
 
@@ -86,6 +91,7 @@ reports are triaged against `docs/DEVICE_COMPAT_MATRIX.md`.
 4. `docs/STYLE_GUIDE.md` —— 实现与评审模式（fail-closed、生命周期、热路径）。
 5. `docs/DIAGNOSTIC_REPORTING_SPEC.md` + `DIAGNOSTIC_DATA_POLICY.md` —— 诊断契约。
 6. `docs/RELEASE_CONVENTIONS.md` 与 `UPSTREAM_SYNC.md` —— 发版机制与上游移植。
+7. `docs/PLUGIN_RELEASE_CONVENTIONS.md` —— `plugins/` 下内容的打包、版本、文档、致谢与验证门禁。
 
 ## 长期规则
 
