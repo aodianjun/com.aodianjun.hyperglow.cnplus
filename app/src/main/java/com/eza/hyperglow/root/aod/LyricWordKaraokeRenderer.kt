@@ -10,7 +10,7 @@ import kotlin.math.roundToLong
 
 /**
  * 逐字卡拉OK的一个词位(行内绝对坐标):[playedFraction] 为该词已唱比例 0..1
- * (0=未唱、1=已唱完、之间=正在唱),驱动底字亮度/扫光(BetterLyrics 档不做扫光、整块
+ * (0=未唱、1=已唱完、之间=正在唱),驱动底字亮度/扫光(BetterLyrics 档长音节不扫光、整块
  * 亮起)/未唱下沉/已唱上浮;
  * [durationMs] 为词时长,驱动上浮动画的加速段;[longSyllable] 标记长音节
  * (「BetterLyrics」档放大/辉光只作用于长音节)。
@@ -85,15 +85,19 @@ internal fun karaokeScalePeak(betterLyrics: Boolean, longSyllable: Boolean): Flo
     if (betterLyrics && longSyllable) KARAOKE_LONG_SYLLABLE_SCALE_PEAK else KARAOKE_BASE_SCALE_PEAK
 
 /**
- * 词内扫光是否启用:「BetterLyrics」档**整档不做逐字扫光**——所有词块都是「开始唱即整块
- * 按已唱色亮起」,不出现填充前缘;辉光仍只挂长音节词块(见 [draw])。
+ * 词内扫光是否启用(口径 B):「BetterLyrics」档**只对长音节关扫光**——长音节(≥700ms)
+ * 词块「开始唱即整块按已唱色亮起」,不出现填充前缘;其余音节恢复历史词内扫光带。辉光仍只
+ * 挂长音节词块(见 [draw])。非 BetterLyrics 档(基础卡拉OK路径)长/短音节全部保持词内
+ * 扫光,历史观感不变。纯函数,可单测。
  *
- * 口径沿革(owner 真机复核两次后定案):只关长音节(2026-10-04)→ 关「含长音节的整行」
+ * 口径沿革(owner 真机复核后定案):只关长音节(2026-10-04)→ 关「含长音节的整行」
  * (2026-10-04 晚)——两版都留下「行内没有 ≥700ms 音节时整行照旧逐字填」的残留,真机实测
- * (网易云《蝴蝶》,逐行探针每个词首窗仅 200ms 级)整首歌都在扫,观感与改前无差别;故改为
- * 整档关闭。非 BetterLyrics 档(基础卡拉OK路径)保持词内扫光,历史观感不变。纯函数,可单测。
+ * (网易云《蝴蝶》,逐行探针每个词首窗仅 200ms 级)整首歌都在扫,观感与改前无差别,故
+ * 0.3.156 (183) 整档关闭(长音节整块亮起规则一并删去);本次恢复短音节扫光——当初逼出
+ * 整档关闭的跳变成因已由同行形态稳定化 / 下一行文本稳定化 / 位置时钟过渡 / 摄取归一修掉。
  */
-internal fun karaokeSweepEnabled(betterLyrics: Boolean): Boolean = !betterLyrics
+internal fun karaokeSweepEnabled(betterLyrics: Boolean, longSyllable: Boolean): Boolean =
+    !(betterLyrics && longSyllable)
 
 /** 演唱中放大曲线:经峰值再回落 1.0(历史逐字档同式,峰值参数化)。纯函数,可单测。 */
 internal fun karaokeScaleAt(playedFraction: Float, peak: Float): Float {
@@ -191,15 +195,16 @@ private fun isCjkKaraokeChar(ch: Char): Boolean =
  *
  * 效果参考 jayfunc/BetterLyrics(WinUI3/Win2D)的逐字效果:未唱字下沉(行高 10%),
  * 唱到后 450ms 内弹回基线(「已唱上浮」);长音节(≥700ms)演唱中放大到 1.15、唱完
- * 回落,发光开启时带 glow 色辉光。该档整档不做逐字扫光([karaokeSweepEnabled]):
- * 所有词块「开始唱即整块亮起」,短音节保留历史放大运动(峰值 1.0505)。
+ * 回落,发光开启时带 glow 色辉光。扫光按口径 B 逐词块判定([karaokeSweepEnabled]):
+ * 长音节「开始唱即整块亮起」不扫光,其余音节恢复历史词内扫光带;短音节保留历史放大
+ * 运动(峰值 1.0505)。
  *
  * 行级源(无逐字时间戳)由调用方用 [syntheticCharTimeWindow] 合成每字符的时间窗后
  * 走同一渲染:下沉/上浮与点亮进度同样适用;合成块按块时长判定长音节(中文逐字块、
- * 西文按词块,≥700ms 才算)——只有长块放大/辉光,所有块都整块亮起。
+ * 西文按词块,≥700ms 才算)——只有长块放大/辉光,长块整块亮起、短块词内扫光。
  */
 internal object LyricWordKaraokeRenderer {
-    /** 词内扫光带占词宽比例(与 [LyricGlowRenderer] 同式;BetterLyrics 档不做扫光,不适用)。 */
+    /** 词内扫光带占词宽比例(与 [LyricGlowRenderer] 同式;BetterLyrics 档长音节整块亮起,不适用)。 */
     const val SWEEP_BAND_FRACTION = 0.28f
 
     /** 未唱字静态缩放(历史逐字卡拉OK档)。 */
@@ -207,7 +212,8 @@ internal object LyricWordKaraokeRenderer {
 
     /**
      * 逐字卡拉OK绘制。[betterLyrics] 为「BetterLyrics」档:启用未唱下沉/已唱上浮与
-     * 长音节放大/辉光;否则为历史逐字档(无浮动,短词放大 1.0505)。
+     * 长音节放大/辉光,扫光按口径 B 逐词块判定(长音节整块亮起、其余音节词内扫光);
+     * 否则为历史逐字档(无浮动,短词放大 1.0505,全部扫光)。
      *
      * [alphaFactor] 为该行整体亮度档(默认 1=主行语义):已唱/未唱/辉光/扫光四路不透明度
      * 同乘它,供辅助文字逐字效果沿用「高亮辅助文字」设置而不另建一套取色。
@@ -228,13 +234,13 @@ internal object LyricWordKaraokeRenderer {
         val textSize = paint.textSize
         val sungAlpha = karaokeSungAlpha(alphaFactor)
         val dimAlpha = karaokeUnsungAlpha(alphaFactor)
-        // 「BetterLyrics」档整档不做逐字扫光:所有词块都是「开始唱即整块亮起」。
-        val sweepEnabled = karaokeSweepEnabled(betterLyrics)
         var index = 0
         while (index < runs.size) {
             val run = runs[index]
             index++
             if (run.text.isEmpty()) continue
+            // 扫光逐词块判定(口径 B):「BetterLyrics」档只对长音节关扫光,其余音节照常填充。
+            val sweepEnabled = karaokeSweepEnabled(betterLyrics, run.longSyllable)
             val played = run.playedFraction.coerceIn(0f, 1f)
             val sung = played >= 1f
             // 放大/辉光由「高亮进度」驱动:逐字源=字符自身进度;合成源=所属词块的进度
@@ -261,7 +267,7 @@ internal object LyricWordKaraokeRenderer {
             canvas.drawText(run.text, run.x, baseline + y, paint)
             if (active) {
                 if (!sweepEnabled) {
-                    // 「BetterLyrics」档:整块按已唱色一次亮起、不做逐字填充(见
+                    // 「BetterLyrics」档长音节:整块按已唱色一次亮起、不做逐字填充(见
                     // [karaokeSweepEnabled])。辉光仍只挂长音节词块——glow 色阴影画在 sung 色
                     // 文字下,光从文字背后透出(与共享 LyricGlowRenderer Pass 2 同式);shader
                     // 置空规避硬件加速下 shadow+shader 同置导致发光丢失。

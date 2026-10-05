@@ -2666,8 +2666,9 @@ internal class AodLyricCanvasView(
      * 未唱下沉、已唱上浮、长音节辉光统一委托共享渲染核心 [LyricWordKaraokeRenderer]
      * （预览同源，杜绝效果漂移）。逐字时间源用真词时间窗;行级源（[betterLyrics] 且
      * 行无词）按字符合成时间窗（[syntheticCharTimeWindow],与行级扫光前缘同式）,
-     * 合成块按块时长判定长音节（≥700ms）。「BetterLyrics」档整档不做逐字扫光
-     * （见 karaokeSweepEnabled）：所有词块「开始唱即整块亮起」,只有长块放大/辉光。
+     * 合成块按块时长判定长音节（≥700ms）。「BetterLyrics」档扫光按口径 B 逐词块
+     * 判定（见 karaokeSweepEnabled）：长音节「开始唱即整块亮起」不扫光（只有长块
+     * 放大/辉光），其余音节恢复历史词内扫光带。
      */
     private fun drawWordKaraoke(
         canvas: Canvas,
@@ -2743,8 +2744,8 @@ internal class AodLyricCanvasView(
                     )
                     val blockHighlight = timedWordProgress(position, blockWindow.first, blockWindow.last)
                     // 长音节按合成块时长判定:短词块(不足 700ms)不放大、不辉光;被拖长的长词块
-                    // 整块同步放大+辉光(块内共享高亮进度)。「BetterLyrics」档整档不做逐字扫光
-                    // (见 karaokeSweepEnabled):所有块「开始唱即整块亮起」。
+                    // 整块同步放大+辉光(块内共享高亮进度)。「BetterLyrics」档扫光按口径 B 逐
+                    // 词块判定(见 karaokeSweepEnabled):长块整块亮起不扫光、短块照常词内扫光。
                     val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
                     var charIndex = block.first
                     while (charIndex <= block.last) {

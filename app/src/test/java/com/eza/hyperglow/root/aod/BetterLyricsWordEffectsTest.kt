@@ -34,11 +34,14 @@ class BetterLyricsWordEffectsTest {
     }
 
     @Test
-    fun betterLyricsDisablesTheInWordSweep() {
-        // 「BetterLyrics」档整档不做逐字扫光:所有词块「开始唱即整块亮起」(含换行后的新行)。
-        assertFalse(karaokeSweepEnabled(betterLyrics = true))
-        // 非 BetterLyrics 档(基础卡拉OK路径)保持词内扫光,历史观感不变。
-        assertTrue(karaokeSweepEnabled(betterLyrics = false))
+    fun betterLyricsDisablesTheInWordSweepOnlyForLongSyllables() {
+        // 口径 B:BetterLyrics 档只对长音节(≥700ms)关扫光——该词块「开始唱即整块亮起」。
+        assertFalse(karaokeSweepEnabled(betterLyrics = true, longSyllable = true))
+        // 其余音节恢复历史词内扫光带(0.3.156 (183) 的整档关闭撤销;底层跳变成因已修)。
+        assertTrue(karaokeSweepEnabled(betterLyrics = true, longSyllable = false))
+        // 非 BetterLyrics 档(基础卡拉OK路径)长/短音节全部保持词内扫光,历史观感不变。
+        assertTrue(karaokeSweepEnabled(betterLyrics = false, longSyllable = true))
+        assertTrue(karaokeSweepEnabled(betterLyrics = false, longSyllable = false))
     }
 
     @Test
