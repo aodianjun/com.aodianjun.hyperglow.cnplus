@@ -516,15 +516,23 @@ and (b) unverified paths stay explicit instead of silently assumed.
   playing, `adb logcat -s HyperGlow` shows the projection dropping only backlog revisions (no
   repeated same-frame snapshot applications), lyrics neither freeze nor clear mid-song, and pause
   retention / track changes behave as before.
-- Line transition no longer chases old backlog (`shouldSkipLineTransition`, wired into
-  `AodLyricCanvasView.setContent` through `AodCanvasContent.updatedAtElapsedMs` and the
-  same-frame arrival counter): when the incoming snapshot is older than the whole transition
-  timeline (exit + promotion + enter) or a second line-changing snapshot arrives within ~one
-  frame, the canvas skips the three phases and lands statically on the target geometry.
-  Unit-tested (`AodCanvasTransitionTest.staleSnapshotSkipsLineTransitionAndLandsDirectly` /
-  `sameFrameMultipleLineChangesSkipLineTransition`) — pending a hardware smoke check after merge:
-  60 fps capture of AOD line changes shows the promoted row's y monotonic, single-frame movement
-  ≤8 px and no direction reversal, and the doze backlog is no longer replayed after screen-off.
+- Line transition smoothness: no isolated single-frame spikes + compressed old-backlog replay
+  (`advanceTransitionPosition` / `isTransitionSeekJump` rate-limit the position clock to the
+  playback rate, so a doze batch jump — two positions ~2 s apart within one millisecond, measured
+  as isolated -68 px single frames on hardware — is consumed at real time; `shouldSkipLineTransition`
+  hits, wired into `AodLyricCanvasView.setContent` through `AodCanvasContent.updatedAtElapsedMs`
+  and the same-frame arrival counter, now play a compressed replay of the same three phases from
+  the on-screen geometry to the last snapshot's geometry instead of landing statically in one
+  frame: ~140 ms total, every segment ≥ 40 ms, wall-clock bounded, seek/drag still ends it
+  immediately on the raw-position high-water). Unit-tested
+  (`AodCanvasTransitionTest.smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` /
+  `transitionPosition*` / `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` /
+  `sameFrameMultipleLineChangesSkipFullTransition`) — pending a hardware smoke check after merge:
+  60 fps capture of AOD line changes shows the promoted row's y monotonic, no isolated single-frame
+  spike (no frame consumes ≥ 1/4 of the promotion travel; ≤ 2× local neighbours), the doze backlog
+  is no longer replayed after screen-off, a stale/batched line change reads as a quick but
+  continuous exit→move→enter (~140 ms) instead of a pop, and a seek/drag still lands statically
+  immediately.
 
 - Lyric-source frozen-fallback retention + stall-diagnostic de-duplication (the fallback path now
   applies the same `isFaulted` predicate as selection: a stale-paused candidate with content is
@@ -756,13 +764,13 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 「BetterLyrics」档整档不做逐字扫光（共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数 `karaokeSweepEnabled(betterLyrics) = !betterLyrics`：所有词块「开始唱即整块亮起」，不出现填充前缘——换行后的新行同理；辉光仍只挂长音节词块；非 BetterLyrics 档保持词内扫光不变）。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）——两版都留下「行内音节全短时整行照旧逐字填」的残留；真机探针（网易云《蝴蝶》）实测该曲每个词首窗仅 200ms 级，任何口径都不触发，故观感与改前无差别；owner 2026-10-05 复核后定案整档关闭。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweep`）——合并后待真机冒烟：BetterLyrics 档任何行（含换行后新行）都没有从左往右的填充前缘，长音节放大 1.15、光晕只挂长音节、未唱下沉/已唱上浮不变，非 BetterLyrics 档与改前逐像素一致。（已被下方口径 B 恢复条目取代，2026-10-05：短音节扫光回归，仅长音节保持整块亮起。）
 - 同行内容稳定化（`shouldAdoptLineEnhancements`，`AodCanvasLayoutPolicy.kt`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：上游对同一行两阶段下发（带/不带词表，真机实测同一行窗下 `words=13 ↔ words=0`），而折行引擎按形态走两条路径，于是每次切换都重排——owner 录屏逐帧实测：换行瞬间下一行下移 80px、填充前缘倒退重填。现在同一行只认第一次的折行形态；「无词→带词」升级仅在行开始前 300ms 内接受，「带词→无词」回退与演唱中词表文本变化一律拒绝。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行时不再重排（下一行位置不动）、填充不再倒退重填，词表在行开始前到达的行仍按真实词窗点亮。
 - 下一行文本稳定化（`isNextLineStale`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：换行时旧「下一行」被晋级成主行，而上游 `nextLine` 要等下一句推来才推进——真机录屏实测换行后 0.5s 内下一行行与主行同文，随后文本切换改变行集合/行高，表现为「换行动画后跳一下」。现在与主行同文的下一行视为「未就绪」，沿用上一版文本，行占位与行高保持稳定。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行后下一行行不出现与主行同文的重复、也不因文本切换而跳位；真正的新下一行到达后正常替换。
-- 换行动画改吃「歌词时钟」（`lineTransitionClockAtPosition` + 位置高水位，接入 `AodLyricCanvasView` 三段式过渡）：过渡进度不再用挂钟（`elapsedRealtime` 起点）计时，改由歌词位置推导——过渡开始时记下位置（同源 `projectedPosition()`），各段按位置推进量在既有时间线上换算，段顺序/时长配方/缓动全不变。修复目标：内容（位置/行窗/`nextLine`）在飞行途中才到齐时目标几何被中途重算，表现为「换行后两段位移/单帧跳」（60fps 逐帧实测 813 帧/13.55s/三次换行）。暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动，倒退超过 300ms 采样回漂容差）时立即结束过渡而不反向「追」位置。已有单测（`AodCanvasTransitionTest.positionClock*`）——合并后待真机冒烟：60fps 录屏逐帧核晋级行 y 单调、单帧位移 ≤8px、无方向反转；暂停时过渡冻结在当前进度、恢复播放后续播；拖动进度条 seek 时过渡立即结束（静态新内容）、不出现反向追赶。
+- 换行动画改吃「歌词时钟」（`lineTransitionClockAtPosition` + 位置高水位，接入 `AodLyricCanvasView` 三段式过渡）：过渡进度不再用挂钟（`elapsedRealtime` 起点）计时，改由歌词位置推导——过渡开始时记下位置（同源 `projectedPosition()`），各段按位置推进量在既有时间线上换算，段顺序/时长配方/缓动全不变。修复目标：内容（位置/行窗/`nextLine`）在飞行途中才到齐时目标几何被中途重算，表现为「换行后两段位移/单帧跳」（60fps 逐帧实测 813 帧/13.55s/三次换行）。暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动，倒退超过 300ms 采样回漂容差）时立即结束过渡而不反向「追」位置。已有单测（`AodCanvasTransitionTest.positionClock*`）——合并后待真机冒烟：60fps 录屏逐帧核晋级行 y 单调、单帧位移 ≤8px、无方向反转；暂停时过渡冻结在当前进度、恢复播放后续播；拖动进度条 seek 时过渡立即结束（静态新内容）、不出现反向追赶。（2026-10-06 增补：位置采样限速——裸位置只按播放速率跟随，doze 批投递跳变按实时速率补齐，消除孤立尖峰；见下方「换行过渡平滑化」条目与 `advanceTransitionPosition`。）
 - MIUI 长截屏代理（`LongScreenshotScrollProxyView` + `LongScreenshotDragAccumulator`，由 `MainActivity.installLongScreenshotProxy` 在小米/Redmi/POCO 上安装）：MIUI 的 `LongScreenshotUtils$ContentPort` 在 Compose 宿主里选不出主滚动视图——debug 包宿主类名命中其「不可滚动」精确匹配分支（真机日志 `can not run invoke canScrollVertically on background thread`），release 包该类名已被 R8 改名、落到 `view.canScrollVertically(1)` 兜底分支（Compose 宿主无进行中手势时同样返回 false），长截屏因此退化成「只截当前一屏」（`scrolledY == 0 isEnd:true`）。代理挂在 Compose 宿主之下（真实触摸到不了它），自报可滚动让 MIUI 选中，把 MIUI 注入的假拖拽在主线程转发给宿主，并以累计拖拽位移充当 `scrollY`（封顶 60k px 防失控，暂停后重新发起的长截屏从零计数）。已有单测（`LongScreenshotDragAccumulatorTest`）——合并后待真机冒烟：小米设备上对长页面截长屏得到多屏拼接长图，正常触摸/滚动行为不变，logcat 出现 `long screenshot proxy installed`。⚠️ 现有真机证据取自 debug 包；release 包（类名被改名→兜底分支）这一环待真机复核。
 - 生产者 ingest 行窗/词窗基准统一（`LyricTimelineNormalizer`，接入 Lyricon P0 修复与 SuperLyric 逐行推送 emit）：只治自相矛盾的两类形状——词窗超出行窗时行窗扩到并集；行窗远超可唱估时且词级跨距可信时向词对齐（沿用既有 Lyricon 判据/阈值，全仓单一副本）；正常拖尾（如行窗 8000ms、词窗并集 3000ms、估时 3000ms）原样返回，不带词窗的一笔保持行窗原样。LyricInfo 已在 ingest 对带词行无条件词锚定、Spicy 的行尾钳制是上游 8422d78 语义，两者评估后不动。已有单测（`LyricTimelineNormalizerTest`、`LyriconTimelineRepairTest`、`SuperLyricTimelineNormalizeTest`）——合并后待真机冒烟：Lyricon 与 SuperLyric 源下正常歌曲的换行节奏与填充前缘不变（正常拖尾逐字节一致），词窗越出行窗的行不再自相矛盾（不再出现演唱中填充前缘倒退重填）。
 - 「BetterLyrics」档恢复逐字扫光（口径 B；共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数改为 `karaokeSweepEnabled(betterLyrics, longSyllable) = !(betterLyrics && longSyllable)`，在 draw 循环内逐词块判定）：长音节（≥700ms）仍「开始唱即整块按已唱色亮起」、不出现填充前缘（发光开启时光晕只挂长音节），其余音节恢复历史词内扫光带；非 BetterLyrics 档长/短音节全部扫光不变。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）→ 整档关闭（0.3.156 (183)，PR #177）→ 本次恢复短音节扫光（2026-10-05）：当初逼出整档关闭的四条跳变成因已修（同行形态稳定化 / 下一行文本稳定化 / 位置时钟过渡 / 摄取归一），短音节扫光不再带当初的跳变观感。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweepOnlyForLongSyllables`），并已用桩 `android.graphics` 编译真实渲染文件实调 `draw()` 双向验证（同一套断言在改前文件上按预期 FAIL：短音节无扫光渐变）——合并后待真机冒烟：BetterLyrics 档长音节整块亮起（发光开启时光晕只挂长音节）、短音节逐字扫光带恢复、换行无跳变；非 BetterLyrics 档与改前逐像素一致。
 - 插件链合并结果的行窗/词窗归一（`PluginChainMerger.normalizeMergedTimeline`，在 `PluginRuntime.processChain` 合并循环之后、交给下游之前的单一落点调用）：本链有被接受的处理器结果声明 `WORDS` 时，插件词表（文本 + 时间戳）整份生效、其词窗即最终值，合并文档逐行过 ingest 同一套 `LyricTimelineNormalizer` 归一——① 词窗超出行窗 → 行窗扩到并集；② 行窗远超可唱估时且词级跨距可信 → 向词对齐；③ 其余（含正常拖尾）逐字节原样；未声明 `WORDS`（宿主词表）时合并结果原样返回，不重复归一宿主词窗。已有单测（`PluginTimelineNormalizeTest`）——合并后待真机冒烟：装带词级时间的插件（如 lyricfetch）时，插件词窗越出行窗的行不再提前交接/词级卡拉OK不再中途消失，正常歌曲换行节奏与改前一致，未声明 `WORDS` 的插件对宿主行零影响。
 - 投递边界丢弃过期快照（`shouldDropStaleSnapshot` + `droppedSnapshotKeepAliveSignal`，接入 `SystemUiLyricProjection.accept`）：可见快照年龄超过 `STALE_SNAPSHOT_DROP_AGE_MS`（1.5 秒，与 producer 的全量发布/心跳节奏同拍）即在投递边界丢弃；换歌/换源（track generation 变化）、隐藏与暂停驻留边沿、绑定后的首条快照恒投递；被丢快照仍推进 revision 水位，并在其 keepalive/wake 标量与持有态不同时按最新值更新，keepalive 链绝不因此断开。已有单测（`SystemUiLyricProjectionTest` 的边界/换源/隐藏边沿/租约兜底用例）——合并后待真机冒烟：息屏 AOD + 网易云在播时 `adb logcat -s HyperGlow` 只看到积压 revision 被丢（同帧反复应用多条快照的情况消失），歌词不中途冻结/清场，暂停驻留与切歌行为与改前一致。
-- 过渡不追旧账（`shouldSkipLineTransition`，经 `AodCanvasContent.updatedAtElapsedMs` 与同帧到达计数接入 `AodLyricCanvasView.setContent`）：来料快照年龄超过整条过渡时间线（退场 + 晋级位移 + 入场），或同一帧内到达 ≥2 条换行快照时，跳过三段动画、静态落到目标几何。已有单测（`AodCanvasTransitionTest.staleSnapshotSkipsLineTransitionAndLandsDirectly` / `sameFrameMultipleLineChangesSkipLineTransition`）——合并后待真机冒烟（owner 配合：设备置为「息屏 AOD + 网易云在播 + 无线调试在线」，60fps 录屏 + `bh_v6.py` 逐帧量）：换行前后晋级行 y 单调、单帧位移 ≤8px、无方向反转，且息屏后不再回放 doze 积压的换行旧账。
+- 换行过渡平滑化 + 旧账压缩补播（`advanceTransitionPosition` / `isTransitionSeekJump` 把位置时钟限速到播放速率：doze 批投递的位置跳变——真机实测同一毫秒两条位置、跨度约 2 秒，逐帧条带单帧尖峰 -68px ≈ 60fps 的 64px/帧——按实时速率补齐，各段以自身时长平滑播完；`shouldSkipLineTransition` 命中时不再一帧硬切，改以屏上现有旧快照为起点、最后一条快照为目标几何（起点定死）播放压缩补播：同一三段序列（段顺序/缓动/帧配方不变）压缩到总长 ~140ms、每段 ≥40ms，按挂钟计时，seek/拖动仍按原始位置高水位立即结束）。已有单测（`AodCanvasTransitionTest.smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` / `transitionPosition*` / `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` / `sameFrameMultipleLineChangesSkipFullTransition`）——合并后待真机冒烟（owner 配合：设备置为「息屏 AOD + 网易云在播 + 无线调试在线」，60fps 录屏 + `bh_transition_stream2.py` 逐帧量）：换行前后晋级行 y 单调、无孤立尖峰（任一帧位移不超过总位移 1/4、不超过相邻帧 2 倍）、无方向反转；doze 批投递不再一帧跳完（位移段以自身时长平滑播完）；旧账场景可见 ~140ms 快速但连续的退场→位移→入场而不是「啪一下」；seek/拖动仍静态立即落位。
 - 歌词源冻结回退保留 + 停滞诊断去抖（回退路径现在与选源共用 `isFaulted` 谓词：stale 暂停且带内容的候选会被转发，stale 在播或无内容的候选仍被跳过；逐 tick 回退链与 `sources stalled` 汇总改为结构变化 + 30 秒心跳记录）——待真机冒烟：首选源断连时暂停歌曲，AOD 必须继续显示已连接回退源（如 Lyricon）的冻结行而非清屏；恢复播放必须切回实时源；`adb logcat -s HyperGlow` 中回退链在停滞起点只出现一次并每 30 秒一条心跳，而非约 60 行/秒。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
