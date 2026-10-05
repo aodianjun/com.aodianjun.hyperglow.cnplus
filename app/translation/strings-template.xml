@@ -143,6 +143,8 @@
     <string name="summary_plugin_processing_enabled">Installed plugins may enhance or translate lyrics before they are shown. Changes apply from the next track.</string>
     <string name="plugin_action_install">Install plugin</string>
     <string name="summary_plugin_action_install">Install a HyperLyric plugin package (.zip).</string>
+    <string name="plugin_action_download">Download plugins</string>
+    <string name="summary_plugin_action_download">Open the plugin release page on GitHub to download plugin packages (.zip).</string>
     <string name="plugin_empty_hint">No plugins installed. Install a HyperLyric plugin package (.zip) to enhance lyrics.</string>
     <string name="plugin_pipeline_status_mismatch">Lyric document does not match the active source yet; waiting for the next scheduling</string>
     <string name="plugin_pipeline_status_no_document">Current source %1$s has no full-track lyric document yet; the plugin chain stays idle</string>

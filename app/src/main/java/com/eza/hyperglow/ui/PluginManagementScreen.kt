@@ -184,6 +184,11 @@ internal fun PluginManagementScreen(
                         summary = stringResource(R.string.summary_plugin_action_install),
                         onClick = { pickPluginZip() }
                     )
+                    ArrowPreference(
+                        title = stringResource(R.string.plugin_action_download),
+                        summary = stringResource(R.string.summary_plugin_action_download),
+                        onClick = { openExternalUrl(context, PLUGINS_RELEASE_URL) }
+                    )
                     val activeState = activeProducerState
                     val statusText: String? = when {
                         !processingEnabled || plugins.isEmpty() || activeState == null -> null
