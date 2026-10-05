@@ -41,10 +41,44 @@ val scriptConvertSdkDir: String = run {
     providers.environmentVariable("ANDROID_HOME").orElse(fromLocal ?: "").get()
 }
 
-val scriptConvertBuildToolsVersion = "36.0.0"
-val scriptConvertCompileSdk = 37
-val scriptConvertD8 = File(scriptConvertSdkDir, "build-tools/$scriptConvertBuildToolsVersion/d8")
-val scriptConvertAndroidJar = File(scriptConvertSdkDir, "platforms/android-$scriptConvertCompileSdk/android.jar")
+// d8 / android.jar 定位：优先用首选版本，缺失时回落到 SDK 里版本号最大的已安装版本——
+// CI 镜像预装的 build-tools / platform 版本变化不该让打包任务失效。
+val scriptConvertPreferredBuildTools = "36.0.0"
+val scriptConvertPreferredCompileSdk = 37
+
+/** 只取名字里的数字段：`36.0.0` → [36,0,0]，`android-37` → [37]。 */
+fun versionSegments(name: String): List<Int> =
+    name.split(Regex("[^0-9]+")).mapNotNull { it.toIntOrNull() }
+
+/** 版本号比较：逐段比数值（"36.0.0" > "35.0.1"，"android-37" > "android-36"）。 */
+fun compareVersionNames(a: String, b: String): Int {
+    val left = versionSegments(a)
+    val right = versionSegments(b)
+    for (i in 0 until maxOf(left.size, right.size)) {
+        val diff = (left.getOrNull(i) ?: 0) - (right.getOrNull(i) ?: 0)
+        if (diff != 0) return diff
+    }
+    return 0
+}
+
+fun newestVersionDir(parent: File, usable: (File) -> Boolean): File? =
+    parent.listFiles()
+        ?.filter { it.isDirectory && usable(it) }
+        ?.maxWithOrNull { a, b -> compareVersionNames(a.name, b.name) }
+
+fun d8In(dir: File): File? =
+    File(dir, "d8").takeIf { it.canExecute() } ?: File(dir, "d8.bat").takeIf { it.isFile }
+
+val scriptConvertD8: File? = File(scriptConvertSdkDir, "build-tools").let { parent ->
+    d8In(File(parent, scriptConvertPreferredBuildTools))
+        ?: newestVersionDir(parent) { dir -> d8In(dir) != null }?.let { dir -> d8In(dir) }
+}
+
+val scriptConvertAndroidJar: File? = File(scriptConvertSdkDir, "platforms").let { parent ->
+    File(parent, "android-$scriptConvertPreferredCompileSdk/android.jar").takeIf { it.isFile }
+        ?: newestVersionDir(parent) { dir -> File(dir, "android.jar").isFile }
+            ?.let { File(it, "android.jar") }
+}
 
 val scriptConvertJar = tasks.named<Jar>("jar")
 val scriptConvertDexOutput = layout.buildDirectory.dir("pluginDex")
@@ -54,18 +88,16 @@ val scriptConvertDex = tasks.register<Exec>("dexPlugin") {
     description = "Converts the script convert plugin jar to DEX via Android build-tools d8."
     dependsOn(scriptConvertJar)
     inputs.files(scriptConvertJar.map { it.archiveFile })
-    inputs.property("d8", scriptConvertD8.absolutePath)
+    inputs.property("d8", scriptConvertD8?.absolutePath ?: "unresolved")
     outputs.dir(scriptConvertDexOutput)
     doFirst {
-        if (!scriptConvertD8.canExecute()) {
-            throw GradleException(
-                "d8 not found at ${scriptConvertD8.absolutePath}. " +
-                    "Set sdk.dir in local.properties or ANDROID_HOME."
-            )
-        }
-        if (!scriptConvertAndroidJar.isFile) {
-            throw GradleException("android.jar not found at ${scriptConvertAndroidJar.absolutePath}.")
-        }
+        val d8 = scriptConvertD8 ?: throw GradleException(
+            "d8 not found under ${scriptConvertSdkDir}/build-tools. " +
+                "Set sdk.dir in local.properties or ANDROID_HOME."
+        )
+        val androidJar = scriptConvertAndroidJar ?: throw GradleException(
+            "android.jar not found under ${scriptConvertSdkDir}/platforms."
+        )
         // kotlin-stdlib 由宿主 App 进程提供：作为 classpath 参与解析，不进 dex。
         val stdlibJars = configurations.runtimeClasspath.get()
             .filter { it.name.startsWith("kotlin-stdlib") }
@@ -74,12 +106,12 @@ val scriptConvertDex = tasks.register<Exec>("dexPlugin") {
         outputDir.mkdirs()
         commandLine(
             buildList {
-                add(scriptConvertD8.absolutePath)
+                add(d8.absolutePath)
                 add("--release")
                 add("--min-api")
                 add("33")
                 add("--lib")
-                add(scriptConvertAndroidJar.absolutePath)
+                add(androidJar.absolutePath)
                 stdlibJars.forEach { jar ->
                     add("--classpath")
                     add(jar.absolutePath)
