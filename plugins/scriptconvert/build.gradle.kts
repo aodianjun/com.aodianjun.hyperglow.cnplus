@@ -46,11 +46,25 @@ val scriptConvertSdkDir: String = run {
 val scriptConvertPreferredBuildTools = "36.0.0"
 val scriptConvertPreferredCompileSdk = 37
 
+/** 只取名字里的数字段：`36.0.0` → [36,0,0]，`android-37` → [37]。 */
+fun versionSegments(name: String): List<Int> =
+    name.split(Regex("[^0-9]+")).mapNotNull { it.toIntOrNull() }
+
+/** 版本号比较：逐段比数值（"36.0.0" > "35.0.1"，"android-37" > "android-36"）。 */
+fun compareVersionNames(a: String, b: String): Int {
+    val left = versionSegments(a)
+    val right = versionSegments(b)
+    for (i in 0 until maxOf(left.size, right.size)) {
+        val diff = (left.getOrNull(i) ?: 0) - (right.getOrNull(i) ?: 0)
+        if (diff != 0) return diff
+    }
+    return 0
+}
+
 fun newestVersionDir(parent: File, usable: (File) -> Boolean): File? =
     parent.listFiles()
         ?.filter { it.isDirectory && usable(it) }
-        ?.sortedByDescending { dir -> dir.name.split('.').mapNotNull { part -> part.toIntOrNull() } }
-        ?.firstOrNull()
+        ?.maxWithOrNull { a, b -> compareVersionNames(a.name, b.name) }
 
 fun d8In(dir: File): File? =
     File(dir, "d8").takeIf { it.canExecute() } ?: File(dir, "d8.bat").takeIf { it.isFile }
