@@ -227,7 +227,7 @@ jobs:
           插件版本：lyricfetch ${LF_VER} / scriptconvert ${SC_VER} / amll-ttml ${AT_VER}
           构建自 commit \`${GITHUB_SHA}\`，源码见 plugins/lyricfetch、plugins/scriptconvert 与 plugins/amll-ttml。
 
-          ⚠️ 插件不在主程序 APK 内，与主程序版本无关；两个插件默认关闭。"
+          ⚠️ 插件不在主程序 APK 内，与主程序版本无关；插件默认关闭。"
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes || true
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
