@@ -205,7 +205,8 @@ jobs:
           set -euo pipefail
           # 稳定的 plugins release:每次 main 构建删除旧 release 再重建(与 debug 发布同思路)。
           TAG="plugins"
-          VERSIONS=$(grep -hoP '"version":\s*"\K[^"]+' plugins/*/src/main/plugin/manifest.json | tr '\n' ' ' || true)
+          LF_VER=$(grep -oP '"version":\s*"\K[^"]+' plugins/lyricfetch/src/main/plugin/manifest.json || echo "?")
+          SC_VER=$(grep -oP '"version":\s*"\K[^"]+' plugins/scriptconvert/src/main/plugin/manifest.json || echo "?")
           NOTES="> ⚠️ **插件随 main 滚动更新** — 每次构建都会删除重建本 release，资产始终对应最新提交。
 
           HyperLyric / HyperGlow 兼容插件（安装：HyperGlow 设置 → 插件管理 → 从本地 ZIP 安装，装好后在插件管理页开启）：
@@ -213,7 +214,7 @@ jobs:
           - **hyperglow-lyricfetch-plugin.zip** — 在线歌词增强：媒体信息 → 在线取词（网易云逐字 / QQ / LRCLIB）→ 多格式解析 → 替换歌词；含宿主持久缓存管理（缓存页可列出/删除条目）。
           - **hyperglow-scriptconvert-plugin.zip** — 歌词字形转换：简 ⇄ 繁（OpenCC 词典）。
 
-          插件 manifest 版本：${VERSIONS:-未知}
+          插件版本：lyricfetch ${LF_VER} / scriptconvert ${SC_VER}
           构建自 commit \`${GITHUB_SHA}\`，源码见 plugins/lyricfetch 与 plugins/scriptconvert。
 
           ⚠️ 插件不在主程序 APK 内，与主程序版本无关；两个插件默认关闭。"
