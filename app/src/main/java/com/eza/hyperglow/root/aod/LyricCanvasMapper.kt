@@ -67,6 +67,8 @@ internal fun LyricSnapshot.toAodCanvasContent(
     lineEndMs = lineEndMs,
     positionMs = positionMs,
     sampledAtElapsedMs = sampledAtElapsedMs,
+    // 快照的投递时间基准随内容进画布:换行过渡按它判「过期旧账」并跳过三段动画。
+    updatedAtElapsedMs = updatedAtElapsedMs,
     speed = speed,
     // 逐字卡拉OK按词绘制:与主行文本同源剥离行首标记,否则标记会残留/错位。
     words = (if (duetMarkers) stripSurfaceDuetMarkerWords(words) else words).map {

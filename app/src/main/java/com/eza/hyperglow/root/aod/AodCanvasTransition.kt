@@ -768,6 +768,26 @@ internal fun shouldStartLineTransition(
     resuming: Boolean = false
 ): Boolean = lineChanged && transitionMode != "None" && !handoffActive && !resuming
 
+/**
+ * 过渡不追旧账的跳过判据(纯函数,接入 [AodLyricCanvasView.setContent]):满足任一条即
+ * 跳过退场/晋级/入场三段、静态落到目标几何 ——
+ *
+ * - 快照年龄超过本次过渡总时长([transitionTotalMs] = 退场 + 晋级位移 + 入场):内容与
+ *   位置都来自过期批次,再补一段动画只会把旧目标飞着改一遍;doze 批投递实测 19ms 内
+ *   12 条、位置跨度约 18s,正是「换行后跳两次」的旧账来源;
+ * - 同一帧内到达 ≥2 条换行快照([lineChangesInFrame]):多条会把过渡在 1–2 帧内反复重置,
+ *   直接落最后一条的静态几何。
+ *
+ * [snapshotAgeMs] 为 null 表示年龄未知(预览/直接构造的画布内容):只按同帧条数判定。
+ * 边界:年龄恰好等于总时长不跳过(严格「超过」才跳过);单条且年轻照常播过渡。
+ */
+internal fun shouldSkipLineTransition(
+    snapshotAgeMs: Long?,
+    transitionTotalMs: Long,
+    lineChangesInFrame: Int
+): Boolean = lineChangesInFrame >= 2 ||
+    (snapshotAgeMs != null && snapshotAgeMs > transitionTotalMs)
+
 internal fun isSongChangeMetadataPlaceholder(
     original: String,
     metadata: String,

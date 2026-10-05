@@ -17,6 +17,15 @@ customization, and fallback.
 - Stale expiry, Binder death, caller failure, or invalid payload hides every subscriber. A hidden
   state explicitly marked as a real Spotify pause may retain the last valid lyric snapshot under the
   shared bounded policy below. Terminal hidden state clears it.
+- Stale snapshots are dropped at the delivery boundary, before any subscriber sees them. The
+  producer publishes a full snapshot or a keepalive on a 1.5 s cadence, while MIUI doze may freeze
+  SystemUI for ~20 s at a time, so one unfreeze can deliver the whole backlog (measured: 12
+  snapshots inside 19 ms with karaoke positions spanning ~18 s of playback). A visible snapshot
+  older than 1.5 s is discarded and only the newest state in the batch is applied. Track-generation
+  changes, hidden and pause-retention edges, and the first snapshot after bind are always
+  delivered; a dropped snapshot still advances the revision watermark and applies its
+  keepalive/wake scalars when they differ from the held state, so the keepalive chain is never
+  broken.
 - State/configuration carry the app user ID; a SystemUI user switch clears/rebinds and rejects the
   previous user's cached payload.
 - Transliteration, translation, timed reading fragments, and ruby come from the current matching
@@ -568,7 +577,11 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   transition at its current progress; a position jump (seek/drag) clamps progress and ends the
   transition immediately instead of chasing the new position, while a position-feed stall/resume
   drift within the 300 ms tolerance never rewinds the animation (a monotonic position high-water
-  keeps progress from regressing).
+  keeps progress from regressing). The transition never chases old backlog: when the incoming
+  snapshot is older than the whole transition timeline (exit + promotion + enter), or a second
+  line-changing snapshot arrives within the same frame, the three phases are skipped and the
+  canvas lands statically on the target geometry — the rule covers doze batches, where several
+  snapshots of different lines and positions arrive inside one frame.
   Animation speed only scales the per-mode durations. Unknown profile values normalize to `Auto`;
   legacy lowercase source aliases `continuity`, `crossfade`, and `none` map to `Fade up`,
   `Crossfade`, and `None`, and an unknown wire value is fail-safe `Fade up` — never a novel
@@ -710,6 +723,7 @@ above and must fail back to Xiaomi's original target.
 - 锁屏与 AOD 基于相同的内容、行、时间锚点与曲目 generation 渲染各自的视图。
 - 新附加的 surface 会立即收到缓存的最新 snapshot。
 - 过期、Binder 死亡、调用方失败或无效 payload 会隐藏所有订阅方。被显式标记为真实 Spotify 暂停的隐藏状态，可以按照下文的共享有界策略保留最后的有效歌词 snapshot。终态隐藏状态会将其清除。
+- 过期 snapshot 在投递边界、订阅方看到之前就被丢弃。producer 按 1.5 秒节奏发布全量快照或心跳，而 MIUI doze 可能把 SystemUI 一次冻结约 20 秒，因此单次解冻会整批投递积压（真机实测：19ms 内 12 条，卡拉OK 位置跨度约 18 秒播放内容）。可见快照年龄超过 1.5 秒即丢弃，一批里只有最新状态会落地。换歌/换源（track generation 变化）、隐藏与暂停驻留边沿、以及绑定后的首条快照恒投递；被丢快照仍推进 revision 水位，并在其 keepalive/wake 标量与持有态不同时按最新值更新，keepalive 链绝不因此断开。
 - 状态/配置携带应用用户 ID；SystemUI 用户切换时会清除/重新绑定，并拒绝前一用户的缓存 payload。
 - 音译、翻译、带时值的朗读片段与注音（ruby）来自当前匹配的生产者文档（一旦到达）。在该文档存在之前（未带时值的曲目，或文档仍在传输中），标量状态可以保持原歌词行可见，并可以提供其辅助行——这是相对上游 v0.3.97 的一个有意的 CN+ 分歧，上游会完全丢弃标量辅助行。
 - 翻译在每个生产者/插件边界上都是冗余对（文本 + 词表，二者皆可单独出现）：只带词表时按词表拼出兜底译文（非空文本恒优先，词表不覆盖已有文本），词表原样穿过插件桥（`PluginLyricLine.translationWords`）；回向对只声明词表的插件结果同规则回填。词级翻译不得在任何边界被丢弃。
@@ -820,7 +834,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 锁屏显示动画将完整卡片容器作为一个整体。文本、自适应背景、描边与媒体进度共享同一 alpha 与向上平移时间线。
 
 ## 声明式自定义
-- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、历史档 `Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom`、HyperLyric 换行预设 25 档（沿用原 id：`fade_out_fade_in`、`fade_out_up_fade_in_up`、`fade_out_down_fade_in_down`、`fade_out_left_fade_in_right`、`fade_out_left_fade_in_up`、`fade_out_left_zoom_in`、`fade_out_left_landing`、`fade_out_right_fade_in_left`、`fade_out_right_fade_in_up`、`fade_out_right_zoom_in`、`fade_out_right_landing`、`fade_out_left_zoom_in_right`、`fade_out_right_zoom_in_left`、`slide_out_left_slide_in_right`、`slide_out_left_fade_in_up`、`slide_out_left_zoom_in`、`slide_out_left_landing`、`slide_out_right_slide_in_left`、`slide_out_right_fade_in_up`、`slide_out_right_zoom_in`、`slide_out_right_landing`、`flip_out_x_flip_in_x`、`flip_out_y_flip_in_y`、`rotate_out_rotate_in`、`zoom_out_zoom_in`）或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认。换行按「内容是否延续」逐行分流、严格序列「退场 → 晋级位移 → 入场」，任意时刻至多一段在播，同一句歌词只在一个层出现——旧行未走完新行已进场、同一句歌词在两层各画一次的「歌词重叠」由结构消除（历史档此前退场/入场共用 elapsed 锚点叠加进行，即该重叠来源）：1) 离场行组（旧行组 = 主歌词 + 辅助文字音标/翻译）播所选档的退场半段（如「向上渐隐＆向上渐现」的「向上渐隐」），历史档退场 130 毫秒、预设档各档 200/250/300 毫秒，运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放；2) 内容延续的行（旧「下一行」即新「主行」，仅常规前进一行时存在）不播退场/入场半段，只做槽位平移：自旧「下一行」槽位平移到当前行槽位，按两槽字号比等比放大、自旧行亮度升至全亮，基准 220 毫秒 × 速率倍率、FastOutSlowIn 缓动、缩放枢轴取行块中心；第二行歌词的辅助行（音标/翻译）与被晋级的「下一行」同属内容延续组——不随主行组退场，随晋级平移到新主行的辅助槽位（不缩放、恒定辅助亮度），第二行辅助文字的换行动画跟随第二行歌词；3) 新到行（新下一行及其辅助行；晋级时新主行及其辅助行由晋级层呈现，不重复入场）播所选档的入场半段（如「向上渐现」），历史档入场 210 毫秒、预设档各档 300–700 毫秒；跳行/拖动/跨曲/无「下一行」行时无晋级段，旧行组整体退场、新行组整体进场。词表每档的「X＆Y」两半段分别作用于离场行与进场行；歌曲信息行（固定行）不参与，歌曲信息仅在其内容变化时线性淡入淡出（含切换形变）。退场/入场进度先经各档缓动（历史档退场 easeIn、入场 easeOut）再查帧配方。HyperLyric 预设档的退场/入场时长与帧配方复刻参考实现（HyperLyric `YoYoPresets` 与 daimajia AndroidAnimations 2.4）；运动逐项对齐参考实现——Fade 族按行块宽（高）的 1/4 淡出漂移/淡入、Slide 族整宽（高）滑出滑入、翻转/旋转绕内容中心、缩放/着陆关键帧；行块宽（高）取该层行块自身边界（离场层 = 旧行组主歌词 + 辅助文字行盒的包围盒、入场层 = 新到行行盒的包围盒，均不含歌曲信息行），与参考实现把位移施加在歌词行视图上（`target.getHeight()/4`）同义，不得改用画布内容裁剪框；缓动逐项对齐（退场 `FastOutLinearIn`；入场 `OvershootInterpolator` 1.0–2.0、`QuintEaseOut` 或 `FastOutSlowIn`）；位移可短暂越过落位点、alpha 钳制 1。`Fade left`、`Landing`、`Slide swap` 为 `fade_out_left_fade_in_right`、`fade_out_left_landing`、`slide_out_left_slide_in_right` 的兼容短名，归一到对应预设 id。过渡进度由歌词位置推导而非挂钟计时：过渡开始时记下当时的歌词位置（画布同源 `projectedPosition()`），各段按位置推进量在自身时长上换算——内容（位置/行窗/`nextLine`）晚到不再「飞着改目标」；暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动）时立即结束过渡、不反向「追」新位置，位置源 stall/resume 的采样回漂（容差 300ms）不算跳变、不倒带动画（位置高水位保证进度只进不退）。动画速率只缩放各档时长。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
+- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、历史档 `Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom`、HyperLyric 换行预设 25 档（沿用原 id：`fade_out_fade_in`、`fade_out_up_fade_in_up`、`fade_out_down_fade_in_down`、`fade_out_left_fade_in_right`、`fade_out_left_fade_in_up`、`fade_out_left_zoom_in`、`fade_out_left_landing`、`fade_out_right_fade_in_left`、`fade_out_right_fade_in_up`、`fade_out_right_zoom_in`、`fade_out_right_landing`、`fade_out_left_zoom_in_right`、`fade_out_right_zoom_in_left`、`slide_out_left_slide_in_right`、`slide_out_left_fade_in_up`、`slide_out_left_zoom_in`、`slide_out_left_landing`、`slide_out_right_slide_in_left`、`slide_out_right_fade_in_up`、`slide_out_right_zoom_in`、`slide_out_right_landing`、`flip_out_x_flip_in_x`、`flip_out_y_flip_in_y`、`rotate_out_rotate_in`、`zoom_out_zoom_in`）或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认。换行按「内容是否延续」逐行分流、严格序列「退场 → 晋级位移 → 入场」，任意时刻至多一段在播，同一句歌词只在一个层出现——旧行未走完新行已进场、同一句歌词在两层各画一次的「歌词重叠」由结构消除（历史档此前退场/入场共用 elapsed 锚点叠加进行，即该重叠来源）：1) 离场行组（旧行组 = 主歌词 + 辅助文字音标/翻译）播所选档的退场半段（如「向上渐隐＆向上渐现」的「向上渐隐」），历史档退场 130 毫秒、预设档各档 200/250/300 毫秒，运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放；2) 内容延续的行（旧「下一行」即新「主行」，仅常规前进一行时存在）不播退场/入场半段，只做槽位平移：自旧「下一行」槽位平移到当前行槽位，按两槽字号比等比放大、自旧行亮度升至全亮，基准 220 毫秒 × 速率倍率、FastOutSlowIn 缓动、缩放枢轴取行块中心；第二行歌词的辅助行（音标/翻译）与被晋级的「下一行」同属内容延续组——不随主行组退场，随晋级平移到新主行的辅助槽位（不缩放、恒定辅助亮度），第二行辅助文字的换行动画跟随第二行歌词；3) 新到行（新下一行及其辅助行；晋级时新主行及其辅助行由晋级层呈现，不重复入场）播所选档的入场半段（如「向上渐现」），历史档入场 210 毫秒、预设档各档 300–700 毫秒；跳行/拖动/跨曲/无「下一行」行时无晋级段，旧行组整体退场、新行组整体进场。词表每档的「X＆Y」两半段分别作用于离场行与进场行；歌曲信息行（固定行）不参与，歌曲信息仅在其内容变化时线性淡入淡出（含切换形变）。退场/入场进度先经各档缓动（历史档退场 easeIn、入场 easeOut）再查帧配方。HyperLyric 预设档的退场/入场时长与帧配方复刻参考实现（HyperLyric `YoYoPresets` 与 daimajia AndroidAnimations 2.4）；运动逐项对齐参考实现——Fade 族按行块宽（高）的 1/4 淡出漂移/淡入、Slide 族整宽（高）滑出滑入、翻转/旋转绕内容中心、缩放/着陆关键帧；行块宽（高）取该层行块自身边界（离场层 = 旧行组主歌词 + 辅助文字行盒的包围盒、入场层 = 新到行行盒的包围盒，均不含歌曲信息行），与参考实现把位移施加在歌词行视图上（`target.getHeight()/4`）同义，不得改用画布内容裁剪框；缓动逐项对齐（退场 `FastOutLinearIn`；入场 `OvershootInterpolator` 1.0–2.0、`QuintEaseOut` 或 `FastOutSlowIn`）；位移可短暂越过落位点、alpha 钳制 1。`Fade left`、`Landing`、`Slide swap` 为 `fade_out_left_fade_in_right`、`fade_out_left_landing`、`slide_out_left_slide_in_right` 的兼容短名，归一到对应预设 id。过渡进度由歌词位置推导而非挂钟计时：过渡开始时记下当时的歌词位置（画布同源 `projectedPosition()`），各段按位置推进量在自身时长上换算——内容（位置/行窗/`nextLine`）晚到不再「飞着改目标」；暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动）时立即结束过渡、不反向「追」新位置，位置源 stall/resume 的采样回漂（容差 300ms）不算跳变、不倒带动画（位置高水位保证进度只进不退）。过渡不追旧账：来料快照年龄超过整条过渡时间线（退场 + 晋级位移 + 入场），或同一帧内到达 ≥2 条换行快照时，跳过三段动画、静态落到目标几何——doze 批投递下多条不同行、不同位置的快照挤在同一帧到达，正是该判据的现场来源。动画速率只缩放各档时长。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
 - 换行动画速率可在每个 surface profile 中从固定词表选择：`Slow`、`Normal` 或 `Fast`。速率只等比缩放换行动画各段时长（退场/入场：历史档基准 130/210 毫秒、预设档各档 200/250/300 与 300–700 毫秒；晋级位移段基准 220 毫秒；`Slow` 为 1.5 倍时长，`Fast` 为 0.6 倍时长，`Normal` 保持基准），不改变帧配方、缓动曲线与运动参数；`None` 换行动画下无动画，速率无从生效。速率是纯视觉偏好，没有「跟随源」语义。profile 未知值规范化为 `Normal`。
 
 - 文档是带版本的数据，而不是插件。

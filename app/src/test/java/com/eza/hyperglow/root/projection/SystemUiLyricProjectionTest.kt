@@ -204,6 +204,145 @@ class SystemUiLyricProjectionTest {
     }
 
     @Test
+    fun freshSnapshotIsAcceptedAndAgeBoundaryFollowsInclusiveRule() {
+        val harness = Harness()
+        val subscriber = RecordingSubscriber(LyricSurfaceKind.AOD)
+        harness.projection.attach(subscriber, null)
+        harness.nowElapsedMs = 10_000L
+
+        // 年龄 0:新鲜,接受。
+        assertTrue(harness.projection.accept(LyricProjectionMessage.Snapshot(snapshot(1, 10_000))))
+        // 恰好等于阈值:按 <= 口径接受(严格「超过」才丢)。
+        assertTrue(
+            harness.projection.accept(
+                LyricProjectionMessage.Snapshot(
+                    snapshot(2, 10_000 - STALE_SNAPSHOT_DROP_AGE_MS)
+                )
+            )
+        )
+        // 超过阈值 1ms:丢弃。
+        assertFalse(
+            harness.projection.accept(
+                LyricProjectionMessage.Snapshot(
+                    snapshot(3, 10_000 - STALE_SNAPSHOT_DROP_AGE_MS - 1L)
+                )
+            )
+        )
+
+        assertEquals(listOf(1L, 2L), subscriber.snapshots.map { it.revision })
+        assertEquals(2L, harness.projection.cachedSnapshot()?.revision)
+        assertFalse(
+            shouldDropStaleSnapshot(snapshot(4, 10_000 - STALE_SNAPSHOT_DROP_AGE_MS), 1L, 10_000L)
+        )
+        assertTrue(
+            shouldDropStaleSnapshot(snapshot(5, 10_000 - STALE_SNAPSHOT_DROP_AGE_MS - 1L), 1L, 10_000L)
+        )
+    }
+
+    @Test
+    fun staleSnapshotWithNewTrackGenerationIsAlwaysAccepted() {
+        val harness = Harness()
+        val subscriber = RecordingSubscriber(LyricSurfaceKind.AOD)
+        harness.projection.attach(subscriber, null)
+        harness.nowElapsedMs = 100_000L
+        assertTrue(harness.projection.accept(LyricProjectionMessage.Snapshot(snapshot(1, 99_000))))
+
+        // 换歌/换源:无论年龄恒接受(新歌内容不是旧账)。
+        assertTrue(
+            harness.projection.accept(
+                LyricProjectionMessage.Snapshot(snapshot(2, 0).copy(trackGeneration = 2L))
+            )
+        )
+
+        assertEquals(listOf(1L, 2L), subscriber.snapshots.map { it.revision })
+        assertEquals(2L, harness.projection.cachedSnapshot()?.trackGeneration)
+        assertFalse(shouldDropStaleSnapshot(snapshot(3, 0).copy(trackGeneration = 2L), 1L, 100_000L))
+    }
+
+    @Test
+    fun staleHiddenAndPauseRetentionEdgesAreNeverDropped() {
+        val harness = Harness()
+        val subscriber = RecordingSubscriber(LyricSurfaceKind.AOD)
+        harness.projection.attach(subscriber, null)
+        harness.nowElapsedMs = 100_000L
+        assertTrue(harness.projection.accept(LyricProjectionMessage.Snapshot(snapshot(1, 99_000))))
+
+        // 过期终止隐藏边沿:可见性边沿的唯一来源,必须落(清场语义不因过期而丢)。
+        assertTrue(
+            harness.projection.accept(
+                LyricProjectionMessage.Snapshot(
+                    snapshot(2, 0).copy(
+                        visible = false,
+                        playbackActive = false,
+                        original = "",
+                        keepAlive = false
+                    )
+                )
+            )
+        )
+        // 过期暂停驻留边沿:驻留计时锚点同样不许丢。
+        assertTrue(
+            harness.projection.accept(
+                LyricProjectionMessage.Snapshot(
+                    snapshot(3, 0).copy(
+                        visible = false,
+                        playbackActive = false,
+                        pauseRetentionEligible = true,
+                        original = "",
+                        keepAlive = false
+                    )
+                )
+            )
+        )
+
+        assertEquals(listOf(1L, 2L, 3L), subscriber.snapshots.map { it.revision })
+        assertTrue(harness.projection.cachedSnapshot()?.pauseRetentionEligible == true)
+    }
+
+    @Test
+    fun droppedStaleSnapshotStillRefreshesKeepAliveLeaseAndChain() {
+        val harness = Harness()
+        val subscriber = RecordingSubscriber(LyricSurfaceKind.AOD)
+        harness.projection.attach(subscriber, null)
+        harness.nowElapsedMs = 100_000L
+        assertTrue(
+            harness.projection.accept(
+                LyricProjectionMessage.Snapshot(
+                    snapshot(1, 99_000).copy(keepAlive = false, wakeSignal = 5L)
+                )
+            )
+        )
+
+        // 过期快照携带持有态没有的租约标量:内容丢弃,但 keepAlive 等价路径只续期标量。
+        assertFalse(
+            harness.projection.accept(
+                LyricProjectionMessage.Snapshot(
+                    snapshot(2, 0).copy(
+                        keepAlive = true,
+                        wakeSignal = 9L,
+                        playbackActive = true
+                    )
+                )
+            )
+        )
+
+        assertEquals(1, subscriber.snapshots.size)
+        assertEquals(1, subscriber.keepAlives.size)
+        assertEquals(9L, subscriber.keepAlives.single().wakeSignal)
+        val cached = harness.projection.cachedSnapshot()!!
+        assertEquals(1L, cached.revision)
+        assertTrue(cached.keepAlive)
+        assertEquals(9L, cached.wakeSignal)
+        assertTrue(cached.playbackActive)
+        // revision 水位照常推进:随后同 revision 的心跳不再被拒,租约链不断。
+        assertTrue(
+            harness.projection.accept(
+                LyricProjectionMessage.KeepAlive(LyricKeepAliveSignal(2, 100_001, true, 9))
+            )
+        )
+    }
+
+    @Test
     fun multipleSubscribersShareOneClientAndReplayLatestSnapshot() {
         val harness = Harness()
         val aod = RecordingSubscriber(LyricSurfaceKind.AOD)
@@ -534,9 +673,10 @@ class SystemUiLyricProjectionTest {
         val diagnosticLoggingStates = ArrayList<Boolean>()
         val raiseToAodStates = ArrayList<Boolean>()
         val editorGestureSuppressionStates = ArrayList<Boolean>()
+        var nowElapsedMs = 0L
         val projection = SystemUiLyricProjection(
             expiryScheduler = scheduler,
-            elapsedRealtime = { 0L },
+            elapsedRealtime = { nowElapsedMs },
             processUserId = { 0 },
             setDiagnosticLogging = diagnosticLoggingStates::add,
             setRaiseToAod = raiseToAodStates::add,
