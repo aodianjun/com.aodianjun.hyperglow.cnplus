@@ -770,4 +770,191 @@ class AodCanvasTransitionTest {
         assertEquals(1f, done.enterProgress, 1e-6f)
         assertTrue(done.completed)
     }
+
+    // ------------------------------------------------------------------
+    // round 2:位移段按速度上限定时长(按真机 A/B 反馈修正——固定 220ms×速率下
+    // 216px 位移段单帧峰值 -76px ≈ 5100px/s,远超「单帧 ≤8px」判据)
+    // ------------------------------------------------------------------
+
+    /** 与实机同式的数值峰值斜率(采样步长 1e-3,与 [moveTransitionEase] 同一纯函数)。 */
+    private fun moveEasePeakSlope(): Float {
+        val step = 1e-3f
+        var maxSlope = 0f
+        var p = 0f
+        while (p < 1f) {
+            val slope = (moveTransitionEase(p + step) - moveTransitionEase(p)) / step
+            if (slope > maxSlope) maxSlope = slope
+            p += step
+        }
+        return maxSlope
+    }
+
+    @Test
+    fun moveEasePeakFactorMatchesMeasuredSlope() {
+        // 速度上限按缓动峰值瞬时速度计:常量必须覆盖真实曲线的峰值斜率(实测 ≈2.7346),
+        // 缓动被改动而常量未跟随时本用例失败——否则中段单帧位移会静默突破上限。
+        val measured = moveEasePeakSlope()
+        assertTrue("measured=$measured", measured in 2.60f..MOVE_EASE_PEAK_FACTOR)
+        assertTrue("measured=$measured", MOVE_EASE_PEAK_FACTOR - measured < 0.05f)
+    }
+
+    @Test
+    fun moveDistanceUsesLargestRowBaselineDelta() {
+        // 位移距离取主行对 + 辅助行对中基线差绝对值最大者;空/非有限值不参与。
+        assertEquals(220f, lineTransitionMoveDistancePx(listOf(100f to 320f)), 1e-4f)
+        assertEquals(
+            220f,
+            lineTransitionMoveDistancePx(listOf(100f to 320f, 200f to 260f)),
+            1e-4f
+        )
+        assertEquals(160f, lineTransitionMoveDistancePx(listOf(300f to 140f, 10f to 20f)), 1e-4f)
+        assertEquals(0f, lineTransitionMoveDistancePx(emptyList()), 1e-4f)
+        assertEquals(50f, lineTransitionMoveDistancePx(listOf(Float.NaN to 10f, 0f to 50f)), 1e-4f)
+        assertEquals(0f, lineTransitionMoveDistancePx(listOf(Float.POSITIVE_INFINITY to 10f)), 1e-4f)
+    }
+
+    @Test
+    fun moveDurationFollowsVelocityCapAtDefaultSpeed() {
+        // Normal 档:位移段时长 = max(距离 × 缓动峰值因子 / 上限, 220ms)——216px(A/B 实测
+        // 总位移)→ 1188ms,峰值瞬时速度压到 ≤500px/s(60fps 等效 ≤8.3px/帧)。
+        assertEquals(1188L, moveTransitionMs("Normal", 216f))
+        assertEquals(220L, moveTransitionMs("Normal", 40f))
+        assertEquals(220L, moveTransitionMs("Normal", 10f))
+        val ms = moveTransitionMs("Normal", 216f)
+        val peakVelocity = 216f * moveEasePeakSlope() / (ms / 1000f)
+        assertTrue("peak=$peakVelocity", peakVelocity <= MOVE_MAX_VELOCITY_PX_PER_S)
+        // 取不到距离(0/负/NaN/∞)回退历史 220ms × 速率倍率。
+        assertEquals(220L, moveTransitionMs("Normal", 0f))
+        assertEquals(220L, moveTransitionMs("Normal", -5f))
+        assertEquals(220L, moveTransitionMs("Normal", Float.NaN))
+        assertEquals(220L, moveTransitionMs("Normal", Float.POSITIVE_INFINITY))
+        assertEquals(132L, moveTransitionMs("Fast", 0f))
+        assertEquals(330L, moveTransitionMs("Slow", 0f))
+    }
+
+    @Test
+    fun moveDurationNeverBreaksVelocityCapAcrossSpeeds() {
+        // 速率倍率叠加后任何档位都不得突破速度上限:Fast 0.6× 被硬下限钳回(长距离时与
+        // Normal 齐平),Slow 1.5× 只更慢;峰值瞬时速度一律 ≤500px/s。
+        val peakSlope = moveEasePeakSlope()
+        for (speed in listOf("Slow", "Normal", "Fast", "Unknown")) {
+            for (distance in listOf(10f, 40f, 120f, 216f, 320f, 600f)) {
+                val ms = moveTransitionMs(speed, distance)
+                val peakVelocity = distance * peakSlope / (ms / 1000f)
+                assertTrue(
+                    "$speed/$distance ms=$ms peak=$peakVelocity",
+                    peakVelocity <= MOVE_MAX_VELOCITY_PX_PER_S + 0.5f
+                )
+            }
+        }
+        for (distance in listOf(10f, 120f, 216f, 600f)) {
+            assertTrue(
+                "Fast=$distance",
+                moveTransitionMs("Fast", distance) <= moveTransitionMs("Normal", distance)
+            )
+            assertTrue(
+                "Slow=$distance",
+                moveTransitionMs("Slow", distance) >= moveTransitionMs("Normal", distance)
+            )
+        }
+        // 短距离(上限未命中)仍保留倍率语义:Fast 更快、Slow 更慢。
+        assertEquals(132L, moveTransitionMs("Fast", 10f))
+        assertEquals(220L, moveTransitionMs("Normal", 10f))
+        assertEquals(330L, moveTransitionMs("Slow", 10f))
+    }
+
+    @Test
+    fun promotionTimelineCarriesVelocityCappedMove() {
+        // 晋级时间线的位移段吃速度上限;退场/入场配方不变;总长 = 三段之和。
+        val timeline = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true, 216f)
+        assertEquals(300L, timeline.exitMs)
+        assertEquals(1188L, timeline.moveMs)
+        assertEquals(450L, timeline.enterMs)
+        assertEquals(1938L, timeline.totalMs)
+        assertEquals(moveTransitionMs("Normal", 216f), timeline.moveMs)
+        // 无位移段时不引入时长(非晋级照旧)。
+        val plain = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", false, 216f)
+        assertEquals(0L, plain.moveMs)
+        assertEquals(750L, plain.totalMs)
+    }
+
+    @Test
+    fun velocityCappedPromotionKeepsEveryFrameWithinTenPxAtSixtyFps() {
+        // 验收口径(真机 A/B 复验将按此量):位移段任意单帧位移 ≤10px(60fps 等效),
+        // 且单帧最大值 ≤ 相邻帧均值的 1.6 倍。按新时长逐帧模拟 216px(A/B 实测总位移)
+        // 的晋级位移,钉死两条判据;同距离下的历史固定时长(Fast 0.6×220ms=132ms)峰值
+        // 远超 10px——本用例同时证明「按速度上限定时长」是必要修复。
+        val distance = 216f
+        val frameMs = 1000f / 60f
+        fun frameSteps(timeline: LineTransitionTimeline): List<Float> {
+            val steps = ArrayList<Float>()
+            var previousEased = 0f
+            var elapsed = timeline.moveStartMs.toFloat()
+            val moveEnd = (timeline.moveStartMs + timeline.moveMs).toFloat()
+            while (elapsed < moveEnd) {
+                elapsed += frameMs
+                val progress = lineTransitionMoveProgress(elapsed.toLong(), timeline)
+                val eased = moveTransitionEase(progress)
+                steps += distance * (eased - previousEased)
+                previousEased = eased
+            }
+            return steps
+        }
+        val steps = frameSteps(lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true, distance))
+        val maxStep = steps.maxOrNull()!!
+        assertTrue("maxStep=$maxStep", maxStep <= 10f)
+        val peakIndex = steps.indexOfFirst { it == maxStep }
+        val neighbourMean = (
+            steps[(peakIndex - 1).coerceAtLeast(0)] +
+                steps[(peakIndex + 1).coerceAtMost(steps.size - 1)]
+            ) / 2f
+        assertTrue("maxStep=$maxStep neighbour=$neighbourMean", maxStep <= neighbourMean * 1.6f)
+        assertEquals(distance, steps.sum(), 1.5f)
+        // 历史固定时长(Fast 0.6×220ms=132ms)同距离峰值远超判据——真机 -76px 尖峰来源。
+        val legacySteps = frameSteps(LineTransitionTimeline(exitMs = 0L, moveMs = 132L, enterMs = 0L))
+        assertTrue("legacyMax=${legacySteps.maxOrNull()!!}", legacySteps.maxOrNull()!! > 10f)
+    }
+
+    @Test
+    fun compressedReplayAlsoRespectsMoveVelocityCap() {
+        // 旧账压缩补播:退场/入场维持 ~140ms 短时长(每段 ≥40ms),位移段不再压到 40ms,
+        // 保留速度上限时长(旧账「晚一点、慢一点」补完,不能一帧暴跳);挂钟逐帧模拟
+        // 60fps 下位移段单帧 ≤10px。
+        val distance = 216f
+        val compressed = compressedLineTransitionTimeline(
+            "fade_out_up_fade_in_up",
+            "Normal",
+            true,
+            distance
+        )
+        assertEquals(moveTransitionMs("Normal", distance), compressed.moveMs)
+        assertTrue("exit=${compressed.exitMs}", compressed.exitMs >= COMPRESSED_TRANSITION_MIN_SEGMENT_MS)
+        assertTrue("enter=${compressed.enterMs}", compressed.enterMs >= COMPRESSED_TRANSITION_MIN_SEGMENT_MS)
+        assertEquals(
+            compressed.exitMs + compressed.moveMs + compressed.enterMs,
+            compressed.totalMs
+        )
+        // 退场/入场合计仍压在 ~140ms 预算内。
+        assertTrue(
+            "fixed=${compressed.exitMs + compressed.enterMs}",
+            compressed.exitMs + compressed.enterMs <= COMPRESSED_TRANSITION_TOTAL_MS + 80L
+        )
+        val frameMs = 1000f / 60f
+        var previousEased = 0f
+        var maxStep = 0f
+        var elapsed = 0f
+        while (elapsed < compressed.totalMs) {
+            elapsed += frameMs
+            val clock = lineTransitionClockAtElapsed(elapsed.toLong(), compressed)
+            val eased = moveTransitionEase(clock.moveProgress)
+            val step = distance * (eased - previousEased)
+            if (step > maxStep) maxStep = step
+            previousEased = eased
+        }
+        assertTrue("maxStep=$maxStep", maxStep <= 10f)
+        assertTrue(lineTransitionClockAtElapsed(compressed.totalMs, compressed).completed)
+        // 距离取不到(0)时维持历史行为:三段整体压缩到 ~140ms。
+        val legacy = compressedLineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
+        assertTrue("legacyTotal=${legacy.totalMs}", legacy.totalMs in 120L..160L)
+    }
 }

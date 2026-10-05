@@ -102,6 +102,12 @@ internal class AodLyricCanvasView(
      */
     private var lineChangesInFrame = 0
     private var lastLineChangeAtElapsedMs = 0L
+    /**
+     * 待落定过渡:位移段时长要吃「起点布局 → 目标布局」的实际行位差(见
+     * [lineTransitionMoveDistancePx]),而目标布局在 [setContent] 末尾才重建。先捕获起点
+     * 快照/档位/起点位置,重建布局后按真实距离落定时间线(此间不绘制,时钟语义不变)。
+     */
+    private var pendingLineTransition: PendingLineTransition? = null
     // 对唱并发行(duetLine)加入淡入状态:内容键变化即重计时,淡入完成后归零(恒全亮)。
     private var duetLineKey: String? = null
     private var duetJoinStartedAt = 0L
@@ -405,50 +411,22 @@ internal class AodLyricCanvasView(
             // 晋级(内容延续,只位移),否则旧行组整体退场、新行组整体进场。
             val promoting = layout.rows.any { it.row.kind == RowKind.NEXT_LINE } &&
                 lineTransitionPromotes(content.nextLine, nextContent.original)
-            val timeline = lineTransitionTimeline(
-                nextContent.transitionMode,
-                nextContent.lineTransitionSpeed,
-                promoting
+            // 起点快照/起点位置在起点定死;位移段时长要吃「起点布局 → 目标布局」的实际行位差,
+            // 而目标布局在本方法末尾 rebuildLayout() 后才就绪——先挂起,重建布局后落定
+            // (见 resolvePendingLineTransition;此间不绘制,时钟语义不变)。
+            pendingLineTransition = PendingLineTransition(
+                snapshot = CanvasSnapshot(content, layout, currentRenderStyle),
+                promoting = promoting,
+                transitionMode = nextContent.transitionMode,
+                lineTransitionSpeed = nextContent.lineTransitionSpeed,
+                snapshotAgeMs = nextContent.updatedAtElapsedMs
+                    .takeIf { it > 0L }
+                    ?.let { (nowElapsedMs - it).coerceAtLeast(0L) },
+                startPositionMs = projectedPosition(),
+                startedAtElapsedMs = nowElapsedMs
             )
-            val snapshotAgeMs = nextContent.updatedAtElapsedMs
-                .takeIf { it > 0L }
-                ?.let { (nowElapsedMs - it).coerceAtLeast(0L) }
-            if (shouldSkipLineTransition(snapshotAgeMs, timeline.totalMs, lineChangesInFrame)) {
-                // 旧账压缩补播:过期快照/同帧多条不再一帧硬切到目标几何,改以压缩时长连续播完
-                // 同一三段序列(段顺序/缓动/帧配方不变,总长 ~140ms、每段 ≥40ms,见
-                // compressedLineTransitionTimeline)。起点几何取屏上现有旧快照(同帧多条时为
-                // 首条换行前的形态),目标几何仍在此定死;补播按挂钟计时——旧账的位置推进量
-                // 远超压缩时长,按位置驱动会瞬间推完(即要消除的一帧硬切)。
-                val replaySnapshot = exitSnapshot ?: CanvasSnapshot(content, layout, currentRenderStyle)
-                val replayPromoting =
-                    replaySnapshot.layout.rows.any { it.row.kind == RowKind.NEXT_LINE } &&
-                        lineTransitionPromotes(replaySnapshot.content.nextLine, nextContent.original)
-                exitSnapshot = replaySnapshot
-                transitionTimeline = compressedLineTransitionTimeline(
-                    nextContent.transitionMode,
-                    nextContent.lineTransitionSpeed,
-                    replayPromoting
-                )
-                transitionWallClockDriven = true
-                transitionStartedAtElapsedMs = 0L
-                transitionLastClockAtElapsedMs = nowElapsedMs
-                transitionStartPositionMs = 0L
-                // 原始位置高水位照常推进:补播期间 seek/拖动(倒退超容差)仍立即结束、静态落位。
-                transitionPositionState = TransitionPositionState(0L, projectedPosition())
-            } else {
-                exitSnapshot = CanvasSnapshot(content, layout, currentRenderStyle)
-                // 位置式过渡时钟:起点取过渡开始时的歌词位置(同源 projectedPosition()),
-                // 之后三段进度由位置推进量推导,不再挂钟计时(见 lineTransitionClockAtPosition);
-                // 采样间按实时速率限速(见 advanceTransitionPosition),批投递跳变不在一帧内推完。
-                transitionStartPositionMs = projectedPosition()
-                transitionPositionState =
-                    TransitionPositionState(transitionStartPositionMs, transitionStartPositionMs)
-                transitionWallClockDriven = false
-                transitionStartedAtElapsedMs = 0L
-                transitionLastClockAtElapsedMs = nowElapsedMs
-                transitionTimeline = timeline
-            }
         } else if (resuming || nextContent.transitionMode == "None") {
+            pendingLineTransition = null
             exitSnapshot = null
             transitionStartPositionMs = 0L
             transitionPositionState = TransitionPositionState(0L, 0L)
@@ -503,8 +481,103 @@ internal class AodLyricCanvasView(
         applyContentStyle(nextContent)
         currentRenderStyle = captureRenderStyle()
         rebuildLayout()
+        resolvePendingLineTransition()
         syncCadence()
         invalidate()
+    }
+
+    /**
+     * 目标布局就绪后落定过渡:位移距离取起点布局与目标布局的实际行位差
+     * ([lineTransitionMoveDistancePx],主行对 + 辅助行对),位移段时长按速度上限换算
+     * ([moveTransitionMs])——216px 级位移从 ~132ms 拉长到 ~1.2s,单帧峰值压回
+     * 500px/s(≈8.3px/60fps 帧),不再出现 -76px 级暴跳;距离取不到时回退历史固定时长。
+     * [shouldSkipLineTransition] 命中时,压缩补播的位移段同样按速度上限定时长
+     * (退场/入场维持短时长),不再压到 40ms 一帧跳完。
+     */
+    private fun resolvePendingLineTransition() {
+        val pending = pendingLineTransition ?: return
+        pendingLineTransition = null
+        val startDistance = if (pending.promoting) {
+            lineTransitionMoveDistancePx(lineTransitionMoveDistancePairs(pending.snapshot.layout, layout))
+        } else {
+            0f
+        }
+        val timeline = lineTransitionTimeline(
+            pending.transitionMode,
+            pending.lineTransitionSpeed,
+            pending.promoting,
+            startDistance
+        )
+        if (shouldSkipLineTransition(pending.snapshotAgeMs, timeline.totalMs, lineChangesInFrame)) {
+            // 旧账压缩补播:过期快照/同帧多条不再一帧硬切到目标几何,改以压缩时长连续播完
+            // 同一三段序列(段顺序/缓动/帧配方不变;退场/入场 ~140ms、每段 ≥40ms,位移段吃
+            // 速度上限,见 compressedLineTransitionTimeline)。起点几何取屏上现有旧快照
+            // (同帧多条时为首条换行前的形态),目标几何仍在此定死;补播按挂钟计时——旧账的
+            // 位置推进量远超补播时长,按位置驱动会瞬间推完(即要消除的一帧硬切)。
+            val replaySnapshot = exitSnapshot ?: pending.snapshot
+            val replayPromoting =
+                replaySnapshot.layout.rows.any { it.row.kind == RowKind.NEXT_LINE } &&
+                    lineTransitionPromotes(replaySnapshot.content.nextLine, content.original)
+            val replayDistance = if (replayPromoting) {
+                lineTransitionMoveDistancePx(
+                    lineTransitionMoveDistancePairs(replaySnapshot.layout, layout)
+                )
+            } else {
+                0f
+            }
+            exitSnapshot = replaySnapshot
+            transitionTimeline = compressedLineTransitionTimeline(
+                pending.transitionMode,
+                pending.lineTransitionSpeed,
+                replayPromoting,
+                replayDistance
+            )
+            transitionWallClockDriven = true
+            transitionStartedAtElapsedMs = 0L
+            transitionLastClockAtElapsedMs = pending.startedAtElapsedMs
+            transitionStartPositionMs = 0L
+            // 原始位置高水位照常推进:补播期间 seek/拖动(倒退超容差)仍立即结束、静态落位。
+            transitionPositionState = TransitionPositionState(0L, pending.startPositionMs)
+            return
+        }
+        exitSnapshot = pending.snapshot
+        // 位置式过渡时钟:起点取过渡开始时的歌词位置(同源 projectedPosition()),
+        // 之后三段进度由位置推进量推导,不再挂钟计时(见 lineTransitionClockAtPosition);
+        // 采样间按实时速率限速(见 advanceTransitionPosition),批投递跳变不在一帧内推完。
+        transitionStartPositionMs = pending.startPositionMs
+        transitionPositionState =
+            TransitionPositionState(pending.startPositionMs, pending.startPositionMs)
+        transitionWallClockDriven = false
+        transitionStartedAtElapsedMs = 0L
+        transitionLastClockAtElapsedMs = pending.startedAtElapsedMs
+        transitionTimeline = timeline
+    }
+
+    /**
+     * 晋级位移的基线对(起点布局 → 目标布局):主行对 = 旧「下一行」基线 → 新「主行」
+     * 基线;辅助行对 = 旧下一行之后的辅助行 zip 新主行之后的辅助行(与
+     * [drawPromotedAuxLayer] 同一配对),保证位移段内每一层都有真实距离参与速度上限。
+     */
+    private fun lineTransitionMoveDistancePairs(
+        startLayout: LayoutState,
+        targetLayout: LayoutState
+    ): List<Pair<Float, Float>> {
+        val pairs = ArrayList<Pair<Float, Float>>(4)
+        val fromNext = startLayout.rows.firstOrNull { it.row.kind == RowKind.NEXT_LINE }
+        val toOriginal = targetLayout.rows.firstOrNull { it.row.kind == RowKind.ORIGINAL }
+        if (fromNext != null && toOriginal != null) {
+            pairs += fromNext.baseline to toOriginal.baseline
+        }
+        val nextGroupStart = startLayout.rows.indexOfFirst { it.row.kind == RowKind.NEXT_LINE }
+        val originalIndex = targetLayout.rows.indexOfFirst { it.row.kind == RowKind.ORIGINAL }
+        if (nextGroupStart >= 0 && originalIndex >= 0) {
+            val fromAuxRows = startLayout.rows.drop(nextGroupStart + 1)
+            val toAuxRows = targetLayout.rows.drop(originalIndex + 1)
+            for ((fromRow, toRow) in fromAuxRows.zip(toAuxRows)) {
+                pairs += fromRow.baseline to toRow.baseline
+            }
+        }
+        return pairs
     }
 
     fun stop() {
@@ -3486,6 +3559,7 @@ internal class AodLyricCanvasView(
 
     /** 结束换行过渡:清空旧行快照与过渡时钟状态,静态绘制立即接管。 */
     private fun endLineTransition() {
+        pendingLineTransition = null
         transitionStartPositionMs = 0L
         transitionPositionState = TransitionPositionState(0L, 0L)
         transitionWallClockDriven = false
@@ -3667,6 +3741,19 @@ internal class AodLyricCanvasView(
         val content: AodCanvasContent,
         val layout: LayoutState,
         val renderStyle: RenderStyleSnapshot
+    )
+    /**
+     * 待落定过渡(见 [resolvePendingLineTransition]):起点快照/档位/起点位置在换行到达时
+     * 定死,位移段时长等目标布局重建后按实际行位差换算。
+     */
+    private data class PendingLineTransition(
+        val snapshot: CanvasSnapshot,
+        val promoting: Boolean,
+        val transitionMode: String,
+        val lineTransitionSpeed: String,
+        val snapshotAgeMs: Long?,
+        val startPositionMs: Long,
+        val startedAtElapsedMs: Long
     )
     private data class RenderStyleSnapshot(
         val metadataPaint: Paint,
