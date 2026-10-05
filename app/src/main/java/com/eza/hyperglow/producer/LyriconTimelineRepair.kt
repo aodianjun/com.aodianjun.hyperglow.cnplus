@@ -12,9 +12,10 @@ import io.github.proify.lyricon.lyric.model.RichLyricLine
  * 上屏;疑似逐字合成/强制对齐把词铺满间隙的产物(数据来自 lyricon 提供方,CN+ 侧兜底)。
  *
  * 修复策略(只动「明显损坏」的行,正常行零变化):
- * 1. 行窗远大于文本可唱估时([grossWindowMs])且词级跨距可信 → 行窗向词对齐
- *    (首词 begin/末词 end,即快照路径 resetLineTimestampsFromWords 的同一语义),
- *    词级卡拉OK保留;
+ * 1. 行窗/词窗基准统一走 [LyricTimelineNormalizer](三类口径的单一共享副本):
+ *    词窗超出行窗 → 行窗扩到词窗并集;行窗远大于文本可唱估时([LyricTimelineNormalizer.grossWindowMs])
+ *    且词级跨距可信 → 行窗向词对齐(首词 begin/末词 end,即快照路径
+ *    resetLineTimestampsFromWords 的同一语义),词级卡拉OK保留;正常拖尾原样透传。
  * 2. 词级跨距同样失真(或无词)→ 丢弃词级(不显示假逐字);行首贴附上一行末尾且行尾
  *    自带(非 end=next.begin 的链式形状)时,把行首钳到 end-估时——直接治「提前上屏」。
  *    (链式形状的长窗是 LRC 间隙的正常表达——间隙挂在上一行尾部,行首即真实起唱点,
@@ -26,21 +27,6 @@ import io.github.proify.lyricon.lyric.model.RichLyricLine
  * 修复后按 begin 稳定排序(行首后移可能与后行交叉;平局保原相对序)。
  */
 internal object LyriconTimelineRepair {
-
-    /** 每字可唱时长估计(中速粤语/国语,宽松取 350ms)。 */
-    internal const val MS_PER_CHAR = 350L
-
-    /** 行窗 > 估时×[GROSS_WINDOW_MULTIPLIER] + [WINDOW_SLACK_MS] 视为「间隙吞进行窗」。 */
-    internal const val GROSS_WINDOW_MULTIPLIER = 2L
-
-    /** 行窗合理性宽限(短行/换气不误伤)。 */
-    internal const val WINDOW_SLACK_MS = 2_000L
-
-    /** 词锚定档:词跨距 ≤ 估时×[WORD_ANCHOR_MULTIPLIER] + [WORD_SPREAD_SLACK_MS] 视为真实词级。 */
-    internal const val WORD_ANCHOR_MULTIPLIER = 3L
-
-    /** 词跨距可信宽限(慢歌长音不误伤:整句长音是真,铺满间隙的合成词是假)。 */
-    internal const val WORD_SPREAD_SLACK_MS = 4_000L
 
     /** 行首贴附判定容差:行首不晚于上一行末尾 + 该值即视为间隙填进头部。 */
     internal const val HEAD_ATTACH_TOLERANCE_MS = 250L
@@ -55,56 +41,54 @@ internal object LyriconTimelineRepair {
     internal const val MIN_GROSS_LINES_FOR_CLAMP = 2
 
     /**
-     * 文本可唱估时:剥行首标记后按可见字符数(空白不计,标点随行计入偏保守)× [MS_PER_CHAR]。
-     * 标记(（男）/（副歌）等)不发声,计入会把钳制目标与 gross 判定整体推偏约一秒;
-     * 纯标记行(（间奏）等)按 0 字计,否则长间奏行窗被误判成损坏行。
-     */
-    internal fun estimatedSingMs(text: CharSequence?): Long {
-        val visible = stripDuetMarkerRun(text?.toString() ?: "")
-        return visible.count { !it.isWhitespace() } * MS_PER_CHAR
-    }
-
-    /** 行窗是否明显大于文本可唱估时(损坏形状)。 */
-    internal fun grossWindowMs(text: CharSequence?, windowMs: Long): Boolean {
-        val estimated = estimatedSingMs(text)
-        return estimated > 0L && windowMs > estimated * GROSS_WINDOW_MULTIPLIER + WINDOW_SLACK_MS
-    }
-
-    /**
      * 修复整首行窗口。入参须已按 begin 升序([Song.normalize] 输出即是);
      * 出参稳定按 begin 升序。无损坏行时返回输入实例。
      */
     fun repair(lines: List<RichLyricLine>): List<RichLyricLine> {
         if (lines.isEmpty()) return lines
-        val grossCount = lines.count { grossWindowMs(it.text, it.end - it.begin) }
+        val grossCount = lines.count {
+            LyricTimelineNormalizer.grossWindowMs(it.text, it.end - it.begin)
+        }
         var changed = false
         var wordAnchored = 0
+        var expanded = 0
         var clamped = 0
         var wordsDropped = 0
         var grossUntouched = 0
         val out = ArrayList<RichLyricLine>(lines.size)
         for (index in lines.indices) {
             val line = lines[index]
-            val windowMs = line.end - line.begin
-            if (!grossWindowMs(line.text, windowMs)) {
+            val words = line.words.orEmpty()
+            // ① 词窗超出行窗 → 并集扩展;② 远超估时且词窗可信 → 向词窗对齐;③ 原样。
+            val normalized = LyricTimelineNormalizer.normalizeLineWindow(
+                beginMs = line.begin,
+                endMs = line.end,
+                wordBeginMs = words.minOfOrNull { it.begin },
+                wordEndMs = words.maxOfOrNull { it.end },
+                estimatedSingMs = LyricTimelineNormalizer.estimatedSingMs(line.text)
+            )
+            if (normalized.beginMs != line.begin || normalized.endMs != line.end) {
+                if (LyricTimelineNormalizer.grossWindowMs(line.text, line.end - line.begin)) {
+                    wordAnchored++
+                } else {
+                    expanded++
+                }
+                out += line.copy(begin = normalized.beginMs, end = normalized.endMs)
+                changed = true
+                continue
+            }
+            val estimated = LyricTimelineNormalizer.estimatedSingMs(line.text)
+            val wordSpanMs = if (words.isEmpty()) 0L else words.maxOf { it.end } - words.minOf { it.begin }
+            val wordsPlausible = words.isNotEmpty() &&
+                LyricTimelineNormalizer.plausibleWordSpanMs(estimated, wordSpanMs)
+            if (!LyricTimelineNormalizer.grossWindowMs(estimated, line.end - line.begin)) {
                 out += line
                 continue
             }
-            val estimated = estimatedSingMs(line.text)
-            val words = line.words.orEmpty()
-            val wordSpanMs = if (words.isEmpty()) 0L else words.maxOf { it.end } - words.minOf { it.begin }
-            val wordsPlausible = words.isNotEmpty() &&
-                wordSpanMs <= estimated * WORD_ANCHOR_MULTIPLIER + WORD_SPREAD_SLACK_MS
             if (wordsPlausible) {
+                // gross 行且词窗可信:词锚定结果与行窗逐值相同(上一步归一未动)→ 零变化,词级保留。
                 wordAnchored++
-                val begin = words.minOf { it.begin }
-                val end = maxOf(begin + 1L, words.maxOf { it.end })
-                if (begin == line.begin && end == line.end) {
-                    out += line
-                } else {
-                    out += line.copy(begin = begin, end = end)
-                    changed = true
-                }
+                out += line
                 continue
             }
             val previousEnd = lines.getOrNull(index - 1)?.end
@@ -138,7 +122,8 @@ internal object LyriconTimelineRepair {
             AppLog.i(
                 "LyriconTimelineRepair",
                 "repair: rows=${lines.size} gross=$grossCount wordAnchored=$wordAnchored " +
-                    "clamped=$clamped wordsDropped=$wordsDropped grossUntouched=$grossUntouched"
+                    "expanded=$expanded clamped=$clamped wordsDropped=$wordsDropped " +
+                    "grossUntouched=$grossUntouched"
             )
         }
         if (!changed) return lines

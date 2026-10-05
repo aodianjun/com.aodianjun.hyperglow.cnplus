@@ -3,7 +3,6 @@ package com.eza.hyperglow.producer
 import io.github.proify.lyricon.lyric.model.LyricWord as LyriconLyricWord
 import io.github.proify.lyricon.lyric.model.RichLyricLine
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -43,16 +42,33 @@ class LyriconTimelineRepairTest {
     }
 
     @Test
-    fun estimationIgnoresDuetMarkers() {
-        // 标记(（男）等)不发声:估时按剥标记后的实唱文本计,否则钳制目标整体偏早约 1s。
-        assertEquals(3_500L, LyriconTimelineRepair.estimatedSingMs("（男） 恋爱不见得叫人坐不安"))
-        assertEquals(3_500L, LyriconTimelineRepair.estimatedSingMs("恋爱不见得叫人坐不安"))
-        // 无标记文本估时不变。
-        assertEquals(4_550L, LyriconTimelineRepair.estimatedSingMs("或有可能慢慢地去摸索便成事"))
-        // 段落标记同规则;纯标记行(（间奏）等)按 0 字计——长间奏行窗不得被误判成损坏行。
-        assertEquals(3_500L, LyriconTimelineRepair.estimatedSingMs("（副歌） 恋爱不见得叫人坐不安"))
-        assertEquals(0L, LyriconTimelineRepair.estimatedSingMs("（间奏）"))
-        assertFalse(LyriconTimelineRepair.grossWindowMs("（间奏）", 30_000L))
+    fun wordWindowBeyondLineExpandsLineWindow() {
+        // ① 词窗超出行窗(词比行还长):行窗扩到词窗并集,词级保留(非 gross 形状)。
+        // 行窗 1.0–4.0s 对 9 字估时 3.15s 不满足 gross;词窗并集 [1.2s, 5.2s] 越出行尾。
+        val lines = listOf(
+            line(
+                1_000, 4_000, "未花光心智人便透支",
+                words = listOf(word(1_200, 4_600, "未花光"), word(4_600, 5_200, "心智人"))
+            )
+        )
+        val repaired = LyriconTimelineRepair.repair(lines)
+        assertEquals(1_000L, repaired[0].begin)
+        assertEquals(5_200L, repaired[0].end)
+        assertEquals(2, repaired[0].words?.size)
+    }
+
+    @Test
+    fun normalTailWindowIsUntouched() {
+        // 钉子(③,ingest 级):行窗 0–7600ms(8 字估时 2800ms;7600 = 2800×2+2000 恰在
+        // gross 阈值上,严格大于不成立)、词窗并集 2000–5000ms(跨距 3000ms)是正常拖尾
+        // → repair 必须原样返回同一实例(逐字节不动,换行节奏不提前)。
+        val lines = listOf(
+            line(
+                0, 7_600, "夜空中最亮的星啊",
+                words = listOf(word(2_000, 3_500, "夜空中最"), word(3_500, 5_000, "亮的星啊"))
+            )
+        )
+        assertSame(lines, LyriconTimelineRepair.repair(lines))
     }
 
     @Test

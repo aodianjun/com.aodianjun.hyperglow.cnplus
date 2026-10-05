@@ -257,6 +257,18 @@ class SuperLyricLyricProducer(
         }
         val words = line?.words?.map { it.toLyricWord() }
             ?.takeIf { it.isNotEmpty() }
+        // 行窗/词窗基准统一(见 [LyricTimelineNormalizer]):同一行两阶段下发(带/不带词表,
+        // 真机实测同一行窗 words=13 ↔ words=0)时,带词表的一笔不得给出与词窗自相矛盾的行窗。
+        // 只治词窗越出行窗(并集扩展)与行窗远超可唱估时(向词对齐);正常拖尾与无词表一笔原样。
+        val window = line?.let {
+            LyricTimelineNormalizer.normalizeLineWindow(
+                beginMs = it.startTime,
+                endMs = it.endTime,
+                wordBeginMs = words?.minOf { word -> word.startMs },
+                wordEndMs = words?.maxOf { word -> word.endMs },
+                estimatedSingMs = LyricTimelineNormalizer.estimatedSingMs(it.text)
+            )
+        }
         // SuperLyric pushes only the active line, so per-word timing implies SYLLABLE karaoke.
         val lyricKind = when {
             line == null -> LyricKind.NONE
@@ -289,12 +301,12 @@ class SuperLyricLyricProducer(
             renderModes = defaultRenderModes(),
             lyricKind = lyricKind,
             alignedRight = false,
-            lineStartMs = line?.startTime ?: 0L,
-            lineEndMs = line?.endTime ?: 0L,
+            lineStartMs = window?.beginMs ?: 0L,
+            lineEndMs = window?.endMs ?: 0L,
             ruby = emptyList(),
             layoutGroups = emptyList(),
             hasTimedLyrics = line != null,
-            nextLineStartMs = secondary?.startTime ?: line?.endTime?.takeIf { it > 0L },
+            nextLineStartMs = secondary?.startTime ?: window?.endMs?.takeIf { it > 0L },
             nextLine = secondary?.text.orEmpty(),
             staleAfterMs = LINE_EVENT_STALE_AFTER_MS
         )
