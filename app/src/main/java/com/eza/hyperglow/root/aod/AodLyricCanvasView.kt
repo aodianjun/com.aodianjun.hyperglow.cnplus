@@ -81,9 +81,21 @@ internal class AodLyricCanvasView(
     private var exitSnapshot: CanvasSnapshot? = null
     /** 位置式过渡时钟起点:过渡开始时的歌词位置(见 [lineTransitionClockAtPosition])。 */
     private var transitionStartPositionMs = 0L
-    /** 位置式过渡时钟高水位:过渡期间见过的最大位置,保证进度只进不退。 */
-    private var transitionHighWaterPositionMs = 0L
+    /**
+     * 位置式过渡时钟采样状态:平滑位置(限速后,进度推导基准)与原始位置高水位
+     * (seek/拖动判定基准),见 [advanceTransitionPosition] / [isTransitionSeekJump]。
+     */
+    private var transitionPositionState = TransitionPositionState(0L, 0L)
     private var transitionTimeline: LineTransitionTimeline? = null
+    /**
+     * 旧账压缩补播:为真时三段进度按挂钟在压缩时间线上换算(见 [lineTransitionClockAtElapsed])。
+     * 位置锚不参与本路径——过期快照的位置推进量远超压缩时长,按位置驱动就是一帧硬切。
+     */
+    private var transitionWallClockDriven = false
+    /** 压缩补播的挂钟起点;0 = 尚未落帧(首帧到达才起算,低节拍/doze 下保证整段可见)。 */
+    private var transitionStartedAtElapsedMs = 0L
+    /** 上一次过渡时钟采样时刻:限速步长 = 本帧时刻 − 上一次(见 [advanceTransitionPosition])。 */
+    private var transitionLastClockAtElapsedMs = 0L
     /**
      * 同一帧到达窗口内的换行快照计数(见 [shouldSkipLineTransition]):与上一条换行内容的
      * 到达间隔不超过 [SAME_FRAME_ARRIVAL_WINDOW_MS](≈60Hz 一帧)时累加,否则重新计 1。
@@ -402,23 +414,47 @@ internal class AodLyricCanvasView(
                 .takeIf { it > 0L }
                 ?.let { (nowElapsedMs - it).coerceAtLeast(0L) }
             if (shouldSkipLineTransition(snapshotAgeMs, timeline.totalMs, lineChangesInFrame)) {
-                // 旧账不追:过期快照/同帧多条一律静态落到目标几何,不播退场/晋级/入场三段。
-                exitSnapshot = null
+                // 旧账压缩补播:过期快照/同帧多条不再一帧硬切到目标几何,改以压缩时长连续播完
+                // 同一三段序列(段顺序/缓动/帧配方不变,总长 ~140ms、每段 ≥40ms,见
+                // compressedLineTransitionTimeline)。起点几何取屏上现有旧快照(同帧多条时为
+                // 首条换行前的形态),目标几何仍在此定死;补播按挂钟计时——旧账的位置推进量
+                // 远超压缩时长,按位置驱动会瞬间推完(即要消除的一帧硬切)。
+                val replaySnapshot = exitSnapshot ?: CanvasSnapshot(content, layout, currentRenderStyle)
+                val replayPromoting =
+                    replaySnapshot.layout.rows.any { it.row.kind == RowKind.NEXT_LINE } &&
+                        lineTransitionPromotes(replaySnapshot.content.nextLine, nextContent.original)
+                exitSnapshot = replaySnapshot
+                transitionTimeline = compressedLineTransitionTimeline(
+                    nextContent.transitionMode,
+                    nextContent.lineTransitionSpeed,
+                    replayPromoting
+                )
+                transitionWallClockDriven = true
+                transitionStartedAtElapsedMs = 0L
+                transitionLastClockAtElapsedMs = nowElapsedMs
                 transitionStartPositionMs = 0L
-                transitionHighWaterPositionMs = 0L
-                transitionTimeline = null
+                // 原始位置高水位照常推进:补播期间 seek/拖动(倒退超容差)仍立即结束、静态落位。
+                transitionPositionState = TransitionPositionState(0L, projectedPosition())
             } else {
                 exitSnapshot = CanvasSnapshot(content, layout, currentRenderStyle)
                 // 位置式过渡时钟:起点取过渡开始时的歌词位置(同源 projectedPosition()),
-                // 之后三段进度由位置推进量推导,不再挂钟计时(见 lineTransitionClockAtPosition)。
+                // 之后三段进度由位置推进量推导,不再挂钟计时(见 lineTransitionClockAtPosition);
+                // 采样间按实时速率限速(见 advanceTransitionPosition),批投递跳变不在一帧内推完。
                 transitionStartPositionMs = projectedPosition()
-                transitionHighWaterPositionMs = transitionStartPositionMs
+                transitionPositionState =
+                    TransitionPositionState(transitionStartPositionMs, transitionStartPositionMs)
+                transitionWallClockDriven = false
+                transitionStartedAtElapsedMs = 0L
+                transitionLastClockAtElapsedMs = nowElapsedMs
                 transitionTimeline = timeline
             }
         } else if (resuming || nextContent.transitionMode == "None") {
             exitSnapshot = null
             transitionStartPositionMs = 0L
-            transitionHighWaterPositionMs = 0L
+            transitionPositionState = TransitionPositionState(0L, 0L)
+            transitionWallClockDriven = false
+            transitionStartedAtElapsedMs = 0L
+            transitionLastClockAtElapsedMs = 0L
             transitionTimeline = null
         }
         val duetKey = nextContent.duetLine?.let { "${it.text}@${it.lineStartMs}" }
@@ -570,7 +606,10 @@ internal class AodLyricCanvasView(
         if (active) {
             exitSnapshot = null
             transitionStartPositionMs = 0L
-            transitionHighWaterPositionMs = 0L
+            transitionPositionState = TransitionPositionState(0L, 0L)
+            transitionWallClockDriven = false
+            transitionStartedAtElapsedMs = 0L
+            transitionLastClockAtElapsedMs = 0L
             transitionTimeline = null
         }
         syncCadence()
@@ -3400,24 +3439,58 @@ internal class AodLyricCanvasView(
     }
 
     /**
-     * 位置式过渡时钟采样:取当前位置与高水位换算三段进度,并把新高水位存回
-     * (位置源 stall/resume 的毫秒级回漂不倒带动画,见 [lineTransitionClockAtPosition])。
+     * 过渡时钟采样,两条路径:
+     * - 正常过渡:位置式——原始位置先过 [advanceTransitionPosition] 限速成平滑位置,再按
+     *   「平滑位置 − 起点」换算三段进度(位置源 stall/resume 的毫秒级回漂不倒带动画,
+     *   见 [lineTransitionClockAtPosition]);批投递的位置跳变按实时速率补齐,不在一帧内推完;
+     * - 旧账压缩补播:挂钟式——按 [lineTransitionClockAtElapsed] 在压缩时间线上换算,
+     *   首帧落帧才起算(低节拍/doze 下首帧可能晚到,保证整段可见)。
+     * 两条路径都用原始位置高水位判 seek/拖动跳变:命中即 [LineTransitionClock.interrupted],
+     * 由绘制入口立即结束过渡、静态落位。
      */
     private fun transitionClock(timeline: LineTransitionTimeline): LineTransitionClock {
-        val clock = lineTransitionClockAtPosition(
-            projectedPosition(),
-            transitionStartPositionMs,
-            transitionHighWaterPositionMs,
-            timeline
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        val elapsedSinceLastSampleMs =
+            if (transitionLastClockAtElapsedMs == 0L) {
+                0L
+            } else {
+                (nowElapsedMs - transitionLastClockAtElapsedMs).coerceAtLeast(0L)
+            }
+        transitionLastClockAtElapsedMs = nowElapsedMs
+        val rawPositionMs = projectedPosition()
+        transitionPositionState = advanceTransitionPosition(
+            rawPositionMs,
+            transitionPositionState,
+            elapsedSinceLastSampleMs,
+            content.speed
         )
-        transitionHighWaterPositionMs = clock.highWaterPositionMs
-        return clock
+        val clock = if (transitionWallClockDriven) {
+            if (transitionStartedAtElapsedMs == 0L) {
+                transitionStartedAtElapsedMs = nowElapsedMs
+            }
+            lineTransitionClockAtElapsed(nowElapsedMs - transitionStartedAtElapsedMs, timeline)
+        } else {
+            lineTransitionClockAtPosition(
+                transitionPositionState.smoothedPositionMs,
+                transitionStartPositionMs,
+                transitionPositionState.smoothedPositionMs,
+                timeline
+            )
+        }
+        return if (isTransitionSeekJump(rawPositionMs, transitionPositionState.rawHighWaterPositionMs)) {
+            clock.copy(interrupted = true)
+        } else {
+            clock
+        }
     }
 
-    /** 结束换行过渡:清空旧行快照与位置式时钟状态,静态绘制立即接管。 */
+    /** 结束换行过渡:清空旧行快照与过渡时钟状态,静态绘制立即接管。 */
     private fun endLineTransition() {
         transitionStartPositionMs = 0L
-        transitionHighWaterPositionMs = 0L
+        transitionPositionState = TransitionPositionState(0L, 0L)
+        transitionWallClockDriven = false
+        transitionStartedAtElapsedMs = 0L
+        transitionLastClockAtElapsedMs = 0L
         exitSnapshot = null
         transitionTimeline = null
         contentBoundsChangedListener?.invoke()

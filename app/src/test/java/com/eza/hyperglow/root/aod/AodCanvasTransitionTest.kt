@@ -570,8 +570,9 @@ class AodCanvasTransitionTest {
     }
 
     @Test
-    fun staleSnapshotSkipsLineTransitionAndLandsDirectly() {
-        // 过渡不追旧账:年龄超过一次过渡总时长即跳过退场/晋级/入场三段,静态落到目标几何。
+    fun staleSnapshotSkipsFullTransitionForCompressedReplay() {
+        // 过渡不追旧账:年龄超过一次过渡总时长即不播整段,改走压缩补播(见
+        // compressedLineTransitionTimeline:总长 ~140ms、每段 ≥40ms 的连续三段)。
         val timeline = lineTransitionTimeline("Fade up", "Normal", false)
         assertEquals(340L, timeline.totalMs)
         assertTrue(shouldSkipLineTransition(timeline.totalMs + 1L, timeline.totalMs, 1))
@@ -587,8 +588,8 @@ class AodCanvasTransitionTest {
     }
 
     @Test
-    fun sameFrameMultipleLineChangesSkipLineTransition() {
-        // 同一帧内到达 ≥2 条换行快照:即便年轻也跳过,直接落最后一条的静态几何。
+    fun sameFrameMultipleLineChangesSkipFullTransition() {
+        // 同一帧内到达 ≥2 条换行快照:即便年轻也不播整段,以最后一条为目标几何走压缩补播。
         val timeline = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
         assertFalse(shouldSkipLineTransition(0L, timeline.totalMs, 1))
         assertTrue(shouldSkipLineTransition(0L, timeline.totalMs, 2))
@@ -596,5 +597,177 @@ class AodCanvasTransitionTest {
         assertTrue(shouldSkipLineTransition(120L, timeline.totalMs, 12))
         // 年轻单条且未超时长:正常播过渡。
         assertFalse(shouldSkipLineTransition(120L, 340L, 1))
+    }
+
+    @Test
+    fun transitionPositionTracksSteadyPlaybackWithoutLag() {
+        // 正常播放:位置按 speed 实时推进 → 平滑位置逐帧同步,过渡时长/缓动逐帧不变。
+        var state = TransitionPositionState(10_000L, 10_000L)
+        var position = 10_000L
+        repeat(20) {
+            position += 16L
+            state = advanceTransitionPosition(position, state, 16L, 1f)
+            assertEquals(position, state.smoothedPositionMs)
+            assertEquals(position, state.rawHighWaterPositionMs)
+        }
+        // 2 倍速播放:限速上限随 speed 等比放大(位置锚语义不变)。
+        position += 32L
+        state = advanceTransitionPosition(position, state, 16L, 2f)
+        assertEquals(position, state.smoothedPositionMs)
+    }
+
+    @Test
+    fun transitionPositionRateLimitsBatchJumpToRealTime() {
+        // doze 批投递:一帧内位置 +2000ms(真机同毫秒两条位置、跨度约 2 秒)→ 平滑位置
+        // 只按实时速率前进一个帧长;原始高水位立即到顶,seek 判定基准不滞后。
+        val jumped = advanceTransitionPosition(
+            12_000L,
+            TransitionPositionState(10_000L, 10_000L),
+            16L,
+            1f
+        )
+        assertEquals(10_016L, jumped.smoothedPositionMs)
+        assertEquals(12_000L, jumped.rawHighWaterPositionMs)
+        // 后续帧位置静止时平滑位置继续按实时速率补齐,直到并轨(不永久滞后)。
+        var current = advanceTransitionPosition(12_000L, jumped, 16L, 1f)
+        assertEquals(10_032L, current.smoothedPositionMs)
+        repeat(200) { current = advanceTransitionPosition(12_000L, current, 16L, 1f) }
+        assertEquals(12_000L, current.smoothedPositionMs)
+        assertEquals(12_000L, current.rawHighWaterPositionMs)
+    }
+
+    @Test
+    fun transitionPositionHoldsOnRewindAndKeepsRawHighWater() {
+        // 位置源 stall/resume 的毫秒级回漂:平滑位置原地不动、高水位不倒退(不倒带动画)。
+        val previous = TransitionPositionState(10_100L, 10_100L)
+        val drifted = advanceTransitionPosition(10_020L, previous, 16L, 1f)
+        assertEquals(10_100L, drifted.smoothedPositionMs)
+        assertEquals(10_100L, drifted.rawHighWaterPositionMs)
+        // 批跳变后原始高水位立即到顶,倒退超容差的 seek 仍命中(与限速无关)。
+        val afterJump = advanceTransitionPosition(12_000L, previous, 16L, 1f)
+        assertTrue(isTransitionSeekJump(11_600L, afterJump.rawHighWaterPositionMs))
+        assertFalse(isTransitionSeekJump(11_800L, afterJump.rawHighWaterPositionMs))
+    }
+
+    @Test
+    fun transitionPositionFollowsRawWhenPaused() {
+        // 暂停驻留(speed=0):位置变化只可能来自 seek/刷新 → 不限速,保持既有跳变语义
+        // (瞬间落位 / completed 立即结束),不引入「冻在半路」的新状态。
+        val paused = advanceTransitionPosition(
+            30_000L,
+            TransitionPositionState(10_000L, 10_000L),
+            16L,
+            0f
+        )
+        assertEquals(30_000L, paused.smoothedPositionMs)
+        assertEquals(30_000L, paused.rawHighWaterPositionMs)
+    }
+
+    @Test
+    fun seekJumpDetectionMatchesRewindToleranceBoundary() {
+        // 倒退恰好等于容差不判跳变(严格「超出」才判);容差外命中;前进永不判 seek。
+        assertFalse(isTransitionSeekJump(9_700L, 10_000L))
+        assertTrue(isTransitionSeekJump(9_699L, 10_000L))
+        assertFalse(isTransitionSeekJump(10_000L, 10_000L))
+        assertFalse(isTransitionSeekJump(12_000L, 10_000L))
+    }
+
+    @Test
+    fun smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike() {
+        // 真机形状(aodwalk2/recwalk2):过渡进行中 doze 批投递把位置一帧推进约 2 秒。
+        // 旧实现位置高水位一步到顶 → 过渡在该帧内推完,位移段出现 -68px/帧 孤立尖峰
+        // (总位移约 220px 的两帧吃掉 61%)。限速后批跳变按实时速率补齐:任一帧的进度
+        // 步进不超过一个实时帧的量,位移段各帧步长回到缓动曲线本身的形状(无孤立尖峰)。
+        val timeline = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
+        val startPosition = 100_000L
+        val frameMs = 16L
+        var state = TransitionPositionState(startPosition, startPosition)
+        var position = startPosition
+        var previousMoveProgress = 0f
+        val moveSteps = ArrayList<Float>()
+        var completed = false
+        var frames = 0
+        // 前 3 帧按 60Hz 正常推进;第 4 帧批投递 +2000ms;随后位置继续按实时推进。
+        while (!completed && frames < 200) {
+            position += if (frames == 3) 2_000L else frameMs
+            state = advanceTransitionPosition(position, state, frameMs, 1f)
+            val clock = lineTransitionClockAtPosition(
+                state.smoothedPositionMs,
+                startPosition,
+                state.smoothedPositionMs,
+                timeline
+            )
+            moveSteps += clock.moveProgress - previousMoveProgress
+            previousMoveProgress = clock.moveProgress
+            completed = clock.completed
+            frames++
+        }
+        assertTrue("transition must complete", completed)
+        // 限速成立:任一帧的进度步进不超过一个实时帧的量(旧实现在批跳变帧直接 completed)。
+        val maxStepPerFrame = frameMs.toFloat() / timeline.moveMs
+        moveSteps.forEach { step -> assertTrue("step=$step", step <= maxStepPerFrame + 1e-4f) }
+        // 批跳变不在一帧内推完:走完整条时间线需要约 totalMs/frameMs 帧(970/16 ≈ 61)。
+        assertTrue("frames=$frames", frames >= (timeline.totalMs / frameMs).toInt())
+        // 位移段(220ms,约 13–14 帧)任一帧不得吃掉总位移的 1/4(旧实现两帧 61%);
+        // 且最大单帧步进不超过均值的 3 倍(缓动曲线峰值约 2.6×,无孤立尖峰)。
+        val nonzero = moveSteps.filter { it > 0f }
+        assertTrue(nonzero.isNotEmpty())
+        val maxStep = nonzero.maxOrNull()!!
+        val meanStep = nonzero.sum() / nonzero.size
+        assertTrue("maxStep=$maxStep", maxStep <= 0.25f)
+        assertTrue("maxStep=$maxStep mean=$meanStep", maxStep <= meanStep * 3f)
+    }
+
+    @Test
+    fun compressedTimelineKeepsThreePhasesWithinBoundedTotal() {
+        // 旧账压缩补播:总时长 ~120–160ms、每段 ≥40ms、有无晋级段与基线一致(段顺序不变)。
+        val cases = listOf(
+            Triple("Fade up", "Normal", false),
+            Triple("Fade up", "Slow", true),
+            Triple("fade_out_up_fade_in_up", "Normal", true),
+            Triple("fade_out_up_fade_in_up", "Fast", true),
+            Triple("slide_out_left_landing", "Slow", true),
+            Triple("slide_out_right_landing", "Normal", true)
+        )
+        for ((mode, speed, promoting) in cases) {
+            val compressed = compressedLineTransitionTimeline(mode, speed, promoting)
+            assertTrue("$mode/$speed total=${compressed.totalMs}", compressed.totalMs in 120L..160L)
+            assertTrue("exit=${compressed.exitMs}", compressed.exitMs >= COMPRESSED_TRANSITION_MIN_SEGMENT_MS)
+            assertTrue("enter=${compressed.enterMs}", compressed.enterMs >= COMPRESSED_TRANSITION_MIN_SEGMENT_MS)
+            if (promoting) {
+                assertTrue("move=${compressed.moveMs}", compressed.moveMs >= COMPRESSED_TRANSITION_MIN_SEGMENT_MS)
+            } else {
+                assertEquals(0L, compressed.moveMs)
+            }
+        }
+    }
+
+    @Test
+    fun compressedReplayClockWalksPhasesInBoundedWallTime() {
+        // 压缩补播按挂钟在压缩时间线上推进:0 起算,~140ms 内连续走完三段(旧版是一帧硬切),
+        // 段顺序不变(退场完成前位移/入场为 0,位移完成前入场为 0),到总长即 completed。
+        val timeline = compressedLineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
+        val atStart = lineTransitionClockAtElapsed(0L, timeline)
+        assertEquals(0f, atStart.exitProgress, 1e-6f)
+        assertEquals(0f, atStart.moveProgress, 1e-6f)
+        assertEquals(0f, atStart.enterProgress, 1e-6f)
+        assertFalse(atStart.completed)
+        val midExit = lineTransitionClockAtElapsed(timeline.exitMs / 2L, timeline)
+        assertTrue(midExit.exitProgress in 0.4f..0.6f)
+        assertEquals(0f, midExit.moveProgress, 1e-6f)
+        val midMove = lineTransitionClockAtElapsed(timeline.exitMs + timeline.moveMs / 2L, timeline)
+        assertEquals(1f, midMove.exitProgress, 1e-6f)
+        assertTrue(midMove.moveProgress in 0.4f..0.6f)
+        assertEquals(0f, midMove.enterProgress, 1e-6f)
+        val midEnter = lineTransitionClockAtElapsed(
+            timeline.exitMs + timeline.moveMs + timeline.enterMs / 2L,
+            timeline
+        )
+        assertEquals(1f, midEnter.moveProgress, 1e-6f)
+        assertTrue(midEnter.enterProgress in 0.4f..0.6f)
+        assertFalse(midEnter.completed)
+        val done = lineTransitionClockAtElapsed(timeline.totalMs, timeline)
+        assertEquals(1f, done.enterProgress, 1e-6f)
+        assertTrue(done.completed)
     }
 }

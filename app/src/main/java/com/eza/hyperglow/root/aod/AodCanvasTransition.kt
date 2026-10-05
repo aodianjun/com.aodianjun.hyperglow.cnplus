@@ -2,6 +2,7 @@ package com.eza.hyperglow.root.aod
 
 import android.graphics.Color
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /** 换行动画入场基准时长(历史档;退场/入场共用同一 elapsed,入场较长者收尾)。 */
 internal const val ENTER_TRANSITION_MS = 210L
@@ -282,12 +283,16 @@ internal fun lineTransitionEnterProgress(elapsedMs: Long, timeline: LineTransiti
  * - 位置跳变(seek/拖动):倒退超出采样回漂容差 [TRANSITION_REWIND_TOLERANCE_MS] 判
  *   [interrupted],进度钳在 0..1 且立即结束过渡,不允许反向"追"新位置;前进越过总时长
  *   同样钳到 1 并以 [completed] 结束(无挂钟无法区分快进与前进跳变,按位置推进处理)。
+ *
+ * 画布侧先用 [advanceTransitionPosition] 把裸位置采样限速成平滑位置,再喂给本函数
+ * (批投递的位置跳变按实时速率补齐,不在一帧内推完);seek 判定仍按原始位置高水位
+ * 单独做(见 [isTransitionSeekJump])。
  */
 internal data class LineTransitionClock(
     val exitProgress: Float,
     val moveProgress: Float,
     val enterProgress: Float,
-    /** 本次采样后的位置高水位,调用方存回供下一帧沿用。 */
+    /** 本次采样后的位置高水位,调用方存回供下一帧沿用(挂钟路径见 [lineTransitionClockAtElapsed]:语义为已用挂钟毫秒数)。 */
     val highWaterPositionMs: Long,
     /** 位置已推进到过渡总时长:过渡正常走完(末帧即静态形态)。 */
     val completed: Boolean,
@@ -319,6 +324,118 @@ internal fun lineTransitionClockAtPosition(
         interrupted = positionMs < highWater - TRANSITION_REWIND_TOLERANCE_MS
     )
 }
+
+/**
+ * 位置式过渡时钟的采样状态(纯数据):[smoothedPositionMs] 为限速后的平滑位置
+ * (进度推导基准,只进不退),[rawHighWaterPositionMs] 为原始位置高水位(seek/拖动
+ * 判定基准,只进不退)。两者分开存:批投递跳变后原始高水位立即到顶,平滑位置
+ * 随后按实时速率补齐——seek 判定不受限速拖慢(见 [isTransitionSeekJump])。
+ */
+internal data class TransitionPositionState(
+    val smoothedPositionMs: Long,
+    val rawHighWaterPositionMs: Long
+)
+
+/**
+ * 过渡位置限速(纯函数,一帧一次):把「裸位置采样」升级为「平滑位置」——两次采样之间
+ * 位置可能整段跳进(doze 批投递真机实测:同一毫秒两条位置、跨度约 2 秒;逐帧条带追踪
+ * 位移段单帧尖峰 -68px ≈ 60fps 的 64px/帧,为判据 8px/帧的 8 倍),直接采用会把三段
+ * 进度在一帧内推完,形态即「起步慢 → 一/两帧暴跳 → 收尾慢」。
+ *
+ * 本函数把平滑位置向原始位置推进,一步最多 [elapsedSinceLastSampleMs] × [speed]
+ * (实时播放速率),只进不退:
+ * - 正常播放(位置按 speed 实时推进):与原始位置逐帧同步,时长/缓动逐帧不变;
+ * - 批投递跳变:按实时速率补齐,过渡以自身时长平滑播完,不出现孤立尖峰;
+ * - 位置回漂(倒退):平滑位置原地不动;是否 seek/拖动由 [isTransitionSeekJump] 按
+ *   原始位置高水位单独判定;
+ * - 暂停驻留(speed ≤ 0 或非法):不限速、直接跟随原始位置——暂停期位置变化只可能
+ *   来自 seek/刷新,保持既有跳变语义(瞬间落位或 completed 立即结束),不引入
+ *   「冻在半路」的新状态。
+ */
+internal fun advanceTransitionPosition(
+    positionMs: Long,
+    previous: TransitionPositionState,
+    elapsedSinceLastSampleMs: Long,
+    speed: Float
+): TransitionPositionState {
+    val target = maxOf(previous.smoothedPositionMs, positionMs)
+    val maxAdvance = if (speed.isFinite() && speed > 0f) {
+        (elapsedSinceLastSampleMs.coerceAtLeast(0L).toDouble() * speed.toDouble()).toLong()
+    } else {
+        Long.MAX_VALUE
+    }
+    val headroom = target - previous.smoothedPositionMs
+    val smoothed = if (maxAdvance >= headroom) {
+        target
+    } else {
+        previous.smoothedPositionMs + maxAdvance
+    }
+    return TransitionPositionState(
+        smoothedPositionMs = smoothed,
+        rawHighWaterPositionMs = maxOf(previous.rawHighWaterPositionMs, positionMs)
+    )
+}
+
+/**
+ * seek/拖动跳变判据(纯函数):原始位置倒退超出采样回漂容差
+ * [TRANSITION_REWIND_TOLERANCE_MS] 即命中——过渡立即结束、静态落位,不反向追新位置。
+ * 判定只看原始位置与原始高水位,与限速后的平滑位置无关(批跳变后的倒退 seek 同样命中)。
+ */
+internal fun isTransitionSeekJump(positionMs: Long, rawHighWaterPositionMs: Long): Boolean =
+    positionMs < rawHighWaterPositionMs - TRANSITION_REWIND_TOLERANCE_MS
+
+/** 旧账压缩补播的总时长:过期/同帧多条快照不再一帧硬切,三段连续播完约 140ms。 */
+internal const val COMPRESSED_TRANSITION_TOTAL_MS = 140L
+
+/** 旧账压缩补播的单段最短可视时长(退场/晋级位移/入场各一段)。 */
+internal const val COMPRESSED_TRANSITION_MIN_SEGMENT_MS = 40L
+
+/**
+ * 旧账压缩补播时间线(纯函数):按 [lineTransitionTimeline] 的同一三段序列(同一档位
+ * 配方)等比压缩到 [COMPRESSED_TRANSITION_TOTAL_MS],每段不低于
+ * [COMPRESSED_TRANSITION_MIN_SEGMENT_MS]——压缩后总时长落在 ~120–160ms。仅用于
+ * [shouldSkipLineTransition] 命中的恢复路径:旧账快照已过期,再播整段只会把旧目标
+ * 飞着改一遍;压缩补播让眼睛看到「快速但连续」而不是「啪一下」。段顺序/缓动/帧配方
+ * 与正常过渡完全一致,目标几何仍在起点定死。基线总长本就不超过压缩总长时原样返回。
+ */
+internal fun compressedLineTransitionTimeline(
+    mode: String,
+    speed: String,
+    promoting: Boolean
+): LineTransitionTimeline {
+    val base = lineTransitionTimeline(mode, speed, promoting)
+    if (base.totalMs <= COMPRESSED_TRANSITION_TOTAL_MS) return base
+    val scale = COMPRESSED_TRANSITION_TOTAL_MS.toDouble() / base.totalMs.toDouble()
+    fun compressed(segmentMs: Long): Long = maxOf(
+        COMPRESSED_TRANSITION_MIN_SEGMENT_MS,
+        (segmentMs * scale).roundToLong()
+    )
+    return LineTransitionTimeline(
+        exitMs = compressed(base.exitMs),
+        moveMs = if (base.moveMs > 0L) compressed(base.moveMs) else 0L,
+        enterMs = compressed(base.enterMs)
+    )
+}
+
+/**
+ * 挂钟式过渡时钟(纯函数;仅供旧账压缩补播路径):三段进度按挂钟经过时间在 [timeline]
+ * (压缩时间线)上换算,首帧由调用方起算。旧账快照已过期,位置推进量远超压缩时长,
+ * 按位置驱动会瞬间推完(即本次修复要消除的一帧硬切),故补播以有界挂钟计时;目标几何
+ * 仍在起点定死,seek/拖动由调用方按 [isTransitionSeekJump] 判 [interrupted] 立即结束。
+ * 本路径返回值中的 [LineTransitionClock.highWaterPositionMs] 语义为「已用挂钟毫秒数」,
+ * 调用方无需存回。
+ */
+internal fun lineTransitionClockAtElapsed(
+    elapsedMs: Long,
+    timeline: LineTransitionTimeline
+): LineTransitionClock = LineTransitionClock(
+    exitProgress = lineTransitionExitProgress(elapsedMs, timeline),
+    moveProgress = lineTransitionMoveProgress(elapsedMs, timeline),
+    enterProgress = lineTransitionEnterProgress(elapsedMs, timeline),
+    highWaterPositionMs = elapsedMs,
+    completed = elapsedMs >= timeline.totalMs,
+    interrupted = false
+)
 
 /**
  * 晋级位移段单帧([progress] 已过 [moveTransitionEase]):被晋升行自旧槽位平移到当前行
@@ -770,13 +887,14 @@ internal fun shouldStartLineTransition(
 
 /**
  * 过渡不追旧账的跳过判据(纯函数,接入 [AodLyricCanvasView.setContent]):满足任一条即
- * 跳过退场/晋级/入场三段、静态落到目标几何 ——
+ * 不播整段过渡,改走压缩补播路径([compressedLineTransitionTimeline],总长 ~140ms、
+ * 每段 ≥40ms 的连续三段,不再是旧版的一帧硬切)——
  *
  * - 快照年龄超过本次过渡总时长([transitionTotalMs] = 退场 + 晋级位移 + 入场):内容与
- *   位置都来自过期批次,再补一段动画只会把旧目标飞着改一遍;doze 批投递实测 19ms 内
+ *   位置都来自过期批次,再补整段动画只会把旧目标飞着改一遍;doze 批投递实测 19ms 内
  *   12 条、位置跨度约 18s,正是「换行后跳两次」的旧账来源;
  * - 同一帧内到达 ≥2 条换行快照([lineChangesInFrame]):多条会把过渡在 1–2 帧内反复重置,
- *   直接落最后一条的静态几何。
+ *   改以最后一条为目标几何、屏上现有旧快照为起点的压缩补播。
  *
  * [snapshotAgeMs] 为 null 表示年龄未知(预览/直接构造的画布内容):只按同帧条数判定。
  * 边界:年龄恰好等于总时长不跳过(严格「超过」才跳过);单条且年轻照常播过渡。
