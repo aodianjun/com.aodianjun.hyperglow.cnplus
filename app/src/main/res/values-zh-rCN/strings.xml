@@ -98,6 +98,8 @@
     <string name="summary_plugin_processing_enabled">已安装的插件可在歌词显示前对其进行增强或翻译。更改从下一首歌开始生效。</string>
     <string name="plugin_action_install">安装插件</string>
     <string name="summary_plugin_action_install">安装 HyperLyric 插件包（.zip）。</string>
+    <string name="plugin_action_download">下载插件</string>
+    <string name="summary_plugin_action_download">在 GitHub 发布页下载插件包（.zip），再从这里安装。</string>
     <string name="plugin_empty_hint">尚未安装插件。安装 HyperLyric 插件包（.zip）以增强歌词。</string>
     <string name="plugin_pipeline_status_mismatch">歌词文档与当前歌词源暂不匹配，等待重新调度</string>
     <string name="plugin_pipeline_status_no_document">当前歌词源 %1$s 暂无整首歌词文档，插件链暂不运行</string>

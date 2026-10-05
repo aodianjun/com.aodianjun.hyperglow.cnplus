@@ -97,6 +97,8 @@
     <string name="summary_plugin_processing_enabled">已安裝的插件可在歌詞顯示前對其進行增強或翻譯。變更從下一首歌開始生效。</string>
     <string name="plugin_action_install">安裝插件</string>
     <string name="summary_plugin_action_install">安裝 HyperLyric 插件包（.zip）。</string>
+    <string name="plugin_action_download">下載外掛</string>
+    <string name="summary_plugin_action_download">在 GitHub 發佈頁下載外掛包（.zip），再從這裡安裝。</string>
     <string name="plugin_empty_hint">尚未安裝插件。安裝 HyperLyric 插件包（.zip）以增強歌詞。</string>
     <string name="plugin_pipeline_status_mismatch">歌詞文件與目前歌詞來源暫不匹配，等待重新調度</string>
     <string name="plugin_pipeline_status_no_document">目前歌詞來源 %1$s 暫無整首歌詞文件，插件鏈暫不執行</string>
