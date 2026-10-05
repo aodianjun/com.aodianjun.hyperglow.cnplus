@@ -150,10 +150,14 @@ HyperGlow 插件体系里可安装的一个插件。
 
 ## 许可与致谢
 
-- [accompanist-lyrics-core](https://github.com/6xingyv/accompanist-lyrics-core)（Apache-2.0）：作为依赖打进插件 dex。
-- [Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)（Apache-2.0）：在线来源语义、
-  匹配打分、翻译合并与音节合并按其行为移植（C# → Kotlin），未复制代码文件。
-- 在线端点均来自各平台公开接口，插件不做任何绕过鉴权或付费墙的访问。
+- **[accompanist-lyrics-core](https://github.com/6xingyv/accompanist-lyrics-core)**（Apache-2.0，
+  作者 6xingyv / Mocha Realm）—— 多格式歌词解析内核（LRC / Enhanced LRC / YRC / KRC / TTML /
+  Lyricify Syllable 自动识别），作为依赖**随插件打进 dex**。
+- **[Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)**（Apache-2.0，
+  作者 WXRIW）—— 在线来源语义、搜索匹配打分（标题/艺人/时长三维度）、翻译合并与音节合并
+  按其行为移植（C# → Kotlin），未复制其代码文件。
+- **在线来源**：网易云音乐、QQ 音乐、LRCLIB。歌词数据与版权的权利归各平台与权利人所有；
+  插件只读取公开接口、不绕过鉴权或付费墙，缓存也只保留播放取词所需的范围。
 
 ---
 

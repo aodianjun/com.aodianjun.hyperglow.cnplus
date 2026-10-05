@@ -214,6 +214,12 @@ jobs:
           - **hyperglow-lyricfetch-plugin.zip** — 在线歌词增强：媒体信息 → 在线取词（网易云逐字 / QQ / LRCLIB）→ 多格式解析 → 替换歌词；含宿主持久缓存管理（缓存页可列出/删除条目）。
           - **hyperglow-scriptconvert-plugin.zip** — 歌词字形转换：简 ⇄ 繁（OpenCC 词典）。
 
+          ## 致谢
+          - [accompanist-lyrics-core](https://github.com/6xingyv/accompanist-lyrics-core)（Apache-2.0，作者 6xingyv）— 多格式歌词解析内核，随 lyricfetch 打进 dex。
+          - [Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)（Apache-2.0，作者 WXRIW）— 在线取词语义、匹配打分与音节合并按其行为移植（C# → Kotlin）。
+          - [OpenCC](https://github.com/BYVoid/OpenCC)（Apache-2.0，作者 BYVoid）— scriptconvert 的简繁转换词典数据。
+          - 在线来源：网易云音乐 / QQ 音乐 / LRCLIB（公开接口）；歌词数据版权归各平台与权利人所有。
+
           插件版本：lyricfetch ${LF_VER} / scriptconvert ${SC_VER}
           构建自 commit \`${GITHUB_SHA}\`，源码见 plugins/lyricfetch 与 plugins/scriptconvert。
 
