@@ -628,6 +628,21 @@ and (b) unverified paths stay explicit instead of silently assumed.
   (`AodLyricCanvasView` `draw={count=…}` ≈ 310 per 5 s) and must step coarsely (≈ 25 per 5 s)
   with the switch on and the same override.
 
+- Demo lyric lines carry complete auxiliary content (`LyricAppearanceSection.DEMO_LINES_EN` /
+  `DEMO_LINES_ZH`): every line of both demo tracks now carries a transliteration and a translation
+  (the English track an IPA reading plus a Chinese translation, the Chinese track pinyin plus an
+  English translation), so the auxiliary-text mode (`Transliteration` / `Translation` / `Both`) and
+  its next-line and word-by-word variants have content to show under either interface language —
+  previously the English track carried none, so the switches changed nothing. The Chinese track's
+  ruby now annotates the whole line instead of its leading word: the leading-fragment annotation
+  left a stray pinyin cluster above the first characters (owner report 2026-10-06). Unit-tested
+  (`PreviewDemoLinesTest`: auxiliary text non-blank on every line, ruby segments tile the line with
+  one syllable per annotated character, readings matching the line transliteration) — app-preview-only
+  change, no SystemUI/AOD surface involvement; pending a hardware smoke check after merge: with an
+  English interface the appearance preview's transliteration and translation rows appear and follow
+  the auxiliary-text mode, with a Chinese interface the whole-line pinyin ruby appears and the
+  furigana switch hides it.
+
 ## How this ledger is used
 
 - Before merging a change that touches an area, check the most recent entry for that area; if the
@@ -856,6 +871,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 
 - AOD 省电降帧的用户开关（`aodPowerSaver`，默认开启；关闭后画布绝不降到帧上限以下）——合并后待真机冒烟：关闭开关并把设备加热（或 `adb shell cmd thermalservice override-status 3`，`cmd thermalservice reset` 复原），AOD 逐字动画必须保持配置帧率（`AodLyricCanvasView` `draw={count=…}` 约 310/5 秒）；开关开启 + 同一强制过热下必须按粗粒度步进（约 25/5 秒）。
+
+- 演示歌词行带完整辅助内容（`LyricAppearanceSection.DEMO_LINES_EN` / `DEMO_LINES_ZH`）：两份演示曲的每一行现在都带音译与翻译（英文演示曲用音标 + 中译，中文演示曲用拼音 + 英译），「辅助文字」模式（转写 / 翻译 / 两者）及其下一行、逐字变体在两种界面语言下都有内容可显示——此前英文演示曲这些字段全空，开关切了预览毫无变化。中文演示曲的注音改为整行覆盖（原先只标行首一个词，预览里会在首字上方留下一簇孤立的拼音，即 owner 2026-10-06 反馈的「零星的转写内容」）。已有单测（`PreviewDemoLinesTest`：每行辅助文字非空、注音段无缝铺满整行且逐字一音节、读音与整行罗马音逐字一致）——仅应用内预览改动，不涉及 SystemUI/AOD surface；合并后待真机冒烟：英文界面下外观预览的转写与翻译行出现且随辅助文字模式切换，中文界面下整行拼音注音出现且「显示振假名」开关可将其隐藏。
 
 ## 台账的使用方式
 
