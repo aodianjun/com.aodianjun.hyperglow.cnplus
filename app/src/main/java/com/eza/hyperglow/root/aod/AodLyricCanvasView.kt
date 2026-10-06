@@ -1358,7 +1358,9 @@ internal class AodLyricCanvasView(
             drawLayout.original.lines.isNotEmpty(),
             drawContent.animationMode,
             drawContent.lineStartMs,
-            drawContent.lineEndMs
+            drawContent.lineEndMs,
+            // 带真实词窗的行压过行级标记,走 drawOriginal 的词级卡拉OK分支(与决策函数同源)。
+            drawLayout.original.timed
         )
         if (sharedLineLevelSweep) {
             drawSharedLineLevelRows(
@@ -2314,7 +2316,6 @@ internal class AodLyricCanvasView(
             animationMode = forContent.animationMode,
             timed = timed,
             lineLevelSync = forContent.lineLevelSync,
-            glowMode = forContent.glowMode,
             lineSyncFillMode = forContent.lineSyncFillMode,
             lineStartMs = forContent.lineStartMs,
             lineEndMs = forContent.lineEndMs
@@ -2607,7 +2608,6 @@ internal class AodLyricCanvasView(
             animationMode = content.animationMode,
             timed = originalLayout.timed,
             lineLevelSync = content.lineLevelSync,
-            glowMode = content.glowMode,
             lineSyncFillMode = content.lineSyncFillMode,
             lineStartMs = content.lineStartMs,
             lineEndMs = content.lineEndMs
@@ -3127,7 +3127,9 @@ internal class AodLyricCanvasView(
             assignRuby(content, lines),
             metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density,
             LYRIC_LINE_GAP_DP * density,
-            layout.timed
+            // 真实词窗判据(见 hasTimedWordWindows):行级标记不再压过它,渲染路径决策
+            // (planOriginalLine / shouldUseSharedLineLevelSweep)与效果余量共用这一位。
+            hasTimedWordWindows(content.words)
         )
     }
 
@@ -3175,7 +3177,7 @@ internal class AodLyricCanvasView(
             lines,
             metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density,
             LYRIC_LINE_GAP_DP * density,
-            layout.timed
+            hasTimedWordWindows(duet.words)
         )
     }
 
@@ -3820,6 +3822,7 @@ internal class AodLyricCanvasView(
         val lines: List<OriginalLine>,
         val lineHeight: Float,
         val lineGap: Float,
+        /** 该行是否带真实词窗(见 [hasTimedWordWindows]):渲染路径决策与效果余量共用。 */
         val timed: Boolean
     ) {
         val lineCount: Int

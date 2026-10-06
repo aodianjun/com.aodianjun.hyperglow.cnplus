@@ -73,6 +73,8 @@ import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.aod.AodCanvasRuby
+import com.eza.hyperglow.root.aod.AodCanvasWord
+import com.eza.hyperglow.root.aod.alignMissingWordOffsets
 import com.eza.hyperglow.root.aod.edgeSafeAlignedStart
 import com.eza.hyperglow.root.aod.LineTransitionFrame
 import com.eza.hyperglow.root.aod.LyricGlowRenderer
@@ -112,6 +114,7 @@ import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
+import com.eza.hyperglow.root.aod.OriginalLinePath
 import com.eza.hyperglow.root.aod.planOriginalLine
 import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
 import com.eza.hyperglow.root.aod.rubyReservation
@@ -412,18 +415,21 @@ private fun LyricPreviewSurface(
     // drawOriginal 分支树与预览三处只此一份)。此前预览自带一份 when,且判据是
     // `snapshot.lineLevelSync`,而快照该位在实机侧表示「行级同步显示态」(有活动行且非大
     // 元数据引导),预览侧旧值却是「无逐字时间」——逐字源被当成非行级同步,预览整块横扫,
-    // 与实机(带行窗的逐字源走共享逐行扫光)不一致。BetterLyrics 档由决策函数保证落在
-    // 词级卡拉OK路径(逐字源真实词窗 / 行级源字符合成),不再被整块扫光吞掉。
+    // 与实机(带行窗的逐字源走共享逐行扫光)不一致。带真实词窗的行压过行级标记:非 Minimal
+    // 档一律词级卡拉OK(逐字源真实词窗 / BetterLyrics 行级源字符合成),不再被行级扫光门
+    // 吞掉(真机日志 `anim=Gradient timed=true words=13 lineSync=true`)。
     val previewPlan = planOriginalLine(
         animationMode = profile.animation,
-        timed = snapshot.words.isNotEmpty(),
+        timed = snapshot.words.any { it.text.isNotBlank() && it.endMs > it.startMs },
         lineLevelSync = snapshot.lineLevelSync,
-        glowMode = profile.glow,
         lineSyncFillMode = profile.lineSyncFillMode,
         lineStartMs = snapshot.lineStartMs,
         lineEndMs = snapshot.lineEndMs
     )
     val previewFillMode = previewPlan.fillMode
+    // 词级卡拉OK路径(与实机 drawOriginal 的 WORD_KARAOKE 分支同义):带真实词窗的行,
+    // 预览与实机都按词窗逐字渲染;行级源仍走共享扫光块。
+    val previewWordKaraoke = previewPlan.path == OriginalLinePath.WORD_KARAOKE
 
     // 预览卡片高度自适应:面板高度贴合歌词内容(钳制见 previewCardHeightDp),大字号/多行
     // 内容不再被固定高度裁掉。高度取本配置下的已见最大内容高度——演示行循环/逐行播放时
@@ -491,7 +497,8 @@ private fun LyricPreviewSurface(
                     snapshot.original, snapshot.words, snapshot.lineStartMs, snapshot.lineEndMs,
                     textSize, lyricTypeface, regularTypeface,
                     previewRuby, availablePx, profile.lyricLineLimit, profile.overflow,
-                    profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText
+                    profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText,
+                    previewWordKaraoke
                 ) {
                     buildPreviewMainLayout(
                         text = snapshot.original,
@@ -501,6 +508,7 @@ private fun LyricPreviewSurface(
                         ruby = previewRuby,
                         words = snapshot.words,
                         betterLyrics = profile.animation == "BetterLyrics",
+                        wordKaraoke = previewWordKaraoke,
                         unsungColorArgb = resolvedColors.unsungText,
                         lineSpanMs = demoLineSpanMs,
                         availableWidthPx = availablePx.toFloat(),
@@ -960,6 +968,8 @@ private class PreviewMainLayout(
     val wordSpanEndMs: Long = 0L,
     /** 是否走「BetterLyrics」逐字卡拉OK(与实机 drawWordKaraoke(betterLyrics=true) 同源)。 */
     val betterLyrics: Boolean = false,
+    /** 决策函数给出的词级卡拉OK路径(与实机 drawOriginal 的 WORD_KARAOKE 分支同义)。 */
+    val wordKaraoke: Boolean = false,
     /** 未唱底字色(与实机 resolvedPalette.unsungText 同源)。 */
     val unsungColorArgb: Int = 0,
     /**
@@ -1005,6 +1015,8 @@ private fun buildPreviewMainLayout(
     ruby: List<AodCanvasRuby>,
     words: List<LyricWord>,
     betterLyrics: Boolean,
+    /** 词级卡拉OK路径(planOriginalLine 决策):真实词窗的行非 Minimal 档一律为真。 */
+    wordKaraoke: Boolean,
     unsungColorArgb: Int,
     lineSpanMs: Long,
     availableWidthPx: Float,
@@ -1105,14 +1117,29 @@ private fun buildPreviewMainLayout(
         precedingRuby,
         lineGap
     )
-    // 「BetterLyrics」档:把逐字词位映射到各行(与实机词行布局同源语义),供预览逐字渲染;
-    // 行级源(无逐字时间)按字符合成时间窗走同一渲染;其余档不注入。词位为空时逐字分支
-    // 自然退化到行级/块级扫光。
+    // 词级卡拉OK路径(决策函数给出):把逐字词位映射到各行(与实机词行布局同源语义),
+    // 供预览逐字渲染;行级源(BetterLyrics 档)按字符合成时间窗走同一渲染;其余档不注入,
+    // 自然退化到行级/块级扫光。词位缺省原文区间时与实机同源补全(alignMissingWordOffsets:
+    // 插件词表常不带区间),否则词位无处落位、预览会与实机的逐字路径分叉。
+    val alignedWords = alignMissingWordOffsets(
+        text,
+        words.map {
+            AodCanvasWord(
+                text = it.text,
+                romanized = it.romanized,
+                startMs = it.startMs,
+                endMs = it.endMs,
+                boundaryAfter = it.boundaryAfter,
+                sourceStart = it.sourceStart,
+                sourceEnd = it.sourceEnd
+            )
+        }
+    )
     val wordRuns = when {
-        betterLyrics && words.isNotEmpty() ->
-            result.lines.map { line -> previewWordRuns(line, text.length, words, paint) }
+        wordKaraoke && alignedWords.isNotEmpty() ->
+            result.lines.map { line -> previewWordRuns(line, text.length, alignedWords, paint) }
         // 合成源只吃行文本与行宽(与副文本行同型),主行行表按同一口径转换后共用。
-        betterLyrics -> syntheticPreviewWordRuns(
+        wordKaraoke && betterLyrics -> syntheticPreviewWordRuns(
             result.lines.map { LyricLayoutTextLine(it.text, it.width) },
             paint,
             lineSpanMs
@@ -1134,6 +1161,7 @@ private fun buildPreviewMainLayout(
         wordSpanStartMs = wordSpanStartMs,
         wordSpanEndMs = wordSpanEndMs,
         betterLyrics = betterLyrics,
+        wordKaraoke = wordKaraoke,
         unsungColorArgb = unsungColorArgb,
         lineSpanMs = lineSpanMs
     )
@@ -1141,13 +1169,14 @@ private fun buildPreviewMainLayout(
 
 /**
  * 预览一行的逐字词位(与实机 buildOriginalLayout 的词行布局同源语义):按行字符区间裁剪
- * 与行相交的逐字词,以主行字体的前缀宽/词宽求行内 x/宽。词无来源区间(纯行级源)或与
- * 行不相交时跳过——与实机一致,退化到行级/块级扫光。
+ * 与行相交的逐字词,以主行字体的前缀宽/词宽求行内 x/宽。词表缺省区间已由调用方按实机
+ * 同源补全([alignMissingWordOffsets]);仍无区间或与行不相交时跳过——与实机一致,
+ * 退化到行级/块级扫光。
  */
 private fun previewWordRuns(
     line: LyricLayoutLine,
     textLength: Int,
-    words: List<LyricWord>,
+    words: List<AodCanvasWord>,
     paint: TextPaint
 ): List<PreviewWordRun> {
     val lineStart = line.charStart ?: return emptyList()
@@ -1815,17 +1844,16 @@ private fun PreviewMainLayer(
                 }
             }
         }
-        // 走词级卡拉OK:共享决策(planOriginalLine)已把 BetterLyrics 档固定在该路径
-        // (fillMode 非 None 时),这里再加预览自身的必要条件——词位已构建且时间跨度有效。
-        // 词位只在 BetterLyrics 档构建([buildPreviewMainLayout]),故该门与决策同义;
-        // 若将来为非 BetterLyrics 档补建词位(实机基础卡拉OK路径),此处一并放开即可。
-        val useWordKaraoke = layout.betterLyrics && fillMode != "None" &&
+        // 走词级卡拉OK:共享决策(planOriginalLine)已把「带真实词窗的行」固定在该路径
+        // (Gradient 等基础档与 BetterLyrics 都含),这里再加预览自身的必要条件——词位已
+        // 构建且时间跨度有效。词位由 [buildPreviewMainLayout] 按同一决策构建,该门与决策同义。
+        val useWordKaraoke = layout.wordKaraoke &&
             layout.wordSpanEndMs > layout.wordSpanStartMs &&
             layout.wordRuns.any { it.isNotEmpty() }
         if (useWordKaraoke) {
-            // 「BetterLyrics」档逐字卡拉OK(与实机 drawWordKaraoke(betterLyrics=true) 同源):
-            // 演示进度按词位总时间跨度映射为虚拟播放位置,逐词取已唱比例;共享渲染核心负责
-            // 未唱下沉/已唱上浮、长音节放大/辉光(整档不做逐字扫光、整块亮起)。
+            // 逐字卡拉OK(与实机 drawWordKaraoke 同源):演示进度按词位总时间跨度映射为虚拟
+            // 播放位置,逐词取已唱比例;共享渲染核心负责两种档位形态——BetterLyrics 档的
+            // 未唱下沉/已唱上浮、长音节放大/辉光,基础档(Gradient 等)的历史词内扫光带。
             val virtualPosition = layout.wordSpanStartMs +
                 ((layout.wordSpanEndMs - layout.wordSpanStartMs) * progress.coerceIn(0f, 1f)).toLong()
             drawIntoCanvas { canvas ->

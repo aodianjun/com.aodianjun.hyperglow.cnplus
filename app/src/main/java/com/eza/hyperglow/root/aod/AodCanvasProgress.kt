@@ -31,18 +31,8 @@ internal fun horizontalRowProgress(
     }
 
 /**
- * 是否走共享 LyricGlowRenderer 预览管线:
- * 行级同步源、无词级时间源、或开启发光 —— 与预览同源渲染;
- * 仅"逐字时间源 + 关闭发光 + 非行级同步"保留逐字卡拉OK路径。
+ * 整块扫光总进度:行级时间有效时用行区间;纯逐字源回退到全局首词→末词范围。
  */
-internal fun usesPreviewGlowPipeline(
-    animationMode: String,
-    timed: Boolean,
-    lineLevelSync: Boolean,
-    glowMode: String
-): Boolean = animationMode != "Minimal" && (glowMode != "Off" || lineLevelSync || !timed)
-
-/** 整块扫光总进度:行级时间有效时用行区间;纯逐字源回退到全局首词→末词范围。 */
 internal fun unifiedBlockProgress(
     positionMs: Long,
     lineStartMs: Long,
