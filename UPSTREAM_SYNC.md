@@ -10,8 +10,9 @@
 
 ## Current Status
 
-- **CN+ version**: 0.3.147 (174) as of 2026-10-03, upstream baseline as of `1537c58` (v0.3.178). Evaluated increments since `8422d78` (v0.3.97): `748912e` (2026-09-11), `2885511` (2026-09-14), `1537c58` (2026-09-17) — all handled; every evaluated item is accounted for in the tables below.
-- **Upstream latest**: 2026-09-28 `99ba119`, version 0.3.191 (216) — detected 2026-10-02, **partially ported**: item #7 on 2026-10-02 (PR #136), items #8/#3/#6 on 2026-10-03 (PR #146) and item #5 on 2026-10-03 (PR #147); the remaining items are registered in the "Pending Evaluation" table below.
+- **CN+ version**: 0.3.166 (193) as of 2026-10-06 (the first stable release since 0.3.82), upstream baseline as of `1537c58` (v0.3.178). Evaluated increments since `8422d78` (v0.3.97): `748912e` (2026-09-11), `2885511` (2026-09-14), `1537c58` (2026-09-17) — all handled; every evaluated item is accounted for in the tables below.
+- **Upstream latest**: 2026-10-05 `fefe5c54`, version 0.3.199 (224) — released 2026-10-05, detected 2026-10-07, **never evaluated before this revision**: `84a0c9ce` (vC221 / 0.3.196, no release tag of its own) and `fefe5c54` (vC224 / 0.3.199); their rows are registered in the "Pending Evaluation" table below.
+- **Upstream, previous increment**: 2026-09-28 `99ba119`, version 0.3.191 (216) — detected 2026-10-02, **partially ported**: item #7 on 2026-10-02 (PR #136), items #8/#3/#6 on 2026-10-03 (PR #146) and item #5 on 2026-10-03 (PR #147); the remaining items are registered in the "Pending Evaluation" table below.
 - **Newest synced item**: 2026-09-28 `99ba119` items #3/#5/#6/#7/#8, see their rows in the synced table below. The recorded baseline stays `1537c58` on purpose, so the scan keeps reporting the pending delta until the whole commit is ported and recorded.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
@@ -59,6 +60,14 @@
 > are still open. `.github/upstream-baseline.txt` is deliberately left at `1537c58` so the scan keeps
 > reporting this delta until the whole port is done and recorded. Per-row "CN+ note" flags where CN+
 > has diverged enough to shape the port.
+>
+> Also detected 2026-10-07: upstream advanced again, from `99ba119` to `fefe5c54` (v0.3.199 /
+> versionCode 224, released 2026-10-05) — two squashed `update` commits, `84a0c9ce` (+760/−134 over
+> 23 files, vC221 / 0.3.196, no release tag of its own) and `fefe5c54` (+398/−39 over 14 files),
+> plus a README-only `1d45adea`. Neither had been evaluated before; their rows are below. The
+> v0.3.199 release notes name six user-facing items: show SpicyLyrics.org lyrics, compact multiline
+> tail credits, fix missing duet and backing vocal lines, show all credited artists and add artist
+> text size control, improve song info spacing, and fix lyric connection after Spotify updates.
 
 | Upstream commit | Date | Content | Status |
 |---|---|---|---|
@@ -70,6 +79,16 @@
 | `99ba119` item #11 | 2026-09-28 | **Upstream doc sync**: ARCHITECTURE (punctuation phrase breaks; correction that Android does **not** auto-reconnect a bound-service client — rebinding is the producer client's responsibility, provider transport excepted); LOCKSCREEN_AOD_BEHAVIOR_SPEC (free-anchor solos / stock band reserve / intro-length slider / `Line`,`Word`,`Syllable` keepalive / wake-broker seams + named faults / stacked-single layout / capability ≠ reachability / named wire rejection); DIAGNOSTIC_REPORTING_SPEC (root probe) | ⏳ Not synced — CN+ `docs/` still carry the pre-`99ba119` text (e.g. ARCHITECTURE.md still claims the automatic-reconnect behavior) |
 | `99ba119` item #12 | 2026-09-28 | Version 204/0.3.178 → 216/0.3.191 | ➖ Not applicable (CN+ independent version numbering) |
 | `99ba119` item #13 | 2026-09-28 | Tests: new `AodWakeBrokerRecoveryTest` + additions to AodCanvasLayoutTest / AodPositionUpdateTest / AodStateWireCodecTest / AodStateProjectorTest / SongMetadataIntroPolicyTest / DiagnosticCaptureCollectorTest / AodRenderPreferencesTest / SceneCompilerTest / ConfigBackupCodecTest / AodProjectionLifecycleTest / SpicyBridgeDocumentTest | ⏳ Land with the port |
+| `84a0c9ce` item #1 | 2026-10-05 | **Co-timed section identity from source row ordinals**: wire body v10→v11 appends a `sourceRowOrdinal` for the primary and the second line (`MAX_SOURCE_ROWS = 5000`; validation rejects a second ordinal equal to the primary's, and any ordinal when no second line is present); the projector derives them from document row order (`rows.indexOfFirst { it === presentedRow }`); the renderer's transition identity moves from `(trackGeneration, lineStartMs, lineEndMs, text)` to the ordinal (`AodLineTransitionKey` / `layoutEquivalent` / `DuetSectionId`), so co-timed rows keep separate section identities when the primary and the companion exchange roles or their text is corrected. Older bodies keep their timing-based identity | ⏳ Not ported. **CN+ note**: CN+ owns its own body scheme (currently v7) and has no ordinal mechanism at all — its duet line came from PR #118 with the upstream slot-inheritance machinery deliberately simplified away, so the failure this fixes (role exchange or text correction collapsing two sections into one) has to be reproduced on CN+ before porting |
+| `84a0c9ce` item #2 | 2026-10-05 | **Stacked artist size control** (`metadataArtistSizePercent`, 40..100, default 80): per-surface pref threaded profile → compiled → canvas → UI slider, hidden in the `single` layout where the whole line is title-sized; `normalizeSongInfoArtistSizePercent` falls back to the default on out-of-range values instead of clamping, so a corrupt document renders the default hierarchy rather than a zero-height line | ⏳ Not ported. Directly applicable: CN+ song info carries only a whole-block `metadataSizePercent` today, and CN+ already defaults to the ` · ` single line with per-slot separators |
+| `84a0c9ce` item #3 | 2026-10-05 | **Mixed-size song-info line boxes**: new pure `mixedSizeLineBaselineOffsets` / `mixedSizeLineStackHeight` / `metadataArtistPieceIndexes`; every line advances by its own descent plus the next line's ascent (document line-box arithmetic) instead of one uniform box sized by the tallest line — the uniform step pushed the smaller artist line down by a full title leading and read as two separate blocks. `Row.lineBaselineOffset` / `stackHeight` / `uniformLineHeight`, the metadata height reservation, the lyric-area bounds and the intro-morph landing paint all follow; a uniform stack reproduces the previous result exactly | ⏳ Not ported (lands with item #2 — it is what makes a mixed-size stack lay out correctly) |
+| `84a0c9ce` item #4 | 2026-10-05 | **`android:forceQueryable="true"`**: lets Spotify discover the module's bridge service and provider without changing Spotify's manifest (package visibility does not grant access — both endpoints still validate the caller UID) | ⏳ Not ported. **CN+ note**: verify CN+'s manifest and whether CN+'s own bridge needs the same declaration |
+| `84a0c9ce` item #5 | 2026-10-05 | Docs (ARCHITECTURE: `forceQueryable` + body v11 source ordinals; LOCKSCREEN_AOD_BEHAVIOR_SPEC: co-timed section identity, mixed-size song-info stack) + tests (AodStateWireCodecTest, AodCanvasLayoutTest, AodStateProjectorTest, AodStateBridgeTest, SceneCompilerTest) | ⏳ Land with the port |
+| `84a0c9ce` item #6 | 2026-10-05 | Version 216/0.3.191 → 221/0.3.196 | ➖ Not applicable (CN+ independent version numbering) |
+| `fefe5c54` item #1 | 2026-10-05 | **Response credit outro**: `SpicyBridgeDocument` gains `responseCredit` (Spicy EX document v2 field, decoded by `decodeSpicyResponseCredit` with an 8,192-character bound; older documents keep their behavior) plus a new `ResponseCreditOutroPolicy` — the credit appears 700 ms after the last LEAD row's fill end and stays visible for 10 s on one app-owned elapsed clock, not renewed by heartbeats, document corrections or transport gaps; a seek before the outro allows another episode and a new track starts a new clock; untimed documents, missing credit and disabled surfaces never start it. Rendered as static main text: fixed 16 sp `"credit"` text size mode (new `normalizeAodTextSize` case), animation Minimal, glow Off, overflow Wrap, metadata row suppressed; writers / provider / uploader / maker occupy separate rows | ⏳ Not ported. **CN+ note**: inert without the producer side — CN+ would have to carry `responseCredit` through its own document decode and wire (body v7) before any of the policy matters |
+| `fefe5c54` item #2 | 2026-10-05 | **Backing-vocal join rule**: `joinsConcurrentScene` replaces the bare `overlapWith(...) >= MIN_CONCURRENT_OVERLAP_MS` test — an explicit `BACKGROUND` row joins on any positive shared window (short authored responses are no longer swallowed by the one-second gate), while incidental overlaps between lead rows keep the 1 s gate | ⏳ Not ported. Small and self-contained: CN+ carries the same `MIN_CONCURRENT_OVERLAP_MS = 1_000` gate in `SpicyBridgeDocumentStore` |
+| `fefe5c54` item #3 | 2026-10-05 | Docs (LOCKSCREEN_AOD_BEHAVIOR_SPEC: response credit outro section, backing-vocal overlap wording) + tests (ResponseCreditOutroPolicyTest, ShortBackingVocalTest, SpicyResponseCreditDecodeTest, ResponseCreditLayoutTest) | ⏳ Land with the port |
+| `fefe5c54` item #4 | 2026-10-05 | Version 221/0.3.196 → 224/0.3.199 | ➖ Not applicable (CN+ independent version numbering) |
 
 **Usefulness assessment (2026-10-02, cross-checked against the current CN+ tree)**
 
@@ -83,6 +102,14 @@
   - **item #11 upstream spec sync**: value lies in doc accuracy (notably the "Android does not auto-reconnect" correction) but it should follow the code conclusions; do it alongside a port.
   - **item #13 tests**: land with their features.
 - **Not applicable:** item #10 (CN+ never had duet slot memory); item #12 (CN+ version numbering).
+
+**Usefulness assessment (2026-10-07, `99ba119` → `fefe5c54` increment, read from the patches)**
+
+- **Worth porting as-is:** `fefe5c54` item #2 — the backing-vocal join rule is a few lines against a gate CN+ carries verbatim. `84a0c9ce` items #2/#3 — artist size plus mixed-size line boxes are a self-contained, user-visible song-info improvement, and CN+ has the same layout code shape to hang them off.
+- **Needs the producer first:** `fefe5c54` item #1 (response credit) does nothing until a document field CN+ does not carry reaches the projector; port the decode and wire path first, or skip the whole item.
+- **Re-confirm before porting:** `84a0c9ce` item #1 (source row ordinals). CN+ dropped the upstream duet machinery in PR #118 and owns a different wire scheme, so the failure it fixes must be reproduced on CN+ first.
+- **Cheap and independent:** `84a0c9ce` item #4 (`forceQueryable`) — a one-line manifest question, verify against CN+'s own bridge discovery.
+- **Not applicable:** the two version rows (`84a0c9ce` item #6, `fefe5c54` item #4).
 
 ## Not Synced / Excluded
 
@@ -127,8 +154,9 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
 
 ## 当前状态
 
-- **CN+ 版本**：0.3.147 (174)（截至 2026-10-03），上游基线截至 `1537c58`（v0.3.178）。此后的评估增量：`748912e`（2026-09-11）、`2885511`（2026-09-14）与 `1537c58`（2026-09-17）——均已在下方各表中处置。
-- **上游最新**：2026-09-28 `99ba119`，版本 0.3.191 (216) —— 2026-10-02 侦测到，**已部分移植**：项 #7 于 2026-10-02（PR #136）、项 #8/#3/#6 于 2026-10-03（PR #146）、项 #5 于 2026-10-03（PR #147）；其余各项仍登记于下方「待评估（尚未移植）」表。
+- **CN+ 版本**：0.3.166 (193)（截至 2026-10-06，0.3.82 之后的首个正式版），上游基线截至 `1537c58`（v0.3.178）。此后的评估增量：`748912e`（2026-09-11）、`2885511`（2026-09-14）与 `1537c58`（2026-09-17）——均已在下方各表中处置。
+- **上游最新**：2026-10-05 `fefe5c54`，版本 0.3.199 (224) —— 2026-10-05 发布、2026-10-07 侦测到，**本次修订前从未评估**：`84a0c9ce`（vC221 / 0.3.196，无独立 release tag）与 `fefe5c54`（vC224 / 0.3.199）；各行登记于下方「待评估」表。
+- **上游上一个增量**：2026-09-28 `99ba119`，版本 0.3.191 (216) —— 2026-10-02 侦测到，**已部分移植**：项 #7 于 2026-10-02（PR #136）、项 #8/#3/#6 于 2026-10-03（PR #146）、项 #5 于 2026-10-03（PR #147）；其余各项仍登记于下方「待评估（尚未移植）」表。
 - **最新已同步项**：2026-09-28 `99ba119` 的项 #3/#5/#6/#7/#8，见「已同步 / 已包含」表。基线有意保持 `1537c58` 不动，使扫描持续报告该待处理增量，直至整批移植并登记。
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
@@ -174,6 +202,13 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
 > ——单个压平的 `update` 提交，约 1457 行 / 47 文件。项 #3/#5/#6/#7/#8 已移植（见「已同步」表）；以下各行
 > 仍未移植。`.github/upstream-baseline.txt` 有意保持 `1537c58`，使扫描持续报告该增量，直至整批移植并登记。
 > 各行的「CN+ 备注」标出 CN+ 分叉大到会影响移植方式之处。
+>
+> 另于 2026-10-07 侦测：上游再次推进，从 `99ba119` 到 `fefe5c54`（v0.3.199 / versionCode 224，2026-10-05 发布）
+> ——两个压平的 `update` 提交：`84a0c9ce`（+760/−134，23 文件，vC221 / 0.3.196，无独立 release tag）与
+> `fefe5c54`（+398/−39，14 文件），外加只改 README 的 `1d45adea`。二者此前均未评估，各行列于下方。
+> v0.3.199 的 release 说明列出六条用户可见项：显示 SpicyLyrics.org 歌词、紧凑多行片尾署名、
+> 修复缺失的对唱与伴唱行、显示全部署名艺人并新增歌手字号控制、改进歌曲信息间距、
+> 修复 Spotify 更新后歌词连不上。
 
 | 上游提交 | 日期 | 内容 | 状态 |
 |---|---|---|---|
@@ -185,6 +220,16 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
 | `99ba119` 项 #11 | 2026-09-28 | **上游文档同步**：ARCHITECTURE（标点子句断行；更正——Android **不会**自动重连 bound-service 客户端，重连是生产者客户端的职责，provider 传输除外）；LOCKSCREEN_AOD_BEHAVIOR_SPEC（自由锚点独唱 / 原厂带预留 / 开场时长滑块 / `Line`,`Word`,`Syllable` keepalive / 唤醒 broker 接缝 + 具名故障 / stacked-single 布局 / 能力 ≠ 可达 / 具名 wire 拒绝）；DIAGNOSTIC_REPORTING_SPEC（root 探测） | ⏳ 未同步——CN+ `docs/` 仍是 `99ba119` 之前的文本（如 ARCHITECTURE.md 仍写着自动重连行为） |
 | `99ba119` 项 #12 | 2026-09-28 | 版本号 204/0.3.178 → 216/0.3.191 | ➖ 不适用（CN+ 独立版本号体系） |
 | `99ba119` 项 #13 | 2026-09-28 | 测试：新增 `AodWakeBrokerRecoveryTest`，并在 AodCanvasLayoutTest / AodPositionUpdateTest / AodStateWireCodecTest / AodStateProjectorTest / SongMetadataIntroPolicyTest / DiagnosticCaptureCollectorTest / AodRenderPreferencesTest / SceneCompilerTest / ConfigBackupCodecTest / AodProjectionLifecycleTest / SpicyBridgeDocumentTest 增补 | ⏳ 随移植落地 |
+| `84a0c9ce` 项 #1 | 2026-10-05 | **同刻行的「节身份」改由源行序号判定**：wire body v10→v11 为主行与次行各追加一个 `sourceRowOrdinal`（`MAX_SOURCE_ROWS = 5000`；校验拒绝「次行序号等于主行」以及「无次行却带序号」）；投影层按文档行序推导（`rows.indexOfFirst { it === presentedRow }`）；渲染层的过渡身份从 `(trackGeneration, lineStartMs, lineEndMs, text)` 改为序号（`AodLineTransitionKey` / `layoutEquivalent` / `DuetSectionId`），使主唱与伴唱交换角色、或文本被纠正时两个同刻行仍各保身份。旧 body 仍走计时身份 | ⏳ 未移植。**CN+ 备注**：CN+ 自有 body 体系（现为 v7）且完全没有序号机制——其对唱来自 PR #118，上游的槽位继承机制被有意简化掉；本项所修的故障（角色互换/文本纠正把两个 section 并成一个）须先在 CN+ 上复现再定 |
+| `84a0c9ce` 项 #2 | 2026-10-05 | **堆叠式歌手字号可调**（`metadataArtistSizePercent`，40..100，默认 80）：per-surface 偏好贯通 profile → compiled → canvas → UI 滑杆，`single` 布局下不显示（该布局整行按标题字号）；`normalizeSongInfoArtistSizePercent` 对越界值回落默认而非钳制，避免坏文档渲染成零高行 | ⏳ 未移植。可直接适用：CN+ 歌曲信息目前只有整块 `metadataSizePercent`，且 CN+ 默认已是 ` · ` 单行 + 逐槽分隔符 |
+| `84a0c9ce` 项 #3 | 2026-10-05 | **混合字号的歌曲信息行盒**：新增纯函数 `mixedSizeLineBaselineOffsets` / `mixedSizeLineStackHeight` / `metadataArtistPieceIndexes`；每行按「上一行 descent + 下一行 ascent」推进（文档排版的行盒算法），而非按最高行取统一行盒——后者会把小字歌手行多推一个标题行距、看起来像两块。`Row.lineBaselineOffset` / `stackHeight` / `uniformLineHeight`、元数据高度预留、歌词区边界与开场 morph 落点 paint 均随之改；全同尺寸时逐值等于旧结果 | ⏳ 未移植（随项 #2 落地——正是它让混合字号堆叠排得对） |
+| `84a0c9ce` 项 #4 | 2026-10-05 | **`android:forceQueryable="true"`**：让 Spotify 能发现本模块的 bridge service 与 provider，而无需改 Spotify 的 manifest（包可见性不等于授权——两端仍校验 caller UID） | ⏳ 未移植。**CN+ 备注**：需核对 CN+ 的 manifest 是否已声明、以及 CN+ 自有 bridge 是否需要同样处理 |
+| `84a0c9ce` 项 #5 | 2026-10-05 | 文档（ARCHITECTURE：`forceQueryable` + body v11 源行序号；LOCKSCREEN_AOD_BEHAVIOR_SPEC：同刻行节身份、混合字号歌曲信息堆叠）+ 测试（AodStateWireCodecTest、AodCanvasLayoutTest、AodStateProjectorTest、AodStateBridgeTest、SceneCompilerTest） | ⏳ 随移植落地 |
+| `84a0c9ce` 项 #6 | 2026-10-05 | 版本号 216/0.3.191 → 221/0.3.196 | ➖ 不适用（CN+ 独立版本号体系） |
+| `fefe5c54` 项 #1 | 2026-10-05 | **片尾署名（response credit outro）**：`SpicyBridgeDocument` 新增 `responseCredit`（Spicy EX document v2 字段，`decodeSpicyResponseCredit` 解码并限 8192 字符；老文档行为不变），并新增 `ResponseCreditOutroPolicy`——最后一条 LEAD 行的 fill end 之后 700ms 出现、在一条 app 自有的 elapsed 时钟上保持 10 秒，心跳、文档纠正与传输空窗都不续期；outro 前 seek 可再触发一次，换歌换新时钟；未计时文档、无署名、曲面关闭都不启动。渲染为静态主文本：固定 16sp 的 `"credit"` 字号档（`normalizeAodTextSize` 新增该档）、动画 Minimal、辉光 Off、overflow Wrap、隐藏元数据行；词曲作者 / provider / 上传者 / maker 各占一行 | ⏳ 未移植。**CN+ 备注**：缺生产端即完全惰性——CN+ 须先在自己的文档解码与 wire（body v7）里携带 `responseCredit`，否则整项无意义 |
+| `fefe5c54` 项 #2 | 2026-10-05 | **伴唱行加入规则放宽**：`joinsConcurrentScene` 取代裸判据 `overlapWith(...) >= MIN_CONCURRENT_OVERLAP_MS`——显式 `BACKGROUND` 行只要有正重叠即加入（短应答不再被一秒门吞掉），非伴唱的 lead 行之间偶然重叠仍守 1 秒门 | ⏳ 未移植。小且自洽：CN+ 在 `SpicyBridgeDocumentStore` 里带着同一个 `MIN_CONCURRENT_OVERLAP_MS = 1_000` 门 |
+| `fefe5c54` 项 #3 | 2026-10-05 | 文档（LOCKSCREEN_AOD_BEHAVIOR_SPEC：片尾署名一节、伴唱重叠措辞）+ 测试（ResponseCreditOutroPolicyTest、ShortBackingVocalTest、SpicyResponseCreditDecodeTest、ResponseCreditLayoutTest） | ⏳ 随移植落地 |
+| `fefe5c54` 项 #4 | 2026-10-05 | 版本号 221/0.3.196 → 224/0.3.199 | ➖ 不适用（CN+ 独立版本号体系） |
 
 **有用性评估（2026-10-02，逐项对照当前 CN+ 代码；移植状态更新于 2026-10-03）**
 
@@ -198,6 +243,14 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
   - **项 #11 上游规范文档同步**：价值在文档准确性（尤其「Android 不会自动重连」更正），但应跟随代码结论；可随移植附带。
   - **项 #13 测试**：随对应功能落地。
 - **不适用：** 项 #10（CN+ 从无对唱槽位机制）；项 #12（CN+ 独立版本号）。
+
+**有用性评估（2026-10-07，`99ba119` → `fefe5c54` 增量，按 patch 逐条核对）**
+
+- **可直接移植：** `fefe5c54` 项 #2——伴唱加入规则只是几行，改的是 CN+ 原样带着的同一道门。`84a0c9ce` 项 #2/#3——歌手字号 + 混合字号行盒是自洽且用户可见的歌曲信息改进，CN+ 有同形的布局代码可挂。
+- **须先有生产端：** `fefe5c54` 项 #1（片尾署名）在 CN+ 尚未携带的文档字段到达投影层之前完全不起作用；先移植解码与 wire 路径，否则整项跳过。
+- **须先复现再定：** `84a0c9ce` 项 #1（源行序号）。CN+ 在 PR #118 里丢掉了上游的对唱机制、且 wire 体系不同，本项所修的故障要先在 CN+ 上复现。
+- **便宜且独立：** `84a0c9ce` 项 #4（`forceQueryable`）——一行 manifest 问题，对照 CN+ 自己的 bridge 发现机制核验即可。
+- **不适用：** 两个版本号行（`84a0c9ce` 项 #6、`fefe5c54` 项 #4）。
 
 ## 未同步 / 未纳入
 
