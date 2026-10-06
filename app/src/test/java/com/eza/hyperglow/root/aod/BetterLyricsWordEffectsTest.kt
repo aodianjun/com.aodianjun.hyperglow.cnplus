@@ -93,6 +93,58 @@ class BetterLyricsWordEffectsTest {
     }
 
     @Test
+    fun karaokeUnitAdvancesByCodePointAndClampsToSliceEnd() {
+        // 非 BMP 占位符 🎶(U+1F3B6)是代理对:整个码点一步推进,绝不按 UTF-16 单码元切
+        // (旧实现按单码元推进 → 两个孤立代理项 → Android 绘制成未知符号方框)。
+        assertEquals(2, karaokeUnitEnd("🎶", 0, 2))
+        // BMP 字符仍是单码元一步。
+        assertEquals(1, karaokeUnitEnd("a🎶b", 0, 4))
+        assertEquals(3, karaokeUnitEnd("a🎶b", 1, 4))
+        assertEquals(4, karaokeUnitEnd("a🎶b", 3, 4))
+        // 边界收敛:块/行切片边界落在代理对中间时不得越出(宁可钳到边界,不产出越界切片)。
+        assertEquals(1, karaokeUnitEnd("🎶", 0, 1))
+        // 已到/越过边界的入参安全返回边界(循环终止条件不被破坏)。
+        assertEquals(2, karaokeUnitEnd("🎶", 2, 2))
+        assertEquals(3, karaokeUnitEnd("🎶", 3, 3))
+    }
+
+    @Test
+    fun syntheticBlocksKeepNonBmpPlaceholderAsOneBlock() {
+        // 占位符整块:0 until 2——代理对不被拆成两块(逐字合成的最小输入)。
+        assertEquals(listOf(0 until 2), syntheticKaraokeBlocks("🎶"))
+        // emoji 与 CJK/西文相邻时也不劈代理对。
+        assertEquals(listOf(0 until 2, 2 until 3), syntheticKaraokeBlocks("🎶好"))
+        assertEquals(listOf(0 until 1, 1 until 3, 3 until 4), syntheticKaraokeBlocks("好🎶好"))
+    }
+
+    @Test
+    fun karaokeUnitSlicesNeverProduceLoneSurrogatesAndReassembleSource() {
+        // 行级合成逐字切片的完整不变量:逐码点推进拼接 == 原文,且每段不含孤立代理项
+        // (旧实现逐单码元切会把每个 🎶 劈成两段孤立代理项)。
+        val text = "前🎶a🎶后"
+        var index = 0
+        val pieces = ArrayList<String>()
+        while (index < text.length) {
+            val end = karaokeUnitEnd(text, index, text.length)
+            val piece = text.substring(index, end)
+            assertFalse("lone surrogate in \"$piece\"", hasLoneSurrogate(piece))
+            pieces += piece
+            index = end
+        }
+        assertEquals(text, pieces.joinToString(""))
+        assertEquals(listOf("前", "🎶", "a", "🎶", "后"), pieces)
+    }
+
+    /** 文本是否含孤立代理项(高代理项后无低代理项,或低代理项前无高代理项)。 */
+    private fun hasLoneSurrogate(text: String): Boolean = text.withIndex().any { (index, ch) ->
+        when {
+            ch.isHighSurrogate() -> index + 1 >= text.length || !text[index + 1].isLowSurrogate()
+            ch.isLowSurrogate() -> index == 0 || !text[index - 1].isHighSurrogate()
+            else -> false
+        }
+    }
+
+    @Test
     fun karaokeAlphaFollowsRowBrightnessFactorAndKeepsUnsungRelativeDim() {
         // 主行语义(因子 1):已唱满亮,未唱沿用 0.35 相对暗度(steadyTextAlpha(0.35)=0.56,
         // 与历史逐字档逐值一致)。
