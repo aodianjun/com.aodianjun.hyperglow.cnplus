@@ -279,3 +279,17 @@ internal fun aodCanvasLineIdentity(content: AodCanvasContent): AodCanvasLineIden
         content.lineEndMs,
         content.original
     )
+
+/**
+ * 「同曲同文」判据(纯函数):主行文本未变,只是行时间窗更新——空档预览行在真正开始时
+ * 正是这一形态(预览退化窗 [nextLineStartMs, nextLineStartMs] → 真实行窗
+ * [lineStartMs, lineEndMs])。屏上文本未变的更新不是换行,不应触发换行动画,否则同一句
+ * 会播两次入场动画(空档开始一次、开唱一次);文本相同但曲目不同(trackGeneration 变化)
+ * 不算,换歌/重播仍照常播换行动画。见 [AodLyricCanvasView.setContent] 的行变更判定。
+ */
+internal fun isSameLineTextUpdate(
+    previous: AodCanvasLineIdentity,
+    next: AodCanvasLineIdentity
+): Boolean = previous.trackGeneration == next.trackGeneration &&
+    previous.original.isNotBlank() &&
+    previous.original == next.original

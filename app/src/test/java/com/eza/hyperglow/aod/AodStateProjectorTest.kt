@@ -907,4 +907,214 @@ class AodStateProjectorTest {
         assertTrue(out.duetLine!!.words.isNotEmpty())
     }
 
+    // --- 空档预览:无活动行时主行提前显示下一行,替代 🎶 占位符 ---
+
+    @Test
+    fun interludeWithNextLine_previewsNextLineInMainRow() {
+        // 间奏/前奏态(LINE/SYLLABLE 源,无活动行)且确有下一行 → 主行提前显示下一行;
+        // 行窗取下一行起点(退化窗,进度恒 0 = 未唱);下一行槽位清空防重复;辅助行换成
+        // 下一行的那份;上一行的派生数据(words/ruby/layoutGroups)不与预览文本错配。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            hasTimedLyrics = true,
+            line = "",
+            lineIndex = -1,
+            lineStartMs = 0L,
+            lineEndMs = 0L,
+            positionMs = 3_000L,
+            nextLineStartMs = 8_000L,
+            words = listOf(LyricWord("上一句", "", 0L, 2_000L, false)),
+            ruby = listOf(LyricRuby(0, 1, "shang")),
+            layoutGroups = listOf(LyricLayoutGroup(0, 2, "word", true, 0.9)),
+            romanizedLine = "shang yi ju",
+            translatedLine = "previous line",
+            title = "",
+            artist = ""
+        ).copy(
+            nextLine = "下一句",
+            nextLineRomanized = "xia yi ju",
+            nextLineTranslated = "next line"
+        )
+        val out = project(s)
+
+        assertEquals("下一句", out.original)
+        assertTrue(out.visible)
+        // 下一行槽位及其辅助文字清空(同一句不再同时出现在主行与下一行两处)
+        assertEquals("", out.nextLine)
+        assertEquals("", out.nextLineRomanized)
+        assertEquals("", out.nextLineTranslated)
+        // 辅助行跟着主行换到下一行的那份
+        assertEquals("xia yi ju", out.romanized)
+        assertEquals("next line", out.translated)
+        // 行窗 = 下一行起点(退化窗 → timedWordProgress 恒 0,见 AodCanvasLayoutTest)
+        assertEquals(8_000L, out.lineStartMs)
+        assertEquals(8_000L, out.lineEndMs)
+        // 上一行的派生数据清空
+        assertTrue(out.words.isEmpty())
+        assertTrue(out.ruby.isEmpty())
+        assertTrue(out.layoutGroups.isEmpty())
+        assertFalse(out.lineLevelSync)
+    }
+
+    @Test
+    fun interludeWithoutNextLine_keepsPlaceholderAndZeroWindow() {
+        // 回归保护:无下一行文本时保持原行为(🎶 + 0/0 窗口)。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            hasTimedLyrics = true,
+            line = "",
+            lineIndex = -1,
+            nextLineStartMs = 8_000L,
+            positionMs = 3_000L,
+            title = "",
+            artist = ""
+        )
+        val out = project(s)
+
+        assertEquals("🎶", out.original)
+        assertEquals(0L, out.lineStartMs)
+        assertEquals(0L, out.lineEndMs)
+    }
+
+    @Test
+    fun interludeWhileLoading_keepsPlaceholder() {
+        // status == "loading":下一行尚未就绪,即使槽位里有文本也保持占位符(与简报语义表一致)。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            hasTimedLyrics = true,
+            line = "",
+            lineIndex = -1,
+            status = "loading",
+            nextLineStartMs = 8_000L,
+            positionMs = 3_000L,
+            title = "",
+            artist = ""
+        ).copy(nextLine = "下一句", nextLineRomanized = "x", nextLineTranslated = "y")
+        val out = project(s)
+
+        assertEquals("🎶", out.original)
+        assertEquals(0L, out.lineStartMs)
+        assertEquals(0L, out.lineEndMs)
+        // 预览未生效 → 下一行槽位保持原门控行为(照常透传)
+        assertEquals("下一句", out.nextLine)
+    }
+
+    @Test
+    fun activeLineIgnoresPreviewEvenWithNextLinePresent() {
+        // 有活动行 → 完全不变:主行/辅助行/下一行槽位/窗口都保持原行为。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "正在唱",
+            lineIndex = 0,
+            lineStartMs = 5_000L,
+            lineEndMs = 7_000L,
+            nextLineStartMs = 7_000L,
+            positionMs = 6_000L,
+            romanizedLine = "roma",
+            translatedLine = "trans"
+        ).copy(nextLine = "下一句", nextLineRomanized = "x", nextLineTranslated = "y")
+        val out = project(s)
+
+        assertEquals("正在唱", out.original)
+        assertEquals("roma", out.romanized)
+        assertEquals("trans", out.translated)
+        assertEquals("下一句", out.nextLine)
+        assertEquals("x", out.nextLineRomanized)
+        assertEquals("y", out.nextLineTranslated)
+        assertEquals(5_000L, out.lineStartMs)
+        assertEquals(7_000L, out.lineEndMs)
+        assertTrue(out.lineLevelSync)
+    }
+
+    @Test
+    fun unsyncedAndNoneKindsKeepPlaceholderDespiteNextLine() {
+        // UNSYNCED(整首无计时)与 NONE 都保持占位符:预览只在「有计时歌词且无活动行」的
+        // 间奏态生效。NONE 覆盖 LyricInfo 前奏/尾奏态(该源无活动行时 kind=NONE),
+        // 与简报优先级 1(unsynced || noLyrics → 占位符,不变)一致。
+        val unsynced = project(
+            state(
+                lyricKind = LyricKind.UNSYNCED,
+                hasTimedLyrics = false,
+                line = "flat line",
+                lineIndex = -1
+            ).copy(nextLine = "下一句")
+        )
+        assertEquals("🎶", unsynced.original)
+
+        val none = project(
+            state(
+                lyricKind = LyricKind.NONE,
+                hasTimedLyrics = true,
+                line = "",
+                lineIndex = -1,
+                nextLineStartMs = 8_000L,
+                positionMs = 3_000L
+            ).copy(nextLine = "下一句")
+        )
+        assertEquals("🎶", none.original)
+    }
+
+    @Test
+    fun previewDoesNotOverrideWindowDuringLargeMetadata() {
+        // 大元数据引导(歌曲信息)靠「窗口在过去 → 全亮」呈现亮色文本;预览的退化窗
+        // (未唱 = 暗色)不能覆盖它 —— 窗口保持状态自带值(0/0),大元数据标记仍为真。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            hasTimedLyrics = true,
+            line = "",
+            lineIndex = -1,
+            nextLineStartMs = 10_000L,
+            positionMs = 0L,
+            title = "蝴蝶",
+            artist = "洛天依"
+        ).copy(nextLine = "下一句")
+        val out = project(s)
+
+        assertTrue(out.largeMetadata)
+        assertEquals(0L, out.lineStartMs)
+        assertEquals(0L, out.lineEndMs)
+    }
+
+    @Test
+    fun previewWithoutKnownNextLineStart_keepsZeroWindow() {
+        // nextLineStartMs == null(窗口未知):仍提前显示下一行文本,但行窗保持 0/0。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            hasTimedLyrics = true,
+            line = "",
+            lineIndex = -1,
+            nextLineStartMs = null,
+            title = "",
+            artist = ""
+        ).copy(nextLine = "下一句")
+        val out = project(s)
+
+        assertEquals("下一句", out.original)
+        assertEquals(0L, out.lineStartMs)
+        assertEquals(0L, out.lineEndMs)
+    }
+
+    @Test
+    fun untrustworthyExtrapolationKeepsPlaceholderInsteadOfStaleNextLine() {
+        // 数据源停写位置、外推越过歌曲结尾:活动行与「下一行」都来自过期快照,预览一并
+        // 让位给占位符(外推防护的既有语义),不让空档把旧内容重新拉上台。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            hasTimedLyrics = true,
+            line = "",
+            lineIndex = -1,
+            positionMs = 179_000L,
+            durationMs = 180_000L,
+            sampledAtElapsedMs = 0L,
+            speed = 1f,
+            playing = true,
+            nextLineStartMs = 190_000L
+        ).copy(nextLine = "下一句")
+        val out = project(s, now = 5_000L) // 179000 + 5000 = 184000 → 越界
+
+        assertEquals("🎶", out.original)
+        assertEquals(0L, out.lineStartMs)
+        assertEquals(0L, out.lineEndMs)
+    }
+
 }

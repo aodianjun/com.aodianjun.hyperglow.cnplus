@@ -1091,4 +1091,44 @@ class AodCanvasTransitionTest {
         )
         assertTrue(settled.completed)
     }
+
+    // --- 空档预览:同曲同文的窗口更新不是换行,不触发换行动画 ---
+
+    @Test
+    fun sameLineTextWindowUpdateIsNotALineChange() {
+        // 空档预览 → 该行真正开始:主行文本不变,只有行窗从预览退化窗
+        // [nextLineStartMs, nextLineStartMs] 换成真实行窗 [lineStartMs, lineEndMs]。
+        val preview = AodCanvasLineIdentity(
+            trackGeneration = 7L,
+            lineStartMs = 8_000L,
+            lineEndMs = 8_000L,
+            original = "下一句"
+        )
+        val started = preview.copy(lineEndMs = 11_000L)
+        assertTrue(isSameLineTextUpdate(preview, started))
+        // 真实换行(文本变了)→ 照常播换行动画。
+        assertFalse(isSameLineTextUpdate(preview, started.copy(original = "再下一句")))
+        // 换歌/重播(文本恰好相同但曲目身份变了)→ 照常播。
+        assertFalse(isSameLineTextUpdate(preview, started.copy(trackGeneration = 8L)))
+        // 空文本(初始内容/未就绪)不算同文更新。
+        assertFalse(isSameLineTextUpdate(preview.copy(original = ""), started.copy(original = "")))
+    }
+
+    @Test
+    fun sameLineTextWindowUpdateSuppressesTheSecondEntryAnimation() {
+        // 接入语义(setContent 的行变更判定):同曲同文的窗口更新从 lineChanged 里排除 →
+        // shouldStartLineTransition 不再为同一句启动第二次入场动画;文本真的变了仍照常播。
+        val preview = AodCanvasLineIdentity(7L, 8_000L, 8_000L, "下一句")
+        val started = preview.copy(lineEndMs = 11_000L)
+        val previewUpdate = preview.original.isNotBlank() &&
+            preview != started && !isSameLineTextUpdate(preview, started)
+        assertFalse(previewUpdate)
+        assertFalse(shouldStartLineTransition(previewUpdate, "Fade up", handoffActive = false))
+
+        val nextLine = started.copy(original = "再下一句")
+        val realChange = preview.original.isNotBlank() &&
+            preview != nextLine && !isSameLineTextUpdate(preview, nextLine)
+        assertTrue(realChange)
+        assertTrue(shouldStartLineTransition(realChange, "Fade up", handoffActive = false))
+    }
 }
