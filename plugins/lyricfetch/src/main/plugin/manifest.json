@@ -6,7 +6,7 @@
         "zh-TW": "HyperGlow 線上歌詞增強"
     },
     "author": "HyperGlow CN+",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "apiVersion": 1,
     "entry": "com.example.hyperglow.lyricfetch.LyricFetchPlugin",
     "activationSettingKey": "lyricfetch_enabled",

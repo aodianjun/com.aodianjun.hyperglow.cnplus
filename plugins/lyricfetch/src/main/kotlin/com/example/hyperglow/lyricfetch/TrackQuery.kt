@@ -11,14 +11,20 @@ internal data class TrackQuery(
 ) {
     val isUsable: Boolean get() = title.isNotBlank()
 
-    /** 会话内缓存键：同一首歌（标题/艺人/时长）只取一次。 */
+    /**
+     * 缓存键：同一首歌（标题/艺人）只取一次。
+     *
+     * **刻意不含时长**：宿主给的时长在逐行源（SuperLyric）上是「当前行的结束时间」
+     * （见宿主 `LineStreamAggregator` 的说明），每次链重跑都不同——写进键里等于
+     * 每 15s 给同一首歌新建一条缓存、永不命中（真机实证：一首歌堆了 21 条，
+     * 每条都重新联网）。时长仍参与 [TrackMatch.score] 的候选打分与硬否决，
+     * 只是不构成缓存身份。
+     */
     val cacheKey: String
         get() = buildString {
             append(TrackMatch.normalize(title))
             append('|')
             append(artists.joinToString(",") { TrackMatch.normalize(it) })
-            append('|')
-            append(durationMs ?: 0L)
         }
 }
 

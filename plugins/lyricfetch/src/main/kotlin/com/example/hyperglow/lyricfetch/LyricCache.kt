@@ -26,6 +26,10 @@ internal sealed interface CachedOutcome {
  * 过期策略：条目超过 [TTL_MS]（7 天）视为未命中并顺手删除——在线歌词会更新，
  * 留一个可自愈的上限比"永久缓存 + 手动清理"更稳妥。条目数超过 [MAX_ENTRIES]
  * 时按时间淘汰最旧的。
+ *
+ * 格式版本见 [FORMAT_VERSION]：升级后旧记录一律解码失败，[entries] 在读列表时
+ * 顺手清掉它们的正文——键规则变更（如去掉时长）后设备上残留的旧条目因此自动失效，
+ * 用户不必手动清缓存。
  */
 internal class LyricCache(
     private val cache: PluginCache,
@@ -45,7 +49,7 @@ internal class LyricCache(
             return null
         }
         val stored = runCatching { cache.getString(key) }.getOrNull() ?: return null
-        val record = runCatching { decode(key, stored) }.getOrNull() ?: return null
+        val record = runCatching { decode(stored) }.getOrNull() ?: return null
         if (isExpired(record.savedAt)) {
             runCatching { cache.remove(key) }
             updateIndex { it.remove(key) }
@@ -74,10 +78,21 @@ internal class LyricCache(
 
     private fun isExpired(savedAt: Long): Boolean = nowMs() - savedAt > TTL_MS
 
-    /** 宿主缓存页用：当前条目元数据（已消失的条目自动从索引剔除）。 */
+    /**
+     * 宿主缓存页用：当前条目元数据。已消失或**按当前格式解不出**（旧版本 / 损坏）的条目
+     * 不再展示，并把其正文从宿主缓存删除。
+     *
+     * 读路径不回写索引：残留索引行因正文已删而不再可见，下次 put/remove/clearEntry
+     * 重写索引时自然收敛（也避免读缓存页与并发写入互相覆盖）。
+     */
     fun entries(): List<PluginCacheEntry> = readIndex().mapNotNull { (id, meta) ->
-        val exists = runCatching { cache.contains(id) }.getOrDefault(false)
-        if (!exists) return@mapNotNull null
+        val stored = runCatching { cache.getString(id) }.getOrNull()
+        val record = stored?.let { runCatching { decode(it) }.getOrNull() }
+        if (record == null) {
+            runCatching { cache.remove(id) }
+            memory.remove(id)
+            return@mapNotNull null
+        }
         PluginCacheEntry(
             id = id,
             title = meta.optString("title").ifBlank { id },
@@ -123,7 +138,7 @@ internal class LyricCache(
         }.toString()
     }.getOrNull()
 
-    private fun decode(key: String, stored: String): Record? = runCatching {
+    private fun decode(stored: String): Record? = runCatching {
         val json = JSONObject(stored)
         val savedAt = json.optLong("savedAt")
         if (json.optInt("v") != FORMAT_VERSION) return null
@@ -177,7 +192,8 @@ internal class LyricCache(
     }
 
     private companion object {
-        const val FORMAT_VERSION = 1
+        /** 1 → 2：缓存键不再含时长（1.0.1）。旧 v1 记录一律解码失败 → 视为未命中重新取词。 */
+        const val FORMAT_VERSION = 2
         const val INDEX_KEY = "__lyricfetch_index__"
         const val TTL_MS = 7L * 24 * 60 * 60 * 1000
         const val MAX_ENTRIES = 100

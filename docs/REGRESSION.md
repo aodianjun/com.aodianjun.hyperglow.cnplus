@@ -22,6 +22,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
 - Landscape rotation (canvas rotation, logical frame, surface rect swap)
 - Auxiliary secondary-text sourcing (translation/transliteration content across producer and
   plugin boundaries)
+- Plugin cache and network behavior (per-song cache identity across the plugin chain: does a
+  repeated chain run reuse the host cache, or go online again)
 
 ## Entry format
 
@@ -48,6 +50,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
 | 2026-10-05 | 0.3.164 (191) | Lyric source arbitration | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | No lyrics on the AOD with the preferred LyricInfo source: the video session was filtered as non-music (`DISCONNECTED`) while Lyricon's callback chain had died at a pause and sat frozen on a valid paused line (age 1930 s, `play=0`), and the fallback path rejected every stale state — `active` stayed null and the surface blanked. The stall also re-logged the whole fallback chain every 100 ms tick (~60 lines/s), rotating the bounded diagnostic mirror away. Fix (one fault predicate across the preferred/fallback paths + stale-paused fallback forwarded only with content + stall-diagnostic de-dup with a 30 s heartbeat) lands with this entry; update to pass + device-verified after hardware re-check. |
 
 | 2026-10-06 | 0.3.165 (192) | Brightness and battery protection | partial | Redmi K80 Pro (`miro`) / DEV-2313.0.0.1-11211901 (22313001) | trace-observed | AOD word animation stepped at ≈5 fps while the device was hot and charging (owner report: AOD below 10 fps). Root cause traced to the built-in power-saver frame drop — `POWER_SAVER_FRAME_INTERVAL_MS` = 200 ms, engaged when `isAodPowerSaverActive` sees thermal status ≥ MODERATE (measured status 3, skin ≈50 °C during the reported window). The panel was never the limiter (SDM `FPS cur:120`, `vsync_period` 8.33 ms; AOD window present gaps 8.3/16.6 ms) and the canvas kept ≈62 draws/s on the lockscreen; after the device cooled (status 0, skin 46 °C, `Power state monitor attached saver=false`) the cadence returned. Fix (user switch `aodPowerSaver`, default on, delivered through the compiled customization; off ⇒ the canvas never drops below the frame cap) lands with this entry; update to pass + device-verified after hardware re-check. |
+
+| 2026-10-06 | 0.3.165 (192) + lyricfetch 1.0.0 | Plugin cache and network behavior | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | One song accumulated **21 entries** in the plugin's cache page while playing through the SuperLyric source: the fetch plugin's cache key contained the track duration, and the host reports the **active line's end time** as `duration` for line-stream sources, so every 15 s chain re-run minted a fresh key — the cache never hit, every entry re-searched all three online sources, and the negative results could not protect the song (sibling evidence: the same songs hold exactly one entry each in the amll-ttml plugin's cache on the same device, whose key carries no duration). Fix (duration dropped from the cache key; format version 2 purges the leftover v1 entries when the cache page is read) lands with this entry; update to pass + device-verified after installing the 1.0.1 ZIP. |
 
 ## Known unverified paths
 
@@ -672,6 +676,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 歌词源仲裁（生产者 staleness 谓词、回退接管、Lyricon 供数恢复）
 - 横屏旋转（画布旋转、逻辑帧、surface rect 交换）
 - 辅助文本取数（翻译/音译内容在生产者与插件边界上的传递）
+- 插件缓存与联网行为（插件链上的按曲缓存身份：重复链运行是命中宿主缓存，还是又联一次网）
 
 ## 条目格式
 
@@ -698,6 +703,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 | 2026-10-05 | 0.3.164 (191) | 歌词源仲裁 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | 首选 LyricInfo 下 AOD 无歌词：视频会话被非音乐过滤（`DISCONNECTED`），而 Lyricon 回调链死在暂停时刻、冻结在一条有效暂停行上（age=1930s，`play=0`），回退路径又拒绝一切 stale 状态——`active` 恒 null、屏面清空。停滞期间还按每个 100ms tick 重打整条回退链（约 60 行/秒），把有界诊断镜像刷掉。修复（首选/回退同一故障谓词 + stale 暂停回退仅在带内容时转发 + 停滞诊断去抖与 30 秒心跳）随本条落地；真机复检后更新为 pass + device-verified。 |
 
 | 2026-10-06 | 0.3.165 (192) | 亮度与电池保护 | partial | Redmi K80 Pro (`miro`) / DEV-2313.0.0.1-11211901 (22313001) | trace-observed | 设备发热且充电时息屏逐字动画按 ≈5fps 步进（owner 反馈：AOD 帧率 10 都不到）。根因定位到内置省电降帧——`POWER_SAVER_FRAME_INTERVAL_MS` = 200ms，`isAodPowerSaverActive` 在热状态 ≥ MODERATE 时命中（上报窗口实测状态 3、皮肤 ≈50°C）。屏幕从来不是瓶颈（SDM `FPS cur:120`、`vsync_period` 8.33ms；AOD 窗口出帧间隔 8.3/16.6ms），锁屏画布始终 ≈62 draws/s；设备降温后（状态 0、皮肤 46°C、`Power state monitor attached saver=false`）节拍恢复。修复（用户开关 `aodPowerSaver`，默认开启，随编译配置下发；关闭后画布绝不降到帧上限以下）随本条目落地；真机复检后更新为 pass + device-verified。 |
+
+| 2026-10-06 | 0.3.165 (192) + lyricfetch 1.0.0 | 插件缓存与联网行为 | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | SuperLyric 源播放时一首歌在插件缓存页堆了 **21 条**：取词插件的缓存键里含曲目时长，而宿主对逐行源上报的 `duration` 是**当前行的结束时间**，于是每 15s 一次链重跑就铸一个新键——缓存永不命中、每条都重新搜三个在线来源，负缓存也保护不了这首歌（同机旁证：同批歌在 amll-ttml 插件缓存里各只有 1 条，它的键不含时长）。修复（缓存键去掉时长；格式升到 v2，读缓存页时顺手清掉残留的 v1 条目）随本条目落地；装上 1.0.1 的 ZIP 后复验并更新为 pass + device-verified。 |
 
 ## 已知未验证路径
 
