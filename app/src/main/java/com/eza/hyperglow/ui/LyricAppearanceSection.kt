@@ -1206,7 +1206,11 @@ internal class DemoLine(
     val original: String,
     val romanized: String,
     val translated: String,
-    /** 演示注音段(与首词拼音对齐):让「注音」开关在无实时歌词时也能在预览里看出效果。 */
+    /**
+     * 演示注音段:整行逐词标注(词间空白不属任何段),让「显示振假名」开关在无实时歌词时也能
+     * 在预览里看出效果。必须覆盖整行 —— 只标首词会在预览里留下一截拼音(owner 2026-10-06
+     * 反馈的「文字上方零星的转写内容」),且各段读音拼接后要与 [romanized] 逐字一致。
+     */
     val ruby: List<LyricRuby>
 )
 
@@ -1227,59 +1231,101 @@ internal val DEMO_TRACK_ENGLISH = DemoTrack(
 internal val DEMO_LINES_ZH = listOf(
     DemoLine(
         "你说你来到这世界的那天 神给了每个人快乐入场券",
-        "nǐ shuō nǐ lái dào zhè shìjiè de nà tiān",
+        "nǐ shuō nǐ lái dào zhè shìjiè de nà tiān shén gěi le měi gè rén kuàilè rùchǎngquàn",
         "You said the day you came to this world, heaven gave everyone a ticket to joy",
-        listOf(LyricRuby(0, 3, "nǐ shuō nǐ"))
+        listOf(
+            LyricRuby(0, 3, "nǐ shuō nǐ"),
+            LyricRuby(3, 5, "lái dào"),
+            LyricRuby(5, 6, "zhè"),
+            LyricRuby(6, 8, "shìjiè"),
+            LyricRuby(8, 9, "de"),
+            LyricRuby(9, 11, "nà tiān"),
+            LyricRuby(12, 13, "shén"),
+            LyricRuby(13, 15, "gěi le"),
+            LyricRuby(15, 18, "měi gè rén"),
+            LyricRuby(18, 20, "kuàilè"),
+            LyricRuby(20, 23, "rùchǎngquàn")
+        )
     ),
     DemoLine(
         "那一只蝴蝶 拼了命破茧 却没有漂亮的鳞片",
-        "nà yī zhī húdié pīn le mìng pò jiǎn",
+        "nà yī zhī húdié pīn le mìng pò jiǎn què méi yǒu piàoliang de lín piàn",
         "That butterfly bursts its cocoon with all its might, yet bears no pretty scales",
-        listOf(LyricRuby(0, 3, "nà yī zhī"))
+        listOf(
+            LyricRuby(0, 3, "nà yī zhī"),
+            LyricRuby(3, 5, "húdié"),
+            LyricRuby(6, 8, "pīn le"),
+            LyricRuby(8, 9, "mìng"),
+            LyricRuby(9, 11, "pò jiǎn"),
+            LyricRuby(12, 14, "què méi"),
+            LyricRuby(14, 15, "yǒu"),
+            LyricRuby(15, 17, "piàoliang"),
+            LyricRuby(17, 18, "de"),
+            LyricRuby(18, 20, "lín piàn")
+        )
     ),
     DemoLine(
         "走吧 就算我们无法让大雨停下",
         "zǒu ba jiùsuàn wǒmen wúfǎ ràng dàyǔ tíng xià",
         "Let's go, even if we can't make the heavy rain stop",
-        listOf(LyricRuby(0, 2, "zǒu ba"))
+        listOf(
+            LyricRuby(0, 2, "zǒu ba"),
+            LyricRuby(3, 5, "jiùsuàn"),
+            LyricRuby(5, 7, "wǒmen"),
+            LyricRuby(7, 9, "wúfǎ"),
+            LyricRuby(9, 10, "ràng"),
+            LyricRuby(10, 12, "dàyǔ"),
+            LyricRuby(12, 14, "tíng xià")
+        )
     ),
     DemoLine(
         "你我生来时就注定 天真而伟大",
         "nǐ wǒ shēnglái shí jiù zhùdìng tiānzhēn ér wěidà",
         "You and I are destined from birth to be innocent and great",
-        listOf(LyricRuby(0, 3, "nǐ wǒ shēng"))
+        listOf(
+            LyricRuby(0, 2, "nǐ wǒ"),
+            LyricRuby(2, 4, "shēnglái"),
+            LyricRuby(4, 5, "shí"),
+            LyricRuby(5, 6, "jiù"),
+            LyricRuby(6, 8, "zhùdìng"),
+            LyricRuby(9, 11, "tiānzhēn"),
+            LyricRuby(11, 12, "ér"),
+            LyricRuby(12, 14, "wěidà")
+        )
     )
 )
 
 /**
  * 英文演示歌词行(《Take My Hand》— DAISHI DANCE / Cécile Corbel)。
  *
- * 英文曲不需要拼音注音/中译辅助行,故 romanized/translated 与 [ruby] 均留空——预览的
- * 辅助文字行在无内容时本就不显示,填假内容反而会让「辅助文字」开关的预览失真。
+ * 英文曲没有拼音可注,但辅助文字行必须有真实内容 —— 「转写」「翻译」开关在英文界面下才看
+ * 得出效果(owner 2026-10-06:语言为英文时预览要带翻译与转写,且受下方辅助文字选项控制)。
+ * romanized 用国际音标(英文的「转写」即音标),translated 用中译(与中文演示曲给英译对称);
+ * [DemoLine.ruby] 仍留空:英文曲没有振假名,填假注音只会让「显示振假名」开关的预览失真。
  */
 internal val DEMO_LINES_EN = listOf(
     DemoLine(
         "In my dreams, I feel your light",
-        "",
-        "",
+        "ɪn maɪ driːmz aɪ fiːl jɔː laɪt",
+        "在我的梦里，我感受到你的光芒",
         emptyList()
     ),
     DemoLine(
         "I feel love is born again",
-        "",
-        "",
+        "aɪ fiːl lʌv ɪz bɔːn əˈgen",
+        "我感到爱再次诞生",
         emptyList()
     ),
     DemoLine(
         "Fireflies in the moonlight",
-        "",
-        "",
+        "ˈfaɪəflaɪz ɪn ðə ˈmuːnlaɪt",
+        "月光下的萤火虫",
         emptyList()
     ),
     DemoLine(
         "Take my hand now, stay close to me",
-        "",
-        "",
+        "teɪk maɪ hænd naʊ steɪ kloʊs tə miː",
+        "现在握住我的手，靠近我",
         emptyList()
     )
 )
