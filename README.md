@@ -17,6 +17,21 @@ HyperOS 3 的锁屏与息屏（AOD）歌词动画，支持国内音乐软件。
   <a href="https://qm.qq.com/q/qZN8paJoFq"><img src="https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-0084FF?style=flat&logo=qq&logoColor=white" alt="QQ Group"/></a>
 </p>
 
+<p>
+  <b>蝴蝶 · 洛天依 Official</b> —— 锁屏 / 息屏 AOD / 横屏 AOD<br/>
+  <img src="docs/demos/butterfly-lockscreen.gif" width="230" alt="蝴蝶 · 锁屏逐字歌词"/>
+  <img src="docs/demos/butterfly-aod.gif" width="230" alt="蝴蝶 · 息屏 AOD 逐字歌词"/>
+  <img src="docs/demos/butterfly-landscape.gif" width="230" alt="蝴蝶 · 横屏 AOD 全屏化居中"/>
+</p>
+
+<p>
+  <b>Take Me Hand · DAISHI DANCE</b> —— 锁屏 / 息屏 AOD / 横屏 AOD<br/>
+  <img src="docs/demos/take-me-hand-lockscreen.gif" width="230" alt="Take Me Hand · 锁屏逐字歌词"/>
+  <img src="docs/demos/take-me-hand-aod.gif" width="230" alt="Take Me Hand · 息屏 AOD 逐字歌词"/>
+  <img src="docs/demos/take-me-hand-landscape.gif" width="230" alt="Take Me Hand · 横屏 AOD 全屏化居中"/>
+</p>
+
+
 Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarinne/spicy-ex), [Lyricon](https://github.com/tomakino/lyricon), [SuperLyric](https://github.com/HChenX/SuperLyric) or [LyricInfo](https://github.com/limczhh/LyricInfo)).
 需要 root、LSPosed 以及一个歌词源（[Spicy EX](https://github.com/amarinne/spicy-ex)、[Lyricon](https://github.com/tomakino/lyricon)、[SuperLyric](https://github.com/HChenX/SuperLyric) 或 [LyricInfo](https://github.com/limczhh/LyricInfo)）。
 
