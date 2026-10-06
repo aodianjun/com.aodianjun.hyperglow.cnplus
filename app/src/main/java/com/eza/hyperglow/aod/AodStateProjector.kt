@@ -125,36 +125,54 @@ internal fun projectToDisplay(
         state.language,
         state.ruby.map { it.reading }
     )
+    // 空档预览:无活动行(前奏/间奏/行间空档)且确有下一行文本时,主行提前显示下一行,
+    // 替代 🎶 占位符(owner 2026-10-06 定案)。外推不可信(数据源停写、外推越界/过长)时
+    // 保持占位符——预览行同样来自过期快照,不能让空档把「清空旧行」的外推防护绕过去。
+    val previewNextLine = !hasActiveLine && !extrapolationInvalid &&
+        hasTimedLyrics && state.status != "loading" && state.nextLine.trim().isNotEmpty()
     // 大元数据引导时,占位符交给渲染面用本面「歌曲信息内容」组装后的文本替换(见 largeMetadata)。
     val original = when {
         unsynced || noLyrics -> PLAYING_PLACEHOLDER
         presentedLineText != null -> presentedLineText
+        previewNextLine -> state.nextLine
         hasTimedLyrics || state.status == "loading" -> PLAYING_PLACEHOLDER
         fallbackLine != null -> fallbackLine
         else -> PLAYING_PLACEHOLDER
     }
-    val romanized = if (showLargeMetadata || unsynced || noLyrics || rejectJapaneseReading) {
-        ""
-    } else {
-        state.romanizedLine
+    // 空档预览:主行现在是下一行,辅助文字跟着换到下一行的那份(沿用原门控)。
+    val romanized = when {
+        showLargeMetadata || unsynced || noLyrics || rejectJapaneseReading -> ""
+        previewNextLine -> state.nextLineRomanized
+        else -> state.romanizedLine
     }
-    val translated = if (showLargeMetadata || unsynced || noLyrics) "" else state.translatedLine
-    val nextLine = if (showLargeMetadata || unsynced || noLyrics) {
+    val translated = when {
+        showLargeMetadata || unsynced || noLyrics -> ""
+        previewNextLine -> state.nextLineTranslated
+        else -> state.translatedLine
+    }
+    // 空档预览:主行已占用下一行 → 下一行槽位清空,避免同一句同时出现在主行与下一行两处。
+    val nextLine = if (showLargeMetadata || unsynced || noLyrics || previewNextLine) {
         ""
     } else {
         state.nextLine
     }
     // 下一行的辅助文字(音标/翻译):与下一行同门控;文本不剥离对唱标记(与 translatedLine 同口径)。
-    val nextLineRomanized = if (showLargeMetadata || unsynced || noLyrics) {
+    val nextLineRomanized = if (showLargeMetadata || unsynced || noLyrics || previewNextLine) {
         ""
     } else {
         state.nextLineRomanized
     }
-    val nextLineTranslated = if (showLargeMetadata || unsynced || noLyrics) {
+    val nextLineTranslated = if (showLargeMetadata || unsynced || noLyrics || previewNextLine) {
         ""
     } else {
         state.nextLineTranslated
     }
+    // 空档预览的行窗口取下一行起点(退化窗 [nextLineStartMs, nextLineStartMs]):空档期
+    // position < nextLineStartMs,而 timedWordProgress 对退化窗恒返回 0(未唱),正是
+    // 「下一行还没开始唱」的观感;该行真正开始时窗口换成真实行窗,进度从 0 起填。
+    // 只在预览生效且未展示大元数据时覆盖:大元数据引导靠「窗口在过去 → 全亮」呈现亮色
+    // 歌曲信息,不能被改成暗色。窗口未知(nextLineStartMs == null)时保持原值(0/0)。
+    val previewWindowMs = state.nextLineStartMs.takeIf { previewNextLine && !showLargeMetadata }
 
     // --- 渲染模式（原 project() 从 state.liveCard* + prefs 混合取，现统一从 renderModes 取）---
     // 原 project() 里 weight/textSize/textSizeCustom/secondaryMode/animationMode/glowMode/
@@ -297,8 +315,9 @@ internal fun projectToDisplay(
         alignedRight = state.alignedRight,
         alignedRightMarkers = state.alignedRightMarkers,
         lineLevelSync = lineLevelSync,
-        lineStartMs = if (hasActiveLine) state.lineStartMs else 0L,
-        lineEndMs = if (hasActiveLine) state.lineEndMs else 0L,
+        // 空档预览时行窗口取下一行起点(退化窗 → 进度恒 0 = 未唱);其余无活动行时刻保持 0/0。
+        lineStartMs = if (hasActiveLine) state.lineStartMs else previewWindowMs ?: 0L,
+        lineEndMs = if (hasActiveLine) state.lineEndMs else previewWindowMs ?: 0L,
         durationMs = state.durationMs,
         positionMs = position,
         sampledAtElapsedMs = now,

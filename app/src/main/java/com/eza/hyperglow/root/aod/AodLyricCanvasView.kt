@@ -390,8 +390,14 @@ internal class AodLyricCanvasView(
                 overflowMode = normalizeAodOverflow(incomingContent.overflowMode)
             )
         )
-        val lineChanged = this.content.original.isNotBlank() &&
-            aodCanvasLineIdentity(this.content) != aodCanvasLineIdentity(nextContent)
+        // 行变更判定:身份(曲目/行窗/文本)变化才算换行;「同曲同文、仅时间窗更新」不算——
+        // 空档预览行真正开始时主行文本不变,只是预览退化窗 [nextLineStartMs, nextLineStartMs]
+        // 换成真实行窗,此时不该再播一次入场动画(文本未变,播了就是同一句重复入场)。
+        val previousLineIdentity = aodCanvasLineIdentity(this.content)
+        val nextLineIdentity = aodCanvasLineIdentity(nextContent)
+        val lineChanged = previousLineIdentity.original.isNotBlank() &&
+            previousLineIdentity != nextLineIdentity &&
+            !isSameLineTextUpdate(previousLineIdentity, nextLineIdentity)
         val resuming = suppressNextLineTransition
         suppressNextLineTransition = false
         val nowElapsedMs = SystemClock.elapsedRealtime()

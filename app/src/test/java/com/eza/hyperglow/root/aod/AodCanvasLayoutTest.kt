@@ -149,6 +149,17 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun degenerateFutureWindowRendersUnsung() {
+        // 空档预览的行窗是退化窗 [nextLineStartMs, nextLineStartMs](见 AodStateProjector
+        // 的空档预览窗口覆盖):位置在窗口之前 → 进度恒 0(未唱、暗色),正是「下一行还
+        // 没开始唱」的观感;位置越过起点后恒 1(全亮),与既有退化窗语义一致。
+        assertEquals(0f, timedWordProgress(1_000L, 2_000L, 2_000L), 0.0001f)
+        assertEquals(0f, timedWordProgress(1_999L, 2_000L, 2_000L), 0.0001f)
+        assertEquals(1f, timedWordProgress(2_000L, 2_000L, 2_000L), 0.0001f)
+        assertEquals(1f, timedWordProgress(2_001L, 2_000L, 2_000L), 0.0001f)
+    }
+
+    @Test
     fun adaptiveOffTimedTransliterationKeepsOneTimedVisualLine() {
         val segments = listOf(
             SecondaryTimedSegment("first", 80f, 10f, 0L, 100L),
