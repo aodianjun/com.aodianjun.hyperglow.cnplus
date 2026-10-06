@@ -8,7 +8,6 @@ import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.customization.WidgetSpec
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricRuby
-import com.eza.hyperglow.root.projection.LyricWord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -892,51 +891,40 @@ class AodCanvasLayoutTest {
     }
 
     @Test
-    fun lineLevelRowsWithTransportWordsAlwaysUseSharedGlowPipeline() {
-        val content = LyricSnapshot(
-            original = "絡み合う迷宮",
-            lineLevelSync = true,
-            lineStartMs = 1_000L,
-            lineEndMs = 3_000L,
-            words = listOf(LyricWord("絡み合う", "karamiau", 1_000L, 2_000L, false))
-        ).toAodCanvasContent()
+    fun realWordWindowsWinOverTheSourceLineLevelMark() {
+        // 真机根因(2026-10-06 20:10:23):AMLL 插件补词后 `anim=Gradient timed=true
+        // words=13 lineSync=true` —— 源自己的行级标记(lineLevelSync)把真实词窗整条忽略,
+        // 逐字动画不生效。带真实词窗的行在所有非 Minimal 档位都必须走词级卡拉OK。
+        val words = listOf(AodCanvasWord("絡み合う", "karamiau", 1_000L, 2_000L, false))
+        assertTrue(hasTimedWordWindows(words))
+        // 零窗占位词(布局分组合成)与空白词不构成真实词窗。
+        assertFalse(hasTimedWordWindows(listOf(AodCanvasWord("絡み合う", "", 0L, 0L, false))))
+        assertFalse(hasTimedWordWindows(listOf(AodCanvasWord("  ", "", 1_000L, 2_000L, false))))
+        assertFalse(hasTimedWordWindows(emptyList()))
 
-        assertTrue(content.lineLevelSync)
-        // 发光开启时必须走共享渲染核心(LyricGlowRenderer)的预览管线,
-        // 否则行级同步源渲染旧渐变扫光,AOD 与预览不一致。
-        assertTrue(
-            usesPreviewGlowPipeline(
-                animationMode = content.animationMode,
-                timed = true,
-                lineLevelSync = content.lineLevelSync,
-                glowMode = "On"
+        // pin 5:非 Minimal 档 + 行级标记 + 真实词窗 → 词级卡拉OK(此前被行级扫光门拦下)。
+        for (mode in listOf("Gradient", "BetterLyrics")) {
+            assertEquals(
+                OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
+                planOriginalLine(
+                    animationMode = mode,
+                    timed = true,
+                    lineLevelSync = true,
+                    lineSyncFillMode = "Left to right (main only)",
+                    lineStartMs = 1_000L,
+                    lineEndMs = 3_000L
+                )
             )
-        )
-        // 行级同步 + 关闭发光:同样走统一管线(dim 底 + 扫光,无光晕)
-        assertTrue(
-            usesPreviewGlowPipeline(
-                animationMode = content.animationMode,
-                timed = true,
-                lineLevelSync = true,
-                glowMode = "Off"
-            )
-        )
-        // 逐字时间源 + 关闭发光 + 非行级同步:保留逐字卡拉OK路径
+        }
+        // 实机 drawRows 的共享扫光门与 drawOriginal 的决策同源:带真实词窗必须关闭。
         assertFalse(
-            usesPreviewGlowPipeline(
-                animationMode = content.animationMode,
-                timed = true,
-                lineLevelSync = false,
-                glowMode = "Off"
-            )
-        )
-        // Minimal 模式永远不走扫光管线
-        assertFalse(
-            usesPreviewGlowPipeline(
-                animationMode = "Minimal",
-                timed = true,
+            shouldUseSharedLineLevelSweep(
                 lineLevelSync = true,
-                glowMode = "On"
+                hasOriginalLines = true,
+                animationMode = "Gradient",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L,
+                timed = true
             )
         )
     }
@@ -973,32 +961,27 @@ class AodCanvasLayoutTest {
     }
 
     @Test
-    fun lineLevelRowsWithTransportWordsStillUseOneSharedCanvasSweep() {
-        val content = LyricSnapshot(
-            original = "絡み合う迷宮",
-            lineLevelSync = true,
-            lineStartMs = 1_000L,
-            lineEndMs = 3_000L,
-            words = listOf(LyricWord("絡み合う", "karamiau", 1_000L, 2_000L, false))
-        ).toAodCanvasContent()
-
-        assertTrue(content.lineLevelSync)
+    fun lineLevelRowsWithoutRealWordWindowsUseOneSharedCanvasSweep() {
+        // pin 2:行级源(timed=false)+ 行级同步 + 带行窗 → 共享逐行扫光(不变);
+        // 非行级同步时不进扫光门(与旧行为一致)。
         assertTrue(
             shouldUseSharedLineLevelSweep(
-                lineLevelSync = content.lineLevelSync,
+                lineLevelSync = true,
                 hasOriginalLines = true,
-                animationMode = content.animationMode,
-                lineStartMs = content.lineStartMs,
-                lineEndMs = content.lineEndMs
+                animationMode = "Gradient",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L,
+                timed = false
             )
         )
         assertFalse(
             shouldUseSharedLineLevelSweep(
                 lineLevelSync = false,
                 hasOriginalLines = true,
-                animationMode = content.animationMode,
-                lineStartMs = content.lineStartMs,
-                lineEndMs = content.lineEndMs
+                animationMode = "Gradient",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L,
+                timed = false
             )
         )
     }
@@ -1007,23 +990,36 @@ class AodCanvasLayoutTest {
     fun betterLyricsNeverTakesTheSharedLineLevelSweep() {
         // BetterLyrics 档必须落在词级卡拉OK路径:此前带行窗的源在 drawRows 就被共享扫光门
         // 拦下,实机永远走不到 drawWordKaraoke(表现即「预览有逐字效果、实机没有」)。
+        // pin 3:行级源(timed=false)+ 行级同步保持该豁免(合成逐字,不回退成 BLOCK_SWEEP)。
         assertFalse(
             shouldUseSharedLineLevelSweep(
                 lineLevelSync = true,
                 hasOriginalLines = true,
                 animationMode = "BetterLyrics",
                 lineStartMs = 1_000L,
-                lineEndMs = 3_000L
+                lineEndMs = 3_000L,
+                timed = false
             )
         )
-        // 其余非 Minimal 档不受影响:带行窗的行级同步源仍走共享逐行扫光。
+        assertFalse(
+            shouldUseSharedLineLevelSweep(
+                lineLevelSync = true,
+                hasOriginalLines = true,
+                animationMode = "BetterLyrics",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L,
+                timed = true
+            )
+        )
+        // 其余非 Minimal 档:无真实词窗的行级同步源仍走共享逐行扫光。
         assertTrue(
             shouldUseSharedLineLevelSweep(
                 lineLevelSync = true,
                 hasOriginalLines = true,
                 animationMode = "Gradient",
                 lineStartMs = 1_000L,
-                lineEndMs = 3_000L
+                lineEndMs = 3_000L,
+                timed = false
             )
         )
         assertFalse(
@@ -1032,125 +1028,143 @@ class AodCanvasLayoutTest {
                 hasOriginalLines = true,
                 animationMode = "Minimal",
                 lineStartMs = 1_000L,
-                lineEndMs = 3_000L
+                lineEndMs = 3_000L,
+                timed = false
             )
         )
     }
 
     @Test
     fun originalLinePlanKeepsPreviewAndDeviceOnOneRouting() {
-        // 逐字源 + 行级同步 + 带行窗(实机稳态最常见组合):取配置的逐行扫光,
-        // 不再是预览整块、实机逐行。
+        // pin 5 + 真机根因:带真实词窗的行压过源的行级标记与「行进度效果」,非 Minimal 档
+        // 一律词级卡拉OK(Gradient = 历史词内扫光逐字动效,BetterLyrics = BetterLyrics 动效)。
         assertEquals(
-            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Left to right (main only)"),
+            OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
             planOriginalLine(
                 animationMode = "Gradient",
                 timed = true,
                 lineLevelSync = true,
-                glowMode = "Off",
                 lineSyncFillMode = "Left to right (main only)",
                 lineStartMs = 1_000L,
                 lineEndMs = 3_000L
             )
         )
-        // 显式整块兼容档仍是整块(整块只保留给显式选择,不被逐行归一吞掉)。
+        // 整块兼容档只对没有真实词窗的行生效(整块只保留给显式选择);带词窗仍走词级卡拉OK。
         assertEquals(
-            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Left to right (whole block)"),
+            OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (whole block)"),
             planOriginalLine(
                 animationMode = "Gradient",
                 timed = true,
                 lineLevelSync = true,
-                glowMode = "On",
                 lineSyncFillMode = "Left to right (whole block)",
                 lineStartMs = 1_000L,
                 lineEndMs = 3_000L
             )
         )
-        // BetterLyrics 档:逐字源(真实词窗)与行级源(字符合成)都走词级卡拉OK。
+        // pin 4:BetterLyrics 档逐字源(真实词窗)走词级卡拉OK(不变)。
         assertEquals(
             OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
             planOriginalLine(
                 animationMode = "BetterLyrics",
                 timed = true,
                 lineLevelSync = true,
-                glowMode = "Off",
                 lineSyncFillMode = "Left to right (main only)",
                 lineStartMs = 1_000L,
                 lineEndMs = 3_000L
             )
         )
+        // pin 3:BetterLyrics 档行级源(无真实词窗)按字符合成逐字,不被新判据回退成扫光。
         assertEquals(
             OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
             planOriginalLine(
                 animationMode = "BetterLyrics",
                 timed = false,
                 lineLevelSync = true,
-                glowMode = "On",
                 lineSyncFillMode = "Left to right (main only)",
                 lineStartMs = 1_000L,
                 lineEndMs = 3_000L
             )
         )
-        // Minimal 档与「行进度效果=None」都是静态全亮(None 经共享管线解析为静态)。
+        // pin 1:Minimal 档恒静态全亮。
         assertEquals(
             OriginalLinePlan(OriginalLinePath.STATIC, "None"),
             planOriginalLine(
                 animationMode = "Minimal",
                 timed = true,
                 lineLevelSync = true,
-                glowMode = "On",
                 lineSyncFillMode = "Left to right (main only)",
                 lineStartMs = 1_000L,
                 lineEndMs = 3_000L
             )
         )
+        // 带真实词窗时「行进度效果=None」不再把行压成静态:None 只描述行级扫光块,
+        // 词窗压过它(与 hasActiveCanvasTiming 继续为词窗驱动帧一致)。
         assertEquals(
-            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "None"),
+            OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "None"),
             planOriginalLine(
                 animationMode = "BetterLyrics",
                 timed = true,
                 lineLevelSync = true,
-                glowMode = "On",
                 lineSyncFillMode = "None",
                 lineStartMs = 1_000L,
                 lineEndMs = 3_000L
             )
         )
-        // 无行窗的逐字源 + 发光开:走共享扫光块,且取配置效果而非硬编码整块
-        // (此前 drawOriginal 的 4 参数重载默认整块,用户选了逐行也会被整块覆盖)。
+        // 无行窗的逐字源(行窗 0..0)同样按真实词窗走词级卡拉OK,不再落整块扫光。
         assertEquals(
-            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Left to right (main only)"),
+            OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
             planOriginalLine(
                 animationMode = "Gradient",
                 timed = true,
                 lineLevelSync = true,
-                glowMode = "On",
                 lineSyncFillMode = "Left to right (main only)",
                 lineStartMs = 0L,
                 lineEndMs = 0L
             )
         )
-        // 大元数据引导态(非行级同步)+ 逐字源 + 关闭发光:保留基础词级卡拉OK路径。
+        // 大元数据引导态(非行级同步)+ 逐字源:基础词级卡拉OK路径保留。
         assertEquals(
             OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
             planOriginalLine(
                 animationMode = "Gradient",
                 timed = true,
                 lineLevelSync = false,
-                glowMode = "Off",
                 lineSyncFillMode = "Left to right (main only)",
                 lineStartMs = 1_000L,
                 lineEndMs = 3_000L
             )
         )
-        // 行级(无逐字时间)源:同样取生效进度效果(Top to bottom 不被吞掉)。
+        // pin 2:行级(无逐字时间)源:同样取生效进度效果(Top to bottom 不被吞掉),走共享扫光块。
         assertEquals(
             OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Top to bottom"),
             planOriginalLine(
                 animationMode = "Gradient",
                 timed = false,
                 lineLevelSync = true,
-                glowMode = "Off",
+                lineSyncFillMode = "Top to bottom",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        // 行级源 + None:整行静态(「行进度效果」四档仍只对无真实词窗的行生效)。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "None"),
+            planOriginalLine(
+                animationMode = "Gradient",
+                timed = false,
+                lineLevelSync = true,
+                lineSyncFillMode = "None",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+        // pin 6:无真实词窗且非行级同步 → 维持现有落点(共享扫光块,取配置效果)。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, "Top to bottom"),
+            planOriginalLine(
+                animationMode = "Gradient",
+                timed = false,
+                lineLevelSync = false,
                 lineSyncFillMode = "Top to bottom",
                 lineStartMs = 1_000L,
                 lineEndMs = 3_000L
@@ -1591,17 +1605,19 @@ class AodCanvasLayoutTest {
 
         assertTrue(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, words))
         assertTrue(hasActiveCanvasTiming(true, "Top to bottom", 1_000L, 2_000L, emptyList()))
-        // None 在行级同步下真正关闭进度时序(不再被归一到水平扫光而失效)。
-        assertFalse(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words))
+        // None 在行级同步下真正关闭进度时序(不再被归一到水平扫光而失效)——但只对
+        // 没有真实词窗的行成立:带词窗的行走词级卡拉OK,逐字动画仍需驱动帧。
+        assertFalse(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, emptyList()))
+        assertTrue(hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, emptyList()))
         assertFalse(hasActiveCanvasTiming(false, "Top to bottom", 0L, 0L, words, speed = 0f))
         // 辅助文字逐字效果独立于主行进度效果:None 下主行静态,辅助行仍要续帧;暂停恒停。
         assertTrue(
-            hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, words, auxKaraoke = true)
+            hasActiveCanvasTiming(true, "None", 1_000L, 2_000L, emptyList(), auxKaraoke = true)
         )
         assertFalse(
             hasActiveCanvasTiming(
-                true, "None", 1_000L, 2_000L, words, speed = 0f, auxKaraoke = true
+                true, "None", 1_000L, 2_000L, emptyList(), speed = 0f, auxKaraoke = true
             )
         )
     }

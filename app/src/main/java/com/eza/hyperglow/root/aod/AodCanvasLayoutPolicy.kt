@@ -36,26 +36,41 @@ internal fun sharedBlockClipBottom(progress: Float, top: Float, bottom: Float): 
     top + (bottom - top).coerceAtLeast(0f) * progress.coerceIn(0f, 1f)
 
 /**
+ * 该行是否带真实词窗(词级时间源):存在非空白且时间窗有效([isTimedKaraokeWord])的词。
+ *
+ * 行级源(无词表)与布局分组合成的零窗占位词都为 false —— 这类行继续按行级标记走共享
+ * 扫光块(BLOCK_SWEEP,消费「行进度效果」四档);为 true 时非 Minimal 档一律走词级
+ * 卡拉OK(见 [planOriginalLine]),歌词源自己的 `lineLevelSync` 不再拦下真实词窗。
+ */
+internal fun hasTimedWordWindows(words: List<AodCanvasWord>): Boolean =
+    words.any { it.text.isNotBlank() && isTimedKaraokeWord(it.startMs, it.endMs) }
+
+/**
  * 行级同步源(带行窗)是否走共享逐行扫光块。
  *
  * [animationMode] 为 "BetterLyrics" 时必须为 false:该档的契约是把逐字/音节时间源交给共享
  * 词级卡拉OK核心(逐字源用真实词窗、行级源按字符合成),此前缺这条豁免,带行窗的源
  * (Spicy/LyricInfo/SuperLyric)会在 drawRows 就被拦到共享扫光块,永远走不到
  * [planOriginalLine] 的卡拉OK分支——表现即「预览有逐字效果、实机没有」。
+ *
+ * [timed] 为 true(该行带真实词窗)时同样必须为 false:词窗压过歌词源的行级标记,
+ * 共享扫光块只保留给没有真实词窗的行(真机日志:AMLL 插件补词后
+ * `anim=Gradient timed=true words=13 lineSync=true`,行级标记曾把真实词窗整条忽略)。
  */
 internal fun shouldUseSharedLineLevelSweep(
     lineLevelSync: Boolean,
     hasOriginalLines: Boolean,
     animationMode: String,
     lineStartMs: Long,
-    lineEndMs: Long
+    lineEndMs: Long,
+    timed: Boolean
 ): Boolean = lineLevelSync && hasOriginalLines && animationMode != "Minimal" &&
-    animationMode != "BetterLyrics" &&
+    animationMode != "BetterLyrics" && !timed &&
     lineEndMs > lineStartMs
 
 /** 原始主行的渲染路径(实机画布与 App 内预览三选一,见 [planOriginalLine])。 */
 internal enum class OriginalLinePath {
-    /** 静态全亮:Minimal 档或行进度效果 None(无扫光、无发光)。 */
+    /** 静态全亮:Minimal 档(「行进度效果=None」只在无真实词窗的行上落静态)。 */
     STATIC,
 
     /** 词级卡拉OK(共享 [LyricWordKaraokeRenderer]):逐字源用真实词窗,行级源按字符合成。 */
@@ -76,22 +91,25 @@ internal data class OriginalLinePlan(
  * 的主行分支三处**只此一份**,由两侧调用同一函数保证「预览即实机」。逐条对应:
  *
  *  1. Minimal 档 → 静态全亮;
- *  2. 行级同步且带行窗 → 共享逐行扫光(按配置解析四档行进度效果,整块兼容档仅在显式选择时出现);
- *  3. BetterLyrics 档且进度效果非 None → 词级卡拉OK(逐字源真实词窗 / 行级源字符合成);
- *  4. 行级(无逐字时间)源 → 行级扫光;
- *  5. 逐字源 + 关闭发光 + 非行级同步(大元数据引导态)→ 基础词级卡拉OK;
- *  6. 其余 → 行级扫光。
+ *  2. 带真实词窗([timed])→ 词级卡拉OK:非 Minimal 档一律走共享 [LyricWordKaraokeRenderer]
+ *     (Gradient 及基础档 = 历史词内扫光逐字动效,BetterLyrics = BetterLyrics 动效),
+ *     歌词源的行级标记(`lineLevelSync`)与「行进度效果」四档都不再拦它;
+ *  3. 无真实词窗 + 行级同步且带行窗 → 共享逐行扫光(按配置解析四档行进度效果,整块兼容档
+ *     仅在显式选择时出现);
+ *  4. BetterLyrics 档 + 无真实词窗 + 进度效果非 None → 词级卡拉OK(行级源按字符合成逐字);
+ *  5. 其余(无真实词窗的静态/引导态)→ 行级扫光。
  *
- * 第 2 条对 BetterLyrics 关闭(见 [shouldUseSharedLineLevelSweep]);第 6 条取生效进度效果而
- * 非整块常量,否则整块横扫会在用户选了逐行/纵向/None 时仍然出现(契约:整块只保留给显式选择)。
+ * 第 3 条对 BetterLyrics 与带真实词窗的行关闭(见 [shouldUseSharedLineLevelSweep]);第 5 条
+ * 取生效进度效果而非整块常量,否则整块横扫会在用户选了逐行/纵向/None 时仍然出现
+ * (契约:整块只保留给显式选择)。
  *
- * [timed] 为「该行带逐字时间」;预览侧取 `words.isNotEmpty()`,与实机词行布局判定同义。
+ * [timed] 为「该行带真实词窗」(`words` 中存在非空白且 endMs > startMs 的词,见
+ * [hasTimedWordWindows]);预览侧按快照词表同一判据取值,与实机词行布局判定同义。
  */
 internal fun planOriginalLine(
     animationMode: String,
     timed: Boolean,
     lineLevelSync: Boolean,
-    glowMode: String,
     lineSyncFillMode: String,
     lineStartMs: Long,
     lineEndMs: Long
@@ -100,23 +118,23 @@ internal fun planOriginalLine(
     if (animationMode == "Minimal") {
         return OriginalLinePlan(OriginalLinePath.STATIC, "None")
     }
+    // 真实词窗压过歌词源的行级标记:非 Minimal 档一律词级卡拉OK。行级源(无词窗)才按
+    // 行级标记走共享扫光块,「行进度效果」四档也只对后者生效。
+    if (timed) {
+        return OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, effectiveFill)
+    }
     if (shouldUseSharedLineLevelSweep(
             lineLevelSync,
             hasOriginalLines = true,
             animationMode,
             lineStartMs,
-            lineEndMs
+            lineEndMs,
+            timed = timed
         )
     ) {
         return OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, effectiveFill)
     }
     if (animationMode == "BetterLyrics" && effectiveFill != "None") {
-        return OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, effectiveFill)
-    }
-    if (!timed) {
-        return OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, effectiveFill)
-    }
-    if (!usesPreviewGlowPipeline(animationMode, timed, lineLevelSync, glowMode)) {
         return OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, effectiveFill)
     }
     return OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, effectiveFill)
@@ -137,8 +155,12 @@ internal fun hasActiveCanvasTiming(
 ): Boolean {
     if (speed <= 0f) return false
     // 行级同步 + 进度效果选 None:不驱动主行进度时序,歌词静态呈现(与预览 None 一致);
-    // 辅助文字逐字效果不受主行进度效果影响,开启时照常驱动帧。
-    if (lineLevelSync && resolvedLineSyncFillMode(true, lineSyncFillMode) == "None") {
+    // 该提前返回只对**没有真实词窗**的行成立——带真实词窗的行压过行级标记,非 Minimal 档
+    // 走词级卡拉OK(见 [planOriginalLine]),逐字动画仍需逐帧推进。辅助文字逐字效果
+    // 不受主行进度效果影响,开启时照常驱动帧。
+    if (lineLevelSync && resolvedLineSyncFillMode(true, lineSyncFillMode) == "None" &&
+        !hasTimedWordWindows(words)
+    ) {
         return auxKaraoke
     }
     if (lineEndMs > lineStartMs) return true
