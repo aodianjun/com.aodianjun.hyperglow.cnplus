@@ -4,6 +4,26 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
+ * 取词传输层接口：`AmllTtmlProcessor` 只依赖它，单测用脚本化假实现替换网络。
+ */
+internal interface AmllTtmlApi {
+
+    /**
+     * 按给定 [musicName] 搜索一次（调用方负责标题变体的逐级回退）。
+     *
+     * 传输/解析失败返回 null（**调用方据此中止且不写负缓存**）；请求成功但没有
+     * 可解析条目返回空列表（可继续尝试下一个标题变体）。
+     */
+    fun search(query: AmllQuery, musicName: String, budgetMs: Int): List<AmllMatch.Candidate>?
+
+    /**
+     * 取 TTML 原文。传输失败返回 null；请求成功但正文为空/不可解析返回空串
+     * （调用方对这两种情况的缓存语义不同：前者不写负缓存，后者照旧写）。
+     */
+    fun fetchTtml(id: Long, budgetMs: Int): String?
+}
+
+/**
  * AMLL TTML DataBase API 客户端（`/v1/lyrics/search` + `/v1/lyrics/get`）。
  *
  * 契约来源：https://amll.dev/api/ttml/openapi.yaml（官方 OpenAPI 规范）。
@@ -14,13 +34,15 @@ import org.json.JSONObject
  * 参数名（`title=`/`artist=`），当前 API 已不接受（实测 400 "Missing valid search
  * parameters"）——本客户端按 OpenAPI 现行契约实现（`musicName`/`artistName`）。
  *
- * 任何失败返回 null，不抛异常。
+ * 任何失败都不抛异常（见 [AmllTtmlApi] 的返回值语义）。
  */
-internal class AmllTtmlClient(private val baseUrl: String) {
+internal class AmllTtmlClient(private val baseUrl: String) : AmllTtmlApi {
 
-    fun search(query: AmllQuery, budgetMs: Int): List<AmllMatch.Candidate>? {
+    override fun search(query: AmllQuery, musicName: String, budgetMs: Int): List<AmllMatch.Candidate>? {
         val params = buildList {
-            add("musicName" to query.title)
+            // 搜索标题由调用方逐变体给入（原文 → 剥括号/feat. → 全量规范化）；
+            // 打分与缓存键仍统一用 AmllMatch.normalize。
+            add("musicName" to musicName)
             query.artists.firstOrNull { it.isNotBlank() }?.let { add("artistName" to it) }
             add("pageSize" to SEARCH_PAGE_SIZE.toString())
         }
@@ -29,10 +51,12 @@ internal class AmllTtmlClient(private val baseUrl: String) {
         return parseSearch(body)
     }
 
-    fun fetchTtml(id: Long, budgetMs: Int): String? {
+    override fun fetchTtml(id: Long, budgetMs: Int): String? {
         val url = buildUrl(baseUrl, GET_PATH, listOf("id" to id.toString()))
         val body = Http.get(url, budgetMs = budgetMs) ?: return null
-        return parseGetTtml(body)
+        // 请求成功（HTTP 2xx）但正文不可用时返回空串而不是 null：调用方需要区分
+        // 「传输失败（瞬时，不写负缓存）」与「库中这条不可用（照旧写负缓存）」。
+        return parseGetTtml(body) ?: ""
     }
 
     internal companion object {

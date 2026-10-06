@@ -26,7 +26,7 @@ import com.lidesheng.hyperlyric.plugin.api.PluginSongResult
 internal class AmllTtmlProcessor(
     private val context: PluginContext,
     private val cache: AmllTtmlCache,
-    private val clientFactory: (String) -> AmllTtmlClient = { base -> AmllTtmlClient(base) },
+    private val clientFactory: (String) -> AmllTtmlApi = { base -> AmllTtmlClient(base) },
 ) : LyricProcessorExtension {
 
     override val id: String = "amllttml.processor"
@@ -126,32 +126,70 @@ internal class AmllTtmlProcessor(
         // 宿主每处理器 40s 上限：这里自留 30s 总预算（搜索 10s + 取词 16s 封顶），
         // 宁可不取词也不能把宿主链拖到超时被丢弃。
         val deadline = System.currentTimeMillis() + TOTAL_BUDGET_MS
+        // 全部标题变体共享同一份搜索预算：变体逐个尝试，搜索总耗时仍受 SEARCH_BUDGET_MS 约束。
+        val searchDeadline = System.currentTimeMillis() + SEARCH_BUDGET_MS
 
-        val candidates = runCatching {
-            client.search(query, budgetFor(deadline, SEARCH_BUDGET_MS))
-        }.getOrNull()
-        val best = candidates?.let { AmllMatch.pickBest(query, it) }
-        if (best == null) {
+        // 标题变体按序尝试（原文优先；AMLL 库检索近乎精确匹配，带版本后缀的原文标题经常
+        // 0 结果）。某次搜索传输失败立即中止：瞬时故障不写负缓存，网络恢复后自动重试。
+        val variants = AmllMatch.searchTitleVariants(query.title)
+        val tried = ArrayList<String>(variants.size)
+        var best: AmllMatch.Candidate? = null
+        var hitVariant = ""
+        var searchFailed = false
+        for (variant in variants) {
+            tried += variant
+            val candidates = runCatching {
+                client.search(query, variant, budgetFor(searchDeadline, SEARCH_BUDGET_MS))
+            }.getOrNull()
+            if (candidates == null) {
+                searchFailed = true
+                break
+            }
+            val picked = AmllMatch.pickBest(query, candidates)
+            if (picked != null) {
+                best = picked
+                hitVariant = variant
+                break
+            }
+        }
+
+        val matched = best
+        if (matched == null) {
+            if (searchFailed) {
+                context.logger.info("AMLL search failed (network) for '${query.title}'")
+                return null to emptyList()
+            }
             cache.put(key, CachedOutcome.Miss, missTitle(query), MISS_SUMMARY)
-            context.logger.info("no AMLL match for '${query.title}'")
+            context.logger.info(
+                "no AMLL match for '${query.title}' (tried: ${tried.joinToString(", ")})"
+            )
             return null to emptyList()
         }
 
         val ttml = runCatching {
-            client.fetchTtml(best.id, budgetFor(deadline, FETCH_BUDGET_MS))
+            client.fetchTtml(matched.id, budgetFor(deadline, FETCH_BUDGET_MS))
         }.getOrNull()
-        if (ttml.isNullOrBlank()) {
+        if (ttml == null) {
+            // 取词请求传输失败：与搜索同一口径，不写负缓存（写 Miss 会毒化规范化键 7 天）。
+            context.logger.warn("AMLL fetch failed (network) for '${query.title}' (id=${matched.id})")
+            return null to emptyList()
+        }
+        if (ttml.isBlank()) {
+            // 请求成功但正文不可用：更像「库里这条不可用」，照旧写负缓存。
             cache.put(key, CachedOutcome.Miss, missTitle(query), MISS_SUMMARY)
-            context.logger.warn("AMLL fetch failed for '${query.title}' (id=${best.id})")
+            context.logger.warn("AMLL fetch failed for '${query.title}' (id=${matched.id})")
             return null to emptyList()
         }
 
         val outcome = CachedOutcome.Hit(
             ttml = ttml,
-            matchedTitle = best.musicNames.firstOrNull().orEmpty(),
-            matchedArtists = best.artistNames.joinToString("/"),
+            matchedTitle = matched.musicNames.firstOrNull().orEmpty(),
+            matchedArtists = matched.artistNames.joinToString("/"),
         )
-        cache.put(key, outcome, displayTitle(query), hitSummary(best))
+        cache.put(key, outcome, displayTitle(query), hitSummary(matched))
+        context.logger.info(
+            "AMLL hit for '${query.title}' via variant '$hitVariant' (id=${matched.id})"
+        )
         return outcome to TtmlMapper.map(ttml, duet, translation, background)
     }
 
