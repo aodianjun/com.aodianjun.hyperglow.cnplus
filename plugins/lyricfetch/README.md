@@ -53,7 +53,7 @@ HyperGlow 插件体系里可安装的一个插件。
 | 更新模式 | `REPLACE` | 行数与时间轴都换成在线版本 |
 | 行角色 | `metadata["role"] = "LEAD" / "BG"` | 与 Spicy 文档桥同一约定；和声行是独立行 |
 | 分侧继承 | `isAlignedRight` 按起始时间就近（≤700ms）从原行继承 | REPLACE 不该丢掉生产者推导的对唱分侧 |
-| 缓存 | 宿主 `PluginCache`（持久，进程重启仍在）+ 内存一级缓存；**含负缓存** | 逐行源每 15s 重跑插件链，必须避免重复打网络；条目 7 天过期、上限 100 条 |
+| 缓存 | 宿主 `PluginCache`（持久，进程重启仍在）+ 内存一级缓存；**含负缓存** | 键 =「标题 + 艺人 + 设置」**不含时长**；逐行源每 15s 重跑插件链，必须避免重复打网络；条目 7 天过期、上限 100 条 |
 | 缓存管理 | 声明 `cacheScopes` + 注册 `PluginCacheExtension` | 宿主设置页出现「缓存」区，可列出/删除单条/清空（见下） |
 | 时间预算 | 总 30s（宿主上限 40s），按剩余时间逐来源下发，单请求连接 ≤3s / 读取 ≤5s | 宁可不取词，也不能把宿主链拖到超时被丢弃 |
 | 失败语义 | 任何异常/超时/未命中 → 返回 `null`（透传） | 取词失败绝不能让宿主链抛异常 |
@@ -76,6 +76,12 @@ HyperGlow 插件体系里可安装的一个插件。
 本插件的实现（`LyricCache`）：
 
 - 条目按「曲目 + 设置」键存储（命中存原文，未命中存负缓存），**跨进程重启仍在**；
+- **键里不含时长**：宿主在逐行源（SuperLyric）上报的时长是「当前行的结束时间」，每次链重跑
+  都不同——1.0.0 把时长写进键，同一首歌于是每 15s 新建一条条目、缓存永不命中、每条都重新联网
+  （真机实证：一首歌在缓存页堆了 21 条）。时长仍参与搜索匹配打分，只是不构成缓存身份；
+- 缓存格式带版本号（`FORMAT_VERSION`）：键规则变更后旧记录一律解码失败、视为未命中重新取词，
+  且 `listEntries()` 在读列表时顺手清掉它们的正文——升级后设备上残留的旧条目自动消失，
+  用户不必手动清缓存；
 - `PluginCache` 没有键枚举能力，因此每次写入同步维护一条索引记录
   （id / 标题「曲名 — 艺人」/ 摘要「来源 · 行数 · 逐字 · 含翻译」/ 大小 / 时间），
   `listEntries()` 直接读索引并剔除已消失的条目；
@@ -118,15 +124,16 @@ HyperGlow 插件体系里可安装的一个插件。
 ## 本地开发
 
 ```bash
-./gradlew :plugins:lyricfetch:test     # 39 个单测（纯函数 + 真实响应夹具）
+./gradlew :plugins:lyricfetch:test     # 51 个单测（纯函数 + 真实响应夹具）
 ```
 
 ## 验证情况（本地实跑）
 
-- **46 个单元测试全绿**，其中响应解析全部用**真实抓取的载荷**（`src/test/.../Fixtures.kt`）：
+- **51 个单元测试全绿**，其中响应解析全部用**真实抓取的载荷**（`src/test/.../Fixtures.kt`）：
   网易云 cloudsearch/YRC+tlyric、QQ 搜索 + 真实 base64 歌词全量载荷、LRCLIB get/search；
-  另含 7 个缓存管理用例（条目元数据、负缓存标注、删单条/清空后重新取词、
-  **跨实例命中持久缓存**、TTL 过期）；
+  另含 10 个缓存用例（条目元数据、负缓存标注、删单条/清空后重新取词、**跨实例命中持久缓存**、
+  TTL 过期，以及 1.0.1 新增的三条：**时长随播放推进变化仍命中同一条目**、旧格式条目在读列表时
+  被清除、当前格式条目不被误清）；
 - **真实 API 端到端 12 项断言全过**（三个来源实测）：
   - Adele《Hello》：网易云 → 51 行、逐字、49 行翻译；QQ → 47 行行级；LRCLIB → 行级；
   - 周杰伦《晴天》：网易云搜索首位的翻唱版（"晴天 (原唱 周杰伦) - RyaVocal"）被**艺人硬否决**
@@ -134,6 +141,10 @@ HyperGlow 插件体系里可安装的一个插件。
     插件**干净返回 null**、不做错误替换；
   - Coldplay《Yellow》：网易云 → 40 行、逐字、15 行翻译；
   - 处理器产出 `REPLACE`，`role=LEAD`，行/词时间轴与翻译均正确。
+- **1.0.1 的缓存键修复**：改前行为在真机缓存页实证（一首歌 21 条、键里是行结束时间、
+  平均 15s 一条，同机同批歌在 amll-ttml 缓存里各只有 1 条）；改后行为由单测钉住，并做了
+  负向对照（把键改回含时长、格式号改回 1 → 三条新用例精准失败）。**修复本身尚未真机复验**
+  （需要先装上 1.0.1 的 ZIP）。
 - **未验证**：`d8` 打包与真机安装（本机无 Android SDK build-tools）；
   以及宿主内实际渲染效果（插件结果在 AOD/锁屏的表现）。
 
@@ -168,8 +179,10 @@ it looks up the current song online (NetEase / QQ Music / LRCLIB, all anonymous 
 parses the raw text with accompanist-lyrics-core (LRC / Enhanced LRC / YRC / KRC / TTML /
 Lyricify Syllable via `AutoParser`), merges translation and latin syllables (Lyricify
 semantics), and returns a REPLACE result. It runs in the `LYRIC_REPLACEMENT` stage, caches per
-song including negative results in the **host-owned persistent cache** (declared via
-`cacheScopes`; entries expire after 7 days, capped at 100) and exposes them through a
+song — keyed by title + artist + settings, with the **track duration deliberately excluded**
+(line-stream sources report the active line's end time as the duration, which would mint a new
+entry every 15s and never hit) — including negative results in the **host-owned persistent cache**
+(declared via `cacheScopes`; entries expire after 7 days, capped at 100) and exposes them through a
 `PluginCacheExtension`, so the host's cache page can list and delete entries — a wrong match
 can be re-fetched without restarting the app. It also enforces a 30s total network budget
 under the host's 40s processor limit. Word-level timing is only available from NetEase (QQ's

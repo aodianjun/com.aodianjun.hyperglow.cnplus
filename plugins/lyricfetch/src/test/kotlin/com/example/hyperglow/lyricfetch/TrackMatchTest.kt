@@ -95,4 +95,33 @@ class TrackMatchTest {
         assertEquals(query().cacheKey, query().cacheKey)
         assertTrue(query().cacheKey != query(title = "Other").cacheKey)
     }
+
+    @Test
+    fun cacheKeyIgnoresDuration() {
+        // 宿主给的时长在逐行源（SuperLyric）上是「当前行结束时间」，同一首歌每次链重跑
+        // 都不同。键里带上它 = 每 15s 新建一条缓存、永不命中（真机实证：一首歌 21 条）。
+        assertEquals(
+            query(durationMs = 5_220L).cacheKey,
+            query(durationMs = 239_349L).cacheKey,
+            "同一首歌的行结束时间推进不该换缓存键",
+        )
+        assertEquals(
+            query(durationMs = null).cacheKey,
+            query(durationMs = 295_000L).cacheKey,
+            "时长缺失与时长已知不该是两个键",
+        )
+    }
+
+    @Test
+    fun cacheKeyStillSeparatesArtists() {
+        assertTrue(
+            query(artists = listOf("Adele", "Guest")).cacheKey != query().cacheKey,
+            "艺人不同仍是不同条目",
+        )
+        assertEquals(
+            query(artists = listOf("ADELE")).cacheKey,
+            query().cacheKey,
+            "艺人归一化后相同应共享条目",
+        )
+    }
 }

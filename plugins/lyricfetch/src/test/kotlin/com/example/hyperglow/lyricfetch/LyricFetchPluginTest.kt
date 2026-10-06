@@ -89,11 +89,15 @@ class LyricFetchPluginTest {
         val extension = LyricCacheExtension(lyricCache)
     }
 
-    private fun song(rows: List<PluginLyricLine>, name: String = "Hello"): PluginSong =
-        PluginSong(name = name, artist = "Adele", album = "25", duration = 295_000L, lyrics = rows)
+    private fun song(
+        rows: List<PluginLyricLine>,
+        name: String = "Hello",
+        durationMs: Long = 295_000L,
+    ): PluginSong =
+        PluginSong(name = name, artist = "Adele", album = "25", duration = durationMs, lyrics = rows)
 
-    private fun mediaInfo() = PluginProcessingContext(
-        mediaInfo = PluginMediaInfo(title = "Hello", artist = "Adele", album = "25", duration = 295_000L)
+    private fun mediaInfo(durationMs: Long? = 295_000L) = PluginProcessingContext(
+        mediaInfo = PluginMediaInfo(title = "Hello", artist = "Adele", album = "25", duration = durationMs)
     )
 
     private fun lineLevelRow() = PluginLyricLine(
@@ -172,6 +176,27 @@ class LyricFetchPluginTest {
     }
 
     @Test
+    fun reusesCacheWhenHostDurationChangesPerRun() {
+        // 逐行源（SuperLyric）把「当前行结束时间」当 duration 上报：同一首歌每次链重跑
+        // 拿到的时长都不同。缓存身份与时长无关，因此必须照样命中、且只留一条条目。
+        val h = Harness(FakeProvider(RawLyrics("fake", yrcFixture)))
+        assertNotNull(
+            h.processor.processResult(
+                song(listOf(lineLevelRow()), durationMs = 5_220L),
+                mediaInfo(durationMs = 5_220L),
+            )
+        )
+        assertNotNull(
+            h.processor.processResult(
+                song(listOf(lineLevelRow()), durationMs = 239_349L),
+                mediaInfo(durationMs = 239_349L),
+            )
+        )
+        assertEquals(1, h.provider.calls, "时长随播放推进变化时仍必须走缓存")
+        assertEquals(1, h.extension.listEntries().size, "同一首歌只应有一条缓存条目")
+    }
+
+    @Test
     fun providerFailureIsSilent() {
         val h = Harness(FakeProvider(null, fail = true))
         assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
@@ -235,6 +260,31 @@ class LyricFetchPluginTest {
     fun clearingUnknownEntryReportsFalse() {
         val h = Harness(FakeProvider(RawLyrics("fake", yrcFixture)))
         assertTrue(!h.extension.clearEntry("not-a-key"))
+    }
+
+    @Test
+    fun legacyFormatEntriesArePurgedFromCachePage() {
+        // 1.0.0 的键含时长，真机上同一首歌在缓存页堆了几十条（实测 21 条）。格式升版后
+        // 这些条目既查不到（键变了）也不该继续占着列表——读列表时顺手把正文清掉。
+        val hostCache = FakePluginCache()
+        val legacyKey = "hello|adele|295000|auto|true|true|true"
+        hostCache.map[legacyKey] = """{"v":1,"savedAt":1,"miss":true}"""
+        hostCache.map["__lyricfetch_index__"] =
+            """[{"id":"$legacyKey","title":"Hello — Adele（未命中）","summary":"旧格式","size":43,"updatedAt":1}]"""
+
+        val h = Harness(FakeProvider(RawLyrics("fake", yrcFixture)), hostCache)
+        assertTrue(h.extension.listEntries().isEmpty(), "旧格式条目不应再列出")
+        assertTrue(!hostCache.map.containsKey(legacyKey), "旧格式条目的正文应被清除")
+    }
+
+    @Test
+    fun currentFormatEntriesSurviveTheListing() {
+        // 反向钉子：格式校验不能把当前格式的条目也一起清掉
+        val h = Harness(FakeProvider(RawLyrics("fake", yrcFixture)))
+        assertNotNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        val entry = h.extension.listEntries().single()
+        assertNotNull(h.extension.listEntries().singleOrNull(), "重复列出不应清掉当前格式条目")
+        assertTrue(h.hostCache.map.containsKey(entry.id))
     }
 
     @Test
