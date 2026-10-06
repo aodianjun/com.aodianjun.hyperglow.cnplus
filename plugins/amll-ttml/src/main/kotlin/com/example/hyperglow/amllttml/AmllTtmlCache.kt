@@ -78,10 +78,22 @@ internal class AmllTtmlCache(
 
     private fun isExpired(savedAt: Long): Boolean = nowMs() - savedAt > TTL_MS
 
-    /** 宿主缓存页用：当前条目元数据（已消失的条目自动从索引剔除）。 */
+    /**
+     * 宿主缓存页用：当前条目元数据。已消失或**按当前格式解不出**（旧 v1 / 损坏）的条目
+     * 不再展示，并把其正文从宿主缓存删除——格式升级后设备上残留的旧条目（含被旧版本
+     * 毒化的未命中）因此自动失效，用户无需手动清缓存。
+     *
+     * 读路径不回写索引：残留索引行在 `contains` 过滤下不再可见，其正文已删；下次
+     * put/remove/clearEntry 重写索引时自然收敛（也避免读缓存页与并发写入互相覆盖）。
+     */
     fun entries(): List<PluginCacheEntry> = readIndex().mapNotNull { (id, meta) ->
-        val exists = runCatching { cache.contains(id) }.getOrDefault(false)
-        if (!exists) return@mapNotNull null
+        val stored = runCatching { cache.getString(id) }.getOrNull()
+        val record = stored?.let { runCatching { decode(it) }.getOrNull() }
+        if (record == null) {
+            runCatching { cache.remove(id) }
+            memory.remove(id)
+            return@mapNotNull null
+        }
         PluginCacheEntry(
             id = id,
             title = meta.optString("title").ifBlank { id },
@@ -173,7 +185,8 @@ internal class AmllTtmlCache(
     }
 
     private companion object {
-        const val FORMAT_VERSION = 1
+        /** 1 → 2：标题变体搜索修复（1.0.1）。旧 v1 记录一律解码失败 → 视为未命中重新取词。 */
+        const val FORMAT_VERSION = 2
         const val INDEX_KEY = "__amll_ttml_index__"
         const val TTL_MS = 7L * 24 * 60 * 60 * 1000
         const val MAX_ENTRIES = 100

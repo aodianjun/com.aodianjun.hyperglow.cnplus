@@ -108,4 +108,38 @@ class AmllMatchTest {
         val b = AmllQuery("蝴蝶", listOf("洛天依Official"), null)
         assertEquals(a.cacheKey("https://api.amll.dev"), b.cacheKey("https://api.amll.dev"))
     }
+
+    @Test
+    fun searchTitleVariantsPreferRawThenStrippedThenNormalized() {
+        // 三变体按序去重：原文（库里带后缀/标点的版本只有原文能区分）→ 仅剥括号/feat.
+        // （保留空格标点）→ 全量规范化（仅字母数字 CJK）。
+        assertEquals(
+            listOf("蝴蝶 (Cocoon Broken)", "蝴蝶"),
+            AmllMatch.searchTitleVariants("蝴蝶 (Cocoon Broken)"),
+        )
+        assertEquals(
+            listOf("Orchelia's vox (feat. k a e z & Lily)", "Orchelia's vox", "orcheliasvox"),
+            AmllMatch.searchTitleVariants("Orchelia's vox (feat. k a e z & Lily)"),
+        )
+        assertEquals(
+            listOf("Hello, World!", "helloworld"),
+            AmllMatch.searchTitleVariants("Hello, World!"),
+        )
+        assertEquals(listOf("蝴蝶"), AmllMatch.searchTitleVariants("蝴蝶"))
+        assertEquals(listOf("蝴蝶"), AmllMatch.searchTitleVariants("  蝴蝶  "))
+        assertTrue(AmllMatch.searchTitleVariants("").isEmpty())
+        assertTrue(AmllMatch.searchTitleVariants("   ").isEmpty())
+    }
+
+    @Test
+    fun cacheKeyIsSharedAcrossTitleSpellings() {
+        // 带括号后缀与干净标题（含艺人大小写差异）必须落到同一缓存键：修复后带后缀会话
+        // 取到的结果能被干净标题的会话复用（反之亦然），这也是负缓存不再「只毒一半」的前提。
+        val decorated = AmllQuery("蝴蝶 (Cocoon Broken)", listOf("洛天依Official"), null)
+        val clean = AmllQuery("蝴蝶", listOf("洛天依official"), null)
+        assertEquals(
+            decorated.cacheKey("https://api.amll.dev"),
+            clean.cacheKey("https://api.amll.dev"),
+        )
+    }
 }

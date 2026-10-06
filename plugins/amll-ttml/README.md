@@ -59,22 +59,39 @@
 | 保留和声行 | 和声（`x-bg`）行作为独立行输出 | 开 |
 | 仅升级为逐字歌词 | 当前已是逐字歌词时不替换 | 开 |
 
-## 5. 缓存管理
+## 5. 匹配与缓存管理
+
+**标题变体搜索（1.0.1 起）**：AMLL 库检索近乎精确匹配，而播放器元数据的标题常带版本
+后缀（如网易云显示「蝴蝶 (Cocoon Broken)」）。取词时按序尝试三个标题变体，任一命中即停：
+
+1. **原文**（trim 后）——库里存了带后缀/带标点的版本时，原文才能区分 Live/Remastered；
+2. **仅剥括号内容与 feat. 从句**（保留空格与标点，如 `Orchelia's vox (feat. …)` →
+   `Orchelia's vox`）——覆盖「库里是带空格标点的拉丁标题、播放器多一个括号后缀」的形态；
+3. **全量规范化**（仅字母数字与 CJK）——覆盖「库里也是去标点形态」。
+
+全部变体无命中才写入未命中缓存；搜索或取词的**传输失败**不写缓存（瞬时故障不再需要
+用户手动删缓存条目，网络恢复后自动重试；请求成功但库中该条不可用仍照旧写未命中）。
 
 取词结果（命中与未命中）按曲目缓存在宿主持久缓存（`PluginCache`，7 天 TTL、上限 100 条），
 并通过 `PluginCacheExtension`（scope id `amll_ttml_songs`，与 manifest 一致）暴露给宿主
-「歌词增强 → 缓存管理」页：可列出、删除单条、清空。**删除单条即让插件重做该次取词**
-（内存副本同步失效）。缓存键只含曲目身份 + API 地址，渲染开关（对唱/翻译/和声）切换
-即时生效、不重新联网。
+「歌词增强 → 缓存管理」页：可列出、删除单条、清空。**缓存键为规范化标题**（与上面第 3 个
+变体同源），因此同一首歌的不同标题写法（带/不带括号后缀）**共享同一条结果**，负缓存同样
+只按曲目身份记录、不会只毒化其中一种写法。**缓存格式已升到 v2**：设备上旧 v1 条目解码
+失败即视为未命中并自动从缓存页剔除（正文一并删除），下次播放自动重新取词，无需手动
+清缓存；删除单条仍可随时手动强制重取词（内存副本同步失效）。缓存键只含曲目身份 + API
+地址，渲染开关（对唱/翻译/和声）切换即时生效、不重新联网。
 
 ## 6. 验证情况
 
 - **单元测试**（证据：unit-tested）：`src/test` 覆盖真实样本解析（蝴蝶 TTML：39 行映射、
   首行 11 词、全 LEAD、时间轴非负）、对唱合成样本（agent 翻转：v1 左 → v2 右 → 回 v1 左；
   开关关闭全不分侧）、和声/翻译合成样本（独立 BG 行、翻译挂载与开关）、匹配打分（精确 1.0 /
-  翻唱硬否决 / 阈值）、响应解析（真实响应形状）、API 地址规范化与 URL 编码。
-  本地以 kotlin-compiler-embeddable 编译真实源码跑通全部断言（33/33）；CI 侧
-  `publish-plugins` job 运行 `:plugins:amll-ttml:test`（本 PR 起接入）。
+  翻唱硬否决 / 阈值）、响应解析（真实响应形状）、API 地址规范化与 URL 编码；1.0.1 起新增
+  **标题变体钉子**（原文/剥括号/全量规范化三态与去重）、**Processor 级回归**（脚本化假
+  client：原文 0 结果 → 剥括号变体命中 → REPLACE+WORDS，且两次查询 musicName 不同；
+  搜索/取词传输失败不写负缓存）、**缓存格式升级**（v1 记录 get 未命中、缓存页剔除并删正文）。
+  本地以 kotlin-compiler-embeddable 编译真实源码跑通全部用例（31/31）；CI 侧
+  `publish-plugins` job 运行 `:plugins:amll-ttml:test`。
 - **真实接口**（证据：real-api）：`api.amll.dev` 的 search/get 端点按 §3 实测。
 - **真机**：**未验证**——宿主渲染行为（对唱分侧、和声行、缓存页交互）待安装 ZIP 后冒烟。
 
@@ -143,21 +160,44 @@ background/translation switches).
 See the Chinese section's table (master switch, API base URL, duet, translation, background
 vocals, upgrade-only).
 
-## 5. Cache
+## 5. Matching and cache
+
+**Title-variant search (since 1.0.1)**: the AMLL database search is near-exact, while player
+metadata titles often carry a version suffix (e.g. "蝴蝶 (Cocoon Broken)"). Lookup tries three
+title variants in order and stops at the first hit:
+
+1. **Raw** (trimmed) — only the raw title distinguishes Live/Remastered when the database stores
+   the suffixed form;
+2. **Brackets/feat. stripped** (spaces and punctuation kept: `Orchelia's vox (feat. …)` →
+   `Orchelia's vox`) — for Latin titles stored with spaces/punctuation;
+3. **Fully normalized** (letters/digits/CJK only) — for titles stored without punctuation.
+
+A miss is cached only when every variant missed. A **transport failure** (search or fetch)
+never writes a cache entry — a transient blip no longer needs a manual cache delete; a
+successful response whose entry is unusable still caches a miss as before.
 
 Lookups (hits and misses) are cached per song in the host's persistent cache (7-day TTL,
 100-entry cap) and exposed via `PluginCacheExtension` (scope id `amll_ttml_songs`) to the host's
-cache page — list / delete one / clear all. Deleting one entry makes the plugin redo that lookup.
-The cache key contains only the track identity plus the API base URL, so render switches apply
-instantly without refetching.
+cache page — list / delete one / clear all. The **cache key is the normalized title** (same
+normalization as variant 3), so different spellings of the same song (with/without a bracketed
+suffix) **share one entry**, and a negative cache entry is keyed by track identity too. The
+**cache format is now v2**: legacy v1 entries on device fail to decode, count as misses, and are
+pruned from the cache page (payload removed) — the next play refetches automatically, no manual
+clearing needed. Deleting one entry still forces a manual refetch (the in-memory copy is
+invalidated too). The key contains only the track identity plus the API base URL, so render
+switches apply instantly without refetching.
 
 ## 6. Verification status
 
 - unit-tested: `src/test` covers real-sample parsing (39-row butterfly TTML), synthetic duet
   samples (agent flip left→right→left; switch off), background/translation samples, match scoring
-  (exact / cover veto / threshold), response parsing, URL building. Run locally against the real
-  sources via kotlin-compiler-embeddable (33/33 assertions); CI runs `:plugins:amll-ttml:test` in
-  the `publish-plugins` job.
+  (exact / cover veto / threshold), response parsing, URL building; since 1.0.1 also title-variant
+  pins (raw / stripped / normalized, deduped), a processor-level regression with a scripted fake
+  client (raw search empty → stripped variant hits → REPLACE+WORDS, two distinct musicName
+  queries; transport failures write no cache entry), and cache-format upgrade (v1 records read as
+  misses and are pruned from the cache page). Run locally against the real sources via
+  kotlin-compiler-embeddable (31/31); CI runs `:plugins:amll-ttml:test` in the `publish-plugins`
+  job.
 - real-api: endpoints verified as in §3.
 - **Device: not verified** — host-rendered behaviour (duet sides, background rows, cache page)
   awaits a device smoke test.

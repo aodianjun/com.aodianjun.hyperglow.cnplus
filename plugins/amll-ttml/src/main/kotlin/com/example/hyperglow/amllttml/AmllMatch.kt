@@ -52,6 +52,34 @@ internal object AmllMatch {
         return s
     }
 
+    /**
+     * 只剥括号内容与 feat. 从句，**保留空格与标点**（搜索变体 2）。
+     *
+     * AMLL 库检索近乎精确匹配：库里存了带空格标点的拉丁标题（如 "Orchelia's vox"）时，
+     * 播放器标题多一个 "(feat. ...)" 后缀也会 0 结果；该变体正是为这种形态准备的。
+     */
+    internal fun stripDecorations(raw: String): String {
+        var s = raw.trim()
+        // 先剥括号（含括号内的 feat. 从句），再剥括号外的 feat. 从句
+        s = s.replace(Regex("""[\(（\[【].*?[\)）\]】]"""), " ")
+        s = s.replace(Regex("""(?i)\b(feat|ft|featuring)\b.*"""), "")
+        return s.replace(Regex("""\s+"""), " ").trim()
+    }
+
+    /**
+     * 搜索标题变体，按序尝试（去空去重）：
+     * 1. 原文（trim 后）——库里存了带后缀/带标点的版本时，原文才能区分 Live/Remastered；
+     * 2. [stripDecorations]——只剥括号与 feat. 从句，保留空格与标点；
+     * 3. [normalize]——全量规范化（仅字母数字 CJK）。
+     *
+     * 起因：播放器元数据标题带版本后缀（如「蝴蝶 (Cocoon Broken)」）时，原文检索在
+     * AMLL 库 0 结果，必须逐级回退；但反过来库里若真有带后缀的版本，只有原文能区分。
+     */
+    internal fun searchTitleVariants(raw: String): List<String> =
+        listOf(raw.trim(), stripDecorations(raw), normalize(raw))
+            .filter { it.isNotEmpty() }
+            .distinct()
+
     /** 标题对多个候选名的最高分（DataBase 里同一首歌可能有多个别名）。 */
     fun titleScore(query: String, candidates: List<String>): Double =
         candidates.maxOfOrNull { titleScoreOne(query, it) } ?: 0.0
