@@ -443,6 +443,37 @@ internal fun advanceTransitionPosition(
 internal fun isTransitionSeekJump(positionMs: Long, rawHighWaterPositionMs: Long): Boolean =
     positionMs < rawHighWaterPositionMs - TRANSITION_REWIND_TOLERANCE_MS
 
+/**
+ * 位移段起点锚定(round 3 起点连续,纯函数):位移段开始的那一帧必须画出**上一帧的几何**
+ * (moveProgress = 0),不得一帧跳进位移段中段。
+ *
+ * 位置式时钟按「平滑位置 − 过渡起点位置」换算进度,而过渡起点的位置锚在内容到达时就已定死
+ * ([resolvePendingLineTransition]);首帧实际绘制可能晚于内容到达(低节拍/doze 批投递/首个
+ * 绘制帧晚到),这段真实位置推进量会在第一个绘制帧一次性计入 delta,把退场段一帧跳完、
+ * 位移段一帧跳进(真机 recwalk4 实测:首帧位移 -38px ≈ 0.22 段,其后相邻帧 ~9px)。
+ *
+ * 本函数在 delta **首次**越过退场段时,把过渡起点重锚到「当前平滑位置 − 退场时长」,使该帧
+ * moveProgress 恰为 0;位移段从屏上实际形态(旧「下一行」原位/原字号)起步,再按自身时长
+ * 平滑推进——被跳过的量不再由位移段一帧吞掉,而是整段顺延(「晚一点、慢一点」,与压缩补播
+ * 同一口径)。返回 null 表示无需锚定:已锚定过(只锚一次,否则每帧都把进度压回 0)、
+ * 无位移段、尚未越过退场段,或位置推进**不限速**(暂停/seek 语义:瞬间落位/立即结束,
+ * 不因重锚变成「重新播一遍」)。
+ *
+ * 调用方在拿到非 null 值时把返回值写回过渡起点位置,并置「已锚定」标志。
+ */
+internal fun moveStartAnchorPosition(
+    startPositionMs: Long,
+    smoothedPositionMs: Long,
+    exitMs: Long,
+    moveMs: Long,
+    alreadyAnchored: Boolean,
+    rateBounded: Boolean
+): Long? {
+    if (alreadyAnchored || !rateBounded || moveMs <= 0L) return null
+    if (smoothedPositionMs - startPositionMs <= exitMs) return null
+    return smoothedPositionMs - exitMs
+}
+
 /** 旧账压缩补播的总时长:过期/同帧多条快照不再一帧硬切,三段连续播完约 140ms。 */
 internal const val COMPRESSED_TRANSITION_TOTAL_MS = 140L
 
@@ -539,6 +570,48 @@ internal fun lineTransitionMoveFrame(
         translateFraction = 1f - p,
         scale = from + (1f - from) * p,
         alpha = alphaFrom + (1f - alphaFrom) * p
+    )
+}
+
+/**
+ * 晋级位移的绘制放置(round 3 起点连续,纯函数):把「旧下一行槽位 → 目标主行槽位」的位移
+ * 与「下一行字号 → 主行字号」的放大**锚在首行基线上**——
+ *
+ * - `baseline = 目标主行基线 + (旧下一行基线 − 目标主行基线) × (1 − 已缓动进度)`:
+ *   [easedProgress] = 0 时恰为旧下一行基线(= 过渡前最后一帧画出的位置),= 1 时恰为目标基线;
+ * - `scale = 1/字号比 + (1 − 1/字号比) × 已缓动进度`,缩放枢轴取**当前绘制的首行基线**
+ *   ([pivotYPx] = [baselinePx]),缩放不移动首行,只把行距/块高放大到目标几何。
+ *
+ * 旧实现把 `(旧基线 − 目标基线) × (1 − 进度)` 先 translate、再绕**目标行盒中心**缩放,两步
+ * 复合后首行落点 = `枢轴 + (旧基线 − 枢轴) × 缩放比`,progress=0 时并不等于旧下一行基线
+ * (目标行盒中心离旧槽位多远就偏多少)。真机 recwalk4 逐帧实测:换行「起步那一下」单帧 -38px,
+ * 其后相邻帧 ~9px——该偏移与「位移段首帧被位置时钟一帧跳进」叠加,即 owner 确认的起步跳。
+ * 行数变化(旧下一行 1 行 ↔ 新主行 2 行折行)同样由本式接管:首行基线连续,块高随缩放进度
+ * 增长,不再出现位移段开始前的整块重定位。
+ */
+internal data class LineTransitionMovePlacement(
+    /** 传给绘制入口的首行基线(px):progress=0 为旧下一行基线,progress=1 为目标主行基线。 */
+    val baselinePx: Float,
+    /** 绕 [pivotYPx] 的缩放比(1/字号比 → 1)。 */
+    val scale: Float,
+    /** 缩放枢轴 y(px):当前绘制的首行基线,保证首行在缩放中不动(锚点不漂)。 */
+    val pivotYPx: Float
+)
+
+internal fun lineTransitionMovePlacement(
+    fromBaselinePx: Float,
+    targetBaselinePx: Float,
+    sizeRatio: Float,
+    easedProgress: Float
+): LineTransitionMovePlacement {
+    val p = easedProgress.coerceIn(0f, 1f)
+    val ratio = if (sizeRatio > 1f) sizeRatio else 1f
+    val fromScale = 1f / ratio
+    val baseline = targetBaselinePx + (fromBaselinePx - targetBaselinePx) * (1f - p)
+    return LineTransitionMovePlacement(
+        baselinePx = baseline,
+        scale = fromScale + (1f - fromScale) * p,
+        pivotYPx = baseline
     )
 }
 

@@ -545,6 +545,32 @@ and (b) unverified paths stay explicit instead of silently assumed.
   the mean of its neighbouring frames; seek/drag still lands statically and immediately; the 187
   (position-clock) and 191 (start-frozen target geometry) properties unchanged.
 
+- Line transition start continuity (round 3; owner-confirmed "the start pops": after round 2's
+  velocity cap the travel body was smooth at ~9 px/frame but the first frame still measured
+  −38 px). Two code-level discontinuities at the promotion start are fixed. (a) The drawn
+  placement now anchors the promoted row's first-line baseline
+  (`lineTransitionMovePlacement`: `baseline = target + (from − target) × (1 − eased)`, scale pivot
+  on that same baseline), so progress 0 draws exactly the previous frame's geometry — the old
+  next-line row in place, at its own size; the legacy composition (translate by
+  `(from − target) × (1 − eased)`, then scale about the target row-box center) put the first
+  promotion frame `(1 − scale) × (pivot − from)` above the old slot (tens of px; the −38 px
+  first frame), and a wrap/line-count change (old next line 1 line ↔ new main 2 wrapped lines)
+  was applied in full on that same frame. (b) The position clock re-anchors the transition start
+  when the move segment first begins (`moveStartAnchorPosition`): when the first drawn frame
+  lands past the exit phase (low cadence / doze batch), the start is snapped to
+  `smoothed position − exit duration` so that frame renders moveProgress = 0 and the travel
+  plays its full duration from the on-screen pose instead of jumping into the segment; the
+  anchor is skipped when the position advance is not rate-limited (pause/seek keeps the
+  instant-settle / instant-end semantics). Unit-tested
+  (`AodCanvasTransitionTest.promotionPlacementStartsAtPreviousFrameGeometry` /
+  `promotionPlacementFixesLegacyPivotOffsetAtMoveStart` /
+  `moveStartAnchorSnapsFirstDrawnMoveFrameToZero` /
+  `anchoredMoveStartKeepsFirstTrackedFrameContinuousAtSixtyFps`) — pending a hardware smoke
+  check after merge (same A/B flow, AOD and lockscreen): the transition's first frame
+  displacement ≤ 1.6× the mean of the following adjacent frames (with the fix the promotion's
+  first frame is 0 px), the travel body stays ≤ ~10 px per 60 fps frame, seek/drag still lands
+  statically and immediately, and pause still freezes the transition in place.
+
 - Lyric-source frozen-fallback retention + stall-diagnostic de-duplication (the fallback path now
   applies the same `isFaulted` predicate as selection: a stale-paused candidate with content is
   forwarded, a stale-playing or contentless one is not; the per-tick fallback chain and the
@@ -782,6 +808,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 插件链合并结果的行窗/词窗归一（`PluginChainMerger.normalizeMergedTimeline`，在 `PluginRuntime.processChain` 合并循环之后、交给下游之前的单一落点调用）：本链有被接受的处理器结果声明 `WORDS` 时，插件词表（文本 + 时间戳）整份生效、其词窗即最终值，合并文档逐行过 ingest 同一套 `LyricTimelineNormalizer` 归一——① 词窗超出行窗 → 行窗扩到并集；② 行窗远超可唱估时且词级跨距可信 → 向词对齐；③ 其余（含正常拖尾）逐字节原样；未声明 `WORDS`（宿主词表）时合并结果原样返回，不重复归一宿主词窗。已有单测（`PluginTimelineNormalizeTest`）——合并后待真机冒烟：装带词级时间的插件（如 lyricfetch）时，插件词窗越出行窗的行不再提前交接/词级卡拉OK不再中途消失，正常歌曲换行节奏与改前一致，未声明 `WORDS` 的插件对宿主行零影响。
 - 投递边界丢弃过期快照（`shouldDropStaleSnapshot` + `droppedSnapshotKeepAliveSignal`，接入 `SystemUiLyricProjection.accept`）：可见快照年龄超过 `STALE_SNAPSHOT_DROP_AGE_MS`（1.5 秒，与 producer 的全量发布/心跳节奏同拍）即在投递边界丢弃；换歌/换源（track generation 变化）、隐藏与暂停驻留边沿、绑定后的首条快照恒投递；被丢快照仍推进 revision 水位，并在其 keepalive/wake 标量与持有态不同时按最新值更新，keepalive 链绝不因此断开。已有单测（`SystemUiLyricProjectionTest` 的边界/换源/隐藏边沿/租约兜底用例）——合并后待真机冒烟：息屏 AOD + 网易云在播时 `adb logcat -s HyperGlow` 只看到积压 revision 被丢（同帧反复应用多条快照的情况消失），歌词不中途冻结/清场，暂停驻留与切歌行为与改前一致。
 - 换行位移段速度上限 + 旧账压缩补播（第二轮：第一轮的位置时钟限速 + 压缩补播已合并，但真机 A/B 复验仍测到孤立 -76px 单帧——位移段仍按固定 220ms × 速率倍率排时长，FastOutSlowIn 中段峰值瞬时速度（≈平均 2.7 倍）把 216px 塞进约 7 帧）。现在 `moveTransitionMs` 按**速度上限**排位移段：时长 = `max(max(距离 × 2.75 / 500, 220ms) × 速率倍率, 距离 × 2.75 / 500)`，距离取起点布局「下一行」与目标布局「主行」逐行基线差的最大值（主行对 + 辅助行对，目标布局重建后计算），2.75 为 FastOutSlowIn 实测峰值斜率，峰值瞬时速度因此 ≤500px/s（60fps 等效 ≈8.3px/帧，满足「单帧 ≤8px」判据；216px → ~1.2s）；速率倍率语义保留（Slow 1.5× 更慢、Fast 0.6× 更短，短距离段完整生效），但任何档位不得突破上限（长距离时 Fast 被硬下限钳回），取不到距离时回退历史 220ms × 速率倍率。`advanceTransitionPosition` / `isTransitionSeekJump` 的位置时钟限速与 seek 判定不变；`compressedLineTransitionTimeline` 命中时退场/入场仍压缩到 ~140ms 预算（每段 ≥40ms），位移段保留速度上限时长（旧账「晚一点、慢一点」补完，不再 40ms 一帧暴跳），seek/拖动仍按原始位置高水位立即结束）。已有单测（`AodCanvasTransitionTest.velocityCappedPromotionKeepsEveryFrameWithinTenPxAtSixtyFps` / `moveEasePeakFactorMatchesMeasuredSlope` / `moveDistanceUsesLargestRowBaselineDelta` / `moveDurationFollowsVelocityCapAtDefaultSpeed` / `moveDurationNeverBreaksVelocityCapAcrossSpeeds` / `promotionTimelineCarriesVelocityCappedMove` / `compressedReplayAlsoRespectsMoveVelocityCap` / `smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` / `transitionPosition*` / `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` / `sameFrameMultipleLineChangesSkipFullTransition`）——合并后待真机冒烟（与失败 A/B 同流程：稳态 AOD → 等触发行 → 60fps 录屏 → 逐帧条带）：位移段任意单帧位移 ≤ ~10px（60fps 等效）且单帧最大值 ≤ 相邻帧均值的 1.6 倍；seek/拖动仍静态立即落位；187（位置时钟）/191（起点定死目标几何）性质不回归。
+- 换行过渡起步帧与上一帧几何连续（第三轮；owner 确认「起步那一下跳」：第二轮速度上限后位移段主体已 ~9px/帧平滑，唯第一帧仍 -38px）。修掉起步处两处代码级不连续：(a) 晋级层的绘制放置改为**首行基线锚定**（`lineTransitionMovePlacement`：`首行基线 = 目标主行基线 + (旧下一行基线 − 目标主行基线) × (1 − 已缓动进度)`，缩放枢轴取该基线）——progress=0 画出的恰是上一帧几何（旧「下一行」原位、原字号）；旧实现「先 translate 再绕目标行盒中心缩放」复合后第一帧首行落点 = `枢轴 + (旧基线 − 枢轴) × 缩放比`，比旧槽位高出 `(1 − 缩放比) × (枢轴 − 旧基线)`（数十像素，即实测 -38px），且旧下一行 1 行 ↔ 新主行 2 行折行的行数变化在同一帧整份生效。(b) 位置式时钟新增**位移段起点锚定**（`moveStartAnchorPosition`）：delta 首次越过退场段时把过渡起点重锚到「当前平滑位置 − 退场时长」，使位移段第一帧 moveProgress 恰为 0、从屏上实际形态起步再按自身时长平滑推进——首帧晚到（低节拍/doze 批投递）不再把起步一帧跳进位移段；位置推进不限速（暂停/seek）时不重锚，瞬间落位/立即结束语义保持。已有单测（`AodCanvasTransitionTest.promotionPlacementStartsAtPreviousFrameGeometry` / `promotionPlacementFixesLegacyPivotOffsetAtMoveStart` / `moveStartAnchorSnapsFirstDrawnMoveFrameToZero` / `anchoredMoveStartKeepsFirstTrackedFrameContinuousAtSixtyFps`）——合并后待真机冒烟（同 A/B 流程，AOD 与锁屏两个界面）：过渡第一帧位移 ≤ 其后相邻帧位移均值的 1.6 倍（修复后晋级第一帧为 0px）、位移段主体仍 ≤ ~10px/60fps 帧、seek/拖动仍静态立即落位、暂停仍原地冻结。
 - 歌词源冻结回退保留 + 停滞诊断去抖（回退路径现在与选源共用 `isFaulted` 谓词：stale 暂停且带内容的候选会被转发，stale 在播或无内容的候选仍被跳过；逐 tick 回退链与 `sources stalled` 汇总改为结构变化 + 30 秒心跳记录）——待真机冒烟：首选源断连时暂停歌曲，AOD 必须继续显示已连接回退源（如 Lyricon）的冻结行而非清屏；恢复播放必须切回实时源；`adb logcat -s HyperGlow` 中回退链在停滞起点只出现一次并每 30 秒一条心跳，而非约 60 行/秒。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 

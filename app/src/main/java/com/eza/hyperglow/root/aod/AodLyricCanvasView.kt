@@ -88,6 +88,12 @@ internal class AodLyricCanvasView(
     private var transitionPositionState = TransitionPositionState(0L, 0L)
     private var transitionTimeline: LineTransitionTimeline? = null
     /**
+     * 位移段起点是否已锚定(见 [moveStartAnchorPosition]):位置式时钟下,delta 首次越过
+     * 退场段时把起点重锚到「当前平滑位置 − 退场时长」,保证位移段第一帧画的是上一帧几何
+     * (moveProgress = 0),不被首帧晚到/批跳变一帧跳进。每段过渡只锚一次。
+     */
+    private var moveStartAnchored = false
+    /**
      * 旧账压缩补播:为真时三段进度按挂钟在压缩时间线上换算(见 [lineTransitionClockAtElapsed])。
      * 位置锚不参与本路径——过期快照的位置推进量远超压缩时长,按位置驱动就是一帧硬切。
      */
@@ -430,6 +436,7 @@ internal class AodLyricCanvasView(
             exitSnapshot = null
             transitionStartPositionMs = 0L
             transitionPositionState = TransitionPositionState(0L, 0L)
+            moveStartAnchored = false
             transitionWallClockDriven = false
             transitionStartedAtElapsedMs = 0L
             transitionLastClockAtElapsedMs = 0L
@@ -536,6 +543,8 @@ internal class AodLyricCanvasView(
             transitionStartedAtElapsedMs = 0L
             transitionLastClockAtElapsedMs = pending.startedAtElapsedMs
             transitionStartPositionMs = 0L
+            // 挂钟补播从首个绘制帧起算(首帧即 progress=0),位移段无需重锚。
+            moveStartAnchored = true
             // 原始位置高水位照常推进:补播期间 seek/拖动(倒退超容差)仍立即结束、静态落位。
             transitionPositionState = TransitionPositionState(0L, pending.startPositionMs)
             return
@@ -547,6 +556,7 @@ internal class AodLyricCanvasView(
         transitionStartPositionMs = pending.startPositionMs
         transitionPositionState =
             TransitionPositionState(pending.startPositionMs, pending.startPositionMs)
+        moveStartAnchored = false
         transitionWallClockDriven = false
         transitionStartedAtElapsedMs = 0L
         transitionLastClockAtElapsedMs = pending.startedAtElapsedMs
@@ -1161,15 +1171,23 @@ internal class AodLyricCanvasView(
 
     /**
      * 晋级位移段:旧「下一行」即新「主行」(内容延续),自旧槽位平移到当前行槽位,按两槽
-     * 字号比等比放大并自旧行亮度升至全亮(同 HyperLyric 下一句晋级的 translation+scale,
-     * 缩放枢轴取行块中心)。只画新「主行」一层,旧行在位移段开始时即被本层接管。
+     * 字号比等比放大并自旧行亮度升至全亮(同 HyperLyric 下一句晋级的 translation+scale)。
+     * 只画新「主行」一层,旧行在位移段开始时即被本层接管。
+     *
+     * round 3 起点连续:绘制放置由 [lineTransitionMovePlacement] 给出——首行基线在两槽基线间
+     * 线性插值、缩放枢轴取该基线,progress=0 画出的就是上一帧的几何(旧「下一行」原位/原字号);
+     * 旧实现 translate + 绕目标行盒中心缩放的复合偏移会让起步第一帧整块上移数十像素(真机
+     * recwalk4 实测 -38px)。行数变化(旧 1 行 ↔ 新主行 2 行折行)由同一式接管:首行不跳,
+     * 块高随缩放进度增长。
      */
     private fun drawPromotionLayer(canvas: Canvas, snapshot: CanvasSnapshot, moveProgress: Float) {
         val target = layout.rows.firstOrNull { it.row.kind == RowKind.ORIGINAL } ?: return
         val from = snapshot.layout.rows.firstOrNull { it.row.kind == RowKind.NEXT_LINE } ?: return
+        val eased = moveTransitionEase(moveProgress)
+        val sizeRatio = target.row.paint.textSize / from.row.paint.textSize
         val frame = lineTransitionMoveFrame(
-            moveTransitionEase(moveProgress),
-            sizeRatio = target.row.paint.textSize / from.row.paint.textSize,
+            eased,
+            sizeRatio = sizeRatio,
             fromAlpha = if (
                 secondLineRendersAsSecondary(
                     snapshot.content.secondaryNextLine,
@@ -1188,12 +1206,17 @@ internal class AodLyricCanvasView(
                 staticNextLineTextFactor()
             }
         )
-        val dy = (from.baseline - target.baseline) * frame.translateFraction
-        val boxTop = target.baseline + target.row.paint.fontMetrics.ascent
-        val pivotY = boxTop + target.row.height / 2f
+        val placement = lineTransitionMovePlacement(
+            fromBaselinePx = from.baseline,
+            targetBaselinePx = target.baseline,
+            sizeRatio = sizeRatio,
+            easedProgress = eased
+        )
         val pivotX = (padLeft + (ow - padRight)) / 2f
-        // 落位帧(alpha/scale/位移均为恒等)不再开离屏层,省电场景不空转一次 saveLayer。
-        val layer = if (frame.alpha < 1f || frame.scale != 1f || dy != 0f) {
+        // 落位帧(alpha/scale/基线均为恒等)不再开离屏层,省电场景不空转一次 saveLayer。
+        val identity = frame.alpha >= 1f && placement.scale == 1f &&
+            placement.baselinePx == target.baseline
+        val layer = if (!identity) {
             val save = canvas.saveLayerAlpha(
                 0f,
                 0f,
@@ -1201,9 +1224,8 @@ internal class AodLyricCanvasView(
                 oh.toFloat(),
                 (255f * frame.alpha).toInt()
             )
-            canvas.translate(0f, dy)
-            if (frame.scale != 1f) {
-                canvas.scale(frame.scale, frame.scale, pivotX, pivotY)
+            if (placement.scale != 1f) {
+                canvas.scale(placement.scale, placement.scale, pivotX, placement.pivotYPx)
             }
             save
         } else {
@@ -1211,7 +1233,7 @@ internal class AodLyricCanvasView(
         }
         val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
         canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
-        drawOriginal(canvas, target.baseline)
+        drawOriginal(canvas, placement.baselinePx)
         canvas.restoreToCount(layer)
         drawPromotedAuxLayer(canvas, snapshot, frame)
     }
@@ -3537,6 +3559,24 @@ internal class AodLyricCanvasView(
             elapsedSinceLastSampleMs,
             content.speed
         )
+        if (!transitionWallClockDriven) {
+            // round 3 起点连续:delta 首次越过退场段时把过渡起点重锚到「当前平滑位置 − 退场
+            // 时长」(见 moveStartAnchorPosition),使位移段第一帧 moveProgress 恰为 0、画出
+            // 上一帧几何;首帧晚到/批跳变不再把起步一帧跳进位移段。位置推进不限速
+            // (暂停/seek)时不重锚,瞬间落位/立即结束语义保持。
+            val rateBounded = content.speed.isFinite() && content.speed > 0f
+            moveStartAnchorPosition(
+                transitionStartPositionMs,
+                transitionPositionState.smoothedPositionMs,
+                timeline.exitMs,
+                timeline.moveMs,
+                moveStartAnchored,
+                rateBounded
+            )?.let { anchor ->
+                transitionStartPositionMs = anchor
+                moveStartAnchored = true
+            }
+        }
         val clock = if (transitionWallClockDriven) {
             if (transitionStartedAtElapsedMs == 0L) {
                 transitionStartedAtElapsedMs = nowElapsedMs
@@ -3562,6 +3602,7 @@ internal class AodLyricCanvasView(
         pendingLineTransition = null
         transitionStartPositionMs = 0L
         transitionPositionState = TransitionPositionState(0L, 0L)
+        moveStartAnchored = false
         transitionWallClockDriven = false
         transitionStartedAtElapsedMs = 0L
         transitionLastClockAtElapsedMs = 0L
