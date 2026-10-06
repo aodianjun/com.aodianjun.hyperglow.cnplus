@@ -12,14 +12,17 @@ internal const val ENTER_TRANSITION_MS = 210L
 internal const val EXIT_TRANSITION_MS = 130L
 
 /**
- * 换行动画速率档 → 时长倍率:Slow 1.5×、Fast 0.6×、Normal/未知 1×。
- * 只等比缩放各档的退场/入场时长(见 [enterTransitionMs] / [exitTransitionMs]),
- * 帧配方与缓动曲线不动;速率词表见
+ * 换行动画速率档 → 时长倍率(五档,由慢到快):Slowest 2.0×、Slow 1.5×、Normal/未知 1×、
+ * Fast 0.6×、Fastest 0.4×。
+ * 只等比缩放各档的退场/入场/晋级位移时长(见 [enterTransitionMs] / [exitTransitionMs] /
+ * [moveTransitionMs]),帧配方与缓动曲线不动;速率词表见
  * [com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS],预览与实机共用这一份倍率。
  */
 internal fun lineTransitionDurationScale(speed: String): Float = when (speed) {
+    "Slowest" -> 2f
     "Slow" -> 1.5f
     "Fast" -> 0.6f
+    "Fastest" -> 0.4f
     else -> 1f
 }
 
@@ -221,52 +224,50 @@ internal fun lineTransitionPromotes(oldNextLine: String, newOriginal: String): B
 internal const val MOVE_TRANSITION_MS = 220L
 
 /**
- * 晋级位移速度上限(px/s,按缓动**峰值**瞬时速度计):500px/s × 16.7ms ≈ 8.3px,
- * 即 60fps 等效单帧位移不超过 8.3px(判据「单帧 ≤8px」)。位移段按「距离 / 上限」定
- * 时长时还必须乘上缓动峰值因子 [MOVE_EASE_PEAK_FACTOR]——FastOutSlowIn 中段的瞬时
- * 速度可达平均速度的 ~2.7 倍,直接按平均速度定时长会让中段单帧位移重新顶破判据
- * (真机 A/B 实测:216px 位移段在 132ms 内走完,单帧峰值 -76px ≈ 5100px/s)。
+ * 晋级位移的平均速度护栏(px/s):只对**极远距离**生效,典型行距不参与定时长。
+ * 位移段以配置时长为准([MOVE_TRANSITION_MS] × 速率倍率),时长 = max(配置时长,
+ * 距离 / 本上限 × 1000)——216px → 护栏下限 72ms,不支配 220ms×倍率(五档全程可见);
+ * 1500px 级横屏大位移 → 500ms 护栏生效,防一帧扫过整屏。
+ *
+ * 历史沿革:PR #204 曾按缓动**峰值**速度 500px/s 上限把 216px 位移拉到 ~1.2s(Slow 档
+ * 1.78s),且末尾的 max(..., velocityMs) 把速率倍率整条抹掉(Normal 与 Fast 恒等,
+ * 真机表现「改速率没用 + 太慢」);单帧暴跳的真正修复是 [advanceTransitionPosition]
+ * 的位置限速平滑与 [moveStartAnchorPosition] / [lineTransitionMovePlacement] 的起点
+ * 几何连续,限速只剩副作用,故撤去、只留本护栏。
  */
-internal const val MOVE_MAX_VELOCITY_PX_PER_S = 500f
+internal const val MOVE_MAX_AVG_VELOCITY_PX_PER_S = 3000f
 
 /**
- * 晋级位移缓动([moveTransitionEase] = FastOutSlowIn,cubic-bezier(0.4,0,0.2,1))的
- * 峰值速度倍数:数值求导实测 ≈2.7346(峰值出现在进度 ≈0.30 处),取 2.75 保守。
- * 单测 [AodCanvasTransitionTest.moveEasePeakFactorMatchesMeasuredSlope] 用真实曲线
- * 数值复核该常量,防止缓动改动后速度上限静默失效。
- */
-internal const val MOVE_EASE_PEAK_FACTOR = 2.75f
-
-/**
- * 晋级位移时长(纯函数):按**速度上限**定时长,而不是固定 220ms——
+ * 晋级位移时长(纯函数):以**配置时长为准**,只保留极远距离的平均速度护栏——
  *
- * `时长 = max(max(距离 × [MOVE_EASE_PEAK_FACTOR] / [MOVE_MAX_VELOCITY_PX_PER_S],
- * [MOVE_TRANSITION_MS]) × 速率倍率, 距离 × [MOVE_EASE_PEAK_FACTOR] / [MOVE_MAX_VELOCITY_PX_PER_S])`
+ * `时长 = max([MOVE_TRANSITION_MS] × [lineTransitionDurationScale](speed),
+ * 距离 / [MOVE_MAX_AVG_VELOCITY_PX_PER_S] × 1000)`
  *
- * 即:Normal 档 = max(距离 × 5.5ms, 220ms);Slow 档 1.5×(更慢);Fast 档 0.6×(更快),
- * 但**任何速率档都不得突破速度上限**——长距离时 Fast 被硬下限钳回上限允许的最短时长
- * (位移段不再出现「Fast 档一帧暴跳」;倍率语义在短距离段与 Slow 档完整保留)。
- * [distancePx] ≤ 0 或非有限(取不到行位差)时回退历史固定时长
- * [MOVE_TRANSITION_MS] × 速率倍率,行为与改前逐帧一致。
+ * 即 Normal 档 216px → 220ms、Fast → 132ms、Fastest → 88ms、Slow → 330ms、Slowest → 440ms,
+ * 速率档全程可见;只有 1500px 级横屏大位移才触到 500ms 护栏(按**平均**速度计,不再按
+ * 缓动峰值计)。[distancePx] ≤ 0 或非有限(取不到行位差)时回退配置时长
+ * [MOVE_TRANSITION_MS] × 速率倍率。
  *
+ * 起步不再跳变靠的是位置平滑([advanceTransitionPosition])与起点几何锚定
+ * ([moveStartAnchorPosition] / [lineTransitionMovePlacement]),不再靠拉长时长;
  * 距离由 [lineTransitionMoveDistancePx] 从起点布局与目标布局的实际行位差给出。
  */
 internal fun moveTransitionMs(speed: String, distancePx: Float = 0f): Long {
     val scale = lineTransitionDurationScale(speed)
+    val configuredMs = (MOVE_TRANSITION_MS * scale).toLong()
     if (!distancePx.isFinite() || distancePx <= 0f) {
-        return (MOVE_TRANSITION_MS * scale).toLong()
+        return configuredMs
     }
-    val velocityMs = distancePx * MOVE_EASE_PEAK_FACTOR / MOVE_MAX_VELOCITY_PX_PER_S * 1000f
-    val normalMs = maxOf(velocityMs, MOVE_TRANSITION_MS.toFloat())
-    return maxOf(normalMs * scale, velocityMs).roundToLong()
+    val guardMs = distancePx / MOVE_MAX_AVG_VELOCITY_PX_PER_S * 1000f
+    return maxOf(configuredMs.toFloat(), guardMs).roundToLong()
 }
 
 /**
  * 晋级位移距离(px,纯函数):取起点布局与目标布局逐行基线差的绝对值最大者——主行对
  * (旧「下一行」基线 → 新「主行」基线)与辅助行对(旧下一行辅助行 → 新主行辅助行,
  * 与 [AodLyricCanvasView.drawPromotedAuxLayer] 同一配对)在位移段内以同一缓动推进,
- * 距离取最大者才能保证任一层单帧位移都不超速度上限。空列表/非有限值返回 0
- * (调用方回退固定时长)。
+ * 距离取最大者作为平均速度护栏与位移基准(任一层都不会比它更远)。空列表/非有限值
+ * 返回 0(调用方回退配置时长)。
  */
 internal fun lineTransitionMoveDistancePx(pairs: List<Pair<Float, Float>>): Float {
     var maxDistance = 0f
@@ -296,9 +297,9 @@ internal data class LineTransitionTimeline(
 
 /**
  * 时间线求解:[promoting] 为真时插入晋级位移段,否则退场直接接入场。退场/入场时长沿用
- * 各档配方([exitTransitionMs] / [enterTransitionMs]);位移段按速度上限定时长
- * ([moveTransitionMs],吃起点→目标布局的实际行位差 [moveDistancePx],取不到时回退
- * 历史 220ms 基准)。
+ * 各档配方([exitTransitionMs] / [enterTransitionMs]);位移段以配置时长为准
+ * ([moveTransitionMs],吃起点→目标布局的实际行位差 [moveDistancePx] 作极远距离护栏,
+ * 取不到时回退配置基准)。
  */
 internal fun lineTransitionTimeline(
     mode: String,
@@ -488,9 +489,9 @@ internal const val COMPRESSED_TRANSITION_MIN_SEGMENT_MS = 40L
  * 飞着改一遍;压缩补播让眼睛看到「快速但连续」而不是「啪一下」。段顺序/缓动/帧配方
  * 与正常过渡完全一致,目标几何仍在起点定死。基线总长本就不超过压缩总长时原样返回。
  *
- * 位移段同样吃速度上限([moveDistancePx] > 0 时保留 [moveTransitionMs] 给出的限速时长,
- * 不再压到 40ms 一帧暴跳——旧账场景的位移「晚一点、慢一点」补完);退场/入场不产生
- * 位移,维持原有短时长。距离取不到时维持历史行为:三段整体等比压缩到 ~140ms。
+ * 位移段按同一配置时长公式排时长([moveTransitionMs]:距离有效时保留其给出的时长,
+ * 含极远距离的平均速度护栏,不再压到 40ms 一帧跳完);退场/入场不产生位移,维持原有
+ * 短时长。距离取不到时维持历史行为:三段整体等比压缩到 ~140ms。
  */
 internal fun compressedLineTransitionTimeline(
     mode: String,
@@ -1038,7 +1039,7 @@ internal fun shouldStartLineTransition(
 /**
  * 过渡不追旧账的跳过判据(纯函数,接入 [AodLyricCanvasView.setContent]):满足任一条即
  * 不播整段过渡,改走压缩补播路径([compressedLineTransitionTimeline]:退场/入场压到
- * ~140ms、每段 ≥40ms,位移段保留速度上限时长,不再是旧版的一帧硬切)——
+ * ~140ms、每段 ≥40ms,位移段保留配置时长,不再是旧版的一帧硬切)——
  *
  * - 快照年龄超过本次过渡总时长([transitionTotalMs] = 退场 + 晋级位移 + 入场):内容与
  *   位置都来自过期批次,再补整段动画只会把旧目标飞着改一遍;doze 批投递实测 19ms 内

@@ -447,6 +447,8 @@
     <string name="option_fast">快速</string>
     <string name="option_normal">正常</string>
     <string name="option_slow">慢速</string>
+    <string name="option_fastest">極快</string>
+    <string name="option_slowest">極慢</string>
     <string name="option_main_only">僅主歌詞</string>
     <string name="option_transliteration">轉寫</string>
     <string name="option_translation">翻譯</string>

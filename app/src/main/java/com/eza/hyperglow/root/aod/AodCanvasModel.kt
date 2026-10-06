@@ -61,7 +61,7 @@ internal data class AodCanvasContent(
     val lineSyncFillMode: String,
     val overflowMode: String,
     val transitionMode: String,
-    /** 换行动画速率档(Slow/Normal/Fast),等比缩放退场/入场时长;默认 Normal。 */
+    /** 换行动画速率档(Slowest/Slow/Normal/Fast/Fastest),等比缩放退场/入场/晋级位移时长;默认 Normal。 */
     val lineTransitionSpeed: String = "Normal",
     val fontFamily: String,
     val alignmentMode: String,

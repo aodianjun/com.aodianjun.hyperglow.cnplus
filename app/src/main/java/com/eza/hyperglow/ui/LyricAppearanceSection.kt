@@ -1697,8 +1697,10 @@ private fun choiceDisplayLabel(
         else -> R.string.option_auto_follow_source
     })
     AodChoiceKind.LINE_TRANSITION_SPEED -> context.getString(when (value) {
+        "Slowest" -> R.string.option_slowest
         "Slow" -> R.string.option_slow
         "Fast" -> R.string.option_fast
+        "Fastest" -> R.string.option_fastest
         else -> R.string.option_normal
     })
     AodChoiceKind.TRANSITION_SPEED -> context.getString(when (value) {

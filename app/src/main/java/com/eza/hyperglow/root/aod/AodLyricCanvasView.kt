@@ -501,11 +501,12 @@ internal class AodLyricCanvasView(
 
     /**
      * 目标布局就绪后落定过渡:位移距离取起点布局与目标布局的实际行位差
-     * ([lineTransitionMoveDistancePx],主行对 + 辅助行对),位移段时长按速度上限换算
-     * ([moveTransitionMs])——216px 级位移从 ~132ms 拉长到 ~1.2s,单帧峰值压回
-     * 500px/s(≈8.3px/60fps 帧),不再出现 -76px 级暴跳;距离取不到时回退历史固定时长。
-     * [shouldSkipLineTransition] 命中时,压缩补播的位移段同样按速度上限定时长
-     * (退场/入场维持短时长),不再压到 40ms 一帧跳完。
+     * ([lineTransitionMoveDistancePx],主行对 + 辅助行对),位移段时长以配置时长为准
+     * ([moveTransitionMs] = 220ms × 速率倍率,五档全程可见;只对 1500px 级极远距离保留
+     * 平均速度护栏)。起步不再跳变靠位置限速平滑与起点几何锚定,不靠拉长时长(历史
+     * 按峰值速度上限拉长到 ~1.2s 会把速率档整条抹掉,真机表现「改速率没用 + 太慢」);
+     * 距离取不到时回退配置时长。[shouldSkipLineTransition] 命中时,压缩补播的位移段
+     * 同样按该公式定时长(退场/入场维持短时长),不再压到 40ms 一帧跳完。
      */
     private fun resolvePendingLineTransition() {
         val pending = pendingLineTransition ?: return
@@ -523,8 +524,8 @@ internal class AodLyricCanvasView(
         )
         if (shouldSkipLineTransition(pending.snapshotAgeMs, timeline.totalMs, lineChangesInFrame)) {
             // 旧账压缩补播:过期快照/同帧多条不再一帧硬切到目标几何,改以压缩时长连续播完
-            // 同一三段序列(段顺序/缓动/帧配方不变;退场/入场 ~140ms、每段 ≥40ms,位移段吃
-            // 速度上限,见 compressedLineTransitionTimeline)。起点几何取屏上现有旧快照
+            // 同一三段序列(段顺序/缓动/帧配方不变;退场/入场 ~140ms、每段 ≥40ms,位移段按
+            // 配置时长,见 compressedLineTransitionTimeline)。起点几何取屏上现有旧快照
             // (同帧多条时为首条换行前的形态),目标几何仍在此定死;补播按挂钟计时——旧账的
             // 位置推进量远超补播时长,按位置驱动会瞬间推完(即要消除的一帧硬切)。
             val replaySnapshot = exitSnapshot ?: pending.snapshot
@@ -572,7 +573,7 @@ internal class AodLyricCanvasView(
     /**
      * 晋级位移的基线对(起点布局 → 目标布局):主行对 = 旧「下一行」基线 → 新「主行」
      * 基线;辅助行对 = 旧下一行之后的辅助行 zip 新主行之后的辅助行(与
-     * [drawPromotedAuxLayer] 同一配对),保证位移段内每一层都有真实距离参与速度上限。
+     * [drawPromotedAuxLayer] 同一配对),保证位移段内每一层都有真实距离参与平均速度护栏。
      */
     private fun lineTransitionMoveDistancePairs(
         startLayout: LayoutState,

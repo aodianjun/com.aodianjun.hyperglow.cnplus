@@ -153,7 +153,7 @@ data class SurfaceProfile(
     val overflow: String = "Wrap",
     /** 换行动画,见 [LINE_TRANSITION_MODES]。"Auto"=跟随歌词源自身的偏好。 */
     val lineTransition: String = LINE_TRANSITION_AUTO,
-    /** 换行动画速率,见 [LINE_TRANSITION_SPEEDS];等比缩放退场/入场时长,不改帧配方。 */
+    /** 换行动画速率,见 [LINE_TRANSITION_SPEEDS];等比缩放各段时长(退场/入场/晋级位移),不改帧配方。 */
     val lineTransitionSpeed: String = LINE_TRANSITION_SPEED_NORMAL,
     val adaptiveSectioning: Boolean = true,
     val palette: Map<String, String> = emptyMap(),
@@ -407,18 +407,22 @@ internal fun normalizeLineTransition(value: String): String {
     return canonical.takeIf { it in LINE_TRANSITION_MODES } ?: LINE_TRANSITION_AUTO
 }
 
-/** 换行动画速率档默认值:保持基准时长(退场 130ms / 入场 210ms)。 */
+/** 换行动画速率档默认值:保持基准时长(退场 130ms / 入场 210ms / 晋级位移 220ms)。 */
 const val LINE_TRANSITION_SPEED_NORMAL = "Normal"
 
 /**
- * 换行动画速率词表:Slow / Normal / Fast。只等比缩放退场/入场时长
- * (见 root.aod lineTransitionDurationScale),不动帧配方与缓动曲线;
+ * 换行动画速率词表(五档,由慢到快):Slowest / Slow / Normal / Fast / Fastest。
+ * 只等比缩放退场/入场/晋级位移时长(见 root.aod lineTransitionDurationScale:
+ * 2.0× / 1.5× / 1.0× / 0.6× / 0.4×),不动帧配方与缓动曲线;
  * "None" 换行动画下无动画,速率无从生效。无"跟随源"语义——速率是纯视觉偏好。
+ * 历史三档(Slow/Normal/Fast)的值与倍率保持不变,已存配置行为不变。
  */
 val LINE_TRANSITION_SPEEDS = listOf(
-    LINE_TRANSITION_SPEED_NORMAL,
+    "Slowest",
     "Slow",
-    "Fast"
+    LINE_TRANSITION_SPEED_NORMAL,
+    "Fast",
+    "Fastest"
 )
 
 internal fun normalizeLineTransitionSpeed(value: String): String =
