@@ -1565,8 +1565,9 @@ internal class AodLyricCanvasView(
                 var charIndex = 0
                 for (block in syntheticKaraokeBlocks(line.text)) {
                     while (charIndex < block.first) {
-                        prefix += paint.measureText(line.text, charIndex, charIndex + 1)
-                        charIndex++
+                        val unitEnd = karaokeUnitEnd(line.text, charIndex, block.first)
+                        prefix += paint.measureText(line.text, charIndex, unitEnd)
+                        charIndex = unitEnd
                     }
                     val blockWidth = paint.measureText(line.text, block.first, block.last + 1)
                     val blockWindow = syntheticCharTimeWindow(
@@ -1580,7 +1581,8 @@ internal class AodLyricCanvasView(
                     val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
                     var blockChar = block.first
                     while (blockChar <= block.last) {
-                        val charWidth = paint.measureText(line.text, blockChar, blockChar + 1)
+                        val charEnd = karaokeUnitEnd(line.text, blockChar, block.last + 1)
+                        val charWidth = paint.measureText(line.text, blockChar, charEnd)
                         val charWindow = syntheticCharTimeWindow(
                             window.first,
                             window.last,
@@ -1589,7 +1591,7 @@ internal class AodLyricCanvasView(
                             charWidth
                         )
                         runs += KaraokeWordRun(
-                            text = line.text.substring(blockChar, blockChar + 1),
+                            text = line.text.substring(blockChar, charEnd),
                             x = line.startX + prefix,
                             width = charWidth,
                             playedFraction = timedWordProgress(position, charWindow.first, charWindow.last),
@@ -1598,7 +1600,7 @@ internal class AodLyricCanvasView(
                             highlightFraction = if (blockLong) blockHighlight else -1f
                         )
                         prefix += charWidth
-                        blockChar++
+                        blockChar = charEnd
                     }
                     charIndex = block.last + 1
                 }
@@ -2895,8 +2897,9 @@ internal class AodLyricCanvasView(
                 var index = 0
                 for (block in syntheticKaraokeBlocks(line.text)) {
                     while (index < block.first) {
-                        prefix += originalPaint.measureText(line.text, index, index + 1)
-                        index++
+                        val unitEnd = karaokeUnitEnd(line.text, index, block.first)
+                        prefix += originalPaint.measureText(line.text, index, unitEnd)
+                        index = unitEnd
                     }
                     val blockWidth = originalPaint.measureText(line.text, block.first, block.last + 1)
                     val blockWindow = syntheticCharTimeWindow(
@@ -2913,7 +2916,8 @@ internal class AodLyricCanvasView(
                     val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
                     var charIndex = block.first
                     while (charIndex <= block.last) {
-                        val charWidth = originalPaint.measureText(line.text, charIndex, charIndex + 1)
+                        val charEnd = karaokeUnitEnd(line.text, charIndex, block.last + 1)
+                        val charWidth = originalPaint.measureText(line.text, charIndex, charEnd)
                         val charWindow = syntheticCharTimeWindow(
                             blockStartMs,
                             blockEndMs,
@@ -2922,7 +2926,7 @@ internal class AodLyricCanvasView(
                             charWidth
                         )
                         runs += KaraokeWordRun(
-                            text = line.text.substring(charIndex, charIndex + 1),
+                            text = line.text.substring(charIndex, charEnd),
                             x = line.startX + prefix,
                             width = charWidth,
                             playedFraction = timedWordProgress(position, charWindow.first, charWindow.last),
@@ -2931,7 +2935,7 @@ internal class AodLyricCanvasView(
                             highlightFraction = if (blockLong) blockHighlight else -1f
                         )
                         prefix += charWidth
-                        charIndex++
+                        charIndex = charEnd
                     }
                     index = block.last + 1
                 }

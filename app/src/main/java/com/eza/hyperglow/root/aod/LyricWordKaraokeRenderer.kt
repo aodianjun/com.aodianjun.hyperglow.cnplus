@@ -184,6 +184,19 @@ internal fun syntheticKaraokeBlocks(text: String): List<IntRange> {
     return blocks
 }
 
+/**
+ * 逐字单元的下一码点边界:从 [index] 起返回下一个**码点**边界,并收敛到 [endExclusive]
+ * (不得越出当前词块/行切片边界)。非 BMP 字符(emoji 等,如占位符 🎶)在 UTF-16 里是
+ * 代理对,按单码元推进会把代理对劈成两个孤立代理项——Android 文本绘制把孤立代理项画成
+ * 未知符号方框(真机「歌词中间出现未知符号」的根因)。这里按 [Character.codePointAt] +
+ * [Character.charCount] 整对前进,任何歌词里的 emoji 都不会再被劈开。纯函数,可单测。
+ */
+internal fun karaokeUnitEnd(text: String, index: Int, endExclusive: Int): Int {
+    if (index >= endExclusive) return endExclusive
+    val codePoint = Character.codePointAt(text, index)
+    return (index + Character.charCount(codePoint)).coerceAtMost(endExclusive)
+}
+
 /** CJK 统一表意文字(含扩展 A/兼容区):按字成块;其余(西文/数字/标点)按词成块。 */
 private fun isCjkKaraokeChar(ch: Char): Boolean =
     ch.code in 0x4E00..0x9FFF || ch.code in 0x3400..0x4DBF || ch.code in 0xF900..0xFAFF

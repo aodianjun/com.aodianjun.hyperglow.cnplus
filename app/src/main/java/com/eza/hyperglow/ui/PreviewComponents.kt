@@ -120,6 +120,7 @@ import com.eza.hyperglow.root.aod.rubyTextSizePx
 import com.eza.hyperglow.root.aod.safeSecondaryLineHeight
 import com.eza.hyperglow.root.aod.lineStartX
 import com.eza.hyperglow.root.aod.hasFirstLineAuxText
+import com.eza.hyperglow.root.aod.karaokeUnitEnd
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import com.eza.hyperglow.root.aod.secondLineColorArgb
@@ -1197,8 +1198,9 @@ private fun syntheticPreviewWordRuns(
         var index = 0
         for (block in syntheticKaraokeBlocks(line.text)) {
             while (index < block.first) {
-                prefix += paint.measureText(line.text, index, index + 1)
-                index++
+                val unitEnd = karaokeUnitEnd(line.text, index, block.first)
+                prefix += paint.measureText(line.text, index, unitEnd)
+                index = unitEnd
             }
             val blockWidth = paint.measureText(line.text, block.first, block.last + 1)
             val blockWindow = syntheticCharTimeWindow(
@@ -1212,7 +1214,8 @@ private fun syntheticPreviewWordRuns(
             val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
             var charIndex = block.first
             while (charIndex <= block.last) {
-                val charWidth = paint.measureText(line.text, charIndex, charIndex + 1)
+                val charEnd = karaokeUnitEnd(line.text, charIndex, block.last + 1)
+                val charWidth = paint.measureText(line.text, charIndex, charEnd)
                 val charWindow = syntheticCharTimeWindow(
                     0L,
                     spanMs,
@@ -1222,7 +1225,7 @@ private fun syntheticPreviewWordRuns(
                 )
                 if (charWindow.last > charWindow.first) {
                     runs += PreviewWordRun(
-                        text = line.text.substring(charIndex, charIndex + 1),
+                        text = line.text.substring(charIndex, charEnd),
                         x = prefix,
                         width = charWidth,
                         startMs = charWindow.first,
@@ -1233,7 +1236,7 @@ private fun syntheticPreviewWordRuns(
                     )
                 }
                 prefix += charWidth
-                charIndex++
+                charIndex = charEnd
             }
             index = block.last + 1
         }
