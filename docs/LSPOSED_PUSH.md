@@ -28,6 +28,9 @@ release with the same name in the mirror repository**.
 
 ## Current Push Status (verified 2026-10-07)
 
+Repository files: synced to the source `main` on 2026-10-07 (mirror commit `7b9d4e69`,
+"Sync upstream main (v0.3.166 / versionCode 193)") — the first sync since `89-0.3.70`.
+
 **Update this table** after every "push LSP" run; read it before the next push to see which versions are still missing.
 
 | Source repository release | Mirror status |
@@ -169,6 +172,9 @@ LSPosed 模块仓库（modules.lsposed.org）**实际读取的是
 
 ## 当前推送状态（2026-10-07 核实）
 
+仓库文件：已于 2026-10-07 同步到源仓库 `main`（镜像 commit `7b9d4e69`，
+"Sync upstream main (v0.3.166 / versionCode 193)"）——`89-0.3.70` 之后首次同步。
+
 每次执行"推送 LSP"后**更新本表**，下次推送前先读此表判断还缺哪些版本。
 
 | 源仓库 release | 镜像状态 |
@@ -277,6 +283,34 @@ https://modules.lsposed.org/module/com.aodianjun.hyperglow.cnplus
 
 ---
 
+## Syncing the Repository Files
+
+The mirror repository is not only a release host: it is the **code mirror** the module listing links
+to. The org's bot used to keep it current with commits like `Merge upstream main (v0.3.70 /
+versionCode 89)`; it stopped after `89-0.3.70`, so the tree has to be synced by hand.
+
+Files that belong to the mirror itself and must be preserved: `README.md` (module long description),
+`SUMMARY`, `SOURCE_URL`, `ADDITIONAL_AUTHORS`, `apk-out/`, `.archcore/`. Everything else should be
+byte-identical to the source tree.
+
+Procedure (used on 2026-10-07 for 0.3.70 → 0.3.166: 244 added, 120 updated, 13 deleted, 364 blobs,
+about 7 minutes):
+
+1. Read the source tree: `GET /git/trees/{main-tree}?recursive=1` → path → blob SHA map.
+2. Download the source tarball (`https://codeload.github.com/{owner}/{repo}/tar.gz/{sha}`) and verify
+   **every** file against that map by recomputing the git blob hash
+   (`sha1("blob <len>\0" + content)`). A CDN edge can serve a stale tarball, so never skip this step.
+3. Recreate every added/changed file as a blob **in the mirror**. Cross-repository blob SHAs cannot be
+   referenced (`422 tree.sha … is not a valid blob`), so each file has to be re-uploaded — send the
+   content base64-encoded so binary files (fonts, GIFs) survive.
+4. One `POST /git/trees` with `base_tree` = the mirror's current tree: one entry per added/changed
+   path, plus `"sha": null` for every path the source deleted (renames show up as delete + add).
+5. `POST /git/commits` (parent = mirror `main`, message `Sync upstream main (v{versionName} /
+   versionCode {versionCode})`), then `PATCH /git/refs/heads/main` with `force: false` — re-read the
+   mirror's HEAD first, exactly like a source-repo CAS push.
+6. Verify: for every source path the mirror's blob SHA must equal the source's, and the only leftover
+   files must be the mirror-only ones listed above.
+
 ## Operational Notes (2026-10-07)
 
 Learned while pushing `193-0.3.166`; read before the next push.
@@ -301,6 +335,31 @@ Learned while pushing `193-0.3.166`; read before the next push.
   `GET /repos/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/latest`.
 - Source-release body edits (add/remove a marker line) do not force a rebuild; they are only
   worth trying if the README's "edit the release to retrigger the bot" note applies.
+
+## 同步仓库文件
+
+镜像仓不只是发布载体：模块页链接的就是这份**代码镜像**。组织侧 bot 过去会用
+`Merge upstream main (v0.3.70 / versionCode 89)` 这类提交保持同步，`89-0.3.70` 之后停了，
+所以只能手动同步。
+
+属于镜像仓自身、必须保留的文件：`README.md`（模块长描述）、`SUMMARY`、`SOURCE_URL`、
+`ADDITIONAL_AUTHORS`、`apk-out/`、`.archcore/`。其余文件应与源仓库树逐字节一致。
+
+流程（2026-10-07 用它同步 0.3.70 → 0.3.166：新增 244、更新 120、删除 13，共 364 个 blob，约 7 分钟）：
+
+1. 读源仓库树：`GET /git/trees/{main-tree}?recursive=1`，得到 path → blob SHA 映射。
+2. 下载源仓库 tarball（`https://codeload.github.com/{owner}/{repo}/tar.gz/{sha}`），对**每个**文件
+   重算 git blob 哈希（`sha1("blob <len>\0" + content)`）与该映射比对。CDN 边缘可能给陈旧 tarball，
+   这一步不能省。
+3. 把每个新增/变更文件**在镜像仓**重建为 blob。跨仓 blob SHA 引用不了
+   （`422 tree.sha … is not a valid blob`），只能逐个重传——内容用 base64 编码上传，二进制文件
+   （字体、GIF）才不会坏。
+4. 一次 `POST /git/trees`，`base_tree` = 镜像仓当前树：每个新增/变更路径一条 entry，源仓库已删除的
+   路径用 `"sha": null`（改名会表现为删除 + 新增）。
+5. `POST /git/commits`（父提交 = 镜像 `main`，消息 `Sync upstream main (v{versionName} /
+   versionCode {versionCode})`），再 `PATCH /git/refs/heads/main` 且 `force: false`——推之前先重读
+   镜像 HEAD，和源仓库的 CAS 推送同理。
+6. 核验：源仓库每个路径在镜像仓的 blob SHA 都必须相等，剩余文件只能是上面列出的镜像自有文件。
 
 ## 实操要点（2026-10-07）
 
