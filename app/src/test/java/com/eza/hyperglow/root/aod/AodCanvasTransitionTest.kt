@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.aod
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -956,5 +957,138 @@ class AodCanvasTransitionTest {
         // 距离取不到(0)时维持历史行为:三段整体压缩到 ~140ms。
         val legacy = compressedLineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true)
         assertTrue("legacyTotal=${legacy.totalMs}", legacy.totalMs in 120L..160L)
+    }
+
+    // ------------------------------------------------------------------
+    // round 3:过渡起点几何与上一帧连续(按 owner 确认的「起步那一下跳」修正——
+    // 真机 recwalk4 逐帧实测:位移段主体已 ~9px/帧平滑,唯起步第一帧 -38px)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun promotionPlacementStartsAtPreviousFrameGeometry() {
+        // 起点连续:progress=0 时首行基线恰为旧「下一行」基线、缩放恰为 1/字号比——即上一帧
+        // 实际绘制几何;progress=1 时恰为目标主行基线、缩放 1(末帧即静态形态)。
+        val start = lineTransitionMovePlacement(1000f, 400f, sizeRatio = 2f, easedProgress = 0f)
+        assertEquals(1000f, start.baselinePx, 1e-4f)
+        assertEquals(0.5f, start.scale, 1e-4f)
+        assertEquals(start.baselinePx, start.pivotYPx, 1e-4f) // 枢轴=首行基线:缩放不移动首行
+        val end = lineTransitionMovePlacement(1000f, 400f, sizeRatio = 2f, easedProgress = 1f)
+        assertEquals(400f, end.baselinePx, 1e-4f)
+        assertEquals(1f, end.scale, 1e-4f)
+        // 中段:基线两槽间线性插值、缩放同轴放大。
+        val mid = lineTransitionMovePlacement(1000f, 400f, sizeRatio = 2f, easedProgress = 0.5f)
+        assertEquals(700f, mid.baselinePx, 1e-4f)
+        assertEquals(0.75f, mid.scale, 1e-4f)
+        // 越界进度钳制;字号比 ≤1(下一行更大等异常值)不放大不缩小。
+        assertEquals(1000f, lineTransitionMovePlacement(1000f, 400f, 2f, -0.5f).baselinePx, 1e-4f)
+        assertEquals(400f, lineTransitionMovePlacement(1000f, 400f, 2f, 1.5f).baselinePx, 1e-4f)
+        assertEquals(1f, lineTransitionMovePlacement(1000f, 400f, 1f, 0f).scale, 1e-4f)
+        assertEquals(1f, lineTransitionMovePlacement(1000f, 400f, 0.5f, 0f).scale, 1e-4f)
+    }
+
+    @Test
+    fun promotionPlacementFixesLegacyPivotOffsetAtMoveStart() {
+        // 必要性证明(真机 recwalk4 形状):旧实现 translate((旧−目标)×(1−进度)) 后再绕
+        // **目标行盒中心**缩放,两步复合后 progress≈0 的首行落点 = 枢轴 + (旧基线 − 枢轴) ×
+        // 缩放比,并不等于旧下一行基线——目标行盒中心(2 行盒)离旧槽位多远就偏多少,量级
+        // 数十像素(实测起步第一帧 -38px)。新放置 progress=0 的首行落点恒等于旧基线(差值 0)。
+        val fromBaseline = 1775f
+        val targetBaseline = 1584f
+        val sizeRatio = 1.885f
+        val ascent = -66f
+        val targetRowHeight = 230f
+        val pivot = targetBaseline + ascent + targetRowHeight / 2f
+        val legacyScale = 1f / sizeRatio
+        val legacyAtStart = pivot + (fromBaseline - pivot) * legacyScale
+        assertTrue(
+            "legacyStart=$legacyAtStart from=$fromBaseline",
+            fromBaseline - legacyAtStart > 30f
+        )
+        assertEquals(
+            fromBaseline,
+            lineTransitionMovePlacement(fromBaseline, targetBaseline, sizeRatio, 0f).baselinePx,
+            1e-3f
+        )
+    }
+
+    @Test
+    fun moveStartAnchorSnapsFirstDrawnMoveFrameToZero() {
+        // 位移段起点锚定:首帧晚到/批跳变把 delta 一次越过退场段(真机形状:一帧跳进位移段
+        // ~0.22)时,重锚到「当前平滑位置 − 退场时长」——该帧 moveProgress 恰为 0(画上一帧
+        // 几何),其后按自身时长平滑推进。
+        val timeline = lineTransitionTimeline("fade_out_up_fade_in_up", "Normal", true, 216f)
+        val start = 10_000L
+        val jumped = start + timeline.exitMs + 260L
+        val anchor = moveStartAnchorPosition(
+            start, jumped, timeline.exitMs, timeline.moveMs,
+            alreadyAnchored = false, rateBounded = true
+        )
+        assertEquals(jumped - timeline.exitMs, anchor)
+        val clock = lineTransitionClockAtPosition(jumped, anchor!!, jumped, timeline)
+        assertEquals(1f, clock.exitProgress, 1e-6f)
+        assertEquals(0f, clock.moveProgress, 1e-6f)
+        assertFalse(clock.completed)
+        // 未越过退场段不锚(正常逐帧推进);已锚定不重复锚;无位移段不锚;
+        // 位置不限速(暂停/seek)不锚——瞬间落位/立即结束语义保持。
+        assertNull(
+            moveStartAnchorPosition(start, start + 100L, timeline.exitMs, timeline.moveMs, false, true)
+        )
+        assertNull(
+            moveStartAnchorPosition(start, jumped, timeline.exitMs, timeline.moveMs, true, true)
+        )
+        assertNull(
+            moveStartAnchorPosition(start, jumped, timeline.exitMs, 0L, false, true)
+        )
+        assertNull(
+            moveStartAnchorPosition(start, jumped, timeline.exitMs, timeline.moveMs, false, false)
+        )
+    }
+
+    @Test
+    fun anchoredMoveStartKeepsFirstTrackedFrameContinuousAtSixtyFps() {
+        // 验收口径(真机 A/B 复验同此):首帧晚到(doze/低节拍)把位移段一帧跳进时,锚定后
+        // 位移段第一帧 moveProgress=0(位移 0,即上一帧几何),其后按 60fps 推进——第一帧
+        // 位移 ≤ 其后相邻帧位移均值的 1.6 倍;峰值仍 ≤500px/s(不回归 round 2 的速度上限)。
+        // 形状取真机 recwalk4 的默认档:退场 130ms + 限速位移 1188ms(216px),首帧晚到 260ms
+        // → 不重锚时首帧直接跳进位移段 ~0.22(实测 -38px);重锚后首帧位移 0。
+        val distance = 216f
+        val timeline = lineTransitionTimeline("Fade up", "Normal", true, distance)
+        assertEquals(130L, timeline.exitMs)
+        assertEquals(1188L, timeline.moveMs)
+        val frameMs = 16L
+        var smoothed = 10_000L + timeline.exitMs + 260L
+        val anchoredStart = smoothed - timeline.exitMs
+        val unanchoredMoveProgress =
+            (smoothed - 10_000L - timeline.exitMs).toFloat() / timeline.moveMs
+        val unanchoredFirstStep = distance * moveTransitionEase(unanchoredMoveProgress)
+        assertTrue("unanchored=$unanchoredFirstStep", unanchoredFirstStep > 30f)
+        val steps = ArrayList<Float>()
+        steps += 0f // 锚定帧:moveProgress 恰为 0 → 位移 0
+        var previousEased = 0f
+        var delta = timeline.exitMs
+        var finalClock = lineTransitionClockAtPosition(smoothed, anchoredStart, smoothed, timeline)
+        while (delta < timeline.exitMs + timeline.moveMs) {
+            delta += frameMs
+            smoothed += frameMs
+            finalClock = lineTransitionClockAtPosition(smoothed, anchoredStart, smoothed, timeline)
+            val eased = moveTransitionEase(finalClock.moveProgress)
+            steps += distance * (eased - previousEased)
+            previousEased = eased
+        }
+        val first = steps.first()
+        val followingMean = steps.drop(1).average().toFloat()
+        assertTrue("first=$first mean=$followingMean", first <= followingMean * 1.6f)
+        assertTrue("max=${steps.maxOrNull()!!}", steps.maxOrNull()!! <= 10f)
+        assertEquals(distance, steps.sum(), 1.5f)
+        // 位移段走完时入场段尚未走完(严格序列不变);总时长仍按锚定后的起点整段播完。
+        assertEquals(1f, finalClock.moveProgress, 1e-6f)
+        assertFalse(finalClock.completed)
+        val settled = lineTransitionClockAtPosition(
+            anchoredStart + timeline.totalMs,
+            anchoredStart,
+            anchoredStart + timeline.totalMs,
+            timeline
+        )
+        assertTrue(settled.completed)
     }
 }
