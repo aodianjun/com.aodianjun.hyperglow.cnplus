@@ -597,26 +597,27 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   is consumed at real time and each phase advances smoothly over its own duration instead of
   finishing inside one frame (device frame-strip tracking measured isolated single-frame spikes of
   -68 px, 8× the 8 px criterion; the post-fix A/B re-verification still measured -76 px because the
-  promotion travel itself was still scheduled by a fixed 132–220 ms duration, which is what the
-  velocity cap above fixes). A frozen position (pause) freezes the transition at its current
+  promotion travel itself was still scheduled by a fixed 132–220 ms duration — a peak-velocity cap
+  was then tried and later dropped because it erased the speed scale; the first-frame jump is
+  fixed by position smoothing plus the start-pose continuity below). A frozen position (pause) freezes the transition at its current
   progress; a position jump (seek/drag) clamps progress and ends the transition immediately instead
   of chasing the new position, while a position-feed stall/resume drift within the 300 ms tolerance
   never rewinds the animation. The raw-position high-water is tracked separately from the
   rate-limited position, so a rewind seek is still detected immediately after a batch jump, and a
   pause-resident position change (speed 0, only possible via seek/refresh) keeps the historical
-  jump semantics instead of freezing mid-flight. The promotion travel itself is scheduled by a
-  velocity cap instead of the fixed 220 ms base: its duration is
-  `max(max(distance × 2.75 / 500 px·s⁻¹, 220 ms) × speed scale, distance × 2.75 / 500 px·s⁻¹)`,
-  where `distance` is the largest baseline delta between the start layout's next-line rows and the
-  target layout's main-line rows (main pair plus auxiliary pairs, all of which advance under the
-  same easing) and 2.75 is the measured peak slope of the FastOutSlowIn promotion easing — so the
-  instantaneous peak velocity stays ≤ 500 px/s (≈ 8.3 px per 60 fps frame, the ≤ 8 px criterion),
-  and a 216 px travel takes ~1.2 s instead of the historical 132–220 ms that still measured an
-  isolated -76 px single frame on hardware. The speed multiplier keeps its semantics on top
-  (`Slow` is 1.5× longer, `Fast` 0.6× shorter for short travels) but no speed may break the cap:
-  on long travels `Fast` is clamped back to the cap's shortest duration. When the row-delta
-  distance is unavailable (0/invalid) the historical 220 ms × speed base is used, frame-identical
-  to the previous behavior. The promotion's start pose is continuous with the previous frame
+  jump semantics instead of freezing mid-flight. The promotion travel is scheduled by the
+  configured duration, not by a velocity cap: its duration is
+  `max(220 ms × speed scale, distance / 3000 px·s⁻¹ × 1000)`, where `distance` is the largest
+  baseline delta between the start layout's next-line rows and the target layout's main-line rows
+  (main pair plus auxiliary pairs, all of which advance under the same easing). The speed scale
+  applies in full — 216 px: `Slowest` 440 ms, `Slow` 330 ms, `Normal` 220 ms, `Fast` 132 ms,
+  `Fastest` 88 ms, so the rate is visible end to end — and only a very long travel engages the
+  average-velocity guard (1500 px → 500 ms floor, measured on the average rather than on the ease
+  peak; the 216 px guard floor of 72 ms never dominates the 220 ms × scale). The historical
+  peak-velocity cap is removed because it erased the speed scale for typical pitches (216 px:
+  ≈ 1.19 s at Normal and Fast alike, ≈ 1.78 s at Slow) — on hardware it read as "changing the
+  rate does nothing, and everything is too slow". When the row-delta distance is unavailable
+  (0/invalid) the configured 220 ms × speed base is used. The promotion's start pose is continuous with the previous frame
   (round 3): the drawn placement (`lineTransitionMovePlacement`) anchors the promoted row's
   first-line baseline — `baseline = target + (from − target) × (1 − eased)`, with the scale pivot
   on that same baseline — so progress 0 draws exactly the last frame's geometry (the old
@@ -637,8 +638,7 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   — the on-screen geometry captured as the start, the last snapshot's geometry as the target
   (both frozen at start), the same segment order/easing/frame recipes, with exit and enter
   compressed into the ~140 ms budget (every segment ≥ 40 ms) while the promotion travel keeps its
-  velocity-capped duration (a stale backlog's travel completes later and slower, but never pops in
-  one frame) — so a doze batch, where several snapshots of different lines and
+  configured duration (220 ms × speed scale, with the long-travel average-velocity guard) — so a doze batch, where several snapshots of different lines and
   positions arrive inside one frame, reads as "quick but continuous" instead of a one-frame pop.
   The compressed replay is the one path timed by wall clock (the stale snapshot's position anchor
   is meaningless: its position delta far exceeds the replay), and a seek/drag still ends it
@@ -647,13 +647,15 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   legacy lowercase source aliases `continuity`, `crossfade`, and `none` map to `Fade up`,
   `Crossfade`, and `None`, and an unknown wire value is fail-safe `Fade up` — never a novel
   animation.
-- Line-change animation speed is selectable per surface profile from a fixed vocabulary: `Slow`,
-  `Normal`, or `Fast`. Speed only scales the line-change exit/enter durations (historical base
-  130/210 ms; `Slow` is 1.5× duration, `Fast` is 0.6×, `Normal` keeps the base — the HyperLyric
-  presets scale their own 200/250/300 ms and 300–700 ms bases the same way) and never changes
-  frame recipes, easing curves, or motion parameters; with `None` animation there is no animation
-  for speed to act on. Speed is a pure visual preference with no follow-source semantics. Unknown
-  profile values normalize to `Normal`.
+- Line-change animation speed is selectable per surface profile from a fixed vocabulary, ordered
+  slowest to fastest: `Slowest` (2.0× duration), `Slow` (1.5×), `Normal` (1.0×), `Fast` (0.6×),
+  `Fastest` (0.4×). Speed scales every timed segment of the line change — the exit/enter durations
+  (historical base 130/210 ms; the HyperLyric presets scale their own 200/250/300 ms and
+  300–700 ms bases the same way) and the promotion travel base (220 ms) — and never changes frame
+  recipes, easing curves, or motion parameters; with `None` animation there is no animation for
+  speed to act on. The legacy `Slow`/`Normal`/`Fast` values and their multipliers are unchanged
+  (stored configurations keep their behavior). Speed is a pure visual preference with no
+  follow-source semantics. Unknown profile values normalize to `Normal`.
 - Main lyrics accept a per-surface wrap limit of 1, 2, 3, 4, 5, or no user limit. Text size up to 200%
   must use the selected limit rather than the old fixed three-line ceiling. Safe-area geometry,
   optional-row removal, bounded minimum size, and fail-closed placement remain authoritative.
@@ -896,8 +898,8 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 锁屏显示动画将完整卡片容器作为一个整体。文本、自适应背景、描边与媒体进度共享同一 alpha 与向上平移时间线。
 
 ## 声明式自定义
-- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、历史档 `Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom`、HyperLyric 换行预设 25 档（沿用原 id：`fade_out_fade_in`、`fade_out_up_fade_in_up`、`fade_out_down_fade_in_down`、`fade_out_left_fade_in_right`、`fade_out_left_fade_in_up`、`fade_out_left_zoom_in`、`fade_out_left_landing`、`fade_out_right_fade_in_left`、`fade_out_right_fade_in_up`、`fade_out_right_zoom_in`、`fade_out_right_landing`、`fade_out_left_zoom_in_right`、`fade_out_right_zoom_in_left`、`slide_out_left_slide_in_right`、`slide_out_left_fade_in_up`、`slide_out_left_zoom_in`、`slide_out_left_landing`、`slide_out_right_slide_in_left`、`slide_out_right_fade_in_up`、`slide_out_right_zoom_in`、`slide_out_right_landing`、`flip_out_x_flip_in_x`、`flip_out_y_flip_in_y`、`rotate_out_rotate_in`、`zoom_out_zoom_in`）或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认。换行按「内容是否延续」逐行分流、严格序列「退场 → 晋级位移 → 入场」，任意时刻至多一段在播，同一句歌词只在一个层出现——旧行未走完新行已进场、同一句歌词在两层各画一次的「歌词重叠」由结构消除（历史档此前退场/入场共用 elapsed 锚点叠加进行，即该重叠来源）：1) 离场行组（旧行组 = 主歌词 + 辅助文字音标/翻译）播所选档的退场半段（如「向上渐隐＆向上渐现」的「向上渐隐」），历史档退场 130 毫秒、预设档各档 200/250/300 毫秒，运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放；2) 内容延续的行（旧「下一行」即新「主行」，仅常规前进一行时存在）不播退场/入场半段，只做槽位平移：自旧「下一行」槽位平移到当前行槽位，按两槽字号比等比放大、自旧行亮度升至全亮，FastOutSlowIn 缓动、缩放枢轴取行块中心；位移段按**速度上限**定时长而不是固定 220 毫秒——时长 = `max(max(距离 × 2.75 / 500px·s⁻¹, 220ms) × 速率倍率, 距离 × 2.75 / 500px·s⁻¹)`，距离取起点布局「下一行」与目标布局「主行」逐行基线差（主行对 + 辅助行对）的最大值，2.75 为 FastOutSlowIn 缓动的实测峰值斜率（数值求导 ≈2.7346），峰值瞬时速度因此 ≤500px/s（60fps 等效 ≈8.3px/帧，满足「单帧 ≤8px」判据）：216px 级位移从历史 132–220 毫秒拉长到 ~1.2 秒，真机 A/B 复验的 -76px 单帧尖峰不再出现；速率倍率语义保留（Slow 1.5× 更慢、Fast 0.6× 更短，短距离段完整生效），但任何档位都不得突破上限——长距离时 Fast 被硬下限钳回上限允许的最短时长；取不到行位差（0/非法）时回退历史 220 毫秒 × 速率倍率，与改前逐帧一致；晋级位移的**起点几何与上一帧连续**（round 3）：绘制放置（`lineTransitionMovePlacement`）把首行基线锚在两槽基线之间——`首行基线 = 目标主行基线 + (旧下一行基线 − 目标主行基线) × (1 − 已缓动进度)`，缩放枢轴取该基线——progress=0 画出的就是过渡前最后一帧的几何（旧「下一行」原位、原字号），不再出现旧实现「先 translate 再绕目标行盒中心缩放」的复合偏移（目标行盒中心离旧槽位多远就偏多少；真机 recwalk4 逐帧实测起步第一帧 -38px、其后相邻帧 ~9px）；行数变化（旧下一行 1 行 ↔ 新主行 2 行折行）由同一式接管：首行不跳、块高随缩放进度增长。位置式时钟同步做「位移段起点锚定」（`moveStartAnchorPosition`）：delta 首次越过退场段时把过渡起点重锚到「当前平滑位置 − 退场时长」，使位移段第一帧 moveProgress 恰为 0、从屏上实际形态起步再按自身时长平滑推进——首帧晚到（低节拍/doze 批投递）不再把起步一帧跳进位移段；位置推进不限速（暂停/seek）时不重锚，瞬间落位/立即结束语义保持；第二行歌词的辅助行（音标/翻译）与被晋级的「下一行」同属内容延续组——不随主行组退场，随晋级平移到新主行的辅助槽位（不缩放、恒定辅助亮度），第二行辅助文字的换行动画跟随第二行歌词；3) 新到行（新下一行及其辅助行；晋级时新主行及其辅助行由晋级层呈现，不重复入场）播所选档的入场半段（如「向上渐现」），历史档入场 210 毫秒、预设档各档 300–700 毫秒；跳行/拖动/跨曲/无「下一行」行时无晋级段，旧行组整体退场、新行组整体进场。词表每档的「X＆Y」两半段分别作用于离场行与进场行；歌曲信息行（固定行）不参与，歌曲信息仅在其内容变化时线性淡入淡出（含切换形变）。退场/入场进度先经各档缓动（历史档退场 easeIn、入场 easeOut）再查帧配方。HyperLyric 预设档的退场/入场时长与帧配方复刻参考实现（HyperLyric `YoYoPresets` 与 daimajia AndroidAnimations 2.4）；运动逐项对齐参考实现——Fade 族按行块宽（高）的 1/4 淡出漂移/淡入、Slide 族整宽（高）滑出滑入、翻转/旋转绕内容中心、缩放/着陆关键帧；行块宽（高）取该层行块自身边界（离场层 = 旧行组主歌词 + 辅助文字行盒的包围盒、入场层 = 新到行行盒的包围盒，均不含歌曲信息行），与参考实现把位移施加在歌词行视图上（`target.getHeight()/4`）同义，不得改用画布内容裁剪框；缓动逐项对齐（退场 `FastOutLinearIn`；入场 `OvershootInterpolator` 1.0–2.0、`QuintEaseOut` 或 `FastOutSlowIn`）；位移可短暂越过落位点、alpha 钳制 1。`Fade left`、`Landing`、`Slide swap` 为 `fade_out_left_fade_in_right`、`fade_out_left_landing`、`slide_out_left_slide_in_right` 的兼容短名，归一到对应预设 id。过渡进度由歌词位置推导而非挂钟计时：过渡开始时记下当时的歌词位置（画布同源 `projectedPosition()`），各段按位置推进量在自身时长上换算——内容（位置/行窗/`nextLine`）晚到不再「飞着改目标」；采样间限速：裸位置只按播放速率（帧间隔 × `speed`）跟随，doze 批投递的位置跳变（真机实测同一毫秒两条位置、跨度约 2 秒）按实时速率补齐，各段以自身时长平滑播完而不是一帧推完（逐帧条带实测孤立尖峰 -68px/帧，为 8px 判据的 8 倍；首轮修复后真机 A/B 复验仍有 -76px/帧——固定时长下 FastOutSlowIn 中段峰值瞬时速度可达平均速度的 ~2.7 倍，由下述位移段速度上限修掉）。暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动）时立即结束过渡、不反向「追」新位置，位置源 stall/resume 的采样回漂（容差 300ms）不算跳变、不倒带动画；原始位置高水位与限速后的平滑位置分开跟踪——批跳变后的倒退 seek 仍立即命中，暂停驻留期（speed=0）的位置变化只可能来自 seek/刷新，保持既有跳变语义而不冻在半路。过渡不追旧账：来料快照年龄超过整条过渡时间线（退场 + 晋级位移 + 入场），或同一帧内到达 ≥2 条换行快照时，不再一帧硬切，改播压缩补播——起点取屏上现有旧快照几何、目标取最后一条快照几何（均在起点定死），同一三段序列（段顺序/缓动/帧配方不变）：退场/入场压缩到 ~140ms 预算内、每段 ≥40ms，位移段保留速度上限时长（旧账的位移「晚一点、慢一点」补完，不再压到 40ms 一帧暴跳）；补播是唯一按挂钟计时的路径（过期快照的位置推进量远超补播时长，位置锚无意义），seek/拖动仍按原始位置高水位立即结束。doze 批投递下多条不同行、不同位置的快照挤在同一帧到达，正是该判据的现场来源。动画速率只缩放各档时长。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
-- 换行动画速率可在每个 surface profile 中从固定词表选择：`Slow`、`Normal` 或 `Fast`。速率只等比缩放换行动画各段时长（退场/入场：历史档基准 130/210 毫秒、预设档各档 200/250/300 与 300–700 毫秒；晋级位移段基准 220 毫秒；`Slow` 为 1.5 倍时长，`Fast` 为 0.6 倍时长，`Normal` 保持基准），不改变帧配方、缓动曲线与运动参数；`None` 换行动画下无动画，速率无从生效。速率是纯视觉偏好，没有「跟随源」语义。profile 未知值规范化为 `Normal`。
+- 换行动画可在每个 surface profile 中从固定词表选择：`Auto`、历史档 `Fade up`、`Crossfade`、`Slide up`、`Slide left`、`Zoom`、HyperLyric 换行预设 25 档（沿用原 id：`fade_out_fade_in`、`fade_out_up_fade_in_up`、`fade_out_down_fade_in_down`、`fade_out_left_fade_in_right`、`fade_out_left_fade_in_up`、`fade_out_left_zoom_in`、`fade_out_left_landing`、`fade_out_right_fade_in_left`、`fade_out_right_fade_in_up`、`fade_out_right_zoom_in`、`fade_out_right_landing`、`fade_out_left_zoom_in_right`、`fade_out_right_zoom_in_left`、`slide_out_left_slide_in_right`、`slide_out_left_fade_in_up`、`slide_out_left_zoom_in`、`slide_out_left_landing`、`slide_out_right_slide_in_left`、`slide_out_right_fade_in_up`、`slide_out_right_zoom_in`、`slide_out_right_landing`、`flip_out_x_flip_in_x`、`flip_out_y_flip_in_y`、`rotate_out_rotate_in`、`zoom_out_zoom_in`）或 `None`。`Auto` 保持歌词源自身的偏好；任何显式选择一票否决源偏好，包括 `None`。`None` 不执行任何行进入/退出动画。`Fade up` 是历史默认。换行按「内容是否延续」逐行分流、严格序列「退场 → 晋级位移 → 入场」，任意时刻至多一段在播，同一句歌词只在一个层出现——旧行未走完新行已进场、同一句歌词在两层各画一次的「歌词重叠」由结构消除（历史档此前退场/入场共用 elapsed 锚点叠加进行，即该重叠来源）：1) 离场行组（旧行组 = 主歌词 + 辅助文字音标/翻译）播所选档的退场半段（如「向上渐隐＆向上渐现」的「向上渐隐」），历史档退场 130 毫秒、预设档各档 200/250/300 毫秒，运动仅限于淡入淡出、上移/左移位移与绕内容中心的缩放；2) 内容延续的行（旧「下一行」即新「主行」，仅常规前进一行时存在）不播退场/入场半段，只做槽位平移：自旧「下一行」槽位平移到当前行槽位，按两槽字号比等比放大、自旧行亮度升至全亮，FastOutSlowIn 缓动、缩放枢轴取行块中心；位移段按**配置时长**定时长而不是速度上限——时长 = `max(220ms × 速率倍率, 距离 / 3000px·s⁻¹ × 1000)`，距离取起点布局「下一行」与目标布局「主行」逐行基线差（主行对 + 辅助行对）的最大值：216px 五档 = 440/330/220/132/88 毫秒，速率档全程可见；仅 1500px 级横屏大位移触到 500 毫秒平均速度护栏（按平均速度计，不再按缓动峰值计）；历史上曾按峰值速度 500px/s 上限把 216px 拉长到 ~1.2 秒（Slow 档 1.78 秒），且末尾 max 把速率倍率整条抹掉（Normal 与 Fast 恒等，真机表现「改速率没用 + 太慢」），该限速已撤——起步不跳由位置限速平滑与起点几何锚定保证，不靠慢；取不到行位差（0/非法）时回退配置时长 220 毫秒 × 速率倍率；晋级位移的**起点几何与上一帧连续**（round 3）：绘制放置（`lineTransitionMovePlacement`）把首行基线锚在两槽基线之间——`首行基线 = 目标主行基线 + (旧下一行基线 − 目标主行基线) × (1 − 已缓动进度)`，缩放枢轴取该基线——progress=0 画出的就是过渡前最后一帧的几何（旧「下一行」原位、原字号），不再出现旧实现「先 translate 再绕目标行盒中心缩放」的复合偏移（目标行盒中心离旧槽位多远就偏多少；真机 recwalk4 逐帧实测起步第一帧 -38px、其后相邻帧 ~9px）；行数变化（旧下一行 1 行 ↔ 新主行 2 行折行）由同一式接管：首行不跳、块高随缩放进度增长。位置式时钟同步做「位移段起点锚定」（`moveStartAnchorPosition`）：delta 首次越过退场段时把过渡起点重锚到「当前平滑位置 − 退场时长」，使位移段第一帧 moveProgress 恰为 0、从屏上实际形态起步再按自身时长平滑推进——首帧晚到（低节拍/doze 批投递）不再把起步一帧跳进位移段；位置推进不限速（暂停/seek）时不重锚，瞬间落位/立即结束语义保持；第二行歌词的辅助行（音标/翻译）与被晋级的「下一行」同属内容延续组——不随主行组退场，随晋级平移到新主行的辅助槽位（不缩放、恒定辅助亮度），第二行辅助文字的换行动画跟随第二行歌词；3) 新到行（新下一行及其辅助行；晋级时新主行及其辅助行由晋级层呈现，不重复入场）播所选档的入场半段（如「向上渐现」），历史档入场 210 毫秒、预设档各档 300–700 毫秒；跳行/拖动/跨曲/无「下一行」行时无晋级段，旧行组整体退场、新行组整体进场。词表每档的「X＆Y」两半段分别作用于离场行与进场行；歌曲信息行（固定行）不参与，歌曲信息仅在其内容变化时线性淡入淡出（含切换形变）。退场/入场进度先经各档缓动（历史档退场 easeIn、入场 easeOut）再查帧配方。HyperLyric 预设档的退场/入场时长与帧配方复刻参考实现（HyperLyric `YoYoPresets` 与 daimajia AndroidAnimations 2.4）；运动逐项对齐参考实现——Fade 族按行块宽（高）的 1/4 淡出漂移/淡入、Slide 族整宽（高）滑出滑入、翻转/旋转绕内容中心、缩放/着陆关键帧；行块宽（高）取该层行块自身边界（离场层 = 旧行组主歌词 + 辅助文字行盒的包围盒、入场层 = 新到行行盒的包围盒，均不含歌曲信息行），与参考实现把位移施加在歌词行视图上（`target.getHeight()/4`）同义，不得改用画布内容裁剪框；缓动逐项对齐（退场 `FastOutLinearIn`；入场 `OvershootInterpolator` 1.0–2.0、`QuintEaseOut` 或 `FastOutSlowIn`）；位移可短暂越过落位点、alpha 钳制 1。`Fade left`、`Landing`、`Slide swap` 为 `fade_out_left_fade_in_right`、`fade_out_left_landing`、`slide_out_left_slide_in_right` 的兼容短名，归一到对应预设 id。过渡进度由歌词位置推导而非挂钟计时：过渡开始时记下当时的歌词位置（画布同源 `projectedPosition()`），各段按位置推进量在自身时长上换算——内容（位置/行窗/`nextLine`）晚到不再「飞着改目标」；采样间限速：裸位置只按播放速率（帧间隔 × `speed`）跟随，doze 批投递的位置跳变（真机实测同一毫秒两条位置、跨度约 2 秒）按实时速率补齐，各段以自身时长平滑播完而不是一帧推完（逐帧条带实测孤立尖峰 -68px/帧；首轮修复后真机 A/B 复验仍有 -76px/帧——固定时长下 FastOutSlowIn 中段峰值瞬时速度可达平均速度的 ~2.7 倍；起步不跳最终由位置限速平滑与起点几何锚定保证，位移段本身以配置时长为准）。暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动）时立即结束过渡、不反向「追」新位置，位置源 stall/resume 的采样回漂（容差 300ms）不算跳变、不倒带动画；原始位置高水位与限速后的平滑位置分开跟踪——批跳变后的倒退 seek 仍立即命中，暂停驻留期（speed=0）的位置变化只可能来自 seek/刷新，保持既有跳变语义而不冻在半路。过渡不追旧账：来料快照年龄超过整条过渡时间线（退场 + 晋级位移 + 入场），或同一帧内到达 ≥2 条换行快照时，不再一帧硬切，改播压缩补播——起点取屏上现有旧快照几何、目标取最后一条快照几何（均在起点定死），同一三段序列（段顺序/缓动/帧配方不变）：退场/入场压缩到 ~140ms 预算内、每段 ≥40ms，位移段保留配置时长（不再压到 40ms 一帧跳完）；补播是唯一按挂钟计时的路径（过期快照的位置推进量远超补播时长，位置锚无意义），seek/拖动仍按原始位置高水位立即结束。doze 批投递下多条不同行、不同位置的快照挤在同一帧到达，正是该判据的现场来源。动画速率只缩放各档时长。profile 未知值规范化为 `Auto`；历史小写来源别名 `continuity`、`crossfade` 与 `none` 分别映射为 `Fade up`、`Crossfade` 与 `None`，wire 未知值 fail-safe 为 `Fade up`——绝不引入新动画。
+- 换行动画速率可在每个 surface profile 中从固定词表选择（由慢到快五档）：`Slowest`（2.0 倍时长）、`Slow`（1.5 倍时长）、`Normal`（1.0 倍时长）、`Fast`（0.6 倍时长）、`Fastest`（0.4 倍时长）。速率等比缩放换行动画各段时长（退场/入场：历史档基准 130/210 毫秒、预设档各档 200/250/300 与 300–700 毫秒；晋级位移段基准 220 毫秒），不改变帧配方、缓动曲线与运动参数；`None` 换行动画下无动画，速率无从生效。历史三档 `Slow`/`Normal`/`Fast` 的值与倍率保持不变（已存配置行为不变）。速率是纯视觉偏好，没有「跟随源」语义。profile 未知值规范化为 `Normal`。
 
 - 文档是带版本的数据，而不是插件。
 - 应用进程编译执行迁移、规范化、能力过滤、限制与稳定的 revision 哈希。SystemUI 会再次校验。

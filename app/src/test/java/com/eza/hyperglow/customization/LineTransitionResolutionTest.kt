@@ -1,6 +1,7 @@
 package com.eza.hyperglow.customization
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -29,6 +30,16 @@ class LineTransitionResolutionTest {
         for (speed in LINE_TRANSITION_SPEEDS) {
             assertEquals(speed, normalizeLineTransitionSpeed(speed))
         }
+        // 旧三档值一字不改(向后兼容);新增两档同层通过。
+        for (legacy in listOf("Slow", "Normal", "Fast")) {
+            assertEquals(legacy, normalizeLineTransitionSpeed(legacy))
+        }
+        for (added in listOf("Slowest", "Fastest")) {
+            assertEquals(added, normalizeLineTransitionSpeed(added))
+        }
+        // 词表由慢到快五档,默认档仍在表内。
+        assertEquals(listOf("Slowest", "Slow", "Normal", "Fast", "Fastest"), LINE_TRANSITION_SPEEDS)
+        assertTrue(LINE_TRANSITION_SPEED_NORMAL in LINE_TRANSITION_SPEEDS)
         for (unknown in listOf("slow", "Instant", "1.5x", "")) {
             assertEquals(LINE_TRANSITION_SPEED_NORMAL, normalizeLineTransitionSpeed(unknown))
         }

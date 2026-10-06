@@ -111,11 +111,13 @@ and (b) unverified paths stay explicit instead of silently assumed.
   content hugs its rows without a large empty gap (scrim follows), tall multi-row content no longer
   clips at the bottom, and the height setting still caps at its fraction. Note: the home preview
   keeps its proportional scenario placement (it is a placement mock, not a measurement).
-- Line transition animation speed (`lineTransitionSpeed`: `Normal`/`Slow`/`Fast`, rendered directly
-  below the line transition option; durations scale the 130/210 ms base by 1.0/1.5/0.6 while frame
-  recipes and easing stay untouched, unknown values normalize to `Normal`) — pending a hardware
-  smoke check after merge: the three settings are visibly distinct on a real line change and match
-  the expected durations (Slow ≈ 195/315 ms, Fast ≈ 78/126 ms), with no change to motion paths.
+- Line transition animation speed (`lineTransitionSpeed`: `Slowest`/`Slow`/`Normal`/`Fast`/`Fastest`,
+  rendered directly below the line transition option; durations scale the 130/210 ms exit/enter and
+  220 ms promotion bases by 2.0/1.5/1.0/0.6/0.4 while frame recipes and easing stay untouched, the
+  legacy three values keep their multipliers, unknown values normalize to `Normal`) — pending a
+  hardware smoke check after merge: the five settings are visibly distinct on a real line change
+  and match the expected durations (216 px promotion travel ≈ 440/330/220/132/88 ms; Slow ≈
+  195/315 ms, Fast ≈ 78/126 ms exit/enter), with no change to motion paths.
 - Line transition coverage of the auxiliary text (the main lyric, transliteration/translation rows
   and the next-line row now transition as one row block in the home preview, matching the device
   `drawRows` single-layer semantics that already animated the whole block; previously only the
@@ -543,7 +545,11 @@ and (b) unverified paths stay explicit instead of silently assumed.
   (same flow as the failing A/B: steady AOD → trigger → 60 fps capture → per-frame strip tracking):
   every promotion single-frame displacement ≤ ~10 px (60 fps equivalent) and the max frame ≤ 1.6×
   the mean of its neighbouring frames; seek/drag still lands statically and immediately; the 187
-  (position-clock) and 191 (start-frozen target geometry) properties unchanged.
+  (position-clock) and 191 (start-frozen target geometry) properties unchanged. Superseded on
+  2026-10-06 (round 4): the peak cap erased the speed scale for typical row pitches (216 px
+  measured ≈ 1.19 s at Normal and Fast alike, ≈ 1.78 s at Slow — owner report "changing the
+  speed does nothing, and it is too slow"), so the promotion travel now uses the configured
+  duration with a far-distance average-velocity guard only; see the round-4 entry below.
 
 - Line transition start continuity (round 3; owner-confirmed "the start pops": after round 2's
   velocity cap the travel body was smooth at ~9 px/frame but the first frame still measured
@@ -568,8 +574,43 @@ and (b) unverified paths stay explicit instead of silently assumed.
   `anchoredMoveStartKeepsFirstTrackedFrameContinuousAtSixtyFps`) — pending a hardware smoke
   check after merge (same A/B flow, AOD and lockscreen): the transition's first frame
   displacement ≤ 1.6× the mean of the following adjacent frames (with the fix the promotion's
-  first frame is 0 px), the travel body stays ≤ ~10 px per 60 fps frame, seek/drag still lands
-  statically and immediately, and pause still freezes the transition in place.
+  first frame is 0 px), seek/drag still lands statically and immediately, and pause still freezes
+  the transition in place. (The "travel body ≤ ~10 px per frame" criterion of rounds 2–3 was
+  dropped in round 4 together with the peak-velocity cap — the body now follows the configured
+  rate.)
+
+- Line transition speed actually applies + five speed tiers (round 4; owner report on hardware:
+  "changing the animation speed does nothing, and it is too slow"). Root cause: `moveTransitionMs`
+  ended in `max(..., distance × 2.75 / 500 × 1000)` (the round-2 peak-velocity cap), which wiped
+  the speed multiplier out for every typical row pitch — a 216 px promotion travel measured
+  ≈ 1.19 s at Normal and Fast alike (≈ 1.78 s at Slow), while the exit/enter halves (which do
+  scale) made the whole line change feel slow. The first-frame pop that motivated the cap is
+  already fixed by
+  `advanceTransitionPosition` (position rate limit) and `moveStartAnchorPosition` /
+  `lineTransitionMovePlacement` (start-pose continuity), so the cap is dropped and the promotion
+  travel is scheduled by the configured duration with only a far-distance average-velocity guard:
+  duration = `max(220 ms × speed scale, distance / 3000 px·s⁻¹ × 1000)`. 216 px: `Slowest` 440 ms,
+  `Slow` 330 ms, `Normal` 220 ms, `Fast` 132 ms, `Fastest` 88 ms (the 72 ms guard floor never
+  dominates); 1500 px → 500 ms floor. `compressedLineTransitionTimeline` keeps the same configured
+  move duration (exit/enter stay compressed into the ~140 ms budget, ≥ 40 ms each). The speed
+  vocabulary grows from three tiers to five (ordered slowest→fastest: `Slowest` 2.0×, `Slow` 1.5×,
+  `Normal` 1.0×, `Fast` 0.6×, `Fastest` 0.4×) with the legacy three values and multipliers
+  unchanged; new strings `option_slowest` / `option_fastest` added across values /
+  values-zh-rCN / values-zh-rTW / translation template. Unit-tested
+  (`AodCanvasTransitionTest.moveDurationFollowsConfiguredSpeedAcrossFiveTiers` /
+  `moveDurationGuardOnlyEngagesOnVeryLongTravel` /
+  `moveDurationFallsBackToConfiguredBaseWithoutDistance` /
+  `promotionTimelineCarriesConfiguredMoveDuration` / `promotionMoveStepsFollowTheEaseCurveOnly` /
+  `compressedReplayKeepsConfiguredMoveDuration` / the updated
+  `anchoredMoveStartKeepsFirstTrackedFrameContinuousAtSixtyFps`; the removed-cap constants
+  `MOVE_MAX_VELOCITY_PX_PER_S` / `MOVE_EASE_PEAK_FACTOR` and their test are gone;
+  `LineTransitionResolutionTest.normalizeLineTransitionSpeedKeepsVocabularyAndFallsBackToNormal`
+  pins the five-tier vocabulary and legacy compatibility) — pending a hardware smoke check after
+  merge: the five rates are visibly distinct on the AOD and lockscreen (216 px promotion travel
+  ≈ 440/330/220/132/88 ms, exit/enter scale as before), the transition's first frame is still
+  continuous (≤ 1.6× the following frames' mean; anchoring renders 0 px), seek/drag still lands
+  statically and immediately, and a stale/batched line change still replays compressed with the
+  configured move segment.
 
 - Lyric-source frozen-fallback retention + stall-diagnostic de-duplication (the fallback path now
   applies the same `isFaulted` predicate as selection: a stale-paused candidate with content is
@@ -658,9 +699,10 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 首页顶栏右上角重启入口（快捷重启按钮，取代原运行状态列表行，重启对话框与 ShellUtils 路径不变）——合并后待真机冒烟：图标可打开目标选择对话框，确认后 SystemUI/AOD 正常重启。
 - 重启对话框「歌词源」目标改为重建**全部四个**源（原为只重建选中源），并与挂钩进程重启解耦（先派发 root 杀进程，歌词源重建不再能把它吞掉）——合并后待真机冒烟：首选源保持默认 `Spicy`、屏上歌词实际来自回退源（如 `SuperLyric`）时，勾选「歌词源」并确认必须能恢复该回退源（此前为空转）；「歌词源」与系统界面/AOD 同时勾选时两个进程仍正常重启；单个源重建失败不得影响其余源。
 - 锁屏卡片自适应高度（场景矩形按已定内容宽实测内容行堆叠高度定高；「高度」设置改为上限，基于设置的高度估算仅在内容就绪前兜底位置）——合并后待真机冒烟：单行短歌词卡片贴合内容无大空档（scrim 跟随），多行/辅助行长内容底部不再被裁切，「高度」设置仍按占比封顶。注意：主页预览保持按占比的情景放置（它是放置模拟，不做实测）。
-- 换行动画速率（`lineTransitionSpeed`：`Normal`/`Slow`/`Fast`，位于换行动画选项正下方；时长按
-  130/210ms 基准 ×1.0/×1.5/×0.6，帧配方与缓动不变，未知值规范化为 `Normal`）——合并后待真机
-  冒烟：三档换行时长肉眼可辨且与设置一致（Slow ≈ 195/315ms、Fast ≈ 78/126ms），运动轨迹不变。
+- 换行动画速率（`lineTransitionSpeed`：`Slowest`/`Slow`/`Normal`/`Fast`/`Fastest`，位于换行动画选项正下方；
+  时长按 130/210ms 退场/入场与 220ms 晋级位移基准 ×2.0/×1.5/×1.0/×0.6/×0.4，帧配方与缓动不变，
+  旧三档倍率保持不变，未知值规范化为 `Normal`）——合并后待真机
+  冒烟：五档换行时长肉眼可辨且与设置一致（216px 晋级位移 ≈ 440/330/220/132/88ms；Slow ≈ 195/315ms、Fast ≈ 78/126ms 退场/入场），运动轨迹不变。
 - 换行动画覆盖辅助文字（主歌词、音标/翻译辅助行与下一行歌词在主页预览中整块同层进退，与实机
   `drawRows` 单层语义对齐——实机本就整块过渡，此前仅预览对辅助行瞬切）——合并后待真机冒烟：
   实机换行时辅助文字随主行一起淡入淡出/位移而非瞬切，预览呈现与实机一致。
@@ -801,14 +843,15 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 「BetterLyrics」档整档不做逐字扫光（共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数 `karaokeSweepEnabled(betterLyrics) = !betterLyrics`：所有词块「开始唱即整块亮起」，不出现填充前缘——换行后的新行同理；辉光仍只挂长音节词块；非 BetterLyrics 档保持词内扫光不变）。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）——两版都留下「行内音节全短时整行照旧逐字填」的残留；真机探针（网易云《蝴蝶》）实测该曲每个词首窗仅 200ms 级，任何口径都不触发，故观感与改前无差别；owner 2026-10-05 复核后定案整档关闭。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweep`）——合并后待真机冒烟：BetterLyrics 档任何行（含换行后新行）都没有从左往右的填充前缘，长音节放大 1.15、光晕只挂长音节、未唱下沉/已唱上浮不变，非 BetterLyrics 档与改前逐像素一致。（已被下方口径 B 恢复条目取代，2026-10-05：短音节扫光回归，仅长音节保持整块亮起。）
 - 同行内容稳定化（`shouldAdoptLineEnhancements`，`AodCanvasLayoutPolicy.kt`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：上游对同一行两阶段下发（带/不带词表，真机实测同一行窗下 `words=13 ↔ words=0`），而折行引擎按形态走两条路径，于是每次切换都重排——owner 录屏逐帧实测：换行瞬间下一行下移 80px、填充前缘倒退重填。现在同一行只认第一次的折行形态；「无词→带词」升级仅在行开始前 300ms 内接受，「带词→无词」回退与演唱中词表文本变化一律拒绝。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行时不再重排（下一行位置不动）、填充不再倒退重填，词表在行开始前到达的行仍按真实词窗点亮。
 - 下一行文本稳定化（`isNextLineStale`，接入 `AodLyricCanvasView.stabilizeLineEnhancements`）：换行时旧「下一行」被晋级成主行，而上游 `nextLine` 要等下一句推来才推进——真机录屏实测换行后 0.5s 内下一行行与主行同文，随后文本切换改变行集合/行高，表现为「换行动画后跳一下」。现在与主行同文的下一行视为「未就绪」，沿用上一版文本，行占位与行高保持稳定。已有单测（`LineEnhancementStabilityTest`）——合并后待真机冒烟：换行后下一行行不出现与主行同文的重复、也不因文本切换而跳位；真正的新下一行到达后正常替换。
-- 换行动画改吃「歌词时钟」（`lineTransitionClockAtPosition` + 位置高水位，接入 `AodLyricCanvasView` 三段式过渡）：过渡进度不再用挂钟（`elapsedRealtime` 起点）计时，改由歌词位置推导——过渡开始时记下位置（同源 `projectedPosition()`），各段按位置推进量在既有时间线上换算，段顺序/时长配方/缓动全不变。修复目标：内容（位置/行窗/`nextLine`）在飞行途中才到齐时目标几何被中途重算，表现为「换行后两段位移/单帧跳」（60fps 逐帧实测 813 帧/13.55s/三次换行）。暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动，倒退超过 300ms 采样回漂容差）时立即结束过渡而不反向「追」位置。已有单测（`AodCanvasTransitionTest.positionClock*`）——合并后待真机冒烟：60fps 录屏逐帧核晋级行 y 单调、单帧位移 ≤8px、无方向反转；暂停时过渡冻结在当前进度、恢复播放后续播；拖动进度条 seek 时过渡立即结束（静态新内容）、不出现反向追赶。（2026-10-06 增补：位置采样限速——裸位置只按播放速率跟随，doze 批投递跳变按实时速率补齐，消除孤立尖峰；见下方「换行过渡平滑化」条目与 `advanceTransitionPosition`。）
+- 换行动画改吃「歌词时钟」（`lineTransitionClockAtPosition` + 位置高水位，接入 `AodLyricCanvasView` 三段式过渡）：过渡进度不再用挂钟（`elapsedRealtime` 起点）计时，改由歌词位置推导——过渡开始时记下位置（同源 `projectedPosition()`），各段按位置推进量在既有时间线上换算，段顺序/时长配方/缓动全不变。修复目标：内容（位置/行窗/`nextLine`）在飞行途中才到齐时目标几何被中途重算，表现为「换行后两段位移/单帧跳」（60fps 逐帧实测 813 帧/13.55s/三次换行）。暂停（位置冻结）时过渡冻结在当前进度；位置跳变（seek/拖动，倒退超过 300ms 采样回漂容差）时立即结束过渡而不反向「追」位置。已有单测（`AodCanvasTransitionTest.positionClock*`）——合并后待真机冒烟：60fps 录屏逐帧核晋级行 y 单调、单帧位移 ≤8px、无方向反转；暂停时过渡冻结在当前进度、恢复播放后续播；拖动进度条 seek 时过渡立即结束（静态新内容）、不出现反向追赶。（2026-10-06 增补：位置采样限速——裸位置只按播放速率跟随，doze 批投递跳变按实时速率补齐，消除孤立尖峰；见下方「换行过渡平滑化」条目与 `advanceTransitionPosition`。另：2026-10-06 第四轮撤去位移段峰值限速后，「单帧位移 ≤8px」不再作为位移段判据——位移段按配置时长推进，防跳由位置平滑与起点锚定保证，见下方第四轮条目。）
 - MIUI 长截屏代理（`LongScreenshotScrollProxyView` + `LongScreenshotDragAccumulator`，由 `MainActivity.installLongScreenshotProxy` 在小米/Redmi/POCO 上安装）：MIUI 的 `LongScreenshotUtils$ContentPort` 在 Compose 宿主里选不出主滚动视图——debug 包宿主类名命中其「不可滚动」精确匹配分支（真机日志 `can not run invoke canScrollVertically on background thread`），release 包该类名已被 R8 改名、落到 `view.canScrollVertically(1)` 兜底分支（Compose 宿主无进行中手势时同样返回 false），长截屏因此退化成「只截当前一屏」（`scrolledY == 0 isEnd:true`）。代理挂在 Compose 宿主之下（真实触摸到不了它），自报可滚动让 MIUI 选中，把 MIUI 注入的假拖拽在主线程转发给宿主，并以累计拖拽位移充当 `scrollY`（封顶 60k px 防失控，暂停后重新发起的长截屏从零计数）。已有单测（`LongScreenshotDragAccumulatorTest`）——合并后待真机冒烟：小米设备上对长页面截长屏得到多屏拼接长图，正常触摸/滚动行为不变，logcat 出现 `long screenshot proxy installed`。⚠️ 现有真机证据取自 debug 包；release 包（类名被改名→兜底分支）这一环待真机复核。
 - 生产者 ingest 行窗/词窗基准统一（`LyricTimelineNormalizer`，接入 Lyricon P0 修复与 SuperLyric 逐行推送 emit）：只治自相矛盾的两类形状——词窗超出行窗时行窗扩到并集；行窗远超可唱估时且词级跨距可信时向词对齐（沿用既有 Lyricon 判据/阈值，全仓单一副本）；正常拖尾（如行窗 8000ms、词窗并集 3000ms、估时 3000ms）原样返回，不带词窗的一笔保持行窗原样。LyricInfo 已在 ingest 对带词行无条件词锚定、Spicy 的行尾钳制是上游 8422d78 语义，两者评估后不动。已有单测（`LyricTimelineNormalizerTest`、`LyriconTimelineRepairTest`、`SuperLyricTimelineNormalizeTest`）——合并后待真机冒烟：Lyricon 与 SuperLyric 源下正常歌曲的换行节奏与填充前缘不变（正常拖尾逐字节一致），词窗越出行窗的行不再自相矛盾（不再出现演唱中填充前缘倒退重填）。
 - 「BetterLyrics」档恢复逐字扫光（口径 B；共享逐字渲染核心 `LyricWordKaraokeRenderer` 的纯函数改为 `karaokeSweepEnabled(betterLyrics, longSyllable) = !(betterLyrics && longSyllable)`，在 draw 循环内逐词块判定）：长音节（≥700ms）仍「开始唱即整块按已唱色亮起」、不出现填充前缘（发光开启时光晕只挂长音节），其余音节恢复历史词内扫光带；非 BetterLyrics 档长/短音节全部扫光不变。口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）→ 整档关闭（0.3.156 (183)，PR #177）→ 本次恢复短音节扫光（2026-10-05）：当初逼出整档关闭的四条跳变成因已修（同行形态稳定化 / 下一行文本稳定化 / 位置时钟过渡 / 摄取归一），短音节扫光不再带当初的跳变观感。已有单测（`BetterLyricsWordEffectsTest.betterLyricsDisablesTheInWordSweepOnlyForLongSyllables`），并已用桩 `android.graphics` 编译真实渲染文件实调 `draw()` 双向验证（同一套断言在改前文件上按预期 FAIL：短音节无扫光渐变）——合并后待真机冒烟：BetterLyrics 档长音节整块亮起（发光开启时光晕只挂长音节）、短音节逐字扫光带恢复、换行无跳变；非 BetterLyrics 档与改前逐像素一致。
 - 插件链合并结果的行窗/词窗归一（`PluginChainMerger.normalizeMergedTimeline`，在 `PluginRuntime.processChain` 合并循环之后、交给下游之前的单一落点调用）：本链有被接受的处理器结果声明 `WORDS` 时，插件词表（文本 + 时间戳）整份生效、其词窗即最终值，合并文档逐行过 ingest 同一套 `LyricTimelineNormalizer` 归一——① 词窗超出行窗 → 行窗扩到并集；② 行窗远超可唱估时且词级跨距可信 → 向词对齐；③ 其余（含正常拖尾）逐字节原样；未声明 `WORDS`（宿主词表）时合并结果原样返回，不重复归一宿主词窗。已有单测（`PluginTimelineNormalizeTest`）——合并后待真机冒烟：装带词级时间的插件（如 lyricfetch）时，插件词窗越出行窗的行不再提前交接/词级卡拉OK不再中途消失，正常歌曲换行节奏与改前一致，未声明 `WORDS` 的插件对宿主行零影响。
 - 投递边界丢弃过期快照（`shouldDropStaleSnapshot` + `droppedSnapshotKeepAliveSignal`，接入 `SystemUiLyricProjection.accept`）：可见快照年龄超过 `STALE_SNAPSHOT_DROP_AGE_MS`（1.5 秒，与 producer 的全量发布/心跳节奏同拍）即在投递边界丢弃；换歌/换源（track generation 变化）、隐藏与暂停驻留边沿、绑定后的首条快照恒投递；被丢快照仍推进 revision 水位，并在其 keepalive/wake 标量与持有态不同时按最新值更新，keepalive 链绝不因此断开。已有单测（`SystemUiLyricProjectionTest` 的边界/换源/隐藏边沿/租约兜底用例）——合并后待真机冒烟：息屏 AOD + 网易云在播时 `adb logcat -s HyperGlow` 只看到积压 revision 被丢（同帧反复应用多条快照的情况消失），歌词不中途冻结/清场，暂停驻留与切歌行为与改前一致。
-- 换行位移段速度上限 + 旧账压缩补播（第二轮：第一轮的位置时钟限速 + 压缩补播已合并，但真机 A/B 复验仍测到孤立 -76px 单帧——位移段仍按固定 220ms × 速率倍率排时长，FastOutSlowIn 中段峰值瞬时速度（≈平均 2.7 倍）把 216px 塞进约 7 帧）。现在 `moveTransitionMs` 按**速度上限**排位移段：时长 = `max(max(距离 × 2.75 / 500, 220ms) × 速率倍率, 距离 × 2.75 / 500)`，距离取起点布局「下一行」与目标布局「主行」逐行基线差的最大值（主行对 + 辅助行对，目标布局重建后计算），2.75 为 FastOutSlowIn 实测峰值斜率，峰值瞬时速度因此 ≤500px/s（60fps 等效 ≈8.3px/帧，满足「单帧 ≤8px」判据；216px → ~1.2s）；速率倍率语义保留（Slow 1.5× 更慢、Fast 0.6× 更短，短距离段完整生效），但任何档位不得突破上限（长距离时 Fast 被硬下限钳回），取不到距离时回退历史 220ms × 速率倍率。`advanceTransitionPosition` / `isTransitionSeekJump` 的位置时钟限速与 seek 判定不变；`compressedLineTransitionTimeline` 命中时退场/入场仍压缩到 ~140ms 预算（每段 ≥40ms），位移段保留速度上限时长（旧账「晚一点、慢一点」补完，不再 40ms 一帧暴跳），seek/拖动仍按原始位置高水位立即结束）。已有单测（`AodCanvasTransitionTest.velocityCappedPromotionKeepsEveryFrameWithinTenPxAtSixtyFps` / `moveEasePeakFactorMatchesMeasuredSlope` / `moveDistanceUsesLargestRowBaselineDelta` / `moveDurationFollowsVelocityCapAtDefaultSpeed` / `moveDurationNeverBreaksVelocityCapAcrossSpeeds` / `promotionTimelineCarriesVelocityCappedMove` / `compressedReplayAlsoRespectsMoveVelocityCap` / `smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` / `transitionPosition*` / `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` / `sameFrameMultipleLineChangesSkipFullTransition`）——合并后待真机冒烟（与失败 A/B 同流程：稳态 AOD → 等触发行 → 60fps 录屏 → 逐帧条带）：位移段任意单帧位移 ≤ ~10px（60fps 等效）且单帧最大值 ≤ 相邻帧均值的 1.6 倍；seek/拖动仍静态立即落位；187（位置时钟）/191（起点定死目标几何）性质不回归。
-- 换行过渡起步帧与上一帧几何连续（第三轮；owner 确认「起步那一下跳」：第二轮速度上限后位移段主体已 ~9px/帧平滑，唯第一帧仍 -38px）。修掉起步处两处代码级不连续：(a) 晋级层的绘制放置改为**首行基线锚定**（`lineTransitionMovePlacement`：`首行基线 = 目标主行基线 + (旧下一行基线 − 目标主行基线) × (1 − 已缓动进度)`，缩放枢轴取该基线）——progress=0 画出的恰是上一帧几何（旧「下一行」原位、原字号）；旧实现「先 translate 再绕目标行盒中心缩放」复合后第一帧首行落点 = `枢轴 + (旧基线 − 枢轴) × 缩放比`，比旧槽位高出 `(1 − 缩放比) × (枢轴 − 旧基线)`（数十像素，即实测 -38px），且旧下一行 1 行 ↔ 新主行 2 行折行的行数变化在同一帧整份生效。(b) 位置式时钟新增**位移段起点锚定**（`moveStartAnchorPosition`）：delta 首次越过退场段时把过渡起点重锚到「当前平滑位置 − 退场时长」，使位移段第一帧 moveProgress 恰为 0、从屏上实际形态起步再按自身时长平滑推进——首帧晚到（低节拍/doze 批投递）不再把起步一帧跳进位移段；位置推进不限速（暂停/seek）时不重锚，瞬间落位/立即结束语义保持。已有单测（`AodCanvasTransitionTest.promotionPlacementStartsAtPreviousFrameGeometry` / `promotionPlacementFixesLegacyPivotOffsetAtMoveStart` / `moveStartAnchorSnapsFirstDrawnMoveFrameToZero` / `anchoredMoveStartKeepsFirstTrackedFrameContinuousAtSixtyFps`）——合并后待真机冒烟（同 A/B 流程，AOD 与锁屏两个界面）：过渡第一帧位移 ≤ 其后相邻帧位移均值的 1.6 倍（修复后晋级第一帧为 0px）、位移段主体仍 ≤ ~10px/60fps 帧、seek/拖动仍静态立即落位、暂停仍原地冻结。
+- 换行位移段速度上限 + 旧账压缩补播（第二轮：第一轮的位置时钟限速 + 压缩补播已合并，但真机 A/B 复验仍测到孤立 -76px 单帧——位移段仍按固定 220ms × 速率倍率排时长，FastOutSlowIn 中段峰值瞬时速度（≈平均 2.7 倍）把 216px 塞进约 7 帧）。现在 `moveTransitionMs` 按**速度上限**排位移段：时长 = `max(max(距离 × 2.75 / 500, 220ms) × 速率倍率, 距离 × 2.75 / 500)`，距离取起点布局「下一行」与目标布局「主行」逐行基线差的最大值（主行对 + 辅助行对，目标布局重建后计算），2.75 为 FastOutSlowIn 实测峰值斜率，峰值瞬时速度因此 ≤500px/s（60fps 等效 ≈8.3px/帧，满足「单帧 ≤8px」判据；216px → ~1.2s）；速率倍率语义保留（Slow 1.5× 更慢、Fast 0.6× 更短，短距离段完整生效），但任何档位不得突破上限（长距离时 Fast 被硬下限钳回），取不到距离时回退历史 220ms × 速率倍率。`advanceTransitionPosition` / `isTransitionSeekJump` 的位置时钟限速与 seek 判定不变；`compressedLineTransitionTimeline` 命中时退场/入场仍压缩到 ~140ms 预算（每段 ≥40ms），位移段保留速度上限时长（旧账「晚一点、慢一点」补完，不再 40ms 一帧暴跳），seek/拖动仍按原始位置高水位立即结束）。已有单测（`AodCanvasTransitionTest.velocityCappedPromotionKeepsEveryFrameWithinTenPxAtSixtyFps` / `moveEasePeakFactorMatchesMeasuredSlope` / `moveDistanceUsesLargestRowBaselineDelta` / `moveDurationFollowsVelocityCapAtDefaultSpeed` / `moveDurationNeverBreaksVelocityCapAcrossSpeeds` / `promotionTimelineCarriesVelocityCappedMove` / `compressedReplayAlsoRespectsMoveVelocityCap` / `smoothedClockSpreadsDozeBatchJumpAcrossFramesInsteadOfOneFrameSpike` / `transitionPosition*` / `compressed*` / `staleSnapshotSkipsFullTransitionForCompressedReplay` / `sameFrameMultipleLineChangesSkipFullTransition`）——合并后待真机冒烟（与失败 A/B 同流程：稳态 AOD → 等触发行 → 60fps 录屏 → 逐帧条带）：位移段任意单帧位移 ≤ ~10px（60fps 等效）且单帧最大值 ≤ 相邻帧均值的 1.6 倍；seek/拖动仍静态立即落位；187（位置时钟）/191（起点定死目标几何）性质不回归。（已于 2026-10-06 第四轮取代：峰值限速对典型行距把速率倍率整条抹掉——216px 在 Normal/Fast 下恒 ~1.19 秒（Slow ~1.78 秒），owner 反馈「改速率没用 + 太慢」；位移段现以配置时长为准、只保留极远距离平均速度护栏，见下方第四轮条目。）
+- 换行过渡起步帧与上一帧几何连续（第三轮；owner 确认「起步那一下跳」：第二轮速度上限后位移段主体已 ~9px/帧平滑，唯第一帧仍 -38px）。修掉起步处两处代码级不连续：(a) 晋级层的绘制放置改为**首行基线锚定**（`lineTransitionMovePlacement`：`首行基线 = 目标主行基线 + (旧下一行基线 − 目标主行基线) × (1 − 已缓动进度)`，缩放枢轴取该基线）——progress=0 画出的恰是上一帧几何（旧「下一行」原位、原字号）；旧实现「先 translate 再绕目标行盒中心缩放」复合后第一帧首行落点 = `枢轴 + (旧基线 − 枢轴) × 缩放比`，比旧槽位高出 `(1 − 缩放比) × (枢轴 − 旧基线)`（数十像素，即实测 -38px），且旧下一行 1 行 ↔ 新主行 2 行折行的行数变化在同一帧整份生效。(b) 位置式时钟新增**位移段起点锚定**（`moveStartAnchorPosition`）：delta 首次越过退场段时把过渡起点重锚到「当前平滑位置 − 退场时长」，使位移段第一帧 moveProgress 恰为 0、从屏上实际形态起步再按自身时长平滑推进——首帧晚到（低节拍/doze 批投递）不再把起步一帧跳进位移段；位置推进不限速（暂停/seek）时不重锚，瞬间落位/立即结束语义保持。已有单测（`AodCanvasTransitionTest.promotionPlacementStartsAtPreviousFrameGeometry` / `promotionPlacementFixesLegacyPivotOffsetAtMoveStart` / `moveStartAnchorSnapsFirstDrawnMoveFrameToZero` / `anchoredMoveStartKeepsFirstTrackedFrameContinuousAtSixtyFps`）——合并后待真机冒烟（同 A/B 流程，AOD 与锁屏两个界面）：过渡第一帧位移 ≤ 其后相邻帧位移均值的 1.6 倍（修复后晋级第一帧为 0px）、seek/拖动仍静态立即落位、暂停仍原地冻结。（「位移段主体 ≤ ~10px/60fps 帧」的判据随第四轮撤去峰值限速一并取消，主体改按配置速率。）
+- 换行动画速率真正生效 + 速率挡位扩到五档（第四轮；owner 真机反馈「换行动画速率怎么改不了，这么慢」）。根因：`moveTransitionMs` 末尾的 `max(..., 距离 × 2.75 / 500 × 1000)`（第二轮的峰值速度上限）对典型行距把速率倍率整条抹掉——216px 晋级位移在 Normal/Fast 下恒 ~1.19 秒（Slow ~1.78 秒），而退场/入场段（吃倍率）把整条换行观感拖慢。催生该上限的「起步跳」已由 `advanceTransitionPosition`（位置限速平滑）与 `moveStartAnchorPosition` / `lineTransitionMovePlacement`（起点几何连续）修掉，故撤去峰值上限，位移段改为**配置时长为准**、只保留极远距离平均速度护栏：时长 = `max(220ms × 速率倍率, 距离 / 3000px·s⁻¹ × 1000)`。216px 五档 = Slowest 440ms / Slow 330ms / Normal 220ms / Fast 132ms / Fastest 88ms（72ms 护栏下限不支配任何档）；1500px 级横屏大位移触 500ms 护栏。`compressedLineTransitionTimeline` 的位移段同样保留配置时长（退场/入场仍压缩在 ~140ms 预算、每段 ≥40ms）。速率词表由三档扩为五档（由慢到快：`Slowest` 2.0×、`Slow` 1.5×、`Normal` 1.0×、`Fast` 0.6×、`Fastest` 0.4×），旧三档值与倍率一字不改（已存配置行为不变）；新增字符串 `option_slowest` / `option_fastest`，values / values-zh-rCN / values-zh-rTW / translation 模板四处同步。已有单测（`AodCanvasTransitionTest.moveDurationFollowsConfiguredSpeedAcrossFiveTiers` / `moveDurationGuardOnlyEngagesOnVeryLongTravel` / `moveDurationFallsBackToConfiguredBaseWithoutDistance` / `promotionTimelineCarriesConfiguredMoveDuration` / `promotionMoveStepsFollowTheEaseCurveOnly` / `compressedReplayKeepsConfiguredMoveDuration` / 更新后的 `anchoredMoveStartKeepsFirstTrackedFrameContinuousAtSixtyFps`；随上限删除的常量 `MOVE_MAX_VELOCITY_PX_PER_S` / `MOVE_EASE_PEAK_FACTOR` 与其单测一并移除；`LineTransitionResolutionTest.normalizeLineTransitionSpeedKeepsVocabularyAndFallsBackToNormal` 钉住五档词表与旧值兼容）——合并后待真机冒烟：五档时长肉眼可辨且与设置一致（216px 晋级位移 ≈ 440/330/220/132/88ms，退场/入场照旧随倍率缩放）、过渡第一帧仍连续（≤ 其后相邻帧均值 1.6 倍；锚定后为 0px）、seek/拖动仍静态立即落位、旧账压缩补播的位移段仍按配置时长。
 - 歌词源冻结回退保留 + 停滞诊断去抖（回退路径现在与选源共用 `isFaulted` 谓词：stale 暂停且带内容的候选会被转发，stale 在播或无内容的候选仍被跳过；逐 tick 回退链与 `sources stalled` 汇总改为结构变化 + 30 秒心跳记录）——待真机冒烟：首选源断连时暂停歌曲，AOD 必须继续显示已连接回退源（如 Lyricon）的冻结行而非清屏；恢复播放必须切回实时源；`adb logcat -s HyperGlow` 中回退链在停滞起点只出现一次并每 30 秒一条心跳，而非约 60 行/秒。
 - 今后凡有没有真机证据的功能落地，先在这里登记；取得证据后移除。
 

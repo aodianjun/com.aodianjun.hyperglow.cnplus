@@ -37,7 +37,7 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 - Transliteration, translation and romaji where the source provides them (Spicy EX Full,
   Lyricon, LyricInfo translation/romaji lanes).
 - Configurable line-transition animations: 30 built-in exit/enter presets (fade, slide, zoom,
-  flip, rotate, etc.) plus an Auto mode that follows the lyric source, with Slow/Normal/Fast
+  flip, rotate, etc.) plus an Auto mode that follows the lyric source, with Slowest/Slow/Normal/Fast/Fastest
   speed tiers.
 - HyperLyric-compatible plugins (e.g. AI translation) with an in-app management screen; the
   plugin chain currently processes Spicy EX full-song lyrics.
@@ -164,7 +164,7 @@ before opening a pull request:
   - **LyricInfo**（向受支持应用的媒体会话元数据注入 elrc/lrc 歌词）。
 - 支持逐行、逐词、逐音节同步的卡拉OK。
 - 音译、翻译与罗马音随歌词源提供（Spicy EX Full、Lyricon、LyricInfo 的翻译/罗马音 lane）。
-- 可配置的换行动画：内置 30 种退场/进场预设（淡入淡出、滑动、缩放、翻转、旋转等），另有跟随歌词源的 Auto 档，速率支持 Slow/Normal/Fast 三档。
+- 可配置的换行动画：内置 30 种退场/进场预设（淡入淡出、滑动、缩放、翻转、旋转等），另有跟随歌词源的 Auto 档，速率支持 Slowest/Slow/Normal/Fast/Fastest 五档。
 - HyperLyric 兼容插件（如 AI 翻译）与应用内插件管理页；插件链当前处理 Spicy EX 整首歌词。
 
 - AOD 时钟位置、锚定式时钟定位与防烧屏位移。
