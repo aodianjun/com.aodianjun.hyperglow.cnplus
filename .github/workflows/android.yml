@@ -345,8 +345,12 @@ jobs:
             TAG="${VC}-${VN}"
           fi
           echo "Publishing to release: $TAG"
-          # 预发行必须在 CI 发布前手动创建且带 prerelease 标记(docs/RELEASE_CONVENTIONS.md):
-          # 缺失或非 prerelease 直接失败——绝不静默建成正式版,也不往正式版里灌测试资产。
+          # 版本 release 的发布契约(docs/RELEASE_CONVENTIONS.md):
+          # - 不存在 → 失败:绝不静默建成正式版(正式版必须由维护者显式预创建)
+          # - 已发布为正式版(非预发行) → 跳过:正式版资产一经发布即冻结,
+          #   后续 main 推送不得 --clobber 覆盖(该版本内容由发版提交固定)。
+          #   不失败,是因为 main 上的文档/CI 推送不该把整条流水线判红。
+          # - 预发行 → 正常灌入 APK
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::release $TAG does not exist. Pre-create the prerelease (tag $TAG, prerelease: true) before publishing - see docs/RELEASE_CONVENTIONS.md."
             exit 1
@@ -354,8 +358,8 @@ jobs:
           IS_PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
             --json isPrerelease --jq '.isPrerelease')
           if [ "$IS_PRERELEASE" != "true" ]; then
-            echo "::error::release $TAG exists but is not a prerelease; refusing to publish into it."
-            exit 1
+            echo "::notice::release $TAG is already published as a stable release; skipping asset publish to keep it immutable. Bump the version to publish a new release."
+            exit 0
           fi
           gh release upload "$TAG" "$RELEASE_APK" "$DEBUG_APK" \
             --repo "$GITHUB_REPOSITORY" --clobber
