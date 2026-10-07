@@ -8,6 +8,7 @@ import com.eza.hyperglow.producer.LyricSongSnapshot
 import com.eza.hyperglow.producer.LyricWord
 import com.eza.hyperglow.producer.MIN_CONCURRENT_OVERLAP_MS
 import com.eza.hyperglow.producer.selectDuetLineIndex
+import com.eza.hyperglow.root.HookLogger
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricLine
 import com.lidesheng.hyperlyric.plugin.api.PluginMediaInfo
@@ -245,6 +246,16 @@ object PluginSongBridge {
         // 绘制侧仍按和声自己的时间窗门控(见 AodLyricCanvasView.drawDuetOriginal)。
         if (PluginSongField.LYRICS in patched.changedSongFields) {
             val primaryIndex = rows.indexOf(active)
+            // 诊断探针:插件替换歌词后记录行表构成与并发行挂载结果——真机判定「和声行有没有被
+            // 插件输出、有没有被认成同句和声」。与 duet-draw 探针配套:attach 有、draw 无 = 画布
+            // 门控问题;attach 无 = 行表/配对问题。
+            HookLogger.iThrottled("duet-attach", 5_000L, "PluginSongBridge") {
+                val bg = rows.count { it.metadata?.values?.get(META_ROLE) == ROLE_BG }
+                val acc = accompanimentRowIndex(rows, rows.indexOf(active))
+                val pick = if (acc >= 0) rows[acc].text?.take(20) else "(none)"
+                "Duet attach: rows=${rows.size} bg=$bg active=${active.text?.take(16)} " +
+                    "primaryIdx=${rows.indexOf(active)} accIdx=$acc pick=$pick"
+            }
             val accompanimentIndex = accompanimentRowIndex(rows, primaryIndex)
             val duetIndex = if (accompanimentIndex >= 0) {
                 accompanimentIndex
