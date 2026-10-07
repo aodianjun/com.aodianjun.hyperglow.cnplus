@@ -19,7 +19,8 @@ import org.junit.Test
  * AMLL TTML 的对唱 agent 行与 x-bg 和声行只存在于插件返回的行表里（生产者行表在 REPLACE
  * 后不被采纳，见类注释），而生产者侧的候选只从它自己的行表选——源行表首尾相接（网易云 LRC
  * 常态，`end == next.begin`）时恒为 -1，并发行永远不出现。本组用例钉住：重选发生在插件链
- * 之后、判定仍是同一条「共享窗口 ≥ 1s」规则、且不影响未替换歌词的会话。
+ * 之后、判定仍是同一条「共享窗口 ≥ 1s」规则、和声身份(role=BG → `harmony`)随行下发、
+ * 且不影响未替换歌词的会话。
  */
 class PluginDuetConcurrentTest {
 
@@ -91,6 +92,26 @@ class PluginDuetConcurrentTest {
         assertEquals(4_000L, duet?.lineStartMs)
         assertEquals(6_000L, duet?.lineEndMs)
         assertEquals(1, duet?.words?.size)
+        // 和声身份随行下发:渲染侧据此走辅助行车道(小字号辅助行),不再堆主行同款大字行。
+        assertEquals(true, duet?.harmony)
+    }
+
+    /**
+     * 不同演唱者的对唱行(时间窗重叠、非 BG 角色)不带和声标记:渲染侧保持主行同款并排——
+     * 和声与对唱的分野是行角色,不是文本是否相同(重合文本的对唱不得被降级成辅助行)。
+     * 位置取对唱行开唱前(预加入分支),活动行仍是主行。
+     */
+    @Test
+    fun overlappingLeadRowStaysConcurrentWithoutHarmonyFlag() {
+        val st = state(positionMs = 3_000L)
+        val rows = listOf(
+            row(0L, 10_000L, "main line", "LEAD"),
+            row(4_000L, 6_000L, "second singer", "LEAD")
+        )
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        val duet = out.duetLine
+        assertEquals("second singer", duet?.text)
+        assertEquals(false, duet?.harmony)
     }
 
     /** 普通顺序行表（首尾相接）不产生并发行——与生产者侧同一判定，不误报相邻行。 */
@@ -164,6 +185,7 @@ class PluginDuetConcurrentTest {
         assertEquals("(人间百相总让我神往)", out.duetLine?.text)
         assertEquals(170_500L, out.duetLine?.lineStartMs)
         assertEquals(175_700L, out.duetLine?.lineEndMs)
+        assertEquals(true, out.duetLine?.harmony)
     }
 
     /** 别的句子的和声行不会被挂到当前活动行上（按行身份配对，不是见到 BG 就拿）。 */

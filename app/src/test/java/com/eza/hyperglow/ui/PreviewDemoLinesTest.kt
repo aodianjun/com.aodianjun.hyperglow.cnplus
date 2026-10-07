@@ -69,7 +69,7 @@ class PreviewDemoLinesTest {
 
     @Test
     fun bothDemoTracksCarryAConcurrentHarmonyLine() {
-        // 并发行(对唱/和声)演示数据:两份演示曲各至少一行带非空 duet —— 演示快照只从这里
+        // 并发行(和声)演示数据:两份演示曲各至少一行带非空 duet —— 演示快照只从这里
         // 产出 duetLine,缺了它「显示并发歌词(对唱)」开关在无实时歌词时就看不到效果。
         listOf(
             UiLanguage.ENGLISH to "English",
@@ -80,6 +80,28 @@ class PreviewDemoLinesTest {
                 demoLines(language).any { !it.duet.isNullOrBlank() }
             )
         }
+    }
+
+    @Test
+    fun demoConcurrentRowsRenderAsHarmonyInTheAuxLane() {
+        // 演示副行都是带括号的回声句(x-bg 形态):装配成和声行(harmony=true),预览走辅助行
+        // 车道——与实机 role=BG 的 x-bg 同源;真对唱(不同演唱者并排)只在实机快照里出现。
+        // 文本为空的行不产出并发行(与实机 duetLine 文本为空整条丢弃同口径)。
+        listOf(
+            UiLanguage.ENGLISH to "English",
+            UiLanguage.SIMPLIFIED_CHINESE to "Chinese"
+        ).forEach { (language, label) ->
+            val duets = demoLines(language).mapNotNull { demoDuetLine(it) }
+            assertTrue("$label demo must produce concurrent lines", duets.isNotEmpty())
+            assertTrue(
+                "$label demo concurrent rows must be harmony echoes",
+                duets.all { it.harmony }
+            )
+        }
+        assertTrue(
+            "blank demo duet must not produce a line",
+            demoDuetLine(DemoLine("x", "x", "x", emptyList(), duet = "  ")) == null
+        )
     }
 
     @Test

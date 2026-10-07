@@ -102,7 +102,8 @@ data class LyricLayoutGroup(
  * (SuperLyric 只推当前行,不产出并发行)。字段语义与主行对齐;lineEndMs 已按各源的
  * 行窗口钳制口径对齐(如 Spicy 取 min(fillEndMs, endMs))。并发行 v1 不携带
  * ruby/layoutGroups(三个接入源中只有 Spicy 可产,normalize 侧还要为文本 trim 重算
- * 区间;并入 v2 再评估)。
+ * 区间;并入 v2 再评估)。带 [harmony] 标记的是插件行表挂回来的同句和声(x-bg 回声),
+ * 渲染侧按辅助行车道绘制,不与对唱同款。
  */
 data class LyricDuetLine(
     val text: String,
@@ -115,6 +116,13 @@ data class LyricDuetLine(
      * [LyricProducerState.alignedRightMarkers]。
      */
     val alignedRightMarkers: Boolean = false,
+    /**
+     * 和声行标记:插件行表里 role=BG(AMLL TTML 的 `ttm:role="x-bg"`)挂回来的同句和声。
+     * 和声与主行同句同人,内容常是主行歌词的回声——渲染侧必须走辅助行车道(小字号辅助行),
+     * 不能按对唱与主行同款并排,否则屏上出现两条一样的大字行(真机 2026-10-07 反馈)。
+     * 只有不同演唱者身份([alignedRight] 对应的 ttm:agent)的并发行才是对唱。
+     */
+    val harmony: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<LyricWord> = emptyList()

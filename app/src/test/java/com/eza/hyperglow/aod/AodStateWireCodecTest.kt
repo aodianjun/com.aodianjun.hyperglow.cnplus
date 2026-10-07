@@ -475,6 +475,7 @@ class AodStateWireCodecTest {
 
     @Test
     fun duetLineRoundTripsThroughWireBody() {
+        // harmony(v9)为纯布尔,随并发行区往返:和声身份必须活过 wire,渲染侧才走辅助行车道。
         val message = snapshotMessage(
             value = snapshotValue().copy(
                 duetLine = AodStateWireDuetLine(
@@ -482,6 +483,7 @@ class AodStateWireCodecTest {
                     romanized = "roma",
                     translated = "trans",
                     alignedRight = true,
+                    harmony = true,
                     lineStartMs = 40L,
                     lineEndMs = 900L,
                     words = listOf(AodStateWireWord("sec", "", 40L, 900L, true, -1, -1))

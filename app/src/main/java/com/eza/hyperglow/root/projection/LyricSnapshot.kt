@@ -48,6 +48,11 @@ internal data class LyricDuetLine(
     val alignedRight: Boolean = false,
     /** 分侧(标记识别版)。 */
     val alignedRightMarkers: Boolean = false,
+    /**
+     * 和声行(插件行 role=BG 的 x-bg 回声):渲染面走辅助行车道,不与对唱同款
+     * (语义见 [com.eza.hyperglow.producer.LyricDuetLine.harmony])。
+     */
+    val harmony: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<LyricWord> = emptyList()
@@ -629,6 +634,7 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
                     translated = line.translated,
                     alignedRight = line.alignedRight,
                     alignedRightMarkers = line.alignedRightMarkers,
+                    harmony = line.harmony,
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
                     words = line.words.map { word ->

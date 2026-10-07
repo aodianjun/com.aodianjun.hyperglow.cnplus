@@ -92,6 +92,11 @@ internal data class AodStateWireDuetLine(
     val alignedRight: Boolean = false,
     /** 标记识别版分侧(v6 起);渲染面按本面「识别对唱标记」开关选用。 */
     val alignedRightMarkers: Boolean = false,
+    /**
+     * 和声标记(v9 起):插件行 role=BG 的 x-bg 回声,渲染面走辅助行车道(小字号辅助行),
+     * 与对唱(不同演唱者,主行同款并排)区分。纯布尔,不携带文本,不进聚合文本预算。
+     */
+    val harmony: Boolean = false,
     val lineStartMs: Long,
     val lineEndMs: Long,
     val words: List<AodStateWireWord> = emptyList()
@@ -466,6 +471,7 @@ internal object AodStateWireCodec {
                 output.write(snapshot.artworkJpeg.bytes)
                 output.writeBoundedString(snapshot.artworkKey)
                 // v4:对唱并发行(存在位 + 载荷);文本走聚合文本预算(isValidSnapshot 校验)。
+                // v9:分侧两版之后追加和声标记(纯布尔,无文本/条数,预算与校验口径不变)。
                 val duet = snapshot.duetLine
                 output.writeStrictBoolean(duet != null)
                 duet?.let { line ->
@@ -475,6 +481,7 @@ internal object AodStateWireCodec {
                     output.writeBoundedString(line.translated)
                     output.writeStrictBoolean(line.alignedRight)
                     output.writeStrictBoolean(line.alignedRightMarkers)
+                    output.writeStrictBoolean(line.harmony)
                     output.writeLong(line.lineStartMs)
                     output.writeLong(line.lineEndMs)
                     line.words.forEach { word ->
@@ -781,6 +788,7 @@ internal object AodStateWireCodec {
             ) ?: return null
             val alignedRight = input.readStrictBoolean() ?: return null
             val alignedRightMarkers = input.readStrictBoolean() ?: return null
+            val harmony = input.readStrictBoolean() ?: return null
             val lineStartMs = input.readLong()
             val lineEndMs = input.readLong()
             val words = ArrayList<AodStateWireWord>(wordCount)
@@ -805,6 +813,7 @@ internal object AodStateWireCodec {
                 translated = translated,
                 alignedRight = alignedRight,
                 alignedRightMarkers = alignedRightMarkers,
+                harmony = harmony,
                 lineStartMs = lineStartMs,
                 lineEndMs = lineEndMs,
                 words = words.toList()
@@ -942,6 +951,7 @@ internal object AodStateWireCodec {
         ) return false
         // 对唱并发行:词级条数与主行共享上限;文本/副文本入同一聚合 UTF-8 预算;
         // 时间窗/词级时间不得越歌长(与主行同口径,超限整包拒收)。
+        // harmony(v9)是纯布尔,无文本与条数,这里与 fitAodEnhancementBudget 都无需新增口径。
         snapshot.duetLine?.let { duet ->
             if (snapshot.words.size + duet.words.size > AodStateWireLimits.MAX_WORDS) return false
             if (duet.text.isBlank() || duet.text != duet.text.trim() ||
@@ -1037,13 +1047,14 @@ internal object AodStateWireCodec {
 
     private const val BODY_MAGIC = 0x414F4453
 
-    /** v8:词表区追加插件逐字翻译词表(translationWords,条数+载荷,翻译辅助行按真实词窗点亮);
+    /** v9:并发行区追加和声标记(harmony,纯布尔,渲染侧据其走辅助行车道);
+     *  v8:词表区追加插件逐字翻译词表(translationWords,条数+载荷,翻译辅助行按真实词窗点亮);
      *  v7:metadata 区追加原始 title/artist/album + largeMetadata + 标记识别版分侧(主行与并发行),
      *  让渲染面按本面「歌曲信息内容」/「识别对唱标记」独立组装与选侧(per-surface);
      *  v6:样式区追加 aodLandscapeFullscreenSafeMarginPercent(横屏全屏化安全边界);
      *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
      *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
-    private const val BODY_VERSION = 8
+    private const val BODY_VERSION = 9
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

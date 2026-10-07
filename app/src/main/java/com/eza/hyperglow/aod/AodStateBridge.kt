@@ -142,6 +142,8 @@ data class AodDisplayDuetLine(
     val alignedRight: Boolean = false,
     /** 对唱分侧(标记识别版);由渲染面按本面「识别对唱标记」开关选用。 */
     val alignedRightMarkers: Boolean = false,
+    /** 和声行(插件行 role=BG 的 x-bg 回声):渲染面走辅助行车道,不与对唱同款。 */
+    val harmony: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<AodDisplayWord> = emptyList()
@@ -514,6 +516,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
                 translated = line.translated.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS),
                 alignedRight = line.alignedRight,
                 alignedRightMarkers = line.alignedRightMarkers,
+                harmony = line.harmony,
                 lineStartMs = line.lineStartMs.coerceAtLeast(0L).let {
                     if (duration > 0L) it.coerceAtMost(duration) else it
                 },
@@ -758,6 +761,7 @@ private fun AodDisplayState.toWireMessage(
                     translated = line.translated,
                     alignedRight = line.alignedRight,
                     alignedRightMarkers = line.alignedRightMarkers,
+                    harmony = line.harmony,
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
                     words = line.words.map { word ->
