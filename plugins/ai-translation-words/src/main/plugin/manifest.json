@@ -11,7 +11,7 @@
         "zh-TW": "用任意 OpenAI 相容介面翻譯目前歌詞，並把譯文依原詞的逐字時間對齊成詞級片段（配合「輔助文字逐字效果」逐字點亮）。"
     },
     "author": "HyperGlow CN+",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "apiVersion": 1,
     "entry": "com.example.hyperglow.aitranslationwords.AiTranslationWordsPlugin",
     "activationSettingKey": "enabled",
