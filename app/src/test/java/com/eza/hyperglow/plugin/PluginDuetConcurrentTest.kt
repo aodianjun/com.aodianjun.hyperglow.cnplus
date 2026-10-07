@@ -55,15 +55,22 @@ class PluginDuetConcurrentTest {
         text = text, words = words
     )
 
+    /**
+     * 复刻生产字段集：`PluginPipeline.diff()` 会把 LYRICS 从 songFields 里过滤掉，REPLACE 整表
+     * 替换只按新表内容标 `changedLyricFields`（TEXT/WORDS…）。用例必须用这套真实字段，否则
+     * 会像 #223 首版那样「测试通过、真机不生效」（当时用 `setOf(PluginSongField.LYRICS)`，
+     * 而生产环境永远不会出现该组合）。
+     */
     private fun patched(
         rows: List<PluginLyricLine>,
         st: LyricProducerState,
-        changedSongFields: Set<PluginSongField>
+        lyricFields: Set<PluginLyricField> = setOf(PluginLyricField.TEXT, PluginLyricField.WORDS),
+        songFields: Set<PluginSongField> = emptySet()
     ) = PatchedSong(
         sessionKey = PluginSongBridge.sessionKey(st),
         song = PluginSong(lyrics = rows),
-        changedSongFields = changedSongFields,
-        changedLyricFields = setOf(PluginLyricField.TEXT, PluginLyricField.WORDS)
+        changedSongFields = songFields,
+        changedLyricFields = lyricFields
     )
 
     /** AMLL TTML 形态：x-bg 和声行嵌在主行窗口内 → 与主行共享窗口 ≥1s → 并发行。 */
@@ -78,7 +85,7 @@ class PluginDuetConcurrentTest {
             ),
             row(10_000L, 14_000L, "next line", "LEAD")
         )
-        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginSongField.LYRICS)))
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
         val duet = out.duetLine
         assertEquals("harmony", duet?.text)
         assertEquals(4_000L, duet?.lineStartMs)
@@ -94,7 +101,7 @@ class PluginDuetConcurrentTest {
             row(0L, 5_000L, "first", "LEAD"),
             row(5_000L, 10_000L, "second", "LEAD")
         )
-        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginSongField.LYRICS)))
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
         assertNull(out.duetLine)
     }
 
@@ -106,7 +113,7 @@ class PluginDuetConcurrentTest {
             row(0L, 10_000L, "main", "LEAD"),
             row(9_500L, 12_000L, "tail", "LEAD")
         )
-        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginSongField.LYRICS)))
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
         assertNull(out.duetLine)
     }
 
@@ -120,7 +127,7 @@ class PluginDuetConcurrentTest {
             row(0L, 10_000L, "main", "LEAD"),
             row(10_000L, 20_000L, "next", "LEAD")
         )
-        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginSongField.LYRICS)))
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
         assertNull(out.duetLine)
     }
 
@@ -131,7 +138,7 @@ class PluginDuetConcurrentTest {
             duetLine = LyricDuetLine(text = "producer duet", lineStartMs = 1_000L, lineEndMs = 9_000L)
         )
         val rows = listOf(row(0L, 10_000L, "main", "LEAD"))
-        val out = PluginSongBridge.enrichState(st, patched(rows, st, emptySet()))
+        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginLyricField.TRANSLATION)))
         assertEquals("producer duet", out.duetLine?.text)
     }
 
@@ -149,7 +156,7 @@ class PluginDuetConcurrentTest {
             row(170_500L, 175_700L, "(人间百相总让我神往)", "BG"),
             row(190_600L, 197_200L, "唤长风燃云苍", "LEAD")
         )
-        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginSongField.LYRICS)))
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
         // 文本归一化后命中同一句 → 内容按插件行回填（含词表，位置间隙不再整段跳过）
         assertEquals("人间百相总让我神往", out.line)
         assertEquals(1, out.words?.size)
@@ -168,7 +175,7 @@ class PluginDuetConcurrentTest {
             row(5_000L, 10_000L, "第二句", "LEAD"),
             row(5_000L, 10_000L, "(第二句)", "BG")
         )
-        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginSongField.LYRICS)))
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
         assertNull(out.duetLine)
     }
 }
