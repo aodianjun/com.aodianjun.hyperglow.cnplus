@@ -11,6 +11,7 @@ import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricLayoutGroup
 import com.eza.hyperglow.producer.LyricRuby
 import com.eza.hyperglow.producer.LyricWord
+import com.eza.hyperglow.root.HookLogger
 
 /**
  * 播放中无歌词 / 纯音乐 / 间奏时的占位符。用 🎶 明确表示「音乐正在播放」，

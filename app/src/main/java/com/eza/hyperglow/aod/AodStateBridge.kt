@@ -5,6 +5,7 @@ import android.os.RemoteCallbackList
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.customization.CompiledCustomization
+import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.customization.CompiledCustomizationBundleCodec
 import kotlin.math.abs
 
