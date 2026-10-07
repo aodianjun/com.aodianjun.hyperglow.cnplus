@@ -2702,6 +2702,12 @@ internal class AodLyricCanvasView(
         // 增删(整行稳定,避免主行随和声起落而缩放跳动)。
         val now = projectedPosition()
         if (now < duet.lineStartMs - DUET_DRAW_LEAD_MS || now > duet.lineEndMs) return
+        // 诊断探针:并发行真的画出来时记一条(带窗口与文本),供真机判定「和声/对唱行有没有上屏」,
+        // 不依赖掐点抓屏。与 karaoke-probe 同口径(2s 节流、仅诊断日志开启时落盘)。
+        HookLogger.iThrottled("duet-draw", 2_000L, "AodLyricCanvasView") {
+            "Duet draw: pos=$now window=${duet.lineStartMs}..${duet.lineEndMs} " +
+                "words=${duet.words.size} text=${duet.text.take(24)}"
+        }
         val alpha = duetJoinAlpha()
         if (alpha <= 0f) return
         val layer = if (alpha < 1f) {
