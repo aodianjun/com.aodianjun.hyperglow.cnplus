@@ -134,4 +134,41 @@ class PluginDuetConcurrentTest {
         val out = PluginSongBridge.enrichState(st, patched(rows, st, emptySet()))
         assertEquals("producer duet", out.duetLine?.text)
     }
+
+    /**
+     * 位置落在插件行表的**间隙**里时（实测：生产者行 170.2–190.8s、插件 TTML 该句只有
+     * 170.5–175.7s，其后到 190.6s 是空白段，状态位置 184.8s）仍按**行身份**认行，
+     * 并挂上同句和声行——与 HyperLyric 的呈现边界模型一致。
+     */
+    @Test
+    fun gapPositionResolvesLineAndHarmonyByIdentity() {
+        val st = state(positionMs = 184_800L).copy(line = "人间百相 总让我神往", words = null)
+        val rows = listOf(
+            row(170_500L, 175_700L, "人间百相总让我神往", "LEAD",
+                words = listOf(PluginWord(begin = 170_500L, end = 172_000L, duration = 1_500L, text = "人间"))),
+            row(170_500L, 175_700L, "(人间百相总让我神往)", "BG"),
+            row(190_600L, 197_200L, "唤长风燃云苍", "LEAD")
+        )
+        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginSongField.LYRICS)))
+        // 文本归一化后命中同一句 → 内容按插件行回填（含词表，位置间隙不再整段跳过）
+        assertEquals("人间百相总让我神往", out.line)
+        assertEquals(1, out.words?.size)
+        // 同句和声行挂到活动行上（不要求位置落在和声自己的窗口内）
+        assertEquals("(人间百相总让我神往)", out.duetLine?.text)
+        assertEquals(170_500L, out.duetLine?.lineStartMs)
+        assertEquals(175_700L, out.duetLine?.lineEndMs)
+    }
+
+    /** 别的句子的和声行不会被挂到当前活动行上（按行身份配对，不是见到 BG 就拿）。 */
+    @Test
+    fun harmonyRowOfAnotherLineIsNotAttached() {
+        val st = state(positionMs = 1_000L).copy(line = "第一句")
+        val rows = listOf(
+            row(0L, 5_000L, "第一句", "LEAD"),
+            row(5_000L, 10_000L, "第二句", "LEAD"),
+            row(5_000L, 10_000L, "(第二句)", "BG")
+        )
+        val out = PluginSongBridge.enrichState(st, patched(rows, st, setOf(PluginSongField.LYRICS)))
+        assertNull(out.duetLine)
+    }
 }

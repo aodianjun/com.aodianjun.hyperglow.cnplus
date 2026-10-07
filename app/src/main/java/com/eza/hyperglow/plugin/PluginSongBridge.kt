@@ -6,6 +6,7 @@ import com.eza.hyperglow.producer.LyricDuetLine
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricSongSnapshot
 import com.eza.hyperglow.producer.LyricWord
+import com.eza.hyperglow.producer.MIN_CONCURRENT_OVERLAP_MS
 import com.eza.hyperglow.producer.selectDuetLineIndex
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricLine
@@ -32,6 +33,9 @@ object PluginSongBridge {
 
     /** 文档行角色进 metadata 的键名（内部约定，不进插件 API）。 */
     private const val META_ROLE = "role"
+
+    /** 和声行角色值(与 amll-ttml 的 TtmlMapper.ROLE_BG 同一约定)。 */
+    private const val ROLE_BG = "BG"
 
     fun fromDocument(document: SpicyBridgeDocument, state: LyricProducerState): PluginSong =
         PluginSong(
@@ -120,7 +124,13 @@ object PluginSongBridge {
         val rows = patched.song.lyrics ?: return state
         if (rows.isEmpty()) return state
         if (!patched.changedAnything()) return state
-        val active = selectActiveRow(rows, state.positionMs) ?: return state
+        // 活动行:优先按位置取;位置落在插件行表的**间隙**里时按行身份(文本)回退。
+        // 插件 TTML 的行窗比生产者行窗细(实测同一句 5.2s vs 20.5s),位置采样又按行跳,
+        // 因此「位置恰好落在插件行内」并不可靠——按「是哪一句」认行才与 HyperLyric 的
+        // 呈现边界模型一致(宿主拿到已解析行后按身份决定显示,而不是按位置恰好命中)。
+        val active = selectActiveRow(rows, state.positionMs)
+            ?: activeRowByText(rows, state.line)
+            ?: return state
 
         var enriched = state
         if (PluginLyricField.TEXT in patched.changedLyricFields) {
@@ -225,16 +235,26 @@ object PluginSongBridge {
         // 并发行重选:插件 REPLACE 后的行表才是最终行表——AMLL TTML 的对唱 agent 行与
         // x-bg 和声行只存在于这里(见 amll-ttml 的 TtmlMapper),而生产者的候选只从它自己
         // 的行表选(见 selectDuetLineIndex 的三个调用点),源行表首尾相接(网易云 LRC 常态,
-        // end == next.begin)时恒为 -1,并发行永远不出现。这里按同一纯函数从最终行表重选,
-        // 判定语义不变(共享窗口 ≥ MIN_CONCURRENT_OVERLAP_MS):只有确实存在重叠行(如和声
-        // span 嵌在主行窗口内)时才产出。插件替换了歌词即以最终行表为准(无候选时清空,
-        // 避免残留的候选与已替换的行表不一致)。
+        // end == next.begin)时恒为 -1,并发行永远不出现。
+        //
+        // 选取顺序参照 HyperLyric 的呈现边界:①**同句和声行**(role=BG 且与活动行共享窗口
+        // ≥1s)——AMLL 的 x-bg 和声与主行同窗,HyperLyric 把它折进父行的 secondary 车道
+        // 随父行一起显示;CN+ 的插件把它映射成独立行,所以这里按行身份把它挂回活动行,
+        // 不要求位置落在和声自己的窗口内(父行窗口常远长于和声,如 20.5s vs 5.2s);
+        // ②没有同句和声时退回既有的纯时间窗重叠判定(对唱并发行)。
+        // 绘制侧仍按和声自己的时间窗门控(见 AodLyricCanvasView.drawDuetOriginal)。
         if (PluginSongField.LYRICS in patched.changedSongFields) {
-            val duetIndex = selectDuetLineIndex(
-                windows = rows.map { DuetLineWindow(it.begin, it.end, it.text.isNullOrBlank()) },
-                primaryIndex = rows.indexOf(active),
-                positionMs = state.positionMs
-            )
+            val primaryIndex = rows.indexOf(active)
+            val accompanimentIndex = accompanimentRowIndex(rows, primaryIndex)
+            val duetIndex = if (accompanimentIndex >= 0) {
+                accompanimentIndex
+            } else {
+                selectDuetLineIndex(
+                    windows = rows.map { DuetLineWindow(it.begin, it.end, it.text.isNullOrBlank()) },
+                    primaryIndex = primaryIndex,
+                    positionMs = state.positionMs
+                )
+            }
             val duetRow = rows.getOrNull(duetIndex)
             enriched = enriched.copy(
                 duetLine = duetRow?.let { row ->
@@ -283,6 +303,44 @@ object PluginSongBridge {
                 it.begin >= active.end && !it.text.isNullOrEmpty()
         }
         return candidates.minByOrNull { it.begin }
+    }
+
+    /**
+     * 按行身份回退选活动行:生产者当前显示的那一句在插件行表里找同一句。
+     * 两侧的空白/标点常有差异(如「人间百相 总让我神往」vs「人间百相总让我神往」),
+     * 归一化后比较。找不到返回 null(调用方保持生产者状态不动)。
+     */
+    private fun activeRowByText(rows: List<PluginLyricLine>, producerLine: String): PluginLyricLine? {
+        val needle = normalizeLyricText(producerLine)
+        if (needle.isEmpty()) return null
+        return rows.firstOrNull { normalizeLyricText(it.text.orEmpty()) == needle }
+    }
+
+    /** 行文本归一化:去空白与常见中英标点,只留实义字符。 */
+    private fun normalizeLyricText(text: String): String =
+        text.filterNot { ch ->
+            ch.isWhitespace() || ch in "（）()【】[]「」『』《》〈〉<>·、,，。.！!？?~～-—…:：;；\"'“”‘’"
+        }
+
+    /**
+     * 活动行的**同句和声行**下标(role=BG 且与活动行共享窗口 ≥ [MIN_CONCURRENT_OVERLAP_MS]);
+     * 无则 -1。AMLL TTML 的 x-bg 和声与主行同窗(实测窗口完全相同),HyperLyric 把它折进
+     * 父行的 secondary 车道随父行显示;CN+ 的插件映射成独立行,故在此按行身份挂回活动行。
+     * 不要求位置落在和声窗口内——父行窗口常远长于和声本身,位置采样又是按行跳的。
+     */
+    private fun accompanimentRowIndex(rows: List<PluginLyricLine>, primaryIndex: Int): Int {
+        if (primaryIndex !in rows.indices) return -1
+        val primary = rows[primaryIndex]
+        return rows.withIndex()
+            .filter { (index, row) ->
+                index != primaryIndex &&
+                    row.metadata?.values?.get(META_ROLE) == ROLE_BG &&
+                    !row.text.isNullOrBlank() &&
+                    minOf(primary.end, row.end) - maxOf(primary.begin, row.begin) >= MIN_CONCURRENT_OVERLAP_MS
+            }
+            .maxByOrNull { it.value.begin }
+            ?.index
+            ?: -1
     }
 
     /**

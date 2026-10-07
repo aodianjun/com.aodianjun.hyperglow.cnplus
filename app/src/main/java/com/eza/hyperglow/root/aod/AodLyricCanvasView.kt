@@ -2695,6 +2695,13 @@ internal class AodLyricCanvasView(
     private fun drawDuetOriginal(canvas: Canvas, baseline: Float) {
         val duetLayout = layout.duet ?: return
         val duet = content.duetLine ?: return
+        // 时间窗门控:并发行/和声行按**行身份**挂在活动行上(见 PluginSongBridge.enrichState
+        // 的 LYRICS 分支),父行的窗口常远长于和声本身(生产者行粗、插件 TTML 行细,实测
+        // 20.5s vs 5.2s)。所以绘制仍按和声自己的窗口门控:只在真正唱到它时出现,
+        // 而不是整行常驻;提前 [DUET_DRAW_LEAD_MS] 进场给淡入留出时间。布局槽位不随之
+        // 增删(整行稳定,避免主行随和声起落而缩放跳动)。
+        val now = projectedPosition()
+        if (now < duet.lineStartMs - DUET_DRAW_LEAD_MS || now > duet.lineEndMs) return
         val alpha = duetJoinAlpha()
         if (alpha <= 0f) return
         val layer = if (alpha < 1f) {
@@ -3888,6 +3895,14 @@ internal class AodLyricCanvasView(
     companion object {
         /** 对唱并发行加入淡入时长(毫秒);期间静音态绘制,完成恢复共享发光管线。 */
         private const val DUET_JOIN_FADE_MS = 180L
+
+        /**
+         * 并发行/和声行提前进场的余量(毫秒):它挂在活动行上(父行窗口可能远长于和声
+         * 本身),绘制按和声自己的窗口门控,提前这一小段让 [DUET_JOIN_FADE_MS] 的淡入
+         * 在窗口开始时已经完成。
+         */
+        private const val DUET_DRAW_LEAD_MS = 220L
+
 
         /**
          * 同一帧到达窗口(≈60Hz 一帧):两条换行快照的到达间隔不超过它即按同帧计
