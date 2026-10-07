@@ -187,6 +187,36 @@ internal fun secondaryTimedVisualRanges(
 internal fun timedRomanizedWordIndexes(words: List<AodCanvasWord>): List<Int> =
     words.indices.filter { words[it].romanized.isNotBlank() }
 
+/**
+ * 翻译辅助行的逐字段(纯函数,实机 `AodLyricCanvasView.translatedTimedLines` 与单测共用)。
+ *
+ * 片段文本**直接相连**即整行译文——西文词间的空格由插件写在片段内,这里不另插分隔符;
+ * 空文本片段不占位。整组都是零窗(占位词形态)时返回 null:零窗段被 [timedWordProgress]
+ * 判成恒亮,整行会呈静态全亮(与 [isTimedKaraokeWord] 的判据同源),回落行窗口 + 行内几何
+ * 合成反而是正确观感。
+ *
+ * [measureText] 为行内字体测量(实机传 `translatedPaint::measureText`)。
+ */
+internal fun translatedTimedSegments(
+    words: List<AodCanvasWord>,
+    measureText: (String) -> Float
+): List<SecondaryTimedSegment>? {
+    if (words.isEmpty()) return null
+    val segments = words.mapNotNull { word ->
+        if (word.text.isEmpty()) return@mapNotNull null
+        SecondaryTimedSegment(
+            text = word.text,
+            width = measureText(word.text),
+            gapAfter = 0f,
+            startMs = word.startMs,
+            endMs = word.endMs
+        )
+    }
+    if (segments.isEmpty()) return null
+    if (segments.none { isTimedKaraokeWord(it.startMs, it.endMs) }) return null
+    return segments
+}
+
 internal fun secondaryTimedProgress(positionMs: Long, startMs: Long, endMs: Long): Float =
     timedWordProgress(positionMs, startMs, endMs)
 

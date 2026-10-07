@@ -327,6 +327,7 @@ internal class AodLyricCanvasView(
     private var stableLineWords: List<AodCanvasWord> = emptyList()
     private var stableLineGroups: List<AodCanvasLayoutGroup> = emptyList()
     private var stableLineRuby: List<AodCanvasRuby> = emptyList()
+    private var stableLineTranslationWords: List<AodCanvasWord> = emptyList()
 
     /** 下一行文本稳定化(见 [isNextLineStale]):最近一次「已就绪」的下一行文本。 */
     private var stableNextLine: String = ""
@@ -339,11 +340,17 @@ internal class AodLyricCanvasView(
     private fun stabilizeLineEnhancements(incoming: AodCanvasContent): AodCanvasContent {
         val identity = aodCanvasLineIdentity(incoming)
         val sameLine = stableLineIdentity == identity
+        // 逐字翻译词表(插件提供)也参与稳定化:它决定翻译辅助行的折行形态(逐字段 vs 行窗口
+        // 合成),演唱中到达时同样不能重排——与词表/注音同一条「同行只认第一次形态」的口径。
+        val translationWordsArrived =
+            incoming.translationWords.isNotEmpty() != stableLineTranslationWords.isNotEmpty()
         val adopt = shouldAdoptLineEnhancements(
             sameLine = sameLine,
-            layoutSignatureChanged = aodLineLayoutSignature(incoming.words, incoming.layoutGroups) !=
+            layoutSignatureChanged = translationWordsArrived ||
+                aodLineLayoutSignature(incoming.words, incoming.layoutGroups) !=
                 aodLineLayoutSignature(stableLineWords, stableLineGroups),
-            incomingEnriches = incoming.words.isNotEmpty() && stableLineWords.isEmpty(),
+            incomingEnriches = (incoming.words.isNotEmpty() && stableLineWords.isEmpty()) ||
+                (incoming.translationWords.isNotEmpty() && stableLineTranslationWords.isEmpty()),
             positionMs = incoming.positionMs,
             lineStartMs = incoming.lineStartMs
         )
@@ -353,7 +360,8 @@ internal class AodLyricCanvasView(
             incoming.copy(
                 words = stableLineWords,
                 layoutGroups = stableLineGroups,
-                ruby = stableLineRuby
+                ruby = stableLineRuby,
+                translationWords = stableLineTranslationWords
             )
         }
         // 下一行:与主行同文 = 未就绪(刚被晋级的那句,新下一行尚未到达),沿用上一版文本——
@@ -368,6 +376,7 @@ internal class AodLyricCanvasView(
         stableLineWords = result.words
         stableLineGroups = result.layoutGroups
         stableLineRuby = result.ruby
+        stableLineTranslationWords = result.translationWords
         return result
     }
 
@@ -2040,18 +2049,25 @@ internal class AodLyricCanvasView(
             rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, ROW_GAP_BEFORE_SECONDARY_DP * density, lines, auxKaraokeWindow)
         }
         if (showTranslation && content.translated.isNotBlank()) {
+            // 插件提供逐字翻译词表且本面开启「辅助文字逐字效果」时按真实词窗折行点亮;
+            // 开关关闭时保持原行装配(逐字节不变)。
+            val translatedLines = (if (content.secondaryWordKaraoke) {
+                translatedTimedLines(content, availableWidth)
+            } else {
+                null
+            }) ?: wrapSecondaryText(
+                content,
+                content.translated,
+                translatedPaint,
+                originalLayout.lineCount,
+                availableWidth
+            )
             rows += rowWithLines(
                 RowKind.TRANSLATED,
                 content.translated,
                 translatedPaint,
                 ROW_GAP_BEFORE_SECONDARY_DP * density,
-                wrapSecondaryText(
-                    content,
-                    content.translated,
-                    translatedPaint,
-                    originalLayout.lineCount,
-                    availableWidth
-                ),
+                translatedLines,
                 auxKaraokeWindow
             )
         }
@@ -3188,6 +3204,37 @@ internal class AodLyricCanvasView(
             content.original.length,
             wordCount
         )
+
+    /**
+     * 翻译行的逐字时间线(插件提供的词级译文,见 `PluginLyricField.TRANSLATION_WORDS`)。
+     *
+     * 与音标行 [transliterationLines] 同构:每段自带真实词窗(段文本直接相连——西文词间的
+     * 空格由插件写在片段内,这里不另插分隔符),按宽度均衡折行,折行后各行同样携带
+     * [SecondaryTimedSegment],由 [drawAuxKaraokeRow] 按真实词窗点亮。行文本与
+     * [AodCanvasContent.translated] 逐字符一致(插件保证拼接关系)。
+     *
+     * 无词级数据(插件没给 / 未装插件 / 该行源无逐字时间)返回 null,调用方回落到
+     * 行窗口 + 行内几何合成——即「辅助文字逐字效果」的历史行为。
+     */
+    private fun translatedTimedLines(
+        content: AodCanvasContent,
+        availableWidth: Float
+    ): List<TextLine>? {
+        // 逐字段的取舍(空片段剔除、全零窗拒绝)在共享纯函数里,与单测同源。
+        val segments = translatedTimedSegments(content.translationWords, translatedPaint::measureText)
+            ?: return null
+        return secondaryTimedVisualRanges(
+            segments,
+            availableWidth,
+            MAX_SECONDARY_LAYOUT_LINES,
+            wrap = content.adaptiveSectioning && content.overflowMode == "Wrap"
+        ).map { range ->
+            val lineSegments = range.map(segments::get)
+            val text = lineSegments.joinToString("") { it.text }
+            val lineWidth = lineSegments.sumOf { it.width.toDouble() }.toFloat()
+            textLine(text, lineWidth, translatedPaint).copy(timedSegments = lineSegments)
+        }
+    }
 
     private fun transliterationLines(
         content: AodCanvasContent,

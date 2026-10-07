@@ -49,6 +49,12 @@ internal data class AodCanvasContent(
     val updatedAtElapsedMs: Long = 0L,
     val speed: Float,
     val words: List<AodCanvasWord>,
+    /**
+     * 插件提供的逐字翻译词表(词级译文 + 时间窗,见 `PluginLyricField.TRANSLATION_WORDS`):
+     * 「辅助文字逐字效果」开启时翻译辅助行按这些真实词窗点亮,片段文本直接相连构成整行译文
+     * (分隔符由插件写在片段内)。空表 = 回落行窗口 + 行内几何合成(历史行为)。
+     */
+    val translationWords: List<AodCanvasWord> = emptyList(),
     val ruby: List<AodCanvasRuby>,
     val layoutGroups: List<AodCanvasLayoutGroup>,
     val weight: String,

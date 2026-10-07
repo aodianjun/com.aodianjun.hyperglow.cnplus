@@ -162,6 +162,21 @@ object PluginSongBridge {
             // 空词表不覆盖生产者词级时间轴:逐字卡拉OK会因此整体失效。
             if (patchedWords != null) enriched = enriched.copy(words = patchedWords)
         }
+        if (PluginLyricField.TRANSLATION_WORDS in patched.changedLyricFields) {
+            // 插件提供的逐字翻译词表(词级译文 + 时间窗):整表替换,词表文本即译文片段,
+            // 直接相连构成整行译文(分隔符由插件写在片段内)。空表不覆盖已有词表
+            // (与 keepUnlessBlank 同口径:插件没给词表不该抹掉已给的词级时间)。
+            val patchedWords = active.translationWords?.map { word ->
+                LyricWord(
+                    text = word.text.orEmpty(),
+                    romanized = "",
+                    startMs = word.begin,
+                    endMs = word.end,
+                    boundaryAfter = true
+                )
+            }?.takeIf { it.isNotEmpty() }
+            if (patchedWords != null) enriched = enriched.copy(translationWords = patchedWords)
+        }
         if (PluginLyricField.TEXT in patched.changedLyricFields ||
             PluginLyricField.TRANSLATION in patched.changedLyricFields ||
             PluginLyricField.TRANSLATION_WORDS in patched.changedLyricFields ||

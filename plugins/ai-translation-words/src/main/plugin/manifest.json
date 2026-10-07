@@ -1,0 +1,240 @@
+{
+    "id": "com.example.hyperglow.aitranslationwords",
+    "name": "HyperGlow AI Word-Level Translation",
+    "nameLocales": {
+        "zh-CN": "HyperGlow AI 逐字翻译",
+        "zh-TW": "HyperGlow AI 逐字翻譯"
+    },
+    "summary": "Translate the current lyrics with any OpenAI-compatible chat API and align the translation to the source word timing as per-word fragments for the auxiliary-text karaoke row.",
+    "summaryLocales": {
+        "zh-CN": "用任意 OpenAI 兼容接口翻译当前歌词，并把译文按原词的逐字时间对齐成词级片段（配合「辅助文字逐字效果」逐字点亮）。",
+        "zh-TW": "用任意 OpenAI 相容介面翻譯目前歌詞，並把譯文依原詞的逐字時間對齊成詞級片段（配合「輔助文字逐字效果」逐字點亮）。"
+    },
+    "author": "HyperGlow CN+",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "entry": "com.example.hyperglow.aitranslationwords.AiTranslationWordsPlugin",
+    "activationSettingKey": "enabled",
+    "settingGroups": [
+        {
+            "id": "default",
+            "title": "基础设置",
+            "titleLocales": {
+                "zh-TW": "基礎設定",
+                "en": "Basic Settings"
+            }
+        },
+        {
+            "id": "generation",
+            "title": "高级设置",
+            "titleLocales": {
+                "zh-TW": "進階設定",
+                "en": "Advanced Settings"
+            }
+        }
+    ],
+    "cacheScopes": [
+        {
+            "id": "ai_translation_words_songs",
+            "title": "Word-level translation cache",
+            "titleLocales": {
+                "zh-CN": "逐字翻译缓存",
+                "zh-TW": "逐字翻譯快取"
+            },
+            "summary": "Per-song AI translations with word-level fragments, kept to avoid re-requesting. Delete an entry to translate that song again.",
+            "summaryLocales": {
+                "zh-CN": "按曲目保留的 AI 译文与逐字片段，用于避免重复请求。删除条目即可重新翻译该曲。",
+                "zh-TW": "依曲目保留的 AI 譯文與逐字片段，用於避免重複請求。刪除項目即可重新翻譯該曲。"
+            }
+        }
+    ],
+    "settings": [
+        {
+            "type": "switch",
+            "key": "enabled",
+            "title": "OpenAI 逐字翻译",
+            "titleLocales": {
+                "zh-TW": "OpenAI 逐字翻譯",
+                "en": "OpenAI Word-Level Translation"
+            },
+            "default": false
+        },
+        {
+            "type": "multiSelect",
+            "key": "skip_languages",
+            "title": "自动跳过语言",
+            "titleLocales": {
+                "zh-TW": "自動跳過語言",
+                "en": "Automatically Skip Languages"
+            },
+            "dialogSummary": "勾选后，识别为这些语言的歌词将不会请求 AI 翻译",
+            "dialogSummaryLocales": {
+                "zh-TW": "勾選後，識別為這些語言的歌詞將不會請求 AI 翻譯",
+                "en": "Lyrics detected as selected languages will not be sent for AI translation"
+            },
+            "emptyValueSummary": "未选择（关闭）",
+            "emptyValueSummaryLocales": {
+                "zh-TW": "未選擇（關閉）",
+                "en": "None (off)"
+            },
+            "default": "",
+            "options": [
+                {
+                    "value": "zh",
+                    "label": "中文"
+                },
+                {
+                    "value": "en",
+                    "label": "English"
+                },
+                {
+                    "value": "ja",
+                    "label": "日本語"
+                },
+                {
+                    "value": "ko",
+                    "label": "한국어"
+                },
+                {
+                    "value": "es",
+                    "label": "Español"
+                }
+            ]
+        },
+        {
+            "type": "switch",
+            "key": "skip_existing",
+            "title": "自动跳过已有翻译歌曲",
+            "titleLocales": {
+                "zh-TW": "自動跳過已有翻譯歌曲",
+                "en": "Auto Skip Songs with Translation"
+            },
+            "default": false,
+            "conflictsWith": [
+                "force_override"
+            ]
+        },
+        {
+            "type": "switch",
+            "key": "force_override",
+            "title": "强制 AI 翻译",
+            "titleLocales": {
+                "zh-TW": "強制 AI 翻譯",
+                "en": "Force AI Translation"
+            },
+            "default": false,
+            "conflictsWith": [
+                "skip_existing"
+            ]
+        },
+        {
+            "type": "text",
+            "key": "target_language",
+            "title": "目标语言",
+            "titleLocales": {
+                "zh-TW": "目標語言",
+                "en": "Target Language"
+            },
+            "default": "中文",
+            "valuePresentation": "endAction"
+        },
+        {
+            "type": "switch",
+            "key": "word_timing",
+            "title": "逐字时间对齐",
+            "titleLocales": {
+                "zh-TW": "逐字時間對齊",
+                "en": "Word-Level Timing Alignment"
+            },
+            "default": true
+        },
+        {
+            "type": "password",
+            "key": "api_key",
+            "title": "API Key",
+            "titleLocales": {
+                "zh-TW": "API Key",
+                "en": "API Key"
+            },
+            "default": "",
+            "emptyValueSummary": "未配置",
+            "emptyValueSummaryLocales": {
+                "zh-TW": "未設定",
+                "en": "Not configured"
+            },
+            "valuePresentation": "endAction",
+            "backup": false
+        },
+        {
+            "type": "text",
+            "key": "model",
+            "title": "模型名称",
+            "titleLocales": {
+                "zh-TW": "模型名稱",
+                "en": "Model Name"
+            },
+            "default": "mimo-v2.5",
+            "valuePresentation": "endAction"
+        },
+        {
+            "type": "text",
+            "key": "base_url",
+            "title": "OpenAI API 地址",
+            "titleLocales": {
+                "zh-TW": "OpenAI API 網址",
+                "en": "API Base URL"
+            },
+            "default": "https://api.xiaomimimo.com/v1/",
+            "valuePresentation": "summary",
+            "inputType": "uri"
+        },
+        {
+            "type": "text",
+            "key": "prompt",
+            "title": "自定义提示词",
+            "titleLocales": {
+                "zh-TW": "自訂提示詞",
+                "en": "Custom Prompt"
+            },
+            "default": "遵循「信、达、雅」原则：译文须忠实传达原意（信），通顺自然、无翻译腔（达），并根据曲风与情绪炼字，保留原曲的意象、隐喻与文化底色（雅）。译文要契合旋律起伏与断句，短拍不堆字，逐字片段要能独立成读、不割裂语义。",
+            "valuePresentation": "summaryPreview",
+            "previewLineCount": 2
+        },
+        {
+            "type": "slider",
+            "key": "temperature",
+            "title": "temperature",
+            "dialogSummary": "Input range: 0–2.",
+            "default": 1.0,
+            "min": 0.0,
+            "max": 2.0,
+            "step": 0.1,
+            "inputType": "number",
+            "group": "generation"
+        },
+        {
+            "type": "slider",
+            "key": "top_p",
+            "title": "top_p",
+            "dialogSummary": "Input range: 0–1.",
+            "default": 1.0,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "inputType": "number",
+            "group": "generation"
+        },
+        {
+            "type": "number",
+            "key": "max_tokens",
+            "title": "max_tokens",
+            "dialogSummary": "Input range: 0–2147483647.",
+            "default": 0,
+            "min": 0,
+            "max": 2147483647,
+            "inputType": "number",
+            "valuePresentation": "endAction",
+            "group": "generation"
+        }
+    ]
+}

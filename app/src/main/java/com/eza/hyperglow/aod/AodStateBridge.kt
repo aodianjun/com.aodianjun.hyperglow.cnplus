@@ -65,6 +65,11 @@ data class AodDisplayState(
     val sampledAtElapsedMs: Long = 0L,
     val speed: Float = 1f,
     val words: List<AodDisplayWord> = emptyList(),
+    /**
+     * 插件提供的逐字翻译词表(词级译文 + 时间窗,见 `PluginLyricField.TRANSLATION_WORDS`):
+     * 翻译辅助行按真实词窗点亮;空表 = 无词级数据,渲染侧回落行窗口合成。
+     */
+    val translationWords: List<AodDisplayWord> = emptyList(),
     val ruby: List<AodDisplayRuby> = emptyList(),
     val layoutGroups: List<AodDisplayLayoutGroup> = emptyList(),
     /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
@@ -438,6 +443,29 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             )
         }
         .toList()
+    // 插件逐字翻译词表:与 words 同一道钳制(条数上限/时间钳到歌长/文本净化);片段不指向
+    // 原文,source 范围恒 -1(与并发行词表同口径);空文本片段整条丢弃(不贡献译文文本)。
+    val translationWords = state.translationWords.asSequence()
+        .take(AodStateWireLimits.MAX_WORDS)
+        .mapNotNull { word ->
+            val text = word.text.sanitizeUtf16().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS)
+            if (text.isEmpty()) return@mapNotNull null
+            val startMs = word.startMs.coerceAtLeast(0L).let {
+                if (duration > 0L) it.coerceAtMost(duration) else it
+            }
+            word.copy(
+                text = text,
+                romanized = "",
+                startMs = startMs,
+                endMs = word.endMs.coerceAtLeast(startMs).let {
+                    if (duration > 0L) it.coerceAtMost(duration) else it
+                },
+                boundaryAfter = true,
+                sourceStart = -1,
+                sourceEnd = -1
+            )
+        }
+        .toList()
     val ruby = state.ruby.asSequence()
         .take(AodStateWireLimits.MAX_RUBY)
         .mapNotNull { item ->
@@ -505,7 +533,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             )
         }
     }
-    val (budgetWords, budgetRuby, budgetGroups) = fitAodEnhancementBudget(
+    val fitted = fitAodEnhancementBudget(
         baseTexts = listOf(
             original,
             romanized,
@@ -520,6 +548,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         ),
         styleTexts = styleTokens(state),
         words = words,
+        translationWords = translationWords,
         ruby = ruby,
         groups = layoutGroups
     )
@@ -579,9 +608,10 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         speed = state.speed.takeIf {
             it.isFinite() && it in 0f..AodStateWireLimits.MAX_PLAYBACK_SPEED
         } ?: 1f,
-        words = budgetWords,
-        ruby = budgetRuby,
-        layoutGroups = budgetGroups,
+        words = fitted.words,
+        translationWords = fitted.translationWords,
+        ruby = fitted.ruby,
+        layoutGroups = fitted.groups,
         duetLine = duetLine,
         weight = normalizeAodWeight(state.weight),
         textSizeMode = normalizeAodTextSize(state.textSizeMode),
@@ -665,6 +695,17 @@ private fun AodDisplayState.toWireMessage(
             sampledAtElapsedMs = sampledAtElapsedMs,
             speed = speed,
             words = words.map { word ->
+                AodStateWireWord(
+                    text = word.text,
+                    romanized = word.romanized,
+                    startMs = word.startMs,
+                    endMs = word.endMs,
+                    boundaryAfter = word.boundaryAfter,
+                    sourceStart = word.sourceStart,
+                    sourceEnd = word.sourceEnd
+                )
+            },
+            translationWords = translationWords.map { word ->
                 AodStateWireWord(
                     text = word.text,
                     romanized = word.romanized,
@@ -762,21 +803,30 @@ private fun styleTokens(state: AodDisplayState): List<String> = listOf(
 )
 
 /**
- * 增强数据（词/注音/布局组）的聚合文本预算裁剪。
+ * 增强数据（词/逐字翻译词表/注音/布局组）的聚合文本预算裁剪。
  *
  * [AodStateWireCodec] 的 isValidSnapshot 按 UTF-8 字节总额把关
  * （[AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES]），超限直接拒收整包、静默降级为
- * Hidden——整句歌词会因为词级数据超长而整体消失。词/注音/布局组是可选增强（STYLE_GUIDE:
- * 可选内容按序降级），这里按校验侧同一计数顺序（行文本 → 样式 → 词 → 注音 → 布局组）
- * 只装下最长前缀，行文本永远保留；口径与顺序必须与 isValidSnapshot 的 Utf8Budget 一致。
+ * Hidden——整句歌词会因为词级数据超长而整体消失。这些字段都是可选增强（STYLE_GUIDE:
+ * 可选内容按序降级），这里按校验侧同一计数顺序（行文本 → 样式 → 词 → 逐字翻译词 →
+ * 注音 → 布局组）只装下最长前缀，行文本永远保留；口径与顺序必须与 isValidSnapshot 的
+ * Utf8Budget 一致。
  */
+private data class FittedAodEnhancements(
+    val words: List<AodDisplayWord>,
+    val translationWords: List<AodDisplayWord>,
+    val ruby: List<AodDisplayRuby>,
+    val groups: List<AodDisplayLayoutGroup>
+)
+
 private fun fitAodEnhancementBudget(
     baseTexts: List<String>,
     styleTexts: List<String>,
     words: List<AodDisplayWord>,
+    translationWords: List<AodDisplayWord>,
     ruby: List<AodDisplayRuby>,
     groups: List<AodDisplayLayoutGroup>
-): Triple<List<AodDisplayWord>, List<AodDisplayRuby>, List<AodDisplayLayoutGroup>> {
+): FittedAodEnhancements {
     var used = 0
     fun accept(vararg values: String): Boolean {
         var extra = 0
@@ -788,7 +838,8 @@ private fun fitAodEnhancementBudget(
     // 行文本与样式是内容本身，必装（normalizeAodWireText 已压进各自字符上限）。
     for (text in baseTexts + styleTexts) accept(text)
     val keptWords = words.takeWhile { accept(it.text, it.romanized) }
+    val keptTranslationWords = translationWords.takeWhile { accept(it.text, it.romanized) }
     val keptRuby = ruby.takeWhile { accept(it.reading) }
     val keptGroups = groups.takeWhile { accept(it.kind) }
-    return Triple(keptWords, keptRuby, keptGroups)
+    return FittedAodEnhancements(keptWords, keptTranslationWords, keptRuby, keptGroups)
 }

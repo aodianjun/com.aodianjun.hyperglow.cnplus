@@ -280,6 +280,35 @@ class AodStateWireCodecTest {
     }
 
     @Test
+    fun translationWordsRoundTripAndOverLimitFailsClosed() {
+        // 插件逐字翻译词表(v8)随快照过桥:片段文本 + 时间窗必须原样回环——渲染侧按它驱动
+        // 翻译辅助行的逐字点亮,任一侧丢字段都会让实机静默回落到行内几何合成。
+        val message = snapshotMessage(
+            value = snapshotValue(
+                translated = "我爱你",
+                translationWords = listOf(
+                    AodStateWireWord("我", "", 0L, 300L, true, -1, -1),
+                    AodStateWireWord(" 爱", "", 300L, 700L, true, -1, -1),
+                    AodStateWireWord(" 你", "", 700L, 1_000L, true, -1, -1)
+                )
+            )
+        )
+        assertEquals(message, AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode))
+        // 条数与主行词表共享上限:超限整包拒收(fail-closed,不静默截断)。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue(
+                        translationWords = List(AodStateWireLimits.MAX_WORDS + 1) {
+                            AodStateWireWord("x", "", 0L, 1L, true, -1, -1)
+                        }
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
     fun artworkFrameRoundTripsWithContentEquality() {
         val jpegBytes = ByteArray(64) { it.toByte() }
         val message = snapshotMessage(
@@ -381,6 +410,7 @@ class AodStateWireCodecTest {
         metadata: String = "track",
         speed: Float = 1f,
         words: List<AodStateWireWord> = emptyList(),
+        translationWords: List<AodStateWireWord> = emptyList(),
         ruby: List<AodStateWireRuby> = emptyList(),
         layoutGroups: List<AodStateWireLayoutGroup> = emptyList(),
         weight: String = "Medium",
@@ -421,6 +451,7 @@ class AodStateWireCodecTest {
         sampledAtElapsedMs = 700L,
         speed = speed,
         words = words,
+        translationWords = translationWords,
         ruby = ruby,
         layoutGroups = layoutGroups,
         weight = weight,
