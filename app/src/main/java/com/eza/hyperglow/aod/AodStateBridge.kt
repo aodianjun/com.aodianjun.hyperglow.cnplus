@@ -497,6 +497,11 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
     // 对唱并发行:文本钳制、时间窗/词级时间钳到歌长、词级 source 范围弃用(画布并发行
     // 不走逐字扫光路径);ruby/layoutGroups v1 不携带。条数超限/文本为空整条丢弃
     // (并发行是可选增强,不应连累主行发布)。
+    HookLogger.iThrottled("duet-bridge", 5_000L, "AodStateBridge") {
+        val d = state.duetLine
+        "Duet bridge: in=${d?.text?.take(16)} inWin=${d?.lineStartMs}..${d?.lineEndMs} " +
+            "duration=$duration out=${d != null && d.text.isNotBlank()}"
+    }
     val duetLine = state.duetLine?.let { line ->
         val duetText = line.text.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
         if (duetText.isEmpty()) {

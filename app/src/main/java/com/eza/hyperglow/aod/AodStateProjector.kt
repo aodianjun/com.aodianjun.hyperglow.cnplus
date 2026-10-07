@@ -259,6 +259,13 @@ internal fun projectToDisplay(
     // per-build 对唱状态);大元数据引导/无活动行时同样不携带。
     // 文本与分侧两套原样下发,行首标记剥离由渲染面按本面开关决定;语言不一致拒绝同样
     // 作用于并发行的罗马音。
+    // 诊断探针:并发行在投影层的入口/出口(定位「状态里有、画布没有」的丢弃点)。
+    HookLogger.iThrottled("duet-proj", 5_000L, "AodStateProjector") {
+        val incoming = state.duetLine
+        "Duet proj: in=${incoming?.text?.take(16)} inWin=${incoming?.lineStartMs}..${incoming?.lineEndMs} " +
+            "duetConcurrent=${(aodProfile?.duetConcurrent ?: true) || (lockscreenProfile?.duetConcurrent ?: true)} " +
+            "largeMeta=$showLargeMetadata active=$hasActiveLine duration=${state.durationMs}"
+    }
     val duetConcurrent = (aodProfile?.duetConcurrent ?: true) ||
         (lockscreenProfile?.duetConcurrent ?: true)
     val duetLine = if (!duetConcurrent || showLargeMetadata || !hasActiveLine) {
