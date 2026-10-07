@@ -75,6 +75,7 @@ import com.eza.hyperglow.customization.normalizeMetadataSeparator
 import com.eza.hyperglow.customization.normalizeMetadataSeparators
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
+import com.eza.hyperglow.root.projection.LyricDuetLine
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricWord
@@ -1175,7 +1176,17 @@ internal fun collectDemoSnapshot(
         words = demoWords(line.original),
         // 演示快照携带注音:让「注音」开关在无实时歌词时也能在预览里看出效果
         // (实机仅在 rubyVisible == false 时清空,见 LyricCanvasMapper)。
-        ruby = line.ruby
+        ruby = line.ruby,
+        // 演示并发行(对唱/和声):让「显示并发歌词(对唱)」开关在无实时歌词时也能在预览里
+        // 看出效果;文本为空的行不产出并发行(与实机 duetLine 文本为空整条丢弃同口径)。
+        duetLine = line.duet?.takeIf { it.isNotBlank() }?.let { duet ->
+            LyricDuetLine(
+                text = duet,
+                lineStartMs = 0,
+                lineEndMs = DEMO_LINE_SWITCH_MS,
+                words = demoWords(duet)
+            )
+        }
     )
 }
 
@@ -1211,7 +1222,13 @@ internal class DemoLine(
      * 在预览里看出效果。必须覆盖整行 —— 只标首词会在预览里留下一截拼音(owner 2026-10-06
      * 反馈的「文字上方零星的转写内容」),且各段读音拼接后要与 [romanized] 逐字一致。
      */
-    val ruby: List<LyricRuby>
+    val ruby: List<LyricRuby>,
+    /**
+     * 同句和声/对唱副行(可空,仅演示数据用):让「显示并发歌词(对唱)」在无实时歌词时也能在
+     * 预览里看出来。演示快照不走按面标记剥离(见 collectDemoSnapshot),这里直接写剥离后的
+     * 形态,避免预览出现实机默认设置下不会上屏的行首标记文本。
+     */
+    val duet: String? = null
 )
 
 internal class DemoTrack(
@@ -1262,7 +1279,9 @@ internal val DEMO_LINES_ZH = listOf(
             LyricRuby(15, 17, "piàoliang"),
             LyricRuby(17, 18, "de"),
             LyricRuby(18, 20, "lín piàn")
-        )
+        ),
+        // 对唱/和声副行:与主行同窗口的另一声部(演示「显示并发歌词(对唱)」开关)。
+        duet = "（也要飞向那片蓝天）"
     ),
     DemoLine(
         "走吧 就算我们无法让大雨停下",
@@ -1291,7 +1310,9 @@ internal val DEMO_LINES_ZH = listOf(
             LyricRuby(9, 11, "tiānzhēn"),
             LyricRuby(11, 12, "ér"),
             LyricRuby(12, 14, "wěidà")
-        )
+        ),
+        // 对唱/和声副行:与主行同窗口的另一声部(演示「显示并发歌词(对唱)」开关)。
+        duet = "（哪怕世界从未回答）"
     )
 )
 
@@ -1308,7 +1329,9 @@ internal val DEMO_LINES_EN = listOf(
         "In my dreams, I feel your light",
         "ɪn maɪ driːmz aɪ fiːl jɔː laɪt",
         "在我的梦里，我感受到你的光芒",
-        emptyList()
+        emptyList(),
+        // 对唱/和声副行:与主行同窗口的另一声部(演示「显示并发歌词(对唱)」开关)。
+        duet = "(Shining through the endless night)"
     ),
     DemoLine(
         "I feel love is born again",
@@ -1326,7 +1349,9 @@ internal val DEMO_LINES_EN = listOf(
         "Take my hand now, stay close to me",
         "teɪk maɪ hænd naʊ steɪ kloʊs tə miː",
         "现在握住我的手，靠近我",
-        emptyList()
+        emptyList(),
+        // 对唱/和声副行:与主行同窗口的另一声部(演示「显示并发歌词(对唱)」开关)。
+        duet = "(I will never let you go)"
     )
 )
 
