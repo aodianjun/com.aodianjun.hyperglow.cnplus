@@ -883,6 +883,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 
 - 插件逐字翻译词表驱动翻译辅助行（`PluginLyricField.TRANSLATION_WORDS` 从插件链到渲染面的完整链路：`PluginSongBridge.enrichState` 映射活动行词表 → `LyricProducerState.translationWords` → 投影/快照 → AOD wire v8（`AodStateWireSnapshot.translationWords`，条数与主行词表共享 `MAX_WORDS`、文本入同一聚合 UTF-8 预算、时间窗不得越歌长）→ `AodCanvasContent.translationWords` → 息屏画布 `translatedTimedLines`：翻译辅助行按片段真实词窗点亮，片段文本直接相连即整行译文；无词表时回落行窗口 + 行内几何合成，「辅助文字逐字效果」关闭时行装配逐字节不变）。**词表两个来源共用同一渲染链路**：插件链的 `TRANSLATION_WORDS`，与歌词源自带的词表（Lyricon SDK `RichLyricLine.translationWords`，生产者随活动行直接下发、与 `words` 同一缓存生命周期）；两者都要求片段能逐字符重建整行译文（重建不出即回落合成，辅助行显示文本恒取 `translated`）。配套插件 `plugins/ai-translation-words`（OpenAI 兼容接口：翻译 + 把译文按原词逐字切成片段，模型返回的片段数与该行 token 数不符时该行静默降级为纯行级翻译；按曲目缓存、缓存页可管理）——合并后待真机冒烟：装该插件并打开「辅助文字逐字效果」，「辅助文字」模式选翻译，播放带逐字时间的源（Spicy / amll-ttml 插件 / lyricfetch 逐字结果）时翻译行随原词逐字点亮且与主行同拍；Lyricon 源自带逐字翻译词表时同样逐字点亮；关掉开关后翻译行装配与观感与改前一致；未装插件或无逐字时间的源仍按行窗口合成。
 
+- 插件设置文案的语言解析（`PluginManifest.localizedValue`：完整匹配 → 同文种 → 文种中立 → 默认值；`chineseScriptOf` 按显式 script 或地区推断 Hans/Hant）＋ `ai-translation` / `ai-translation-words` 两个 manifest 每个 `*Locales` 补显式 zh-CN（版本各 1.0.1）——owner 反馈「插件文字怎么是繁体中文」：清单按约定只声明 zh-TW/en（简体靠默认值），旧解析在主语言回退处取第一个 zh 条目，简体设备（zh-CN / zh-Hans*）因此整片拿到 zh-TW（设置项标题、分组标题、对话框说明），而插件名/摘要因声明了 zh-CN 仍是简体。合并后待真机复验：应用语言为简体时插件管理页与插件设置页全为简体；切到繁體 / English 分别显示繁体 / 英文；装 1.0.1 的两个插件 ZIP 后同样成立。
+
 ## 台账的使用方式
 
 - 合并触碰某领域的改动前，先查该领域最近一条记录；若改动可能使其回归，评审时要求补充新的真机证据。
