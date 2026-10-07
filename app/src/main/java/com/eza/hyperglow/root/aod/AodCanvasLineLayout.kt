@@ -190,18 +190,23 @@ internal fun timedRomanizedWordIndexes(words: List<AodCanvasWord>): List<Int> =
 /**
  * 翻译辅助行的逐字段(纯函数,实机 `AodLyricCanvasView.translatedTimedLines` 与单测共用)。
  *
- * 片段文本**直接相连**即整行译文——西文词间的空格由插件写在片段内,这里不另插分隔符;
- * 空文本片段不占位。整组都是零窗(占位词形态)时返回 null:零窗段被 [timedWordProgress]
- * 判成恒亮,整行会呈静态全亮(与 [isTimedKaraokeWord] 的判据同源),回落行窗口 + 行内几何
- * 合成反而是正确观感。
+ * 片段文本**直接相连**即整行译文——西文词间的空格由来源写在片段内,这里不另插分隔符;
+ * 空文本片段不占位。两条拒绝条件都回落到「行窗口 + 行内几何合成」：
+ * - **片段重建不出整行译文**（拼接 ≠ [expectedText]）：辅助行的显示文本恒取 `translated`，
+ *   若按片段画就会在逐字开关开/关之间显示两份不同文本——宁可不要逐字效果；
+ *   插件侧按协议保证一致，源侧词表（Lyricon SDK）可能与文本不同；
+ * - **整组都是零窗**（占位词形态）：零窗段被 [timedWordProgress] 判成恒亮，整行会呈静态全亮
+ *   （与 [isTimedKaraokeWord] 的判据同源）。
  *
  * [measureText] 为行内字体测量(实机传 `translatedPaint::measureText`)。
  */
 internal fun translatedTimedSegments(
     words: List<AodCanvasWord>,
+    expectedText: String,
     measureText: (String) -> Float
 ): List<SecondaryTimedSegment>? {
     if (words.isEmpty()) return null
+    if (words.joinToString("") { it.text } != expectedText) return null
     val segments = words.mapNotNull { word ->
         if (word.text.isEmpty()) return@mapNotNull null
         SecondaryTimedSegment(

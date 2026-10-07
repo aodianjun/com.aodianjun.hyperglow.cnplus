@@ -139,6 +139,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         if (currentLineIndex != -1) {
             currentLineIndex = -1
             cachedWords = null
+            cachedTranslationWords = null
         }
         emit()
         return
@@ -167,6 +168,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         if (currentLineIndex != -1) {
             currentLineIndex = -1
             cachedWords = null
+            cachedTranslationWords = null
         }
         if (changed) {
             AppLog.i(
@@ -185,6 +187,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         if (currentLineIndex != -1) {
             currentLineIndex = -1
             cachedWords = null
+            cachedTranslationWords = null
         }
         emit()
         return
@@ -196,6 +199,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         if (currentLineIndex != -1) {
             currentLineIndex = -1
             cachedWords = null
+            cachedTranslationWords = null
         }
         emit()
         return
@@ -204,6 +208,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         currentLineIndex = idx
         val line = nav.source[idx]
         cachedWords = line.toLyricWords()
+        cachedTranslationWords = line.toTranslationWords()
         AppLog.i(
             "LyriconLyricProducer",
             "line changed: idx=$idx begin=${line.begin} end=${line.end} text=${line.text?.take(24)}"
@@ -215,7 +220,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
 /**
  * Build and emit a [LyricProducerState] from the current ingress fields. Cheap: reuses
  * [cachedWords] (only rebuilt on line change) and [renderModesSnapshot] (only rebuilt on
- * song change). Safe to call at 60 Hz.
+ * song change), plus [cachedTranslationWords] (same line-change lifecycle as [cachedWords]). Safe to call at 60 Hz.
  */
 internal fun LyriconLyricProducer.emit() {
     // 当前音频源不是音乐(视频应用等)时整体静默:位置回调仍在 ~60Hz 到达,这里统一兜底
@@ -285,6 +290,8 @@ internal fun LyriconLyricProducer.emit() {
         playing = isPlayingState,
         receivedAtElapsedMs = now,
         words = cachedWords?.shiftedByOffset(offset),
+        // 翻译词表:与 words 同源随行缓存、同一时间偏移换算(显示时间轴),供翻译辅助行按真实词窗点亮。
+        translationWords = cachedTranslationWords?.shiftedByOffset(offset).orEmpty(),
         renderModes = renderModesSnapshot,
         lyricKind = lyricKind,
         // 对唱左右分侧:两套随状态下发(元数据身份版 / 标记识别版),由渲染侧按各面自己的

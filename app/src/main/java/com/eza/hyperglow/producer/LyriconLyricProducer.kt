@@ -124,6 +124,14 @@ class LyriconLyricProducer(
     @Volatile internal var isPlayingState: Boolean = false
     @Volatile internal var currentLineIndex: Int = -1
     @Volatile internal var cachedWords: List<LyricWord>? = null
+
+    /**
+     * 当前活动行的翻译词表（SDK `RichLyricLine.translationWords` 映射，随行缓存、随行清空）：
+     * 翻译辅助行按它的真实词窗点亮（与 `PluginLyricField.TRANSLATION_WORDS` 同一条渲染链路，
+     * 见 `AodLyricCanvasView.translatedTimedLines`）。与 [cachedWords] 同一生命周期——
+     * 换行/清行/切歌/seek 一起重建或清空。
+     */
+    @Volatile internal var cachedTranslationWords: List<LyricWord>? = null
     @Volatile internal var renderModesSnapshot: ProducerRenderModes = defaultRenderModes()
 
     // --- 对唱左右分侧快照(切歌时重算,见 refreshDuetAlignment) ---
@@ -384,6 +392,7 @@ class LyriconLyricProducer(
         navigator = null
         currentLineIndex = -1
         cachedWords = null
+        cachedTranslationWords = null
         duetResolvedAlignedRight = null
         duetMarkerResolvedAlignedRight = null
         duetWindowsCache = null

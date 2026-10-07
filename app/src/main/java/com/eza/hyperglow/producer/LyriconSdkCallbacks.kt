@@ -132,6 +132,7 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             }
             currentLineIndex = -1
             cachedWords = null
+            cachedTranslationWords = null
             // 对唱左右分侧快照随歌重算(身份排序依赖整首出现顺序,不能按单行现算);
             // 无歌词时空数组,emit() 侧按越界回落到未分侧。
             refreshDuetAlignment(lyrics.orEmpty())
@@ -515,5 +516,6 @@ internal fun LyriconLyricProducer.applySeek(position: Long) {
     navigator?.resetCache()
     currentLineIndex = -1
     cachedWords = null
+    cachedTranslationWords = null
     recomputeAndEmit()
 }

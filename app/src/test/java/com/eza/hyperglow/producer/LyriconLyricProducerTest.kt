@@ -256,6 +256,66 @@ class LyriconLyricProducerTest {
     }
 
     @Test
+    fun activeLine_carriesTranslationWordsWithTheirWindows() {
+        // 源自带逐字翻译词表（SDK `RichLyricLine.translationWords`）随活动行进入生产者状态，
+        // 供翻译辅助行按真实词窗点亮（与插件链 TRANSLATION_WORDS 同一条渲染链路）。
+        val song = Song(
+            id = "song-words",
+            name = "Words Song",
+            artist = "Test Artist",
+            duration = 8_000L,
+            lyrics = listOf(
+                RichLyricLine(
+                    begin = 1_000,
+                    end = 3_000,
+                    text = "first",
+                    translation = "译文",
+                    translationWords = listOf(word(1_000, 2_000, "译"), word(2_000, 3_000, "文"))
+                )
+            )
+        )
+        producer.playerListener.onSongChanged(song)
+        producer.playerListener.onPositionChanged(2_000L)
+
+        val state = producer.state.value!!
+        assertEquals(0, state.lineIndex)
+        assertEquals("译文", state.translatedLine)
+        assertEquals(listOf("译", "文"), state.translationWords.map { it.text })
+        assertEquals(1_000L, state.translationWords[0].startMs)
+        assertEquals(2_000L, state.translationWords[1].startMs)
+        assertEquals(3_000L, state.translationWords[1].endMs)
+    }
+
+    @Test
+    fun lineChange_clearsPreviousTranslationWords() {
+        // 与 cachedWords 同一生命周期：换到没有翻译词表的行时，上一行的词表不得残留。
+        val song = Song(
+            id = "song-mixed",
+            name = "Mixed Song",
+            artist = "Test Artist",
+            duration = 8_000L,
+            lyrics = listOf(
+                RichLyricLine(
+                    begin = 1_000,
+                    end = 3_000,
+                    text = "first",
+                    translation = "译文",
+                    translationWords = listOf(word(1_000, 2_000, "译"), word(2_000, 3_000, "文"))
+                ),
+                RichLyricLine(begin = 3_500, end = 5_000, text = "second", translation = "第二")
+            )
+        )
+        producer.playerListener.onSongChanged(song)
+        producer.playerListener.onPositionChanged(2_000L)
+        assertEquals(2, producer.state.value!!.translationWords.size)
+
+        producer.playerListener.onPositionChanged(4_000L)
+        val state = producer.state.value!!
+        assertEquals(1, state.lineIndex)
+        assertTrue(state.translationWords.isEmpty())
+    }
+
+    @Test
     fun positionInGapBetweenLines_showsPreviousLine() {
         // Gap: line 0 ends at 3000, line 1 begins at 3500. Position 3200 is in the gap.
         // findTargetIndex returns the last line with begin <= pos → index 0.
