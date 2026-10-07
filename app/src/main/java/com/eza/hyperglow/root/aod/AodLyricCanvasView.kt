@@ -2695,17 +2695,14 @@ internal class AodLyricCanvasView(
     private fun drawDuetOriginal(canvas: Canvas, baseline: Float) {
         val duetLayout = layout.duet ?: return
         val duet = content.duetLine ?: return
-        // 时间窗门控:并发行/和声行按**行身份**挂在活动行上(见 PluginSongBridge.enrichState
-        // 的 LYRICS 分支),父行的窗口常远长于和声本身(生产者行粗、插件 TTML 行细,实测
-        // 20.5s vs 5.2s)。所以绘制仍按和声自己的窗口门控:只在真正唱到它时出现,
-        // 而不是整行常驻;提前 [DUET_DRAW_LEAD_MS] 进场给淡入留出时间。布局槽位不随之
-        // 增删(整行稳定,避免主行随和声起落而缩放跳动)。
-        val now = projectedPosition()
-        if (now < duet.lineStartMs - DUET_DRAW_LEAD_MS || now > duet.lineEndMs) return
+        // 并发行/和声行随**活动行**一起显示(参照 HyperLyric:和声折进父行、随父行在唱就在屏上),
+        // 不做自己的时间窗门控——插件的行窗与生产者上报的位置来自两条时间轴(实测同一句
+        // 5.2s vs 20.5s),用其中一条去卡另一条会把和声整段挡掉。整行的布局槽位与主行同生共死
+        // (见 buildRows),这里只负责画。
         // 诊断探针:并发行真的画出来时记一条(带窗口与文本),供真机判定「和声/对唱行有没有上屏」,
         // 不依赖掐点抓屏。与 karaoke-probe 同口径(2s 节流、仅诊断日志开启时落盘)。
         HookLogger.iThrottled("duet-draw", 2_000L, "AodLyricCanvasView") {
-            "Duet draw: pos=$now window=${duet.lineStartMs}..${duet.lineEndMs} " +
+            "Duet draw: pos=${projectedPosition()} window=${duet.lineStartMs}..${duet.lineEndMs} " +
                 "words=${duet.words.size} text=${duet.text.take(24)}"
         }
         val alpha = duetJoinAlpha()
@@ -3905,13 +3902,6 @@ internal class AodLyricCanvasView(
     companion object {
         /** 对唱并发行加入淡入时长(毫秒);期间静音态绘制,完成恢复共享发光管线。 */
         private const val DUET_JOIN_FADE_MS = 180L
-
-        /**
-         * 并发行/和声行提前进场的余量(毫秒):它挂在活动行上(父行窗口可能远长于和声
-         * 本身),绘制按和声自己的窗口门控,提前这一小段让 [DUET_JOIN_FADE_MS] 的淡入
-         * 在窗口开始时已经完成。
-         */
-        private const val DUET_DRAW_LEAD_MS = 220L
 
 
         /**
