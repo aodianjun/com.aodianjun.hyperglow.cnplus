@@ -1,9 +1,12 @@
 package com.eza.hyperglow.plugin
 
 import com.eza.hyperglow.bridge.SpicyBridgeDocument
+import com.eza.hyperglow.producer.DuetLineWindow
+import com.eza.hyperglow.producer.LyricDuetLine
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricSongSnapshot
 import com.eza.hyperglow.producer.LyricWord
+import com.eza.hyperglow.producer.selectDuetLineIndex
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricField
 import com.lidesheng.hyperlyric.plugin.api.PluginLyricLine
 import com.lidesheng.hyperlyric.plugin.api.PluginMediaInfo
@@ -203,6 +206,43 @@ object PluginSongBridge {
         }
         if (PluginSongField.ALBUM in patched.changedSongFields) {
             enriched = enriched.copy(album = patched.song.album ?: state.album)
+        }
+        // 并发行重选:插件 REPLACE 后的行表才是最终行表——AMLL TTML 的对唱 agent 行与
+        // x-bg 和声行只存在于这里(见 amll-ttml 的 TtmlMapper),而生产者的候选只从它自己
+        // 的行表选(见 selectDuetLineIndex 的三个调用点),源行表首尾相接(网易云 LRC 常态,
+        // end == next.begin)时恒为 -1,并发行永远不出现。这里按同一纯函数从最终行表重选,
+        // 判定语义不变(共享窗口 ≥ MIN_CONCURRENT_OVERLAP_MS):只有确实存在重叠行(如和声
+        // span 嵌在主行窗口内)时才产出。插件替换了歌词即以最终行表为准(无候选时清空,
+        // 避免残留的候选与已替换的行表不一致)。
+        if (PluginSongField.LYRICS in patched.changedSongFields) {
+            val duetIndex = selectDuetLineIndex(
+                windows = rows.map { DuetLineWindow(it.begin, it.end, it.text.isNullOrBlank()) },
+                primaryIndex = rows.indexOf(active),
+                positionMs = state.positionMs
+            )
+            val duetRow = rows.getOrNull(duetIndex)
+            enriched = enriched.copy(
+                duetLine = duetRow?.let { row ->
+                    LyricDuetLine(
+                        text = row.text.orEmpty(),
+                        romanized = row.roma.orEmpty(),
+                        translated = effectiveTranslation(row).orEmpty(),
+                        alignedRight = row.isAlignedRight,
+                        alignedRightMarkers = row.isAlignedRight,
+                        lineStartMs = row.begin,
+                        lineEndMs = row.end,
+                        words = row.words?.map { word ->
+                            LyricWord(
+                                text = word.text.orEmpty(),
+                                romanized = "",
+                                startMs = word.begin,
+                                endMs = word.end,
+                                boundaryAfter = true
+                            )
+                        }.orEmpty()
+                    )
+                }
+            )
         }
         return enriched
     }
