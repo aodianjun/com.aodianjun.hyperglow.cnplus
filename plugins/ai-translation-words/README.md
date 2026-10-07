@@ -13,7 +13,11 @@
 
 - **阶段**：`TRANSLATION_ENHANCEMENT`；
 - **更新模式**：`PATCH`（行数不变，声明 `TRANSLATION`，有逐字片段时追加 `TRANSLATION_WORDS`）；
-- **调度**：宿主按会话调度插件链（逐行源每 15s 重跑），结果按曲目缓存——见 §5。
+- **调度**：宿主按会话调度插件链（逐行源每 15s 重跑），结果按曲目缓存——见 §5；
+- **分批 + 渐进**（1.0.2 起，真机实测教训）：待译行按 12 行一批逐批请求（单批预算 12s、单轮总预算 30s，
+  宿主每处理器 40s 上限），**缓存允许部分命中、也存部分结果**——整首一次发时几十行的歌会让端到端
+  超过单次预算而整首失败（日志只有 `translation request failed ... (cooldown 10min)`，看起来就像插件没在工作）；
+  现在长歌跨链轮次逐批完成，已完成的批立即上屏。
 
 与兄弟插件 `plugins/ai-translation` 的关系：本插件是其**第二代变体**，行级翻译语义
 （跳过语言 / 跳过已有翻译 / 强制翻译 / 行级过滤 / 按曲目缓存）完全一致，新增的只有
@@ -78,10 +82,14 @@
   的 SHA-256；
 - 条目存「行文本 → 译文（+ 逐字片段）」，回填按**行文本精确匹配**（歌词源换版本/行序
   变化也稳）；
-- 命中要求**全部待翻译行都在**，且逐字行若条目带片段，片段数必须恰好等于当前词时间轴的
-  词数——词时间轴变过就整首重翻，避免片段错位点亮；
-- **只缓存成功结果**：请求失败（限流/超时）不写缓存，由内存失败节流退避（同曲目+配置
-  10 分钟内不重试），避免逐行源的 15s 链调度反复打网络。
+- **逐行取用、渐进补齐**（1.0.2 起）：命中行直接回填，只对缺的行发请求；每轮新译的批
+  与已命中行一起写回缓存（并集），下一轮只补缺——长歌因此不会因为一次预算不够就整首失败。
+  逐字行的条目若带片段，片段数必须恰好等于当前词时间轴的词数（词时间轴变过就重翻该行，
+  避免片段错位点亮）；
+- **只缓存成功结果**：请求失败（限流/超时）不写缓存，改由内存失败节流退避——**整轮一条都没成功**
+  才退避 2 分钟（1.0.2 起由 10 分钟缩短：切歌取消也会落到这条路径，长退避会让那首歌十分钟内
+  不再重试，观感就是「插件没在用」）；部分成功不设退避，下一轮继续补缺。用户也可在缓存页删除
+  条目强制重翻。
 
 ## 6. 安装
 
@@ -106,10 +114,20 @@
 - **真实接口：未验证**——对真实 LLM 端点的端到端调用需要用户自己的 Key，未在开发侧发起
   （协议/请求体/解析已由单测覆盖，但**首次使用建议先小段歌词试翻**，确认端点、模型名
   与模型对 segments 协议的遵守度）。
-- **真机：未验证**——宿主渲染（辅助文字逐字点亮、缓存页交互）待安装 ZIP 后冒烟。
+- **真机（1.0.1，2026-10-07）**：插件在真机上被正常加载与调度（`enabled=true`、DeepSeek 端点），
+  `translated 54 line(s)` 与 `accepted result ... changedLyricFields=[TRANSLATION]` 证明翻译链路通；
+  同时暴露两个缺陷并已在 1.0.2 修复：①整首一次发的请求会超过单次预算（`threw after 32221ms`）
+  导致整首无产出；②失败退避 10 分钟过长——切歌取消也会落到该路径，那首歌十分钟内不再重试。
+  逐字产出仍待带词时间轴的曲目复验（当次播放的曲目为行级源，日志 `0 with word timing`）。
 
 ## 8. 已知限制
 
+- **逐字效果取决于源是否提供词级时间轴**（真机实测）：源带词时间（Spicy、amll-ttml 插件、
+  lyricfetch 的网易云逐字、Lyricon 带 YRC 的歌）时翻译辅助行按真实词窗点亮；**行级源
+  （LyricInfo / SuperLyric）只会得到行级译文**——日志会显示 `(0 with word timing)`。
+- **「自动跳过语言」会把整首跳过**（例如勾了「中文」时中文歌一行都不翻）：这是用户自己的
+  设置，1.0.2 起该跳过会记在 info 级日志（原先 debug 级，默认日志级别下看不见，容易被当成
+  「插件没在用」）。
 - **无模型搜索**：插件契约的 UI 能力（manifest 声明 + 宿主渲染）没有「按钮触发异步列表」
   这一控件，模型名需手填；
 - 语言检测是**字符集启发式**：日文歌若纯汉字歌词会被归为中文；混合语言按占比归类；
@@ -148,6 +166,9 @@ uses (`PluginLyricField.TRANSLATION_WORDS`) to light up the auxiliary-text karao
 
 - **Stage**: `TRANSLATION_ENHANCEMENT`; **update mode**: `PATCH` (`TRANSLATION`, plus
   `TRANSLATION_WORDS` when at least one row got fragments);
+- **Batched & progressive** (since 1.0.2): lines are sent 12 per request (12 s per batch, 30 s per
+  processor run), and the cache accepts partial hits and stores partial results, so a long song
+  completes across chain runs instead of failing wholesale on one oversized request.
 - This is a second-generation variant of the sibling plugin `plugins/ai-translation`: the
   line-level semantics (skip languages / skip existing / force / per-line filter / per-song
   cache) are identical; only the word-fragment pipeline is new. Model search is not included
@@ -196,9 +217,12 @@ enable the word-level effect for the auxiliary (translation) text row.
 Per-song results in the host's persistent cache (30-day TTL, 200-entry cap), exposed via
 `PluginCacheExtension` (`ai_translation_words_songs`). Key = SHA-256 of track identity + target +
 model + base URL + prompt + sampling params + word-timing flag; entries store
-text → translation (+ fragments, matched by line text). A cache hit requires every needed line
-present, and for word-timed lines a fragment count equal to the current token count. Only
-successful results are cached; failures back off in memory (10-minute cooldown).
+text → translation (+ fragments, matched by line text). Cache hits are **per line** and the stored
+payload is the **union** of everything translated so far (since 1.0.2), so a long song fills in
+across runs; for word-timed lines a cached fragment set must match the current token count. Only
+successful results are cached; when a whole run resolves nothing the plugin backs off in memory for
+**2 minutes** (shortened from 10 in 1.0.2 — a track cancelled by a song switch lands on the same
+path, and a long back-off makes that song look like the plugin is not working).
 
 ## 7. Verification status
 
@@ -213,16 +237,22 @@ successful results are cached; failures back off in memory (10-minute cooldown).
   `publish-plugins` job.
 - **Real endpoint: not verified** — an end-to-end call needs the user's own key and was not made
   during development; try a short lyric first.
-- **Device: not verified.**
+- **Device (1.0.1, 2026-10-07)**: the plugin loads and runs on a real device (`translated 54
+  line(s)`, `accepted result ... changedLyricFields=[TRANSLATION]`), which also exposed the two
+  defects fixed in 1.0.2 (one oversized request blew the per-run budget; the 10-minute back-off
+  also caught song-switch cancellations). Word-level output still needs a track whose source
+  carries per-word timing (the track played then was line-level: `0 with word timing`).
 
 ## 8. Known limitations
 
-No model search (contract UI limitation); heuristic language detection (kanji-only Japanese
-classifies as Chinese); word-level output depends on how well the chosen model follows the
-segments protocol (a count mismatch silently degrades that line to a plain translation rather
-than mis-timed fragments); alignment follows source-word windows, so the visual result depends
-on the model's segmentation; single request for all lines (no chunking); translation quality
-depends on the chosen model and prompt.
+Word-level output requires a source that carries per-word timing (Spicy, the amll-ttml plugin,
+lyricfetch's NetEase word-level results, Lyricon tracks with YRC); line-level sources (LyricInfo /
+SuperLyric) yield a line translation only — the log then shows `(0 with word timing)`. The
+"skip languages" setting skips whole songs by design (logged at info level since 1.0.2, it used to
+be debug-only and therefore invisible). No model search (contract UI limitation); heuristic
+language detection (kanji-only Japanese classifies as Chinese); alignment follows source-word
+windows, so the visual result depends on the model's segmentation; translation quality depends on
+the chosen model and prompt.
 
 ## 9. Credits & licenses
 

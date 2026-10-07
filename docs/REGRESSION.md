@@ -706,6 +706,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 
 | 2026-10-06 | 0.3.165 (192) + lyricfetch 1.0.0 | 插件缓存与联网行为 | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | SuperLyric 源播放时一首歌在插件缓存页堆了 **21 条**：取词插件的缓存键里含曲目时长，而宿主对逐行源上报的 `duration` 是**当前行的结束时间**，于是每 15s 一次链重跑就铸一个新键——缓存永不命中、每条都重新搜三个在线来源，负缓存也保护不了这首歌（同机旁证：同批歌在 amll-ttml 插件缓存里各只有 1 条，它的键不含时长）。修复（缓存键去掉时长；格式升到 v2，读缓存页时顺手清掉残留的 v1 条目）随本条目落地；装上 1.0.1 的 ZIP 后复验并更新为 pass + device-verified。 |
 
+| 2026-10-07 | 0.3.166 (193) debug + ai-translation-words 1.0.1 | 插件缓存与联网行为 | fail | Redmi K80 Pro (`miro`) / 24122RKC7C | trace-observed | 现场「插件没在用」：插件其实已启用并跑通（`translated 54 line(s)` + `accepted result ... changedLyricFields=[TRANSLATION]` + `chain applied`），但三处让效果出不来——①**整首一次发**的请求超过单次预算（`processor ... threw after 32221ms`、`translation request failed ... (cooldown 10min)`），多首歌整首无产出；②失败退避 10 分钟过长，**切歌取消**也落到该路径 → 那首歌十分钟内不再重试；③`skip_languages={zh}` 把中文歌（含带逐字时间的曲目）整首跳过，而该跳过只记 debug 级日志（默认级别看不见）。修复随 1.0.2 落地：待译行按 12 行/批分批请求（单批 12s、单轮总预算 30s）、缓存允许部分命中并写并集（长歌跨轮次逐批完成）、整轮全败才退避且缩短到 2 分钟、跳过语言记 info 级；单测 61 例本地全绿。装 1.0.2 后复验：长歌不再整首无产出、逐字产出需带词时间轴的曲目（当次播放的曲目为行级源，日志 `0 with word timing`）。 |
+
 ## 已知未验证路径
 
 - 主行渲染路径的预览/实机同源决策（`planOriginalLine`：静态全亮 / 词级卡拉OK / 共享扫光块三选一，实机画布与 App 内预览读同一份；`BetterLyrics` 档不再被共享行级扫光门拦下；整块横扫只在显式选择该档时出现）——合并后待真机冒烟：带行窗的逐字源（Spicy/LyricInfo/SuperLyric）在 BetterLyrics 档下必须出逐字卡拉OK（此前被 `shouldUseSharedLineLevelSweep` 拦到逐行扫光，表现即「预览有逐字效果、实机没有」）；Gradient 档仍逐行推进；「行进度效果」四档逐档生效（None 静态、Top to bottom 纵向、main only 逐行、whole block 整块）；App 内预览与实机在换歌引导态之外逐档一致（此前逐字源预览整块、实机逐行分叉）。
