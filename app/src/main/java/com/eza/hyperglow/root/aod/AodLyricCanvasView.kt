@@ -3213,12 +3213,13 @@ internal class AodLyricCanvasView(
         )
 
     /**
-     * 翻译行的逐字时间线(插件提供的词级译文,见 `PluginLyricField.TRANSLATION_WORDS`)。
+     * 翻译行的逐字时间线(插件/歌词源提供的词级译文,见 `PluginLyricField.TRANSLATION_WORDS`)。
      *
      * 与音标行 [transliterationLines] 同构:每段自带真实词窗(段文本直接相连——西文词间的
-     * 空格由插件写在片段内,这里不另插分隔符),按宽度均衡折行,折行后各行同样携带
+     * 空格由来源写在片段内,这里不另插分隔符),按宽度均衡折行,折行后各行同样携带
      * [SecondaryTimedSegment],由 [drawAuxKaraokeRow] 按真实词窗点亮。行文本与
-     * [AodCanvasContent.translated] 逐字符一致(插件保证拼接关系)。
+     * [AodCanvasContent.translated] 逐字符一致(片段重建不出整行译文时整体回落,见
+     * [translatedTimedSegments])。
      *
      * 无词级数据(插件没给 / 未装插件 / 该行源无逐字时间)返回 null,调用方回落到
      * 行窗口 + 行内几何合成——即「辅助文字逐字效果」的历史行为。
@@ -3227,9 +3228,12 @@ internal class AodLyricCanvasView(
         content: AodCanvasContent,
         availableWidth: Float
     ): List<TextLine>? {
-        // 逐字段的取舍(空片段剔除、全零窗拒绝)在共享纯函数里,与单测同源。
-        val segments = translatedTimedSegments(content.translationWords, translatedPaint::measureText)
-            ?: return null
+        // 逐字段的取舍(片段重建整行译文、空片段剔除、全零窗拒绝)在共享纯函数里,与单测同源。
+        val segments = translatedTimedSegments(
+            content.translationWords,
+            content.translated,
+            translatedPaint::measureText
+        ) ?: return null
         return secondaryTimedVisualRanges(
             segments,
             availableWidth,
