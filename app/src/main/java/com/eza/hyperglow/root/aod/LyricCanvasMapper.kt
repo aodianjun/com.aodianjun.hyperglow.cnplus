@@ -163,6 +163,9 @@ internal fun LyricSnapshot.toAodCanvasContent(
                         if (duetMarkers) line.alignedRightMarkers else line.alignedRight,
                         profile?.duetAlignment ?: true
                     ),
+                    // 和声身份原样过面:渲染侧据此走辅助行车道(不按「对唱分侧」门控——
+                    // 它不是演唱者身份,只是回声行的呈现车道)。
+                    harmony = line.harmony,
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
                     words = (if (duetMarkers) stripSurfaceDuetMarkerWords(line.words) else line.words).map {

@@ -243,7 +243,8 @@ object PluginSongBridge {
         // 随父行一起显示;CN+ 的插件把它映射成独立行,所以这里按行身份把它挂回活动行,
         // 不要求位置落在和声自己的窗口内(父行窗口常远长于和声,如 20.5s vs 5.2s);
         // ②没有同句和声时退回既有的纯时间窗重叠判定(对唱并发行)。
-        // 绘制侧仍按和声自己的时间窗门控(见 AodLyricCanvasView.drawDuetOriginal)。
+        // 绘制侧仍按和声自己的时间窗门控(见 AodLyricCanvasView.drawDuetOriginal);和声身份
+        // 随行进入 [LyricDuetLine.harmony],渲染侧据此走辅助行车道。
         if (replacedLyricRows(patched)) {
             val primaryIndex = rows.indexOf(active)
             // 诊断探针:插件替换歌词后记录行表构成与并发行挂载结果(真机判定和声行有没有被认出来)。
@@ -273,6 +274,10 @@ object PluginSongBridge {
                         translated = effectiveTranslation(row).orEmpty(),
                         alignedRight = row.isAlignedRight,
                         alignedRightMarkers = row.isAlignedRight,
+                        // 和声身份取自被选中行自己的角色,而不是「走的哪条选取分支」:
+                        // accompanimentRowIndex 已保证 role=BG 才会走到这里,时间窗回退选中的
+                        // 是不同演唱者的对唱行(渲染侧与主行同款并排)。
+                        harmony = row.metadata?.values?.get(META_ROLE) == ROLE_BG,
                         lineStartMs = row.begin,
                         lineEndMs = row.end,
                         words = row.words?.map { word ->

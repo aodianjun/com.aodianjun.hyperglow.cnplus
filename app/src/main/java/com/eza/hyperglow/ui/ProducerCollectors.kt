@@ -186,7 +186,18 @@ internal fun LyricProducerState.toPreviewSnapshot(
     artworkKey = frame?.key ?: "",
     // 对唱并发行:与主行同口径按本面「识别对唱标记」剥离文本/词表并选分侧,剥空(纯标记行)
     // 整条丢弃;是否上屏由渲染侧按本面「显示并发歌词(对唱)」门控(与实机 LyricCanvasMapper 同源)。
-    duetLine = duetLine?.let { line ->
+    duetLine = toPreviewDuetLine(duetMarkers)
+    )
+}
+
+/**
+ * 实时快照的并发行映射(纯函数,JVM 可测;与实机 AodStateProjector 同口径):按本面「识别
+ * 对唱标记」剥离文本/词表并选分侧,剥空(纯标记行)整条丢弃。和声身份(role=BG 的 x-bg 回声)
+ * 原样透传——预览渲染侧据此走辅助行车道,漏传时预览把和声按对唱同款大字行渲染,正是真机
+ * 2026-10-07 反馈的错观感(演示快照自带标记,掩盖了这一缺口,见 [demoDuetLine])。
+ */
+internal fun LyricProducerState.toPreviewDuetLine(duetMarkers: Boolean): LyricDuetLine? =
+    duetLine?.let { line ->
         val duetText = if (duetMarkers) stripDuetMarker(line.text) else line.text
         if (duetText.isBlank()) {
             null
@@ -197,6 +208,7 @@ internal fun LyricProducerState.toPreviewSnapshot(
                 translated = line.translated,
                 alignedRight = if (duetMarkers) line.alignedRightMarkers else line.alignedRight,
                 alignedRightMarkers = line.alignedRightMarkers,
+                harmony = line.harmony,
                 lineStartMs = line.lineStartMs,
                 lineEndMs = line.lineEndMs,
                 // 逐字卡拉OK按词绘制,标记剥离必须与并发行文本同源,否则标记残留/错位。
@@ -214,8 +226,6 @@ internal fun LyricProducerState.toPreviewSnapshot(
             )
         }
     }
-    )
-}
 
 // 判断模块当前是否处于可用的运行状态(与 runtimeProfileAvailable 一致)。
 internal fun resolveModuleWorking(state: XiaomiRuntimeSupportState): Boolean =

@@ -1177,18 +1177,28 @@ internal fun collectDemoSnapshot(
         // 演示快照携带注音:让「注音」开关在无实时歌词时也能在预览里看出效果
         // (实机仅在 rubyVisible == false 时清空,见 LyricCanvasMapper)。
         ruby = line.ruby,
-        // 演示并发行(对唱/和声):让「显示并发歌词(对唱)」开关在无实时歌词时也能在预览里
-        // 看出效果;文本为空的行不产出并发行(与实机 duetLine 文本为空整条丢弃同口径)。
-        duetLine = line.duet?.takeIf { it.isNotBlank() }?.let { duet ->
-            LyricDuetLine(
-                text = duet,
-                lineStartMs = 0,
-                lineEndMs = DEMO_LINE_SWITCH_MS,
-                words = demoWords(duet)
-            )
-        }
+        // 演示并发行(和声):让「显示并发歌词(对唱)」开关在无实时歌词时也能在预览里
+        // 看出效果;装配规则见 [demoDuetLine](纯函数,JVM 可测)。
+        duetLine = demoDuetLine(line)
     )
 }
+
+/**
+ * 演示副行 → 并发行(纯函数,JVM 可测):文本为空不产出(与实机 duetLine 文本为空整条
+ * 丢弃同口径)。演示副行都是带括号的回声句(AMLL x-bg 形态),按**和声**下发——预览与
+ * 实机同源走辅助行车道(小字号辅助行),不再堆主行同款大字行(两条一样的大字行是
+ * 真机 2026-10-07 反馈的错观感);真对唱(不同演唱者并排)只在实机快照里出现。
+ */
+internal fun demoDuetLine(line: DemoLine): LyricDuetLine? =
+    line.duet?.takeIf { it.isNotBlank() }?.let { duet ->
+        LyricDuetLine(
+            text = duet,
+            harmony = true,
+            lineStartMs = 0,
+            lineEndMs = DEMO_LINE_SWITCH_MS,
+            words = demoWords(duet)
+        )
+    }
 
 /**
  * 演示歌词行按界面语言选择:English 用英文演示曲,其余(跟随系统/简体中文)用中文演示曲。
@@ -1224,9 +1234,10 @@ internal class DemoLine(
      */
     val ruby: List<LyricRuby>,
     /**
-     * 同句和声/对唱副行(可空,仅演示数据用):让「显示并发歌词(对唱)」在无实时歌词时也能在
-     * 预览里看出来。演示快照不走按面标记剥离(见 collectDemoSnapshot),这里直接写剥离后的
-     * 形态,避免预览出现实机默认设置下不会上屏的行首标记文本。
+     * 同句和声副行(可空,仅演示数据用):让「显示并发歌词(对唱)」在无实时歌词时也能在
+     * 预览里看出来;文本都是带括号的回声句,装配成和声行走辅助行车道(见 [demoDuetLine])。
+     * 演示快照不走按面标记剥离(见 collectDemoSnapshot),这里直接写剥离后的形态,避免预览
+     * 出现实机默认设置下不会上屏的行首标记文本。
      */
     val duet: String? = null
 )

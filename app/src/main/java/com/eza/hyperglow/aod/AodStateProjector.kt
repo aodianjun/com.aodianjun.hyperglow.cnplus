@@ -282,6 +282,7 @@ internal fun projectToDisplay(
                     translated = line.translated,
                     alignedRight = line.alignedRight,
                     alignedRightMarkers = line.alignedRightMarkers,
+                    harmony = line.harmony,
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
                     words = line.words.map(::toDisplayWord)

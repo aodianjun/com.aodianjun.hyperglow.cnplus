@@ -527,6 +527,9 @@ private fun LyricPreviewSurface(
                 // 对唱并发行(与实机 buildRows 同源):本面「显示并发歌词(对唱)」开启且快照
                 // 带非空并发行时,主行块之后同款堆叠并发行块(自带词级扫光);在场时取代独立
                 // 「下一行」行(与 #82 的 anti-dup 同式,防下方拥挤)。
+                // 和声行(harmony,插件行 role=BG 的 x-bg 回声)不走这一档:它常与主行同文,
+                // 同款堆叠就是两条一样的大字行(真机 2026-10-07 反馈的错观感);改走辅助行
+                // 车道,见下方 duetRows 的和声首行(与实机 buildRows 同源)。
                 val duet = snapshot.duetLine?.takeIf {
                     previewDuetVisible(profile.duetConcurrent, it)
                 }
@@ -541,7 +544,7 @@ private fun LyricPreviewSurface(
                     profile.lyricLineLimit, profile.overflow, profile.adaptiveSectioning,
                     profile.animation, resolvedColors.unsungText, previewWordKaraoke
                 ) {
-                    if (duet == null) {
+                    if (duet == null || duet.harmony) {
                         null
                     } else {
                         // 行级源的字符合成时间轴取并发行自己的行窗(与实机并发行扫光同拍)。
@@ -574,8 +577,30 @@ private fun LyricPreviewSurface(
                 }
                 // 并发行自己的辅助文字行(音标/翻译):文本为空不构造该行(与实机 buildRows 的
                 // isNotBlank 门控同源);颜色/亮度档/间隔与主行辅助行一致。
+                // 和声行走辅助行车道:和声文本本身占首行(与实机 buildRows 的 ROMANIZED 行同源),
+                // 其音标/翻译不再单独出——和声多是主行文本的回声,那两份与主行的辅助行重复。
                 val duetRows = if (duet == null) {
                     emptyList()
+                } else if (duet.harmony) {
+                    listOf(
+                        PreviewBlockRow(
+                            row = PreviewSecondaryLine(
+                                duet.text,
+                                secondaryReadingTextSizeSp(baseSp).sp,
+                                italic = false
+                            ),
+                            color = secondaryColor,
+                            // 和声是主行自己的辅助车道,对齐随主行(与实机 alignmentFor 的非
+                            // DUET_* 行同源),不按并发行分侧翻转。
+                            align = textAlign,
+                            gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
+                            dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright),
+                            // 换行档取主行行数:和声多是主行文本的回声(实机 wrapSecondaryText
+                            // 同传 originalLayout.lineCount)。
+                            preferredLines = mainLayout.lines.size,
+                            karaoke = profile.secondaryWordKaraoke
+                        )
+                    )
                 } else {
                     val showReading = profile.secondaryMode == "Transliteration" ||
                         profile.secondaryMode == "Both"
@@ -1434,10 +1459,14 @@ private class PreviewRowBlock(
     /**
      * 对唱并发行布局:与主行同款布局+词级扫光(同 [PreviewMainLayout]),堆在主行块之后,
      * 其高度计入 MAIN 段;在场时取代独立「下一行」行(anti-dup,与实机 buildRows 同式,
-     * 防下方拥挤)。null = 本面无并发行或「显示并发歌词(对唱)」已关。
+     * 防下方拥挤)。null = 本面无并发行、「显示并发歌词(对唱)」已关,或本行是和声行
+     * (和声走辅助行车道,只经 [duetRows] 呈现,不再叠主行同款大字行)。
      */
     val duet: PreviewMainLayout? = null,
-    /** 并发行自己的辅助文字行(音标/翻译),紧随并发行之后;换行档跟随并发行呈现行数。 */
+    /**
+     * 并发行自己的辅助文字行(音标/翻译),紧随并发行之后;换行档跟随并发行呈现行数。
+     * 和声行([duet] 为空)时是唯一承载:首行即和声文本本身,按辅助行样式渲染。
+     */
     val duetRows: List<PreviewBlockRow> = emptyList()
 )
 
@@ -1820,14 +1849,38 @@ private fun PreviewRowBlockLayer(
                             .padding(top = ROW_GAP_BEFORE_ORIGINAL_DP.dp)
                             .height(with(density) { duet.blockHeight.toDp() })
                     )
-                    // 并发行自己的辅助行:换行档跟随并发行自身呈现行数(实机 buildRows 同源)。
-                    block.duetRows.forEach { item ->
+                }
+                // 并发行/和声行自己的辅助行:换行档跟随并发行自身呈现行数(实机 buildRows 同源);
+                // 和声行走辅助行车道时 duet 为空、行数档由行自带的 preferredLines 给出。
+                block.duetRows.forEach { item ->
+                    val auxKaraoke = block.auxKaraoke
+                    if (item.karaoke && auxKaraoke != null && auxKaraoke.spanMs > 0L) {
+                        // 和声行「辅助文字逐字效果」:与实机 drawAuxKaraokeRow 同一共享渲染核心
+                        // (实机按和声自己的行窗口点亮,预览走演示进度)。
+                        PreviewSecondaryKaraokeRow(
+                            row = item.row,
+                            color = item.color,
+                            typeface = regularTypeface,
+                            availableWidthPx = availableWidthPx,
+                            preferredLines = item.preferredLines ?: duet?.lines?.size
+                                ?: block.main.lines.size,
+                            wrap = wrap,
+                            adaptiveSectioning = adaptiveSectioning,
+                            textAlign = item.align,
+                            progress = sweepProgress,
+                            auxKaraoke = auxKaraoke,
+                            glowColor = glowColor,
+                            glowEnabled = glowEnabled,
+                            modifier = Modifier.padding(top = item.gapAbove)
+                        )
+                    } else {
                         PreviewSecondaryRow(
                             row = item.row,
                             color = item.color,
                             typeface = regularTypeface,
                             availableWidthPx = availableWidthPx,
-                            preferredLines = duet.lines.size,
+                            preferredLines = item.preferredLines ?: duet?.lines?.size
+                                ?: block.main.lines.size,
                             wrap = wrap,
                             adaptiveSectioning = adaptiveSectioning,
                             textAlign = item.align,

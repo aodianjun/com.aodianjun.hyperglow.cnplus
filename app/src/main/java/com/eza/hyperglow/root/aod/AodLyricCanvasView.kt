@@ -2074,66 +2074,88 @@ internal class AodLyricCanvasView(
         // 对唱并发行(仅息屏内容携带,见 SurfaceProfile.duetConcurrent):主行块(原文+辅助行)
         // 之后同尺寸堆叠并发行块(原文+其辅助行),各画各的词级扫光;并发行在场时取代独立
         // 「下一行」行(与 #82「辅助文字显示第二行歌词」的 anti-dup 同式,防下方拥挤)。
+        // 和声行(harmony,插件行 role=BG 的 x-bg 回声)不走这一档:它常与主行同文,同尺寸
+        // 堆叠出来就是两条一样的大字行(真机 2026-10-07 反馈的错观感);改走辅助行车道,
+        // 与第一行辅助行同规格——参照 HyperLyric 把 x-bg 折进父行 secondary 车道。
         val duet = content.duetLine
         var duetLayout: OriginalLayout? = null
         if (duet != null && duet.text.isNotBlank()) {
-            val built = buildDuetOriginalLayout(duet, availableWidth)
-            duetLayout = built
-            val duetAuxKaraokeWindow = if (content.secondaryWordKaraoke) {
-                duet.lineStartMs..duet.lineEndMs
-            } else {
-                null
-            }
-            val metrics = originalPaint.fontMetrics
-            val lineHeight = metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density
-            rows += Row(
-                RowKind.DUET_ORIGINAL,
-                duet.text,
-                originalPaint,
-                originalRowHeight(
-                    lineHeight,
-                    built.lineCount,
-                    built.rubyHeight,
-                    built.lineGap
-                ),
-                ROW_GAP_BEFORE_ORIGINAL_DP * density,
-                emptyList(),
-                lineHeight
-            )
-            if (showReading && duet.romanized.isNotBlank()) {
+            if (duet.harmony) {
+                // 复用辅助行装配:同一字号公式/亮度档/「辅助文字逐字效果」路径(行窗口取和声
+                // 自己的,逐字推进与和声同拍);换行档取主行行数——和声多是主行文本的回声。
                 rows += rowWithLines(
-                    RowKind.DUET_ROMANIZED,
-                    duet.romanized,
+                    RowKind.ROMANIZED,
+                    duet.text,
                     romanizedPaint,
                     ROW_GAP_BEFORE_SECONDARY_DP * density,
                     wrapSecondaryText(
                         content,
+                        duet.text,
+                        romanizedPaint,
+                        originalLayout.lineCount,
+                        availableWidth
+                    ),
+                    if (content.secondaryWordKaraoke) duet.lineStartMs..duet.lineEndMs else null
+                )
+            } else {
+                val built = buildDuetOriginalLayout(duet, availableWidth)
+                duetLayout = built
+                val duetAuxKaraokeWindow = if (content.secondaryWordKaraoke) {
+                    duet.lineStartMs..duet.lineEndMs
+                } else {
+                    null
+                }
+                val metrics = originalPaint.fontMetrics
+                val lineHeight = metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density
+                rows += Row(
+                    RowKind.DUET_ORIGINAL,
+                    duet.text,
+                    originalPaint,
+                    originalRowHeight(
+                        lineHeight,
+                        built.lineCount,
+                        built.rubyHeight,
+                        built.lineGap
+                    ),
+                    ROW_GAP_BEFORE_ORIGINAL_DP * density,
+                    emptyList(),
+                    lineHeight
+                )
+                if (showReading && duet.romanized.isNotBlank()) {
+                    rows += rowWithLines(
+                        RowKind.DUET_ROMANIZED,
                         duet.romanized,
                         romanizedPaint,
-                        built.lineCount,
-                        availableWidth,
-                        alignmentFor(content, RowKind.DUET_ROMANIZED)
-                    ),
-                    // 并发行辅助行取并发行自己的窗口,逐字推进与并发行主行同拍。
-                    duetAuxKaraokeWindow
-                )
-            }
-            if (showTranslation && duet.translated.isNotBlank()) {
-                rows += rowWithLines(
-                    RowKind.DUET_TRANSLATED,
-                    duet.translated,
-                    translatedPaint,
-                    ROW_GAP_BEFORE_SECONDARY_DP * density,
-                    wrapSecondaryText(
-                        content,
+                        ROW_GAP_BEFORE_SECONDARY_DP * density,
+                        wrapSecondaryText(
+                            content,
+                            duet.romanized,
+                            romanizedPaint,
+                            built.lineCount,
+                            availableWidth,
+                            alignmentFor(content, RowKind.DUET_ROMANIZED)
+                        ),
+                        // 并发行辅助行取并发行自己的窗口,逐字推进与并发行主行同拍。
+                        duetAuxKaraokeWindow
+                    )
+                }
+                if (showTranslation && duet.translated.isNotBlank()) {
+                    rows += rowWithLines(
+                        RowKind.DUET_TRANSLATED,
                         duet.translated,
                         translatedPaint,
-                        built.lineCount,
-                        availableWidth,
-                        alignmentFor(content, RowKind.DUET_TRANSLATED)
-                    ),
-                    duetAuxKaraokeWindow
-                )
+                        ROW_GAP_BEFORE_SECONDARY_DP * density,
+                        wrapSecondaryText(
+                            content,
+                            duet.translated,
+                            translatedPaint,
+                            built.lineCount,
+                            availableWidth,
+                            alignmentFor(content, RowKind.DUET_TRANSLATED)
+                        ),
+                        duetAuxKaraokeWindow
+                    )
+                }
             }
         }
         // 下一行歌词呈现与预览同源(secondLinePresentation):「辅助文字显示第二行歌词」

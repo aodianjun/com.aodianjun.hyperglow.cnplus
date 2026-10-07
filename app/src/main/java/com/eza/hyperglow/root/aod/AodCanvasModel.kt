@@ -114,12 +114,16 @@ internal data class AodCanvasContent(
 /**
  * 对唱并发行(画布模型,仅息屏消费):与主行播放窗口重叠的另一唱词行,在主行下方
  * 同尺寸堆叠渲染,各画各的词级扫光。v1 不携带 ruby/layoutGroups。
+ * [harmony] 为真时是插件行 role=BG 的 x-bg 回声,改走辅助行车道(小字号辅助行),
+ * 不再同尺寸堆叠——两条一样的大字行是错观感(真机 2026-10-07 反馈)。
  */
 internal data class AodCanvasDuetLine(
     val text: String,
     val romanized: String = "",
     val translated: String = "",
     val alignedRight: Boolean = false,
+    /** 和声行标记;渲染侧据此选辅助行车道,见 [AodCanvasContent.duetLine]。 */
+    val harmony: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<AodCanvasWord> = emptyList()
