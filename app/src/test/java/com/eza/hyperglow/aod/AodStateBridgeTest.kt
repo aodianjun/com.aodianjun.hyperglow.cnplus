@@ -232,6 +232,28 @@ class AodStateBridgeTest {
         assertTrue(publication.message is AodStateWireMessage.Hidden)
     }
 
+    /** 插件逐字翻译词表:空片段整条丢弃(不贡献译文文本)、时间窗钳到歌长、source 范围恒 -1。 */
+    @Test
+    fun translationWordsClampToDurationAndDropEmptyFragments() {
+        val normalized = normalizeAodDisplayState(
+            state().copy(
+                translated = "我爱你",
+                translationWords = listOf(
+                    AodDisplayWord("我", "", 0L, 600L, true),
+                    AodDisplayWord("", "", 600L, 900L, true),
+                    AodDisplayWord(" 爱", "", 1_500L, 5_000L, true)
+                )
+            )
+        )
+
+        assertEquals(listOf("我", " 爱"), normalized.translationWords.map { it.text })
+        assertTrue(normalized.translationWords.all { it.endMs <= normalized.durationMs })
+        assertTrue(normalized.translationWords.all { it.sourceStart == -1 && it.sourceEnd == -1 })
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
     private fun state(
         positionMs: Long = 1_000L,
         sampledAtElapsedMs: Long = 1_000L

@@ -82,6 +82,19 @@ internal fun LyricSnapshot.toAodCanvasContent(
             it.sourceEnd
         )
     },
+    // 插件逐字翻译词表:片段文本即译文片段,不参与行首标记剥离(它不来自原文);
+    // 词级数据随快照下发,按面开关(「辅助文字逐字效果」)在渲染侧取用。
+    translationWords = translationWords.map {
+        AodCanvasWord(
+            it.text,
+            it.romanized,
+            it.startMs,
+            it.endMs,
+            it.boundaryAfter,
+            it.sourceStart,
+            it.sourceEnd
+        )
+    },
     ruby = if (profile?.rubyVisible == false) {
         emptyList()
     } else {

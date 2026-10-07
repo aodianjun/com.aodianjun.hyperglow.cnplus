@@ -242,6 +242,13 @@ internal fun projectToDisplay(
     } else {
         state.ruby.map(::toDisplayRuby)
     }
+    // 插件逐字翻译词表:与 words 同一门控(大元数据引导/无活动行时不下发);「拒绝日语假名
+    // 注音」只作用于音标,翻译片段原样下发(它不来自注音通道)。
+    val translationWords = if (showLargeMetadata || !hasActiveLine) {
+        emptyList()
+    } else {
+        state.translationWords.map(::toDisplayWord)
+    }
     val layoutGroups = if (showLargeMetadata || !hasActiveLine) emptyList() else state.layoutGroups.map(::toDisplayLayoutGroup)
 
     // --- 对唱并发行(息屏 + 锁屏卡片,移植上游 99ba119d4 duet/secondLine)---
@@ -323,6 +330,7 @@ internal fun projectToDisplay(
         sampledAtElapsedMs = now,
         speed = state.speed,
         words = words,
+        translationWords = translationWords,
         ruby = ruby,
         layoutGroups = layoutGroups,
         duetLine = duetLine,

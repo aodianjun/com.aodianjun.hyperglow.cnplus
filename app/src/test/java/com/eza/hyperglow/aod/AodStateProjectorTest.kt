@@ -111,6 +111,7 @@ class AodStateProjectorTest {
         translatedLine: String = "",
         lineIndex: Int = -1,
         words: List<LyricWord>? = null,
+        translationWords: List<LyricWord> = emptyList(),
         alignedRight: Boolean = false,
         lineStartMs: Long = 0L,
         lineEndMs: Long = 0L,
@@ -152,6 +153,7 @@ class AodStateProjectorTest {
         playing = playing,
         receivedAtElapsedMs = sampledAtElapsedMs,
         words = words,
+        translationWords = translationWords,
         renderModes = renderModes(),
         lyricKind = lyricKind,
         alignedRight = alignedRight,
@@ -178,6 +180,45 @@ class AodStateProjectorTest {
             powerSessionPolicy = AodPowerSessionPolicy(),
             userId = 0
         )
+
+    // --- 插件逐字翻译词表(translationWords,翻译辅助行按真实词窗点亮)---
+
+    @Test
+    fun pluginTranslationWordsAreForwardedForActiveLine() {
+        val s = state(
+            line = "I love you",
+            translatedLine = "我爱你",
+            lineIndex = 0,
+            lineStartMs = 0L,
+            lineEndMs = 2_000L,
+            words = listOf(LyricWord("I love you", "", 0L, 2_000L, true)),
+            translationWords = listOf(
+                LyricWord("我", "", 0L, 600L, true),
+                LyricWord(" 爱", "", 600L, 1_200L, true),
+                LyricWord(" 你", "", 1_200L, 2_000L, true)
+            )
+        )
+        val out = project(s)
+
+        assertEquals(3, out.translationWords.size)
+        assertEquals(listOf("我", " 爱", " 你"), out.translationWords.map { it.text })
+        assertEquals(600L, out.translationWords[1].startMs)
+        assertEquals(2_000L, out.translationWords[2].endMs)
+    }
+
+    /** 无活动行(空档占位符)时不携带逐字翻译词表——与 words 同一门控。 */
+    @Test
+    fun pluginTranslationWordsAreDroppedWithoutActiveLine() {
+        val s = state(
+            line = "",
+            translatedLine = "我爱你",
+            lineIndex = -1,
+            translationWords = listOf(LyricWord("我", "", 0L, 600L, true))
+        )
+        val out = project(s)
+
+        assertTrue(out.translationWords.isEmpty())
+    }
 
     // --- 语言不一致的日语假名注音(上游 8422d78)---
 

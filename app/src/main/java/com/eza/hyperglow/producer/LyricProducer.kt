@@ -163,6 +163,12 @@ data class LyricProducerState(
     val playing: Boolean,
     val receivedAtElapsedMs: Long,
     val words: List<LyricWord>?,
+    /**
+     * 插件提供的逐字翻译词表(词级译文 + 时间窗,见 `PluginLyricField.TRANSLATION_WORDS`):
+     * 辅助文字(翻译)行按真实词窗点亮。空表 = 无词级数据,渲染侧回落到行窗口合成
+     * (「辅助文字逐字效果」的历史行为)。
+     */
+    val translationWords: List<LyricWord> = emptyList(),
     val renderModes: ProducerRenderModes,
     val lyricKind: LyricKind = LyricKind.NONE,
     /**

@@ -2040,18 +2040,25 @@ internal class AodLyricCanvasView(
             rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, ROW_GAP_BEFORE_SECONDARY_DP * density, lines, auxKaraokeWindow)
         }
         if (showTranslation && content.translated.isNotBlank()) {
+            // 插件提供逐字翻译词表且本面开启「辅助文字逐字效果」时按真实词窗折行点亮;
+            // 开关关闭时保持原行装配(逐字节不变)。
+            val translatedLines = (if (content.secondaryWordKaraoke) {
+                translatedTimedLines(content, availableWidth)
+            } else {
+                null
+            }) ?: wrapSecondaryText(
+                content,
+                content.translated,
+                translatedPaint,
+                originalLayout.lineCount,
+                availableWidth
+            )
             rows += rowWithLines(
                 RowKind.TRANSLATED,
                 content.translated,
                 translatedPaint,
                 ROW_GAP_BEFORE_SECONDARY_DP * density,
-                wrapSecondaryText(
-                    content,
-                    content.translated,
-                    translatedPaint,
-                    originalLayout.lineCount,
-                    availableWidth
-                ),
+                translatedLines,
                 auxKaraokeWindow
             )
         }
@@ -3188,6 +3195,51 @@ internal class AodLyricCanvasView(
             content.original.length,
             wordCount
         )
+
+    /**
+     * 翻译行的逐字时间线(插件提供的词级译文,见 `PluginLyricField.TRANSLATION_WORDS`)。
+     *
+     * 与音标行 [transliterationLines] 同构:每段自带真实词窗(段文本直接相连——西文词间的
+     * 空格由插件写在片段内,这里不另插分隔符),按宽度均衡折行,折行后各行同样携带
+     * [SecondaryTimedSegment],由 [drawAuxKaraokeRow] 按真实词窗点亮。行文本与
+     * [AodCanvasContent.translated] 逐字符一致(插件保证拼接关系)。
+     *
+     * 无词级数据(插件没给 / 未装插件 / 该行源无逐字时间)返回 null,调用方回落到
+     * 行窗口 + 行内几何合成——即「辅助文字逐字效果」的历史行为。
+     */
+    private fun translatedTimedLines(
+        content: AodCanvasContent,
+        availableWidth: Float
+    ): List<TextLine>? {
+        val words = content.translationWords
+        if (words.isEmpty()) return null
+        val segments = words.mapNotNull { word ->
+            // 空片段不占位(插件侧已跳过空串;这里对半截数据同样 fail-safe)。
+            if (word.text.isEmpty()) return@mapNotNull null
+            SecondaryTimedSegment(
+                text = word.text,
+                width = translatedPaint.measureText(word.text),
+                gapAfter = 0f,
+                startMs = word.startMs,
+                endMs = word.endMs
+            )
+        }
+        if (segments.isEmpty()) return null
+        // 全零窗(占位词形态)不走逐字路径:零窗段被 timedWordProgress 判成恒亮,整行会呈
+        // 静态全亮(与 isTimedKaraokeWord 的判据同源);回落行窗口合成反而是正确观感。
+        if (segments.none { isTimedKaraokeWord(it.startMs, it.endMs) }) return null
+        return secondaryTimedVisualRanges(
+            segments,
+            availableWidth,
+            MAX_SECONDARY_LAYOUT_LINES,
+            wrap = content.adaptiveSectioning && content.overflowMode == "Wrap"
+        ).map { range ->
+            val lineSegments = range.map(segments::get)
+            val text = lineSegments.joinToString("") { it.text }
+            val lineWidth = lineSegments.sumOf { it.width.toDouble() }.toFloat()
+            textLine(text, lineWidth, translatedPaint).copy(timedSegments = lineSegments)
+        }
+    }
 
     private fun transliterationLines(
         content: AodCanvasContent,

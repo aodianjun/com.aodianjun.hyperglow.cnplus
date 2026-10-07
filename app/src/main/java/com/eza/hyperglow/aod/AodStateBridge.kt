@@ -65,6 +65,11 @@ data class AodDisplayState(
     val sampledAtElapsedMs: Long = 0L,
     val speed: Float = 1f,
     val words: List<AodDisplayWord> = emptyList(),
+    /**
+     * 插件提供的逐字翻译词表(词级译文 + 时间窗,见 `PluginLyricField.TRANSLATION_WORDS`):
+     * 翻译辅助行按真实词窗点亮;空表 = 无词级数据,渲染侧回落行窗口合成。
+     */
+    val translationWords: List<AodDisplayWord> = emptyList(),
     val ruby: List<AodDisplayRuby> = emptyList(),
     val layoutGroups: List<AodDisplayLayoutGroup> = emptyList(),
     /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
@@ -438,6 +443,29 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             )
         }
         .toList()
+    // 插件逐字翻译词表:与 words 同一道钳制(条数上限/时间钳到歌长/文本净化);片段不指向
+    // 原文,source 范围恒 -1(与并发行词表同口径);空文本片段整条丢弃(不贡献译文文本)。
+    val translationWords = state.translationWords.asSequence()
+        .take(AodStateWireLimits.MAX_WORDS)
+        .mapNotNull { word ->
+            val text = word.text.sanitizeUtf16().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS)
+            if (text.isEmpty()) return@mapNotNull null
+            val startMs = word.startMs.coerceAtLeast(0L).let {
+                if (duration > 0L) it.coerceAtMost(duration) else it
+            }
+            word.copy(
+                text = text,
+                romanized = "",
+                startMs = startMs,
+                endMs = word.endMs.coerceAtLeast(startMs).let {
+                    if (duration > 0L) it.coerceAtMost(duration) else it
+                },
+                boundaryAfter = true,
+                sourceStart = -1,
+                sourceEnd = -1
+            )
+        }
+        .toList()
     val ruby = state.ruby.asSequence()
         .take(AodStateWireLimits.MAX_RUBY)
         .mapNotNull { item ->
@@ -580,6 +608,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             it.isFinite() && it in 0f..AodStateWireLimits.MAX_PLAYBACK_SPEED
         } ?: 1f,
         words = budgetWords,
+        translationWords = translationWords,
         ruby = budgetRuby,
         layoutGroups = budgetGroups,
         duetLine = duetLine,
@@ -665,6 +694,17 @@ private fun AodDisplayState.toWireMessage(
             sampledAtElapsedMs = sampledAtElapsedMs,
             speed = speed,
             words = words.map { word ->
+                AodStateWireWord(
+                    text = word.text,
+                    romanized = word.romanized,
+                    startMs = word.startMs,
+                    endMs = word.endMs,
+                    boundaryAfter = word.boundaryAfter,
+                    sourceStart = word.sourceStart,
+                    sourceEnd = word.sourceEnd
+                )
+            },
+            translationWords = translationWords.map { word ->
                 AodStateWireWord(
                     text = word.text,
                     romanized = word.romanized,

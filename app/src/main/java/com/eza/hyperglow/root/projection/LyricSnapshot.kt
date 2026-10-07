@@ -110,6 +110,11 @@ internal data class LyricSnapshot(
     val sampledAtElapsedMs: Long = 0L,
     val speed: Float = 1f,
     val words: List<LyricWord> = emptyList(),
+    /**
+     * 插件提供的逐字翻译词表(词级译文 + 时间窗,见 `PluginLyricField.TRANSLATION_WORDS`):
+     * 翻译辅助行按真实词窗点亮。空表 = 无词级数据,渲染侧回落行窗口合成。
+     */
+    val translationWords: List<LyricWord> = emptyList(),
     val ruby: List<LyricRuby> = emptyList(),
     val layoutGroups: List<LyricLayoutGroup> = emptyList(),
     val weight: String = "Medium",
@@ -157,6 +162,7 @@ internal data class LyricSnapshot(
         sampledAtElapsedMs,
         speed,
         words,
+        translationWords,
         ruby,
         layoutGroups,
         weight,
@@ -205,6 +211,8 @@ internal data class LyricRenderContent(
     val sampledAtElapsedMs: Long,
     val speed: Float,
     val words: List<LyricWord>,
+    /** 插件逐字翻译词表(见 [LyricSnapshot.translationWords]);空表 = 回落行窗口合成。 */
+    val translationWords: List<LyricWord> = emptyList(),
     val ruby: List<LyricRuby>,
     val layoutGroups: List<LyricLayoutGroup>,
     val weight: String,
@@ -389,6 +397,19 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
             sourceEnd = range.second
         )
     }.toList()
+    // 插件逐字翻译词表:条数/文本/时间轻量钳制(与 words 同口径);片段不指向原文,
+    // source 范围不参与(恒 -1)。
+    val translationWords = snapshot.translationWords.asSequence().take(MAX_WORDS).map { word ->
+        val startMs = word.startMs.coerceAtLeast(0L)
+        word.copy(
+            text = word.text.take(MAX_LYRIC_LENGTH),
+            romanized = "",
+            startMs = startMs,
+            endMs = word.endMs.coerceAtLeast(startMs),
+            sourceStart = -1,
+            sourceEnd = -1
+        )
+    }.toList()
     val ruby = snapshot.ruby.asSequence().take(MAX_RUBY).mapNotNull { item ->
         val start = (item.start - trimOffset).coerceAtLeast(0)
         val end = (item.end - trimOffset).coerceAtMost(original.length)
@@ -488,6 +509,7 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
             snapshot.aodCanvasPaddingLandscapeYPercent
         ),
         words = words,
+        translationWords = translationWords,
         ruby = ruby,
         layoutGroups = layoutGroups,
         textSizeCustom = snapshot.textSizeCustom.coerceIn(0, 500),
@@ -550,6 +572,17 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             sampledAtElapsedMs = value.sampledAtElapsedMs,
             speed = value.speed,
             words = value.words.map { word ->
+                LyricWord(
+                    text = word.text,
+                    romanized = word.romanized,
+                    startMs = word.startMs,
+                    endMs = word.endMs,
+                    boundaryAfter = word.boundaryAfter,
+                    sourceStart = word.sourceStart,
+                    sourceEnd = word.sourceEnd
+                )
+            },
+            translationWords = value.translationWords.map { word ->
                 LyricWord(
                     text = word.text,
                     romanized = word.romanized,

@@ -143,6 +143,12 @@ internal data class AodStateWireSnapshot(
     val sampledAtElapsedMs: Long,
     val speed: Float,
     val words: List<AodStateWireWord>,
+    /**
+     * 插件提供的逐字翻译词表(v8 起,见 `PluginLyricField.TRANSLATION_WORDS`):翻译辅助行
+     * 按真实词窗点亮;空表 = 无词级数据,渲染侧回落行窗口合成。片段不指向原文,
+     * source 范围恒 -1(与并发行词表同口径)。
+     */
+    val translationWords: List<AodStateWireWord> = emptyList(),
     val ruby: List<AodStateWireRuby>,
     val layoutGroups: List<AodStateWireLayoutGroup>,
     val weight: String,
@@ -433,6 +439,17 @@ internal object AodStateWireCodec {
                     output.writeInt(word.sourceStart)
                     output.writeInt(word.sourceEnd)
                 }
+                // v8:插件逐字翻译词表(条数 + 载荷);与主行词表同一上限与聚合文本预算。
+                output.writeInt(snapshot.translationWords.size)
+                snapshot.translationWords.forEach { word ->
+                    output.writeBoundedString(word.text)
+                    output.writeBoundedString(word.romanized)
+                    output.writeLong(word.startMs)
+                    output.writeLong(word.endMs)
+                    output.writeStrictBoolean(word.boundaryAfter)
+                    output.writeInt(word.sourceStart)
+                    output.writeInt(word.sourceEnd)
+                }
                 snapshot.ruby.forEach { ruby ->
                     output.writeInt(ruby.start)
                     output.writeInt(ruby.end)
@@ -609,6 +626,30 @@ internal object AodStateWireCodec {
                     sourceEnd = input.readInt()
                 )
             }
+            val translationWordCount =
+                input.readBoundedCount(AodStateWireLimits.MAX_WORDS) ?: return null
+            val translationWords = ArrayList<AodStateWireWord>(translationWordCount)
+            repeat(translationWordCount) {
+                val text = input.readBoundedString(
+                    AodStateWireLimits.MAX_LYRIC_CHARS,
+                    allowEmpty = true,
+                    budget = budget
+                ) ?: return null
+                val wordRomanized = input.readBoundedString(
+                    AodStateWireLimits.MAX_LYRIC_CHARS,
+                    allowEmpty = true,
+                    budget = budget
+                ) ?: return null
+                translationWords += AodStateWireWord(
+                    text = text,
+                    romanized = wordRomanized,
+                    startMs = input.readLong(),
+                    endMs = input.readLong(),
+                    boundaryAfter = input.readStrictBoolean() ?: return null,
+                    sourceStart = input.readInt(),
+                    sourceEnd = input.readInt()
+                )
+            }
             val ruby = ArrayList<AodStateWireRuby>(rubyCount)
             repeat(rubyCount) {
                 ruby += AodStateWireRuby(
@@ -695,6 +736,7 @@ internal object AodStateWireCodec {
                 sampledAtElapsedMs = sampledAtElapsedMs,
                 speed = speed,
                 words = words.toList(),
+                translationWords = translationWords.toList(),
                 ruby = ruby.toList(),
                 layoutGroups = layoutGroups.toList(),
                 weight = weight,
@@ -774,6 +816,7 @@ internal object AodStateWireCodec {
 
     private fun isValidSnapshot(snapshot: AodStateWireSnapshot): Boolean {
         if (snapshot.words.size > AodStateWireLimits.MAX_WORDS ||
+            snapshot.translationWords.size > AodStateWireLimits.MAX_WORDS ||
             snapshot.ruby.size > AodStateWireLimits.MAX_RUBY ||
             snapshot.layoutGroups.size > AodStateWireLimits.MAX_LAYOUT_GROUPS
         ) return false
@@ -870,6 +913,15 @@ internal object AodStateWireCodec {
         for (ruby in snapshot.ruby) {
             if (!budget.accept(ruby.reading, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
                 ruby.start < 0 || ruby.end <= ruby.start || ruby.end > snapshot.original.length
+            ) return false
+        }
+        // 插件逐字翻译词表:条数与主行词表共享上限;文本入同一聚合 UTF-8 预算;时间窗
+        // 不得越歌长(与主行同口径)。片段不指向原文,source 范围不校验(与并发行词表同口径)。
+        for (word in snapshot.translationWords) {
+            if (!budget.accept(word.text, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+                !budget.accept(word.romanized, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+                word.startMs < 0L || word.endMs < word.startMs ||
+                word.endMs > snapshot.durationMs
             ) return false
         }
         for (group in snapshot.layoutGroups) {
@@ -984,12 +1036,13 @@ internal object AodStateWireCodec {
 
     private const val BODY_MAGIC = 0x414F4453
 
-    /** v7:metadata 区追加原始 title/artist/album + largeMetadata + 标记识别版分侧(主行与并发行),
+    /** v8:词表区追加插件逐字翻译词表(translationWords,条数+载荷,翻译辅助行按真实词窗点亮);
+     *  v7:metadata 区追加原始 title/artist/album + largeMetadata + 标记识别版分侧(主行与并发行),
      *  让渲染面按本面「歌曲信息内容」/「识别对唱标记」独立组装与选侧(per-surface);
      *  v6:样式区追加 aodLandscapeFullscreenSafeMarginPercent(横屏全屏化安全边界);
      *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
      *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
-    private const val BODY_VERSION = 7
+    private const val BODY_VERSION = 8
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 
