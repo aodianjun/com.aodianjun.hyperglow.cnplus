@@ -244,11 +244,9 @@ object PluginSongBridge {
         // 不要求位置落在和声自己的窗口内(父行窗口常远长于和声,如 20.5s vs 5.2s);
         // ②没有同句和声时退回既有的纯时间窗重叠判定(对唱并发行)。
         // 绘制侧仍按和声自己的时间窗门控(见 AodLyricCanvasView.drawDuetOriginal)。
-        if (PluginSongField.LYRICS in patched.changedSongFields) {
+        if (replacedLyricRows(patched)) {
             val primaryIndex = rows.indexOf(active)
-            // 诊断探针:插件替换歌词后记录行表构成与并发行挂载结果——真机判定「和声行有没有被
-            // 插件输出、有没有被认成同句和声」。与 duet-draw 探针配套:attach 有、draw 无 = 画布
-            // 门控问题;attach 无 = 行表/配对问题。
+            // 诊断探针:插件替换歌词后记录行表构成与并发行挂载结果(真机判定和声行有没有被认出来)。
             HookLogger.iThrottled("duet-attach", 5_000L, "PluginSongBridge") {
                 val bg = rows.count { it.metadata?.values?.get(META_ROLE) == ROLE_BG }
                 val acc = accompanimentRowIndex(rows, rows.indexOf(active))
@@ -353,6 +351,32 @@ object PluginSongBridge {
             ?.index
             ?: -1
     }
+
+    /**
+     * 插件是否改动了**歌词行本身**（文本/词表/时间轴/角色等行级字段）。
+     *
+     * 不能判 `PluginSongField.LYRICS in changedSongFields`：`PluginPipeline.diff()` 会显式把
+     * LYRICS 从 songFields 里过滤掉（见其 `songFields.filter { it != PluginSongField.LYRICS }`），
+     * 行级变化一律走 `changedLyricFields`（REPLACE 整表替换时按新表内容标 TEXT/WORDS 等）。
+     * 只改译文/罗马音的 PATCH 不算（TRANSLATION/TRANSLATION_WORDS/ROMA 属内容字段）——那种
+     * 情况下行表仍是生产者的，不能借机清掉生产者已算出的并发行候选。
+     */
+    private fun replacedLyricRows(patched: PatchedSong): Boolean =
+        PluginSongField.LYRICS in patched.changedSongFields ||
+            patched.changedLyricFields.any { it in ROW_LEVEL_LYRIC_FIELDS }
+
+    /** 行级歌词字段：出现任一即视为行表被插件改写（与 [replacedLyricRows] 配套）。 */
+    private val ROW_LEVEL_LYRIC_FIELDS = setOf(
+        PluginLyricField.TEXT,
+        PluginLyricField.WORDS,
+        PluginLyricField.BEGIN,
+        PluginLyricField.END,
+        PluginLyricField.DURATION,
+        PluginLyricField.IS_ALIGNED_RIGHT,
+        PluginLyricField.METADATA,
+        PluginLyricField.SECONDARY,
+        PluginLyricField.SECONDARY_WORDS
+    )
 
     /**
      * 插件侧空内容不覆盖非空生产者值。回向是"用插件结果增强显示"，不是"用插件结果替换
