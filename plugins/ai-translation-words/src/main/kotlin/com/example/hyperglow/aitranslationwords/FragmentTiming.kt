@@ -46,7 +46,7 @@ internal fun timedTokenWindows(line: PluginLyricLine): List<TokenWindow>? =
  * - 空串片段不产出（模型用空串表示「该词无独立片段」）；
  * - 时间窗无效（`end <= start`）的片段**不丢文本**：并入前一个已产出片段；前面没有
  *   已产出片段时先记为前缀，贴到下一个产出片段；整行都没有有效窗口时退回整行窗口
- *   `[lineStartMs, lineEndMs)`（该窗口也无效则只能丢弃这段文本）；
+ *   `[lineStartMs, lineEndMs)`（退化窗也照样产出，文本优先）；
  * - 相邻片段若窗口完全相同则合并为一个（同窗同时长，文本相接）；
  * - 所有输出窗口做钳制：`startMs = max(0, start)`、`endMs = max(start, end)`。
  */
@@ -87,7 +87,9 @@ internal fun alignFragmentsToTokens(
         }
     }
 
-    if (pendingPrefix.isNotEmpty() && lineEndMs > lineStartMs) {
+    if (pendingPrefix.isNotEmpty()) {
+        // 整行都没有有效词窗时退回行窗口；行窗口本身退化（0 长）也照样产出——文本绝不能丢，
+        // 渲染侧对「全零窗」有兜底（回落行窗口合成整行译文），丢掉文本反而会让辅助行比译文短一截。
         val start = maxOf(0L, lineStartMs)
         val end = maxOf(start, lineEndMs)
         out.add(TimedFragment(pendingPrefix, start, end))

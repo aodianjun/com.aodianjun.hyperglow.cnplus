@@ -75,8 +75,8 @@ class PluginTranslationWordsBridgeTest {
         val st = state(positionMs = 500L)
         val words = listOf(
             PluginWord(begin = 0L, end = 600L, duration = 600L, text = "我"),
-            PluginWord(begin = 600L, end = 1_200L, duration = 600L, text = " 爱"),
-            PluginWord(begin = 1_200L, end = 2_000L, duration = 800L, text = " 你")
+            PluginWord(begin = 600L, end = 1_200L, duration = 600L, text = "爱"),
+            PluginWord(begin = 1_200L, end = 2_000L, duration = 800L, text = "你")
         )
         val rows = listOf(
             row(0L, 2_000L, "I love you", translation = "我爱你", translationWords = words),
@@ -90,11 +90,11 @@ class PluginTranslationWordsBridgeTest {
             )
         )
         assertEquals(3, out.translationWords.size)
-        assertEquals(listOf("我", " 爱", " 你"), out.translationWords.map { it.text })
+        assertEquals(listOf("我", "爱", "你"), out.translationWords.map { it.text })
         assertEquals(0L, out.translationWords[0].startMs)
         assertEquals(1_200L, out.translationWords[2].startMs)
         assertEquals(2_000L, out.translationWords[2].endMs)
-        // 词表文本直接相连即整行译文(分隔符由插件写在片段内)。
+        // 词表文本直接相连即整行译文(西文词间的空格由插件写在片段内,宿主不另插分隔符)。
         assertEquals("我爱你", out.translationWords.joinToString("") { it.text })
     }
 

@@ -254,6 +254,29 @@ class AodStateBridgeTest {
         assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
     }
 
+    /**
+     * 超长逐字翻译词表按序裁剪（可选增强降级），不连累整包：不裁剪的话 isValidSnapshot
+     * 会因聚合文本预算超限拒收整包，宿主回退 Hidden——整句歌词因插件词表超长而消失。
+     */
+    @Test
+    fun oversizedTranslationWordsAreTrimmedInsteadOfRejectingTheSnapshot() {
+        val huge = "界".repeat(AodStateWireLimits.MAX_LYRIC_CHARS)
+        val normalized = normalizeAodDisplayState(
+            state().copy(
+                translated = "我爱你",
+                translationWords = List(AodStateWireLimits.MAX_WORDS) {
+                    AodDisplayWord(huge, "", 0L, 1L, true)
+                }
+            )
+        )
+
+        assertTrue(normalized.translationWords.size < AodStateWireLimits.MAX_WORDS)
+        assertTrue(normalized.translationWords.isNotEmpty())
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
     private fun state(
         positionMs: Long = 1_000L,
         sampledAtElapsedMs: Long = 1_000L

@@ -127,14 +127,15 @@ class FragmentTimingTest {
     }
 
     @Test
-    fun noValidWindowAndNoLineWindowDropsText() {
+    fun noValidWindowAndNoLineWindowKeepsTextWithDegenerateWindow() {
+        // 退化行窗也不丢文本:渲染侧对「全零窗」回落行窗口合成整行译文,丢掉文本会让辅助行短一截。
         val result = alignFragmentsToTokens(
             fragments = listOf("你好", "世界"),
             tokens = listOf(TokenWindow(0, 0), TokenWindow(0, 0)),
             lineStartMs = 0,
             lineEndMs = 0,
         )
-        assertTrue(result.isEmpty())
+        assertEquals(listOf(TimedFragment("你好世界", 0, 0)), result)
     }
 
     @Test

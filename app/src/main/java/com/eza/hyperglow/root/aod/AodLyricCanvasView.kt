@@ -3211,23 +3211,9 @@ internal class AodLyricCanvasView(
         content: AodCanvasContent,
         availableWidth: Float
     ): List<TextLine>? {
-        val words = content.translationWords
-        if (words.isEmpty()) return null
-        val segments = words.mapNotNull { word ->
-            // 空片段不占位(插件侧已跳过空串;这里对半截数据同样 fail-safe)。
-            if (word.text.isEmpty()) return@mapNotNull null
-            SecondaryTimedSegment(
-                text = word.text,
-                width = translatedPaint.measureText(word.text),
-                gapAfter = 0f,
-                startMs = word.startMs,
-                endMs = word.endMs
-            )
-        }
-        if (segments.isEmpty()) return null
-        // 全零窗(占位词形态)不走逐字路径:零窗段被 timedWordProgress 判成恒亮,整行会呈
-        // 静态全亮(与 isTimedKaraokeWord 的判据同源);回落行窗口合成反而是正确观感。
-        if (segments.none { isTimedKaraokeWord(it.startMs, it.endMs) }) return null
+        // 逐字段的取舍(空片段剔除、全零窗拒绝)在共享纯函数里,与单测同源。
+        val segments = translatedTimedSegments(content.translationWords, translatedPaint::measureText)
+            ?: return null
         return secondaryTimedVisualRanges(
             segments,
             availableWidth,

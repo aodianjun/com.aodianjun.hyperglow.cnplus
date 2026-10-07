@@ -910,18 +910,19 @@ internal object AodStateWireCodec {
                 !validSourceRange(word.sourceStart, word.sourceEnd, snapshot.original.length)
             ) return false
         }
-        for (ruby in snapshot.ruby) {
-            if (!budget.accept(ruby.reading, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
-                ruby.start < 0 || ruby.end <= ruby.start || ruby.end > snapshot.original.length
-            ) return false
-        }
         // 插件逐字翻译词表:条数与主行词表共享上限;文本入同一聚合 UTF-8 预算;时间窗
         // 不得越歌长(与主行同口径)。片段不指向原文,source 范围不校验(与并发行词表同口径)。
+        // 计数顺序与投影侧 fitAodEnhancementBudget 一致(词 → 逐字翻译词 → 注音 → 布局组)。
         for (word in snapshot.translationWords) {
             if (!budget.accept(word.text, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
                 !budget.accept(word.romanized, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
                 word.startMs < 0L || word.endMs < word.startMs ||
                 word.endMs > snapshot.durationMs
+            ) return false
+        }
+        for (ruby in snapshot.ruby) {
+            if (!budget.accept(ruby.reading, AodStateWireLimits.MAX_LYRIC_CHARS, true) ||
+                ruby.start < 0 || ruby.end <= ruby.start || ruby.end > snapshot.original.length
             ) return false
         }
         for (group in snapshot.layoutGroups) {
