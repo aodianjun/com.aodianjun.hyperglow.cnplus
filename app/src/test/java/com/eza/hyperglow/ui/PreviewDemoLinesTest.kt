@@ -1,5 +1,6 @@
 package com.eza.hyperglow.ui
 
+import com.eza.hyperglow.root.projection.LyricDuetLine
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -8,7 +9,7 @@ import org.junit.Test
 /**
  * 演示歌词数据的钉子(LyricAppearanceSection.kt 的 demoLines / demoTrack)。
  *
- * 契约三条:
+ * 契约四条:
  *  - 语言分流:English 走《Take My Hand》,其余(跟随系统/简体中文)走中文演示曲;判据必须与
  *    「界面语言」设置同一来源([UiLanguage]),系统语言为英文但用户显式选了「简体中文」时以
  *    用户选择为准 —— 过去演示歌词是编译期常量,语言切换对它无影响,这里防止再退回那一形态。
@@ -17,6 +18,8 @@ import org.junit.Test
  *  - 中文演示曲整行注音:逐词注音段必须无缝铺满整行、且各段读音拼接后与整行罗马音逐字一致。
  *    只标首词会在预览里留下一截拼音(owner 2026-10-06 反馈的「文字上方零星的转写内容」),
  *    这里把它钉死,防止演示数据再退回半截注音。
+ *  - 并发行完整:两份演示曲各至少一行带非空 duet,「显示并发歌词(对唱)」在无实时歌词时
+ *    也有东西可显示;渲染侧可见性判据见 previewDuetVisible。
  */
 class PreviewDemoLinesTest {
 
@@ -62,6 +65,32 @@ class PreviewDemoLinesTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun bothDemoTracksCarryAConcurrentHarmonyLine() {
+        // 并发行(对唱/和声)演示数据:两份演示曲各至少一行带非空 duet —— 演示快照只从这里
+        // 产出 duetLine,缺了它「显示并发歌词(对唱)」开关在无实时歌词时就看不到效果。
+        listOf(
+            UiLanguage.ENGLISH to "English",
+            UiLanguage.SIMPLIFIED_CHINESE to "Chinese"
+        ).forEach { (language, label) ->
+            assertTrue(
+                "$label demo track must carry at least one concurrent/harmony line",
+                demoLines(language).any { !it.duet.isNullOrBlank() }
+            )
+        }
+    }
+
+    @Test
+    fun concurrentRowVisibilityFollowsTheSurfaceSwitch() {
+        // 渲染侧判据(纯函数):并发行可见 = 本面「显示并发歌词(对唱)」开启 && 快照带非空
+        // 并发行(与实机 LyricCanvasMapper 的门控同源)。开关关闭或文本剥空时不得上屏。
+        val line = LyricDuetLine(text = "（也要飞向那片蓝天）")
+        assertTrue(previewDuetVisible(true, line))
+        assertTrue(!previewDuetVisible(false, line))
+        assertTrue(!previewDuetVisible(true, null))
+        assertTrue(!previewDuetVisible(true, LyricDuetLine(text = "   ")))
     }
 
     @Test

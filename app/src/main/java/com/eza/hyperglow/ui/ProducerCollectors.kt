@@ -16,6 +16,7 @@ import com.eza.hyperglow.producer.SongArtworkRepository
 import com.eza.hyperglow.producer.isSameTrackIdentity
 import com.eza.hyperglow.producer.stripDuetMarker
 import com.eza.hyperglow.producer.stripDuetMarkerWords
+import com.eza.hyperglow.root.projection.LyricDuetLine
 import com.eza.hyperglow.root.projection.LyricLayoutGroup
 import com.eza.hyperglow.root.projection.LyricRuby
 import com.eza.hyperglow.root.projection.LyricSnapshot
@@ -182,7 +183,37 @@ internal fun LyricProducerState.toPreviewSnapshot(
         LyricLayoutGroup(it.start, it.end, it.kind, it.keepTogether, it.confidence)
     },
     artworkJpeg = frame?.jpeg ?: ByteArray(0),
-    artworkKey = frame?.key ?: ""
+    artworkKey = frame?.key ?: "",
+    // 对唱并发行:与主行同口径按本面「识别对唱标记」剥离文本/词表并选分侧,剥空(纯标记行)
+    // 整条丢弃;是否上屏由渲染侧按本面「显示并发歌词(对唱)」门控(与实机 LyricCanvasMapper 同源)。
+    duetLine = duetLine?.let { line ->
+        val duetText = if (duetMarkers) stripDuetMarker(line.text) else line.text
+        if (duetText.isBlank()) {
+            null
+        } else {
+            LyricDuetLine(
+                text = duetText,
+                romanized = line.romanized,
+                translated = line.translated,
+                alignedRight = if (duetMarkers) line.alignedRightMarkers else line.alignedRight,
+                alignedRightMarkers = line.alignedRightMarkers,
+                lineStartMs = line.lineStartMs,
+                lineEndMs = line.lineEndMs,
+                // 逐字卡拉OK按词绘制,标记剥离必须与并发行文本同源,否则标记残留/错位。
+                words = (if (duetMarkers) stripDuetMarkerWords(line.words) else line.words).map {
+                    LyricWord(
+                        text = it.text,
+                        romanized = it.romanized,
+                        startMs = it.startMs,
+                        endMs = it.endMs,
+                        boundaryAfter = it.boundaryAfter,
+                        sourceStart = it.sourceStart,
+                        sourceEnd = it.sourceEnd
+                    )
+                }
+            )
+        }
+    }
     )
 }
 
