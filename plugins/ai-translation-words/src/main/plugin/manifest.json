@@ -11,7 +11,7 @@
         "zh-TW": "用任意 OpenAI 相容介面翻譯目前歌詞，並把譯文依原詞的逐字時間對齊成詞級片段（配合「輔助文字逐字效果」逐字點亮）。"
     },
     "author": "HyperGlow CN+",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "apiVersion": 1,
     "entry": "com.example.hyperglow.aitranslationwords.AiTranslationWordsPlugin",
     "activationSettingKey": "enabled",
@@ -20,6 +20,7 @@
             "id": "default",
             "title": "基础设置",
             "titleLocales": {
+                "zh-CN": "基础设置",
                 "zh-TW": "基礎設定",
                 "en": "Basic Settings"
             }
@@ -28,6 +29,7 @@
             "id": "generation",
             "title": "高级设置",
             "titleLocales": {
+                "zh-CN": "高级设置",
                 "zh-TW": "進階設定",
                 "en": "Advanced Settings"
             }
@@ -54,6 +56,7 @@
             "key": "enabled",
             "title": "OpenAI 逐字翻译",
             "titleLocales": {
+                "zh-CN": "OpenAI 逐字翻译",
                 "zh-TW": "OpenAI 逐字翻譯",
                 "en": "OpenAI Word-Level Translation"
             },
@@ -64,16 +67,19 @@
             "key": "skip_languages",
             "title": "自动跳过语言",
             "titleLocales": {
+                "zh-CN": "自动跳过语言",
                 "zh-TW": "自動跳過語言",
                 "en": "Automatically Skip Languages"
             },
             "dialogSummary": "勾选后，识别为这些语言的歌词将不会请求 AI 翻译",
             "dialogSummaryLocales": {
+                "zh-CN": "勾选后，识别为这些语言的歌词将不会请求 AI 翻译",
                 "zh-TW": "勾選後，識別為這些語言的歌詞將不會請求 AI 翻譯",
                 "en": "Lyrics detected as selected languages will not be sent for AI translation"
             },
             "emptyValueSummary": "未选择（关闭）",
             "emptyValueSummaryLocales": {
+                "zh-CN": "未选择（关闭）",
                 "zh-TW": "未選擇（關閉）",
                 "en": "None (off)"
             },
@@ -106,6 +112,7 @@
             "key": "skip_existing",
             "title": "自动跳过已有翻译歌曲",
             "titleLocales": {
+                "zh-CN": "自动跳过已有翻译歌曲",
                 "zh-TW": "自動跳過已有翻譯歌曲",
                 "en": "Auto Skip Songs with Translation"
             },
@@ -119,6 +126,7 @@
             "key": "force_override",
             "title": "强制 AI 翻译",
             "titleLocales": {
+                "zh-CN": "强制 AI 翻译",
                 "zh-TW": "強制 AI 翻譯",
                 "en": "Force AI Translation"
             },
@@ -132,6 +140,7 @@
             "key": "target_language",
             "title": "目标语言",
             "titleLocales": {
+                "zh-CN": "目标语言",
                 "zh-TW": "目標語言",
                 "en": "Target Language"
             },
@@ -143,6 +152,7 @@
             "key": "word_timing",
             "title": "逐字时间对齐",
             "titleLocales": {
+                "zh-CN": "逐字时间对齐",
                 "zh-TW": "逐字時間對齊",
                 "en": "Word-Level Timing Alignment"
             },
@@ -153,12 +163,14 @@
             "key": "api_key",
             "title": "API Key",
             "titleLocales": {
+                "zh-CN": "API Key",
                 "zh-TW": "API Key",
                 "en": "API Key"
             },
             "default": "",
             "emptyValueSummary": "未配置",
             "emptyValueSummaryLocales": {
+                "zh-CN": "未配置",
                 "zh-TW": "未設定",
                 "en": "Not configured"
             },
@@ -170,6 +182,7 @@
             "key": "model",
             "title": "模型名称",
             "titleLocales": {
+                "zh-CN": "模型名称",
                 "zh-TW": "模型名稱",
                 "en": "Model Name"
             },
@@ -181,6 +194,7 @@
             "key": "base_url",
             "title": "OpenAI API 地址",
             "titleLocales": {
+                "zh-CN": "OpenAI API 地址",
                 "zh-TW": "OpenAI API 網址",
                 "en": "API Base URL"
             },
@@ -193,6 +207,7 @@
             "key": "prompt",
             "title": "自定义提示词",
             "titleLocales": {
+                "zh-CN": "自定义提示词",
                 "zh-TW": "自訂提示詞",
                 "en": "Custom Prompt"
             },

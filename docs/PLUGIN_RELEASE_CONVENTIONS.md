@@ -60,6 +60,13 @@ Inside `manifest.json`:
 - `activationSettingKey`, when present, points at a declared setting.
 - Every `select`/`multiSelect` setting declares options; every option value is handled by code.
 - Settings the code reads are declared; declared settings are read (no dead keys either way).
+- Localized text: the plain `name`/`title`/`summary`/`dialogSummary`/`emptyValueSummary` fields are
+  the plugin's own language (Simplified Chinese for the plugins in this repository), and each
+  `*Locales` map carries the overrides. **Declare `zh-CN` explicitly and put it first** — the host
+  resolves *exact tag* → *same language and compatible Chinese script* → *script-neutral* →
+  *default*, so a Simplified device (`zh-CN` / `zh-Hans*`) never takes a `zh-TW` override, and a
+  map without a `zh-CN` key renders the default for Simplified devices (2026-10-07: a settings page
+  that declared only `zh-TW`/`en` showed Traditional Chinese on Simplified devices).
 
 ## 4. Cache management is part of the contract
 
