@@ -327,6 +327,7 @@ internal class AodLyricCanvasView(
     private var stableLineWords: List<AodCanvasWord> = emptyList()
     private var stableLineGroups: List<AodCanvasLayoutGroup> = emptyList()
     private var stableLineRuby: List<AodCanvasRuby> = emptyList()
+    private var stableLineTranslationWords: List<AodCanvasWord> = emptyList()
 
     /** 下一行文本稳定化(见 [isNextLineStale]):最近一次「已就绪」的下一行文本。 */
     private var stableNextLine: String = ""
@@ -339,11 +340,17 @@ internal class AodLyricCanvasView(
     private fun stabilizeLineEnhancements(incoming: AodCanvasContent): AodCanvasContent {
         val identity = aodCanvasLineIdentity(incoming)
         val sameLine = stableLineIdentity == identity
+        // 逐字翻译词表(插件提供)也参与稳定化:它决定翻译辅助行的折行形态(逐字段 vs 行窗口
+        // 合成),演唱中到达时同样不能重排——与词表/注音同一条「同行只认第一次形态」的口径。
+        val translationWordsArrived =
+            incoming.translationWords.isNotEmpty() != stableLineTranslationWords.isNotEmpty()
         val adopt = shouldAdoptLineEnhancements(
             sameLine = sameLine,
-            layoutSignatureChanged = aodLineLayoutSignature(incoming.words, incoming.layoutGroups) !=
+            layoutSignatureChanged = translationWordsArrived ||
+                aodLineLayoutSignature(incoming.words, incoming.layoutGroups) !=
                 aodLineLayoutSignature(stableLineWords, stableLineGroups),
-            incomingEnriches = incoming.words.isNotEmpty() && stableLineWords.isEmpty(),
+            incomingEnriches = (incoming.words.isNotEmpty() && stableLineWords.isEmpty()) ||
+                (incoming.translationWords.isNotEmpty() && stableLineTranslationWords.isEmpty()),
             positionMs = incoming.positionMs,
             lineStartMs = incoming.lineStartMs
         )
@@ -353,7 +360,8 @@ internal class AodLyricCanvasView(
             incoming.copy(
                 words = stableLineWords,
                 layoutGroups = stableLineGroups,
-                ruby = stableLineRuby
+                ruby = stableLineRuby,
+                translationWords = stableLineTranslationWords
             )
         }
         // 下一行:与主行同文 = 未就绪(刚被晋级的那句,新下一行尚未到达),沿用上一版文本——
@@ -368,6 +376,7 @@ internal class AodLyricCanvasView(
         stableLineWords = result.words
         stableLineGroups = result.layoutGroups
         stableLineRuby = result.ruby
+        stableLineTranslationWords = result.translationWords
         return result
     }
 
