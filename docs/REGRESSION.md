@@ -24,6 +24,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
   plugin boundaries)
 - Plugin cache and network behavior (per-song cache identity across the plugin chain: does a
   repeated chain run reuse the host cache, or go online again)
+- Concurrent lyric rows (duet / harmony: which line takes the main row, which one holds the
+  concurrent row, and whether either row moves when the other changes)
 
 ## Entry format
 
@@ -52,6 +54,8 @@ and (b) unverified paths stay explicit instead of silently assumed.
 | 2026-10-06 | 0.3.165 (192) | Brightness and battery protection | partial | Redmi K80 Pro (`miro`) / DEV-2313.0.0.1-11211901 (22313001) | trace-observed | AOD word animation stepped at ≈5 fps while the device was hot and charging (owner report: AOD below 10 fps). Root cause traced to the built-in power-saver frame drop — `POWER_SAVER_FRAME_INTERVAL_MS` = 200 ms, engaged when `isAodPowerSaverActive` sees thermal status ≥ MODERATE (measured status 3, skin ≈50 °C during the reported window). The panel was never the limiter (SDM `FPS cur:120`, `vsync_period` 8.33 ms; AOD window present gaps 8.3/16.6 ms) and the canvas kept ≈62 draws/s on the lockscreen; after the device cooled (status 0, skin 46 °C, `Power state monitor attached saver=false`) the cadence returned. Fix (user switch `aodPowerSaver`, default on, delivered through the compiled customization; off ⇒ the canvas never drops below the frame cap) lands with this entry; update to pass + device-verified after hardware re-check. |
 
 | 2026-10-06 | 0.3.165 (192) + lyricfetch 1.0.0 | Plugin cache and network behavior | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | One song accumulated **21 entries** in the plugin's cache page while playing through the SuperLyric source: the fetch plugin's cache key contained the track duration, and the host reports the **active line's end time** as `duration` for line-stream sources, so every 15 s chain re-run minted a fresh key — the cache never hit, every entry re-searched all three online sources, and the negative results could not protect the song (sibling evidence: the same songs hold exactly one entry each in the amll-ttml plugin's cache on the same device, whose key carries no duration). Fix (duration dropped from the cache key; format version 2 purges the leftover v1 entries when the cache page is read) lands with this entry; update to pass + device-verified after installing the 1.0.1 ZIP. |
+
+| 2026-10-08 | 0.3.167 (194) | Concurrent lyric rows | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | The concurrent row's text jumped up into the main row while it was still being sung (《乐鸣东方》, Lyricon + amll-ttml): the plugin bridge picked the active row **by position with "later begin wins"**, and for a duet song the AMLL TTML's two voices overlap with windows skewed against the producer's (`v1 乐鸣东方` 147.4–154.3 s spanning `v2 哈啊 流水破开寒霜` 148.7–151.8 s and `v2 哈啊 金石击起辉光` 152.2–155.8 s, producer row `哈啊 金石击起辉光` 152.1–156.0 s). In the skew window the only row covering the position is the *other voice's*, so the main row rendered `乐鸣东方` — the line the owner had just been reading in row 2 — and the current line appeared nowhere. Whole-song replay over the captured producer table and the real TTML row table: 75 of 496 sampled positions put a non-current line in the main row, dropping to 15 (the single line whose text the plugin rewrote) after the fix. Fix (active row resolved by line identity first, position only as fallback; repeated lines match the occurrence covering the position) lands with this entry; update to pass + device-verified after hardware re-check. |
 
 ## Known unverified paths
 
@@ -677,6 +681,7 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 - 横屏旋转（画布旋转、逻辑帧、surface rect 交换）
 - 辅助文本取数（翻译/音译内容在生产者与插件边界上的传递）
 - 插件缓存与联网行为（插件链上的按曲缓存身份：重复链运行是命中宿主缓存，还是又联一次网）
+- 并发歌词行（对唱 / 和声：哪一行占主行、哪一行占并发行，以及一行变化时另一行是否跟着动）
 
 ## 条目格式
 
@@ -707,6 +712,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 | 2026-10-06 | 0.3.165 (192) + lyricfetch 1.0.0 | 插件缓存与联网行为 | fail | Redmi K80 Pro (`miro`) / 20250121.0(202501210) | trace-observed | SuperLyric 源播放时一首歌在插件缓存页堆了 **21 条**：取词插件的缓存键里含曲目时长，而宿主对逐行源上报的 `duration` 是**当前行的结束时间**，于是每 15s 一次链重跑就铸一个新键——缓存永不命中、每条都重新搜三个在线来源，负缓存也保护不了这首歌（同机旁证：同批歌在 amll-ttml 插件缓存里各只有 1 条，它的键不含时长）。修复（缓存键去掉时长；格式升到 v2，读缓存页时顺手清掉残留的 v1 条目）随本条目落地；装上 1.0.1 的 ZIP 后复验并更新为 pass + device-verified。 |
 
 | 2026-10-07 | 0.3.166 (193) debug + ai-translation-words 1.0.1 | 插件缓存与联网行为 | fail | Redmi K80 Pro (`miro`) / 24122RKC7C | trace-observed | 现场「插件没在用」：插件其实已启用并跑通（`translated 54 line(s)` + `accepted result ... changedLyricFields=[TRANSLATION]` + `chain applied`），但三处让效果出不来——①**整首一次发**的请求超过单次预算（`processor ... threw after 32221ms`、`translation request failed ... (cooldown 10min)`），多首歌整首无产出；②失败退避 10 分钟过长，**切歌取消**也落到该路径 → 那首歌十分钟内不再重试；③`skip_languages={zh}` 把中文歌（含带逐字时间的曲目）整首跳过，而该跳过只记 debug 级日志（默认级别看不见）。修复随 1.0.2 落地：待译行按 12 行/批分批请求（单批 12s、单轮总预算 30s）、缓存允许部分命中并写并集（长歌跨轮次逐批完成）、整轮全败才退避且缩短到 2 分钟、跳过语言记 info 级；单测 61 例本地全绿。装 1.0.2 后复验：长歌不再整首无产出、逐字产出需带词时间轴的曲目（当次播放的曲目为行级源，日志 `0 with word timing`）。 |
+
+| 2026-10-08 | 0.3.167 (194) | 并发歌词行 | fail | Redmi K80 Pro (`miro`) / OS3.0.6.0.WOMCNXM | trace-observed | 并发行还在唱，它的文本却跳到了主行（《乐鸣东方》，Lyricon + amll-ttml）：插件桥的活动行按**位置取、更晚 begin 胜**，而对唱曲目的 AMLL TTML 两个声部行互相重叠、行窗又与生产者错位（`v1 乐鸣东方` 147.4–154.3s 横跨 `v2 哈啊 流水破开寒霜` 148.7–151.8s 与 `v2 哈啊 金石击起辉光` 152.2–155.8s，生产者行 `哈啊 金石击起辉光` 152.1–156.0s）。错位窗口里唯一覆盖位置的是**另一声部**的行，主行就渲染成 `乐鸣东方`——正是 owner 刚在第二行读的那一句，而当前这句哪儿都不显示。按真机行表 + 真实 TTML 行表整曲回放：496 个采样位置里 75 个把非当前行放进主行，修复后降到 15（仅插件改写文本的那一句）。修复（活动行改为**按行身份**取，位置只作兜底；同句多次出现取覆盖本次位置的那一次）随本条目落地；真机复验后更新为 pass + device-verified。 |
 
 ## 已知未验证路径
 

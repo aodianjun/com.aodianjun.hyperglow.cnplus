@@ -16,6 +16,7 @@ import com.lidesheng.hyperlyric.plugin.api.PluginMetadata
 import com.lidesheng.hyperlyric.plugin.api.PluginSong
 import com.lidesheng.hyperlyric.plugin.api.PluginSongField
 import com.lidesheng.hyperlyric.plugin.api.PluginWord
+import kotlin.math.abs
 
 /**
  * Spicy 文档 ↔ PluginSong 的双向桥（纯函数）。
@@ -125,12 +126,14 @@ object PluginSongBridge {
         val rows = patched.song.lyrics ?: return state
         if (rows.isEmpty()) return state
         if (!patched.changedAnything()) return state
-        // 活动行:优先按位置取;位置落在插件行表的**间隙**里时按行身份(文本)回退。
-        // 插件 TTML 的行窗比生产者行窗细(实测同一句 5.2s vs 20.5s),位置采样又按行跳,
-        // 因此「位置恰好落在插件行内」并不可靠——按「是哪一句」认行才与 HyperLyric 的
-        // 呈现边界模型一致(宿主拿到已解析行后按身份决定显示,而不是按位置恰好命中)。
-        val active = selectActiveRow(rows, state.positionMs)
-            ?: activeRowByText(rows, state.line)
+        // 活动行:**先按行身份**(生产者当前那一句在插件行表里找同一句),位置只作兜底。
+        // 顺序不可颠倒:对唱曲目的插件行表里两个声部的行互相重叠,而插件 TTML 的行窗与
+        // 生产者行窗存在错位(实测 v1 长行 147.4–154.3 横跨 v2 的两句),按位置取会落到
+        // 另一声部的行上——主行就显示第二声部的文本、屏上第二行「跳」到第一行
+        // (owner 2026-10-08 真机反馈)。行身份来自生产者,是「现在唱的是哪一句」的唯一
+        // 权威;位置仅用于在同句的多次出现之间挑覆盖本次位置的那一次。
+        val active = activeRowByText(rows, state.line, state.positionMs)
+            ?: selectActiveRow(rows, state.positionMs)
             ?: return state
 
         var enriched = state
@@ -326,18 +329,31 @@ object PluginSongBridge {
     }
 
     /**
-     * 按行身份回退选活动行:生产者当前显示的那一句在插件行表里找同一句。
+     * 按行身份选活动行:生产者当前显示的那一句在插件行表里找同一句。行身份是「现在唱的
+     * 是哪一句」的权威——插件行窗与生产者行窗会错位(对唱段实测 v1 长行 147.4–154.3 横跨
+     * v2 的两句 148.7–151.8 / 152.2–155.8),按位置取会在错位窗口里落到另一声部的行上。
+     *
      * 两侧的空白/标点常有差异(如「人间百相 总让我神往」vs「人间百相总让我神往」),
-     * 归一化后比较。找不到返回 null(调用方保持生产者状态不动)。
-     * 和声行同样排除:归一化会抹掉回声行的括号,按文本回退时不得把和声行认成主行
-     * (见 [selectActiveRow])。
+     * 归一化后比较。同一句在行表里可能多次出现(副歌重复):取覆盖本次位置的哪一次,
+     * 都不覆盖时取时间上最近的那一次——不能恒取行表里的第一次,否则词级时间轴会跳回
+     * 第一段副歌。找不到返回 null(调用方回退按位置取,保持生产者状态不动)。
+     *
+     * 和声行(role=BG)同样排除:归一化会抹掉回声行的括号,按文本回退时不得把和声行
+     * 认成主行(见 [selectActiveRow])。
      */
-    private fun activeRowByText(rows: List<PluginLyricLine>, producerLine: String): PluginLyricLine? {
+    private fun activeRowByText(
+        rows: List<PluginLyricLine>,
+        producerLine: String,
+        positionMs: Long
+    ): PluginLyricLine? {
         val needle = normalizeLyricText(producerLine)
         if (needle.isEmpty()) return null
-        return rows.firstOrNull {
+        val matches = rows.filter {
             !isHarmonyRow(it) && normalizeLyricText(it.text.orEmpty()) == needle
         }
+        if (matches.isEmpty()) return null
+        return matches.firstOrNull { positionMs >= it.begin && positionMs < it.end }
+            ?: matches.minByOrNull { abs(it.begin - positionMs) }
     }
 
     /** 和声行判据(role=BG,AMLL TTML 的 x-bg 回声):只走并发行车道,不参与主行选择。 */

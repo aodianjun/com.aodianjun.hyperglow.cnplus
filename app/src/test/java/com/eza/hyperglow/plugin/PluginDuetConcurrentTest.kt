@@ -221,4 +221,51 @@ class PluginDuetConcurrentTest {
         assertEquals("(少年狂)", out.duetLine?.text)
         assertEquals(true, out.duetLine?.harmony)
     }
+
+    /**
+     * **另一声部的 LEAD 行**同样不得在主行窗口错位时接管主行（owner 2026-10-08 真机
+     * 「第二行没唱完就换到第一行」的根因）。《乐鸣东方》对唱段的真实形态（生产者行表
+     * 与 AMLL TTML 行窗逐值取自真机 / 曲库）：
+     *
+     * - 生产者(Lyricon/网易云)：`哈啊 金石击起辉光` 152.130–155.980s（idx=52）
+     * - 插件 v1 `乐鸣东方` 147.444–154.300s、v2 `哈啊 流水破开寒霜` 148.651–151.783s、
+     *   v2 `哈啊 金石击起辉光` 152.223–155.802s
+     *
+     * 位置 152.150s 落在 v1 长行内、却在 v2 本句开唱前 73ms——按位置「更晚 begin 胜」
+     * 取到的是 v1（另一声部），主行就变成 `乐鸣东方`：屏上第二行的文本跳到第一行。
+     * 行身份优先后主行恒为生产者那一句，另一声部走并发行。
+     */
+    @Test
+    fun otherVoiceLeadRowNeverTakesTheMainLineOnWindowSkew() {
+        val st = state(positionMs = 152_150L).copy(line = "哈啊 金石击起辉光")
+        val rows = listOf(
+            row(147_444L, 154_300L, "乐鸣东方", "LEAD"),
+            row(148_651L, 151_783L, "哈啊 流水破开寒霜", "LEAD"),
+            row(152_223L, 155_802L, "哈啊 金石击起辉光", "LEAD")
+        )
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        assertEquals("哈啊 金石击起辉光", out.line)
+        assertEquals("乐鸣东方", out.duetLine?.text)
+        assertEquals(false, out.duetLine?.harmony)
+    }
+
+    /**
+     * 同一句在行表里出现多次（副歌重复）时，行身份匹配取**覆盖位置**的那一次，
+     * 而不是行表里第一次出现的那一次——否则主行的词级时间轴会跳回第一段副歌的。
+     */
+    @Test
+    fun repeatedLineMatchesTheOccurrenceCoveringThePosition() {
+        val st = state(positionMs = 200_000L).copy(line = "少年狂")
+        val first = listOf(PluginWord(begin = 20_000L, end = 25_000L, duration = 5_000L, text = "早"))
+        val second = listOf(PluginWord(begin = 199_000L, end = 201_000L, duration = 2_000L, text = "晚"))
+        val rows = listOf(
+            row(20_000L, 30_000L, "少年狂", "LEAD", words = first),
+            row(60_000L, 70_000L, "别的句子", "LEAD"),
+            row(199_000L, 205_000L, "少年狂", "LEAD", words = second),
+            row(205_000L, 210_000L, "再一句", "LEAD")
+        )
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        assertEquals("少年狂", out.line)
+        assertEquals(199_000L, out.words?.firstOrNull()?.startMs ?: -1L)
+    }
 }
