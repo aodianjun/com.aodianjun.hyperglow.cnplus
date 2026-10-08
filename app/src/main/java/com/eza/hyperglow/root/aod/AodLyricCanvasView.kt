@@ -2886,8 +2886,32 @@ internal class AodLyricCanvasView(
         // 行级过渡层施加(见 [withDuetRowTransition]),这里只选绘制形态。
         if (duetJoinAlpha() < 1f) {
             drawDuetStatic(canvas, duetLayout, baseline)
-        } else {
-            drawOriginalGlowBlock(
+            return
+        }
+        // 渲染路径与主行**同一决策函数**(见 [planDuetRow]):并发行带真实词窗时走词级卡拉OK
+        // (逐词真实时间戳),行级源才落共享扫光块。此前并发行恒走扫光块——整块进度按行窗
+        // 线性铺满,插件行窗若含拖长音(实测「乐鸣东方」末字「方」独占 5.65s)就会在音频
+        // 早已唱到别处之后仍在铺光(owner 2026-10-08:「第二句走的不是真实时间戳」)。
+        val duetPlan = planDuetRow(
+            animationMode = content.animationMode,
+            timed = hasTimedWordWindows(duet.words),
+            lineLevelSync = content.lineLevelSync,
+            lineSyncFillMode = content.lineSyncFillMode,
+            lineStartMs = duet.lineStartMs,
+            lineEndMs = duet.lineEndMs
+        )
+        when (duetPlan.path) {
+            OriginalLinePath.STATIC -> drawDuetStatic(canvas, duetLayout, baseline)
+            OriginalLinePath.WORD_KARAOKE -> drawWordKaraoke(
+                canvas = canvas,
+                baseline = baseline,
+                originalLayout = duetLayout,
+                betterLyrics = content.animationMode == "BetterLyrics",
+                blockStartMs = duet.lineStartMs,
+                blockEndMs = duet.lineEndMs,
+                probeTag = "duet-karaoke-probe"
+            )
+            OriginalLinePath.BLOCK_SWEEP -> drawOriginalGlowBlock(
                 canvas,
                 baseline,
                 duetLayout,
@@ -2897,7 +2921,7 @@ internal class AodLyricCanvasView(
                     duet.lineEndMs,
                     duet.words
                 ),
-                effectiveLineSyncFillMode()
+                duetPlan.fillMode
             )
         }
     }
@@ -3127,14 +3151,15 @@ internal class AodLyricCanvasView(
         canvas: Canvas,
         baseline: Float,
         originalLayout: OriginalLayout,
-        betterLyrics: Boolean = false
+        betterLyrics: Boolean = false,
+        blockStartMs: Long = content.lineStartMs,
+        blockEndMs: Long = content.lineEndMs,
+        probeTag: String = "karaoke-probe"
     ) {
         val lines = originalLayout.lines
         val position = projectedPosition()
         val sinkPx = karaokeFloatSinkPx(originalLayout.lineHeight)
         val totalWidth = lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
-        val blockStartMs = content.lineStartMs
-        val blockEndMs = content.lineEndMs
         val runs = ArrayList<KaraokeWordRun>(8)
         var precedingWidth = 0f
         var precedingRuby = 0f
@@ -3229,14 +3254,15 @@ internal class AodLyricCanvasView(
             }
             if (lineIndex == 0) {
                 // 诊断探针(「BetterLyrics 效果和最简一样」排查):打印词级卡拉OK的全部输入现场值。
+                // 主行与并发行共用本函数,探针标签由调用方给出(并发行走 `duet-karaoke-probe`)。
                 HookLogger.iThrottled(
-                    "karaoke-probe", 2_000L, "AodLyricCanvasView"
+                    probeTag, 2_000L, "AodLyricCanvasView"
                 ) {
                     val firstRun = runs.firstOrNull()
                     val firstWord = line.words.firstOrNull()?.word
-                    "Karaoke probe: pos=$position lStart=${content.lineStartMs} " +
-                        "lEnd=${content.lineEndMs} lineSync=${content.lineLevelSync} " +
-                        "words=${content.words.size} runs=${runs.size} " +
+                    "Karaoke probe: pos=$position lStart=$blockStartMs " +
+                        "lEnd=$blockEndMs lineSync=${content.lineLevelSync} " +
+                        "words=${lines.sumOf { it.words.size }} runs=${runs.size} " +
                         "run0=[${firstRun?.text} played=${firstRun?.playedFraction}] " +
                         "word0=[${firstWord?.startMs}..${firstWord?.endMs}]"
                 }

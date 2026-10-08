@@ -1,5 +1,7 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.root.projection.LyricWord
+
 /**
  * 并发行相对主行**独立**的画布侧纯函数(owner 2026-10-07):并发行有自己独立的内容键与
  * 槽位——主行换行只换主行块,不动并发行;并发行自己到点才换,且换行时只播自己的过渡。
@@ -26,3 +28,42 @@ internal fun frozenDuetBaselines(
 ): List<Float> = currentBaselines.mapIndexed { index, fallback ->
     snapshotBaselines.getOrNull(index) ?: fallback
 }
+
+/**
+ * 并发行(主行同款并排那一行)自己的渲染路径决策 —— 与主行**同一决策函数**
+ * ([planOriginalLine]),并发行带真实词窗时走词级卡拉OK(真实词时间戳),行级源才落共享
+ * 扫光块。
+ *
+ * 此前并发行恒走共享扫光块:整块进度按行窗线性铺满(`unifiedBlockProgress` 行级时间优先,
+ * 有行窗就不看词表),而插件行窗可能是一个**拖长音**——实测 v1《乐鸣东方》147.444–154.300
+ * 里末字「方」独占 5.65s,于是并发行在音频早已唱到别的句子之后还在慢慢铺光,与主行/音频
+ * 都不同步(owner 2026-10-08:「并发时间戳没对上,明显第二句走的不是真实时间戳」)。
+ *
+ * [timed] 是**事实**不是决策:并发行是否带真实词窗,由调用方按本侧词表类型用同一判据取值
+ * ——实机画布侧 [hasTimedWordWindows]\(`AodCanvasWord`),App 内预览侧
+ * [projectedWordsHaveTimedWindows]\(`root.projection.LyricWord`)。两套判据必须同值(见单测)。
+ */
+internal fun planDuetRow(
+    animationMode: String,
+    timed: Boolean,
+    lineLevelSync: Boolean,
+    lineSyncFillMode: String,
+    lineStartMs: Long,
+    lineEndMs: Long
+): OriginalLinePlan = planOriginalLine(
+    animationMode = animationMode,
+    timed = timed,
+    lineLevelSync = lineLevelSync,
+    lineSyncFillMode = lineSyncFillMode,
+    lineStartMs = lineStartMs,
+    lineEndMs = lineEndMs
+)
+
+/**
+ * 真实词窗判据的投影侧版本(`root.projection.LyricWord`,App 内预览用):与画布侧
+ * [hasTimedWordWindows]\(`AodCanvasWord`)同义——文本非空且 `endMs > startMs`。
+ * 两套词表类型(`AodCanvasWord` / `root.projection.LyricWord`)形状相同、判据也必须同值:
+ * 判据分叉就是「预览有逐字、实机没有」那类故障(本次修复前恰好相反:预览对、实机错)。
+ */
+internal fun projectedWordsHaveTimedWindows(words: List<LyricWord>): Boolean =
+    words.any { it.text.isNotBlank() && it.endMs > it.startMs }
