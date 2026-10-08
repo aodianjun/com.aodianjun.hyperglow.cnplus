@@ -2894,11 +2894,11 @@ internal class AodLyricCanvasView(
         // 早已唱到别处之后仍在铺光(owner 2026-10-08:「第二句走的不是真实时间戳」)。
         val duetPlan = planDuetRow(
             animationMode = content.animationMode,
+            timed = hasTimedWordWindows(duet.words),
             lineLevelSync = content.lineLevelSync,
             lineSyncFillMode = content.lineSyncFillMode,
             lineStartMs = duet.lineStartMs,
-            lineEndMs = duet.lineEndMs,
-            words = duet.words
+            lineEndMs = duet.lineEndMs
         )
         when (duetPlan.path) {
             OriginalLinePath.STATIC -> drawDuetStatic(canvas, duetLayout, baseline)

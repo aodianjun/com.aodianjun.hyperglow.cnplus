@@ -118,6 +118,7 @@ import com.eza.hyperglow.root.aod.resolvedLyricLayoutLineLimit
 import com.eza.hyperglow.root.aod.OriginalLinePath
 import com.eza.hyperglow.root.aod.planDuetRow
 import com.eza.hyperglow.root.aod.planOriginalLine
+import com.eza.hyperglow.root.aod.producerWordsHaveTimedWindows
 import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
 import com.eza.hyperglow.root.aod.rubyReservation
 import com.eza.hyperglow.root.aod.rubySpanGeometry
@@ -568,11 +569,11 @@ private fun LyricPreviewSurface(
                 // 同源),不借主行的决策——主行无词窗而并发行有词窗时,预览此前会漏掉逐字推进。
                 val duetWordKaraoke = duet != null && planDuetRow(
                     animationMode = profile.animation,
+                    timed = producerWordsHaveTimedWindows(duet.words),
                     lineLevelSync = snapshot.lineLevelSync,
                     lineSyncFillMode = profile.lineSyncFillMode,
                     lineStartMs = duet.lineStartMs,
-                    lineEndMs = duet.lineEndMs,
-                    words = duet.words
+                    lineEndMs = duet.lineEndMs
                 ).path == OriginalLinePath.WORD_KARAOKE
                 val duetLayout = remember(
                     duet, duetTextAlign, duetWordKaraoke, duetSpanMs, textSize, lyricTypeface,

@@ -1,5 +1,7 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.producer.LyricWord
+
 /**
  * 并发行相对主行**独立**的画布侧纯函数(owner 2026-10-07):并发行有自己独立的内容键与
  * 槽位——主行换行只换主行块,不动并发行;并发行自己到点才换,且换行时只播自己的过渡。
@@ -37,20 +39,30 @@ internal fun frozenDuetBaselines(
  * 里末字「方」独占 5.65s,于是并发行在音频早已唱到别的句子之后还在慢慢铺光,与主行/音频
  * 都不同步(owner 2026-10-08:「并发时间戳没对上,明显第二句走的不是真实时间戳」)。
  *
- * [words] 传并发行自己的词表(不是主行的):判据与主行同式([hasTimedWordWindows])。
+ * [timed] 是**事实**不是决策:并发行是否带真实词窗,由调用方按本侧词表类型用同一判据取值
+ * ——实机画布侧 [hasTimedWordWindows]\(`AodCanvasWord`),App 内预览侧
+ * [producerWordsHaveTimedWindows]\(`LyricWord`)。两套判据必须同值(见单测)。
  */
 internal fun planDuetRow(
     animationMode: String,
+    timed: Boolean,
     lineLevelSync: Boolean,
     lineSyncFillMode: String,
     lineStartMs: Long,
-    lineEndMs: Long,
-    words: List<AodCanvasWord>
+    lineEndMs: Long
 ): OriginalLinePlan = planOriginalLine(
     animationMode = animationMode,
-    timed = hasTimedWordWindows(words),
+    timed = timed,
     lineLevelSync = lineLevelSync,
     lineSyncFillMode = lineSyncFillMode,
     lineStartMs = lineStartMs,
     lineEndMs = lineEndMs
 )
+
+/**
+ * 真实词窗判据的生产者侧版本(`LyricWord`,App 内预览用):与画布侧
+ * [hasTimedWordWindows]\(`AodCanvasWord`)同义——文本非空且 `endMs > startMs`。
+ * 两套词表类型形状相同,判据也必须同值:判据分叉就是「预览有逐字、实机没有」那类故障。
+ */
+internal fun producerWordsHaveTimedWindows(words: List<LyricWord>): Boolean =
+    words.any { it.text.isNotBlank() && it.endMs > it.startMs }

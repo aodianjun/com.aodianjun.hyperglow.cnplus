@@ -1,5 +1,6 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.producer.LyricWord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -53,6 +54,15 @@ class AodDuetLineIndependenceTest {
             boundaryAfter = true
         )
 
+    private fun producerWord(text: String, startMs: Long, endMs: Long) =
+        LyricWord(
+            text = text,
+            romanized = "",
+            startMs = startMs,
+            endMs = endMs,
+            boundaryAfter = true
+        )
+
     /**
      * 并发行带真实词窗时走**词级卡拉OK**(逐词真实时间戳),不是按行窗线性铺满的共享扫光块
      * (owner 2026-10-08:「并发时间戳没对上,明显第二句走的不是真实时间戳」)。词窗取真机
@@ -68,13 +78,14 @@ class AodDuetLineIndependenceTest {
             word("东", 148_216L, 148_648L),
             word("方", 148_648L, 154_300L)
         )
+        // 事实取自画布侧判据(实机接线同源)。
         val plan = planDuetRow(
             animationMode = "Gradient",
+            timed = hasTimedWordWindows(words),
             lineLevelSync = true,
             lineSyncFillMode = "Left to right (main only)",
             lineStartMs = 147_444L,
-            lineEndMs = 154_300L,
-            words = words
+            lineEndMs = 154_300L
         )
         assertEquals(OriginalLinePath.WORD_KARAOKE, plan.path)
         // 词窗压过歌词源的行级标记与「行进度效果」四档(与主行 planOriginalLine 同式)。
@@ -82,11 +93,11 @@ class AodDuetLineIndependenceTest {
             OriginalLinePath.WORD_KARAOKE,
             planDuetRow(
                 animationMode = "Gradient",
+                timed = hasTimedWordWindows(words),
                 lineLevelSync = true,
                 lineSyncFillMode = "None",
                 lineStartMs = 147_444L,
-                lineEndMs = 154_300L,
-                words = words
+                lineEndMs = 154_300L
             ).path
         )
     }
@@ -94,25 +105,27 @@ class AodDuetLineIndependenceTest {
     /** 并发行没有真实词窗(行级源)时保持共享扫光块——行为与修复前一致,不回退。 */
     @Test
     fun duetRowWithoutWordWindowsKeepsTheSharedSweep() {
-        val plan = planDuetRow(
-            animationMode = "Gradient",
-            lineLevelSync = true,
-            lineSyncFillMode = "Left to right (main only)",
-            lineStartMs = 147_444L,
-            lineEndMs = 154_300L,
-            words = emptyList()
+        assertEquals(
+            OriginalLinePath.BLOCK_SWEEP,
+            planDuetRow(
+                animationMode = "Gradient",
+                timed = hasTimedWordWindows(emptyList()),
+                lineLevelSync = true,
+                lineSyncFillMode = "Left to right (main only)",
+                lineStartMs = 147_444L,
+                lineEndMs = 154_300L
+            ).path
         )
-        assertEquals(OriginalLinePath.BLOCK_SWEEP, plan.path)
         // 零窗占位词(布局分组合成)不算真实词窗,同样落共享扫光块。
         assertEquals(
             OriginalLinePath.BLOCK_SWEEP,
             planDuetRow(
                 animationMode = "Gradient",
+                timed = hasTimedWordWindows(listOf(word("乐", 0L, 0L), word("鸣", 0L, 0L))),
                 lineLevelSync = true,
                 lineSyncFillMode = "Left to right (main only)",
                 lineStartMs = 147_444L,
-                lineEndMs = 154_300L,
-                words = listOf(word("乐", 0L, 0L), word("鸣", 0L, 0L))
+                lineEndMs = 154_300L
             ).path
         )
     }
@@ -124,12 +137,46 @@ class AodDuetLineIndependenceTest {
             OriginalLinePath.STATIC,
             planDuetRow(
                 animationMode = "Minimal",
+                timed = true,
                 lineLevelSync = true,
                 lineSyncFillMode = "Left to right (main only)",
                 lineStartMs = 147_444L,
-                lineEndMs = 154_300L,
-                words = listOf(word("乐", 147_444L, 147_777L))
+                lineEndMs = 154_300L
             ).path
         )
+    }
+
+    /**
+     * 两套词表类型各有一个真实词窗判据(实机 `AodCanvasWord` / 预览 `LyricWord`)——**必须同值**。
+     * 判据分叉就是「预览有逐字、实机没有」那类故障(本次修复前恰好相反:预览对、实机错)。
+     */
+    @Test
+    fun bothWordModelsAgreeOnWhatCountsAsRealWordWindows() {
+        val cases = listOf(
+            listOf(147_444L to 147_777L, 148_648L to 154_300L) to true,
+            listOf(0L to 0L, 0L to 0L) to false,
+            emptyList<Pair<Long, Long>>() to false,
+            listOf(5_000L to 5_000L) to false
+        )
+        cases.forEach { (windows, expected) ->
+            val canvas = windows.map { (s, e) -> word("字", s, e) }
+            val producer = windows.map { (s, e) -> producerWord("字", s, e) }
+            assertEquals(
+                "windows=$windows",
+                expected,
+                hasTimedWordWindows(canvas)
+            )
+            assertEquals(
+                "windows=$windows",
+                hasTimedWordWindows(canvas),
+                producerWordsHaveTimedWindows(producer)
+            )
+        }
+        // 空白文本不算真实词窗(两套判据同式)。
+        assertEquals(
+            hasTimedWordWindows(listOf(word("", 1_000L, 2_000L))),
+            producerWordsHaveTimedWindows(listOf(producerWord("", 1_000L, 2_000L)))
+        )
+        assertEquals(false, hasTimedWordWindows(listOf(word("", 1_000L, 2_000L))))
     }
 }
