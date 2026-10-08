@@ -34,10 +34,10 @@ import kotlin.math.abs
 object PluginSongBridge {
 
     /** 文档行角色进 metadata 的键名（内部约定，不进插件 API）。 */
-    private const val META_ROLE = "role"
+    internal const val META_ROLE = "role"
 
     /** 和声行角色值(与 amll-ttml 的 TtmlMapper.ROLE_BG 同一约定)。 */
-    private const val ROLE_BG = "BG"
+    internal const val ROLE_BG = "BG"
 
     fun fromDocument(document: SpicyBridgeDocument, state: LyricProducerState): PluginSong =
         PluginSong(
@@ -120,20 +120,50 @@ object PluginSongBridge {
     /**
      * 用处理后的快照富化生产者状态。返回原实例（引用相等，保持引擎的
      * identity 校验语义）当：会话不匹配、无行、或插件实际没改任何相关字段。
+     *
+     * 对唱行表按**声部槽位**选行(owner 2026-10-08「每行钉在一个声部上」,见 [assignVoiceSlots]):
+     * 主行恒取槽位 0 的活动行、并发行恒取槽位 1 的活动行——源里声明了 `ttm:agent` 按身份映射,
+     * 没声明时由宿主自动分配默认两个声部;单声部行表(所有非 BG 行都落槽位 0)走与改动前
+     * 逐字节同路。注意行内容钉在槽位后,生产者下发的行窗(lineStartMs/lineEndMs)仍可能属于
+     * **另一声部**(生产者行表是顺序铺开的,实测《乐鸣东方》两行窗口整体错位),主行的扫光因此
+     * 依赖插件下发的逐词窗口——带词表的行本来就走词级卡拉OK,行窗只作无词表的兜底。
      */
     fun enrichState(state: LyricProducerState, patched: PatchedSong): LyricProducerState {
         if (patched.sessionKey != sessionKey(state)) return state
         val rows = patched.song.lyrics ?: return state
         if (rows.isEmpty()) return state
         if (!patched.changedAnything()) return state
-        // 活动行:**先按行身份**(生产者当前那一句在插件行表里找同一句),位置只作兜底。
+        // 声部槽位:对唱行表里两位演唱者的行窗互相重叠,而生产者行表是顺序的——不钉槽位时
+        // 生产者当前句一翻(实测《乐鸣东方》108.350s),屏上两行整体互换,正在读的那一行跳到
+        // 另一个位置。槽位 0 = 第一声部(主行),槽位 1 = 第二声部(并发行车道)。
+        val slots = assignVoiceSlots(rows)
+        val hasSecondVoice = slots.any { it == VOICE_SLOT_SECONDARY }
+        // 单声部行表(绝大多数曲目):主行候选集就是整张表,与钉槽位前逐字节同路——统一形状
+        // 不能顺手把老路径也换成槽位,这是本次改动的最大回归面。
+        val mainRows = if (hasSecondVoice) {
+            rows.filterIndexed { index, _ -> slots[index] == VOICE_SLOT_PRIMARY }
+        } else {
+            rows
+        }
+        // 活动行:**先按行身份**(生产者当前那一句在**本声部**行里找同一句),位置只作兜底。
         // 顺序不可颠倒:对唱曲目的插件行表里两个声部的行互相重叠,而插件 TTML 的行窗与
         // 生产者行窗存在错位(实测 v1 长行 147.4–154.3 横跨 v2 的两句),按位置取会落到
         // 另一声部的行上——主行就显示第二声部的文本、屏上第二行「跳」到第一行
         // (owner 2026-10-08 真机反馈)。行身份来自生产者,是「现在唱的是哪一句」的唯一
         // 权威;位置仅用于在同句的多次出现之间挑覆盖本次位置的那一次。
-        val active = activeRowByText(rows, state.line, state.positionMs)
-            ?: selectActiveRow(rows, state.positionMs)
+        val mainFallback = if (hasSecondVoice) {
+            // 本声部这一句唱完、下一句还没到:保留本声部最后一行。不退回生产者行——生产者
+            // 的当前句可能正是另一声部的行(退回就是这次要修的互换)。单声部不走这条兜底:
+            // 没有另一个声部可换,保持生产者状态不动是既有行为。
+            rows.getOrNull(
+                voiceSlotLastEndedRowIndex(rows, slots, VOICE_SLOT_PRIMARY, state.positionMs)
+            )
+        } else {
+            null
+        }
+        val active = activeRowByText(mainRows, state.line, state.positionMs)
+            ?: selectActiveRow(mainRows, state.positionMs)
+            ?: mainFallback
             ?: return state
 
         var enriched = state
@@ -245,7 +275,9 @@ object PluginSongBridge {
         // ≥1s)——AMLL 的 x-bg 和声与主行同窗,HyperLyric 把它折进父行的 secondary 车道
         // 随父行一起显示;CN+ 的插件把它映射成独立行,所以这里按行身份把它挂回活动行,
         // 不要求位置落在和声自己的窗口内(父行窗口常远长于和声,如 20.5s vs 5.2s);
-        // ②没有同句和声时退回既有的纯时间窗重叠判定(对唱并发行)。
+        // ②双声部行表取**槽位 1 的当前行**(只随第二声部自己的行窗变,不再随主行/生产者
+        // 当前句重选——屏上第二行的内容因此不随主行换行互换,owner 2026-10-08);
+        // ③单声部行表退回既有的纯时间窗重叠判定(对唱并发行,与改动前逐字节同路)。
         // 绘制侧仍按和声自己的时间窗门控(见 AodLyricCanvasView.drawDuetOriginal);和声身份
         // 随行进入 [LyricDuetLine.harmony],渲染侧据此走辅助行车道。
         if (replacedLyricRows(patched)) {
@@ -255,14 +287,16 @@ object PluginSongBridge {
                 val bg = rows.count(::isHarmonyRow)
                 val acc = accompanimentRowIndex(rows, rows.indexOf(active))
                 val pick = if (acc >= 0) rows[acc].text?.take(20) else "(none)"
-                "Duet attach: rows=${rows.size} bg=$bg active=${active.text?.take(16)} " +
-                    "primaryIdx=${rows.indexOf(active)} accIdx=$acc pick=$pick"
+                "Duet attach: rows=${rows.size} bg=$bg twoVoice=$hasSecondVoice " +
+                    "active=${active.text?.take(16)} primaryIdx=${rows.indexOf(active)} " +
+                    "accIdx=$acc pick=$pick"
             }
             val accompanimentIndex = accompanimentRowIndex(rows, primaryIndex)
-            val duetIndex = if (accompanimentIndex >= 0) {
-                accompanimentIndex
-            } else {
-                selectDuetLineIndex(
+            val duetIndex = when {
+                accompanimentIndex >= 0 -> accompanimentIndex
+                hasSecondVoice ->
+                    voiceSlotRowIndexAt(rows, slots, VOICE_SLOT_SECONDARY, state.positionMs)
+                else -> selectDuetLineIndex(
                     windows = rows.map { DuetLineWindow(it.begin, it.end, it.text.isNullOrBlank()) },
                     primaryIndex = primaryIndex,
                     positionMs = state.positionMs
