@@ -1185,15 +1185,16 @@ internal fun collectDemoSnapshot(
 
 /**
  * 演示副行 → 并发行(纯函数,JVM 可测):文本为空不产出(与实机 duetLine 文本为空整条
- * 丢弃同口径)。演示副行都是带括号的回声句(AMLL x-bg 形态),按**和声**下发——预览与
- * 实机同源走辅助行车道(小字号辅助行),不再堆主行同款大字行(两条一样的大字行是
- * 真机 2026-10-07 反馈的错观感);真对唱(不同演唱者并排)只在实机快照里出现。
+ * 丢弃同口径)。[DemoLine.duetHarmony] 决定它走哪条车道:带括号的回声句(AMLL x-bg 形态)
+ * 按**和声**下发,预览与实机同源走辅助行车道(小字号辅助行)——不再堆主行同款大字行
+ * (两条一样的大字行是真机 2026-10-07 反馈的错观感);不同声部的对唱句按**对唱**下发,
+ * 走主行同款大字行(与实机非 BG 行同源)。两种样式都要在无实时歌词时可见。
  */
 internal fun demoDuetLine(line: DemoLine): LyricDuetLine? =
     line.duet?.takeIf { it.isNotBlank() }?.let { duet ->
         LyricDuetLine(
             text = duet,
-            harmony = true,
+            harmony = line.duetHarmony,
             lineStartMs = 0,
             lineEndMs = DEMO_LINE_SWITCH_MS,
             words = demoWords(duet)
@@ -1234,12 +1235,17 @@ internal class DemoLine(
      */
     val ruby: List<LyricRuby>,
     /**
-     * 同句和声副行(可空,仅演示数据用):让「显示并发歌词(对唱)」在无实时歌词时也能在
-     * 预览里看出来;文本都是带括号的回声句,装配成和声行走辅助行车道(见 [demoDuetLine])。
-     * 演示快照不走按面标记剥离(见 collectDemoSnapshot),这里直接写剥离后的形态,避免预览
-     * 出现实机默认设置下不会上屏的行首标记文本。
+     * 同句副行(可空,仅演示数据用):让「显示并发歌词(对唱)」在无实时歌词时也能在预览里
+     * 看出来。演示快照不走按面标记剥离(见 collectDemoSnapshot),这里直接写剥离后的形态,
+     * 避免预览出现实机默认设置下不会上屏的行首标记文本。
      */
-    val duet: String? = null
+    val duet: String? = null,
+    /**
+     * 副行是否和声(role=BG 的 x-bg 回声):true 走辅助行车道(小字号),false 走主行同款
+     * 大字行。演示数据两种都给(回声句 + 不同声部的对唱句),否则「对唱=主行同款」这一样式
+     * 在无实时歌词时看不到(见 [demoDuetLine])。
+     */
+    val duetHarmony: Boolean = true
 )
 
 internal class DemoTrack(
@@ -1291,7 +1297,7 @@ internal val DEMO_LINES_ZH = listOf(
             LyricRuby(17, 18, "de"),
             LyricRuby(18, 20, "lín piàn")
         ),
-        // 对唱/和声副行:与主行同窗口的另一声部(演示「显示并发歌词(对唱)」开关)。
+        // 和声副行:带括号的回声句(x-bg 形态),走辅助行车道(见 demoDuetLine)。
         duet = "（也要飞向那片蓝天）"
     ),
     DemoLine(
@@ -1322,8 +1328,10 @@ internal val DEMO_LINES_ZH = listOf(
             LyricRuby(11, 12, "ér"),
             LyricRuby(12, 14, "wěidà")
         ),
-        // 对唱/和声副行:与主行同窗口的另一声部(演示「显示并发歌词(对唱)」开关)。
-        duet = "（哪怕世界从未回答）"
+        // 对唱副行:不同声部的答句(非回声),走主行同款大字行(见 demoDuetLine);
+        // 文本与主行不同文,避免预览出现「两条一样的大字行」的错观感。
+        duet = "哪怕世界从未回答",
+        duetHarmony = false
     )
 )
 
@@ -1341,7 +1349,7 @@ internal val DEMO_LINES_EN = listOf(
         "ɪn maɪ driːmz aɪ fiːl jɔː laɪt",
         "在我的梦里，我感受到你的光芒",
         emptyList(),
-        // 对唱/和声副行:与主行同窗口的另一声部(演示「显示并发歌词(对唱)」开关)。
+        // 和声副行:带括号的回声句(x-bg 形态),走辅助行车道(见 demoDuetLine)。
         duet = "(Shining through the endless night)"
     ),
     DemoLine(
@@ -1361,8 +1369,10 @@ internal val DEMO_LINES_EN = listOf(
         "teɪk maɪ hænd naʊ steɪ kloʊs tə miː",
         "现在握住我的手，靠近我",
         emptyList(),
-        // 对唱/和声副行:与主行同窗口的另一声部(演示「显示并发歌词(对唱)」开关)。
-        duet = "(I will never let you go)"
+        // 对唱副行:不同声部的答句(非回声),走主行同款大字行(见 demoDuetLine);
+        // 文本与主行不同文,避免预览出现「两条一样的大字行」的错观感。
+        duet = "And I will never let you go",
+        duetHarmony = false
     )
 )
 

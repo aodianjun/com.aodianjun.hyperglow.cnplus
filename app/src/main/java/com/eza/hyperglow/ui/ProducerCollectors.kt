@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import com.eza.hyperglow.customization.composeSongMetadata
+import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.producer.ArtworkFrame
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
@@ -84,6 +85,12 @@ internal fun collectConnection(source: LyricSource): androidx.compose.runtime.St
  *
  * 注意:不从这里读 SystemUiLyricProjection —— 那是 SystemUI 侧投影,app 进程内并不保证
  * 被喂入实时快照,会导致预览不更新。
+ *
+ * 读到的原始状态先过 [PluginPipeline.enrich]:并发行/和声(插件行表里的 role=BG 回声与对唱
+ * 行)以及插件补的译文/音标只存在于富化后的状态里——实机在投影前同步跑这一步
+ * (AodProjectionEngine.project → PluginPipeline.enrich → projectToDisplay),预览若读原始
+ * active 就整条漏掉(真机 2026-10-07 的「预览没有并发/和声」)。enrich 无插件结果时原样返回
+ * 同一实例,不改变任何字段。
  */
 @Composable
 internal fun collectLiveSnapshot(
@@ -96,7 +103,7 @@ internal fun collectLiveSnapshot(
     // 封面帧出帧后驱动重组(帧到达前字段为空,预览不显示,与实机 fail-closed 一致)。
     val artworkFrame by SongArtworkRepository.current.collectAsState()
     val state = active?.takeIf { presentsLivePreview(it) } ?: return null
-    return state.toPreviewSnapshot(
+    return PluginPipeline.enrich(state).toPreviewSnapshot(
         metadataParts,
         metadataSeparators,
         duetMarkers,
