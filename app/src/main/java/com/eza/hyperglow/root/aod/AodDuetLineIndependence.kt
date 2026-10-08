@@ -1,6 +1,6 @@
 package com.eza.hyperglow.root.aod
 
-import com.eza.hyperglow.producer.LyricWord
+import com.eza.hyperglow.root.projection.LyricWord
 
 /**
  * 并发行相对主行**独立**的画布侧纯函数(owner 2026-10-07):并发行有自己独立的内容键与
@@ -41,7 +41,7 @@ internal fun frozenDuetBaselines(
  *
  * [timed] 是**事实**不是决策:并发行是否带真实词窗,由调用方按本侧词表类型用同一判据取值
  * ——实机画布侧 [hasTimedWordWindows]\(`AodCanvasWord`),App 内预览侧
- * [producerWordsHaveTimedWindows]\(`LyricWord`)。两套判据必须同值(见单测)。
+ * [projectedWordsHaveTimedWindows]\(`root.projection.LyricWord`)。两套判据必须同值(见单测)。
  */
 internal fun planDuetRow(
     animationMode: String,
@@ -60,9 +60,10 @@ internal fun planDuetRow(
 )
 
 /**
- * 真实词窗判据的生产者侧版本(`LyricWord`,App 内预览用):与画布侧
+ * 真实词窗判据的投影侧版本(`root.projection.LyricWord`,App 内预览用):与画布侧
  * [hasTimedWordWindows]\(`AodCanvasWord`)同义——文本非空且 `endMs > startMs`。
- * 两套词表类型形状相同,判据也必须同值:判据分叉就是「预览有逐字、实机没有」那类故障。
+ * 两套词表类型(`AodCanvasWord` / `root.projection.LyricWord`)形状相同、判据也必须同值:
+ * 判据分叉就是「预览有逐字、实机没有」那类故障(本次修复前恰好相反:预览对、实机错)。
  */
-internal fun producerWordsHaveTimedWindows(words: List<LyricWord>): Boolean =
+internal fun projectedWordsHaveTimedWindows(words: List<LyricWord>): Boolean =
     words.any { it.text.isNotBlank() && it.endMs > it.startMs }

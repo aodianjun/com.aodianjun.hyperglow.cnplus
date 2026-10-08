@@ -1,6 +1,6 @@
 package com.eza.hyperglow.root.aod
 
-import com.eza.hyperglow.producer.LyricWord
+import com.eza.hyperglow.root.projection.LyricWord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -54,7 +54,7 @@ class AodDuetLineIndependenceTest {
             boundaryAfter = true
         )
 
-    private fun producerWord(text: String, startMs: Long, endMs: Long) =
+    private fun projectedWord(text: String, startMs: Long, endMs: Long) =
         LyricWord(
             text = text,
             romanized = "",
@@ -160,7 +160,7 @@ class AodDuetLineIndependenceTest {
         )
         cases.forEach { (windows, expected) ->
             val canvas = windows.map { (s, e) -> word("字", s, e) }
-            val producer = windows.map { (s, e) -> producerWord("字", s, e) }
+            val projected = windows.map { (s, e) -> projectedWord("字", s, e) }
             assertEquals(
                 "windows=$windows",
                 expected,
@@ -169,13 +169,13 @@ class AodDuetLineIndependenceTest {
             assertEquals(
                 "windows=$windows",
                 hasTimedWordWindows(canvas),
-                producerWordsHaveTimedWindows(producer)
+                projectedWordsHaveTimedWindows(projected)
             )
         }
         // 空白文本不算真实词窗(两套判据同式)。
         assertEquals(
             hasTimedWordWindows(listOf(word("", 1_000L, 2_000L))),
-            producerWordsHaveTimedWindows(listOf(producerWord("", 1_000L, 2_000L)))
+            projectedWordsHaveTimedWindows(listOf(projectedWord("", 1_000L, 2_000L)))
         )
         assertEquals(false, hasTimedWordWindows(listOf(word("", 1_000L, 2_000L))))
     }
