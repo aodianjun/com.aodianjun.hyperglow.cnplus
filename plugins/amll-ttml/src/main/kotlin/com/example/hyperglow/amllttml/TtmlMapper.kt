@@ -13,7 +13,7 @@ import com.mocharealm.accompanist.lyrics.core.parser.TTMLParser
  * TTML 原文 → 插件行表。
  *
  * 解析交给 accompanist-lyrics-core 的 [TTMLParser]（逐字音节、翻译、音译、和声 x-bg、
- * 对唱 agent → 左右分侧都在库内完成），本映射做四件事：
+ * 对唱 agent → 左右分侧都在库内完成），本映射做五件事：
  * 1. **对唱开关**：`duet` 关闭时忽略 alignment，全部行不分侧（对齐上游内置版的
  *    「启用对唱表演」设置项语义）；
  * 2. **和声开关**：`background` 关闭时丢弃和声行；开启时和声行作为**独立行**输出，
@@ -21,8 +21,13 @@ import com.mocharealm.accompanist.lyrics.core.parser.TTMLParser
  * 3. **翻译开关**：`translation` 关闭时不挂翻译；
  * 4. **原文回扫**：库只认「内层带时轴」的 x-bg——规范 §5/§7.3 允许的行级 x-bg（纯文本）
  *    会被它整条丢弃，x-bg 内嵌的 x-roman 它也从不读取（和声行的 phonetic 恒为 null）。
- *    这两类都是规范内的合法写法，丢了就是内容损失，由 [scanRawBgLines] 在原文上找回；
+ *    这两类都是规范内的合法写法，丢了就是内容损失，由 [scanRawLines] 在原文上找回；
  *    只在库没给出对应内容时兜底，库给出的部分一律不动。
+ * 5. **演唱者身份**：`ttm:agent`（规范 §7.2：「在 `<p>` 标签上使用 `ttm:agent` 属性，并通过
+ *    在 `<head>` 中定义的 `xml:id` (如 `v1`) 来指明演唱者。」）随行带进 metadata 的
+ *    "agent"/"agentType"——库只用它算 alignment，算完即丢，宿主拿不到身份就分不清
+ *    「真对唱（两位演唱者重叠）」与「单纯重叠」。x-bg 和声行没有自己的 agent，身份继承
+ *    它所属的 `<p>`；`<p>` 没写 agent 就不挂键（不发明源里没有的值）。
  *
  * 行时间轴按 begin 排序、钳制到非负，空文本行丢弃（宁缺毋滥）。
  */
@@ -31,6 +36,12 @@ internal object TtmlMapper {
     const val META_ROLE = "role"
     const val ROLE_LEAD = "LEAD"
     const val ROLE_BG = "BG"
+
+    /** 演唱者身份键：宿主按它推导对唱左右分侧（见 docs/LOCKSCREEN_AOD_BEHAVIOR_SPEC.md）。 */
+    const val META_AGENT = "agent"
+
+    /** 演唱者类型键：`<p>` 上只有 id，类型来自 `<head>` 的声明（person/group/other…）。 */
+    const val META_AGENT_TYPE = "agentType"
 
     fun map(
         ttml: String,
@@ -41,31 +52,34 @@ internal object TtmlMapper {
         val synced = runCatching { TTMLParser().parse(ttml) }.getOrNull() ?: return emptyList()
         if (synced.lines.isEmpty()) return emptyList()
 
-        // 回扫只在要输出和声行时做：background 关闭时和声行整体丢弃，扫了也白扫。
-        val rawBg =
-            if (background) runCatching { RawBgCursor(scanRawBgLines(ttml)) }.getOrNull() else null
+        // 回扫不再只服务于和声行：演唱者身份挂在每一行上，background 关掉也得带。
+        // 扫描是纯读，畸形 XML 由 runCatching 兜住——扫不出来就退化成改动前的输出（宁缺毋滥）。
+        val rawLines = runCatching { RawLineCursor(scanRawLines(ttml)) }.getOrNull()
 
         val rows = ArrayList<PluginLyricLine>(synced.lines.size + 8)
         for (line in synced.lines) {
+            // 每个解析行取一次身份队列，取用节奏与解析行一一对应（同窗口多 <p> 时按文档序）。
+            val raw = rawLines?.takeAgent(line.start.toLong(), line.end.toLong())
             when (line) {
                 is KaraokeLine.MainKaraokeLine -> {
-                    rows += mainLine(line, duet, translation)
+                    rows += mainLine(line, duet, translation, raw)
                     if (background) {
-                        val raw = rawBg?.take(line.start.toLong(), line.end.toLong())
+                        val bg = rawLines?.takeSpans(line.start.toLong(), line.end.toLong())
                         val parsed = line.accompanimentLines
                         if (parsed.isNullOrEmpty()) {
                             // 库没解析出和声行：本行若含行级 x-bg，其内容已被库丢掉，按原文补行。
-                            if (raw != null) {
-                                for (span in raw.spans) rawBgRow(span, raw)?.let(rows::add)
+                            if (bg != null) {
+                                for (span in bg.spans) rawBgRow(span, bg)?.let(rows::add)
                             }
                         } else {
                             // 库解析出的和声行照旧输出，只补它从不填写的音译（见 RawBgSpan.roman）。
-                            val romas = raw?.spans?.filter { it.syllables.isNotEmpty() }?.map { it.roman }
+                            val romas = bg?.spans?.filter { it.syllables.isNotEmpty() }?.map { it.roman }
                             parsed.forEachIndexed { index, accompaniment ->
                                 rows += accompanimentLine(
                                     accompaniment,
                                     translation,
                                     romas?.getOrNull(index),
+                                    raw,
                                 )
                             }
                         }
@@ -73,15 +87,15 @@ internal object TtmlMapper {
                 }
 
                 is KaraokeLine.AccompanimentKaraokeLine ->
-                    if (background) rows += accompanimentLine(line, translation)
+                    if (background) rows += accompanimentLine(line, translation, raw = raw)
 
                 is SyncedLine -> {
-                    rows += plainLine(line, translation)
+                    rows += plainLine(line, translation, raw)
                     if (background) {
                         // 逐行主唱同样可能有行级 x-bg（库对 SyncedLine 也没有和声概念）。
-                        val raw = rawBg?.take(line.start.toLong(), line.end.toLong())
-                        if (raw != null) {
-                            for (span in raw.spans) rawBgRow(span, raw)?.let(rows::add)
+                        val bg = rawLines?.takeSpans(line.start.toLong(), line.end.toLong())
+                        if (bg != null) {
+                            for (span in bg.spans) rawBgRow(span, bg)?.let(rows::add)
                         }
                     }
                 }
@@ -99,16 +113,33 @@ internal object TtmlMapper {
         return withWords * 2 >= rows.size
     }
 
+    /**
+     * 行元数据：角色恒有（LEAD/BG），演唱者身份只在该行所属的 `<p>` 真的写了 `ttm:agent` 时挂上。
+     *
+     * 规范 §4.1：agent 的 `type` 支持 `person` / `character` / `organization` / `group` /
+     * `other`，id 惯例 `v1,v2,v3…`（`group→v1000`、`other→v2000`）；`<p>` 上只有 id，
+     * `type` 由 [scanRawLines] 从 `<head>` 的 `<ttm:agent xml:id="…" type="…"/>` 声明解析。
+     * 没声明（或声明里没写 type）就只挂 `agent`——不发明源里没有的值，宿主对缺省有自己的语义。
+     */
+    private fun rowMetadata(role: String, raw: RawLine?): PluginMetadata {
+        val values = LinkedHashMap<String, String?>()
+        values[META_ROLE] = role
+        raw?.agent?.let { values[META_AGENT] = it }
+        raw?.agentType?.let { values[META_AGENT_TYPE] = it }
+        return PluginMetadata(values = values)
+    }
+
     private fun mainLine(
         line: KaraokeLine.MainKaraokeLine,
         duet: Boolean,
         translation: Boolean,
+        raw: RawLine?,
     ): PluginLyricLine = PluginLyricLine(
         begin = line.start.toLong(),
         end = line.end.toLong(),
         duration = (line.end - line.start).toLong().coerceAtLeast(0L),
         isAlignedRight = duet && line.alignment == KaraokeAlignment.End,
-        metadata = PluginMetadata(values = mapOf(META_ROLE to ROLE_LEAD)),
+        metadata = rowMetadata(ROLE_LEAD, raw),
         text = line.syllables.joinToString("") { it.content },
         words = line.syllables.toWords(),
         translation = line.translation?.takeIf { translation && it.isNotBlank() },
@@ -119,13 +150,15 @@ internal object TtmlMapper {
         line: KaraokeLine.AccompanimentKaraokeLine,
         translation: Boolean,
         fallbackRoma: String? = null,
+        raw: RawLine? = null,
     ): PluginLyricLine = PluginLyricLine(
         begin = line.start.toLong(),
         end = line.end.toLong(),
         duration = (line.end - line.start).toLong().coerceAtLeast(0L),
         // 和声行不参与对唱左右分侧（它挂在主行之下，分侧由主行表达）。
         isAlignedRight = false,
-        metadata = PluginMetadata(values = mapOf(META_ROLE to ROLE_BG)),
+        // 身份继承父 `<p>`（x-bg span 自己没有 agent，规范 §7.2 只把 agent 定义在行上）。
+        metadata = rowMetadata(ROLE_BG, raw),
         text = line.syllables.joinToString("") { it.content },
         words = line.syllables.toWords(),
         translation = line.translation?.takeIf { translation && it.isNotBlank() },
@@ -135,15 +168,16 @@ internal object TtmlMapper {
             ?: fallbackRoma?.takeIf { it.isNotBlank() },
     )
 
-    private fun plainLine(line: SyncedLine, translation: Boolean): PluginLyricLine = PluginLyricLine(
-        begin = line.start.toLong(),
-        end = line.end.toLong(),
-        duration = (line.end - line.start).toLong().coerceAtLeast(0L),
-        isAlignedRight = false,
-        metadata = PluginMetadata(values = mapOf(META_ROLE to ROLE_LEAD)),
-        text = line.content,
-        translation = line.translation?.takeIf { translation && it.isNotBlank() },
-    )
+    private fun plainLine(line: SyncedLine, translation: Boolean, raw: RawLine?): PluginLyricLine =
+        PluginLyricLine(
+            begin = line.start.toLong(),
+            end = line.end.toLong(),
+            duration = (line.end - line.start).toLong().coerceAtLeast(0L),
+            isAlignedRight = false,
+            metadata = rowMetadata(ROLE_LEAD, raw),
+            text = line.content,
+            translation = line.translation?.takeIf { translation && it.isNotBlank() },
+        )
 
     /**
      * 把库丢掉的行级 x-bg 补成独立 BG 行（形状与 [accompanimentLine] 一致）。
@@ -153,7 +187,7 @@ internal object TtmlMapper {
      * 翻译不在此补：库的和声翻译走内嵌 x-translation / iTunes 元数据两条路径，本次只修
      * 「行级 x-bg 被整条丢弃」与「x-bg 内嵌 x-roman 被丢弃」两处内容损失，不顺手扩大范围。
      */
-    private fun rawBgRow(span: RawBgSpan, parent: RawBgLine): PluginLyricLine? {
+    private fun rawBgRow(span: RawBgSpan, parent: RawLine): PluginLyricLine? {
         if (span.text.isBlank()) return null
         val begin = span.begin ?: parent.begin
         val end = span.end ?: parent.end
@@ -163,7 +197,7 @@ internal object TtmlMapper {
             duration = (end - begin).coerceAtLeast(0L),
             // 和声行不参与对唱左右分侧（它挂在主行之下，分侧由主行表达）。
             isAlignedRight = false,
-            metadata = PluginMetadata(values = mapOf(META_ROLE to ROLE_BG)),
+            metadata = rowMetadata(ROLE_BG, parent),
             text = span.text,
             // 内层带时轴音节时才有逐字词表；行级 x-bg（本兜底的主路径）留给宿主走行级渲染。
             words = span.syllables.takeIf { it.isNotEmpty() },
@@ -193,15 +227,24 @@ internal object TtmlMapper {
             .toList()
 }
 
-// ---- 原文回扫（补库丢弃的 x-bg 内容）--------------------------------------
+// ---- 原文回扫（补库丢弃的 x-bg 内容，并取回库丢弃的演唱者身份）-------------
 
 /**
- * 原文扫描结果：一个含直接子 x-bg 的 `<p>`。
+ * 原文扫描结果：一个带窗口的 `<p>`。
  *
  * 对齐键是 (begin, end)：解析行按 start 升序、同 start 保持文档序，扫描结果按文档序入队，
- * 同一个键下两侧的顺序一致，因此按序取用即可对上（见 [RawBgCursor]）。
+ * 同一个键下两侧的顺序一致，因此按序取用即可对上（见 [RawLineCursor]）。
+ *
+ * `agent` / `agentType` 是该 `<p>` 的演唱者身份（没写 / 没声明为 null）；`spans` 是它的直接子
+ * x-bg 内容——没有 x-bg 的行也在扫描结果里（身份挂在每一行上，与和声开关无关），`spans` 为空。
  */
-internal data class RawBgLine(val begin: Long, val end: Long, val spans: List<RawBgSpan>)
+internal data class RawLine(
+    val begin: Long,
+    val end: Long,
+    val agent: String?,
+    val agentType: String?,
+    val spans: List<RawBgSpan>,
+)
 
 /**
  * 原文扫描结果：一个直接子 x-bg span。
@@ -220,39 +263,76 @@ internal data class RawBgSpan(
 )
 
 /**
- * 回扫原文，按文档序取出所有带直接子 x-bg 的 `<p>`（连同它们的窗口与 x-bg 内容）。
+ * 回扫原文，按文档序取出每个带窗口的 `<p>`（窗口 + 演唱者身份 + 直接子 x-bg 内容）。
  *
  * 为什么要有这一步：库的 [TTMLParser] 只把「内层带时轴 `<span>`」的 x-bg 解析成和声行，
  * 行级写法（`<span ttm:role="x-bg">(伴唱)</span>`，规范 §5/§7.3 明确允许）会被整条丢弃；
  * x-bg 内嵌的 x-roman 它也从不读取。这两类都是规范内的合法写法，丢了就是内容损失。
  *
+ * 演唱者身份同理是库外信息：库读 `ttm:agent` 只为算 alignment，算完即丢（规范 §7.2：
+ * 「在 `<p>` 标签上使用 `ttm:agent` 属性，并通过在 `<head>` 中定义的 `xml:id` (如 `v1`) 来
+ * 指明演唱者。」「即使是单人演唱的歌曲，也应为 `<p>` 标签添加 `ttm:agent="v1"`，并定义 "v1"
+ * agent。」），宿主拿不到 id/type 就分不清真对唱与单纯重叠。id 按库的取法原样带出（属性名恰为
+ * `ttm:agent`）；type 由 `<head>` 的 `<ttm:agent xml:id="…" type="…"/>` 声明解析。
+ *
  * 为什么自己写扫描器而不是复用库的：库的 `SimpleXmlParser` / `XmlElement` / `parseAsTime`
  * 在 0.4.7 里都是 internal，插件无法引用；这里按库的同一口径复刻最小实现（含实体解码、
  * 空白折叠、时间戳解析），且只服务于兜底路径——形状异常时最坏也只是「不补」，不影响既有输出。
  */
-internal fun scanRawBgLines(ttml: String): List<RawBgLine> {
+internal fun scanRawLines(ttml: String): List<RawLine> {
     val root = parseRawXml(ttml) ?: return emptyList()
-    val result = ArrayList<RawBgLine>()
+    val agentTypes = scanRawAgentTypes(root)
+    val result = ArrayList<RawLine>()
     fun visit(node: ScanNode) {
         if (node.name == "p") {
             val begin = node.attr("begin")?.let(::parseRawTime)
             val end = node.attr("end")?.let(::parseRawTime)
             if (begin != null && end != null) {
-                val spans = node.children
-                    .filter { it.name == "span" && it.hasRole("x-bg") }
-                    .map { span ->
-                        RawBgSpan(
-                            begin = span.attr("begin")?.let(::parseRawTime),
-                            end = span.attr("end")?.let(::parseRawTime),
-                            text = normalizeRawText(span.plainText()),
-                            roman = span.children
-                                .firstOrNull { it.name == "span" && it.hasRole("x-roman") }
-                                ?.text?.toString()?.trim()?.takeIf { it.isNotEmpty() },
-                            syllables = span.timedSyllables(),
-                        )
-                    }
-                if (spans.isNotEmpty()) result += RawBgLine(begin, end, spans)
+                // 属性名恰为 ttm:agent（同库内 computeLineAlignments 的取法）；空值视为没写。
+                val agent = node.attr("ttm:agent")?.takeIf { it.isNotBlank() }
+                result += RawLine(
+                    begin = begin,
+                    end = end,
+                    agent = agent,
+                    agentType = agent?.let(agentTypes::get),
+                    spans = node.children
+                        .filter { it.name == "span" && it.hasRole("x-bg") }
+                        .map { span ->
+                            RawBgSpan(
+                                begin = span.attr("begin")?.let(::parseRawTime),
+                                end = span.attr("end")?.let(::parseRawTime),
+                                text = normalizeRawText(span.plainText()),
+                                roman = span.children
+                                    .firstOrNull { it.name == "span" && it.hasRole("x-roman") }
+                                    ?.text?.toString()?.trim()?.takeIf { it.isNotEmpty() },
+                                syllables = span.timedSyllables(),
+                            )
+                        },
+                )
             }
+        }
+        for (child in node.children) visit(child)
+    }
+    visit(root)
+    return result
+}
+
+/**
+ * 原文扫描：`<ttm:agent xml:id="…" type="…"/>` 声明表（id → type）。
+ *
+ * 口径同库内 `parseAgentTypes`（元素名以 ":agent" 结尾或恰为 "agent"，`xml:id`（或裸 `id`）
+ * 为键、`type` 为值，同一 id 重复声明取最后一个）；差别只在扫描范围：库只看 `<metadata>` 的
+ * 直接子元素，这里扫整棵树——规范 §7.2 只要求声明在 `<head>` 里，扫全树对两种摆放都成立，
+ * 且结果只用于把 `<p>` 上已有的 id 补成 type，不会改变任何行的产出。
+ * 没有 type 的声明不入表：不发明源里没有的值（宿主对缺失 type 有自己的缺省语义）。
+ */
+private fun scanRawAgentTypes(root: ScanNode): Map<String, String> {
+    val result = HashMap<String, String>()
+    fun visit(node: ScanNode) {
+        if (node.name.endsWith(":agent") || node.name == "agent") {
+            val id = node.attr("xml:id") ?: node.attr("id")
+            val type = node.attr("type")?.takeIf { it.isNotBlank() }
+            if (id != null && type != null) result[id] = type
         }
         for (child in node.children) visit(child)
     }
@@ -263,16 +343,30 @@ internal fun scanRawBgLines(ttml: String): List<RawBgLine> {
 /**
  * 原文扫描 ↔ 解析行的对齐游标：按 (begin, end) 分桶、桶内按文档序取用。
  *
+ * 身份与和声内容分成两个队列、各自消费：
+ * - [takeAgent] 收所有带窗口的 `<p>`——身份挂在每一行上，background 关掉也要取；
+ * - [takeSpans] 只收含直接子 x-bg 的 `<p>`——与 1.0.2 的兜底逐字节同源：同一窗口出现多个
+ *   `<p>`（病态输入）时兜底行的归属保持改动前的行为，本次只加不减。此时身份与内容可能落到
+ *   不同的 `<p>` 上：内容随内容所属的 `<p>`，身份按文档序——两害相权取其轻（宁缺毋滥）。
+ *
  * 取不到就返回 null——补不上只是保持改动前的行为，绝不会因为对不齐而错补（宁缺毋滥）。
  */
-private class RawBgCursor(lines: List<RawBgLine>) {
-    private val queues = HashMap<Pair<Long, Long>, ArrayDeque<RawBgLine>>(lines.size)
+private class RawLineCursor(lines: List<RawLine>) {
+    private val agents = HashMap<Pair<Long, Long>, ArrayDeque<RawLine>>(lines.size)
+    private val backgrounds = HashMap<Pair<Long, Long>, ArrayDeque<RawLine>>(lines.size)
 
     init {
-        for (line in lines) queues.getOrPut(line.begin to line.end) { ArrayDeque() }.addLast(line)
+        for (line in lines) {
+            agents.getOrPut(line.begin to line.end) { ArrayDeque() }.addLast(line)
+            if (line.spans.isNotEmpty()) {
+                backgrounds.getOrPut(line.begin to line.end) { ArrayDeque() }.addLast(line)
+            }
+        }
     }
 
-    fun take(begin: Long, end: Long): RawBgLine? = queues[begin to end]?.removeFirstOrNull()
+    fun takeAgent(begin: Long, end: Long): RawLine? = agents[begin to end]?.removeFirstOrNull()
+
+    fun takeSpans(begin: Long, end: Long): RawLine? = backgrounds[begin to end]?.removeFirstOrNull()
 }
 
 // ---- 最小 XML 扫描器（口径复刻库内 SimpleXmlParser / parseAsTime）----------
