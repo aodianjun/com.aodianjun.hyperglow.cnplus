@@ -114,6 +114,7 @@ import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
+import com.eza.hyperglow.root.aod.resolvedLyricLayoutLineLimit
 import com.eza.hyperglow.root.aod.OriginalLinePath
 import com.eza.hyperglow.root.aod.planOriginalLine
 import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
@@ -165,6 +166,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal const val PREVIEW_CARD_MIN_HEIGHT_DP = 120f
 
 internal const val PREVIEW_CARD_MAX_HEIGHT_DP = 420f
+
+/**
+ * 并发行加入淡入时长(ms):与实机 AodLyricCanvasView.DUET_JOIN_FADE_MS 同值同源(实机侧为
+ * private,不能直接引用)。并发行内容键变化时整块淡入,淡入完成后恒全亮——这是并发行唯一的
+ * 进场过渡:主行换行不带它,它自己换行时才播(任务 1「并发行相对主行独立」的预览侧同源)。
+ */
+private const val PREVIEW_DUET_JOIN_FADE_MS = 180L
 
 /**
  * 预览卡片高度自适应:内容有多高卡片就多高,钳制在 [PREVIEW_CARD_MIN_HEIGHT_DP]..
@@ -525,31 +533,49 @@ private fun LyricPreviewSurface(
                     )
                 }
                 // 对唱并发行(与实机 buildRows 同源):本面「显示并发歌词(对唱)」开启且快照
-                // 带非空并发行时,主行块之后同款堆叠并发行块(自带词级扫光);在场时取代独立
-                // 「下一行」行(与 #82 的 anti-dup 同式,防下方拥挤)。
+                // 带非空并发行时,在**辅助文字行组之后**堆叠并发行车道(段序同实机 buildRows:
+                // 主行 → 主行辅助行 → 并发行/和声行 → 下一行);在场时取代独立「下一行」行
+                // (与 #82 的 anti-dup 同式,防下方拥挤)。
                 // 和声行(harmony,插件行 role=BG 的 x-bg 回声)不走这一档:它常与主行同文,
                 // 同款堆叠就是两条一样的大字行(真机 2026-10-07 反馈的错观感);改走辅助行
                 // 车道,见下方 duetRows 的和声首行(与实机 buildRows 同源)。
                 val duet = snapshot.duetLine?.takeIf {
                     previewDuetVisible(profile.duetConcurrent, it)
                 }
+                // 并发行内容键(与实机 duetLineKey 同口径):键不变 = 渲染原地保持,键变化才播
+                // 加入淡入——并发行不随主行换行移动的判据(见 PreviewRowBlock.duetKey)。
+                val duetKey = duet?.let { previewDuetKey(it.text, it.lineStartMs) }
+                // 并发行自己的行窗跨度:并发行辅助行的逐字效果与行级合成时间轴同取它
+                // (实机 buildRows 的 duetAuxKaraokeWindow / buildDuetOriginalLayout 同源);
+                // 窗口过短(实时源的异常行窗)或本行无并发行时退到演示行跨度。
+                val duetSpanMs = duet?.let {
+                    (it.lineEndMs - it.lineStartMs).takeIf { span -> span >= 100L }
+                } ?: demoLineSpanMs
                 // 并发行按自己的分侧解析对齐(与实机 alignmentFor(DUET_*) 同源),不随主行翻转。
                 val duetTextAlign = previewRowTextAlign(
                     "auto",
                     profile.alignment,
                     duetAlignedRight(duet?.alignedRight ?: false, profile.duetAlignment)
                 )
+                // 并发行渲染路径与主行同一份决策(planOriginalLine):判据取并发行**自己的**真实
+                // 词窗(实机 buildDuetOriginalLayout 的 hasTimedWordWindows(duet.words) 同源),
+                // 不借主行的决策——主行无词窗而并发行有词窗时,预览此前会漏掉逐字推进。
+                val duetWordKaraoke = duet != null && planOriginalLine(
+                    animationMode = profile.animation,
+                    timed = duet.words.any { it.text.isNotBlank() && it.endMs > it.startMs },
+                    lineLevelSync = snapshot.lineLevelSync,
+                    lineSyncFillMode = profile.lineSyncFillMode,
+                    lineStartMs = duet.lineStartMs,
+                    lineEndMs = duet.lineEndMs
+                ).path == OriginalLinePath.WORD_KARAOKE
                 val duetLayout = remember(
-                    duet, duetTextAlign, textSize, lyricTypeface, regularTypeface, availablePx,
-                    profile.lyricLineLimit, profile.overflow, profile.adaptiveSectioning,
-                    profile.animation, resolvedColors.unsungText, previewWordKaraoke
+                    duet, duetTextAlign, duetWordKaraoke, duetSpanMs, textSize, lyricTypeface,
+                    regularTypeface, availablePx, profile.lyricLineLimit, profile.overflow,
+                    profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText
                 ) {
                     if (duet == null || duet.harmony) {
                         null
                     } else {
-                        // 行级源的字符合成时间轴取并发行自己的行窗(与实机并发行扫光同拍)。
-                        val duetSpanMs = (duet.lineEndMs - duet.lineStartMs)
-                            .takeIf { it >= 100L } ?: demoLineSpanMs
                         buildPreviewMainLayout(
                             text = duet.text,
                             textSizePx = with(density) { textSize.toPx() },
@@ -559,11 +585,18 @@ private fun LyricPreviewSurface(
                             ruby = emptyList(),
                             words = duet.words,
                             betterLyrics = profile.animation == "BetterLyrics",
-                            wordKaraoke = previewWordKaraoke,
+                            wordKaraoke = duetWordKaraoke,
                             unsungColorArgb = resolvedColors.unsungText,
+                            // 行级源的字符合成时间轴取并发行自己的行窗(与实机并发行扫光同拍)。
                             lineSpanMs = duetSpanMs,
+                            // 换行上限与实机 buildDuetOriginalLayout 同源:min(档位解析值, 2)
+                            // ——并发行双行封顶,防内容块失控。
+                            lineLimit = resolvedLyricLayoutLineLimit(
+                                profile.lyricLineLimit,
+                                duet.text.length,
+                                duet.words.size
+                            ).coerceAtMost(2),
                             availableWidthPx = availablePx.toFloat(),
-                            lineLimit = profile.lyricLineLimit,
                             wrap = profile.overflow == "Wrap",
                             adaptiveSectioning = profile.adaptiveSectioning,
                             alignment = when (duetTextAlign) {
@@ -617,7 +650,10 @@ private fun LyricPreviewSurface(
                                 color = secondaryColor,
                                 align = duetTextAlign,
                                 gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
-                                dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright)
+                                dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright),
+                                // 并发行辅助行同样吃「辅助文字逐字效果」(实机 buildRows 的
+                                // duetAuxKaraokeWindow 同源),窗口取并发行自己的行窗。
+                                karaoke = profile.secondaryWordKaraoke
                             )
                         },
                         duet.translated.takeIf { showTranslation && it.isNotBlank() }?.let {
@@ -630,7 +666,8 @@ private fun LyricPreviewSurface(
                                 color = secondaryColor,
                                 align = duetTextAlign,
                                 gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
-                                dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright)
+                                dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright),
+                                karaoke = profile.secondaryWordKaraoke
                             )
                         }
                     )
@@ -804,7 +841,21 @@ private fun LyricPreviewSurface(
                                 null
                             },
                             duet = duetLayout,
-                            duetRows = duetRows
+                            duetRows = duetRows,
+                            // 并发行辅助行的逐字效果:跨度取并发行自己的行窗(实机
+                            // duetAuxKaraokeWindow 同源),其余档位与主行辅助行一致。
+                            duetAuxKaraoke = if (profile.secondaryWordKaraoke && duet != null) {
+                                PreviewAuxKaraoke(
+                                    spanMs = duetSpanMs,
+                                    betterLyrics = profile.animation == "BetterLyrics",
+                                    alphaFactor = previewSecondaryAlpha(
+                                        profile.secondaryTextBright
+                                    )
+                                )
+                            } else {
+                                null
+                            },
+                            duetKey = duetKey
                         ),
                         lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
                         lineTransitionSpeed = profile.lineTransitionSpeed,
@@ -1041,6 +1092,37 @@ internal fun previewDuetVisible(
     duetConcurrent: Boolean,
     duetLine: LyricDuetLine?
 ): Boolean = duetConcurrent && duetLine != null && duetLine.text.isNotBlank()
+
+/**
+ * 并发行内容键(纯函数,JVM 可测;与实机 AodLyricCanvasView 的 duetLineKey 同口径:
+ * 文本 + 行窗起点)。键不变 = 并发行没换,渲染必须原地保持(不随主行换行进退);
+ * 键变化才播加入淡入。文本为空/无并发行返回 null(不可见,不动画)。
+ */
+internal fun previewDuetKey(text: String?, lineStartMs: Long): String? =
+    text?.takeIf { it.isNotBlank() }?.let { "$it@$lineStartMs" }
+
+/**
+ * 并发行段在主行过渡期间的静止槽位偏移(px,纯函数,JVM 可测;与实机
+ * AodDuetLineIndependence.frozenDuetBaselines 同源):并发行内容键与过渡起点一致(并发行
+ * 没换)时,槽位取过渡起点快照——旧行组(主行+辅助文字)与新行组的高差,新布局不参与,
+ * 「主行换行不改变并发行位置」由此成立;并发行自己换了(键变化)或不在过渡中(起点键为 null)
+ * 时不偏移,由新布局接管。偏移作用于整个并发行段(段内各行同步平移,相对位置不变)。
+ *
+ * [previousGroupHeightPx] 为 0(退场层实测高要到过渡首帧之后才上报)时不偏移:否则首帧会
+ * 按「0 − 新行组高」把并发行顶到块顶,下一帧再跳回,反而制造一次可见跳动。
+ */
+internal fun previewDuetFrozenOffsetPx(
+    previousDuetKey: String?,
+    currentDuetKey: String?,
+    previousGroupHeightPx: Int,
+    currentGroupHeightPx: Int
+): Float = if (previousDuetKey != null && previousDuetKey == currentDuetKey &&
+    previousGroupHeightPx > 0
+) {
+    (previousGroupHeightPx - currentGroupHeightPx).toFloat()
+} else {
+    0f
+}
 
 private data class PreviewSecondaryLine(
     val text: String,
@@ -1440,9 +1522,10 @@ private fun previewRubyPlacements(
 }
 
 /**
- * 行块一代内容:主行 + 辅助文字行 + 下一行行。换行过渡按行分流三段式(与实机
+ * 行块一代内容:主行 + 辅助文字行 + 并发行段 + 下一行行。换行过渡按行分流三段式(与实机
  * drawOrientedContent 同构):离场行组(主行+辅助文字)退场 → 下一行晋级位移 →
  * 新到行(新辅助文字+新下一行)进场;[nextLine] 为晋级源(内容延续时升任主行)。
+ * 并发行段([duet]/[duetRows])不参与这三段:它有自己的内容键([duetKey])与加入淡入。
  */
 private class PreviewRowBlock(
     val main: PreviewMainLayout,
@@ -1457,17 +1540,28 @@ private class PreviewRowBlock(
      */
     val auxKaraoke: PreviewAuxKaraoke? = null,
     /**
-     * 对唱并发行布局:与主行同款布局+词级扫光(同 [PreviewMainLayout]),堆在主行块之后,
-     * 其高度计入 MAIN 段;在场时取代独立「下一行」行(anti-dup,与实机 buildRows 同式,
-     * 防下方拥挤)。null = 本面无并发行、「显示并发歌词(对唱)」已关,或本行是和声行
-     * (和声走辅助行车道,只经 [duetRows] 呈现,不再叠主行同款大字行)。
+     * 对唱并发行布局:与主行同款布局+词级扫光(同 [PreviewMainLayout]),占独立的并发行车道
+     * (段序在辅助文字行组之后、下一行行之前,与实机 buildRows 同源),不随主行换行进退;
+     * 在场时取代独立「下一行」行(anti-dup,与实机 buildRows 同式,防下方拥挤)。
+     * null = 本面无并发行、「显示并发歌词(对唱)」已关,或本行是和声行(和声走辅助行车道,
+     * 只经 [duetRows] 呈现,不再叠主行同款大字行)。
      */
     val duet: PreviewMainLayout? = null,
     /**
      * 并发行自己的辅助文字行(音标/翻译),紧随并发行之后;换行档跟随并发行呈现行数。
      * 和声行([duet] 为空)时是唯一承载:首行即和声文本本身,按辅助行样式渲染。
      */
-    val duetRows: List<PreviewBlockRow> = emptyList()
+    val duetRows: List<PreviewBlockRow> = emptyList(),
+    /**
+     * 并发行辅助行(音标/翻译/和声行)的「辅助文字逐字效果」参数:跨度取并发行自己的行窗
+     * (实机 buildRows 的 duetAuxKaraokeWindow 同源),与主行辅助行的 [auxKaraoke] 区分开。
+     */
+    val duetAuxKaraoke: PreviewAuxKaraoke? = null,
+    /**
+     * 并发行内容键(文本 + 行窗起点,见 [previewDuetKey]):键不变 = 并发行未换,渲染原地
+     * 保持;键变化才播加入淡入。null = 并发行不可见(无并发行/开关关闭)。
+     */
+    val duetKey: String? = null
 )
 
 /** 行块内副行(辅助文字/下一行)的渲染参数,随所属行块一起冻结;[dimAlpha] 为该行静态亮度档。 */
@@ -1591,6 +1685,14 @@ private fun PreviewAnimatedRowBlock(
     var enterNextHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var nextRowTopPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
     var exitNextLineRowHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    // 并发行在主行过渡期间的静止槽位偏移(px,与实机 AodDuetLineIndependence.frozenDuetBaselines
+    // 同源,判据见 previewDuetFrozenOffsetPx)。
+    val duetFrozenOffsetPx = previewDuetFrozenOffsetPx(
+        previousDuetKey = previous?.duetKey,
+        currentDuetKey = block.duetKey,
+        previousGroupHeightPx = exitMainHeightPx + exitRowsHeightPx,
+        currentGroupHeightPx = enterMainHeightPx + enterRowsHeightPx
+    )
     val mainBlockHeightDp = with(density) { block.main.blockHeight.toDp().value }
     val exitMainBlockHeightDp = with(density) { (previous ?: block).main.blockHeight.toDp().value }
     val blockWidthDp = with(density) { availableWidthPx.toDp().value }
@@ -1626,22 +1728,39 @@ private fun PreviewAnimatedRowBlock(
         },
         fromAlpha = previous?.nextLine?.dimAlpha ?: staticNextLineTextFactor()
     )
+    // 并发行加入淡入(与实机 AodLyricCanvasView.duetJoinAlpha 同源):内容键(文本 + 行窗
+    // 起点)变化即重计时,淡入完成后恒全亮。并发行不参与主行换行帧,这是它唯一的进场过渡——
+    // 主行换行时它原地不动,只有自己的内容换了才动(键为 null 时并发行不可见,不动画)。
+    val duetKey = block.duetKey
+    val duetJoin = remember { Animatable(1f) }
+    LaunchedEffect(duetKey) {
+        if (duetKey == null) return@LaunchedEffect
+        duetJoin.snapTo(0f)
+        duetJoin.animateTo(
+            1f,
+            tween(PREVIEW_DUET_JOIN_FADE_MS.toInt(), easing = LinearEasing)
+        )
+    }
+    val duetAlpha = duetJoin.value
     // 角色分流(与实机同构):退场层画离场行组[主行+辅助文字]、下一行只占位(退场段原地
     // 保持、位移段起隐藏);入场层画新到行组[辅助文字+下一行]、主行只占位(由位移层绘制)。
+    // 并发行段不参与这两层的帧:退场层把它列为隐藏段只占位(旧并发行不随主行离场),由入场层
+    // 单独绘制并施加 [duetAlpha]——这是「并发行不随主行换行移动」的落点。
     val exitFrameParts = if (promoting) {
         setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS)
     } else {
-        PreviewRowPart.entries.toSet()
+        setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS, PreviewRowPart.NEXT)
     }
+    // 并发行段恒为隐藏段:退场层只占位(旧并发行不随主行离场),由入场层单独绘制。
     val exitHiddenParts = if (promoting && moveFrameProgress.value > 0f) {
-        setOf(PreviewRowPart.NEXT)
+        setOf(PreviewRowPart.NEXT, PreviewRowPart.DUET)
     } else {
-        emptySet()
+        setOf(PreviewRowPart.DUET)
     }
     val enterFrameParts = if (promoting) {
         setOf(PreviewRowPart.ROWS, PreviewRowPart.NEXT)
     } else {
-        PreviewRowPart.entries.toSet()
+        setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS, PreviewRowPart.NEXT)
     }
     // 晋级时新主行的辅助行(内容延续组)由晋级层呈现:入场层占位不绘制,
     // 新到行组 = 新下一行及其辅助行(与实机入场层口径一致)。
@@ -1678,6 +1797,8 @@ private fun PreviewAnimatedRowBlock(
                         PreviewRowPart.MAIN -> exitMainHeightPx = height
                         PreviewRowPart.ROWS -> exitRowsHeightPx = height
                         PreviewRowPart.NEXT -> exitNextHeightPx = height
+                        // 并发行段不参与退场组高(它不随主行离场),无需上报。
+                        PreviewRowPart.DUET -> Unit
                     }
                 },
                 onNextRowTopPx = { nextRowTopPx = it },
@@ -1747,7 +1868,7 @@ private fun PreviewAnimatedRowBlock(
             }
         }
         // 段3 入场层:新到行(新辅助文字+新下一行)按入场半段进场;晋级时新「主行」
-        // 由段2接管,本层只画新到行组。
+        // 由段2接管,本层只画新到行组。并发行段只由本层绘制(退场层占位),吃自己的加入淡入。
         PreviewRowBlockLayer(
             block = block,
             sweepProgress = progressValue,
@@ -1763,11 +1884,15 @@ private fun PreviewAnimatedRowBlock(
             availableWidthPx = availableWidthPx,
             wrap = wrap,
             adaptiveSectioning = adaptiveSectioning,
+            duetAlpha = duetAlpha,
+            duetFrozenOffsetPx = duetFrozenOffsetPx,
             onPartHeightPx = { part, height ->
                 when (part) {
                     PreviewRowPart.MAIN -> enterMainHeightPx = height
                     PreviewRowPart.ROWS -> enterRowsHeightPx = height
                     PreviewRowPart.NEXT -> enterNextHeightPx = height
+                    // 并发行段不参与入场组高(它不随主行进场),无需上报。
+                    PreviewRowPart.DUET -> Unit
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -1776,15 +1901,21 @@ private fun PreviewAnimatedRowBlock(
 }
 
 /**
- * 行块内可独立分帧的三段:主行(含对唱并发行及其辅助行) / 辅助文字行组 / 下一行行
- * (与实机行角色一一对应)。
+ * 行块内可独立分帧的四段:主行 / 辅助文字行组 / 并发行段(并发行或和声行及其辅助行) /
+ * 下一行行(与实机行角色一一对应;段序与实机 buildRows 的行序同源:主行 → 主行辅助行 →
+ * 并发行/和声行 → 下一行)。
+ *
+ * 并发行段与其它三段的区别:它**不参与主行换行帧**(见 [applyPartTransition] 的 DUET 说明)——
+ * 主行换行时并发行原地不动,只有自己的内容键变化才播加入淡入。这是任务 1「并发行相对主行
+ * 独立」在预览侧的同一语义。
  */
-private enum class PreviewRowPart { MAIN, ROWS, NEXT }
+private enum class PreviewRowPart { MAIN, ROWS, DUET, NEXT }
 
 /**
- * 行块单层绘制:主行 LyricGlowRow(含对唱并发行)+ 辅助文字行 + 下一行行,按
- * [frameParts]/[hiddenParts] 逐段分流——[frameParts] 内的行段共用 [frame](alpha/位移/缩放/旋转一次施加);
- * [hiddenParts] 内的行段只占位不绘制(由其它层接管);其余行段恒等展示。
+ * 行块单层绘制:主行 LyricGlowRow + 辅助文字行 + 并发行段(对唱大字行/和声行及其辅助行)+
+ * 下一行行,按 [frameParts]/[hiddenParts] 逐段分流——[frameParts] 内的行段共用 [frame]
+ * (alpha/位移/缩放/旋转一次施加);[hiddenParts] 内的行段只占位不绘制(由其它层接管);
+ * 其余行段恒等展示(alpha 只吃 [duetAlpha],并发行段的加入淡入)。
  * 各段实测高经 [onPartHeightPx] 上报,供调用方按角色组求和作为该层位移基准
  * (参考实现 target.getHeight()/4);下一行行顶经 [onNextRowTopPx] 上报,作为晋级位移起点。
  */
@@ -1804,6 +1935,13 @@ private fun PreviewRowBlockLayer(
     availableWidthPx: Int,
     wrap: Boolean,
     adaptiveSectioning: Boolean,
+    /** 并发行段的加入淡入系数(实机 drawDuetOriginal 的 duetJoinAlpha 同源);只作用于 DUET 段。 */
+    duetAlpha: Float = 1f,
+    /**
+     * 并发行段在主行过渡期间的静止槽位偏移(px,实机 frozenDuetBaselines 同源):主行换行
+     * 过渡期间并发行停在过渡起点槽位;0 = 不偏移(无过渡,或并发行自己刚换行)。
+     */
+    duetFrozenOffsetPx: Float = 0f,
     onPartHeightPx: (PreviewRowPart, Int) -> Unit = { _, _ -> },
     onNextRowTopPx: (Int) -> Unit = {},
     onNextLineRowHeightPx: (Int) -> Unit = {},
@@ -1811,84 +1949,26 @@ private fun PreviewRowBlockLayer(
 ) {
     val density = LocalDensity.current
     Column(modifier) {
-        // 主行段(含对唱并发行):并发行与主行同款绘制、同层进退,其高度计入本段实测高,
-        // 换行动画的位移基准才与实机(并发行属主行块)一致。
+        // 主行段(仅原文行):并发行有自己的车道(见下方 DUET 段),不再与主行同层进退——
+        // 主行换行时并发行原地不动(任务 1「并发行相对主行独立」的预览侧语义)。
         Box(
             Modifier
                 .fillMaxWidth()
                 .onSizeChanged { onPartHeightPx(PreviewRowPart.MAIN, it.height) }
                 .graphicsLayer { applyPartTransition(PreviewRowPart.MAIN, frame, frameParts, hiddenParts) }
         ) {
-            Column(Modifier.fillMaxWidth()) {
-                PreviewMainLayer(
-                    layout = block.main,
-                    progress = sweepProgress,
-                    color = color,
-                    glowColor = glowColor,
-                    glowEnabled = glowEnabled,
-                    fillMode = fillMode,
-                    rubyColor = rubyColor,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(with(density) { block.main.blockHeight.toDp() })
-                )
-                val duet = block.duet
-                if (duet != null) {
-                    // 并发行自带词级扫光(与实机 drawDuetOriginal 同源),间隔取实机同源常量;
-                    // 词级/行级路径由 [buildPreviewMainLayout] 的决策位决定,与主行同一渲染核心。
-                    PreviewMainLayer(
-                        layout = duet,
-                        progress = sweepProgress,
-                        color = color,
-                        glowColor = glowColor,
-                        glowEnabled = glowEnabled,
-                        fillMode = fillMode,
-                        rubyColor = rubyColor,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = ROW_GAP_BEFORE_ORIGINAL_DP.dp)
-                            .height(with(density) { duet.blockHeight.toDp() })
-                    )
-                }
-                // 并发行/和声行自己的辅助行:换行档跟随并发行自身呈现行数(实机 buildRows 同源);
-                // 和声行走辅助行车道时 duet 为空、行数档由行自带的 preferredLines 给出。
-                block.duetRows.forEach { item ->
-                    val auxKaraoke = block.auxKaraoke
-                    if (item.karaoke && auxKaraoke != null && auxKaraoke.spanMs > 0L) {
-                        // 和声行「辅助文字逐字效果」:与实机 drawAuxKaraokeRow 同一共享渲染核心
-                        // (实机按和声自己的行窗口点亮,预览走演示进度)。
-                        PreviewSecondaryKaraokeRow(
-                            row = item.row,
-                            color = item.color,
-                            typeface = regularTypeface,
-                            availableWidthPx = availableWidthPx,
-                            preferredLines = item.preferredLines ?: duet?.lines?.size
-                                ?: block.main.lines.size,
-                            wrap = wrap,
-                            adaptiveSectioning = adaptiveSectioning,
-                            textAlign = item.align,
-                            progress = sweepProgress,
-                            auxKaraoke = auxKaraoke,
-                            glowColor = glowColor,
-                            glowEnabled = glowEnabled,
-                            modifier = Modifier.padding(top = item.gapAbove)
-                        )
-                    } else {
-                        PreviewSecondaryRow(
-                            row = item.row,
-                            color = item.color,
-                            typeface = regularTypeface,
-                            availableWidthPx = availableWidthPx,
-                            preferredLines = item.preferredLines ?: duet?.lines?.size
-                                ?: block.main.lines.size,
-                            wrap = wrap,
-                            adaptiveSectioning = adaptiveSectioning,
-                            textAlign = item.align,
-                            modifier = Modifier.padding(top = item.gapAbove)
-                        )
-                    }
-                }
-            }
+            PreviewMainLayer(
+                layout = block.main,
+                progress = sweepProgress,
+                color = color,
+                glowColor = glowColor,
+                glowEnabled = glowEnabled,
+                fillMode = fillMode,
+                rubyColor = rubyColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(with(density) { block.main.blockHeight.toDp() })
+            )
         }
         // 辅助文字行组段。
         if (block.rows.isNotEmpty()) {
@@ -1926,6 +2006,87 @@ private fun PreviewRowBlockLayer(
                                 typeface = regularTypeface,
                                 availableWidthPx = availableWidthPx,
                                 preferredLines = block.main.lines.size,
+                                wrap = wrap,
+                                adaptiveSectioning = adaptiveSectioning,
+                                textAlign = item.align,
+                                modifier = Modifier.padding(top = item.gapAbove)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // 并发行段:真对唱的主行同款大字行([block.duet]),或和声行的辅助行车道首行与并发行
+        // 自己的辅助行([block.duetRows])。段序在辅助文字行组之后、下一行行之前,与实机
+        // buildRows 的行序同源(主行 → 主行辅助行 → 并发行/和声行 → 下一行)。
+        // 段内行不参与主行换行帧:退场层把它列为隐藏段只占位(旧并发行不随主行离场),由当前
+        // (入场)层单独绘制并施加 [duetAlpha] 的加入淡入(实机 drawDuetOriginal 同源);
+        // [duetFrozenOffsetPx] 让它在主行过渡期间停在过渡起点槽位(实机 frozenDuetBaselines 同源)。
+        if (block.duet != null || block.duetRows.isNotEmpty()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        applyPartTransition(
+                            PreviewRowPart.DUET,
+                            frame,
+                            frameParts,
+                            hiddenParts,
+                            partAlpha = duetAlpha
+                        )
+                        translationY = duetFrozenOffsetPx
+                    }
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    val duet = block.duet
+                    if (duet != null) {
+                        // 并发行与主行同一渲染核心(自带词级扫光),间隔取实机同源常量;
+                        // 词级/行级路径由 [buildPreviewMainLayout] 按并发行自己的词窗决策。
+                        PreviewMainLayer(
+                            layout = duet,
+                            progress = sweepProgress,
+                            color = color,
+                            glowColor = glowColor,
+                            glowEnabled = glowEnabled,
+                            fillMode = fillMode,
+                            rubyColor = rubyColor,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = ROW_GAP_BEFORE_ORIGINAL_DP.dp)
+                                .height(with(density) { duet.blockHeight.toDp() })
+                        )
+                    }
+                    // 并发行/和声行自己的辅助行:换行档跟随并发行自身呈现行数(实机 buildRows 同源);
+                    // 和声行走辅助行车道时 duet 为空、行数档由行自带的 preferredLines 给出。
+                    block.duetRows.forEach { item ->
+                        val auxKaraoke = block.duetAuxKaraoke
+                        if (item.karaoke && auxKaraoke != null && auxKaraoke.spanMs > 0L) {
+                            // 并发行/和声行「辅助文字逐字效果」:与实机 drawAuxKaraokeRow 同一共享
+                            // 渲染核心(实机按并发行自己的行窗口点亮,预览走演示进度)。
+                            PreviewSecondaryKaraokeRow(
+                                row = item.row,
+                                color = item.color,
+                                typeface = regularTypeface,
+                                availableWidthPx = availableWidthPx,
+                                preferredLines = item.preferredLines ?: duet?.lines?.size
+                                    ?: block.main.lines.size,
+                                wrap = wrap,
+                                adaptiveSectioning = adaptiveSectioning,
+                                textAlign = item.align,
+                                progress = sweepProgress,
+                                auxKaraoke = auxKaraoke,
+                                glowColor = glowColor,
+                                glowEnabled = glowEnabled,
+                                modifier = Modifier.padding(top = item.gapAbove)
+                            )
+                        } else {
+                            PreviewSecondaryRow(
+                                row = item.row,
+                                color = item.color,
+                                typeface = regularTypeface,
+                                availableWidthPx = availableWidthPx,
+                                preferredLines = item.preferredLines ?: duet?.lines?.size
+                                    ?: block.main.lines.size,
                                 wrap = wrap,
                                 adaptiveSectioning = adaptiveSectioning,
                                 textAlign = item.align,
@@ -1983,17 +2144,25 @@ private fun PreviewRowBlockLayer(
     }
 }
 
-/** graphicsLayer 作用域内按行段分流:隐藏段 alpha 置 0(占位),帧内段施加 [frame],其余恒等。 */
+/**
+ * graphicsLayer 作用域内按行段分流:隐藏段 alpha 置 0(占位),帧内段施加 [frame],其余恒等
+ * (alpha 只吃段自身的 [partAlpha])。
+ *
+ * 并发行段(DUET)固定落在「其余」一档:主行换行时它不参与退场/位移/进场(退场层把它列为
+ * 隐藏段只占位),唯一动它的是 [partAlpha] 的加入淡入——与实机 drawDuetOriginal 的
+ * duetJoinAlpha 同源。
+ */
 private fun GraphicsLayerScope.applyPartTransition(
     part: PreviewRowPart,
     frame: LineTransitionFrame,
     frameParts: Set<PreviewRowPart>,
-    hiddenParts: Set<PreviewRowPart>
+    hiddenParts: Set<PreviewRowPart>,
+    partAlpha: Float = 1f
 ) {
     when {
         part in hiddenParts -> alpha = 0f
         part in frameParts -> {
-            alpha = frame.alpha
+            alpha = frame.alpha * partAlpha
             translationX = frame.translateXDp.dp.toPx()
             translationY = frame.translateYDp.dp.toPx()
             scaleX = frame.scale
@@ -2002,6 +2171,7 @@ private fun GraphicsLayerScope.applyPartTransition(
             rotationX = frame.rotationXDeg
             rotationY = frame.rotationYDeg
         }
+        else -> alpha = partAlpha
     }
 }
 
