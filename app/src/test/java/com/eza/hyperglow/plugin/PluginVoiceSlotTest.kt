@@ -85,24 +85,45 @@ class PluginVoiceSlotTest {
     }
 
     /**
-     * 没有身份时按时间序交替:与上一行共享窗口 ≥1s(两位演唱者同时在场)取对面槽位,
-     * 否则沿用上一行槽位(顺序铺开 = 同一声部);共享窗口不足 1s 不算并发(与生产者的
-     * 并发判定同一门槛)。同一张表两次调用结果相同(确定性)。
+     * 没有身份时按**与已分配行的重叠**判定:共享窗口 ≥1s(两位演唱者同时在场)取对面槽位,
+     * **不重叠就是独唱、回槽位 0**;共享窗口不足 1s 不算并发(与生产者的并发判定同一门槛)。
+     * 同一张表两次调用结果相同(确定性)。
+     *
+     * 刻意钉住「不重叠 → 槽位 0」而不是「沿用上一行槽位」:链式交替一旦在对唱段翻到槽位 1,
+     * 后面所有独唱句都会滞留在槽位 1、槽位 0 整段空掉(真机实测《乐鸣东方》2:43–3:32)。
      */
     @Test
     fun unagentedRowsAlternateOnlyOnRealOverlap() {
         val rows = listOf(
             row(0L, 10_000L, "a"),
             row(8_000L, 14_000L, "b"),      // 共享 2s → 对面槽位
-            row(14_000L, 20_000L, "c"),     // 首尾相接 → 沿用
-            row(19_500L, 25_000L, "d")      // 共享 500ms < 1s → 沿用
+            row(14_000L, 20_000L, "c"),     // 首尾相接、无重叠 → 独唱,回槽位 0
+            row(19_500L, 25_000L, "d")      // 共享 500ms < 1s → 仍算独唱,回槽位 0
         )
         val slots = assignVoiceSlots(rows)
-        assertEquals(listOf(0, 1, 1, 1), slots)
+        assertEquals(listOf(0, 1, 0, 0), slots)
         assertEquals(slots, assignVoiceSlots(rows))
     }
 
-    /** BG 行(role=BG 的 x-bg 和声)拿不到槽位,也不打断交替链(它走辅助行车道,与声部无关)。 */
+    /**
+     * owner 报的现场:对唱段之后的独唱句必须回到槽位 0,不能滞留在槽位 1。
+     * 真机形态(自动分配):`乐鸣东方` 104.547–108.999(v1) 与 `天地为引 归墟为依` 105.686–120.557
+     * (v2) 重叠 → 0/1;紧接着的 `我随雨唤醒庙堂` 119.910–123.600 只与 v2 那一句重叠 647ms
+     * (<1s)——它其实是 v1 的下一句,必须回槽位 0;此前的链式交替把它留在槽位 1,连带后面
+     * 近 50s 的独唱句全堆在第二行、第一行整段空掉。
+     */
+    @Test
+    fun soloRowAfterADuetSectionReturnsToThePrimarySlot() {
+        val rows = listOf(
+            row(104_547L, 108_999L, "乐鸣东方"),
+            row(105_686L, 120_557L, "天地为引 归墟为依"),   // 共享 3.3s → 槽位 1
+            row(119_910L, 123_600L, "我随雨唤醒庙堂"),       // 共享 647ms → 独唱 → 槽位 0
+            row(123_600L, 127_220L, "唱花肆意生长")          // 首尾相接 → 槽位 0
+        )
+        assertEquals(listOf(0, 1, 0, 0), assignVoiceSlots(rows))
+    }
+
+    /** BG 行(role=BG 的 x-bg 和声)拿不到槽位,也不参与重叠判定(它走辅助行车道,与声部无关)。 */
     @Test
     fun backgroundRowsTakeNoSlotAndDoNotBreakTheChain() {
         val rows = listOf(
@@ -113,15 +134,15 @@ class PluginVoiceSlotTest {
         assertEquals(listOf(0, null, 1), assignVoiceSlots(rows))
     }
 
-    /** 跟在带身份行后面的无身份行按同一重叠规则接续它(续唱:同槽位;并发:对面槽位)。 */
+    /** 跟在带身份行后面的无身份行按同一重叠规则判定(并发取对面槽位;独唱回槽位 0)。 */
     @Test
-    fun agentlessRowContinuesThePrecedingAgentedSlot() {
+    fun agentlessSoloRowReturnsToThePrimarySlot() {
         val rows = listOf(
             row(0L, 10_000L, "a", agent = "v1"),
             row(8_000L, 14_000L, "b"),      // 与 v1 行共享 2s → 对面槽位
-            row(20_000L, 26_000L, "c")      // 不重叠 → 接续上一行槽位
+            row(20_000L, 26_000L, "c")      // 不重叠 → 独唱,回槽位 0
         )
-        assertEquals(listOf(0, 1, 1), assignVoiceSlots(rows))
+        assertEquals(listOf(0, 1, 0), assignVoiceSlots(rows))
     }
 
     // ---- 桥侧钉行 ----

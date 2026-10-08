@@ -20,12 +20,11 @@ import com.lidesheng.hyperlyric.plugin.api.PluginLyricLine
  * 1. **身份**:行 metadata 的 `agent`(amll-ttml 的 TtmlMapper 把 `ttm:agent` 的 xml:id 原样
  *    带出,规范 §7.2)非空时按**首见顺序**映射——第一个不同 agent → 槽位 0,第二个 → 槽位 1,
  *    再多的也归 1(屏上只有两行);
- * 2. **自动分配**:无 agent 的行——以及整张表都没有 agent 时——按**时间序**(begin 升序,同
- *    begin 保持表内顺序)交替:与上一行共享窗口 ≥ [MIN_CONCURRENT_OVERLAP_MS] 的行取对面槽位
- *    (两句同时在场 = 两位演唱者),否则沿用上一行槽位(顺序铺开 = 同一声部);跟在带身份行
- *    后面的无身份行按同一条规则接续它;
- * 3. **BG 行不参与**(role=BG 的 x-bg 和声走辅助行车道,与声部无关):既不拿槽位,也不打断
- *    交替链;
+ * 2. **自动分配**:无 agent 的行——以及整张表都没有 agent 时——按**与已分配行的重叠**判定:
+ *    共享窗口 ≥ [MIN_CONCURRENT_OVERLAP_MS] 的最近一行取对面槽位(同时在场 = 两位演唱者),
+ *    **没有任何重叠就是独唱、回槽位 0**。这里刻意**不**用「沿用上一行槽位」的链式交替:
+ *    链一旦在对唱段翻到槽位 1,后面所有不重叠的独唱句都会滞留在槽位 1、槽位 0 整段空掉;
+ * 3. **BG 行不参与**(role=BG 的 x-bg 和声走辅助行车道,与声部无关):不拿槽位,也不参与重叠判定;
  * 4. **全量**:每个非 BG 行恰好得到一个槽位。
  */
 
@@ -44,21 +43,46 @@ private const val META_AGENT = "agent"
 internal fun assignVoiceSlots(rows: List<PluginLyricLine>): List<Int?> {
     val slots = MutableList<Int?>(rows.size) { null }
     val agentSlots = LinkedHashMap<String, Int>()
-    var previous = -1
     // 时间序 = begin 升序;同 begin 按表内下标定序(显式兜底,结果与排序稳定性无关 ⇒ 确定)。
     for (index in rows.indices.sortedWith(compareBy({ rows[it].begin }, { it }))) {
         val row = rows[index]
         if (isBackgroundRow(row)) continue
         val agent = row.metadata?.values?.get(META_AGENT)?.takeIf { it.isNotBlank() }
-        slots[index] = when {
-            agent != null -> agentSlot(agentSlots, agent)
-            previous < 0 -> VOICE_SLOT_PRIMARY
-            sharesConcurrentWindow(rows[previous], row) -> 1 - slots[previous]!!
-            else -> slots[previous]!!
+        slots[index] = if (agent != null) {
+            agentSlot(agentSlots, agent)
+        } else {
+            // 无身份:只看**与已分配行的重叠**——共享窗口 ≥ [MIN_CONCURRENT_OVERLAP_MS] 的最近
+            // 一行取对面槽位(同时在场 = 两位演唱者);没有任何重叠就是独唱,**回第一行**。
+            //
+            // 不能沿用「上一行槽位」(链式交替):一旦在对唱段翻到第二行,后面所有不重叠的独唱句
+            // 都会滞留在第二行,第一行整段空掉——实测《乐鸣东方》自动分配下 2:43–3:32 近 50s
+            // 第一行为空、整首堆在第二行,owner 报「我随雨唤醒庙堂这句被跳过不显示」即此
+            // (它与第二声部上一句只重叠 647ms,被判成同一声部而留在第二行)。
+            val partner = overlappingPartnerIndex(rows, slots, index)
+            if (partner < 0) VOICE_SLOT_PRIMARY else 1 - slots[partner]!!
         }
-        previous = index
     }
     return slots
+}
+
+/**
+ * 与 [index] 行共享窗口 ≥ [MIN_CONCURRENT_OVERLAP_MS] 的**已分配**行里 begin 最晚的一个;无则 -1。
+ * 只认已分配的行:遍历按时间序推进,同 begin 的行按表内下标定序,因此候选恒是「先开口的那一位」。
+ */
+private fun overlappingPartnerIndex(
+    rows: List<PluginLyricLine>,
+    slots: List<Int?>,
+    index: Int
+): Int {
+    val row = rows[index]
+    var best = -1
+    for (other in rows.indices) {
+        if (other == index) continue
+        if (slots[other] == null) continue
+        if (!sharesConcurrentWindow(rows[other], row)) continue
+        if (best < 0 || rows[other].begin >= rows[best].begin) best = other
+    }
+    return best
 }
 
 /**
