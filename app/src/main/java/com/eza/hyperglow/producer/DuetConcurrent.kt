@@ -71,3 +71,33 @@ fun selectDuetLineIndex(
         .minByOrNull { it.value.startMs }
     return preJoin?.index ?: -1
 }
+
+/**
+ * 并发行候选的**独立时间轴**判定(owner 2026-10-07):屏上已锁定的并发行([locked],null =
+ * 尚未上屏)是否让位给本次到达的候选([incoming],null = 本次无候选)。
+ *
+ * 候选是按当前主行选的,主行一换候选就换——不锁的话屏上并发行会随主行换行被替换/卷走
+ * (「第二行还没唱完就换到第一行」)。本判定把已上屏的并发行锁到它自己的窗口结束:
+ * 1. 未锁定:候选直接采用(有则上屏、无则保持无);
+ * 2. 已锁定且位置仍在它自己的窗口内([positionMs] < locked.endMs):保持不动——主行换行
+ *    只换候选来源,不换屏上内容;仅当出现真正重叠的新候选(此刻已开唱、与锁定行共享窗口
+ *    ≥ [MIN_CONCURRENT_OVERLAP_MS])时才提前切换;
+ * 3. 已锁定且它自己的窗口已结束:采用本次候选,交还按当前主行的常规重选(并发行自己到点
+ *    换行,由 [selectDuetLineIndex] 重新选出的候选接管)。
+ */
+internal fun shouldAdoptDuetLineCandidate(
+    locked: DuetLineWindow?,
+    incoming: DuetLineWindow?,
+    positionMs: Long
+): Boolean {
+    if (locked == null) return true
+    if (incoming != null && sameDuetWindow(locked, incoming)) return false
+    if (positionMs >= locked.endMs) return true
+    return incoming != null &&
+        positionMs >= incoming.startMs && positionMs < incoming.endMs &&
+        duetOverlap(locked, incoming) >= MIN_CONCURRENT_OVERLAP_MS
+}
+
+/** 行窗身份判据:起止相同即同一行窗(并发行锁据此判「候选没换」,不切换也就无过渡)。 */
+private fun sameDuetWindow(first: DuetLineWindow, second: DuetLineWindow): Boolean =
+    first.startMs == second.startMs && first.endMs == second.endMs
