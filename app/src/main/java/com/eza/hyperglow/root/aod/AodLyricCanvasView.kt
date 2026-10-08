@@ -2192,12 +2192,20 @@ internal class AodLyricCanvasView(
                     availableWidth,
                     translation = false
                 )
+                // 逐字效果开启时优先按和声**自己的**真实词窗点亮(插件逐音节下发,见
+                // harmonyTimedLines);词表缺失/重建不出整行文本时返回 null,回落下面的
+                // 行窗均匀合成——即修复前的行为。
+                val harmonyLines = if (content.secondaryWordKaraoke) {
+                    harmonyTimedLines(content, duet, availableWidth, harmonyPaint)
+                } else {
+                    null
+                }
                 rows += rowWithLines(
                     RowKind.ROMANIZED,
                     duet.text,
                     harmonyPaint,
                     ROW_GAP_BEFORE_SECONDARY_DP * density,
-                    wrapSecondaryText(
+                    harmonyLines ?: wrapSecondaryText(
                         content,
                         duet.text,
                         harmonyPaint,
@@ -3518,6 +3526,37 @@ internal class AodLyricCanvasView(
             content.translated,
             paint::measureText
         ) ?: return null
+        return secondaryTimedVisualRanges(
+            segments,
+            availableWidth,
+            MAX_SECONDARY_LAYOUT_LINES,
+            wrap = content.adaptiveSectioning && content.overflowMode == "Wrap"
+        ).map { range ->
+            val lineSegments = range.map(segments::get)
+            val text = lineSegments.joinToString("") { it.text }
+            val lineWidth = lineSegments.sumOf { it.width.toDouble() }.toFloat()
+            textLine(text, lineWidth, paint).copy(timedSegments = lineSegments)
+        }
+    }
+
+    /**
+     * 和声行(role=BG 的 x-bg 回声,走辅助行车道的 [AodCanvasDuetLine.harmony] 行)的逐字
+     * 时间线:与 [translatedTimedLines] 同构——片段取自和声**自己的**词表
+     * ([AodCanvasDuetLine.words],插件按 AMLL TTML 规范逐音节下发,每音节自带 begin/end),
+     * 按宽度均衡折行,折行后各行携带 [SecondaryTimedSegment],由 [drawAuxKaraokeRow] 的逐字
+     * 字段路径按真实词窗点亮。此前只有行窗均匀合成(整行平摊到每个字),和声拖长音时整行
+     * 抢拍漂移——实测《乐鸣东方》L33 的 x-bg 和声末字「往)」独占 1.98s。
+     *
+     * 行文本与 [AodCanvasDuetLine.text] 逐字符一致(片段重建不出整行文本时返回 null,调用方
+     * 回落到行窗均匀合成——取舍与判据见共享纯函数 [harmonyTimedSegments])。
+     */
+    private fun harmonyTimedLines(
+        content: AodCanvasContent,
+        duet: AodCanvasDuetLine,
+        availableWidth: Float,
+        paint: Paint
+    ): List<TextLine>? {
+        val segments = harmonyTimedSegments(duet.words, duet.text, paint::measureText) ?: return null
         return secondaryTimedVisualRanges(
             segments,
             availableWidth,

@@ -86,6 +86,7 @@ import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.LYRIC_LINE_EXTRA_HEIGHT_DP
 import com.eza.hyperglow.root.aod.LYRIC_LINE_GAP_DP
 import com.eza.hyperglow.root.aod.LYRIC_WORD_GAP_DP
+import com.eza.hyperglow.root.aod.MAX_SECONDARY_LAYOUT_LINES
 import com.eza.hyperglow.root.aod.METADATA_LYRIC_GAP_DP
 import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_NEXT_LINE_DP
 import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_ORIGINAL_DP
@@ -126,12 +127,14 @@ import com.eza.hyperglow.root.aod.rubyTextSizePx
 import com.eza.hyperglow.root.aod.safeSecondaryLineHeight
 import com.eza.hyperglow.root.aod.lineStartX
 import com.eza.hyperglow.root.aod.hasFirstLineAuxText
+import com.eza.hyperglow.root.aod.harmonyTimedSegments
 import com.eza.hyperglow.root.aod.karaokeUnitEnd
 import com.eza.hyperglow.root.aod.FittedSecondaryLines
 import com.eza.hyperglow.root.aod.fittedSecondaryLines
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondarySizeFloorSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
+import com.eza.hyperglow.root.aod.secondaryTimedVisualRanges
 import com.eza.hyperglow.root.aod.secondLineColorArgb
 import com.eza.hyperglow.root.aod.SecondLinePresentation
 import com.eza.hyperglow.root.aod.SecondLineAuxRow
@@ -648,7 +651,10 @@ private fun LyricPreviewSurface(
                             // 换行档取主行行数:和声多是主行文本的回声(实机 wrapSecondaryText
                             // 同传 originalLayout.lineCount)。
                             preferredLines = mainLayout.lines.size,
-                            karaoke = profile.secondaryWordKaraoke
+                            karaoke = profile.secondaryWordKaraoke,
+                            // 和声自己的逐字词表(插件逐音节下发):逐字效果按真实词窗点亮,
+                            // 与实机 buildRows 的 harmonyTimedLines 共用同一判据函数。
+                            words = duet.words
                         )
                     )
                 } else {
@@ -1746,7 +1752,14 @@ private class PreviewBlockRow(
      * 辅助文字逐字效果是否作用于本行:仅第一行辅助文字行(音标/翻译)在开关开启时为真;
      * 下一行行与第二行自身的辅助行恒假(见 [PreviewRowBlock.auxKaraoke])。
      */
-    val karaoke: Boolean = false
+    val karaoke: Boolean = false,
+    /**
+     * 本行自己的逐字词表(仅和声行携带,插件按 AMLL TTML 逐音节下发):逐字效果按**真实
+     * 词窗**点亮(实机 `AodLyricCanvasView.harmonyTimedLines` 同源,共用 [harmonyTimedSegments]
+     * 判据);空 = 按行窗均匀合成,即历史行为。第一行辅助文字行/下一行行不带词表(它们的
+     * 逐字时间另有来源或尚未开始,见 [PreviewRowBlock.auxKaraoke])。
+     */
+    val words: List<LyricWord> = emptyList()
 )
 
 /**
@@ -2231,7 +2244,9 @@ private fun PreviewRowBlockLayer(
                         val auxKaraoke = block.duetAuxKaraoke
                         if (item.karaoke && auxKaraoke != null && auxKaraoke.spanMs > 0L) {
                             // 并发行/和声行「辅助文字逐字效果」:与实机 drawAuxKaraokeRow 同一共享
-                            // 渲染核心(实机按并发行自己的行窗口点亮,预览走演示进度)。
+                            // 渲染核心(实机按并发行自己的行窗口点亮,预览走演示进度);和声行
+                            // 另带自己的词表 [PreviewBlockRow.words],有真实词窗时按词窗点亮
+                            // (与实机 harmonyTimedLines 同一判据,预览即实机)。
                             PreviewSecondaryKaraokeRow(
                                 row = item.row,
                                 color = item.color,
@@ -2244,6 +2259,7 @@ private fun PreviewRowBlockLayer(
                                 textAlign = item.align,
                                 progress = sweepProgress,
                                 auxKaraoke = auxKaraoke,
+                                words = item.words,
                                 glowColor = glowColor,
                                 glowEnabled = glowEnabled,
                                 modifier = Modifier.padding(top = item.gapAbove)
@@ -2503,24 +2519,32 @@ private class PreviewAuxKaraoke(
     val alphaFactor: Float
 )
 
-/** 预览辅助文字逐字行的实测布局:断行/落位/词位一次算好,逐帧只按进度取比例绘制。 */
+/**
+ * 预览辅助文字逐字行的实测布局:断行/落位/词位一次算好,逐帧只按进度取比例绘制。
+ * [spanStartMs]..[spanEndMs] 为演示进度映射到的虚拟时间跨度:合成路径=行窗(与历史逐字
+ * 推进一致),和声行真实词窗路径=片段词窗总跨度(长音节占比如实呈现)。
+ */
 private class PreviewAuxKaraokeLayout(
     val paint: TextPaint,
     val startsX: List<Float>,
     val baselines: List<Float>,
     val lineHeightPx: Float,
     val heightPx: Float,
-    val runs: List<List<PreviewWordRun>>
+    val runs: List<List<PreviewWordRun>>,
+    val spanStartMs: Long,
+    val spanEndMs: Long
 )
 
 /**
- * 辅助文字行逐字效果(预览侧,与实机 drawAuxKaraokeRow 同源):断行仍走共享
+ * 辅助文字行逐字效果(预览侧,与实机 drawAuxKaraokeRow 同源):断行走共享
  * [layoutSecondaryLines],词块合成/时间窗走共享纯函数([syntheticKaraokeBlocks] /
  * [syntheticCharTimeWindow]),绘制委托共享 [LyricWordKaraokeRenderer]。
  *
- * 预览是演示循环,进度由行块演示进度 [progress] 映射到 [spanMs] 虚拟时间轴;源侧真实
- * 逐字音标时间不参与预览(演示态没有真实播放位置),与主行行级源的合成路径同式——
- * 实机在源带逐字音标时间时走真实词窗,属预览演示性质的有意差异。
+ * 预览是演示循环,进度由行块演示进度 [progress] 映射到虚拟时间轴;源侧真实逐字音标时间
+ * 不参与预览(演示态没有真实播放位置),与主行行级源的合成路径同式。**例外是和声行**:
+ * [words] 非空(插件逐音节下发)且重建得出整行文本时,断行与时间轴都按真实词窗点亮
+ * (与实机 harmonyTimedLines 共用 [harmonyTimedSegments] 判据,预览即实机)——否则预览
+ * 把和声的拖长音平摊掉,与实机抢拍漂移是同款形态。
  */
 @Composable
 private fun PreviewSecondaryKaraokeRow(
@@ -2536,6 +2560,8 @@ private fun PreviewSecondaryKaraokeRow(
     auxKaraoke: PreviewAuxKaraoke,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
+    /** 本行自己的逐字词表(和声行携带,见 [PreviewBlockRow.words]);空 = 纯合成路径。 */
+    words: List<LyricWord> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -2543,6 +2569,7 @@ private fun PreviewSecondaryKaraokeRow(
     val sizePx = with(density) { row.size.toPx() }
     val layout = remember(
         row.text,
+        words,
         sizePx,
         measureTypeface,
         availableWidthPx,
@@ -2557,15 +2584,52 @@ private fun PreviewSecondaryKaraokeRow(
             textSize = sizePx
             this.typeface = measureTypeface
         }
-        // 断行与实机 wrapSecondaryText 同门控/同算法(引擎内部门控)。
-        val lines = layoutSecondaryLines(
-            text = row.text,
-            paint = paint,
-            availableWidth = availableWidthPx.toFloat(),
-            preferredLines = preferredLines,
-            wrap = wrap,
-            adaptiveSectioning = adaptiveSectioning
+        // 和声行带真实词窗时按词窗点亮(判据与实机 harmonyTimedLines 同源:共享纯函数 +
+        // secondaryTimedVisualRanges 折行);重建不出整行文本/无词表时整行回落合成路径。
+        val segments = harmonyTimedSegments(
+            words.map {
+                AodCanvasWord(
+                    text = it.text,
+                    romanized = it.romanized,
+                    startMs = it.startMs,
+                    endMs = it.endMs,
+                    boundaryAfter = it.boundaryAfter,
+                    sourceStart = it.sourceStart,
+                    sourceEnd = it.sourceEnd
+                )
+            },
+            row.text,
+            paint::measureText
         )
+        val lineSegments = if (segments == null) {
+            emptyList()
+        } else {
+            secondaryTimedVisualRanges(
+                segments,
+                availableWidthPx.toFloat(),
+                MAX_SECONDARY_LAYOUT_LINES,
+                wrap = wrap && adaptiveSectioning
+            ).map { range -> range.map(segments::get) }
+        }
+        // 断行与实机 wrapSecondaryText 同门控/同算法(引擎内部门控);真实词窗行按片段折行
+        // (与实机同式),行文本即片段文本直接相连。
+        val lines = if (lineSegments.isEmpty()) {
+            layoutSecondaryLines(
+                text = row.text,
+                paint = paint,
+                availableWidth = availableWidthPx.toFloat(),
+                preferredLines = preferredLines,
+                wrap = wrap,
+                adaptiveSectioning = adaptiveSectioning
+            )
+        } else {
+            lineSegments.map { segmentsOfLine ->
+                LyricLayoutTextLine(
+                    segmentsOfLine.joinToString("") { it.text },
+                    segmentsOfLine.sumOf { it.width.toDouble() }.toFloat()
+                )
+            }
+        }
         val metrics = paint.fontMetrics
         val lineHeight = safeSecondaryLineHeight(metrics.ascent, metrics.descent, metrics.bottom)
         val alignment = when (textAlign) {
@@ -2585,17 +2649,42 @@ private fun PreviewSecondaryKaraokeRow(
                 density = density.density
             )
         }
+        val runs = if (lineSegments.isEmpty()) {
+            syntheticPreviewWordRuns(lines, paint, auxKaraoke.spanMs)
+        } else {
+            // 逐字词位几何取片段自身宽与真实词窗(与实机 drawAuxKaraokeRow 逐字段路径同式):
+            // 长音节判定按词窗时长,无块级高亮窗(逐字源语义)。
+            lineSegments.map { segmentsOfLine ->
+                var x = 0f
+                segmentsOfLine.map { segment ->
+                    val durationMs = segment.endMs - segment.startMs
+                    val run = PreviewWordRun(
+                        text = segment.text,
+                        x = x,
+                        width = segment.width,
+                        startMs = segment.startMs,
+                        endMs = segment.endMs,
+                        longSyllable = isLongKaraokeSyllable(durationMs)
+                    )
+                    x += segment.width + segment.gapAfter
+                    run
+                }
+            }
+        }
+        val timedSegments = lineSegments.flatten()
         PreviewAuxKaraokeLayout(
             paint = paint,
             startsX = startsX,
             baselines = lines.indices.map { -metrics.ascent + it * lineHeight },
             lineHeightPx = lineHeight,
             heightPx = lineHeight * lines.size,
-            runs = syntheticPreviewWordRuns(lines, paint, auxKaraoke.spanMs)
+            runs = runs,
+            spanStartMs = timedSegments.minOfOrNull { it.startMs } ?: 0L,
+            spanEndMs = timedSegments.maxOfOrNull { it.endMs } ?: auxKaraoke.spanMs.coerceAtLeast(1L)
         )
     }
-    val spanMs = auxKaraoke.spanMs.coerceAtLeast(1L)
-    val virtualPosition = (spanMs * progress.coerceIn(0f, 1f)).toLong()
+    val virtualPosition = layout.spanStartMs +
+        ((layout.spanEndMs - layout.spanStartMs) * progress.coerceIn(0f, 1f)).toLong()
     val colorArgb = color.toArgb()
     val glowArgb = glowColor.toArgb()
     Canvas(

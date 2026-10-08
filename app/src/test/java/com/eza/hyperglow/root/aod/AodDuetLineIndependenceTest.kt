@@ -3,7 +3,9 @@ package com.eza.hyperglow.root.aod
 import com.eza.hyperglow.root.projection.LyricWord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -178,5 +180,95 @@ class AodDuetLineIndependenceTest {
             projectedWordsHaveTimedWindows(listOf(projectedWord("", 1_000L, 2_000L)))
         )
         assertEquals(false, hasTimedWordWindows(listOf(word("", 1_000L, 2_000L))))
+    }
+
+    /** 逐字测量桩:1 字 = 10px(片段宽只需可加,不涉及真实字形)。 */
+    private val measure: (String) -> Float = { it.length * 10f }
+
+    /**
+     * 真机形态(《乐鸣东方》L33 的 x-bg 和声,02:50.514–02:55.737,词窗逐值取自 lmdf.ttml):
+     * 和声行自带逐音节真实词窗,末字「往)」独占 1.98s(同句主行「往」2.22s)——均匀合成把
+     * 整行 5.2s 平摊给 9 个音节,整行抢拍;逐字段必须**原样保留**每个音节的词窗
+     * (首字 300ms、末字 1980ms 各自成立)。
+     */
+    @Test
+    fun harmonySegmentsKeepTheRowsOwnSyllableWindows() {
+        val words = listOf(
+            word("(人", 170_514L, 170_814L),
+            word("间", 170_814L, 171_507L),
+            word("百", 171_507L, 171_703L),
+            word("相", 171_703L, 171_938L),
+            // 跨 span 的空白文本节点(逐字歌词的间距):无论解析器把它做成独立零窗词还是
+            // 并入相邻音节,零窗占位都不得截断文本。
+            word(" ", 171_938L, 171_938L),
+            word("总", 171_938L, 172_407L),
+            word("让", 172_407L, 172_850L),
+            word("我", 172_850L, 173_069L),
+            word("神", 173_280L, 173_757L),
+            word("往)", 173_757L, 175_737L)
+        )
+        val text = "(人间百相 总让我神往)"
+        val segments = harmonyTimedSegments(words, text, measure)
+        assertNotNull(segments)
+        // 文本逐字符一致:片段直接相连即整行文本(显示文本恒取行文本,见纯函数注释)。
+        assertEquals(text, segments!!.joinToString("") { it.text })
+        // 真实词窗原样保留(不是按行窗平摊的合成窗):首字 300ms、末字「往)」1980ms。
+        assertEquals(300L, segments.first().endMs - segments.first().startMs)
+        assertEquals(1_980L, segments.last().endMs - segments.last().startMs)
+        assertEquals(
+            words.map { it.startMs to it.endMs },
+            segments.map { it.startMs to it.endMs }
+        )
+    }
+
+    /**
+     * 文本重建不出整行时返回 null(调用方回落行窗均匀合成):和声的显示文本恒取行文本,
+     * 按片段画就会在逐字开关开/关之间显示两份不同文本——宁可不要逐字效果(与翻译行
+     * translatedTimedSegments 同一取舍)。
+     */
+    @Test
+    fun harmonySegmentsFallBackWhenTextCannotBeRebuilt() {
+        val words = listOf(word("人间", 1_000L, 2_000L), word("百相", 2_000L, 3_000L))
+        assertNull(harmonyTimedSegments(words, "(人间百相)", measure))
+        assertNull(harmonyTimedSegments(words, "人间百相总让我神往", measure))
+    }
+
+    /** 无词表(行级源/未装插件)与全零窗占位词(布局分组合成)都回落合成路径,不回退成静态全亮。 */
+    @Test
+    fun harmonySegmentsRejectMissingOrUntimedWords() {
+        assertNull(harmonyTimedSegments(emptyList(), "和声", measure))
+        assertNull(
+            harmonyTimedSegments(
+                listOf(word("和", 0L, 0L), word("声", 0L, 0L)),
+                "和声",
+                measure
+            )
+        )
+    }
+
+    /**
+     * 折行不改变行文本:片段按宽度均衡折到多行后,各行文本顺序相连仍是整行和声文本
+     * (实机 harmonyTimedLines / 预览同一共享折行函数,永不渲染截断或另一份文本)。
+     */
+    @Test
+    fun harmonySegmentsSurviveWrappingWithIdenticalText() {
+        val words = listOf(
+            word("和", 1_000L, 1_500L),
+            word("声", 1_500L, 2_000L),
+            word("回", 2_000L, 2_500L),
+            word("响", 2_500L, 4_000L)
+        )
+        val text = "和声回响"
+        val segments = harmonyTimedSegments(words, text, measure)!!
+        // 单行(不折行)= 全部片段一段。
+        val single = secondaryTimedVisualRanges(segments, 1_000f, 2, wrap = false)
+        assertEquals(listOf(segments.indices), single)
+        // 折行(maxLines 与实机 MAX_SECONDARY_LAYOUT_LINES 同值 2)后文本仍逐字符一致。
+        val wrapped = secondaryTimedVisualRanges(segments, 20f, 2, wrap = true)
+        assertEquals(
+            text,
+            wrapped.joinToString("") { range -> range.map(segments::get).joinToString("") { it.text } }
+        )
+        assertTrue(wrapped.all { !it.isEmpty() })
     }
 }
