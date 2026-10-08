@@ -562,16 +562,16 @@ private fun LyricPreviewSurface(
                     profile.alignment,
                     duetAlignedRight(duet?.alignedRight ?: false, profile.duetAlignment)
                 )
-                // 并发行渲染路径与主行同一份决策(planOriginalLine):判据取并发行**自己的**真实
-                // 词窗(实机 buildDuetOriginalLayout 的 hasTimedWordWindows(duet.words) 同源),
-                // 不借主行的决策——主行无词窗而并发行有词窗时,预览此前会漏掉逐字推进。
-                val duetWordKaraoke = duet != null && planOriginalLine(
+                // 并发行渲染路径与主行同一份决策([planDuetRow] → planOriginalLine):判据取并发行
+                // **自己的**真实词窗(实机 buildDuetOriginalLayout 的 hasTimedWordWindows(duet.words)
+                // 同源),不借主行的决策——主行无词窗而并发行有词窗时,预览此前会漏掉逐字推进。
+                val duetWordKaraoke = duet != null && planDuetRow(
                     animationMode = profile.animation,
-                    timed = duet.words.any { it.text.isNotBlank() && it.endMs > it.startMs },
                     lineLevelSync = snapshot.lineLevelSync,
                     lineSyncFillMode = profile.lineSyncFillMode,
                     lineStartMs = duet.lineStartMs,
-                    lineEndMs = duet.lineEndMs
+                    lineEndMs = duet.lineEndMs,
+                    words = duet.words
                 ).path == OriginalLinePath.WORD_KARAOKE
                 val duetLayout = remember(
                     duet, duetTextAlign, duetWordKaraoke, duetSpanMs, textSize, lyricTypeface,
