@@ -15,6 +15,7 @@ import com.eza.hyperglow.customization.normalizeLineTransitionSpeed
 import com.eza.hyperglow.customization.normalizeLyricLineLimit
 import com.eza.hyperglow.customization.normalizeMetadataParts
 import com.eza.hyperglow.customization.normalizeMetadataSeparators
+import com.eza.hyperglow.customization.normalizeSecondaryTextSizePercent
 import com.eza.hyperglow.aod.normalizePauseLingerMs
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
 import com.eza.hyperglow.root.surface.SurfacePolicyResolver
@@ -143,6 +144,11 @@ internal object SystemUiCustomizationValidator {
             ),
             alignment = profile.alignment.takeIf { it in ALIGNMENTS } ?: "auto",
             secondaryMode = profile.secondaryMode.takeIf { it in SECONDARY_MODES } ?: "Main only",
+            // 与 SceneCompiler.compileProfile 同源归一:两处不一致会让 validate 改写字段、
+            // wire 的 hash 校验拒收整份配置(实机表现为设置页正常、实机毫无变化)。
+            secondaryTextSizePercent = normalizeSecondaryTextSizePercent(
+                profile.secondaryTextSizePercent
+            ),
             lyricLineLimit = normalizeLyricLineLimit(profile.lyricLineLimit),
             metadataVisible = profile.metadataVisible && widgets.any { it.type == "metadata" },
             metadataAnchor = if (profile.metadataAnchor == "bottom") "bottom" else "top",

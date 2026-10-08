@@ -6,8 +6,10 @@ import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.root.projection.LyricDuetLine
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -50,5 +52,31 @@ class LyricCanvasMapperTest {
     @Test
     fun mapperDropsDuetWhenSurfaceNotParticipating() {
         assertNull(snapshot().toAodCanvasContent(duetOn).duetLine)
+    }
+
+    @Test
+    fun mapperCarriesSecondarySizeSettingsAndFallsBackToDefaults() {
+        // 辅助字号倍率/自适应大小按面透传(per-surface);profile=null(演示/无配置)回落
+        // 默认 100/true —— 与 SurfaceProfile 默认值同源,画布行装配据此拟合字号。
+        val custom = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        secondaryTextSizePercent = 130,
+                        secondaryAutoSize = false
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val mapped = snapshot().toAodCanvasContent(custom)
+        assertEquals(130, mapped.secondaryTextSizePercent)
+        assertFalse(mapped.secondaryAutoSize)
+
+        val fallback = snapshot().toAodCanvasContent(null)
+        assertEquals(
+            com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT,
+            fallback.secondaryTextSizePercent
+        )
+        assertTrue(fallback.secondaryAutoSize)
     }
 }

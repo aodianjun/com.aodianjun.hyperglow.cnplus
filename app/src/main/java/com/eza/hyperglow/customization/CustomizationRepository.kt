@@ -263,6 +263,8 @@ object CustomizationRepository {
         secondaryMode = secondaryMode,
         secondaryTextBright = secondaryTextBright,
         secondaryWordKaraoke = secondaryWordKaraoke,
+        secondaryTextSizePercent = secondaryTextSizePercent,
+        secondaryAutoSize = secondaryAutoSize,
         lyricLineLimit = lyricLineLimit,
         showNextLine = showNextLine,
         secondaryNextLine = secondaryNextLine,

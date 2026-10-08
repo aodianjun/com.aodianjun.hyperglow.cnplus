@@ -79,6 +79,10 @@ internal data class AodCanvasContent(
     val secondaryTextBright: Boolean = true,
     /** 辅助文字逐字效果:见 SurfaceProfile.secondaryWordKaraoke。 */
     val secondaryWordKaraoke: Boolean = false,
+    /** 辅助文字字号倍率(相对主行百分比),见 SurfaceProfile.secondaryTextSizePercent。 */
+    val secondaryTextSizePercent: Int = com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT,
+    /** 辅助文字自适应大小(装不下时缩到可读性下限),见 SurfaceProfile.secondaryAutoSize。 */
+    val secondaryAutoSize: Boolean = true,
     val lyricLineLimit: Int = 3,
     val showNextLine: Boolean = false,
     /** 辅助文字显示第二行歌词:见 SurfaceProfile.secondaryNextLine。 */

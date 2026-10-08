@@ -125,7 +125,10 @@ import com.eza.hyperglow.root.aod.safeSecondaryLineHeight
 import com.eza.hyperglow.root.aod.lineStartX
 import com.eza.hyperglow.root.aod.hasFirstLineAuxText
 import com.eza.hyperglow.root.aod.karaokeUnitEnd
+import com.eza.hyperglow.root.aod.FittedSecondaryLines
+import com.eza.hyperglow.root.aod.fittedSecondaryLines
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
+import com.eza.hyperglow.root.aod.secondarySizeFloorSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import com.eza.hyperglow.root.aod.secondLineColorArgb
 import com.eza.hyperglow.root.aod.SecondLinePresentation
@@ -447,6 +450,8 @@ private fun LyricPreviewSurface(
     // 忽略真实曲面上的时钟/通知等占位偏移——否则息屏(AOD)歌词会按真实布局被挤到面板
     // 顶部一小条,大字号下一行就被裁掉,看起来像被遮挡。
     val density = LocalDensity.current
+    // sp→px 换算因子(与实机 scaledDensity 同式):自适应拟合必须按同一换算走,预览即实机。
+    val scaledDensity = density.density * density.fontScale
     var stableContentDp by remember(profile, scenario, snapshot.trackGeneration, density.density) {
         mutableStateOf(PREVIEW_CARD_MIN_HEIGHT_DP)
     }
@@ -615,12 +620,22 @@ private fun LyricPreviewSurface(
                 val duetRows = if (duet == null) {
                     emptyList()
                 } else if (duet.harmony) {
+                    // 和声行走辅助行车道:字号同样吃辅助字号设置与自适应(与实机 buildRows 同源)。
+                    val harmonyRow = PreviewSecondaryLine(
+                        duet.text,
+                        secondaryReadingTextSizeSp(baseSp, profile.secondaryTextSizePercent).sp,
+                        italic = false
+                    )
                     listOf(
                         PreviewBlockRow(
-                            row = PreviewSecondaryLine(
-                                duet.text,
-                                secondaryReadingTextSizeSp(baseSp).sp,
-                                italic = false
+                            row = previewFittedSecondaryRow(
+                                harmonyRow,
+                                profile,
+                                baseSp,
+                                mainLayout.lines.size,
+                                availablePx,
+                                regularTypeface,
+                                scaledDensity
                             ),
                             color = secondaryColor,
                             // 和声是主行自己的辅助车道,对齐随主行(与实机 alignmentFor 的非
@@ -642,10 +657,21 @@ private fun LyricPreviewSurface(
                     listOfNotNull(
                         duet.romanized.takeIf { showReading && it.isNotBlank() }?.let {
                             PreviewBlockRow(
-                                row = PreviewSecondaryLine(
-                                    it,
-                                    secondaryReadingTextSizeSp(baseSp).sp,
-                                    italic = false
+                                row = previewFittedSecondaryRow(
+                                    PreviewSecondaryLine(
+                                        it,
+                                        secondaryReadingTextSizeSp(
+                                            baseSp,
+                                            profile.secondaryTextSizePercent
+                                        ).sp,
+                                        italic = false
+                                    ),
+                                    profile,
+                                    baseSp,
+                                    duetLayout?.lines?.size ?: mainLayout.lines.size,
+                                    availablePx,
+                                    regularTypeface,
+                                    scaledDensity
                                 ),
                                 color = secondaryColor,
                                 align = duetTextAlign,
@@ -658,10 +684,21 @@ private fun LyricPreviewSurface(
                         },
                         duet.translated.takeIf { showTranslation && it.isNotBlank() }?.let {
                             PreviewBlockRow(
-                                row = PreviewSecondaryLine(
-                                    it,
-                                    secondaryTranslationTextSizeSp(baseSp).sp,
-                                    italic = true
+                                row = previewFittedSecondaryRow(
+                                    PreviewSecondaryLine(
+                                        it,
+                                        secondaryTranslationTextSizeSp(
+                                            baseSp,
+                                            profile.secondaryTextSizePercent
+                                        ).sp,
+                                        italic = true
+                                    ),
+                                    profile,
+                                    baseSp,
+                                    duetLayout?.lines?.size ?: mainLayout.lines.size,
+                                    availablePx,
+                                    regularTypeface,
+                                    scaledDensity
                                 ),
                                 color = secondaryColor,
                                 align = duetTextAlign,
@@ -686,7 +723,16 @@ private fun LyricPreviewSurface(
                     val blockRows = ArrayList<PreviewBlockRow>(secondaryRows.size)
                     secondaryRows.forEach { row ->
                         blockRows += PreviewBlockRow(
-                            row = row,
+                            // 自适应大小:字号可能被拟合缩小(与实机 buildRows 同源)。
+                            row = previewFittedSecondaryRow(
+                                row,
+                                profile,
+                                baseSp,
+                                mainLayout.lines.size,
+                                availablePx,
+                                regularTypeface,
+                                scaledDensity
+                            ),
                             color = secondaryColor,
                             align = textAlign,
                             gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
@@ -711,11 +757,49 @@ private fun LyricPreviewSurface(
                         ),
                         profile.nextLineAux
                     )
+                    // 第二行歌词自身的呈现行数(与实机 buildRows 同序:先按主行行数作
+                    // preferredLines 布局第二行,再取其实际行数),第二行辅助行的换行档
+                    // 跟随它而不是主行行数(owner 2026-10-02 真机反馈);自适应开启时字号与
+                    // 行数同取拟合结果,否则第二行辅助行的换行档会与实机错位。
+                    val nextLineFit = if (nextPresentation == SecondLinePresentation.AS_SECONDARY) {
+                        remember(
+                            snapshot.nextLine,
+                            baseSp,
+                            profile.secondaryTextSizePercent,
+                            profile.secondaryAutoSize,
+                            regularTypeface,
+                            availablePx,
+                            profile.overflow,
+                            profile.adaptiveSectioning,
+                            mainLayout
+                        ) {
+                            val fitted = previewFittedSecondarySp(
+                                text = snapshot.nextLine,
+                                configuredSp = secondaryReadingTextSizeSp(
+                                    baseSp,
+                                    profile.secondaryTextSizePercent
+                                ),
+                                translation = false,
+                                baseSp = baseSp,
+                                preferredLines = mainLayout.lines.size,
+                                availableWidthPx = availablePx,
+                                wrap = profile.overflow == "Wrap",
+                                adaptiveSectioning = profile.adaptiveSectioning,
+                                typeface = regularTypeface,
+                                autoSize = profile.secondaryAutoSize,
+                                scaledDensity = scaledDensity
+                            )
+                            fitted.fittedSp.sp to fitted.lines.size
+                        }
+                    } else {
+                        // 独立下一行行形态不走辅助字号链(固定 15sp),行数恒 1(实机 preferredLines=1)。
+                        secondaryReadingTextSizeSp(baseSp, profile.secondaryTextSizePercent).sp to 1
+                    }
                     val nextBlockRow = when (nextPresentation) {
                         SecondLinePresentation.AS_SECONDARY -> PreviewBlockRow(
                             row = PreviewSecondaryLine(
                                 snapshot.nextLine,
-                                secondaryReadingTextSizeSp(baseSp).sp,
+                                nextLineFit.first,
                                 italic = false
                             ),
                             color = nextLineSecondaryColor,
@@ -736,34 +820,9 @@ private fun LyricPreviewSurface(
                         )
                         SecondLinePresentation.NONE -> null
                     }
-                    // 第二行歌词自身的呈现行数(与实机 buildRows 同序:先按主行行数作
-                    // preferredLines 布局第二行,再取其实际行数),第二行辅助行的换行档
-                    // 跟随它而不是主行行数(owner 2026-10-02 真机反馈)。
-                    val nextLineRenderedLines = remember(
-                        snapshot.nextLine,
-                        baseSp,
-                        regularTypeface,
-                        availablePx,
-                        profile.overflow,
-                        profile.adaptiveSectioning,
-                        mainLayout
-                    ) {
-                        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                            // 显式接收者:外层同名局部变量(TextUnit textSize)会遮蔽 paint 成员。
-                            this.textSize = with(density) {
-                                secondaryReadingTextSizeSp(baseSp).sp.toPx()
-                            }
-                            this.typeface = regularTypeface
-                        }
-                        layoutSecondaryLines(
-                            text = snapshot.nextLine,
-                            paint = paint,
-                            availableWidth = availablePx.toFloat(),
-                            preferredLines = mainLayout.lines.size,
-                            wrap = profile.overflow == "Wrap",
-                            adaptiveSectioning = profile.adaptiveSectioning
-                        ).size
-                    }
+                    // 第二行歌词自身的呈现行数取 [nextLineFit] 的折行结果(同一拟合字号,与实机
+                    // buildRows 同源);独立下一行行形态恒 1(实机 preferredLines=1)。
+                    val nextLineRenderedLines = nextLineFit.second
                     // 独立下一行行形态下第二行恒单行呈现(与实机 wrapSecondaryText
                     // preferredLines=1 同源),其辅助行换行档随之;辅助形态按第二行自身呈现行数。
                     val nextAuxPreferredLines = secondLineAuxPreferredLines(
@@ -786,10 +845,21 @@ private fun LyricPreviewSurface(
                             ).map { auxRow ->
                                 when (auxRow) {
                                     SecondLineAuxRow.ROMANIZED -> PreviewBlockRow(
-                                        row = PreviewSecondaryLine(
-                                            snapshot.nextLineRomanized,
-                                            secondaryReadingTextSizeSp(baseSp).sp,
-                                            italic = false
+                                        row = previewFittedSecondaryRow(
+                                            PreviewSecondaryLine(
+                                                snapshot.nextLineRomanized,
+                                                secondaryReadingTextSizeSp(
+                                                    baseSp,
+                                                    profile.secondaryTextSizePercent
+                                                ).sp,
+                                                italic = false
+                                            ),
+                                            profile,
+                                            baseSp,
+                                            nextAuxPreferredLines,
+                                            availablePx,
+                                            regularTypeface,
+                                            scaledDensity
                                         ),
                                         color = secondaryColor,
                                         align = nextLineAlign,
@@ -800,10 +870,21 @@ private fun LyricPreviewSurface(
                                         preferredLines = nextAuxPreferredLines
                                     )
                                     SecondLineAuxRow.TRANSLATED -> PreviewBlockRow(
-                                        row = PreviewSecondaryLine(
-                                            snapshot.nextLineTranslated,
-                                            secondaryTranslationTextSizeSp(baseSp).sp,
-                                            italic = true
+                                        row = previewFittedSecondaryRow(
+                                            PreviewSecondaryLine(
+                                                snapshot.nextLineTranslated,
+                                                secondaryTranslationTextSizeSp(
+                                                    baseSp,
+                                                    profile.secondaryTextSizePercent
+                                                ).sp,
+                                                italic = true
+                                            ),
+                                            profile,
+                                            baseSp,
+                                            nextAuxPreferredLines,
+                                            availablePx,
+                                            regularTypeface,
+                                            scaledDensity
                                         ),
                                         color = secondaryColor,
                                         align = nextLineAlign,
@@ -1135,12 +1216,21 @@ private fun previewSecondaryLines(
     snapshot: LyricSnapshot,
     baseSp: Float
 ): List<PreviewSecondaryLine> {
-    // 字号与实机 setContent 同源:音标行/翻译行各自公式(不同下限);翻译行走斜体(与实机一致)。
+    // 字号与实机 setContent 同源:音标行/翻译行各自公式(不同下限)×辅助字号倍率;
+    // 翻译行走斜体(与实机一致)。
     val reading = snapshot.romanized.ifBlank { null }?.let {
-        PreviewSecondaryLine(it, secondaryReadingTextSizeSp(baseSp).sp, italic = false)
+        PreviewSecondaryLine(
+            it,
+            secondaryReadingTextSizeSp(baseSp, profile.secondaryTextSizePercent).sp,
+            italic = false
+        )
     }
     val translation = snapshot.translated.ifBlank { null }?.let {
-        PreviewSecondaryLine(it, secondaryTranslationTextSizeSp(baseSp).sp, italic = true)
+        PreviewSecondaryLine(
+            it,
+            secondaryTranslationTextSizeSp(baseSp, profile.secondaryTextSizePercent).sp,
+            italic = true
+        )
     }
     return when (profile.secondaryMode) {
         "Transliteration" -> listOfNotNull(reading)
@@ -1148,6 +1238,83 @@ private fun previewSecondaryLines(
         "Both" -> listOfNotNull(reading, translation)
         else -> emptyList()
     }
+}
+
+/**
+ * 辅助行自适应拟合(预览侧入口,与实机 AodLyricCanvasView.fittedSecondaryPaint 同源):
+ * 装得下恒返回设定字号(既有呈现逐像素不变);装不下缩到可读性下限(见 fittedSecondaryLines)。
+ * [scaledDensity] 为 sp→px 换算(与实机 scaledDensity 同式),预览与实机按同一换算拟合。
+ */
+private fun previewFittedSecondarySp(
+    text: String,
+    configuredSp: Float,
+    translation: Boolean,
+    baseSp: Float,
+    preferredLines: Int,
+    availableWidthPx: Int,
+    wrap: Boolean,
+    adaptiveSectioning: Boolean,
+    typeface: Typeface,
+    autoSize: Boolean,
+    scaledDensity: Float
+): FittedSecondaryLines {
+    val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = configuredSp * scaledDensity
+        this.typeface = typeface
+    }
+    return if (autoSize) {
+        fittedSecondaryLines(
+            text = text,
+            basePaint = paint,
+            configuredSp = configuredSp,
+            floorSp = secondarySizeFloorSp(baseSp, translation),
+            availableWidth = availableWidthPx.toFloat(),
+            preferredLines = preferredLines,
+            wrap = wrap,
+            adaptiveSectioning = adaptiveSectioning,
+            scaledDensity = scaledDensity
+        )
+    } else {
+        FittedSecondaryLines(
+            paint = paint,
+            fittedSp = configuredSp,
+            lines = layoutSecondaryLines(
+                text = text,
+                paint = paint,
+                availableWidth = availableWidthPx.toFloat(),
+                preferredLines = preferredLines,
+                wrap = wrap,
+                adaptiveSectioning = adaptiveSectioning
+            )
+        )
+    }
+}
+
+/** 辅助行按自适应拟合重建(字号可能缩小;文本/斜体不变):与实机 buildRows 的行字号同源。 */
+private fun previewFittedSecondaryRow(
+    row: PreviewSecondaryLine,
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    baseSp: Float,
+    preferredLines: Int,
+    availableWidthPx: Int,
+    typeface: Typeface,
+    scaledDensity: Float
+): PreviewSecondaryLine {
+    if (!profile.secondaryAutoSize) return row
+    val fitted = previewFittedSecondarySp(
+        text = row.text,
+        configuredSp = row.size.value,
+        translation = row.italic,
+        baseSp = baseSp,
+        preferredLines = preferredLines,
+        availableWidthPx = availableWidthPx,
+        wrap = profile.overflow == "Wrap",
+        adaptiveSectioning = profile.adaptiveSectioning,
+        typeface = if (row.italic) Typeface.create(typeface, Typeface.ITALIC) else typeface,
+        autoSize = true,
+        scaledDensity = scaledDensity
+    )
+    return if (fitted.fittedSp < row.size.value) row.copy(size = fitted.fittedSp.sp) else row
 }
 
 internal fun previewCardColor(cardColor: String, cardAlpha: Int): ComposeColor {

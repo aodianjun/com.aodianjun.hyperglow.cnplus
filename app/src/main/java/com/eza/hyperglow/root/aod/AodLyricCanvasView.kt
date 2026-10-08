@@ -1749,8 +1749,10 @@ internal class AodLyricCanvasView(
         originalPaint.textSize = baseSp * scaledDensity
         // 字号公式收口到 AodCanvasTextMetrics 共享纯函数(与预览同源,杜绝两套换算漂移)。
         metadataPaint.textSize = metadataTextSizeSp(forContent.metadataSizePercent) * scaledDensity
-        romanizedPaint.textSize = secondaryReadingTextSizeSp(baseSp) * scaledDensity
-        translatedPaint.textSize = secondaryTranslationTextSizeSp(baseSp) * scaledDensity
+        romanizedPaint.textSize =
+            secondaryReadingTextSizeSp(baseSp, forContent.secondaryTextSizePercent) * scaledDensity
+        translatedPaint.textSize =
+            secondaryTranslationTextSizeSp(baseSp, forContent.secondaryTextSizePercent) * scaledDensity
         nextLinePaint.textSize = nextLineTextSizeSp() * scaledDensity
         rubyPaint.textSize = rubyTextSizePx(originalPaint.textSize)
     }
@@ -2119,34 +2121,51 @@ internal class AodLyricCanvasView(
             null
         }
         if (showReading && content.romanized.isNotBlank()) {
-            val lines = transliterationLines(content, originalLayout, availableWidth)
+            // 自适应大小:字号可能被拟合缩小;行用独立 Paint(共享 paint 不得就地改字号)。
+            val readingPaint = fittedSecondaryPaint(
+                content,
+                content.romanized,
+                romanizedPaint,
+                originalLayout.lineCount,
+                availableWidth,
+                translation = false
+            )
+            val lines = transliterationLines(content, originalLayout, availableWidth, readingPaint)
                 ?: wrapSecondaryText(
                     content,
                     content.romanized,
-                    romanizedPaint,
+                    readingPaint,
                     originalLayout.lineCount,
                     availableWidth
                 )
-            rows += rowWithLines(RowKind.ROMANIZED, content.romanized, romanizedPaint, ROW_GAP_BEFORE_SECONDARY_DP * density, lines, auxKaraokeWindow)
+            rows += rowWithLines(RowKind.ROMANIZED, content.romanized, readingPaint, ROW_GAP_BEFORE_SECONDARY_DP * density, lines, auxKaraokeWindow)
         }
         if (showTranslation && content.translated.isNotBlank()) {
+            val translationPaint = fittedSecondaryPaint(
+                content,
+                content.translated,
+                translatedPaint,
+                originalLayout.lineCount,
+                availableWidth,
+                translation = true
+            )
             // 插件提供逐字翻译词表且本面开启「辅助文字逐字效果」时按真实词窗折行点亮;
             // 开关关闭时保持原行装配(逐字节不变)。
             val translatedLines = (if (content.secondaryWordKaraoke) {
-                translatedTimedLines(content, availableWidth)
+                translatedTimedLines(content, availableWidth, translationPaint)
             } else {
                 null
             }) ?: wrapSecondaryText(
                 content,
                 content.translated,
-                translatedPaint,
+                translationPaint,
                 originalLayout.lineCount,
                 availableWidth
             )
             rows += rowWithLines(
                 RowKind.TRANSLATED,
                 content.translated,
-                translatedPaint,
+                translationPaint,
                 ROW_GAP_BEFORE_SECONDARY_DP * density,
                 translatedLines,
                 auxKaraokeWindow
@@ -2164,15 +2183,24 @@ internal class AodLyricCanvasView(
             if (duet.harmony) {
                 // 复用辅助行装配:同一字号公式/亮度档/「辅助文字逐字效果」路径(行窗口取和声
                 // 自己的,逐字推进与和声同拍);换行档取主行行数——和声多是主行文本的回声。
+                // 和声不受「辅助文字模式」门控,辅助字号设置必须同样覆盖它(见 setContent 注释)。
+                val harmonyPaint = fittedSecondaryPaint(
+                    content,
+                    duet.text,
+                    romanizedPaint,
+                    originalLayout.lineCount,
+                    availableWidth,
+                    translation = false
+                )
                 rows += rowWithLines(
                     RowKind.ROMANIZED,
                     duet.text,
-                    romanizedPaint,
+                    harmonyPaint,
                     ROW_GAP_BEFORE_SECONDARY_DP * density,
                     wrapSecondaryText(
                         content,
                         duet.text,
-                        romanizedPaint,
+                        harmonyPaint,
                         originalLayout.lineCount,
                         availableWidth
                     ),
@@ -2204,15 +2232,23 @@ internal class AodLyricCanvasView(
                     duet = true
                 )
                 if (showReading && duet.romanized.isNotBlank()) {
+                    val duetReadingPaint = fittedSecondaryPaint(
+                        content,
+                        duet.romanized,
+                        romanizedPaint,
+                        built.lineCount,
+                        availableWidth,
+                        translation = false
+                    )
                     rows += rowWithLines(
                         RowKind.DUET_ROMANIZED,
                         duet.romanized,
-                        romanizedPaint,
+                        duetReadingPaint,
                         ROW_GAP_BEFORE_SECONDARY_DP * density,
                         wrapSecondaryText(
                             content,
                             duet.romanized,
-                            romanizedPaint,
+                            duetReadingPaint,
                             built.lineCount,
                             availableWidth,
                             alignmentFor(content, RowKind.DUET_ROMANIZED)
@@ -2222,15 +2258,23 @@ internal class AodLyricCanvasView(
                     ).copy(duet = true)
                 }
                 if (showTranslation && duet.translated.isNotBlank()) {
+                    val duetTranslationPaint = fittedSecondaryPaint(
+                        content,
+                        duet.translated,
+                        translatedPaint,
+                        built.lineCount,
+                        availableWidth,
+                        translation = true
+                    )
                     rows += rowWithLines(
                         RowKind.DUET_TRANSLATED,
                         duet.translated,
-                        translatedPaint,
+                        duetTranslationPaint,
                         ROW_GAP_BEFORE_SECONDARY_DP * density,
                         wrapSecondaryText(
                             content,
                             duet.translated,
-                            translatedPaint,
+                            duetTranslationPaint,
                             built.lineCount,
                             availableWidth,
                             alignmentFor(content, RowKind.DUET_TRANSLATED)
@@ -2257,10 +2301,18 @@ internal class AodLyricCanvasView(
             SecondLinePresentation.AS_SECONDARY -> {
                 // 第二行歌词自身布局先行落定:其辅助行的换行档跟随「第二行实际呈现的行数」,
                 // 而不是主行行数(owner 2026-10-02 真机反馈)。
-                val nextLineLines = wrapSecondaryText(
+                val nextLineSecondaryPaint = fittedSecondaryPaint(
                     content,
                     content.nextLine,
                     romanizedPaint,
+                    originalLayout.lineCount,
+                    availableWidth,
+                    translation = false
+                )
+                val nextLineLines = wrapSecondaryText(
+                    content,
+                    content.nextLine,
+                    nextLineSecondaryPaint,
                     originalLayout.lineCount,
                     availableWidth,
                     alignmentFor(content, RowKind.NEXT_LINE)
@@ -2268,7 +2320,7 @@ internal class AodLyricCanvasView(
                 rows += rowWithLines(
                     RowKind.NEXT_LINE,
                     content.nextLine,
-                    romanizedPaint,
+                    nextLineSecondaryPaint,
                     ROW_GAP_BEFORE_NEXT_LINE_DP * density,
                     nextLineLines
                 )
@@ -2314,6 +2366,7 @@ internal class AodLyricCanvasView(
         nextLineRenderedLineCount: Int,
         availableWidth: Float
     ) {
+        val preferredLines = secondLineAuxPreferredLines(nextLineRenderedLineCount)
         secondLineAuxRows(
             content.nextLineAux,
             content.secondaryMode,
@@ -2321,34 +2374,54 @@ internal class AodLyricCanvasView(
             content.nextLineTranslated
         ).forEach { auxRow ->
             when (auxRow) {
-                SecondLineAuxRow.ROMANIZED -> rows += rowWithLines(
-                    RowKind.ROMANIZED,
-                    content.nextLineRomanized,
-                    romanizedPaint,
-                    ROW_GAP_BEFORE_SECONDARY_DP * density,
-                    wrapSecondaryText(
+                SecondLineAuxRow.ROMANIZED -> {
+                    val rowPaint = fittedSecondaryPaint(
                         content,
                         content.nextLineRomanized,
                         romanizedPaint,
-                        secondLineAuxPreferredLines(nextLineRenderedLineCount),
+                        preferredLines,
                         availableWidth,
-                        alignmentFor(content, RowKind.NEXT_LINE)
+                        translation = false
                     )
-                )
-                SecondLineAuxRow.TRANSLATED -> rows += rowWithLines(
-                    RowKind.TRANSLATED,
-                    content.nextLineTranslated,
-                    translatedPaint,
-                    ROW_GAP_BEFORE_SECONDARY_DP * density,
-                    wrapSecondaryText(
+                    rows += rowWithLines(
+                        RowKind.ROMANIZED,
+                        content.nextLineRomanized,
+                        rowPaint,
+                        ROW_GAP_BEFORE_SECONDARY_DP * density,
+                        wrapSecondaryText(
+                            content,
+                            content.nextLineRomanized,
+                            rowPaint,
+                            preferredLines,
+                            availableWidth,
+                            alignmentFor(content, RowKind.NEXT_LINE)
+                        )
+                    )
+                }
+                SecondLineAuxRow.TRANSLATED -> {
+                    val rowPaint = fittedSecondaryPaint(
                         content,
                         content.nextLineTranslated,
                         translatedPaint,
-                        secondLineAuxPreferredLines(nextLineRenderedLineCount),
+                        preferredLines,
                         availableWidth,
-                        alignmentFor(content, RowKind.NEXT_LINE)
+                        translation = true
                     )
-                )
+                    rows += rowWithLines(
+                        RowKind.TRANSLATED,
+                        content.nextLineTranslated,
+                        rowPaint,
+                        ROW_GAP_BEFORE_SECONDARY_DP * density,
+                        wrapSecondaryText(
+                            content,
+                            content.nextLineTranslated,
+                            rowPaint,
+                            preferredLines,
+                            availableWidth,
+                            alignmentFor(content, RowKind.NEXT_LINE)
+                        )
+                    )
+                }
             }
         }
     }
@@ -3410,13 +3483,14 @@ internal class AodLyricCanvasView(
      */
     private fun translatedTimedLines(
         content: AodCanvasContent,
-        availableWidth: Float
+        availableWidth: Float,
+        paint: Paint
     ): List<TextLine>? {
         // 逐字段的取舍(片段重建整行译文、空片段剔除、全零窗拒绝)在共享纯函数里,与单测同源。
         val segments = translatedTimedSegments(
             content.translationWords,
             content.translated,
-            translatedPaint::measureText
+            paint::measureText
         ) ?: return null
         return secondaryTimedVisualRanges(
             segments,
@@ -3427,19 +3501,20 @@ internal class AodLyricCanvasView(
             val lineSegments = range.map(segments::get)
             val text = lineSegments.joinToString("") { it.text }
             val lineWidth = lineSegments.sumOf { it.width.toDouble() }.toFloat()
-            textLine(text, lineWidth, translatedPaint).copy(timedSegments = lineSegments)
+            textLine(text, lineWidth, paint).copy(timedSegments = lineSegments)
         }
     }
 
     private fun transliterationLines(
         content: AodCanvasContent,
         originalLayout: OriginalLayout,
-        availableWidth: Float
+        availableWidth: Float,
+        paint: Paint
     ): List<TextLine>? {
         if (originalLayout.lines.isEmpty() || originalLayout.lines.any { it.words.isEmpty() }) return null
         val sourceWords = originalLayout.lines.flatMap { it.words }.map { it.word }
         if (sourceWords.isEmpty()) return null
-        val spaceWidth = romanizedPaint.measureText(" ")
+        val spaceWidth = paint.measureText(" ")
         val timedIndexes = timedRomanizedWordIndexes(sourceWords)
         val segments = timedIndexes.mapIndexed { renderedIndex, sourceIndex ->
             val word = sourceWords[sourceIndex]
@@ -3447,7 +3522,7 @@ internal class AodLyricCanvasView(
             val nextSourceIndex = timedIndexes.getOrNull(renderedIndex + 1)
             SecondaryTimedSegment(
                 text = text,
-                width = romanizedPaint.measureText(text),
+                width = paint.measureText(text),
                 gapAfter = if (nextSourceIndex != null && word.boundaryAfter) spaceWidth else 0f,
                 startMs = word.startMs,
                 endMs = word.endMs
@@ -3470,8 +3545,41 @@ internal class AodLyricCanvasView(
                 }
             }
             val lineWidth = lineSegments.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
-            textLine(text, lineWidth, romanizedPaint).copy(timedSegments = lineSegments)
+            textLine(text, lineWidth, paint).copy(timedSegments = lineSegments)
         }
+    }
+
+    /**
+     * 辅助行自适应字号拟合(「自适应大小」开启时,见 SurfaceProfile.secondaryAutoSize):
+     * 装得下恒返回共享 [paint](既有呈现逐像素不变);装不下缩到可读性下限,返回独立 Paint
+     * 副本 —— 共享 paint 为同车道多行共用,就地改字号会污染其他行。关闭开关直接返回共享 paint。
+     * 拟合判据走共享引擎 fittedSecondaryLines(与预览同一份)。
+     */
+    private fun fittedSecondaryPaint(
+        content: AodCanvasContent,
+        text: String,
+        paint: Paint,
+        preferredLines: Int,
+        availableWidth: Float,
+        translation: Boolean
+    ): Paint {
+        if (!content.secondaryAutoSize) return paint
+        // 下限与字号公式同源;baseSp 与 applyContentStyle 同式(同一 content,两处逐值一致)。
+        val baseSp = baseTextSizeSp(content.original) *
+            textSizeModeMultiplier(content.textSizeMode, content.textSizeCustom)
+        val configuredSp = paint.textSize / scaledDensity
+        val fitted = fittedSecondaryLines(
+            text = text,
+            basePaint = paint,
+            configuredSp = configuredSp,
+            floorSp = secondarySizeFloorSp(baseSp, translation),
+            availableWidth = availableWidth,
+            preferredLines = preferredLines,
+            wrap = content.overflowMode == "Wrap",
+            adaptiveSectioning = content.adaptiveSectioning,
+            scaledDensity = scaledDensity
+        )
+        return if (fitted.fittedSp < configuredSp) fitted.paint else paint
     }
 
     private fun wrapSecondaryText(

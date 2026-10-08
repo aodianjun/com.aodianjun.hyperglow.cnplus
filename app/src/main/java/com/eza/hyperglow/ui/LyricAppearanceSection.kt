@@ -63,6 +63,8 @@ import com.eza.hyperglow.customization.ARTWORK_SIZE_MAX_DP
 import com.eza.hyperglow.customization.ARTWORK_SIZE_MIN_DP
 import com.eza.hyperglow.customization.METADATA_SEPARATORS
 import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
+import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_MAX
+import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_MIN
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.customization.composeSongMetadata
@@ -73,6 +75,7 @@ import com.eza.hyperglow.customization.normalizeArtworkSizeDp
 import com.eza.hyperglow.customization.normalizeMetadataParts
 import com.eza.hyperglow.customization.normalizeMetadataSeparator
 import com.eza.hyperglow.customization.normalizeMetadataSeparators
+import com.eza.hyperglow.customization.normalizeSecondaryTextSizePercent
 import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.projection.LyricDuetLine
@@ -421,6 +424,44 @@ internal fun LyricAppearanceSection(
                         selectedProfile.secondaryMode
                     ) { value -> updateSelected { it.copy(secondaryMode = value) } }
                 }
+                // 辅助文字大小(per-surface):相对主行的倍率,100% = 历史值,硬顶 0.62×主行。
+                // 常显:和声行不受「辅助文字模式=仅主行」门控,照抄高亮/逐字两条的可见条件
+                // 会漏掉和声场景(见 SurfaceProfile.secondaryTextSizePercent)。
+                TextSizePreference(
+                    title = stringResource(R.string.setting_secondary_text_size),
+                    percent = selectedProfile.secondaryTextSizePercent.coerceIn(
+                        SECONDARY_TEXT_SIZE_PERCENT_MIN,
+                        SECONDARY_TEXT_SIZE_PERCENT_MAX
+                    ),
+                    minPercent = SECONDARY_TEXT_SIZE_PERCENT_MIN,
+                    maxPercent = SECONDARY_TEXT_SIZE_PERCENT_MAX,
+                    onDecrease = {
+                        updateSelected {
+                            it.copy(
+                                secondaryTextSizePercent = normalizeSecondaryTextSizePercent(
+                                    it.secondaryTextSizePercent - 5
+                                )
+                            )
+                        }
+                    },
+                    onIncrease = {
+                        updateSelected {
+                            it.copy(
+                                secondaryTextSizePercent = normalizeSecondaryTextSizePercent(
+                                    it.secondaryTextSizePercent + 5
+                                )
+                            )
+                        }
+                    }
+                )
+                // 辅助文字自适应大小(per-surface):装得下恒用设定字号(既有呈现逐像素不变),
+                // 装不下缩到可读性下限;第二行辅助行/和声行/并发行辅助行一并生效。
+                SwitchPreference(
+                    selectedProfile.secondaryAutoSize,
+                    { enabled -> updateSelected { it.copy(secondaryAutoSize = enabled) } },
+                    stringResource(R.string.setting_secondary_auto_size),
+                    summary = stringResource(R.string.summary_secondary_auto_size)
+                )
                 if (selectedProfile.secondaryMode != "Main only" ||
                     selectedProfile.secondaryNextLine
                 ) {
@@ -1632,14 +1673,16 @@ private fun TextSizePreference(
     title: String,
     percent: Int,
     onDecrease: () -> Unit,
-    onIncrease: () -> Unit
+    onIncrease: () -> Unit,
+    minPercent: Int = 50,
+    maxPercent: Int = 200
 ) {
     BasicComponent(
         title = title,
         endActions = {
             IconButton(
                 onClick = onDecrease,
-                enabled = percent > 50,
+                enabled = percent > minPercent,
                 backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
                 cornerRadius = 24.dp,
                 minHeight = 48.dp,
@@ -1659,7 +1702,7 @@ private fun TextSizePreference(
             Spacer(Modifier.width(12.dp))
             IconButton(
                 onClick = onIncrease,
-                enabled = percent < 200,
+                enabled = percent < maxPercent,
                 backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
                 cornerRadius = 24.dp,
                 minHeight = 48.dp,

@@ -364,6 +364,9 @@
     <string name="summary_lyric_time_offset">Positive values show lyrics later, negative values earlier (±5 s)</string>
 <string name="setting_duet_concurrent">Show concurrent lines (duet)</string>
 <string name="summary_duet_concurrent">When another sung line overlaps the current line by at least one second, show both lines together, each with its own karaoke timing. Lockscreen and always-on display switch independently.</string>
+    <string name="setting_secondary_text_size">Auxiliary text size</string>
+    <string name="setting_secondary_auto_size">Adaptive auxiliary text size</string>
+    <string name="summary_secondary_auto_size">Shrink to the readable minimum when the auxiliary text does not fit</string>
     <string name="setting_bright_secondary_text">Bright secondary text</string>
     <string name="setting_secondary_word_karaoke">Word-by-word auxiliary text</string>
     <string name="summary_secondary_word_karaoke">The first line\'s auxiliary text (transliteration/translation) lights up word by word with the lyric; sources without word timing are synthesized from the line window. The second line and its auxiliary text are not affected.</string>
