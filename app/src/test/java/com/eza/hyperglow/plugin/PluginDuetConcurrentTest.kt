@@ -200,4 +200,25 @@ class PluginDuetConcurrentTest {
         val out = PluginSongBridge.enrichState(st, patched(rows, st))
         assertNull(out.duetLine)
     }
+
+    /**
+     * 和声行不被晋级成主行（owner 2026-10-07）：主行窗口比插件行粗（实测同一句生产者
+     * 20.6s vs 插件 5.2s），换行间隙里只有和声行覆盖位置——此时主行必须保持生产者那一句
+     * （按文本回退找同句 LEAD 行），不能取和声行的文本（那正是「第二行的歌词还没唱完就
+     * 换到第一行」）。真机形态：《乐鸣东方》主行 86.7–89.7 + 和声 88.6–90.5，位置 89.7 落
+     * 在两句之间的间隙里；和声行故意排在行表最前，钉住「不按行表顺序认主行」。
+     */
+    @Test
+    fun harmonyRowNeverBecomesTheMainLineDuringGap() {
+        val st = state(positionMs = 89_700L).copy(line = "少年狂")
+        val rows = listOf(
+            row(88_600L, 90_500L, "(少年狂)", "BG"),
+            row(86_700L, 89_700L, "少年狂", "LEAD"),
+            row(90_400L, 97_400L, "唤炽心无双千秋同所向", "LEAD")
+        )
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        assertEquals("少年狂", out.line)
+        assertEquals("(少年狂)", out.duetLine?.text)
+        assertEquals(true, out.duetLine?.harmony)
+    }
 }

@@ -249,7 +249,7 @@ object PluginSongBridge {
             val primaryIndex = rows.indexOf(active)
             // 诊断探针:插件替换歌词后记录行表构成与并发行挂载结果(真机判定和声行有没有被认出来)。
             HookLogger.iThrottled("duet-attach", 5_000L, "PluginSongBridge") {
-                val bg = rows.count { it.metadata?.values?.get(META_ROLE) == ROLE_BG }
+                val bg = rows.count(::isHarmonyRow)
                 val acc = accompanimentRowIndex(rows, rows.indexOf(active))
                 val pick = if (acc >= 0) rows[acc].text?.take(20) else "(none)"
                 "Duet attach: rows=${rows.size} bg=$bg active=${active.text?.take(16)} " +
@@ -277,7 +277,7 @@ object PluginSongBridge {
                         // 和声身份取自被选中行自己的角色,而不是「走的哪条选取分支」:
                         // accompanimentRowIndex 已保证 role=BG 才会走到这里,时间窗回退选中的
                         // 是不同演唱者的对唱行(渲染侧与主行同款并排)。
-                        harmony = row.metadata?.values?.get(META_ROLE) == ROLE_BG,
+                        harmony = isHarmonyRow(row),
                         lineStartMs = row.begin,
                         lineEndMs = row.end,
                         words = row.words?.map { word ->
@@ -296,12 +296,18 @@ object PluginSongBridge {
         return enriched
     }
 
-    /** 复刻 SpicyBridgeDocument.primaryRowAt：窗口内 LEAD 优先（更晚 start 胜出），否则首个其它行。 */
+    /**
+     * 复刻 SpicyBridgeDocument.primaryRowAt：窗口内 LEAD 优先（更晚 start 胜出），否则首个其它行。
+     * 和声行（role=BG）不参与主行选择——它是并发行车道的内容：主行的窗口比插件行粗
+     * （实测同一句生产者 20.6s vs 插件 5.2s），换行间隙里只有和声行覆盖位置，取到它
+     * 就等于把第二行（和声）的文本显示到第一行（owner 2026-10-07 真机反馈）。
+     */
     private fun selectActiveRow(rows: List<PluginLyricLine>, positionMs: Long): PluginLyricLine? {
         var lead: PluginLyricLine? = null
         var other: PluginLyricLine? = null
         for (row in rows) {
             if (positionMs < row.begin || positionMs >= row.end) continue
+            if (isHarmonyRow(row)) continue
             if (row.metadata?.values?.get(META_ROLE) == "LEAD") {
                 if (lead == null || row.begin >= lead.begin) lead = row
             } else if (other == null) {
@@ -323,12 +329,20 @@ object PluginSongBridge {
      * 按行身份回退选活动行:生产者当前显示的那一句在插件行表里找同一句。
      * 两侧的空白/标点常有差异(如「人间百相 总让我神往」vs「人间百相总让我神往」),
      * 归一化后比较。找不到返回 null(调用方保持生产者状态不动)。
+     * 和声行同样排除:归一化会抹掉回声行的括号,按文本回退时不得把和声行认成主行
+     * (见 [selectActiveRow])。
      */
     private fun activeRowByText(rows: List<PluginLyricLine>, producerLine: String): PluginLyricLine? {
         val needle = normalizeLyricText(producerLine)
         if (needle.isEmpty()) return null
-        return rows.firstOrNull { normalizeLyricText(it.text.orEmpty()) == needle }
+        return rows.firstOrNull {
+            !isHarmonyRow(it) && normalizeLyricText(it.text.orEmpty()) == needle
+        }
     }
+
+    /** 和声行判据(role=BG,AMLL TTML 的 x-bg 回声):只走并发行车道,不参与主行选择。 */
+    private fun isHarmonyRow(row: PluginLyricLine): Boolean =
+        row.metadata?.values?.get(META_ROLE) == ROLE_BG
 
     /** 行文本归一化:去空白与常见中英标点,只留实义字符。 */
     private fun normalizeLyricText(text: String): String =
@@ -348,7 +362,7 @@ object PluginSongBridge {
         return rows.withIndex()
             .filter { (index, row) ->
                 index != primaryIndex &&
-                    row.metadata?.values?.get(META_ROLE) == ROLE_BG &&
+                    isHarmonyRow(row) &&
                     !row.text.isNullOrBlank() &&
                     minOf(primary.end, row.end) - maxOf(primary.begin, row.begin) >= MIN_CONCURRENT_OVERLAP_MS
             }
