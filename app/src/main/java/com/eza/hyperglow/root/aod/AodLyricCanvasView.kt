@@ -18,6 +18,8 @@ import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
+import com.eza.hyperglow.producer.DuetLineWindow
+import com.eza.hyperglow.producer.shouldAdoptDuetLineCandidate
 import com.eza.hyperglow.root.HookLogger
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -117,12 +119,46 @@ internal class AodLyricCanvasView(
     // 对唱并发行(duetLine)加入淡入状态:内容键变化即重计时,淡入完成后归零(恒全亮)。
     private var duetLineKey: String? = null
     private var duetJoinStartedAt = 0L
+    /**
+     * 并发行自己的时间轴锁(见 [latchDuetLine]):主行换行只换候选来源,不换屏上内容——
+     * 已上屏的并发行锁到它自己的窗口结束才让位。null = 当前无并发行。
+     */
+    private var duetLockLine: AodCanvasDuetLine? = null
+    /** 并发行锁的位置高水位(seek/倒退判定基准,只进不退;换歌或明显倒退时重算)。 */
+    private var duetLockHighWaterPositionMs = 0L
 
     /** 并发行加入淡入系数:未在淡入期恒 1;淡入窗口内 0→1 线性推进。 */
     private fun duetJoinAlpha(): Float {
         if (duetJoinStartedAt == 0L) return 1f
         val elapsed = (SystemClock.elapsedRealtime() - duetJoinStartedAt).coerceAtLeast(0L)
         return (elapsed.toFloat() / DUET_JOIN_FADE_MS).coerceIn(0f, 1f)
+    }
+
+    /**
+     * 并发行自己的时间轴(见 [shouldAdoptDuetLineCandidate]):主行换行(活动行变化)只改变
+     * **候选来源**,不改变屏上的并发行——已上屏的并发行锁到它自己的窗口结束才让位;换歌
+     * (代次变化)与位置明显倒退(seek/拖动)时解锁,按本次候选重选。
+     */
+    private fun latchDuetLine(incoming: AodCanvasContent): AodCanvasContent {
+        val candidate = incoming.duetLine
+        val locked = duetLockLine
+        val trackChanged = incoming.trackGeneration != content.trackGeneration
+        val seekBack = locked != null && !trackChanged &&
+            incoming.positionMs < duetLockHighWaterPositionMs - TRANSITION_REWIND_TOLERANCE_MS
+        val adopt = trackChanged || seekBack || shouldAdoptDuetLineCandidate(
+            locked = locked?.let { DuetLineWindow(it.lineStartMs, it.lineEndMs, false) },
+            incoming = candidate?.let { DuetLineWindow(it.lineStartMs, it.lineEndMs, false) },
+            positionMs = incoming.positionMs
+        )
+        if (adopt) duetLockLine = candidate
+        // 高水位只进不退;换歌/倒退后从当前位置重算,否则锁会在倒退后的低位上永久失效。
+        duetLockHighWaterPositionMs = if (trackChanged || seekBack) {
+            incoming.positionMs
+        } else {
+            maxOf(duetLockHighWaterPositionMs, incoming.positionMs)
+        }
+        val line = duetLockLine ?: return incoming
+        return if (line === candidate) incoming else incoming.copy(duetLine = line)
     }
     private var handoffActive = false
     private var suppressNextLineTransition = false
@@ -392,11 +428,13 @@ internal class AodLyricCanvasView(
                 HookLogger.i("AodLyricCanvasView", "setContent in: $incomingKey")
             }
         }
-        val nextContent = stabilizeLineEnhancements(
-            incomingContent.copy(
-                animationMode = normalizeAodAnimation(incomingContent.animationMode),
-                motionMode = normalizeAodMotion(incomingContent.motionMode),
-                overflowMode = normalizeAodOverflow(incomingContent.overflowMode)
+        val nextContent = latchDuetLine(
+            stabilizeLineEnhancements(
+                incomingContent.copy(
+                    animationMode = normalizeAodAnimation(incomingContent.animationMode),
+                    motionMode = normalizeAodMotion(incomingContent.motionMode),
+                    overflowMode = normalizeAodOverflow(incomingContent.overflowMode)
+                )
             )
         )
         // 行变更判定:身份(曲目/行窗/文本)变化才算换行;「同曲同文、仅时间窗更新」不算——
@@ -457,7 +495,9 @@ internal class AodLyricCanvasView(
             transitionLastClockAtElapsedMs = 0L
             transitionTimeline = null
         }
-        val duetKey = nextContent.duetLine?.let { "${it.text}@${it.lineStartMs}" }
+        // 并发行自己的内容键(见 [aodDuetContentKey]):主行换行不改变它,只有并发行自己
+        // 换行才重计时并播自己的加入淡入。
+        val duetKey = nextContent.duetLine?.let { aodDuetContentKey(it.text, it.lineStartMs) }
         if (duetKey != duetLineKey) {
             duetLineKey = duetKey
             duetJoinStartedAt = if (duetKey != null) SystemClock.elapsedRealtime() else 0L
@@ -597,8 +637,9 @@ internal class AodLyricCanvasView(
         val nextGroupStart = startLayout.rows.indexOfFirst { it.row.kind == RowKind.NEXT_LINE }
         val originalIndex = targetLayout.rows.indexOfFirst { it.row.kind == RowKind.ORIGINAL }
         if (nextGroupStart >= 0 && originalIndex >= 0) {
-            val fromAuxRows = startLayout.rows.drop(nextGroupStart + 1)
-            val toAuxRows = targetLayout.rows.drop(originalIndex + 1)
+            // 并发行行不属于主行块(自己独立的时间轴),不参与晋级位移的基线对。
+            val fromAuxRows = startLayout.rows.drop(nextGroupStart + 1).filterNot { it.row.duet }
+            val toAuxRows = targetLayout.rows.drop(originalIndex + 1).filterNot { it.row.duet }
             for ((fromRow, toRow) in fromAuxRows.zip(toAuxRows)) {
                 pairs += fromRow.baseline to toRow.baseline
             }
@@ -1091,6 +1132,10 @@ internal class AodLyricCanvasView(
         } else {
             drawMetadata(canvas, layout)
         }
+        // 并发行有自己独立的时间轴:主行过渡期间它不参与退场/位移/进场(各层的行集都排除
+        // 并发行行,见下),按起点快照的槽位静止画在原地。画在过渡层之下:主行块从它旁边
+        // 移走/进场时从它上面经过,而不是把它一起带走。
+        drawFrozenDuetRows(canvas, snapshot)
         // 参考档位移以行块自身边界为基准(Fade 族 1/4 宽高、Slide 族整宽高),历史档忽略该参数。
         // 宽度取内容框宽(行块横向铺满内容框,等价参考实现 target.getWidth());高度取该层行块
         // 实测高——退场层用旧行块、入场层用新行块,与 ObjectAnimator 在动画起始读取 target
@@ -1098,20 +1143,24 @@ internal class AodLyricCanvasView(
         // [animatedBlockHeightDp])。
         val blockWidthDp = (ow - padLeft - padRight) / density
         // 段1 退场:离场行组(主行+辅助文字)按退场半段离场;晋级时旧「下一行」不属于
-        // 离场组(内容延续),排除在退场层外。
+        // 离场组(内容延续),排除在退场层外。并发行行不属于任何主行组(自己独立的时间轴),
+        // 按行下标跳过绘制(布局保留——共享缩放 [duetSharedScale] 吃整块行堆叠,含并发行),
+        // 过渡期间由 [drawFrozenDuetRows] 画在原地。
         // 晋级时「下一行组」(下一行及其辅助行)是内容延续组:不随主行组离场,整组改由
         // 原地保持段/晋级层接管(第二行辅助文字的换行动画跟随第二行歌词,
         // owner 2026-10-02 真机反馈:此前辅助行复用 ROMANIZED/TRANSLATED kind 被算进主行离场组)。
         val nextGroupStart = snapshot.layout.rows.indexOfFirst { it.row.kind == RowKind.NEXT_LINE }
-        val exitLayout = if (promoting) {
-            snapshot.layout.copy(rows = if (nextGroupStart < 0) {
+        val exitRows = if (promoting) {
+            if (nextGroupStart < 0) {
                 snapshot.layout.rows
             } else {
                 snapshot.layout.rows.take(nextGroupStart)
-            })
+            }
         } else {
-            snapshot.layout
+            snapshot.layout.rows
         }
+        val exitLayout = snapshot.layout.copy(rows = exitRows)
+        val exitDuetIndices = exitRows.indices.filter { exitRows[it].row.duet }.toSet()
         drawRows(
             canvas,
             exitLayout,
@@ -1120,10 +1169,15 @@ internal class AodLyricCanvasView(
                 transitionMode,
                 exitEased,
                 blockWidthDp,
-                animatedBlockHeightDp(exitLayout, skipOriginal = metadataMorph)
+                animatedBlockHeightDp(
+                    exitLayout,
+                    skipOriginal = metadataMorph,
+                    skipRowIndices = exitDuetIndices
+                )
             ),
             snapshot.renderStyle,
-            skipOriginal = metadataMorph
+            skipOriginal = metadataMorph,
+            skipRowIndices = exitDuetIndices
         )
         if (promoting) {
             // 段2 晋级位移:退场段内旧「下一行」原地保持,位移段开始即由新「主行」层接管
@@ -1153,21 +1207,26 @@ internal class AodLyricCanvasView(
         } else {
             snapshot.layout.rows.size - nextGroupStart - 1
         }
-        val promotedAuxIndices = if (promoting && originalIndex >= 0 && promotedAuxCount > 0) {
-            (originalIndex + 1..(originalIndex + promotedAuxCount).coerceAtMost(layout.rows.size - 1)).toSet()
+        // 入场层的行集:晋级时移除旧主行(由晋级层接管);并发行行按行下标跳过绘制(布局保留,
+        // 共享缩放口径与静止层一致),由 [drawFrozenDuetRows] 画在原地,不入场、不随主行块移动。
+        val enterRows = if (promoting) {
+            layout.rows.filter { it.row.kind != RowKind.ORIGINAL }
         } else {
-            emptySet()
+            layout.rows
         }
-        val enterLayout = if (promoting) {
-            layout.copy(rows = layout.rows.filter { it.row.kind != RowKind.ORIGINAL })
+        // 被晋级的新主行辅助行(内容延续组)布局保留、仅不绘制(由晋级层接管),位移基准按
+        // 实际绘制行计。索引在入场层的行集里算(并发行行另有自己的跳过集,互不影响)。
+        val promotedAuxRows = if (promoting && originalIndex >= 0 && promotedAuxCount > 0) {
+            val from = originalIndex + 1
+            val toExclusive = (from + promotedAuxCount).coerceAtMost(layout.rows.size)
+            if (from < toExclusive) layout.rows.subList(from, toExclusive) else emptyList()
         } else {
-            layout
+            emptyList()
         }
-        // enterLayout 已移除 ORIGINAL,其后行索引整体前移 1(被晋级的新主行辅助行布局保留、
-        // 仅不绘制,位移基准也按实际绘制行计)。
-        val enterSkipIndices = promotedAuxIndices.map { index ->
-            if (index > originalIndex) index - 1 else index
-        }.toSet()
+        val enterSkipIndices = (promotedAuxRows.mapNotNull { aux ->
+            enterRows.indexOfFirst { it === aux }.takeIf { it >= 0 }
+        } + enterRows.indices.filter { enterRows[it].row.duet }).toSet()
+        val enterLayout = layout.copy(rows = enterRows)
         drawRows(
             canvas,
             enterLayout,
@@ -1269,8 +1328,10 @@ internal class AodLyricCanvasView(
         if (nextGroupStart < 0) return
         val originalIndex = layout.rows.indexOfFirst { it.row.kind == RowKind.ORIGINAL }
         if (originalIndex < 0) return
-        val fromAuxRows = snapshot.layout.rows.drop(nextGroupStart + 1)
-        val toAuxRows = layout.rows.drop(originalIndex + 1)
+        // 并发行行不属于主行块(自己独立的时间轴,过渡期间由 [drawFrozenDuetRows] 静止绘制),
+        // 不参与晋级位移的辅助行配对。
+        val fromAuxRows = snapshot.layout.rows.drop(nextGroupStart + 1).filterNot { it.row.duet }
+        val toAuxRows = layout.rows.drop(originalIndex + 1).filterNot { it.row.duet }
         val bright = snapshot.content.secondaryTextBright
         val remain = 1f - frame.translateFraction
         for ((fromRow, toRow) in fromAuxRows.zip(toAuxRows)) {
@@ -1389,9 +1450,14 @@ internal class AodLyricCanvasView(
                 when (row.row.kind) {
                     RowKind.METADATA -> Unit
                     RowKind.ORIGINAL -> if (!skipOriginal) drawOriginal(canvas, row.baseline)
-                    RowKind.DUET_ORIGINAL ->
-                        if (!skipOriginal) drawDuetOriginal(canvas, row.baseline)
-                    else -> drawText(canvas, row.row, row.baseline)
+                    RowKind.DUET_ORIGINAL -> if (!skipOriginal) {
+                        withDuetRowTransition(canvas, row.row) {
+                            drawDuetOriginal(canvas, row.baseline)
+                        }
+                    }
+                    else -> withDuetRowTransition(canvas, row.row) {
+                        drawText(canvas, row.row, row.baseline)
+                    }
                 }
                 rowIndex++
             }
@@ -1423,9 +1489,12 @@ internal class AodLyricCanvasView(
             lineProgress(),
             effectiveLineSyncFillMode()
         )
-        // 并发行(对唱)在共享行级扫光路径下同样绘制(自带行窗口/词表进度)。
-        rows.firstOrNull { it.row.kind == RowKind.DUET_ORIGINAL }?.let {
-            drawDuetOriginal(canvas, it.baseline)
+        // 并发行(对唱)在共享行级扫光路径下同样绘制(自带行窗口/词表进度),只播自己的
+        // 加入淡入(见 [withDuetRowTransition])。
+        rows.firstOrNull { it.row.kind == RowKind.DUET_ORIGINAL }?.let { duetRow ->
+            withDuetRowTransition(canvas, duetRow.row) {
+                drawDuetOriginal(canvas, duetRow.baseline)
+            }
         }
     }
 
@@ -1454,67 +1523,79 @@ internal class AodLyricCanvasView(
                 rowIndex++
                 continue
             }
-            // 辅助文字逐字效果:携带行窗口的辅助行走逐字渲染(自管取色/亮度),不落静态路径。
-            val auxWindow = positioned.row.auxKaraokeWindow
-            if (auxWindow != null) {
-                drawAuxKaraokeRow(canvas, positioned.row, positioned.baseline, auxWindow)
-                rowIndex++
-                continue
-            }
-            // 下一行歌词颜色恒走独立的 nextLineText token(与预览/非行级同步路径同源
-            // secondLineColorArgb):「辅助文字显示第二行歌词」只借辅助文字的亮度档,
-            // 不借「辅助行颜色」,否则"下一行颜色"设置对该形态完全失效。
-            if (positioned.row.kind == RowKind.NEXT_LINE) {
-                val secondaryForm = secondLineRendersAsSecondary(
-                    content.secondaryNextLine,
-                    content.showNextLine,
-                    content.nextLine.isNotBlank(),
-                    hasFirstLineAuxText(
-                        content.secondaryMode,
-                        content.romanized,
-                        content.translated
-                    ),
-                    content.nextLineAux
-                )
-                setTextAlpha(
-                    positioned.row.paint,
-                    if (secondaryForm) {
-                        staticSecondaryTextFactor(bright)
-                    } else {
-                        staticNextLineTextFactor()
-                    },
-                    1f,
-                    secondLineColorArgb(
-                        if (secondaryForm) {
-                            SecondLinePresentation.AS_SECONDARY
-                        } else {
-                            SecondLinePresentation.STANDALONE
-                        },
-                        resolvedPalette
-                    )
-                )
-            } else {
-                setTextAlpha(
-                    positioned.row.paint,
-                    staticSecondaryTextFactor(bright),
-                    1f,
-                    resolvedPalette.secondaryText
-                )
-            }
-            if (!keepShader) positioned.row.paint.shader = null
-            positioned.row.paint.clearShadowLayer()
-            var lineIndex = 0
-            while (lineIndex < positioned.row.lines.size) {
-                val line = positioned.row.lines[lineIndex]
-                canvas.drawText(
-                    line.text,
-                    line.startX,
-                    positioned.baseline + lineIndex * positioned.row.lineHeight,
-                    positioned.row.paint
-                )
-                lineIndex++
+            // 并发行辅助行(含和声走的辅助行车道)只播自己的加入淡入(见 [withDuetRowTransition])。
+            withDuetRowTransition(canvas, positioned.row) {
+                drawSecondaryRowStatic(canvas, positioned, bright, keepShader)
             }
             rowIndex++
+        }
+    }
+
+    /** [drawSecondaryRowsStatic] 的单行主体(并发行行由调用方套自己的过渡层)。 */
+    private fun drawSecondaryRowStatic(
+        canvas: Canvas,
+        positioned: PositionedRow,
+        bright: Boolean,
+        keepShader: Boolean
+    ) {
+        // 辅助文字逐字效果:携带行窗口的辅助行走逐字渲染(自管取色/亮度),不落静态路径。
+        val auxWindow = positioned.row.auxKaraokeWindow
+        if (auxWindow != null) {
+            drawAuxKaraokeRow(canvas, positioned.row, positioned.baseline, auxWindow)
+            return
+        }
+        // 下一行歌词颜色恒走独立的 nextLineText token(与预览/非行级同步路径同源
+        // secondLineColorArgb):「辅助文字显示第二行歌词」只借辅助文字的亮度档,
+        // 不借「辅助行颜色」,否则"下一行颜色"设置对该形态完全失效。
+        if (positioned.row.kind == RowKind.NEXT_LINE) {
+            val secondaryForm = secondLineRendersAsSecondary(
+                content.secondaryNextLine,
+                content.showNextLine,
+                content.nextLine.isNotBlank(),
+                hasFirstLineAuxText(
+                    content.secondaryMode,
+                    content.romanized,
+                    content.translated
+                ),
+                content.nextLineAux
+            )
+            setTextAlpha(
+                positioned.row.paint,
+                if (secondaryForm) {
+                    staticSecondaryTextFactor(bright)
+                } else {
+                    staticNextLineTextFactor()
+                },
+                1f,
+                secondLineColorArgb(
+                    if (secondaryForm) {
+                        SecondLinePresentation.AS_SECONDARY
+                    } else {
+                        SecondLinePresentation.STANDALONE
+                    },
+                    resolvedPalette
+                )
+            )
+        } else {
+            setTextAlpha(
+                positioned.row.paint,
+                staticSecondaryTextFactor(bright),
+                1f,
+                resolvedPalette.secondaryText
+            )
+        }
+        if (!keepShader) positioned.row.paint.shader = null
+        positioned.row.paint.clearShadowLayer()
+        var lineIndex = 0
+        while (lineIndex < positioned.row.lines.size) {
+            val line = positioned.row.lines[lineIndex]
+            canvas.drawText(
+                line.text,
+                line.startX,
+                positioned.baseline + lineIndex * positioned.row.lineHeight,
+                positioned.row.paint
+            )
+            lineIndex++
         }
     }
 
@@ -2096,7 +2177,7 @@ internal class AodLyricCanvasView(
                         availableWidth
                     ),
                     if (content.secondaryWordKaraoke) duet.lineStartMs..duet.lineEndMs else null
-                )
+                ).copy(duet = true)
             } else {
                 val built = buildDuetOriginalLayout(duet, availableWidth)
                 duetLayout = built
@@ -2119,7 +2200,8 @@ internal class AodLyricCanvasView(
                     ),
                     ROW_GAP_BEFORE_ORIGINAL_DP * density,
                     emptyList(),
-                    lineHeight
+                    lineHeight,
+                    duet = true
                 )
                 if (showReading && duet.romanized.isNotBlank()) {
                     rows += rowWithLines(
@@ -2137,7 +2219,7 @@ internal class AodLyricCanvasView(
                         ),
                         // 并发行辅助行取并发行自己的窗口,逐字推进与并发行主行同拍。
                         duetAuxKaraokeWindow
-                    )
+                    ).copy(duet = true)
                 }
                 if (showTranslation && duet.translated.isNotBlank()) {
                     rows += rowWithLines(
@@ -2154,7 +2236,7 @@ internal class AodLyricCanvasView(
                             alignmentFor(content, RowKind.DUET_TRANSLATED)
                         ),
                         duetAuxKaraokeWindow
-                    )
+                    ).copy(duet = true)
                 }
             }
         }
@@ -2719,22 +2801,17 @@ internal class AodLyricCanvasView(
         val duet = content.duetLine ?: return
         // 并发行/和声行随**活动行**一起显示(参照 HyperLyric:和声折进父行、随父行在唱就在屏上),
         // 不做自己的时间窗门控——插件的行窗与生产者上报的位置来自两条时间轴(实测同一句
-        // 5.2s vs 20.5s),用其中一条去卡另一条会把和声整段挡掉。整行的布局槽位与主行同生共死
-        // (见 buildRows),这里只负责画。
+        // 5.2s vs 20.5s),用其中一条去卡另一条会把和声整段挡掉。并发行行的槽位只由
+        // buildRows 的装配给出,主行换行过渡不移动它(见 [drawFrozenDuetRows]),这里只负责画。
         // 诊断探针:并发行真的画出来时记一条(带窗口与文本),供真机判定「和声/对唱行有没有上屏」,
         // 不依赖掐点抓屏。与 karaoke-probe 同口径(2s 节流、仅诊断日志开启时落盘)。
         HookLogger.iThrottled("duet-draw", 2_000L, "AodLyricCanvasView") {
             "Duet draw: pos=${projectedPosition()} window=${duet.lineStartMs}..${duet.lineEndMs} " +
                 "words=${duet.words.size} text=${duet.text.take(24)}"
         }
-        val alpha = duetJoinAlpha()
-        if (alpha <= 0f) return
-        val layer = if (alpha < 1f) {
-            canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * alpha).toInt())
-        } else {
-            canvas.save()
-        }
-        if (alpha < 1f) {
+        // 加入淡入期间按静音态绘制(无发光/扫光,上游 exit-side muted 同语义);透明度由
+        // 行级过渡层施加(见 [withDuetRowTransition]),这里只选绘制形态。
+        if (duetJoinAlpha() < 1f) {
             drawDuetStatic(canvas, duetLayout, baseline)
         } else {
             drawOriginalGlowBlock(
@@ -2750,7 +2827,6 @@ internal class AodLyricCanvasView(
                 effectiveLineSyncFillMode()
             )
         }
-        canvas.restoreToCount(layer)
     }
 
     /** 并发行静音态绘制:无发光/扫光/Shader,全亮 sungText(与主行 Minimal 档同式)。 */
@@ -2773,6 +2849,89 @@ internal class AodLyricCanvasView(
             drawOriginalText(canvas, line, lineBaseline)
             precedingRuby += line.rubyHeight
             lineIndex++
+        }
+    }
+
+    /**
+     * 并发行行自己的过渡:内容键变化后的加入淡入(见 [duetJoinAlpha]);恒全亮时不建层。
+     * 主行换行过渡不作用于并发行行(见 [drawFrozenDuetRows]),并发行的过渡只有这一处
+     * ——「并发行切换时播放它自己的过渡」。
+     */
+    private inline fun withDuetRowTransition(canvas: Canvas, row: Row, draw: () -> Unit) {
+        if (!row.duet) {
+            draw()
+            return
+        }
+        val alpha = duetJoinAlpha()
+        if (alpha >= 1f) {
+            draw()
+            return
+        }
+        if (alpha <= 0f) return
+        val layer = canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * alpha).toInt())
+        draw()
+        canvas.restoreToCount(layer)
+    }
+
+    /**
+     * 主行过渡期间的并发行静止层(见 [drawOrientedContent]):并发行有自己独立的时间轴,
+     * 不参与主行的退场/位移/进场——过渡期间按过渡起点快照的槽位画在原地,主行层移走/
+     * 淡出/缩放时它不动、不变暗(共享缩放取起点快照,与前一帧口径一致)。
+     * 内容取当前布局(并发行自己的折行与词级进度照常推进;它自己到点换行时也只播自己的
+     * 加入淡入);槽位取起点快照而不是新布局——新布局是主行换行后的形态,槽位可能已随
+     * 主行块高变化,用新槽位等于在过渡开始时把并发行弹到别处。
+     */
+    private fun drawFrozenDuetRows(canvas: Canvas, snapshot: CanvasSnapshot) {
+        val duetRows = layout.rows.filter { it.row.duet }
+        if (duetRows.isEmpty()) return
+        val frozen = frozenDuetBaselines(
+            snapshotBaselines = snapshot.layout.rows.filter { it.row.duet }.map { it.baseline },
+            currentBaselines = duetRows.map { it.baseline }
+        )
+        val scale = duetSharedScale(snapshot.layout)
+        val layer = canvas.save()
+        if (scale != 1f) {
+            canvas.scale(
+                scale,
+                scale,
+                (padLeft + (ow - padRight)) / 2f,
+                (padTop + (oh - padBottom)) / 2f
+            )
+        }
+        val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
+        duetRows.forEachIndexed { index, positioned ->
+            val baseline = frozen[index]
+            if (positioned.row.kind == RowKind.DUET_ORIGINAL) {
+                withDuetRowTransition(canvas, positioned.row) {
+                    drawDuetOriginal(canvas, baseline)
+                }
+            } else {
+                withDuetRowTransition(canvas, positioned.row) {
+                    drawDuetAuxRowStatic(canvas, positioned.row, baseline)
+                }
+            }
+        }
+        canvas.restoreToCount(layer)
+    }
+
+    /** 并发行辅助行(含和声走的辅助行车道)的静态绘制:逐字效果开启时按自己的行窗点亮,否则全亮静态。 */
+    private fun drawDuetAuxRowStatic(canvas: Canvas, row: Row, baseline: Float) {
+        val auxWindow = row.auxKaraokeWindow
+        if (auxWindow != null) {
+            drawAuxKaraokeRow(canvas, row, baseline, auxWindow)
+            return
+        }
+        setTextAlpha(
+            row.paint,
+            staticSecondaryTextFactor(content.secondaryTextBright),
+            1f,
+            resolvedPalette.secondaryText
+        )
+        row.paint.shader = null
+        row.paint.clearShadowLayer()
+        row.lines.forEachIndexed { index, line ->
+            canvas.drawText(line.text, line.startX, baseline + index * row.lineHeight, row.paint)
         }
     }
 
@@ -3842,7 +4001,12 @@ internal class AodLyricCanvasView(
          * 辅助行在「辅助文字逐字效果」开启时携带;第二行歌词及其辅助行恒为空(它们的
          * 播放窗口尚未开始,不能借当前行窗口点亮)。
          */
-        val auxKaraokeWindow: LongRange? = null
+        val auxKaraokeWindow: LongRange? = null,
+        /**
+         * 并发行行标记(并发行块各行,含和声走辅助行车道的行):主行换行过渡不带走它们
+         * (见 [drawFrozenDuetRows]),它们只随并发行自己的过渡(加入淡入)出现/切换。
+         */
+        val duet: Boolean = false
     )
     private data class OriginalLine(
         val text: String,
