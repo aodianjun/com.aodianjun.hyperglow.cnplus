@@ -1107,13 +1107,18 @@ internal fun previewDuetKey(text: String?, lineStartMs: Long): String? =
  * 没换)时,槽位取过渡起点快照——旧行组(主行+辅助文字)与新行组的高差,新布局不参与,
  * 「主行换行不改变并发行位置」由此成立;并发行自己换了(键变化)或不在过渡中(起点键为 null)
  * 时不偏移,由新布局接管。偏移作用于整个并发行段(段内各行同步平移,相对位置不变)。
+ *
+ * [previousGroupHeightPx] 为 0(退场层实测高要到过渡首帧之后才上报)时不偏移:否则首帧会
+ * 按「0 − 新行组高」把并发行顶到块顶,下一帧再跳回,反而制造一次可见跳动。
  */
 internal fun previewDuetFrozenOffsetPx(
     previousDuetKey: String?,
     currentDuetKey: String?,
     previousGroupHeightPx: Int,
     currentGroupHeightPx: Int
-): Float = if (previousDuetKey != null && previousDuetKey == currentDuetKey) {
+): Float = if (previousDuetKey != null && previousDuetKey == currentDuetKey &&
+    previousGroupHeightPx > 0
+) {
     (previousGroupHeightPx - currentGroupHeightPx).toFloat()
 } else {
     0f

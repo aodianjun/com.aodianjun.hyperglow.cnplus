@@ -162,6 +162,8 @@ class PreviewDemoLinesTest {
             0f
         )
         assertEquals(0f, previewDuetFrozenOffsetPx(key, null, 300, 400), 0f)
+        // 起点高尚未上报(0)时不偏移:否则首帧按「0 − 新行组高」把并发行顶到块顶、下一帧再跳回。
+        assertEquals(0f, previewDuetFrozenOffsetPx(key, key, 0, 400), 0f)
     }
 
     @Test
