@@ -178,6 +178,10 @@ object SceneCompiler {
             secondaryMode = profile.secondaryMode.takeIf { it in SECONDARY_MODES } ?: "Main only",
             secondaryTextBright = profile.secondaryTextBright,
             secondaryWordKaraoke = profile.secondaryWordKaraoke,
+            secondaryTextSizePercent = normalizeSecondaryTextSizePercent(
+                profile.secondaryTextSizePercent
+            ),
+            secondaryAutoSize = profile.secondaryAutoSize,
             lyricLineLimit = normalizeLyricLineLimit(profile.lyricLineLimit),
             showNextLine = profile.showNextLine,
             secondaryNextLine = profile.secondaryNextLine,

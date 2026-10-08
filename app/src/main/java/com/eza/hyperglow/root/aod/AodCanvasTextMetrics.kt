@@ -1,6 +1,9 @@
 package com.eza.hyperglow.root.aod
 
 import com.eza.hyperglow.customization.ARTWORK_SIZE_DEFAULT_DP
+import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
+import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_MAX
+import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_MIN
 import com.eza.hyperglow.customization.normalizeArtworkSizeDp
 import kotlin.math.max
 import kotlin.math.min
@@ -115,18 +118,74 @@ internal fun metadataTextSizeMultiplier(percent: Int): Float =
 internal fun metadataTextSizeSp(percent: Int): Float =
     14f * metadataTextSizeMultiplier(percent)
 
-/** 副文本音标行字号(sp):主字号 baseSp 的 0.48 倍。14sp 可读性下限按 baseSp 等比封顶
- *  (min(14, baseSp×0.62)):主行被字号档/LIVE_CARD_SIZE_MULTIPLIER 压小后,下限不得把辅助
- *  形态抬到与主行同大,否则「辅助文字」视觉失效(2026-10-01 真机:0.68 缩放下 aux/main≈0.9)。 */
-internal fun secondaryReadingTextSizeSp(baseSp: Float): Float =
-    max(min(14f, baseSp * 0.62f), round(baseSp * 0.48f))
+/**
+ * 辅助文字字号倍率(相对主行的百分比,50..150):100 = 历史值。倍率只作用于 0.48 比例项
+ * —— 可读性下限是「可读性」不是「比例」,缩放它会把 50% 档压到不可读;结果再硬顶
+ * 0.62×主行(见 [secondaryReadingTextSizeSp]),percent=150 因 0.48×1.5 > 0.62 天然饱和。
+ */
+internal fun secondarySizeMultiplier(percent: Int): Float =
+    percent.coerceIn(SECONDARY_TEXT_SIZE_PERCENT_MIN, SECONDARY_TEXT_SIZE_PERCENT_MAX) / 100f
 
-/** 副文本翻译行字号(sp):音标行再小 1sp。13sp 下限同样按 baseSp 等比封顶。 */
-internal fun secondaryTranslationTextSizeSp(baseSp: Float): Float =
-    max(min(13f, baseSp * 0.62f - 1f), round(baseSp * 0.48f) - 1f)
+/** 副文本音标行字号(sp):主字号 baseSp 的 0.48 倍 × 倍率,硬顶 0.62×baseSp。
+ *  14sp 可读性下限按 baseSp 等比封顶 (min(14, baseSp×0.62)):主行被字号档/
+ *  LIVE_CARD_SIZE_MULTIPLIER 压小后,下限不得把辅助形态抬到与主行同大,否则「辅助文字」
+ *  视觉失效(2026-10-01 真机:0.68 缩放下 aux/main≈0.9)。下限不随倍率缩放,倍率缩到
+ *  一定程度后由它接管(50% 档在极小 baseSp 下可能触及下限,可接受且与旧修复意图一致)。 */
+internal fun secondaryReadingTextSizeSp(
+    baseSp: Float,
+    percent: Int = SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
+): Float = max(
+    min(14f, baseSp * 0.62f),
+    round(baseSp * 0.48f * secondarySizeMultiplier(percent))
+).coerceAtMost(baseSp * 0.62f)
+
+/** 副文本翻译行字号(sp):音标行再小 1sp。13sp 下限同样按 baseSp 等比封顶、不随倍率缩放。 */
+internal fun secondaryTranslationTextSizeSp(
+    baseSp: Float,
+    percent: Int = SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
+): Float = max(
+    min(13f, baseSp * 0.62f - 1f),
+    round(baseSp * 0.48f * secondarySizeMultiplier(percent)) - 1f
+).coerceAtMost(baseSp * 0.62f - 1f)
+
+/** 自适应下限(sp):与上面两个公式的下限项同源(音标 min(14, 0.62×base) / 翻译 min(13, 0.62×base−1))。 */
+internal fun secondarySizeFloorSp(baseSp: Float, translation: Boolean): Float =
+    if (translation) min(13f, baseSp * 0.62f - 1f) else min(14f, baseSp * 0.62f)
 
 /** 下一行歌词字号(sp):固定 15sp,不随字号档位缩放。 */
 internal fun nextLineTextSizeSp(): Float = 15f
+
+/**
+ * 辅助文字自适应拟合系数(纯函数,可 JVM 单测):[linesAt] 给出某倍率下的「装得下行数」
+ * (行数超限或任一行仍超宽都记 > [allowedLines])。
+ *  - 装得下 → 恒 1(既有呈现逐像素不变,与 duetSharedFitScale 的契约一致);
+ *  - 装不下 → 在 [minScale, 1] 内二分到刚好装下(字号单调 ⇒ 折行数单调);
+ *  - 到 [minScale] 仍装不下 → 取下限(接受溢出/裁切,与 overflow=Clip 口径一致)。
+ * [minScale] 非法(≤0/NaN/>1)或 [allowedLines] < 1 时不介入(返回 1,不放大)。
+ */
+internal fun adaptiveSecondaryFitScale(
+    minScale: Float,
+    allowedLines: Int,
+    linesAt: (scale: Float) -> Int
+): Float {
+    if (!minScale.isFinite() || minScale <= 0f || minScale > 1f) return 1f
+    if (allowedLines < 1) return 1f
+    if (linesAt(1f) <= allowedLines) return 1f
+    if (linesAt(minScale) > allowedLines) return minScale
+    var low = minScale
+    var high = 1f
+    repeat(SECONDARY_FIT_BISECTION_STEPS) {
+        val mid = (low + high) / 2f
+        if (linesAt(mid) <= allowedLines) low = mid else high = mid
+    }
+    return low
+}
+
+/**
+ * 拟合二分步数:每步区间对半,20 步把 (0,1] 压到 ~1e-6,远细于字号的实际显示精度
+ * (0.01sp);步数再多不改变结果,只多付测量成本。
+ */
+private const val SECONDARY_FIT_BISECTION_STEPS = 20
 
 /**
  * 元数据小部件的静态高度预算(dp)。基准为历史两行预算;[extraLines] 为超出两行的

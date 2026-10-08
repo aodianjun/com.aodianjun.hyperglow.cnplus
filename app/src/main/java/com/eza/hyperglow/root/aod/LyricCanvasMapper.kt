@@ -4,6 +4,7 @@ import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.METADATA_PARTS_DEFAULT
 import com.eza.hyperglow.customization.METADATA_SEPARATORS_DEFAULT
+import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.customization.resolveLineTransition
@@ -109,6 +110,9 @@ internal fun LyricSnapshot.toAodCanvasContent(
     secondaryMode = profile?.secondaryMode ?: secondaryMode,
     secondaryTextBright = profile?.secondaryTextBright ?: true,
     secondaryWordKaraoke = profile?.secondaryWordKaraoke ?: false,
+    secondaryTextSizePercent = profile?.secondaryTextSizePercent
+        ?: SECONDARY_TEXT_SIZE_PERCENT_DEFAULT,
+    secondaryAutoSize = profile?.secondaryAutoSize ?: true,
     lyricLineLimit = profile?.lyricLineLimit ?: 3,
     animationMode = profile?.animation ?: animationMode,
     glowMode = profile?.glow ?: glowMode,

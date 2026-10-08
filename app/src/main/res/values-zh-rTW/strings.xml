@@ -334,6 +334,9 @@
     <string name="summary_lyric_time_offset">正數延後顯示,負數提前顯示(±5 秒)</string>
 <string name="setting_duet_concurrent">顯示並發歌詞（對唱）</string>
 <string name="summary_duet_concurrent">另一行唱詞與主行播放視窗重疊達到 1 秒時,兩行同時顯示、各畫各的逐字掃光。鎖屏與熄屏各自獨立開關。</string>
+    <string name="setting_secondary_text_size">輔助文字大小</string>
+    <string name="setting_secondary_auto_size">輔助文字自適應大小</string>
+    <string name="summary_secondary_auto_size">裝不下時縮小到可讀下限</string>
     <string name="setting_bright_secondary_text">高亮輔助文字</string>
     <string name="setting_secondary_word_karaoke">輔助文字逐字效果</string>
     <string name="summary_secondary_word_karaoke">第一行輔助文字(音標/翻譯)隨歌詞逐字點亮;來源未提供逐字時間時依行視窗合成推進。第二行歌詞及其輔助文字不受影響。</string>

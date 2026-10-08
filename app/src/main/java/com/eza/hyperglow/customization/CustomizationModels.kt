@@ -83,6 +83,18 @@ data class SurfaceProfile(
      * 只作用于第一行辅助文字;第二行歌词及其辅助行不参与。默认关,关闭时逐字行为零变化。
      */
     val secondaryWordKaraoke: Boolean = false,
+    /**
+     * 辅助文字字号(相对主行的倍率百分比,50..150):100 = 历史值(与既有逐值相等)。
+     * 倍率只作用于 0.48×主行 的比例项,可读性下限不随之缩放,结果硬顶 0.62×主行
+     * (见 root.aod.secondaryReadingTextSizeSp),「辅助行不得逼近主行」的性格线不回退。
+     */
+    val secondaryTextSizePercent: Int = SECONDARY_TEXT_SIZE_PERCENT_DEFAULT,
+    /**
+     * 辅助文字自适应大小(每个 surface 独立):装得下恒用设定字号(既有呈现逐像素不变);
+     * 装不下时在 [可读性下限, 设定字号] 内缩小到刚好装下;到下限仍装不下取下限
+     * (接受溢出/裁切,与 overflow=Clip 口径一致)。
+     */
+    val secondaryAutoSize: Boolean = true,
     val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
     /** Show the upcoming next lyric line dimmed below the active line. */
     val showNextLine: Boolean = false,
@@ -291,6 +303,10 @@ data class CompiledSurfaceProfile(
     val secondaryTextBright: Boolean = true,
     /** 辅助文字逐字效果,见 [SurfaceProfile.secondaryWordKaraoke]。 */
     val secondaryWordKaraoke: Boolean = false,
+    /** 辅助文字字号倍率,见 [SurfaceProfile.secondaryTextSizePercent];编译时经 [normalizeSecondaryTextSizePercent] 归一。 */
+    val secondaryTextSizePercent: Int = SECONDARY_TEXT_SIZE_PERCENT_DEFAULT,
+    /** 辅助文字自适应大小,见 [SurfaceProfile.secondaryAutoSize]。 */
+    val secondaryAutoSize: Boolean = true,
     val lyricLineLimit: Int = DEFAULT_LYRIC_LINE_LIMIT,
     /** Show the upcoming next lyric line dimmed below the active line. */
     val showNextLine: Boolean = false,
@@ -347,6 +363,25 @@ internal fun normalizeLyricLineLimit(value: Int): Int = when (value) {
     in 1..5 -> value
     else -> DEFAULT_LYRIC_LINE_LIMIT
 }
+
+/** 辅助文字字号倍率下限(相对主行百分比)。 */
+const val SECONDARY_TEXT_SIZE_PERCENT_MIN = 50
+
+/**
+ * 辅助文字字号倍率上限:0.48×1.5 = 0.72 会被 0.62×主行的硬顶截住,上限天然饱和
+ * (上限本身就是「倍率项不失真」的边界)。
+ */
+const val SECONDARY_TEXT_SIZE_PERCENT_MAX = 150
+
+/** 辅助文字字号默认倍率(100% = 与历史字号公式逐值相等)。 */
+const val SECONDARY_TEXT_SIZE_PERCENT_DEFAULT = 100
+
+/**
+ * 辅助文字字号倍率归一:compile 与 SystemUI 二次校验必须调用同一份(两处归一不一致会让
+ * wire 的 validate_rewrote_fields 拒收整份配置,实机表现为「设置页正常、实机毫无变化」)。
+ */
+internal fun normalizeSecondaryTextSizePercent(value: Int): Int =
+    value.coerceIn(SECONDARY_TEXT_SIZE_PERCENT_MIN, SECONDARY_TEXT_SIZE_PERCENT_MAX)
 
 /** 换行动画的「跟随音源」哨兵值:不覆盖歌词源自带的过渡偏好。 */
 const val LINE_TRANSITION_AUTO = "Auto"

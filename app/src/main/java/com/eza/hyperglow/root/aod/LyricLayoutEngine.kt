@@ -104,6 +104,59 @@ internal fun layoutMetadataLines(
     availableWidth: Float
 ): List<LyricLayoutTextLine> = layoutMetadataLines(text, paint.measurePort(), availableWidth)
 
+/** 辅助行自适应折行结果:独立 Paint 副本(不污染共享 paint)+ 拟合字号(sp)+ 该字号下的折行。 */
+internal data class FittedSecondaryLines(
+    val paint: Paint,
+    val fittedSp: Float,
+    val lines: List<LyricLayoutTextLine>
+)
+
+/**
+ * 辅助行自适应折行(实机 AodLyricCanvasView.buildRows 与预览 PreviewComponents 共用同一份,
+ * 杜绝预览/实机两套判据):[configuredSp] 装得下恒用它(既有呈现逐像素不变);装不下在
+ * [floorSp, configuredSp] 内二分缩小到刚好装下;到下限仍装不下取下限(接受溢出/裁切)。
+ * 探针与最终折行都用**独立 Paint 副本** —— 共享 paint(实机 romanizedPaint/translatedPaint)
+ * 为同车道多行共用,就地改字号会污染其他行。行数超限或任一行仍超宽都算「装不下」
+ * (Clip 模式单行超宽同样能缩)。
+ */
+internal fun fittedSecondaryLines(
+    text: String,
+    basePaint: Paint,
+    configuredSp: Float,
+    floorSp: Float,
+    availableWidth: Float,
+    preferredLines: Int,
+    wrap: Boolean,
+    adaptiveSectioning: Boolean,
+    scaledDensity: Float
+): FittedSecondaryLines {
+    val allowed = preferredLines.coerceAtLeast(1)
+    fun paintAt(scale: Float): Paint = Paint(basePaint).apply {
+        textSize = configuredSp * scale * scaledDensity
+    }
+    fun linesAt(scale: Float): Int {
+        val lines = layoutSecondaryLines(
+            text, paintAt(scale), availableWidth, preferredLines, wrap, adaptiveSectioning
+        )
+        val fits = lines.size <= allowed && lines.none { it.width > availableWidth }
+        return if (fits) lines.size else allowed + 1
+    }
+    val minScale = if (configuredSp > 0f && floorSp.isFinite()) {
+        (floorSp / configuredSp).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val scale = adaptiveSecondaryFitScale(minScale, allowed, ::linesAt)
+    val paint = paintAt(scale)
+    return FittedSecondaryLines(
+        paint = paint,
+        fittedSp = configuredSp * scale,
+        lines = layoutSecondaryLines(
+            text, paint, availableWidth, preferredLines, wrap, adaptiveSectioning
+        )
+    )
+}
+
 // ---- 纯核心(测量经 TextMeasurePort,可 JVM 单测) ----
 
 /**
