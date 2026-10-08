@@ -25,9 +25,16 @@
 | `text` | 主行音节拼接 |
 | `words` | TTML `<span>` 逐字音节（begin/end/text） |
 | `translation` | TTML 内嵌翻译（`x-translation` / iTunes translation 元数据） |
-| `roma` | TTML 音译（`x-roman` / transliteration 元数据） |
+| `roma` | TTML 音译（`x-roman` / transliteration 元数据；和声行库没给时取 x-bg 内嵌的 x-roman） |
 | `isAlignedRight` | 对唱分侧：`ttm:agent` 推导的 alignment == End（可开关） |
 | `metadata["role"]` | `LEAD`（主行）/ `BG`（和声行）——与 Spicy 文档桥、lyricfetch 同一约定 |
+
+**行级 x-bg 兜底（1.0.2 起）**：库只认「内层带时轴」的和声写法，规范 §5/§7.3 允许的
+行级 x-bg（`<span ttm:role="x-bg">(伴唱)</span>`，纯文本、`begin`/`end` 可选）会被它整条
+丢弃；x-bg 内嵌的 x-roman 它也从不读取（和声行的 phonetic 恒为 null）。插件按**原文回扫**
+补齐这两类内容：行级 x-bg 补成独立 BG 行（窗口取 span 自身的 `begin`/`end`，缺省回退父
+`<p>`；没有内层时轴就不产 `words`，宿主走行级渲染路径），和声行的 `roma` 在库没给时取
+x-bg 内嵌的 x-roman。空白 x-bg 一律不产出行；库已解析出和声行时行为不变（不追加、不覆盖）。
 
 刻意**不写入**：
 
@@ -90,8 +97,14 @@
   **标题变体钉子**（原文/剥括号/全量规范化三态与去重）、**Processor 级回归**（脚本化假
   client：原文 0 结果 → 剥括号变体命中 → REPLACE+WORDS，且两次查询 musicName 不同；
   搜索/取词传输失败不写负缓存）、**缓存格式升级**（v1 记录 get 未命中、缓存页剔除并删正文）。
-  本地以 kotlin-compiler-embeddable 编译真实源码跑通全部用例（31/31）；CI 侧
-  `publish-plugins` job 运行 `:plugins:amll-ttml:test`。
+  本地以 kotlin-compiler-embeddable 编译真实源码跑通全部用例（1.0.1 时 31/31，1.0.2 起
+  41/41）；CI 侧 `publish-plugins` job 运行 `:plugins:amll-ttml:test`。
+- **1.0.2 的行级和声修复**（证据：unit-tested）：行级 x-bg（无内层时轴）与 x-bg 内嵌的
+  x-roman 此前都会被库丢掉，新增 10 个单测钉住原文回扫兜底——行级 x-bg 补出独立 BG 行
+  （窗口回退父 `<p>` / 优先 span 自身）、逐字主行形态同样补行、x-roman 挂到和声行且原文
+  没有时不得凭空补、空白 x-bg 不产出行、`background=false` 仍整体丢弃、库已给出和声行时
+  不追加、回扫函数的输出形状，以及蝴蝶样本的**逐字段回归金样**（`butterfly.rows.txt`，
+  取自修复前基线）。负向对照：把两处兜底临时关掉 → 新增用例中恰好这 4 条失败、其余全过。
 - **真实接口**（证据：real-api）：`api.amll.dev` 的 search/get 端点按 §3 实测。
 - **真机**：**未验证**——宿主渲染行为（对唱分侧、和声行、缓存页交互）待安装 ZIP 后冒烟。
 
@@ -104,6 +117,8 @@
 - 与官方插件的缓存不共享（键格式不同）：从官方插件迁移后首次播放需重新联网取词。
 - 库中行级（非逐字）老条目在「仅升级为逐字歌词」开启时不采用（关闭该开关即采用）。
 - 和声行不参与对唱分侧（分侧由主行表达）。
+- 行级 x-bg 补出的和声行不带翻译：库的和声翻译只从内嵌 x-translation 与 iTunes 元数据取，
+  原文回扫本次只覆盖「行级 x-bg 行」与「x-bg 内嵌 x-roman」两处内容损失，不顺手扩大范围。
 
 ## 8. 致谢与许可
 
@@ -111,7 +126,9 @@
   （MIT / Apache-2.0 双许可，amll-dev）——歌词数据与 API 服务；歌词数据版权归各平台与权利人
   所有，本插件只读取公开接口、不绕过任何鉴权或付费墙。
 - [accompanist-lyrics-core](https://github.com/6xingyv/accompanist-lyrics-core)（Apache-2.0，
-  作者 6xingyv）——TTML 解析内核（`TTMLParser`），**随插件打进 dex**。
+  作者 6xingyv）——TTML 解析内核（`TTMLParser`），**随插件打进 dex**；1.0.2 起的原文回扫
+  按它的 internal 解析口径（`SimpleXmlParser` 的标签/文本归档、时间戳解析、实体解码与空白
+  折叠）移植了一个最小实现——这些 API 在 0.4.7 里是 internal，插件无法直接复用。
 - 匹配打分（标题/艺人归一化与硬否决）与缓存索引模式与同仓库 `plugins/lyricfetch` 同源
   （同仓库代码复用）；其打分语义又对齐 [Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)
   （Apache-2.0）的 CompareHelper，仅移植行为与参数、未复制代码。
@@ -144,6 +161,15 @@ Written: `begin`/`end`/`duration`, `text`, `words` (per-syllable), `translation`
 Deliberately not written: `secondary`/`secondaryWords` (background vocals are emitted as separate
 BG rows — `secondary` carries the host's auxiliary-text semantics); song-level metadata; and
 `translationWords` (TTML translations are line-level text with no word timing).
+
+**Line-level x-bg fallback (since 1.0.2)**: the library only recognises x-bg spans with nested
+timed syllables, so the spec's line-level form (plain-text `<span ttm:role="x-bg">`, §5/§7.3) is
+dropped whole, and an x-roman nested inside an x-bg is never read (an accompaniment's `phonetic`
+is always null). The mapper rescans the raw TTML to restore both: a line-level x-bg becomes its
+own BG row (window from the span's own begin/end, else the parent `<p>`; with no nested timing
+there are no `words`, so the host takes its line-level path), and a BG row's `roma` falls back to
+the nested x-roman when the library provided none. Blank x-bg spans never produce a row, and a
+parser-provided accompaniment is left exactly as before (nothing appended, nothing overwritten).
 
 ## 3. Sources and verified status
 
@@ -196,8 +222,16 @@ switches apply instantly without refetching.
   client (raw search empty → stripped variant hits → REPLACE+WORDS, two distinct musicName
   queries; transport failures write no cache entry), and cache-format upgrade (v1 records read as
   misses and are pruned from the cache page). Run locally against the real sources via
-  kotlin-compiler-embeddable (31/31); CI runs `:plugins:amll-ttml:test` in the `publish-plugins`
-  job.
+  kotlin-compiler-embeddable (31/31 at 1.0.1, 41/41 since 1.0.2); CI runs
+  `:plugins:amll-ttml:test` in the `publish-plugins` job.
+- since 1.0.2, 10 more unit tests pin the raw-TTML rescan fallback: a line-level x-bg becomes its
+  own BG row (parent window, or the span's own begin/end), a word-level main line gets the same
+  treatment, a nested x-roman lands on the BG row's `roma` (and is never invented when absent),
+  blank x-bg spans emit no row, `background=false` still drops every BG row, a parser-provided
+  accompaniment suppresses synthesis, the rescan function's own output shape, plus a
+  field-by-field golden regression of the butterfly mapping (`butterfly.rows.txt`, captured from
+  the pre-fix baseline). Negative control: temporarily disabling the two fallbacks fails exactly
+  those 4 new tests and nothing else.
 - real-api: endpoints verified as in §3.
 - **Device: not verified** — host-rendered behaviour (duet sides, background rows, cache page)
   awaits a device smoke test.
@@ -207,11 +241,14 @@ switches apply instantly without refetching.
 No duration dimension in search (artist hard-veto separates covers); platform-ID probing is
 unavailable (host `PluginMediaInfo` carries no platform IDs); cache is not shared with the
 official plugin; line-level (non-word) database entries are skipped while "upgrade only" is on;
-background rows never carry duet alignment.
+background rows never carry duet alignment; line-level x-bg rows carry no translation (the rescan
+restores the row and its x-roman only, and does not widen scope beyond those two losses).
 
 ## 8. Credits & licenses
 
 See the Chinese section — AMLL TTML DataBase / amll-ttml-api (MIT / Apache-2.0; data belongs to
 the platforms and rights holders; public endpoints only), accompanist-lyrics-core (Apache-2.0,
-bundled into the dex), and match/cache patterns shared with `plugins/lyricfetch` in this
-repository.
+bundled into the dex; since 1.0.2 the raw-rescan scanner mirrors its internal parse semantics —
+tag/text archiving, timestamp parsing, entity decoding and whitespace folding — because those
+APIs are `internal` in 0.4.7 and cannot be reused directly), and match/cache patterns shared with
+`plugins/lyricfetch` in this repository.
