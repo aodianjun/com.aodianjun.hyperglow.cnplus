@@ -19,8 +19,11 @@ import org.junit.Test
  * AMLL TTML 的对唱 agent 行与 x-bg 和声行只存在于插件返回的行表里（生产者行表在 REPLACE
  * 后不被采纳，见类注释），而生产者侧的候选只从它自己的行表选——源行表首尾相接（网易云 LRC
  * 常态，`end == next.begin`）时恒为 -1，并发行永远不出现。本组用例钉住：重选发生在插件链
- * 之后、判定仍是同一条「共享窗口 ≥ 1s」规则、和声身份(role=BG → `harmony`)随行下发、
- * 且不影响未替换歌词的会话。
+ * 之后、和声身份(role=BG → `harmony`)随行下发、且不影响未替换歌词的会话。
+ *
+ * 对唱行表按**声部槽位**选行（owner 2026-10-08「每行钉在一个声部上」，见
+ * [PluginVoiceSlotTest] / VoiceSlotAssignment）：主行恒取槽位 0、并发行恒取槽位 1 的当前行；
+ * 单声部行表（所有非 BG 行落槽位 0）仍走老的纯时间窗重叠判定。
  */
 class PluginDuetConcurrentTest {
 
@@ -99,15 +102,20 @@ class PluginDuetConcurrentTest {
     /**
      * 不同演唱者的对唱行(时间窗重叠、非 BG 角色)不带和声标记:渲染侧保持主行同款并排——
      * 和声与对唱的分野是行角色,不是文本是否相同(重合文本的对唱不得被降级成辅助行)。
-     * 位置取对唱行开唱前(预加入分支),活动行仍是主行。
+     * 并发行钉在自己的窗口上(owner 2026-10-08):窗口开始前不在场(不再预加入),开唱后
+     * 在场且不带和声标记。
      */
     @Test
     fun overlappingLeadRowStaysConcurrentWithoutHarmonyFlag() {
-        val st = state(positionMs = 3_000L)
         val rows = listOf(
             row(0L, 10_000L, "main line", "LEAD"),
             row(4_000L, 6_000L, "second singer", "LEAD")
         )
+        // 第二声部的窗口还没开始:并发行不在场(两行的内容各由本声部的窗口决定)。
+        val before = state(positionMs = 3_000L)
+        assertNull(PluginSongBridge.enrichState(before, patched(rows, before)).duetLine)
+
+        val st = state(positionMs = 4_500L)
         val out = PluginSongBridge.enrichState(st, patched(rows, st))
         val duet = out.duetLine
         assertEquals("second singer", duet?.text)
@@ -223,30 +231,38 @@ class PluginDuetConcurrentTest {
     }
 
     /**
-     * **另一声部的 LEAD 行**同样不得在主行窗口错位时接管主行（owner 2026-10-08 真机
-     * 「第二行没唱完就换到第一行」的根因）。《乐鸣东方》对唱段的真实形态（生产者行表
-     * 与 AMLL TTML 行窗逐值取自真机 / 曲库）：
+     * **另一声部的行**恒在并发行车道,不因生产者行表与插件行窗错位而接管主行(owner
+     * 2026-10-08 真机「第二行没唱完就换到第一行」的根因 + 同日「每行钉在一个声部上」的
+     * 决定)。《乐鸣东方》对唱段的真实形态(生产者行表与 AMLL TTML 行窗逐值取自真机 /
+     * 曲库,两行都没有 `ttm:agent` → 宿主自动分配默认两个声部):
      *
      * - 生产者(Lyricon/网易云)：`哈啊 金石击起辉光` 152.130–155.980s（idx=52）
      * - 插件 v1 `乐鸣东方` 147.444–154.300s、v2 `哈啊 流水破开寒霜` 148.651–151.783s、
      *   v2 `哈啊 金石击起辉光` 152.223–155.802s
      *
-     * 位置 152.150s 落在 v1 长行内、却在 v2 本句开唱前 73ms——按位置「更晚 begin 胜」
-     * 取到的是 v1（另一声部），主行就变成 `乐鸣东方`：屏上第二行的文本跳到第一行。
-     * 行身份优先后主行恒为生产者那一句，另一声部走并发行。
+     * 位置 152.150s 落在 v1 长行内、却在 v2 本句开唱前 73ms:钉槽位后主行恒为槽位 0
+     * (第一声部)的当前行 `乐鸣东方`,生产者当前句(v2 那一句)落在并发行车道上——而 v2
+     * 本句还没开唱,并发行此刻仍是 v2 上一句(两句之间 440ms 的小停顿不塌行),152.223s
+     * 起才换到 `哈啊 金石击起辉光`。无论哪种,两行的内容都不再互换。
      */
     @Test
-    fun otherVoiceLeadRowNeverTakesTheMainLineOnWindowSkew() {
-        val st = state(positionMs = 152_150L).copy(line = "哈啊 金石击起辉光")
+    fun otherVoiceLineIsPinnedToTheDuetLaneOnWindowSkew() {
         val rows = listOf(
             row(147_444L, 154_300L, "乐鸣东方", "LEAD"),
             row(148_651L, 151_783L, "哈啊 流水破开寒霜", "LEAD"),
             row(152_223L, 155_802L, "哈啊 金石击起辉光", "LEAD")
         )
+        val st = state(positionMs = 152_150L).copy(line = "哈啊 金石击起辉光")
         val out = PluginSongBridge.enrichState(st, patched(rows, st))
-        assertEquals("哈啊 金石击起辉光", out.line)
-        assertEquals("乐鸣东方", out.duetLine?.text)
+        assertEquals("乐鸣东方", out.line)
+        assertEquals("哈啊 流水破开寒霜", out.duetLine?.text)
         assertEquals(false, out.duetLine?.harmony)
+
+        // 第二声部下一句开唱:并发行换到新句,主行仍是槽位 0 的 `乐鸣东方`。
+        val next = state(positionMs = 152_400L).copy(line = "哈啊 金石击起辉光")
+        val nextOut = PluginSongBridge.enrichState(next, patched(rows, next))
+        assertEquals("乐鸣东方", nextOut.line)
+        assertEquals("哈啊 金石击起辉光", nextOut.duetLine?.text)
     }
 
     /**
