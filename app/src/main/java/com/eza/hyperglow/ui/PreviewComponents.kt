@@ -116,6 +116,7 @@ import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.aod.resolvedLyricLayoutLineLimit
 import com.eza.hyperglow.root.aod.OriginalLinePath
+import com.eza.hyperglow.root.aod.planDuetRow
 import com.eza.hyperglow.root.aod.planOriginalLine
 import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
 import com.eza.hyperglow.root.aod.rubyReservation
