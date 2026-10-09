@@ -261,14 +261,23 @@ internal fun projectToDisplay(
     // 文本与分侧两套原样下发,行首标记剥离由渲染面按本面开关决定;语言不一致拒绝同样
     // 作用于并发行的罗马音。
     // 诊断探针:并发行在投影层的入口/出口(定位「状态里有、画布没有」的丢弃点)。
+    // 辅助文字内容档「和声」(见 SECONDARY_MODE_BACKGROUND_VOCAL)与「显示并发歌词(对唱)」
+    // 解耦:选中该档的曲面即使关掉对唱开关也要拿到候选,渲染面再按本面档位放行和声行
+    // (和声走辅助行车道、同尺寸并发行不渲染,见 LyricCanvasMapper)。
+    val harmonyAsAux = aodProfile?.secondaryMode ==
+        com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL ||
+        lockscreenProfile?.secondaryMode ==
+        com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL
     HookLogger.iThrottled("duet-proj", 5_000L, "AodStateProjector") {
         val incoming = state.duetLine
         "Duet proj: in=${incoming?.text?.take(16)} inWin=${incoming?.lineStartMs}..${incoming?.lineEndMs} " +
             "duetConcurrent=${(aodProfile?.duetConcurrent ?: true) || (lockscreenProfile?.duetConcurrent ?: true)} " +
+            "harmonyAsAux=$harmonyAsAux " +
             "largeMeta=$showLargeMetadata active=$hasActiveLine duration=${state.durationMs}"
     }
     val duetConcurrent = (aodProfile?.duetConcurrent ?: true) ||
-        (lockscreenProfile?.duetConcurrent ?: true)
+        (lockscreenProfile?.duetConcurrent ?: true) ||
+        harmonyAsAux
     val duetLine = if (!duetConcurrent || showLargeMetadata || !hasActiveLine) {
         null
     } else {

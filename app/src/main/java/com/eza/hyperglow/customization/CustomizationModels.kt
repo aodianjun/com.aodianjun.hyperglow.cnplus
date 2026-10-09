@@ -377,6 +377,13 @@ const val SECONDARY_TEXT_SIZE_PERCENT_MAX = 150
 const val SECONDARY_TEXT_SIZE_PERCENT_DEFAULT = 100
 
 /**
+ * 辅助文字内容档「和声」:x-bg 回声(插件行 role=BG)作为辅助行内容——音标/翻译不取,
+ * 和声行照常走辅助行车道。与「显示并发歌词(对唱)」开关解耦:选中本档时和声候选不再要求
+ * 该开关(参考 HyperLyric 把和声与对唱拆成两个开关;CN+ 此前两者共用一个)。
+ */
+const val SECONDARY_MODE_BACKGROUND_VOCAL = "BackgroundVocal"
+
+/**
  * 辅助文字字号倍率归一:compile 与 SystemUI 二次校验必须调用同一份(两处归一不一致会让
  * wire 的 validate_rewrote_fields 拒收整份配置,实机表现为「设置页正常、实机毫无变化」)。
  */

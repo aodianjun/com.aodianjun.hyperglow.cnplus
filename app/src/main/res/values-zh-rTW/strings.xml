@@ -456,6 +456,7 @@
     <string name="option_transliteration">轉寫</string>
     <string name="option_translation">翻譯</string>
     <string name="option_both">兩者</string>
+    <string name="option_background_vocal">和聲</string>
     <string name="option_wrap">換行</string>
     <string name="option_clip">裁切</string>
     <string name="option_regular">常規</string>

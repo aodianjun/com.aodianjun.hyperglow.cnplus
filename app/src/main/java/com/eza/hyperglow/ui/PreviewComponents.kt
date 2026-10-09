@@ -552,7 +552,7 @@ private fun LyricPreviewSurface(
                 // 同款堆叠就是两条一样的大字行(真机 2026-10-07 反馈的错观感);改走辅助行
                 // 车道,见下方 duetRows 的和声首行(与实机 buildRows 同源)。
                 val duet = snapshot.duetLine?.takeIf {
-                    previewDuetVisible(profile.duetConcurrent, it)
+                    previewDuetVisible(profile.duetConcurrent, it, profile.secondaryMode)
                 }
                 // 并发行内容键(与实机 duetLineKey 同口径):键不变 = 渲染原地保持,键变化才播
                 // 自己的换行过渡——并发行不随主行换行移动的判据(见 PreviewRowBlock.duetKey)。
@@ -1178,11 +1178,19 @@ internal fun previewRowTextAlign(
  * 并发行是否参与预览渲染:本面「显示并发歌词(对唱)」开关开启且快照携带非空并发行。
  * 与实机 LyricCanvasMapper 的门控同源(`duet && profile.duetConcurrent`)——实机在映射层
  * 就已按面丢弃,预览的演示快照不经映射层,故判据落在渲染侧;文本剥空(纯标记行)同样不上屏。
+ * 和声行(role=BG 的 x-bg 回声)与对唱开关解耦:本面辅助文字内容档选「和声」时同样放行
+ * (见 [com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL]),同尺寸并发行
+ * 仍只认对唱开关——与实机 LyricCanvasMapper 同一判据。
  */
 internal fun previewDuetVisible(
     duetConcurrent: Boolean,
-    duetLine: LyricDuetLine?
-): Boolean = duetConcurrent && duetLine != null && duetLine.text.isNotBlank()
+    duetLine: LyricDuetLine?,
+    secondaryMode: String = "Main only"
+): Boolean = duetLine != null && duetLine.text.isNotBlank() && (
+    duetConcurrent ||
+        (duetLine.harmony &&
+            secondaryMode == com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL)
+    )
 
 /**
  * 并发行内容键(纯函数,JVM 可测;与实机 AodLyricCanvasView 的 duetLineKey 同口径:
