@@ -11,7 +11,7 @@
         "zh-TW": "從 AMLL TTML 歌詞庫取得高品質逐字歌詞（翻譯/羅馬音/和聲/對唱），未命中時保持目前歌詞來源。"
     },
     "author": "HyperGlow CN+",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "apiVersion": 1,
     "entry": "com.example.hyperglow.amllttml.AmllTtmlPlugin",
     "activationSettingKey": "amll_ttml_enabled",
