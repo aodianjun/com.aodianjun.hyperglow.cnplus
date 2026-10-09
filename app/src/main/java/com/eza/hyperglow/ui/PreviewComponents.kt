@@ -96,7 +96,7 @@ import com.eza.hyperglow.root.aod.artworkLeadingPx
 import com.eza.hyperglow.root.aod.artworkSidePx
 import com.eza.hyperglow.root.aod.baseTextSizeSp
 import com.eza.hyperglow.root.aod.duetAlignedRight
-import com.eza.hyperglow.root.aod.duetLineTransitionTimeline
+import com.eza.hyperglow.root.aod.duetRowTransitionTimeline
 import com.eza.hyperglow.root.aod.layoutMetadataLines
 import com.eza.hyperglow.root.aod.isLongKaraokeSyllable
 import com.eza.hyperglow.root.aod.karaokeFloatSinkPx
@@ -1921,6 +1921,9 @@ private fun PreviewAnimatedRowBlock(
     )
     // 并发行自己的过渡帧(与实机同源):同一份配方/缓动,宽高基准取并发行行块自身
     // (退场层用旧行块、入场层用新行块);首帧尚未测量时回落主行块高。
+    val duetJoin = remember { Animatable(1f) }
+    val duetExitProgress = remember { Animatable(1f) }
+    val duetEnterProgress = remember { Animatable(1f) }
     val duetExitBlockHeightDp = with(density) {
         if (exitDuetHeightPx > 0) exitDuetHeightPx.toDp().value else exitMainBlockHeightDp
     }
@@ -1941,7 +1944,7 @@ private fun PreviewAnimatedRowBlock(
     )
     // 并发行自己的换行过渡(与实机 AodLyricCanvasView 同源):内容键(文本 + 行窗起点)
     // 变化且上一版并发行还在、档位非 None 时,播预设的退场 → 入场半段——**同一槽位、
-    // 无位移段**(见 [duetLineTransitionTimeline]);首次出现没有旧内容可退场、None 档
+    // 无位移段**(见 [duetRowTransitionTimeline]);首次出现没有旧内容可退场、None 档
     // 不播动画,回落既有 180ms 加入淡入。并发行不参与主行换行帧:主行换行时它原地不动,
     // 只有自己的内容换了才动(键为 null 时并发行不可见,不动画)。
     // 旧并发行内容取上一版**已落定**的并发行行块([stableDuetBlock],落定 = 它自己的过渡
@@ -1958,9 +1961,6 @@ private fun PreviewAnimatedRowBlock(
             stableDuetBlock = block
         }
     }
-    val duetJoin = remember { Animatable(1f) }
-    val duetExitProgress = remember { Animatable(1f) }
-    val duetEnterProgress = remember { Animatable(1f) }
     LaunchedEffect(duetKey) {
         if (duetKey == previousDuetKey) return@LaunchedEffect
         val previousBlock = stableDuetBlock
@@ -1974,7 +1974,7 @@ private fun PreviewAnimatedRowBlock(
             previousRowAvailable = previousBlock.duetKey != null
         )
         if (presetTransition) {
-            val timeline = duetLineTransitionTimeline(lineTransition, lineTransitionSpeed)
+            val timeline = duetRowTransitionTimeline(lineTransition, lineTransitionSpeed)
             duetJoin.snapTo(1f)
             duetExitProgress.snapTo(0f)
             duetEnterProgress.snapTo(0f)
