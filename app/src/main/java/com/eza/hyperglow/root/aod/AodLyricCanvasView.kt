@@ -120,6 +120,18 @@ internal class AodLyricCanvasView(
     private var duetLineKey: String? = null
     private var duetJoinStartedAt = 0L
     /**
+     * 并发行**自己**的换行过渡(退场 → 入场,无位移段;时间线见 [duetRowTransitionTimeline]):
+     * 起点快照给出旧并发行行的内容与槽位(退场层重画它),两段进度由挂钟时钟驱动(见
+     * [duetRowTransitionClock])。null = 无预设过渡(回落加入淡入/静态)。只在并发行自己的
+     * 内容键变化时建立——主行换行不改它的内容键(见 [aodDuetContentKey])。
+     */
+    private var duetExitSnapshot: CanvasSnapshot? = null
+    private var duetTransitionTimeline: LineTransitionTimeline? = null
+    /** 并发行过渡的挂钟起点;0 = 尚未落帧(首帧到达才起算,低节拍/doze 下保证整段可见)。 */
+    private var duetTransitionStartedAtElapsedMs = 0L
+    /** 并发行过渡期间的原始位置高水位(seek/拖动判定基准,只进不退;见 [isTransitionSeekJump])。 */
+    private var duetTransitionHighWaterPositionMs = 0L
+    /**
      * 并发行自己的时间轴锁(见 [latchDuetLine]):主行换行只换候选来源,不换屏上内容——
      * 已上屏的并发行锁到它自己的窗口结束才让位。null = 当前无并发行。
      */
@@ -132,6 +144,39 @@ internal class AodLyricCanvasView(
         if (duetJoinStartedAt == 0L) return 1f
         val elapsed = (SystemClock.elapsedRealtime() - duetJoinStartedAt).coerceAtLeast(0L)
         return (elapsed.toFloat() / DUET_JOIN_FADE_MS).coerceIn(0f, 1f)
+    }
+
+    /**
+     * 并发行自己的过渡时钟:挂钟式([lineTransitionClockAtElapsed]),首帧落帧才起算。
+     * **不按位置驱动**:并发行内容与播放位置来自两条时间轴(见 [drawDuetOriginal] 注释,
+     * 实测同一句 5.2s vs 20.5s),位置推进量随时可能已越过过渡总时长,按位置换算会把
+     * 退场/入场一帧推完(与主行旧账压缩补播同因,见 [transitionWallClockDriven])——
+     * 挂钟有界,「并发行换行时动画真的看得见」由结构保证。seek/拖动仍按原始位置高水位
+     * 立即结束([isTransitionSeekJump],与主行同一判据)。
+     */
+    private fun duetRowTransitionClock(): LineTransitionClock? {
+        val timeline = duetTransitionTimeline ?: return null
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        if (duetTransitionStartedAtElapsedMs == 0L) duetTransitionStartedAtElapsedMs = nowElapsedMs
+        duetTransitionHighWaterPositionMs =
+            maxOf(duetTransitionHighWaterPositionMs, projectedPosition())
+        val clock = lineTransitionClockAtElapsed(
+            nowElapsedMs - duetTransitionStartedAtElapsedMs,
+            timeline
+        )
+        return if (isTransitionSeekJump(projectedPosition(), duetTransitionHighWaterPositionMs)) {
+            clock.copy(interrupted = true)
+        } else {
+            clock
+        }
+    }
+
+    /** 结束并发行自己的过渡:清空起点快照与时钟状态,静态绘制立即接管。 */
+    private fun endDuetRowTransition() {
+        duetExitSnapshot = null
+        duetTransitionTimeline = null
+        duetTransitionStartedAtElapsedMs = 0L
+        duetTransitionHighWaterPositionMs = 0L
     }
 
     /**
@@ -496,11 +541,35 @@ internal class AodLyricCanvasView(
             transitionTimeline = null
         }
         // 并发行自己的内容键(见 [aodDuetContentKey]):主行换行不改变它,只有并发行自己
-        // 换行才重计时并播自己的加入淡入。
+        // 换行才换键、并播**它自己的**换行过渡——上一版并发行还在时播预设的退场 → 入场
+        // (同一槽位,无位移段;见 [duetRowTransitionTimeline]),首次出现/None 档回落既有
+        // 180ms 加入淡入(见 [shouldStartDuetRowTransition])。档位取 nextContent.transitionMode
+        // ——与主行同一个已解析字段("Auto" 在映射层按歌词源解析),两行档位由此必然一致。
         val duetKey = nextContent.duetLine?.let { aodDuetContentKey(it.text, it.lineStartMs) }
         if (duetKey != duetLineKey) {
+            val previousDuetKey = duetLineKey
+            val previousDuetSnapshot = CanvasSnapshot(content, layout, currentRenderStyle)
             duetLineKey = duetKey
-            duetJoinStartedAt = if (duetKey != null) SystemClock.elapsedRealtime() else 0L
+            endDuetRowTransition()
+            if (duetKey == null) {
+                duetJoinStartedAt = 0L
+            } else if (shouldStartDuetRowTransition(
+                    previousDuetKey,
+                    duetKey,
+                    nextContent.transitionMode,
+                    previousDuetSnapshot.layout.rows.any { it.row.duet }
+                )
+            ) {
+                duetExitSnapshot = previousDuetSnapshot
+                duetTransitionTimeline = duetRowTransitionTimeline(
+                    nextContent.transitionMode,
+                    nextContent.lineTransitionSpeed
+                )
+                duetTransitionHighWaterPositionMs = projectedPosition()
+                duetJoinStartedAt = 0L
+            } else {
+                duetJoinStartedAt = SystemClock.elapsedRealtime()
+            }
         }
         this.content = nextContent
         syncArtworkBitmap()
@@ -1075,9 +1144,17 @@ internal class AodLyricCanvasView(
         // 并发行加入淡入:在淡入窗口内主动续帧(暂停态/低节拍下也能完成淡入),结束后归零。
         if (duetJoinStartedAt != 0L) {
             if (SystemClock.elapsedRealtime() - duetJoinStartedAt < DUET_JOIN_FADE_MS) {
-                scheduleFrame(frame, 16L)
+                scheduleFrame(frame, DUET_ANIMATION_FRAME_MS)
             } else {
                 duetJoinStartedAt = 0L
+            }
+        }
+        // 并发行自己的换行过渡:挂钟走完/位置跳变即结束(静态接管)。窗口内的帧循环由节奏门
+        // 驱动(effectiveCadenceActive 含本过渡,与主行过渡同待遇),不在这里另排帧。
+        if (duetExitSnapshot != null) {
+            val duetClock = duetRowTransitionClock()
+            if (duetClock == null || duetClock.completed || duetClock.interrupted) {
+                endDuetRowTransition()
             }
         }
         if (exitSnapshot != null) {
@@ -1091,6 +1168,14 @@ internal class AodLyricCanvasView(
         val snapshot = exitSnapshot
         if (snapshot == null) {
             drawMetadata(canvas, layout)
+            // 并发行自己的退场层先于当前层绘制(它画在下面):只有并发行自己换行时存在,
+            // 与当前层共用同一槽位列表(退场/入场同槽位)。
+            if (duetExitSnapshot != null) {
+                val duetBaselines = layout.rows.filter { it.row.duet }.map { it.baseline }
+                val duetGroup = beginDuetRowGroup(canvas, layout)
+                drawDuetRowExitLayer(canvas, duetBaselines)
+                canvas.restoreToCount(duetGroup)
+            }
             drawRows(canvas, layout, content, LineTransitionFrame(alpha = 1f))
             return
         }
@@ -1141,7 +1226,7 @@ internal class AodLyricCanvasView(
         // 实测高——退场层用旧行块、入场层用新行块,与 ObjectAnimator 在动画起始读取 target
         // 尺寸同序。此前两层共用内容裁剪框高,竖向漂移被放大数倍(真机实测 169px,见
         // [animatedBlockHeightDp])。
-        val blockWidthDp = (ow - padLeft - padRight) / density
+        val blockWidthDp = transitionBlockWidthDp()
         // 段1 退场:离场行组(主行+辅助文字)按退场半段离场;晋级时旧「下一行」不属于
         // 离场组(内容延续),排除在退场层外。并发行行不属于任何主行组(自己独立的时间轴),
         // 按行下标跳过绘制(布局保留——共享缩放 [duetSharedScale] 吃整块行堆叠,含并发行),
@@ -1378,36 +1463,14 @@ internal class AodLyricCanvasView(
         if (renderStyle != null) applyRenderStyle(renderStyle)
         content = drawContent
         layout = drawLayout
-        val layer = if (frame.alpha < 1f || frame.translateXDp != 0f ||
-            frame.translateYDp != 0f || frame.scale != 1f ||
-            frame.rotationDeg != 0f || frame.rotationXDeg != 0f || frame.rotationYDeg != 0f
-        ) {
-            val save = canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * frame.alpha).toInt())
-            canvas.translate(frame.translateXDp * density, frame.translateYDp * density)
-            val pivotX = (padLeft + (ow - padRight)) / 2f
-            val pivotY = (padTop + (oh - padBottom)) / 2f
-            if (frame.scale != 1f) {
-                // 放缩绕内容框中心,保证 Zoom 模式收放不偏离版面锚点。
-                canvas.scale(frame.scale, frame.scale, pivotX, pivotY)
-            }
-            if (frame.rotationDeg != 0f) {
-                // 平面旋转同样绕内容框中心(旋转档)。
-                canvas.rotate(frame.rotationDeg, pivotX, pivotY)
-            }
-            if (frame.rotationXDeg != 0f || frame.rotationYDeg != 0f) {
-                // 翻转档:Camera 透视等价于 View/graphicsLayer 的 rotationX/Y
-                // (Camera 坐标 Y 向上、屏幕 Y 向下,故取负号对齐语义)。
-                val camera = Camera()
-                val matrix = Matrix()
-                camera.rotateX(-frame.rotationXDeg)
-                camera.rotateY(-frame.rotationYDeg)
-                camera.getMatrix(matrix)
-                matrix.preTranslate(-pivotX, -pivotY)
-                matrix.postTranslate(pivotX, pivotY)
-                canvas.concat(matrix)
-            }
-            save
-        } else canvas.save()
+        // 主行层绕内容框中心施加帧变换(Zoom/旋转档的收放不偏离版面锚点);并发行层同式
+        // 但绕并发行行块自身中心(见 [withDuetRowTransition])。
+        val layer = beginTransitionFrameLayer(
+            canvas,
+            frame,
+            (padLeft + (ow - padRight)) / 2f,
+            (padTop + (oh - padBottom)) / 2f
+        )
         // 所有歌词绘制路径(原文/注音/翻译/逐字扫光/发光块)共享这一处逻辑裁剪:
         // 即使整词不可分或动画越界超出其测量宽度,也强制限制在周围 padding 框内,
         // 取代原先逐 drawText 的 clip,成为唯一统一边界。
@@ -1490,7 +1553,7 @@ internal class AodLyricCanvasView(
             effectiveLineSyncFillMode()
         )
         // 并发行(对唱)在共享行级扫光路径下同样绘制(自带行窗口/词表进度),只播自己的
-        // 加入淡入(见 [withDuetRowTransition])。
+        // 换行过渡(退场→入场/加入淡入;见 [withDuetRowTransition])。
         rows.firstOrNull { it.row.kind == RowKind.DUET_ORIGINAL }?.let { duetRow ->
             withDuetRowTransition(canvas, duetRow.row) {
                 drawDuetOriginal(canvas, duetRow.baseline)
@@ -1523,7 +1586,7 @@ internal class AodLyricCanvasView(
                 rowIndex++
                 continue
             }
-            // 并发行辅助行(含和声走的辅助行车道)只播自己的加入淡入(见 [withDuetRowTransition])。
+            // 并发行辅助行(含和声走的辅助行车道)只播自己的换行过渡(见 [withDuetRowTransition])。
             withDuetRowTransition(canvas, positioned.row) {
                 drawSecondaryRowStatic(canvas, positioned, bright, keepShader)
             }
@@ -2872,10 +2935,11 @@ internal class AodLyricCanvasView(
 
     /**
      * 对唱并发行绘制(移植上游 duet/secondLine 呈现,按 CN+ 画布适配):
-     * 复用主行共享发光管线(LyricGlowRenderer),进度取并发行自己的行窗口/词表;
-     * 加入时整块 180ms alpha 淡入,淡入期间按静音态绘制(无发光/扫光,上游 exit-side
-     * muted 同语义);并发行离场随主行换行过渡的整块退场一起消失(数据面退出缓冲已保证
-     * 它不会在对唱中途凭空塌掉),v1 不做独立的并发行退场动画。
+     * 复用主行共享发光管线(LyricGlowRenderer),进度取并发行自己的行窗口/词表。
+     * 进场过渡有两条:首次出现(没有旧内容可退场)按加入淡入整块 180ms alpha,淡入期间
+     * 按静音态绘制(无发光/扫光,上游 exit-side muted 同语义);并发行**自己换行**时播
+     * 预设的退场 → 入场(旧内容由 [drawDuetRowExitLayer] 按退场半段画在同一槽位,新内容
+     * 按入场半段进场),此时不是静音态——与主行入场层同一口径。
      */
     private fun drawDuetOriginal(canvas: Canvas, baseline: Float) {
         val duetLayout = layout.duet ?: return
@@ -2958,43 +3022,132 @@ internal class AodLyricCanvasView(
     }
 
     /**
-     * 并发行行自己的过渡:内容键变化后的加入淡入(见 [duetJoinAlpha]);恒全亮时不建层。
-     * 主行换行过渡不作用于并发行行(见 [drawFrozenDuetRows]),并发行的过渡只有这一处
-     * ——「并发行切换时播放它自己的过渡」。
+     * 过渡帧层:[frame] 的 alpha 走 saveLayerAlpha,位移/绕枢轴缩放/平面旋转/翻转透视逐项
+     * 施加(恒等帧只 save 不建层)。主行层与并发行层共用这一份施加逻辑,枢轴由调用方给出
+     * ——主行绕内容框中心(见 [drawRows]),并发行绕自己的行块中心(见
+     * [withDuetRowTransition])。
+     */
+    private fun beginTransitionFrameLayer(
+        canvas: Canvas,
+        frame: LineTransitionFrame,
+        pivotX: Float,
+        pivotY: Float
+    ): Int {
+        val animated = frame.alpha < 1f || frame.translateXDp != 0f ||
+            frame.translateYDp != 0f || frame.scale != 1f ||
+            frame.rotationDeg != 0f || frame.rotationXDeg != 0f || frame.rotationYDeg != 0f
+        if (!animated) return canvas.save()
+        val save = canvas.saveLayerAlpha(
+            0f,
+            0f,
+            ow.toFloat(),
+            oh.toFloat(),
+            (255f * frame.alpha).toInt()
+        )
+        canvas.translate(frame.translateXDp * density, frame.translateYDp * density)
+        if (frame.scale != 1f) {
+            canvas.scale(frame.scale, frame.scale, pivotX, pivotY)
+        }
+        if (frame.rotationDeg != 0f) {
+            canvas.rotate(frame.rotationDeg, pivotX, pivotY)
+        }
+        if (frame.rotationXDeg != 0f || frame.rotationYDeg != 0f) {
+            // 翻转档:Camera 透视等价于 View/graphicsLayer 的 rotationX/Y
+            // (Camera 坐标 Y 向上、屏幕 Y 向下,故取负号对齐语义)。
+            val camera = Camera()
+            val matrix = Matrix()
+            camera.rotateX(-frame.rotationXDeg)
+            camera.rotateY(-frame.rotationYDeg)
+            camera.getMatrix(matrix)
+            matrix.preTranslate(-pivotX, -pivotY)
+            matrix.postTranslate(pivotX, pivotY)
+            canvas.concat(matrix)
+        }
+        return save
+    }
+
+    /** 换行动画的横向基准(dp):内容框宽(行块横向铺满内容框,等价参考实现 target.getWidth())。 */
+    private fun transitionBlockWidthDp(): Float = (ow - padLeft - padRight) / density
+
+    /**
+     * 并发行行自己的过渡(见 [duetExitSnapshot] / [duetJoinAlpha]):内容键变化后播**它自己**
+     * 的换行半段 —— 预设过渡期间按入场半段施加(退场段内入场进度为 0,新内容不可见,与主行
+     * 入场层同一份配方与缓动),无预设过渡时回落既有加入淡入的整块 alpha。主行换行帧不作用于
+     * 并发行行(见 [drawFrozenDuetRows]):两行各有自己的时间轴。
+     *
+     * 帧变换的枢轴取**并发行行块自身中心**(见 [duetRowBlockPivotY]):主行层绕内容框中心
+     * 缩放会把不在中心的行推离槽位,而并发行必须原地换行。
      */
     private inline fun withDuetRowTransition(canvas: Canvas, row: Row, draw: () -> Unit) {
         if (!row.duet) {
             draw()
             return
         }
-        val alpha = duetJoinAlpha()
-        if (alpha >= 1f) {
-            draw()
-            return
-        }
-        if (alpha <= 0f) return
-        val layer = canvas.saveLayerAlpha(0f, 0f, ow.toFloat(), oh.toFloat(), (255f * alpha).toInt())
+        val frame = duetRowFrame(layout)
+        if (frame.alpha <= 0f) return
+        val layer = beginTransitionFrameLayer(
+            canvas,
+            frame,
+            (padLeft + (ow - padRight)) / 2f,
+            duetRowBlockPivotY(layout)
+        )
         draw()
         canvas.restoreToCount(layer)
     }
 
     /**
-     * 主行过渡期间的并发行静止层(见 [drawOrientedContent]):并发行有自己独立的时间轴,
-     * 不参与主行的退场/位移/进场——过渡期间按过渡起点快照的槽位画在原地,主行层移走/
-     * 淡出/缩放时它不动、不变暗(共享缩放取起点快照,与前一帧口径一致)。
-     * 内容取当前布局(并发行自己的折行与词级进度照常推进;它自己到点换行时也只播自己的
-     * 加入淡入);槽位取起点快照而不是新布局——新布局是主行换行后的形态,槽位可能已随
-     * 主行块高变化,用新槽位等于在过渡开始时把并发行弹到别处。
+     * 并发行行块的缩放枢轴 y(px):行盒包围盒中点 —— 并发行自己的过渡绕行块中心收放,
+     * 行块中心不动(主行层绕内容框中心缩放的枢轴对并发行是「别处」,会把整行推离槽位,
+     * 与「并发行不移动」冲突);无行/退化边界回落内容框中心。
      */
-    private fun drawFrozenDuetRows(canvas: Canvas, snapshot: CanvasSnapshot) {
-        val duetRows = layout.rows.filter { it.row.duet }
-        if (duetRows.isEmpty()) return
-        val frozen = frozenDuetBaselines(
-            snapshotBaselines = snapshot.layout.rows.filter { it.row.duet }.map { it.baseline },
-            currentBaselines = duetRows.map { it.baseline }
+    private fun duetRowBlockPivotY(state: LayoutState): Float {
+        var top = Float.POSITIVE_INFINITY
+        var bottom = Float.NEGATIVE_INFINITY
+        state.rows.forEach { positioned ->
+            if (!positioned.row.duet) return@forEach
+            val rowTop = positioned.baseline + positioned.row.paint.fontMetrics.ascent
+            if (rowTop < top) top = rowTop
+            val rowBottom = rowTop + positioned.row.height
+            if (rowBottom > bottom) bottom = rowBottom
+        }
+        if (!top.isFinite() || !bottom.isFinite() || bottom <= top) {
+            return (padTop + (oh - padBottom)) / 2f
+        }
+        return (top + bottom) / 2f
+    }
+
+    /** 只含并发行行的布局副本:并发行自己的过渡帧以**并发行行块**为位移基准(见 [animatedBlockHeightDp])。 */
+    private fun duetRowOnly(state: LayoutState): LayoutState =
+        state.copy(rows = state.rows.filter { it.row.duet })
+
+    /**
+     * 并发行行自己的过渡帧:预设过渡期间为入场半段(缓动/时长/配方与主行入场层同一份),
+     * 无预设过渡时为加入淡入的整块 alpha([duetJoinAlpha]);高度取当前并发行行块(入场层
+     * 用新行块,与主行退场/入场各取本层行块同序)。
+     */
+    private fun duetRowFrame(state: LayoutState): LineTransitionFrame {
+        val timeline = duetTransitionTimeline
+        if (duetExitSnapshot == null || timeline == null) {
+            return LineTransitionFrame(alpha = duetJoinAlpha())
+        }
+        val clock = duetRowTransitionClock() ?: return LineTransitionFrame(alpha = 1f)
+        val mode = content.transitionMode
+        return lineTransitionEnterFrame(
+            mode,
+            lineTransitionEnterEasing(mode, clock.enterProgress),
+            transitionBlockWidthDp(),
+            animatedBlockHeightDp(duetRowOnly(state))
         )
-        val scale = duetSharedScale(snapshot.layout)
+    }
+
+    /**
+     * 并发行行组的绘制上下文:共享缩放(枢轴取内容框中心,与 [drawRows] 同口径)+ 内容裁剪。
+     * [drawFrozenDuetRows] 与并发行自己的退场层共用同一份 —— 两层在同一坐标系里,
+     * 「退场/入场共用同一槽位」由构造保证。
+     */
+    private fun beginDuetRowGroup(canvas: Canvas, state: LayoutState): Int {
         val layer = canvas.save()
+        val scale = duetSharedScale(state)
         if (scale != 1f) {
             canvas.scale(
                 scale,
@@ -3005,16 +3158,83 @@ internal class AodLyricCanvasView(
         }
         val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
         canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
+        return layer
+    }
+
+    /** 并发行单行绘制(含和声走的辅助行车道):当前层与退场层共用同一份分流。 */
+    private fun drawDuetRowAt(canvas: Canvas, positioned: PositionedRow, baseline: Float) {
+        if (positioned.row.kind == RowKind.DUET_ORIGINAL) {
+            drawDuetOriginal(canvas, baseline)
+        } else {
+            drawDuetAuxRowStatic(canvas, positioned.row, baseline)
+        }
+    }
+
+    /**
+     * 并发行自己换行的退场层(见 [duetExitSnapshot]):旧并发行行(起点快照的内容/布局/样式)
+     * 按预设退场半段画在**与当前层同一基线**上 —— 并发行不移动,退场/入场共用同一槽位,
+     * 无位移段(见 [duetRowTransitionTimeline]);主行换行不改并发行内容键,本层不出现
+     * (见 [shouldStartDuetRowTransition])。调用方先建立行组上下文([beginDuetRowGroup]:
+     * 共享缩放 + 内容裁剪),本层与当前层由此落在同一坐标系里。
+     */
+    private fun drawDuetRowExitLayer(canvas: Canvas, baselines: List<Float>) {
+        val snapshot = duetExitSnapshot ?: return
+        val timeline = duetTransitionTimeline ?: return
+        val clock = duetRowTransitionClock() ?: return
+        val oldRows = snapshot.layout.rows.filter { it.row.duet }
+        if (oldRows.isEmpty()) return
+        val mode = content.transitionMode
+        val frame = lineTransitionExitFrame(
+            mode,
+            lineTransitionExitEasing(mode, clock.exitProgress),
+            transitionBlockWidthDp(),
+            animatedBlockHeightDp(duetRowOnly(snapshot.layout))
+        )
+        if (frame.alpha <= 0f) return
+        val savedContent = content
+        val savedLayout = layout
+        applyRenderStyle(snapshot.renderStyle)
+        content = snapshot.content
+        layout = snapshot.layout
+        val layer = beginTransitionFrameLayer(
+            canvas,
+            frame,
+            (padLeft + (ow - padRight)) / 2f,
+            duetRowBlockPivotY(snapshot.layout)
+        )
+        oldRows.forEachIndexed { index, positioned ->
+            // 基线一律取当前层的槽位列表(退场/入场同槽位);旧行数多于当前层(旧辅助行)
+            // 时,尾巴用旧布局自己的基线兜底。
+            drawDuetRowAt(canvas, positioned, baselines.getOrNull(index) ?: positioned.baseline)
+        }
+        canvas.restoreToCount(layer)
+        content = savedContent
+        layout = savedLayout
+        applyRenderStyle(currentRenderStyle)
+    }
+
+    /**
+     * 主行过渡期间的并发行静止层(见 [drawOrientedContent]):并发行有自己独立的时间轴,
+     * 不参与主行的退场/位移/进场——过渡期间按过渡起点快照的槽位画在原地,主行层移走/
+     * 淡出/缩放时它不动、不变暗(共享缩放取起点快照,与前一帧口径一致)。
+     * 内容取当前布局(并发行自己的折行与词级进度照常推进);槽位取起点快照而不是新布局
+     * ——新布局是主行换行后的形态,槽位可能已随主行块高变化,用新槽位等于在过渡开始时把
+     * 并发行弹到别处。并发行**自己**换行时,退场层([drawDuetRowExitLayer])先用同一槽位
+     * 列表画旧内容,当前层按入场半段进场——退场/入场同槽位、无位移段。
+     */
+    private fun drawFrozenDuetRows(canvas: Canvas, snapshot: CanvasSnapshot) {
+        val duetRows = layout.rows.filter { it.row.duet }
+        if (duetRows.isEmpty()) return
+        val frozen = frozenDuetBaselines(
+            snapshotBaselines = snapshot.layout.rows.filter { it.row.duet }.map { it.baseline },
+            currentBaselines = duetRows.map { it.baseline }
+        )
+        val layer = beginDuetRowGroup(canvas, snapshot.layout)
+        drawDuetRowExitLayer(canvas, frozen)
         duetRows.forEachIndexed { index, positioned ->
             val baseline = frozen[index]
-            if (positioned.row.kind == RowKind.DUET_ORIGINAL) {
-                withDuetRowTransition(canvas, positioned.row) {
-                    drawDuetOriginal(canvas, baseline)
-                }
-            } else {
-                withDuetRowTransition(canvas, positioned.row) {
-                    drawDuetAuxRowStatic(canvas, positioned.row, baseline)
-                }
+            withDuetRowTransition(canvas, positioned.row) {
+                drawDuetRowAt(canvas, positioned, baseline)
             }
         }
         canvas.restoreToCount(layer)
@@ -3342,8 +3562,9 @@ internal class AodLyricCanvasView(
         aggregatedVisible = aggregatedVisible && isShown,
         effectiveAlpha = effectiveAlpha(),
         // 圆形封面旋转与行级时间轴/过渡同待遇:驱动帧循环推进旋转角,隐藏即停。
+        // 并发行自己的换行过渡(挂钟驱动)同样要帧循环才走得完,与主行过渡同待遇。
         timedOrTransitionActive = timingEffectActive() || exitSnapshot != null ||
-            artworkSpinActive(),
+            duetExitSnapshot != null || artworkSpinActive(),
         handoffActive = handoffActive,
         verifiedDozeHost = useDozeHandlerCadence
     )
@@ -4177,7 +4398,8 @@ internal class AodLyricCanvasView(
         val auxKaraokeWindow: LongRange? = null,
         /**
          * 并发行行标记(并发行块各行,含和声走辅助行车道的行):主行换行过渡不带走它们
-         * (见 [drawFrozenDuetRows]),它们只随并发行自己的过渡(加入淡入)出现/切换。
+         * (见 [drawFrozenDuetRows]),它们只随并发行自己的换行过渡(退场→入场/加入淡入)
+         * 出现/切换。
          */
         val duet: Boolean = false
     )
@@ -4261,6 +4483,9 @@ internal class AodLyricCanvasView(
     companion object {
         /** 对唱并发行加入淡入时长(毫秒);期间静音态绘制,完成恢复共享发光管线。 */
         private const val DUET_JOIN_FADE_MS = 180L
+
+        /** 并发行加入淡入的续帧间隔:≈60Hz 一帧(淡入不在节奏门内,靠自己续帧走完)。 */
+        private const val DUET_ANIMATION_FRAME_MS = 16L
 
 
         /**

@@ -96,6 +96,7 @@ import com.eza.hyperglow.root.aod.artworkLeadingPx
 import com.eza.hyperglow.root.aod.artworkSidePx
 import com.eza.hyperglow.root.aod.baseTextSizeSp
 import com.eza.hyperglow.root.aod.duetAlignedRight
+import com.eza.hyperglow.root.aod.duetLineTransitionTimeline
 import com.eza.hyperglow.root.aod.layoutMetadataLines
 import com.eza.hyperglow.root.aod.isLongKaraokeSyllable
 import com.eza.hyperglow.root.aod.karaokeFloatSinkPx
@@ -141,6 +142,7 @@ import com.eza.hyperglow.root.aod.SecondLineAuxRow
 import com.eza.hyperglow.root.aod.secondLineAuxPreferredLines
 import com.eza.hyperglow.root.aod.secondLineAuxRows
 import com.eza.hyperglow.root.aod.secondLinePresentation
+import com.eza.hyperglow.root.aod.shouldStartDuetRowTransition
 import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
@@ -553,7 +555,7 @@ private fun LyricPreviewSurface(
                     previewDuetVisible(profile.duetConcurrent, it)
                 }
                 // 并发行内容键(与实机 duetLineKey 同口径):键不变 = 渲染原地保持,键变化才播
-                // 加入淡入——并发行不随主行换行移动的判据(见 PreviewRowBlock.duetKey)。
+                // 自己的换行过渡——并发行不随主行换行移动的判据(见 PreviewRowBlock.duetKey)。
                 val duetKey = duet?.let { previewDuetKey(it.text, it.lineStartMs) }
                 // 并发行自己的行窗跨度:并发行辅助行的逐字效果与行级合成时间轴同取它
                 // (实机 buildRows 的 duetAuxKaraokeWindow / buildDuetOriginalLayout 同源);
@@ -1185,7 +1187,8 @@ internal fun previewDuetVisible(
 /**
  * 并发行内容键(纯函数,JVM 可测;与实机 AodLyricCanvasView 的 duetLineKey 同口径:
  * 文本 + 行窗起点)。键不变 = 并发行没换,渲染必须原地保持(不随主行换行进退);
- * 键变化才播加入淡入。文本为空/无并发行返回 null(不可见,不动画)。
+ * 键变化才播自己的换行过渡(退场→入场,首次出现回落加入淡入)。文本为空/无并发行
+ * 返回 null(不可见,不动画)。
  */
 internal fun previewDuetKey(text: String?, lineStartMs: Long): String? =
     text?.takeIf { it.isNotBlank() }?.let { "$it@$lineStartMs" }
@@ -1700,7 +1703,8 @@ private fun previewRubyPlacements(
  * 行块一代内容:主行 + 辅助文字行 + 并发行段 + 下一行行。换行过渡按行分流三段式(与实机
  * drawOrientedContent 同构):离场行组(主行+辅助文字)退场 → 下一行晋级位移 →
  * 新到行(新辅助文字+新下一行)进场;[nextLine] 为晋级源(内容延续时升任主行)。
- * 并发行段([duet]/[duetRows])不参与这三段:它有自己的内容键([duetKey])与加入淡入。
+ * 并发行段([duet]/[duetRows])不参与这三段:它有自己的内容键([duetKey])与自己的换行
+ * 过渡(退场→入场,首次出现回落加入淡入)。
  */
 private class PreviewRowBlock(
     val main: PreviewMainLayout,
@@ -1734,7 +1738,8 @@ private class PreviewRowBlock(
     val duetAuxKaraoke: PreviewAuxKaraoke? = null,
     /**
      * 并发行内容键(文本 + 行窗起点,见 [previewDuetKey]):键不变 = 并发行未换,渲染原地
-     * 保持;键变化才播加入淡入。null = 并发行不可见(无并发行/开关关闭)。
+     * 保持;键变化才播自己的换行过渡(退场→入场/加入淡入)。null = 并发行不可见
+     * (无并发行/开关关闭)。
      */
     val duetKey: String? = null
 )
@@ -1865,6 +1870,10 @@ private fun PreviewAnimatedRowBlock(
     var enterMainHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var enterRowsHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var enterNextHeightPx by remember(block.mainText) { mutableStateOf(0) }
+    // 并发行行组的实测高(退场层 = 旧并发行行块、入场层 = 新并发行行块):并发行自己的
+    // 过渡帧以它为位移基准(实机各层取本层行块同序,见 animatedBlockHeightDp)。
+    var exitDuetHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    var enterDuetHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var nextRowTopPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
     var exitNextLineRowHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
     // 并发行在主行过渡期间的静止槽位偏移(px,与实机 AodDuetLineIndependence.frozenDuetBaselines
@@ -1910,34 +1919,117 @@ private fun PreviewAnimatedRowBlock(
         },
         fromAlpha = previous?.nextLine?.dimAlpha ?: staticNextLineTextFactor()
     )
-    // 并发行加入淡入(与实机 AodLyricCanvasView.duetJoinAlpha 同源):内容键(文本 + 行窗
-    // 起点)变化即重计时,淡入完成后恒全亮。并发行不参与主行换行帧,这是它唯一的进场过渡——
-    // 主行换行时它原地不动,只有自己的内容换了才动(键为 null 时并发行不可见,不动画)。
+    // 并发行自己的过渡帧(与实机同源):同一份配方/缓动,宽高基准取并发行行块自身
+    // (退场层用旧行块、入场层用新行块);首帧尚未测量时回落主行块高。
+    val duetExitBlockHeightDp = with(density) {
+        if (exitDuetHeightPx > 0) exitDuetHeightPx.toDp().value else exitMainBlockHeightDp
+    }
+    val duetEnterBlockHeightDp = with(density) {
+        if (enterDuetHeightPx > 0) enterDuetHeightPx.toDp().value else mainBlockHeightDp
+    }
+    val duetExitFrame = lineTransitionExitFrame(
+        lineTransition,
+        lineTransitionExitEasing(lineTransition, duetExitProgress.value),
+        blockWidthDp,
+        duetExitBlockHeightDp
+    )
+    val duetEnterFrame = lineTransitionEnterFrame(
+        lineTransition,
+        lineTransitionEnterEasing(lineTransition, duetEnterProgress.value),
+        blockWidthDp,
+        duetEnterBlockHeightDp
+    )
+    // 并发行自己的换行过渡(与实机 AodLyricCanvasView 同源):内容键(文本 + 行窗起点)
+    // 变化且上一版并发行还在、档位非 None 时,播预设的退场 → 入场半段——**同一槽位、
+    // 无位移段**(见 [duetLineTransitionTimeline]);首次出现没有旧内容可退场、None 档
+    // 不播动画,回落既有 180ms 加入淡入。并发行不参与主行换行帧:主行换行时它原地不动,
+    // 只有自己的内容换了才动(键为 null 时并发行不可见,不动画)。
+    // 旧并发行内容取上一版**已落定**的并发行行块([stableDuetBlock],落定 = 它自己的过渡
+    // 播完才认新键):主行同时换行时退场层就是主行过渡的起点行块,仅并发行换行(实时数据
+    // 两行各有自己的行窗)时由 [stableDuetBlock] 单独成层承载退场半段。
     val duetKey = block.duetKey
+    var previousDuetKey by remember { mutableStateOf(block.duetKey) }
+    var settledDuetKey by remember { mutableStateOf(block.duetKey) }
+    var stableDuetBlock by remember { mutableStateOf(block) }
+    // 只在「键真的换了一版」时写一次:该状态在组合期被读(退场层的取用条件),无条件写
+    // 新实例会每帧触发重组。
+    SideEffect {
+        if (block.duetKey == settledDuetKey && stableDuetBlock.duetKey != block.duetKey) {
+            stableDuetBlock = block
+        }
+    }
     val duetJoin = remember { Animatable(1f) }
+    val duetExitProgress = remember { Animatable(1f) }
+    val duetEnterProgress = remember { Animatable(1f) }
     LaunchedEffect(duetKey) {
-        if (duetKey == null) return@LaunchedEffect
-        duetJoin.snapTo(0f)
-        duetJoin.animateTo(
-            1f,
-            tween(PREVIEW_DUET_JOIN_FADE_MS.toInt(), easing = LinearEasing)
+        if (duetKey == previousDuetKey) return@LaunchedEffect
+        val previousBlock = stableDuetBlock
+        previousDuetKey = duetKey
+        val presetTransition = duetKey != null && shouldStartDuetRowTransition(
+            previousKey = previousBlock.duetKey,
+            nextKey = duetKey,
+            transitionMode = lineTransition,
+            // 旧内容由退场层重画:上一版行块确有并发行时它才在屏上(与实机
+            // previousRowAvailable 同一含义)。
+            previousRowAvailable = previousBlock.duetKey != null
         )
+        if (presetTransition) {
+            val timeline = duetLineTransitionTimeline(lineTransition, lineTransitionSpeed)
+            duetJoin.snapTo(1f)
+            duetExitProgress.snapTo(0f)
+            duetEnterProgress.snapTo(0f)
+            coroutineScope {
+                launch {
+                    duetExitProgress.animateTo(
+                        1f,
+                        tween(timeline.exitMs.toInt(), easing = LinearEasing)
+                    )
+                }
+                delay(timeline.exitMs)
+                duetEnterProgress.animateTo(
+                    1f,
+                    tween(timeline.enterMs.toInt(), easing = LinearEasing)
+                )
+            }
+            // 两段播完才认新键为落定:过渡期间 [stableDuetBlock] 一直是旧内容(退场层的来源)。
+            settledDuetKey = duetKey
+        } else {
+            duetExitProgress.snapTo(1f)
+            duetEnterProgress.snapTo(1f)
+            settledDuetKey = duetKey
+            if (duetKey == null) {
+                duetJoin.snapTo(1f)
+                return@LaunchedEffect
+            }
+            duetJoin.snapTo(0f)
+            duetJoin.animateTo(
+                1f,
+                tween(PREVIEW_DUET_JOIN_FADE_MS.toInt(), easing = LinearEasing)
+            )
+        }
     }
     val duetAlpha = duetJoin.value
     // 角色分流(与实机同构):退场层画离场行组[主行+辅助文字]、下一行只占位(退场段原地
     // 保持、位移段起隐藏);入场层画新到行组[辅助文字+下一行]、主行只占位(由位移层绘制)。
-    // 并发行段不参与这两层的帧:退场层把它列为隐藏段只占位(旧并发行不随主行离场),由入场层
-    // 单独绘制并施加 [duetAlpha]——这是「并发行不随主行换行移动」的落点。
+    // 并发行段不吃这两层的帧:它只吃自己的过渡帧(见 [PreviewRowBlockLayer.duetFrame])——
+    // 主行换行时原地不动,这是「并发行不随主行换行移动」的落点。
     val exitFrameParts = if (promoting) {
         setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS)
     } else {
         setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS, PreviewRowPart.NEXT)
     }
-    // 并发行段恒为隐藏段:退场层只占位(旧并发行不随主行离场),由入场层单独绘制。
+    // 并发行段在退场层的取舍:并发行**自己**换行时留在退场层(旧内容按退场帧离场,与实机
+    // drawDuetRowExitLayer 同源——退场层画的就是上一版行块);否则恒为隐藏段(旧并发行不随
+    // 主行离场),由入场层单独绘制。
+    val duetExiting = duetExitProgress.value < 1f
     val exitHiddenParts = if (promoting && moveFrameProgress.value > 0f) {
-        setOf(PreviewRowPart.NEXT, PreviewRowPart.DUET)
+        if (duetExiting) {
+            setOf(PreviewRowPart.NEXT)
+        } else {
+            setOf(PreviewRowPart.NEXT, PreviewRowPart.DUET)
+        }
     } else {
-        setOf(PreviewRowPart.DUET)
+        if (duetExiting) emptySet() else setOf(PreviewRowPart.DUET)
     }
     val enterFrameParts = if (promoting) {
         setOf(PreviewRowPart.ROWS, PreviewRowPart.NEXT)
@@ -1974,17 +2066,52 @@ private fun PreviewAnimatedRowBlock(
                 availableWidthPx = availableWidthPx,
                 wrap = wrap,
                 adaptiveSectioning = adaptiveSectioning,
+                duetFrame = duetExitFrame,
                 onPartHeightPx = { part, height ->
                     when (part) {
                         PreviewRowPart.MAIN -> exitMainHeightPx = height
                         PreviewRowPart.ROWS -> exitRowsHeightPx = height
                         PreviewRowPart.NEXT -> exitNextHeightPx = height
-                        // 并发行段不参与退场组高(它不随主行离场),无需上报。
-                        PreviewRowPart.DUET -> Unit
+                        // 并发行段不参与退场组高(它不随主行离场),但并发行自己的过渡帧
+                        // 以它为位移基准(实机退场层取本层行块同序)。
+                        PreviewRowPart.DUET -> exitDuetHeightPx = height
                     }
                 },
                 onNextRowTopPx = { nextRowTopPx = it },
                 onNextLineRowHeightPx = { exitNextLineRowHeightPx = it },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        // 仅并发行换行(主行未换:实时数据两行各有自己的行窗)时没有主行退场层可承载旧
+        // 并发行内容——由上一版并发行行块单独成层,只画 DUET 段(其余段隐藏只占位),
+        // 与实机 drawDuetRowExitLayer 同源;主行同时换行时上面那层已经承载了它。
+        if (previous == null && duetExiting && stableDuetBlock.duetKey != null &&
+            stableDuetBlock.duetKey != block.duetKey
+        ) {
+            PreviewRowBlockLayer(
+                block = stableDuetBlock,
+                sweepProgress = 1f,
+                frame = LineTransitionFrame(alpha = 1f),
+                frameParts = emptySet(),
+                hiddenParts = setOf(
+                    PreviewRowPart.MAIN,
+                    PreviewRowPart.ROWS,
+                    PreviewRowPart.NEXT
+                ),
+                color = color,
+                glowColor = glowColor,
+                glowEnabled = glowEnabled,
+                fillMode = fillMode,
+                rubyColor = rubyColor,
+                regularTypeface = regularTypeface,
+                availableWidthPx = availableWidthPx,
+                wrap = wrap,
+                adaptiveSectioning = adaptiveSectioning,
+                duetFrame = duetExitFrame,
+                onPartHeightPx = { part, height ->
+                    // 退场帧的位移基准取旧并发行行块实测高(与上面那层同口径)。
+                    if (part == PreviewRowPart.DUET) exitDuetHeightPx = height
+                },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -2050,7 +2177,8 @@ private fun PreviewAnimatedRowBlock(
             }
         }
         // 段3 入场层:新到行(新辅助文字+新下一行)按入场半段进场;晋级时新「主行」
-        // 由段2接管,本层只画新到行组。并发行段只由本层绘制(退场层占位),吃自己的加入淡入。
+        // 由段2接管,本层只画新到行组。并发行段由本层绘制(退场层只在自己换行时接走),
+        // 吃自己的过渡帧:预设入场半段或加入淡入。
         PreviewRowBlockLayer(
             block = block,
             sweepProgress = progressValue,
@@ -2068,13 +2196,15 @@ private fun PreviewAnimatedRowBlock(
             adaptiveSectioning = adaptiveSectioning,
             duetAlpha = duetAlpha,
             duetFrozenOffsetPx = duetFrozenOffsetPx,
+            duetFrame = duetEnterFrame,
             onPartHeightPx = { part, height ->
                 when (part) {
                     PreviewRowPart.MAIN -> enterMainHeightPx = height
                     PreviewRowPart.ROWS -> enterRowsHeightPx = height
                     PreviewRowPart.NEXT -> enterNextHeightPx = height
-                    // 并发行段不参与入场组高(它不随主行进场),无需上报。
-                    PreviewRowPart.DUET -> Unit
+                    // 并发行段不参与入场组高(它不随主行进场),但并发行自己的过渡帧
+                    // 以它为位移基准(实机入场层取本层行块同序)。
+                    PreviewRowPart.DUET -> enterDuetHeightPx = height
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -2087,9 +2217,9 @@ private fun PreviewAnimatedRowBlock(
  * 下一行行(与实机行角色一一对应;段序与实机 buildRows 的行序同源:主行 → 主行辅助行 →
  * 并发行/和声行 → 下一行)。
  *
- * 并发行段与其它三段的区别:它**不参与主行换行帧**(见 [applyPartTransition] 的 DUET 说明)——
- * 主行换行时并发行原地不动,只有自己的内容键变化才播加入淡入。这是任务 1「并发行相对主行
- * 独立」在预览侧的同一语义。
+ * 并发行段与其它三段的区别:它**不吃主行换行帧**(见 [applyPartTransition] 的 DUET 说明)——
+ * 主行换行时并发行原地不动,只有自己的内容键变化才播自己的换行过渡(退场 → 入场半段,
+ * 首次出现回落加入淡入)。这是「并发行相对主行独立」在预览侧的同一语义。
  */
 private enum class PreviewRowPart { MAIN, ROWS, DUET, NEXT }
 
@@ -2097,7 +2227,8 @@ private enum class PreviewRowPart { MAIN, ROWS, DUET, NEXT }
  * 行块单层绘制:主行 LyricGlowRow + 辅助文字行 + 并发行段(对唱大字行/和声行及其辅助行)+
  * 下一行行,按 [frameParts]/[hiddenParts] 逐段分流——[frameParts] 内的行段共用 [frame]
  * (alpha/位移/缩放/旋转一次施加);[hiddenParts] 内的行段只占位不绘制(由其它层接管);
- * 其余行段恒等展示(alpha 只吃 [duetAlpha],并发行段的加入淡入)。
+ * 其余行段恒等展示;并发行段只吃自己的过渡帧([duetFrame] × [duetAlpha]:预设退场/入场
+ * 半段或加入淡入),不吃主行 [frame]。
  * 各段实测高经 [onPartHeightPx] 上报,供调用方按角色组求和作为该层位移基准
  * (参考实现 target.getHeight()/4);下一行行顶经 [onNextRowTopPx] 上报,作为晋级位移起点。
  */
@@ -2124,6 +2255,11 @@ private fun PreviewRowBlockLayer(
      * 过渡期间并发行停在过渡起点槽位;0 = 不偏移(无过渡,或并发行自己刚换行)。
      */
     duetFrozenOffsetPx: Float = 0f,
+    /**
+     * 并发行段自己的过渡帧(实机 withDuetRowTransition 同源):退场层传退场半段、入场层传
+     * 入场半段;恒等帧 = 无预设过渡(只吃 [duetAlpha] 的加入淡入)。
+     */
+    duetFrame: LineTransitionFrame = LineTransitionFrame(alpha = 1f),
     onPartHeightPx: (PreviewRowPart, Int) -> Unit = { _, _ -> },
     onNextRowTopPx: (Int) -> Unit = {},
     onNextLineRowHeightPx: (Int) -> Unit = {},
@@ -2201,9 +2337,10 @@ private fun PreviewRowBlockLayer(
         // 并发行段:真对唱的主行同款大字行([block.duet]),或和声行的辅助行车道首行与并发行
         // 自己的辅助行([block.duetRows])。段序在辅助文字行组之后、下一行行之前,与实机
         // buildRows 的行序同源(主行 → 主行辅助行 → 并发行/和声行 → 下一行)。
-        // 段内行不参与主行换行帧:退场层把它列为隐藏段只占位(旧并发行不随主行离场),由当前
-        // (入场)层单独绘制并施加 [duetAlpha] 的加入淡入(实机 drawDuetOriginal 同源);
-        // [duetFrozenOffsetPx] 让它在主行过渡期间停在过渡起点槽位(实机 frozenDuetBaselines 同源)。
+        // 段内行不吃主行换行帧(退场层只在自己换行时接走它),只吃自己的
+        // 过渡帧 [duetFrame] × [duetAlpha](实机 withDuetRowTransition 同源:预设退场/入场
+        // 半段或加入淡入);[duetFrozenOffsetPx] 让它在主行过渡期间停在过渡起点槽位
+        // (实机 frozenDuetBaselines 同源),与自己的帧位移叠加。
         if (block.duet != null || block.duetRows.isNotEmpty()) {
             Box(
                 Modifier
@@ -2214,9 +2351,10 @@ private fun PreviewRowBlockLayer(
                             frame,
                             frameParts,
                             hiddenParts,
-                            partAlpha = duetAlpha
+                            partAlpha = duetAlpha,
+                            duetFrame = duetFrame
                         )
-                        translationY = duetFrozenOffsetPx
+                        translationY += duetFrozenOffsetPx
                     }
             ) {
                 Column(Modifier.fillMaxWidth()) {
@@ -2333,28 +2471,30 @@ private fun PreviewRowBlockLayer(
  * graphicsLayer 作用域内按行段分流:隐藏段 alpha 置 0(占位),帧内段施加 [frame],其余恒等
  * (alpha 只吃段自身的 [partAlpha])。
  *
- * 并发行段(DUET)固定落在「其余」一档:主行换行时它不参与退场/位移/进场(退场层把它列为
- * 隐藏段只占位),唯一动它的是 [partAlpha] 的加入淡入——与实机 drawDuetOriginal 的
- * duetJoinAlpha 同源。
+ * 并发行段(DUET)只吃自己的 [duetFrame]:主行换行帧不作用于它(退场层只在自己换行时接走它)
+ * ——预设过渡期间是退场/入场半段,无预设过渡时恒等帧、只剩 [partAlpha] 的加入淡入。
+ * 与实机 withDuetRowTransition 同源:两行各有自己的时间轴。
  */
 private fun GraphicsLayerScope.applyPartTransition(
     part: PreviewRowPart,
     frame: LineTransitionFrame,
     frameParts: Set<PreviewRowPart>,
     hiddenParts: Set<PreviewRowPart>,
-    partAlpha: Float = 1f
+    partAlpha: Float = 1f,
+    duetFrame: LineTransitionFrame = LineTransitionFrame(alpha = 1f)
 ) {
+    val applied = if (part == PreviewRowPart.DUET) duetFrame else frame
     when {
         part in hiddenParts -> alpha = 0f
-        part in frameParts -> {
-            alpha = frame.alpha * partAlpha
-            translationX = frame.translateXDp.dp.toPx()
-            translationY = frame.translateYDp.dp.toPx()
-            scaleX = frame.scale
-            scaleY = frame.scale
-            rotationZ = frame.rotationDeg
-            rotationX = frame.rotationXDeg
-            rotationY = frame.rotationYDeg
+        part in frameParts || part == PreviewRowPart.DUET -> {
+            alpha = applied.alpha * partAlpha
+            translationX = applied.translateXDp.dp.toPx()
+            translationY = applied.translateYDp.dp.toPx()
+            scaleX = applied.scale
+            scaleY = applied.scale
+            rotationZ = applied.rotationDeg
+            rotationX = applied.rotationXDeg
+            rotationY = applied.rotationYDeg
         }
         else -> alpha = partAlpha
     }

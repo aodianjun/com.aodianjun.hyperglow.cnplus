@@ -47,6 +47,114 @@ class AodDuetLineIndependenceTest {
         assertEquals(after, frozenDuetBaselines(emptyList(), after))
     }
 
+    // 速率档五档(词表真值见 customization.LINE_TRANSITION_SPEEDS;本地夹具不引该文件)。
+    private val speeds = listOf("Slowest", "Slow", "Normal", "Fast", "Fastest")
+
+    // 历史档(画布内建帧配方)+ 三个 #95 短名别名 + 预设档代表 + None/Auto 哨兵。
+    private val transitionModes = listOf(
+        "Fade up", "Crossfade", "Slide up", "Slide left", "Zoom",
+        "Fade left", "Landing", "Slide swap",
+        "fade_out_fade_in", "fade_out_left_landing", "rotate_out_rotate_in"
+    )
+
+    /**
+     * 并发行自己的换行时间线 = 退场 + 入场两段,**恒无位移段**:槽位冻结的并发行不移动
+     * (见 frozenDuetBaselines),插位移段就是把主行的「旧槽位 → 新槽位」搬给它——owner
+     * 2026-10-09 反馈的「第二行没有换行动画」修好后必须仍是原地换。两段的时长/配方与主行
+     * 同一份([lineTransitionTimeline]),速率档同一份倍率。
+     */
+    @Test
+    fun duetRowTransitionTimelineIsExitPlusEnterWithoutMoveSegment() {
+        for (mode in transitionModes + "None" + "Auto") {
+            for (speed in speeds) {
+                val timeline = duetRowTransitionTimeline(mode, speed)
+                assertEquals("$mode/$speed", 0L, timeline.moveMs)
+                assertEquals(
+                    "$mode/$speed",
+                    exitTransitionMs(mode, speed),
+                    timeline.exitMs
+                )
+                assertEquals(
+                    "$mode/$speed",
+                    enterTransitionMs(mode, speed),
+                    timeline.enterMs
+                )
+                assertEquals(
+                    "$mode/$speed",
+                    timeline.exitMs + timeline.enterMs,
+                    timeline.totalMs
+                )
+            }
+        }
+        // 预设表内全部 25 档:同一断言,防新增档位悄悄带上位移段。
+        for (presetId in LINE_TRANSITION_PRESETS.keys) {
+            val timeline = duetRowTransitionTimeline(presetId, "Normal")
+            assertEquals(presetId, 0L, timeline.moveMs)
+            assertEquals(
+                presetId,
+                LINE_TRANSITION_PRESETS.getValue(presetId).outMs +
+                    LINE_TRANSITION_PRESETS.getValue(presetId).inMs,
+                timeline.totalMs
+            )
+        }
+    }
+
+    /**
+     * 与主行同一份配方:同一档位/速率下,并发行时间线的退场/入场段逐值等于主行的
+     * **非晋级**时间线(主行晋级时才有位移段,并发行永不晋级);"Auto" 哨兵两行同路
+     * (都落历史档配方)——画布两侧读的是同一个已解析字段 content.transitionMode
+     * (resolveLineTransition 在映射层解析,见函数注释)。
+     */
+    @Test
+    fun duetRowTransitionSharesTheMainRowRecipes() {
+        for (mode in transitionModes + "None" + "Auto") {
+            for (speed in speeds) {
+                val duet = duetRowTransitionTimeline(mode, speed)
+                val mainStatic = lineTransitionTimeline(mode, speed, promoting = false)
+                assertEquals("$mode/$speed", mainStatic, duet)
+            }
+        }
+        // 主行晋级路径确实会加位移段(否则本测试的「并发行恒无位移」就无从对照)。
+        assertTrue(
+            lineTransitionTimeline("Fade up", "Normal", promoting = true).moveMs > 0L
+        )
+        // 代表值钉死:历史档 Fade up Normal = 130 + 210;预设 Landing Slow = 300×1.5 + 700×1.5。
+        assertEquals(340L, duetRowTransitionTimeline("Fade up", "Normal").totalMs)
+        assertEquals(1_500L, duetRowTransitionTimeline("fade_out_left_landing", "Slow").totalMs)
+        // 速率档等比缩放全程可见:Fast 0.6× / Slowest 2.0×。
+        assertEquals(204L, duetRowTransitionTimeline("Fade up", "Fast").totalMs)
+        assertEquals(680L, duetRowTransitionTimeline("Fade up", "Slowest").totalMs)
+    }
+
+    /**
+     * 走预设过渡的判据(见 shouldStartDuetRowTransition):上一版并发行还在(旧键非空、
+     * 与当前键不同)、档位非 None、旧布局确有并发行行时才播退场→入场;其余一律回落既有
+     * 180ms 加入淡入——首次出现没有旧内容可退场(实机与预览的首帧都是这样),None 档
+     * 不播动画,行为与修复前逐帧一致。
+     */
+    @Test
+    fun shouldStartDuetRowTransitionOnlyWithPreviousContentAndPreset() {
+        val previous = aodDuetContentKey("(少年狂)", 88_600L)
+        val next = aodDuetContentKey("(少年狂)", 145_900L)
+        assertTrue(
+            shouldStartDuetRowTransition(previous, next, "Fade up", previousRowAvailable = true)
+        )
+        // 首次出现:旧键为空(屏上没有旧并发行,退场层无从画起)。
+        assertTrue(
+            !shouldStartDuetRowTransition(null, next, "Fade up", previousRowAvailable = false)
+        )
+        // 键未变(主行换行/时间窗刷新):并发行不动,不重播过渡。
+        assertTrue(
+            !shouldStartDuetRowTransition(next, next, "Fade up", previousRowAvailable = true)
+        )
+        // 并发行消失:没有新内容,只剩退场层会停在半路。
+        assertTrue(!shouldStartDuetRowTransition(previous, null, "Fade up", true))
+        // None 档:不播动画,回落加入淡入(淡入仍保留,见修复口径)。
+        assertTrue(!shouldStartDuetRowTransition(previous, next, "None", true))
+        // 旧布局没有并发行行(键与布局来自两条来源,防御性判定):无旧内容可退场。
+        assertTrue(!shouldStartDuetRowTransition(previous, next, "Fade up", false))
+    }
+
     private fun word(text: String, startMs: Long, endMs: Long) =
         AodCanvasWord(
             text = text,
