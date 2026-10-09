@@ -300,10 +300,18 @@ internal fun aodCanvasLineIdentity(content: AodCanvasContent): AodCanvasLineIden
  * [lineStartMs, lineEndMs])。屏上文本未变的更新不是换行,不应触发换行动画,否则同一句
  * 会播两次入场动画(空档开始一次、开唱一次);文本相同但曲目不同(trackGeneration 变化)
  * 不算,换歌/重播仍照常播换行动画。见 [AodLyricCanvasView.setContent] 的行变更判定。
+ *
+ * **窗口必须还是同一个实例**:判据加上「旧窗退化(预览占位)或新窗起点仍落在旧窗内」。
+ * 同文的**下一次出现**(副歌重复)窗口整体后移,是新的实例——真机《乐鸣东方》3:40 处
+ * 主行 `乐鸣东方`→`乐鸣东方` 只有窗口从 219.12–224.35 换成 224.35–231.04,曾被判成
+ * 「没换行」而静默不播;同一刻并发行文本真的变了照常播,屏上就成了「第二行动、第一行
+ * 不动」(owner 2026-10-09 真机反馈)。窗口细化的判据用「起点仍在旧窗内」而不是等值比较:
+ * 生产者中途修正行窗(起点微调、终点延长)仍属同一实例,不该补播一次入场。
  */
 internal fun isSameLineTextUpdate(
     previous: AodCanvasLineIdentity,
     next: AodCanvasLineIdentity
 ): Boolean = previous.trackGeneration == next.trackGeneration &&
     previous.original.isNotBlank() &&
-    previous.original == next.original
+    previous.original == next.original &&
+    (previous.lineEndMs <= previous.lineStartMs || next.lineStartMs < previous.lineEndMs)

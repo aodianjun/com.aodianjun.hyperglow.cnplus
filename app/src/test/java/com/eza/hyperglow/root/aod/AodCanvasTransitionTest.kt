@@ -1098,4 +1098,46 @@ class AodCanvasTransitionTest {
         assertTrue(realChange)
         assertTrue(shouldStartLineTransition(realChange, "Fade up", handoffActive = false))
     }
+
+    /**
+     * 同文的**下一次出现**(副歌重复)是新的实例:窗口整体后移,不是「同一实例细化窗口」。
+     * 真机《乐鸣东方》3:40 处主行 `乐鸣东方`→`乐鸣东方`,窗口 219.12–224.35 → 224.35–231.04
+     * ——此前被判成「没换行」而静默不播;同一刻并发行文本真的变了照常播,屏上就成了
+     * 「第二行动、第一行不动」(owner 2026-10-09 真机反馈)。
+     */
+    @Test
+    fun repeatedLineWithTheSameTextIsALineChange() {
+        val first = AodCanvasLineIdentity(
+            trackGeneration = 7L,
+            lineStartMs = 219_120L,
+            lineEndMs = 224_350L,
+            original = "乐鸣东方"
+        )
+        // 下一句同文:新窗起点不在旧窗内(旧窗已唱完)→ 新实例,照常播换行动画。
+        val again = AodCanvasLineIdentity(
+            trackGeneration = 7L,
+            lineStartMs = 224_350L,
+            lineEndMs = 231_040L,
+            original = "乐鸣东方"
+        )
+        assertFalse(isSameLineTextUpdate(first, again))
+        val change = first.original.isNotBlank() &&
+            first != again && !isSameLineTextUpdate(first, again)
+        assertTrue(change)
+        assertTrue(shouldStartLineTransition(change, "Fade up", handoffActive = false))
+    }
+
+    /**
+     * 生产者中途修正**同一句**的行窗(起点微调、终点延长)仍属同一实例,不补播入场——
+     * 「起点仍落在旧窗内」而非等值比较,正是为了这种中途细化。
+     */
+    @Test
+    fun midLineWindowRefinementOfTheSameInstanceIsNotALineChange() {
+        val singing = AodCanvasLineIdentity(7L, 219_120L, 224_350L, "乐鸣东方")
+        val refined = singing.copy(lineStartMs = 219_180L, lineEndMs = 224_900L)
+        assertTrue(isSameLineTextUpdate(singing, refined))
+        val change = singing.original.isNotBlank() &&
+            singing != refined && !isSameLineTextUpdate(singing, refined)
+        assertFalse(change)
+    }
 }
