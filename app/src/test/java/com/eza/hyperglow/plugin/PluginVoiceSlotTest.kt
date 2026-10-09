@@ -150,8 +150,10 @@ class PluginVoiceSlotTest {
     /**
      * 乐鸣东方形态(带 `ttm:agent`):生产者当前句在 108.350 从 v1 那一句翻到 v2 那一句,
      * 两行不得互换——槽位 0 恒是 v1 的行(行 1),槽位 1 恒是 v2 的行(行 2)。
-     * 第三段:108.999 之后 v1 这一句唱完、下一句还没到,主行保留 v1 这一句(不退回生产者
-     * 当前句,退回就是互换),并发行继续按 v2 自己的窗口在场。
+     * 第三段:108.999 之后 v1 这一句唱完、下一句(119.759)还远,**只有 v2 在场**——并发段
+     * 已经结束,主行跟生产者当前句走(owner 2026-10-09「退出并发的时候歌词排序有问题」:
+     * 此前这里把 v1 那一行一直保持到 119.759,主行整 10.76s 冻在 `乐鸣东方` 不动,而音频
+     * 正在唱 v2 的 `天地为引 归墟为依`),并发行离场。
      */
     @Test
     fun pinnedRowsSurviveTheProducerLineFlip() {
@@ -176,11 +178,11 @@ class PluginVoiceSlotTest {
         assertEquals(105_686L, afterOut.duetLine?.lineStartMs)
         assertEquals(120_557L, afterOut.duetLine?.lineEndMs)
 
-        // 108.999 之后:v1 这一句已唱完,主行保留它直到 v1 下一句开始。
-        val held = state(positionMs = 110_000L, line = "天地为引 归墟为依")
-        val heldOut = PluginSongBridge.enrichState(held, patched(rows, held))
-        assertEquals("乐鸣东方", heldOut.line)
-        assertEquals("天地为引 归墟为依", heldOut.duetLine?.text)
+        // 108.999 之后:v1 已离场,只剩 v2 在唱——并发段结束,主行跟音频走、并发行离场。
+        val solo = state(positionMs = 110_000L, line = "天地为引 归墟为依")
+        val soloOut = PluginSongBridge.enrichState(solo, patched(rows, solo))
+        assertEquals("天地为引 归墟为依", soloOut.line)
+        assertNull(soloOut.duetLine)
     }
 
     /**
@@ -295,5 +297,120 @@ class PluginVoiceSlotTest {
         val soloOut = PluginSongBridge.enrichState(solo, patched(rows, solo))
         assertEquals("我随雨唤醒庙堂", soloOut.line)
         assertNull(soloOut.duetLine)
+    }
+
+    // ---- owner 2026-10-09:「进入和退出并发的时候歌词排序有问题」 ----
+    //
+    // 根因:钉槽位的三条(主行候选集收窄到槽位 0、按位置取、槽位 0 兜底保持)在**只有一位
+    // 演唱者在场**时连成一条错误链——主行因此冻在上一句上,而音频早就换了句子。并发段
+    // (两位演唱者此刻都在场)里钉槽位是对的(防两行互换),并发段外必须放开候选集。
+
+    /**
+     * 退出并发(第一声部已唱完、只剩第二声部在唱):主行跟音频走,不再冻在第一声部那一行。
+     *
+     * 真机形态(《乐鸣东方》实测 109.000–119.700,整 10.7s):
+     * - v1 `乐鸣东方` 104.547–108.999 唱完;v1 下一句要到 119.759;
+     * - v2 `天地为引 归墟为依` 105.686–120.557 仍在唱,生产者当前句正是它。
+     *
+     * 冻行的链条:候选集收窄到槽位 0 → 生产者当前句(v2 那一句)不在候选集里,行身份匹配
+     * 落空 → 按位置取时位置落在 v1 行窗之外(v1 已结束),同样落空 → 槽位 0 的兜底保持
+     * 把 `乐鸣东方` 一直挂到 119.759。
+     */
+    @Test
+    fun mainLineFollowsTheAudioAfterThePrimaryVoiceLeaves() {
+        val rows = listOf(
+            row(104_547L, 108_999L, "乐鸣东方", agent = "v1"),
+            row(105_686L, 120_557L, "天地为引 归墟为依", agent = "v2"),
+            row(119_759L, 123_127L, "我随雨唤醒庙堂", agent = "v1")
+        )
+        // 109.0s:只有 v2 在场(槽位 0 此刻没有行)。
+        assertEquals(-1, voiceSlotRowIndexAt(rows, assignVoiceSlots(rows), VOICE_SLOT_PRIMARY, 109_000L))
+        val st = state(positionMs = 109_000L, line = "天地为引 归墟为依")
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        assertEquals("天地为引 归墟为依", out.line)
+        assertNull(out.duetLine)
+    }
+
+    /**
+     * 退出并发时**并发行**也一起离场:第二声部唱完、第一声部接上独唱后,第二行不该还挂着
+     * 已经唱完的那一句。真机形态 229.800–230.700:v1 `乐鸣东方` 223.881–229.708 与
+     * 230.799–234.549 之间,位置落进 227.430–233.289 的 v2 `万物皆有声 随风作乐章`
+     * 那一句——但它属于 v2 的**下一句**,此刻 v2 上一句已唱完、v2 并没有在唱它。
+     */
+    @Test
+    fun duetLaneLeavesWhenTheSecondVoiceIsBetweenLines() {
+        val rows = listOf(
+            row(219_173L, 224_350L, "乐鸣东方", agent = "v1"),
+            row(223_881L, 229_708L, "乐鸣东方", agent = "v1"),
+            row(223_904L, 226_971L, "咚咚 金石击起辉光", agent = "v2"),
+            row(227_430L, 233_289L, "万物皆有声 随风作乐章", agent = "v2")
+        )
+        val slots = assignVoiceSlots(rows)
+        // 227.430 起 v2 那一句与 v1 的 223.881–229.708 重叠 → 两位都在场 → 并发。
+        val concurrent = state(positionMs = 228_000L, line = "乐鸣东方")
+        val concurrentOut = PluginSongBridge.enrichState(concurrent, patched(rows, concurrent))
+        assertEquals("乐鸣东方", concurrentOut.line)
+        assertEquals("万物皆有声 随风作乐章", concurrentOut.duetLine?.text)
+
+        // 229.708 之后 v1 那一行已唱完、v1 下一句 230.799 还差 1.09s(> 1s 门槛)→
+        // 此刻没有任何一位演唱者在场 → 并发行离场。
+        assertEquals(-1, voiceSlotRowIndexAt(rows, slots, VOICE_SLOT_PRIMARY, 230_000L))
+        val after = state(positionMs = 230_000L, line = "乐鸣东方")
+        val afterOut = PluginSongBridge.enrichState(after, patched(rows, after))
+        assertEquals("乐鸣东方", afterOut.line)
+        assertNull(afterOut.duetLine)
+    }
+
+    /**
+     * **进入/退出并发不得改动主行的身份**:主行在并发中与退出后都是第一声部的当前行,
+     * 第二声部唱完时并发行离场。
+     *
+     * 回归护栏(并发门控加进来之后):并发门控只改「两位演唱者是否都在场」这一条判据,
+     * 不得顺手把「主行 = 第一声部」这条也放掉——真机形态取自《乐鸣东方》2:12 段,
+     * v1 `一弦一调唤知己…` 212.164–218.125 与 v2 `咚咚 传遍此间他乡` 209.583–212.850
+     * 相邻,v2 那一句 212.850 结束时 v1 仍在同一句上。
+     */
+    @Test
+    fun enteringTheConcurrentSectionKeepsTheMainLineIdentity() {
+        val rows = listOf(
+            row(205_060L, 211_933L, "唤炽心无双 千秋同所向", agent = "v1"),
+            row(209_583L, 212_850L, "咚咚 传遍此间他乡", agent = "v2"),
+            row(212_164L, 218_125L, "一弦一调唤知己 山海风流鸣笙簧", agent = "v1")
+        )
+        val slots = assignVoiceSlots(rows)
+        assertEquals(listOf(0, 1, 0), slots)
+
+        // 并发中(212.500):两位都在场 → 行 1 = v1 当前句,行 2 = v2 那一句。
+        val inside = state(positionMs = 212_500L, line = "一弦一调唤知己 山海风流鸣笙簧")
+        val insideOut = PluginSongBridge.enrichState(inside, patched(rows, inside))
+        assertEquals("一弦一调唤知己 山海风流鸣笙簧", insideOut.line)
+        assertEquals("咚咚 传遍此间他乡", insideOut.duetLine?.text)
+
+        // 退出(213.000):v2 那一句已唱完(212.850),只剩 v1 在场 → 并发行离场,
+        // 主行仍是 v1 的当前句(身份未变)。
+        val after = state(positionMs = 213_000L, line = "一弦一调唤知己 山海风流鸣笙簧")
+        val afterOut = PluginSongBridge.enrichState(after, patched(rows, after))
+        assertEquals("一弦一调唤知己 山海风流鸣笙簧", afterOut.line)
+        assertNull(afterOut.duetLine)
+    }
+
+    /**
+     * **单声部**行表(所有非 BG 行落槽位 0)不受本次改动影响:并发判据恒为假(没有槽位 1),
+     * 主行候选集仍是整张表、并发行为空——与改动前逐字节同路。
+     */
+    @Test
+    fun singleVoiceTableIsUntouchedByTheConcurrentGate() {
+        val rows = listOf(
+            row(0L, 10_000L, "第一句", agent = "v1"),
+            row(10_000L, 20_000L, "第二句", agent = "v1")
+        )
+        assertEquals(listOf(0, 0), assignVoiceSlots(rows))
+        val slots = assignVoiceSlots(rows)
+        assertEquals(-1, voiceSlotRowIndexAt(rows, slots, VOICE_SLOT_SECONDARY, 5_000L))
+
+        val st = state(positionMs = 5_000L, line = "第一句")
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        assertEquals("第一句", out.line)
+        assertNull(out.duetLine)
     }
 }
