@@ -266,6 +266,50 @@ class PluginDuetConcurrentTest {
     }
 
     /**
+     * **位置落在行间缝隙** + **只有第二声部在场** 的组合（owner 2026-10-09「退出并发的时候
+     * 歌词排序有问题」的第二种形态）：缝隙里按位置取不到行，行身份就成了唯一的认行手段；
+     * 候选集若还收窄在槽位 0 上，主行就冻在第一声部那一行。
+     *
+     * 真机形态：《乐鸣东方》v1 `乐鸣东方` 147.444–154.300 唱完后，v1 下一句 `万籁添情长…`
+     * 要等到 155.802，而 v2 `咚咚 金石击起辉光` 152.223–155.802 仍在唱；位置 154.500 落在
+     * v1 两行之间的 502ms 缝隙里，音频正在唱 v2 那一句。
+     */
+    @Test
+    fun mainLineFollowsTheAudioWhenThePositionFallsInAGap() {
+        val rows = listOf(
+            row(147_444L, 154_300L, "乐鸣东方", "LEAD"),
+            row(152_223L, 155_802L, "咚咚 金石击起辉光", "LEAD")
+        )
+        // 154.500:v1 那一行已结束(154.300)、v1 下一句未到 → 位置在缝隙里,第一声部不在场。
+        val st = state(positionMs = 154_500L).copy(line = "咚咚 金石击起辉光")
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        assertEquals("咚咚 金石击起辉光", out.line)
+    }
+
+    /**
+     * 生产者与插件对同一个字用了**不同字形**时仍按行身份认行：《乐鸣东方》生产者侧是
+     * `归巣为依`（巣 U+5DE3，旧字形），曲库 TTML 是 `归巢为依`（巢 U+5DE2，规范字形），
+     * 其余码位全同。两侧来源不同（LRC 手抄 vs 曲库编排）时这类差异是常态。
+     *
+     * Kotlin/Java 的字符串相等走 Unicode 码位、**不做兼容等价**，所以这个差异真的会让
+     * [activeRowByText] 落空。位置落在行间小停顿时（这里是 120.557→121.000 的 443ms）
+     * 按位置取也取不到行，主行就只能保持生产者那一句——字形差异因此直接变成「认不出
+     * 正在唱的是哪一句」。本用例钉住归一化后仍能命中。
+     */
+    @Test
+    fun variantCharacterInTheProducerLineStillMatchesTheRow() {
+        val rows = listOf(
+            row(104_547L, 108_999L, "乐鸣东方", "LEAD"),
+            row(105_686L, 120_557L, "天地为引 归巢为依", "LEAD"),
+            row(121_000L, 125_000L, "我随雨唤醒庙堂", "LEAD")
+        )
+        // 生产者用旧字形 巣(U+5DE3)，插件行用规范字形 巢(U+5DE2)；位置落在两句之间的停顿里。
+        val st = state(positionMs = 120_600L).copy(line = "天地为引 归巣为依")
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        assertEquals("天地为引 归巢为依", out.line)
+    }
+
+    /**
      * 同一句在行表里出现多次（副歌重复）时，行身份匹配取**覆盖位置**的那一次，
      * 而不是行表里第一次出现的那一次——否则主行的词级时间轴会跳回第一段副歌的。
      */

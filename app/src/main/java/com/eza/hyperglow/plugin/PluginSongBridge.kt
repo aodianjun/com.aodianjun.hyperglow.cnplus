@@ -145,24 +145,36 @@ object PluginSongBridge {
         } else {
             rows
         }
-        // 活动行:**先按行身份**(生产者当前那一句在**本声部**行里找同一句),位置只作兜底。
+        // **并发段**判据(owner 2026-10-09「进入和退出并发的时候歌词排序有问题」):两位
+        // 演唱者**此刻都在场**才算并发——槽位 0 与槽位 1 都取得到当前行。只有第一声部在场、
+        // 第二声部不在场时,按槽位钉行的三条(候选集收窄到槽位 0、按位置取、槽位 0 兜底保持)
+        // 会连成一条错误链:候选集收窄后生产者正在唱的那一句(实测音频已在唱 v2 的
+        // `天地为引 归巢为依`,而它落在槽位 1)不在候选集里;位置落在两个声部行窗的错位缝隙
+        // 里也取不到行;最后主行兜底又把槽位 0 上一句一直保持到第二声部开口——实测《乐鸣
+        // 东方》109.000–119.700 整 10.7s 主行冻在 `乐鸣东方` 不动(退出并发时同形,
+        // 154.300–155.800 冻 1.5s)。并发段外不存在「被另一声部顶替」的可能,把候选集
+        // 放开到整张表、由行身份决定,才不会冻行。
+        val concurrent = hasSecondVoice &&
+            voiceSlotRowIndexAt(rows, slots, VOICE_SLOT_PRIMARY, state.positionMs) >= 0 &&
+            voiceSlotRowIndexAt(rows, slots, VOICE_SLOT_SECONDARY, state.positionMs) >= 0
+        // 活动行:**先按行身份**(生产者当前那一句在候选行里找同一句),位置只作兜底。
         // 顺序不可颠倒:对唱曲目的插件行表里两个声部的行互相重叠,而插件 TTML 的行窗与
         // 生产者行窗存在错位(实测 v1 长行 147.4–154.3 横跨 v2 的两句),按位置取会落到
         // 另一声部的行上——主行就显示第二声部的文本、屏上第二行「跳」到第一行
         // (owner 2026-10-08 真机反馈)。行身份来自生产者,是「现在唱的是哪一句」的唯一
         // 权威;位置仅用于在同句的多次出现之间挑覆盖本次位置的那一次。
-        val mainFallback = if (hasSecondVoice) {
-            // 本声部这一句唱完、下一句还没到:保留本声部最后一行。不退回生产者行——生产者
-            // 的当前句可能正是另一声部的行(退回就是这次要修的互换)。单声部不走这条兜底:
-            // 没有另一个声部可换,保持生产者状态不动是既有行为。
+        val identityRows = if (concurrent) mainRows else rows
+        val mainFallback = if (concurrent) {
+            // 并发段里本声部这一句唱完、下一句还没到:保留本声部最后一行。不退回生产者行——
+            // 生产者的当前句可能正是另一声部的行(退回就是上次修的互换)。
             rows.getOrNull(
                 voiceSlotLastEndedRowIndex(rows, slots, VOICE_SLOT_PRIMARY, state.positionMs)
             )
         } else {
             null
         }
-        val active = activeRowByText(mainRows, state.line, state.positionMs)
-            ?: selectActiveRow(mainRows, state.positionMs)
+        val active = activeRowByText(identityRows, state.line, state.positionMs)
+            ?: selectActiveRow(identityRows, state.positionMs)
             ?: mainFallback
             ?: return state
 
@@ -294,8 +306,13 @@ object PluginSongBridge {
             val accompanimentIndex = accompanimentRowIndex(rows, primaryIndex)
             val duetIndex = when {
                 accompanimentIndex >= 0 -> accompanimentIndex
-                hasSecondVoice ->
+                // 并发段才用槽位 1 的当前行;两位演唱者不在同一时刻在场时并发行离场(与
+                // [concurrent] 同一判据——进入/退出并发时第二行不该还挂在已经唱完的那一句上,
+                // 实测《乐鸣东方》229.800–230.700 主行已在唱 `乐鸣东方`,第二行却仍挂着
+                // v2 的 `万物皆有声 随风作乐章`)。
+                concurrent ->
                     voiceSlotRowIndexAt(rows, slots, VOICE_SLOT_SECONDARY, state.positionMs)
+                hasSecondVoice -> -1
                 else -> selectDuetLineIndex(
                     windows = rows.map { DuetLineWindow(it.begin, it.end, it.text.isNullOrBlank()) },
                     primaryIndex = primaryIndex,
@@ -394,11 +411,39 @@ object PluginSongBridge {
     private fun isHarmonyRow(row: PluginLyricLine): Boolean =
         row.metadata?.values?.get(META_ROLE) == ROLE_BG
 
-    /** 行文本归一化:去空白与常见中英标点,只留实义字符。 */
+    /**
+     * 行文本归一化:去空白与常见中英标点,只留实义字符;再把**旧字形/异体字**折到同一个
+     * 代表字上(见 [VARIANT_FOLD])。
+     *
+     * 为什么要折:行身份匹配拿「生产者的当前句」与「插件行」逐码位比,而 Kotlin/Java 的
+     * 字符串相等走 Unicode 码位、**不做兼容等价**。两侧歌词来源不同(LRC 由上传者手抄、
+     * TTML 由曲库编排),同一个字常一个是旧字形、一个是规范字形——实测《乐鸣东方》生产者
+     * `天地为引 归巣为依` 用 U+5DE3 巣,TTML 用 U+5DE2 巢,其余码位全同。逐码位比因此
+     * 整体失配,`activeRowByText` 返回 null,主行退回按位置取/槽位兜底——并发段刚进入或
+     * 刚退出的那一刻正是它最需要命中行身份的时刻。
+     *
+     * 只折真机数据里实际出现的那几组,不铺开成通用的模糊匹配或转写层:泛化的音近/形近
+     * 匹配会把不同句子认成同一句,反而破坏行身份的权威。
+     */
     private fun normalizeLyricText(text: String): String =
-        text.filterNot { ch ->
-            ch.isWhitespace() || ch in "（）()【】[]「」『』《》〈〉<>·、,，。.！!？?~～-—…:：;；\"'“”‘’"
+        buildString(text.length) {
+            for (ch in text) {
+                if (ch.isWhitespace() ||
+                    ch in "（）()【】[]「」『』《》〈〉<>·、,，。.！!？?~～-—…:：;；\"'“”‘’"
+                ) continue
+                append(VARIANT_FOLD[ch] ?: ch)
+            }
         }
+
+    /**
+     * 旧字形/异体字 → 规范字形(只收真机数据里实测出现的组;键 = 生产者侧写成的字形,
+     * 值 = 曲库 TTML 用的字形,归一化的比较键取后者)。
+     */
+    private val VARIANT_FOLD: Map<Char, Char> = mapOf(
+        // 巢:《乐鸣东方》「天地为引 归巣/巢为依」——生产者(LRC)写旧字形 巣 U+5DE3,
+        // 曲库 TTML 写规范字形 巢 U+5DE2。
+        '\u5DE3' to '\u5DE2'
+    )
 
     /**
      * 活动行的**同句和声行**下标(role=BG 且与活动行共享窗口 ≥ [MIN_CONCURRENT_OVERLAP_MS]);
