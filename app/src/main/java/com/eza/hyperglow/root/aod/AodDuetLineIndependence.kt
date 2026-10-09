@@ -30,6 +30,37 @@ internal fun frozenDuetBaselines(
 }
 
 /**
+ * 并发行自己换行的时间线(纯函数):**退场 → 入场两段,无晋级位移段** —— 并发行槽位冻结
+ * (见 [frozenDuetBaselines]),它不移动,所以不插位移段;两段的配方/时长/速率档与主行
+ * 共用同一份 [lineTransitionTimeline](退场半段 [exitTransitionMs] + 入场半段
+ * [enterTransitionMs],各档再乘速率倍率 [lineTransitionDurationScale]),不另立一套动画系统。
+ *
+ * [mode] 取画布已解析的档位(`content.transitionMode`):与主行**同一个字段**——"Auto" 在
+ * 映射层已按歌词源偏好解析(见 LyricCanvasMapper 的 resolveLineTransition),两行由此必然
+ * 用同一档位;不在这里二次解析(两处判据就是「预览/实机档位分叉」那类故障的来源)。
+ */
+internal fun duetRowTransitionTimeline(mode: String, speed: String): LineTransitionTimeline =
+    lineTransitionTimeline(mode, speed, promoting = false)
+
+/**
+ * 并发行内容键变化时走哪条过渡(纯函数):上一版并发行还在(旧键非空、与当前键不同)、
+ * 档位非 None、且旧布局确有并发行行([previousRowAvailable])时,播预设的退场→入场
+ * (时间线见 [duetRowTransitionTimeline]);否则回落既有 180 ms 加入淡入(见
+ * AodLyricCanvasView.duetJoinAlpha)——首次出现没有旧内容可退场、None 档不播动画,
+ * 行为与今天逐帧一致。
+ *
+ * [previousKey]/[nextKey] 为 [aodDuetContentKey] 的产出。当前键为 null(并发行消失)不播
+ * 过渡:屏上没有新内容,只剩退场层会停在半路。
+ */
+internal fun shouldStartDuetRowTransition(
+    previousKey: String?,
+    nextKey: String?,
+    transitionMode: String,
+    previousRowAvailable: Boolean
+): Boolean = previousKey != null && nextKey != null && previousKey != nextKey &&
+    transitionMode != "None" && previousRowAvailable
+
+/**
  * 并发行(主行同款并排那一行)自己的渲染路径决策 —— 与主行**同一决策函数**
  * ([planOriginalLine]),并发行带真实词窗时走词级卡拉OK(真实词时间戳),行级源才落共享
  * 扫光块。
