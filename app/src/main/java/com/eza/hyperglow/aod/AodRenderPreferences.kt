@@ -146,6 +146,9 @@ internal fun normalizeAodSecondary(value: String?): String = when (value) {
     "Transliteration" -> "Transliteration"
     "Translation" -> "Translation"
     "Both" -> "Both"
+    // 和声(x-bg 回声)作为辅助文字内容:与「对唱」开关解耦,见
+    // com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL。
+    "BackgroundVocal" -> "BackgroundVocal"
     else -> "Main only"
 }
 

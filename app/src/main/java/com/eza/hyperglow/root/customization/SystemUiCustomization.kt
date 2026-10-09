@@ -218,7 +218,13 @@ internal object SystemUiCustomizationValidator {
     private val TRANSITIONS = setOf("continuity", "crossfade", "none")
     private val EASINGS = setOf("fast_out_slow_in", "linear", "ease_out")
     private val ALIGNMENTS = setOf("auto", "start", "center", "end")
-    private val SECONDARY_MODES = setOf("Main only", "Transliteration", "Translation", "Both")
+    private val SECONDARY_MODES = setOf(
+        "Main only",
+        "Transliteration",
+        "Translation",
+        "Both",
+        com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL
+    )
     private val WEIGHTS = setOf("Regular", "Medium", "Bold")
     private val TEXT_SIZES = setOf("small", "normal", "large", "xlarge", "custom")
     private val FONT_FAMILIES = setOf("noto", "spotify", "apple", "noto-sc", "custom")

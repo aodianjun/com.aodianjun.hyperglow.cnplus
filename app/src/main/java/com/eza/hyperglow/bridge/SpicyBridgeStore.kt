@@ -59,6 +59,8 @@ internal fun normalizeSpicyBridgeRenderModes(
     secondary = when (candidate.secondary) {
         "Transliteration", "Translation", "Both" -> candidate.secondary
         "Romanization", "Romanized" -> "Transliteration"
+        // 和声档同 animation 白名单语义:词表成员必须原样通过,否则本设置到不了息屏渲染。
+        com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL -> candidate.secondary
         else -> "Main only"
     },
     animation = when (candidate.animation) {

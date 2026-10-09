@@ -484,6 +484,7 @@
     <string name="option_transliteration">转写</string>
     <string name="option_translation">翻译</string>
     <string name="option_both">两者</string>
+    <string name="option_background_vocal">和声</string>
     <string name="option_wrap">换行</string>
     <string name="option_clip">裁切</string>
     <string name="option_regular">常规</string>

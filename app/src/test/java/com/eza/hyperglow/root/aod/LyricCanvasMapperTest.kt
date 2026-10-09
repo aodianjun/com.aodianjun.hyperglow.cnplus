@@ -50,6 +50,38 @@ class LyricCanvasMapperTest {
     }
 
     @Test
+    fun mapperCarriesHarmonyAsAuxContentEvenWhenDuetSwitchOff() {
+        // 和声行与「显示并发歌词(对唱)」解耦:辅助文字内容档选「和声」
+        // (SECONDARY_MODE_BACKGROUND_VOCAL)时,role=BG 的 x-bg 回声即使本面关掉对唱开关
+        // 也进入画布内容(走辅助行车道);同尺寸并发行(非和声)仍只认对唱开关。
+        val harmonyProfile = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        duetConcurrent = false,
+                        secondaryMode = "BackgroundVocal"
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+
+        val harmonySnapshot = snapshot().copy(
+            duetLine = LyricDuetLine(
+                text = "echo",
+                harmony = true,
+                lineStartMs = 0L,
+                lineEndMs = 1_000L
+            )
+        )
+        val harmony = harmonySnapshot.toAodCanvasContent(harmonyProfile, duet = true).duetLine
+        assertNotNull(harmony)
+        assertTrue(harmony!!.harmony)
+        assertEquals("echo", harmony.text)
+        // 非和声并发行不受该档影响:对唱开关关闭时照旧丢弃。
+        assertNull(snapshot().toAodCanvasContent(harmonyProfile, duet = true).duetLine)
+    }
+
+    @Test
     fun mapperDropsDuetWhenSurfaceNotParticipating() {
         assertNull(snapshot().toAodCanvasContent(duetOn).duetLine)
     }

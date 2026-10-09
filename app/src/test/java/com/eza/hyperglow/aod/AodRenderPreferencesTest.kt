@@ -8,6 +8,9 @@ class AodRenderPreferencesTest {
     @Test
     fun storedAutoValuesMigrateToConcreteDefaults() {
         assertEquals("Main only", normalizeAodSecondary("auto"))
+        // 辅助文字内容档「和声」必须原样通过:归一化把它压回 Main only 会让 wire 的
+        // validate_rewrote_fields 拒收整份配置(实机表现为「设置页正常、实机毫无变化」)。
+        assertEquals("BackgroundVocal", normalizeAodSecondary("BackgroundVocal"))
         assertEquals("Wrap", normalizeAodOverflow("Scroll with lyric"))
         assertEquals("hide", normalizeAodMetadataVisible("auto"))
         assertEquals("top", normalizeAodMetadataAnchor("fixed"))

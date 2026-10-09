@@ -846,6 +846,8 @@ class AodCanvasLayoutTest {
         assertFalse(hasFirstLineAuxText("Transliteration", "", "trans"))
         assertFalse(hasFirstLineAuxText("Translation", "roma", ""))
         assertFalse(hasFirstLineAuxText("Both", "", ""))
+        // 「和声」档不取音标/翻译:和声行走自己的辅助行车道(内容非空也不出第一行辅助行)。
+        assertFalse(hasFirstLineAuxText("BackgroundVocal", "roma", "trans"))
     }
 
     @Test

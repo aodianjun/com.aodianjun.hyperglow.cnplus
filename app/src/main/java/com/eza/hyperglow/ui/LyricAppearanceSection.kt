@@ -420,7 +420,16 @@ internal fun LyricAppearanceSection(
                 AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
                     openChoice(
                         AodChoiceKind.SECONDARY_TEXT,
-                        listOf("Main only", "Transliteration", "Translation", "Both"),
+                        listOf(
+                            "Main only",
+                            "Transliteration",
+                            "Translation",
+                            "Both",
+                            // 和声(x-bg 回声)作为辅助文字内容:与「显示并发歌词(对唱)」解耦,
+                            // 选中后和声行照常走辅助行车道,音标/翻译不取(参考 HyperLyric 的
+                            // BACKGROUND_VOCAL 档)。
+                            com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL
+                        ),
                         selectedProfile.secondaryMode
                     ) { value -> updateSelected { it.copy(secondaryMode = value) } }
                 }
@@ -1847,6 +1856,8 @@ private fun choiceDisplayLabel(
         "Transliteration" -> R.string.option_transliteration
         "Translation" -> R.string.option_translation
         "Both" -> R.string.option_both
+        com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL ->
+            R.string.option_background_vocal
         else -> R.string.option_main_only
     })
     AodChoiceKind.LONG_LINES -> context.getString(

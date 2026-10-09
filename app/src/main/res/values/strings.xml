@@ -485,6 +485,7 @@
     <string name="option_transliteration">Transliteration</string>
     <string name="option_translation">Translation</string>
     <string name="option_both">Both</string>
+    <string name="option_background_vocal">Harmony</string>
     <string name="option_wrap">Wrap</string>
     <string name="option_clip">Clip</string>
     <string name="option_regular">Regular</string>
