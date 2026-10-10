@@ -338,6 +338,11 @@ internal class AodLyricCanvasView(
         style = Paint.Style.STROKE
         strokeWidth = 2f * density
     }
+    /**
+     * 长间奏倒计时圆点绘制器(参考 HyperLyric「歌词长间奏显示倒计时圆点」):
+     * 数学在 [InterludeDots] 纯函数里,本类只做 android.graphics 落点,与预览同源。
+     */
+    private val interludeDotsRenderer = InterludeDotsRenderer()
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
     private var sceneActive = false
@@ -1503,6 +1508,9 @@ internal class AodLyricCanvasView(
                 skipOriginal
             )
         } else {
+            // 长间奏倒计时圆点本帧是否生效(与预览同一判据):生效时主行块(主行 + 其辅助行)
+            // 整块让位给圆点,下一行/并发行车道照常绘制。行槽位不重排(布局与自适应高度不变)。
+            val hideMainBlock = interludeDotsFrame() != null
             var rowIndex = 0
             while (rowIndex < drawLayout.rows.size) {
                 val row = drawLayout.rows[rowIndex]
@@ -1512,7 +1520,16 @@ internal class AodLyricCanvasView(
                 }
                 when (row.row.kind) {
                     RowKind.METADATA -> Unit
-                    RowKind.ORIGINAL -> if (!skipOriginal) drawOriginal(canvas, row.baseline)
+                    RowKind.ORIGINAL ->
+                        if (!skipOriginal && !drawInterludeDots(canvas, row.baseline)) {
+                            drawOriginal(canvas, row.baseline)
+                        }
+                    // 圆点占用歌词行槽位时主行的辅助行一并让位(它们是同一行块的内容)。
+                    RowKind.ROMANIZED, RowKind.TRANSLATED -> if (!hideMainBlock) {
+                        withDuetRowTransition(canvas, row.row) {
+                            drawText(canvas, row.row, row.baseline)
+                        }
+                    }
                     RowKind.DUET_ORIGINAL -> if (!skipOriginal) {
                         withDuetRowTransition(canvas, row.row) {
                             drawDuetOriginal(canvas, row.baseline)
@@ -1539,9 +1556,23 @@ internal class AodLyricCanvasView(
         // 副行(音标/翻译/下一行)静态绘制,与预览的静态 Text 行一致,不参与扫光。
         // 换行分层时入场层只带新到副行(主行由晋级位移层接管),这里按行集内是否有主行分流;
         // 歌曲变更形变时旧层主行由元数据形变接管,按 [skipOriginal] 与逐行路径同义跳过。
-        drawSecondaryRowsStatic(canvas, rows, bright = content.secondaryTextBright)
+        // 长间奏倒计时圆点本帧是否生效(与逐行路径同一判据):生效时主行块(主行 + 其辅助行)
+        // 整块让位给圆点(参考实现的无文本占位行),并发行与下一行车道照常绘制。
+        val interlude = interludeDotsFrame()
+        // 圆点占用歌词行槽位时,只让位**主行自己的辅助行**(ROMANIZED/TRANSLATED)——
+        // 下一行与其辅助行、并发行辅助行不属该块,照常绘制。
+        val staticRows = if (interlude == null) {
+            rows
+        } else {
+            rows.filter {
+                it.row.kind != RowKind.ROMANIZED && it.row.kind != RowKind.TRANSLATED
+            }
+        }
+        drawSecondaryRowsStatic(canvas, staticRows, bright = content.secondaryTextBright)
         val original = rows.firstOrNull { it.row.kind == RowKind.ORIGINAL } ?: return
         if (skipOriginal) return
+        // 长间奏倒计时圆点生效时行槽位改画圆点(与逐行路径同一判据,见 [drawInterludeDots])。
+        if (drawInterludeDots(canvas, original.baseline)) return
         drawOriginalRubyRows(canvas, original.baseline, bright = true)
         // 主行发光统一委托共享渲染核心 LyricGlowRenderer —— 与预览(PreviewAnimatedLyric)
         // 同一份配方:dim 底、光晕、easeInOut 扫光带,杜绝行级同步路径另走一套旧实现。
@@ -1568,6 +1599,70 @@ internal class AodLyricCanvasView(
         } else {
             LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
         }
+
+    /**
+     * 本帧的长间奏圆点绘制参数(参考 HyperLyric「歌词长间奏显示倒计时圆点」);null = 本帧不画
+     * (无窗口 / 位置未进窗口 / 窗口已走完)。纯读 [content] 与当前投影位置,不落任何状态,
+     * 逐行与共享扫光两条路径共用同一判据(与预览同源)。
+     *
+     * 圆点占**歌词行槽位**(主行块:主行 + 其辅助行):与既有「开场/间奏大元数据」引导的取舍是
+     * 引导优先——大元数据显示期间投影层根本不下发窗口(见 [interludeSpan] 的调用点),圆点
+     * 只在引导结束后按剩余窗口继续,既有元数据行为零改动。
+     */
+    private fun interludeDotsFrame(): InterludeDotsFrame? {
+        if (content.speed <= 0f) return null
+        val window = interludeDotsWindowOf(
+            content.interludeDotsStartMs,
+            content.interludeDotsEndMs
+        ) ?: return null
+        val positionMs = projectedPosition()
+        if (!interludeDotsActive(window, positionMs)) return null
+        val progress = interludeDotsProgress(positionMs, window)
+        // 进度走完(圆点已全部渐隐)即不再占用行槽位:与并发行加入淡入同式,动画自带终止条件。
+        if (progress >= 1f) return null
+        val textSize = originalPaint.textSize
+        if (textSize <= 0f) return null
+        val alignment = viewAlignment(
+            resolveAlignmentMode(content.alignmentMode, content.alignedRight)
+        )
+        return InterludeDotsFrame(
+            progress = progress,
+            startX = alignedStart(
+                textWidth = interludeDotsWidth(textSize, progress),
+                lineAlignment = alignment
+            ),
+            textSize = textSize
+        )
+    }
+
+    /**
+     * 在歌词行槽位画长间奏倒计时圆点;返回 false = 本帧不生效,调用方按原路径绘制该行。
+     * 垂直位置取行块垂直中心([centerY]):圆点以行槽中心为心,与文字行的视觉重心一致
+     * (参考实现取行视图高度的 1/2,同式)。
+     */
+    private fun drawInterludeDots(canvas: Canvas, baseline: Float): Boolean {
+        val frame = interludeDotsFrame() ?: return false
+        val metrics = originalPaint.fontMetrics
+        val centerY = baseline + (metrics.descent + metrics.ascent) / 2f
+        interludeDotsRenderer.draw(
+            canvas = canvas,
+            textSize = frame.textSize,
+            progress = frame.progress,
+            startX = frame.startX,
+            centerY = centerY,
+            // 底色 = 未唱色(参考实现的「白 @128」作用于底色),高亮 = 已唱色。
+            backgroundColorArgb = resolvedPalette.unsungText,
+            highlightColorArgb = resolvedPalette.sungText
+        )
+        return true
+    }
+
+    /** [interludeDotsFrame] 的落点参数:一次算好,两条绘制路径共用(避免两次投影/对齐漂移)。 */
+    private data class InterludeDotsFrame(
+        val progress: Float,
+        val startX: Float,
+        val textSize: Float
+    )
 
     private fun drawSecondaryRowsStatic(
         canvas: Canvas,
@@ -3569,7 +3664,14 @@ internal class AodLyricCanvasView(
         // 圆形封面旋转与行级时间轴/过渡同待遇:驱动帧循环推进旋转角,隐藏即停。
         // 并发行自己的换行过渡(挂钟驱动)同样要帧循环才走得完,与主行过渡同待遇。
         timedOrTransitionActive = timingEffectActive() || exitSnapshot != null ||
-            duetExitSnapshot != null || artworkSpinActive(),
+            duetExitSnapshot != null || artworkSpinActive() || interludeDotsAnimating(
+                window = interludeDotsWindowOf(
+                    content.interludeDotsStartMs,
+                    content.interludeDotsEndMs
+                ),
+                positionMs = projectedPosition(),
+                speed = content.speed
+            ),
         handoffActive = handoffActive,
         verifiedDozeHost = useDozeHandlerCadence
     )

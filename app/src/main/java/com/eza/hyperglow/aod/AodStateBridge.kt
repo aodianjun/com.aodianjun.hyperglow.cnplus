@@ -75,6 +75,12 @@ data class AodDisplayState(
     val layoutGroups: List<AodDisplayLayoutGroup> = emptyList(),
     /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
     val duetLine: AodDisplayDuetLine? = null,
+    /**
+     * 长间奏窗口(v10,参考 HyperLyric 倒计时圆点):上一行 end .. 下一行 start 的原始空隙
+     * (投影层判定 ≥4s 才携带);0/0 = 无。渲染面按本面开关与「显示下一行」映射解析。
+     */
+    val interludeStartMs: Long = 0L,
+    val interludeEndMs: Long = 0L,
     val weight: String = "Medium",
     val textSizeMode: String = "normal",
     val textSizeCustom: Int = 100,
@@ -542,6 +548,15 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             )
         }
     }
+    // 长间奏窗口:两端钳到歌长,半截/退化窗口整体清零(fail-closed:宁可不显示圆点,
+    // 不携带越界或半截窗口让渲染面画出错位的倒计时)。
+    val interludeStartMs = state.interludeStartMs.coerceAtLeast(0L).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
+    val interludeEndMs = state.interludeEndMs.coerceAtLeast(0L).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
+    val interludeValid = interludeStartMs > 0L && interludeEndMs > interludeStartMs
     val fitted = fitAodEnhancementBudget(
         baseTexts = listOf(
             original,
@@ -636,7 +651,9 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         alignmentMode = normalizeAodAlignment(state.alignmentMode),
         metadataAnchor = normalizeAodMetadataAnchor(state.metadataAnchor),
         artworkJpeg = artworkJpeg,
-        artworkKey = artworkKey
+        artworkKey = artworkKey,
+        interludeStartMs = if (interludeValid) interludeStartMs else 0L,
+        interludeEndMs = if (interludeValid) interludeEndMs else 0L
     )
 }
 
@@ -754,6 +771,8 @@ private fun AodDisplayState.toWireMessage(
             adaptiveSectioning = adaptiveSectioning,
             artworkJpeg = ArtworkJpeg(artworkJpeg),
             artworkKey = artworkKey,
+            interludeStartMs = interludeStartMs,
+            interludeEndMs = interludeEndMs,
             duetLine = duetLine?.let { line ->
                 AodStateWireDuetLine(
                     text = line.text,

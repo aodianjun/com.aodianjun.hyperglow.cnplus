@@ -494,6 +494,81 @@ class AodStateWireCodecTest {
     }
 
     @Test
+    fun interludeWindowRoundTripsThroughWireBody() {
+        // v10 间奏区:上一行 end .. 下一行 start 的原始空隙两端,0/0 = 无。
+        val message = snapshotMessage(
+            value = snapshotValue().copy(
+                durationMs = 60_000L,
+                interludeStartMs = 12_000L,
+                interludeEndMs = 24_000L
+            )
+        )
+        val decoded = AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode)
+        assertEquals(message, decoded)
+        assertEquals(12_000L, (decoded as AodStateWireMessage.Snapshot).value.interludeStartMs)
+        assertEquals(24_000L, decoded.value.interludeEndMs)
+
+        // 无长间奏:0/0 往返后仍是 0/0(渲染面据此判定"不画圆点")。
+        val none = snapshotMessage(value = snapshotValue())
+        val decodedNone = AodStateWireCodec.encode(none)?.let(AodStateWireCodec::decode)
+        assertEquals(none, decodedNone)
+        assertEquals(0L, (decodedNone as AodStateWireMessage.Snapshot).value.interludeStartMs)
+        assertEquals(0L, decodedNone.value.interludeEndMs)
+    }
+
+    @Test
+    fun interludeWindowFailsClosedOnDegenerateOrOutOfRangeWindow() {
+        // 半截窗口(起点为 0 却有终点):不透明传递策略原语,半截一律整包拒收。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        durationMs = 60_000L,
+                        interludeStartMs = 0L,
+                        interludeEndMs = 24_000L
+                    )
+                )
+            )
+        )
+        // 终点早于起点。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        durationMs = 60_000L,
+                        interludeStartMs = 24_000L,
+                        interludeEndMs = 12_000L
+                    )
+                )
+            )
+        )
+        // 终点越过歌长(与 lineEndMs 同口径)。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        durationMs = 60_000L,
+                        interludeStartMs = 12_000L,
+                        interludeEndMs = 90_000L
+                    )
+                )
+            )
+        )
+        // 负起点。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        durationMs = 60_000L,
+                        interludeStartMs = -1L,
+                        interludeEndMs = 24_000L
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
     fun duetLineFailsClosedOnBlankTextOrWindowBeyondDuration() {
         // 空白文本:isValidSnapshot 拒收 → 编码直接出包失败(fail-closed)。
         assertNull(

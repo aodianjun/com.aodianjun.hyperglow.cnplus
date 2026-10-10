@@ -301,6 +301,25 @@ internal fun projectToDisplay(
         }
     }
 
+    // --- 长间奏倒计时窗口(参考 HyperLyric「歌词长间奏显示倒计时圆点」)---
+    // 本行 end 与下一行 start 之间的空隙 ≥4s 时携带原始窗口;延迟(1s)与 per-surface 开关
+    // 在渲染映射层解析(见 root.aod.interludeDotsWindow——「显示下一行」的面从空隙起点即
+    // 开始,对应参考实现开了歌词预览的档位)。两条取舍:
+    // ① 大元数据引导(showLargeMetadata)显示期间不下发——既有「开场/间奏大元数据」行为
+    //    零改动,圆点让位于引导,引导结束后按剩余窗口继续(窗口进度按位置算,可从中段进入);
+    // ② 两面开关都关闭时源头撤走(与 duetConcurrent 同式:画布无 per-build 间奏状态)。
+    // 外推不可信时不启动(与空档预览同口径,不让过期快照驱动假的间奏动画)。
+    val interludeGap = interludeSpan(
+        lineStartMs = state.lineStartMs,
+        lineEndMs = state.lineEndMs,
+        hasActiveLine = hasActiveLine,
+        nextLineStartMs = state.nextLineStartMs,
+        extrapolationReliable = !extrapolationInvalid
+    )
+    val interludeCountdownEnabled = (aodProfile?.interludeCountdown != false) ||
+        (lockscreenProfile?.interludeCountdown != false)
+    val interlude = interludeGap.takeIf { interludeCountdownEnabled && !showLargeMetadata }
+
     return AodDisplayState(
         visible = original.isNotBlank(),
         playbackActive = state.playing,
@@ -378,7 +397,9 @@ internal fun projectToDisplay(
         metadataAnchor = aodProfile?.metadataAnchor ?: prefs.metadataAnchor,
         adaptiveSectioning = aodProfile?.adaptiveSectioning ?: prefs.adaptiveSectioning,
         artworkJpeg = artworkJpeg,
-        artworkKey = artworkKey
+        artworkKey = artworkKey,
+        interludeStartMs = interlude?.first ?: 0L,
+        interludeEndMs = interlude?.last ?: 0L
     )
 }
 

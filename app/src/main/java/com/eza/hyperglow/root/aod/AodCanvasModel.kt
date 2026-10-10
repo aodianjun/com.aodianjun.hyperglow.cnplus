@@ -112,7 +112,15 @@ internal data class AodCanvasContent(
     /** 当前快照是否为暂停驻留的冻结帧(pauseRetentionEligible):为真时旋转默认停。 */
     val playbackPaused: Boolean = false,
     /** 对唱并发行(仅息屏);null = 无并发行或「显示并发歌词(对唱)」已关。 */
-    val duetLine: AodCanvasDuetLine? = null
+    val duetLine: AodCanvasDuetLine? = null,
+    /**
+     * 本面生效的长间奏倒计时圆点窗口(已按本面「长间奏倒计时圆点」开关与「显示下一行」
+     * 延迟映射;0/0 = 无,见 [interludeDotsWindow])。渲染期按前向投影位置判定生效
+     * ([interludeDotsActive]):窗口起点之前保持原有上一行滞留/下一行预览呈现,窗口内
+     * 歌词行槽位(原文 + 其辅助行)改画倒计时圆点,下一行/并发行车道不受影响。
+     */
+    val interludeDotsStartMs: Long = 0L,
+    val interludeDotsEndMs: Long = 0L
 )
 
 /**

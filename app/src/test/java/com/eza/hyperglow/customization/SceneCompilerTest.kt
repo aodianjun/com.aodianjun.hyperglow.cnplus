@@ -1197,4 +1197,66 @@ class SceneCompilerTest {
         )
     }
 
+    @Test
+    fun interludeCountdownCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 长间奏倒计时圆点开关必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返:
+        // 关闭状态是「与默认不同」的值,漏字段会被逐字段重建映射静默弹回默认(开启)。
+        val off = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(interludeCountdown = false)
+            )
+        )
+        assertFalse(
+            SceneCompiler.compile(off).profiles.getValue(SceneCompiler.SURFACE_AOD)
+                .interludeCountdown
+        )
+        assertFalse(
+            SystemUiCustomizationValidator.validate(SceneCompiler.compile(off))!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown
+        )
+        assertFalse(
+            CustomizationRepository.canonicalizeDocument(off)!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown
+        )
+        // 默认开启(参考 HyperLyric 默认档即倒计时)。
+        assertTrue(
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown
+        )
+    }
+
+    @Test
+    fun interludeCountdownStaysPerSurfaceWhenOnlyOneSurfaceTurnsItOff() {
+        // per-surface:只关息屏时锁屏必须保持开启(改一面不联动另一面)。
+        val offAod = SceneCompiler.compile(
+            CustomizationDocument(
+                linkSurfaces = false,
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(interludeCountdown = false)
+                )
+            )
+        )
+        assertFalse(offAod.profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown)
+        assertTrue(
+            offAod.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeCountdown
+        )
+        val validated = SystemUiCustomizationValidator.validate(offAod)!!
+        assertFalse(validated.profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown)
+        assertTrue(
+            validated.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeCountdown
+        )
+        // linkSurfaces=true 时锁屏继承息屏值(与 linkSurfaces 的其它歌词呈现项同批)。
+        val linked = SystemUiCustomizationValidator.validate(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    linkSurfaces = true,
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(interludeCountdown = false)
+                    )
+                )
+            )
+        )!!
+        assertFalse(linked.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeCountdown)
+    }
+
 }

@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
+import com.eza.hyperglow.aod.interludeSpan
 import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.producer.ArtworkFrame
@@ -138,6 +139,15 @@ internal fun LyricProducerState.toPreviewSnapshot(
     val frame = artworkFrame?.takeIf {
         isSameTrackIdentity(title, artist, it.title, it.artist)
     }
+    // 长间奏窗口:与实机投影层同一判据函数(本行 end → 下一行 start,≥4s),让
+    // 「长间奏显示倒计时圆点」在连上实时歌词源时与实机同拍(预览即实机)。面级开关与
+    // 「显示下一行」的延迟映射不在这里做——由渲染侧按本面 profile 解析(见 LyricCanvasMapper)。
+    val interlude = interludeSpan(
+        lineStartMs = lineStartMs,
+        lineEndMs = lineEndMs,
+        hasActiveLine = lineIndex >= 0 && line.isNotBlank(),
+        nextLineStartMs = nextLineStartMs
+    )
     return LyricSnapshot(
     revision = sequence,
     trackGeneration = generation.toLong(),
@@ -193,7 +203,9 @@ internal fun LyricProducerState.toPreviewSnapshot(
     artworkKey = frame?.key ?: "",
     // 对唱并发行:与主行同口径按本面「识别对唱标记」剥离文本/词表并选分侧,剥空(纯标记行)
     // 整条丢弃;是否上屏由渲染侧按本面「显示并发歌词(对唱)」门控(与实机 LyricCanvasMapper 同源)。
-    duetLine = toPreviewDuetLine(duetMarkers)
+    duetLine = toPreviewDuetLine(duetMarkers),
+    interludeStartMs = interlude?.first ?: 0L,
+    interludeEndMs = interlude?.last ?: 0L
     )
 }
 

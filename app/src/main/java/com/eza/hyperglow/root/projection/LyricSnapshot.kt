@@ -142,7 +142,14 @@ internal data class LyricSnapshot(
     /** 封面稳定键(包名+曲目身份);空串=无封面,渲染侧按帧缓存解码位图。 */
     val artworkKey: String = "",
     /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
-    val duetLine: LyricDuetLine? = null
+    val duetLine: LyricDuetLine? = null,
+    /**
+     * 长间奏窗口(上一行 end .. 下一行 start 的原始空隙;0/0 = 无)。渲染面按本面
+     * 「长间奏倒计时圆点」开关与「显示下一行」延迟映射解析成圆点窗口
+     * (见 root.aod.interludeDotsWindow)。
+     */
+    val interludeStartMs: Long = 0L,
+    val interludeEndMs: Long = 0L
 ) {
     fun renderContent(): LyricRenderContent = LyricRenderContent(
         trackGeneration,
@@ -186,7 +193,9 @@ internal data class LyricSnapshot(
         metadataAnchor,
         adaptiveSectioning,
         artworkKey,
-        duetLine
+        duetLine,
+        interludeStartMs,
+        interludeEndMs
     )
 }
 
@@ -244,7 +253,13 @@ internal data class LyricRenderContent(
      * 对唱并发行(锁屏/息屏各自按自己的开关门控后)。纳入变更指纹:主行不变而并发行
      * 单独加入/离开时,控制器也要重投内容(与 artworkKey 同为内容级指纹)。
      */
-    val duetLine: LyricDuetLine? = null
+    val duetLine: LyricDuetLine? = null,
+    /**
+     * 长间奏窗口(原始空隙两端;0/0 = 无)。纳入变更指纹:窗口单独出现/消失/平移时
+     * 控制器也要重投内容(渲染面按本面开关解析成圆点窗口)。
+     */
+    val interludeStartMs: Long = 0L,
+    val interludeEndMs: Long = 0L
 )
 
 internal data class LyricKeepAliveSignal(
@@ -471,6 +486,15 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
             )
         }
     }
+    // 长间奏窗口:两端钳到歌长,半截/退化窗口整体清零(与投影侧 normalizeAodDisplayState
+    // 同口径;wire 侧 isValidSnapshot 已做过整包校验,这里只兜直接构造的快照)。
+    val interludeStartMs = snapshot.interludeStartMs.coerceAtLeast(0L).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
+    val interludeEndMs = snapshot.interludeEndMs.coerceAtLeast(0L).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
+    val interludeValid = interludeStartMs > 0L && interludeEndMs > interludeStartMs
     return snapshot.copy(
         revision = snapshot.revision.coerceAtLeast(0L),
         trackGeneration = snapshot.trackGeneration.coerceAtLeast(0L),
@@ -520,7 +544,9 @@ internal fun normalizeLyricSnapshot(snapshot: LyricSnapshot): LyricSnapshot {
         textSizeCustom = snapshot.textSizeCustom.coerceIn(0, 500),
         artworkJpeg = artworkJpeg,
         artworkKey = artworkKey,
-        duetLine = duetLine
+        duetLine = duetLine,
+        interludeStartMs = if (interludeValid) interludeStartMs else 0L,
+        interludeEndMs = if (interludeValid) interludeEndMs else 0L
     )
 }
 
@@ -627,6 +653,8 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             adaptiveSectioning = value.adaptiveSectioning,
             artworkJpeg = value.artworkJpeg.bytes,
             artworkKey = value.artworkKey,
+            interludeStartMs = value.interludeStartMs,
+            interludeEndMs = value.interludeEndMs,
             duetLine = value.duetLine?.let { line ->
                 LyricDuetLine(
                     text = line.text,

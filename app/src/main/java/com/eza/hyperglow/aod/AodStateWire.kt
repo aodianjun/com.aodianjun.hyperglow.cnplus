@@ -179,7 +179,15 @@ internal data class AodStateWireSnapshot(
     /** 封面稳定键(包名+曲目身份),渲染侧按帧缓存解码位图;空串=无封面。 */
     val artworkKey: String = "",
     /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
-    val duetLine: AodStateWireDuetLine? = null
+    val duetLine: AodStateWireDuetLine? = null,
+    /**
+     * 长间奏窗口(v10,参考 HyperLyric「歌词长间奏显示倒计时圆点」):上一行 end .. 下一行
+     * start 之间的原始空隙(投影层判定 ≥4s 才携带);0/0 = 无。渲染面按本面「长间奏倒计时
+     * 圆点」开关与「显示下一行」延迟映射解析成圆点窗口(见 root.aod.InterludeDots),
+     * 不透明传递策略原语。
+     */
+    val interludeStartMs: Long = 0L,
+    val interludeEndMs: Long = 0L
 )
 
 internal sealed interface AodStateWireMessage {
@@ -494,6 +502,9 @@ internal object AodStateWireCodec {
                         output.writeInt(word.sourceEnd)
                     }
                 }
+                // v10:长间奏窗口(原始空隙两端;0/0 = 无)。
+                output.writeLong(snapshot.interludeStartMs)
+                output.writeLong(snapshot.interludeEndMs)
             }
             bytes.toByteArray().takeIf {
                 it.isNotEmpty() && it.size <= AodStateWireLimits.MAX_ENCODED_BODY_BYTES
@@ -700,6 +711,9 @@ internal object AodStateWireCodec {
             ) ?: return null
             val hasDuet = input.readStrictBoolean() ?: return null
             val duetLine = if (hasDuet) decodeDuetLine(input, budget) ?: return null else null
+            // v10:长间奏窗口(原始空隙两端;0/0 = 无)。
+            val interludeStartMs = input.readLong()
+            val interludeEndMs = input.readLong()
             if (input.available() != 0) return null
             AodStateWireSnapshot(
                 trackGeneration = trackGeneration,
@@ -763,7 +777,9 @@ internal object AodStateWireCodec {
                 adaptiveSectioning = adaptiveSectioning,
                 artworkJpeg = artworkJpeg,
                 artworkKey = artworkKey,
-                duetLine = duetLine
+                duetLine = duetLine,
+                interludeStartMs = interludeStartMs,
+                interludeEndMs = interludeEndMs
             ).takeIf(::isValidSnapshot)
         } catch (_: Exception) {
             null
@@ -837,6 +853,14 @@ internal object AodStateWireCodec {
             snapshot.sampledAtElapsedMs < 0L || !snapshot.speed.isFinite() ||
             snapshot.speed !in 0f..AodStateWireLimits.MAX_PLAYBACK_SPEED ||
             snapshot.textSizeCustom !in 0..500
+        ) return false
+        // 长间奏窗口(v10):0/0 = 无;有值时两端都须为正、终点不早于起点、不得越歌长
+        // (与 lineEndMs 同口径;半截窗口整包拒收)。
+        if (snapshot.interludeStartMs < 0L ||
+            snapshot.interludeEndMs < snapshot.interludeStartMs ||
+            (snapshot.interludeEndMs > 0L &&
+                (snapshot.interludeStartMs <= 0L ||
+                    snapshot.interludeEndMs > snapshot.durationMs))
         ) return false
         if (snapshot.burnInPattern != normalizeAodBurnInPattern(snapshot.burnInPattern) ||
             snapshot.burnInIntervalMs != normalizeAodBurnInInterval(snapshot.burnInIntervalMs) ||
@@ -1047,14 +1071,15 @@ internal object AodStateWireCodec {
 
     private const val BODY_MAGIC = 0x414F4453
 
-    /** v9:并发行区追加和声标记(harmony,纯布尔,渲染侧据其走辅助行车道);
+    /** v10:间奏区追加长间奏窗口(interludeStartMs/interludeEndMs,原始空隙两端,0/0 = 无);
+     *  v9:并发行区追加和声标记(harmony,纯布尔,渲染侧据其走辅助行车道);
      *  v8:词表区追加插件逐字翻译词表(translationWords,条数+载荷,翻译辅助行按真实词窗点亮);
      *  v7:metadata 区追加原始 title/artist/album + largeMetadata + 标记识别版分侧(主行与并发行),
      *  让渲染面按本面「歌曲信息内容」/「识别对唱标记」独立组装与选侧(per-surface);
      *  v6:样式区追加 aodLandscapeFullscreenSafeMarginPercent(横屏全屏化安全边界);
      *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
      *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
-    private const val BODY_VERSION = 9
+    private const val BODY_VERSION = 10
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

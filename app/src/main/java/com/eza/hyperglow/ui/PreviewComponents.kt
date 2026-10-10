@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -145,6 +146,18 @@ import com.eza.hyperglow.root.aod.secondLineAuxPreferredLines
 import com.eza.hyperglow.root.aod.secondLineAuxRows
 import com.eza.hyperglow.root.aod.secondLinePresentation
 import com.eza.hyperglow.root.aod.shouldStartDuetRowTransition
+import com.eza.hyperglow.root.aod.interludeDotExitAlpha
+import com.eza.hyperglow.root.aod.interludeDotLightingProgress
+import com.eza.hyperglow.root.aod.interludeDotRadius
+import com.eza.hyperglow.root.aod.interludeDotSmoothStep
+import com.eza.hyperglow.root.aod.interludeDotsProgress
+import com.eza.hyperglow.root.aod.interludeDotsStartX
+import com.eza.hyperglow.root.aod.interludeDotsActive
+import com.eza.hyperglow.root.aod.interludeDotsWidth
+import com.eza.hyperglow.root.aod.interludeDotsWindow
+import com.eza.hyperglow.root.aod.INTERLUDE_DOT_BACKGROUND_ALPHA
+import com.eza.hyperglow.root.aod.INTERLUDE_DOT_COUNT
+import com.eza.hyperglow.root.aod.INTERLUDE_DOT_GAP_TEXT_SIZE_FACTOR
 import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
@@ -439,6 +452,14 @@ private fun LyricPreviewSurface(
         if (profile.fontFamily == "auto") Typeface.create("sans-serif", Typeface.NORMAL)
         else LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular")
     }
+    // 长间奏倒计时圆点(与实机 LyricCanvasMapper 同源):本面开关 + 「显示下一行」延迟映射
+    // 都走同一份纯函数 [interludeDotsWindow],预览与实机不会出现"预览有圆点实机没有"。
+    val interludeDots = interludeDotsWindow(
+        interludeStartMs = snapshot.interludeStartMs,
+        interludeEndMs = snapshot.interludeEndMs,
+        enabled = profile.interludeCountdown,
+        showsNextLine = profile.showNextLine || profile.secondaryNextLine
+    )
     // 对唱分侧门控(与实机 LyricCanvasMapper 同源):关闭时忽略行级 alignedRight。
     val alignedRight = duetAlignedRight(snapshot.alignedRight, profile.duetAlignment)
     val textAlign = previewRowTextAlign("auto", profile.alignment, alignedRight)
@@ -992,7 +1013,12 @@ private fun LyricPreviewSurface(
                             } else {
                                 null
                             },
-                            duetKey = duetKey
+                            duetKey = duetKey,
+                            interludeProgress = previewInterludeDotsProgress(
+                                window = interludeDots,
+                                positionMs = snapshot.positionMs
+                            ),
+                            interludeAlign = textAlign
                         ),
                         lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
                         lineTransitionSpeed = profile.lineTransitionSpeed,
@@ -1243,6 +1269,21 @@ internal fun previewDuetVisible(
  */
 internal fun previewDuetKey(text: String?, lineStartMs: Long): String? =
     text?.takeIf { it.isNotBlank() }?.let { "$it@$lineStartMs" }
+
+/**
+ * 长间奏倒计时圆点的窗口内进度(纯函数,JVM 可测;与实机
+ * [com.eza.hyperglow.root.aod.AodLyricCanvasView.interludeDotsFrame] 同一判据):
+ * 窗口非空且位置已进窗口时返回 0..1 的进度;进度走到 1(圆点已全部渐隐)返回 null——
+ * 与实机同式,动画自带终止条件,不再占用歌词行槽位。
+ *
+ * 预览取快照的 [positionMs] 而非逐帧投影位置:演示/实时快照的位置随快照刷新推进,
+ * 与实机的前向投影同语义(实机另按 speed 外推,两者都指向"当前歌词位置")。
+ */
+internal fun previewInterludeDotsProgress(window: LongRange?, positionMs: Long): Float? {
+    if (window == null || !interludeDotsActive(window, positionMs)) return null
+    val progress = interludeDotsProgress(positionMs, window)
+    return progress.takeIf { it < 1f }
+}
 
 /**
  * 预览行扫光进度:实时态取真实播放位置在本行窗口内的比例(与实机 `lineProgress` 同一
@@ -1835,7 +1876,21 @@ private class PreviewRowBlock(
      * 保持;键变化才播自己的换行过渡(退场→入场/加入淡入)。null = 并发行不可见
      * (无并发行/开关关闭)。
      */
-    val duetKey: String? = null
+    val duetKey: String? = null,
+    /**
+     * 长间奏倒计时圆点的窗口内进度(0..1);null = 本帧不显示圆点(无窗口/未进窗口/
+     * 已走完)。非空时歌词行槽位(主行 + 其辅助行)改画圆点——与实机
+     * [com.eza.hyperglow.root.aod.AodLyricCanvasView.drawInterludeDots] 同一判据同源,
+     * 预览即实机。取值由 [previewInterludeDotsProgress] 给出(JVM 可测)。
+     */
+    val interludeProgress: Float? = null,
+    /**
+     * 圆点簇的对齐(跟随本面主对齐解析,参考实现「对齐跟随行对齐」):与 [rows]/[nextLine]
+     * 的 [PreviewBlockRow.align] 同一来源(主行对齐解析结果),圆点不吃行级独立对齐
+     * (它占的是主行槽位)。
+     */
+    val interludeAlign: androidx.compose.ui.text.style.TextAlign =
+        androidx.compose.ui.text.style.TextAlign.Start
 )
 
 /** 行块内副行(辅助文字/下一行)的渲染参数,随所属行块一起冻结;[dimAlpha] 为该行静态亮度档。 */
@@ -2384,22 +2439,36 @@ private fun PreviewRowBlockLayer(
                 .onSizeChanged { onPartHeightPx(PreviewRowPart.MAIN, it.height) }
                 .graphicsLayer { applyPartTransition(PreviewRowPart.MAIN, frame, frameParts, hiddenParts) }
         ) {
-            PreviewMainLayer(
-                layout = block.main,
-                progress = sweepProgress,
-                livePositionMs = livePositionMs,
-                color = color,
-                glowColor = glowColor,
-                glowEnabled = glowEnabled,
-                fillMode = fillMode,
-                rubyColor = rubyColor,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(with(density) { block.main.blockHeight.toDp() })
-            )
+            // 长间奏倒计时圆点生效时主行槽位改画圆点(与实机 drawInterludeDots 同源):
+            // 圆点占同一槽位(同高度 Box),行块高度不变,卡片不呼吸。
+            if (block.interludeProgress != null) {
+                PreviewInterludeDots(
+                    progress = block.interludeProgress,
+                    textSizePx = block.main.paint.textSize,
+                    blockHeightPx = block.main.blockHeight,
+                    align = block.interludeAlign,
+                    unsungColor = ComposeColor(block.main.unsungColorArgb),
+                    sungColor = color,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                PreviewMainLayer(
+                    layout = block.main,
+                    progress = sweepProgress,
+                    livePositionMs = livePositionMs,
+                    color = color,
+                    glowColor = glowColor,
+                    glowEnabled = glowEnabled,
+                    fillMode = fillMode,
+                    rubyColor = rubyColor,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(with(density) { block.main.blockHeight.toDp() })
+                )
+            }
         }
-        // 辅助文字行组段。
-        if (block.rows.isNotEmpty()) {
+        // 辅助文字行组段:圆点占用歌词行槽位时一并让位(与实机同式,主行的辅助行同属该块)。
+        if (block.rows.isNotEmpty() && block.interludeProgress == null) {
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -2610,6 +2679,71 @@ private fun GraphicsLayerScope.applyPartTransition(
             rotationY = applied.rotationYDeg
         }
         else -> alpha = partAlpha
+    }
+}
+
+/**
+ * 长间奏倒计时圆点(预览):与实机 [com.eza.hyperglow.root.aod.InterludeDotsRenderer] 逐值
+ * 同源——同一份 [InterludeDots] 纯函数给出半径/间距/点亮进度/渐隐系数,预览只是把
+ * `canvas.drawCircle` 换成 Compose 的 `drawCircle`(预览即实机的 CN+ 惯例)。
+ *
+ * 圆点簇的水平起点与垂直中心同实机:起点按 [align] 三档解析(实机走 alignedStart),
+ * 垂直取行块中心(实机取行盒中心),行块高度不变、卡片不呼吸。
+ */
+@Composable
+private fun PreviewInterludeDots(
+    progress: Float,
+    textSizePx: Float,
+    blockHeightPx: Float,
+    align: TextAlign,
+    unsungColor: ComposeColor,
+    sungColor: ComposeColor,
+    modifier: Modifier = Modifier
+) {
+    val backgroundArgb = unsungColor.copy(alpha = 1f).toArgb()
+    val highlightArgb = sungColor.copy(alpha = 1f).toArgb()
+    val alignment = when (align) {
+        TextAlign.Center -> "center"
+        TextAlign.End -> "end"
+        else -> "start"
+    }
+    val density = LocalDensity.current
+    Canvas(modifier.height(with(density) { blockHeightPx.toDp() })) {
+        if (textSizePx <= 0f || size.width <= 0f) return@Canvas
+        val gap = textSizePx * INTERLUDE_DOT_GAP_TEXT_SIZE_FACTOR
+        // 与实机同式:对齐基准取「当前圆点簇实宽」,圆点放大时簇宽同步变化、居中/右对齐跟随。
+        var cursorX = interludeDotsStartX(
+            widthPx = interludeDotsWidth(textSizePx, progress),
+            frameWidthPx = size.width,
+            padLeftPx = 0f,
+            padRightPx = 0f,
+            alignment = alignment
+        )
+        val centerY = size.height / 2f
+        repeat(INTERLUDE_DOT_COUNT) { index ->
+            val exitAlpha = interludeDotExitAlpha(progress, index)
+            val lighting = interludeDotLightingProgress(progress, index)
+            val radius = interludeDotRadius(textSizePx, lighting)
+            val centerX = cursorX + radius
+            // 底色圆:未唱色 @128(参考实现「白 @128」)乘本点渐隐系数。
+            drawCircle(
+                color = ComposeColor(backgroundArgb).copy(
+                    alpha = (INTERLUDE_DOT_BACKGROUND_ALPHA / 255f) * exitAlpha
+                ),
+                radius = radius,
+                center = Offset(centerX, centerY)
+            )
+            // 高亮圆:已唱色,透明度 = 点亮缓动 × 渐隐系数。
+            val highlightAlpha = interludeDotSmoothStep(lighting) * exitAlpha
+            if (highlightAlpha > 0f) {
+                drawCircle(
+                    color = ComposeColor(highlightArgb).copy(alpha = highlightAlpha),
+                    radius = radius,
+                    center = Offset(centerX, centerY)
+                )
+            }
+            cursorX += radius * 2f + gap
+        }
     }
 }
 
