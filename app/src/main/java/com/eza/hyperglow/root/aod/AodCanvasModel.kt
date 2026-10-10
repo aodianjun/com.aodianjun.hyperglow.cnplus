@@ -332,3 +332,19 @@ internal fun isSameLineTextUpdate(
     previous.original.isNotBlank() &&
     previous.original == next.original &&
     (previous.lineEndMs <= previous.lineStartMs || next.lineStartMs < previous.lineEndMs)
+
+/**
+ * 画布与 App 内预览共用的播放位置外推(实机 `AodLyricCanvasView.projectedPosition`
+ * 同一公式):快照位置 + 采样以来的挂钟时间 × 播放速率。预览实时态的扫光/逐字据此
+ * 对齐真实播放时间;两处各写一套公式就是「预览与实机不同拍」那类漂移的来源。
+ * 采样时刻晚于当前(时钟回拨/快照迟到)时按 0 计,不倒推。
+ */
+internal fun projectedPositionMs(
+    positionMs: Long,
+    sampledAtElapsedMs: Long,
+    speed: Float,
+    nowElapsedMs: Long
+): Long {
+    val elapsed = (nowElapsedMs - sampledAtElapsedMs).coerceAtLeast(0L)
+    return positionMs + (elapsed * speed).toLong()
+}

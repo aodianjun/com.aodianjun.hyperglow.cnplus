@@ -4182,10 +4182,14 @@ internal class AodLyricCanvasView(
         safetyInset = if (lineAlignment == Alignment.END) END_EDGE_SAFETY_DP * density else 0f
     )
 
-    private fun projectedPosition(): Long {
-        val elapsed = (SystemClock.elapsedRealtime() - content.sampledAtElapsedMs).coerceAtLeast(0L)
-        return content.positionMs + (elapsed * content.speed).toLong()
-    }
+    // 位置外推与 App 内预览同源:公式单点在 [projectedPositionMs](root.aod),预览实时态
+    // 的扫光/逐字读同一份换算,杜绝两侧各写一套造成「预览与实机不同拍」。
+    private fun projectedPosition(): Long = projectedPositionMs(
+        content.positionMs,
+        content.sampledAtElapsedMs,
+        content.speed,
+        SystemClock.elapsedRealtime()
+    )
 
     /**
      * 过渡时钟采样,两条路径:
