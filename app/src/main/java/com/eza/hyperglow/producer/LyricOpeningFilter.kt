@@ -178,7 +178,7 @@ internal object LyricOpeningFilter {
 }
 
 /**
- * 制作名单行识别(「隐藏非歌词内容」开关的判定核心)。
+ * 制作名单行识别(「不显示非歌词内容」开关的判定核心)。
  *
  * 与 [LyricOpeningFilter] 的关系必须说清,否则极易误改:
  * - 移植自上游/Bridge 的开场清理词表**刻意不含**「作词/作曲」——这类制作名单常被源摆
@@ -187,30 +187,93 @@ internal object LyricOpeningFilter {
  * - 但用户并不想在歌词字幕里看到「作词：张三」。本对象是为此新增的**用户可选**能力,
  *   默认关闭时不参与任何链路,因此不改变上述保守语义。
  *
- * 判据(均要求「角色词 + 分隔/收尾」,避免吞掉正文):
- * 1. 中英日角色 + 分隔符(`:：=／/`):如 `作词：周杰伦`、`Composer: John`;
+ * 判据(都要求「标签 + 分隔符」或整句短语,避免吞掉正文):
+ * 1. 标签 + 分隔符(`:：=／/`):标签等于角色词,或**以角色词结尾**(复合标签)。
+ *    后缀匹配是 2026-10-10 真机实测补上的:网易云《乐鸣东方》开场 15 行名单里
+ *    「弦乐监制」「民族伴唱监制」「音乐总监」这类复合标签占多数,只做整词匹配会漏掉
+ *    大半名单(用户反馈「开关无效」的根因,判据取自设备 diagnostic-trace.log 原文)。
  * 2. 空格分隔的英文短语:`Lyrics by Bob`、`Composed by John`;
- * 3. 括号装饰型:`【作词】 张三`、`(作曲) 李四`。
+ * 3. 括号标签型:`【作词】 张三`、`(作曲) 李四`(只认无歧义的创作角色)。
  *
  * 保守原则与 LyricOpeningFilter 一致:宁可漏判(照常显示),不可错判(吞掉真歌词)。
- * 句中出现的角色词不算,英语词还要求左侧非字母(避开 composed/composer 内部命中)。
+ * 因此单字角色(词/曲/鼓/琴…)只做**整标签**匹配(否则「歌词：」「插曲：」会被吞),
+ * 英文按**词边界**匹配(否则 `sp` 会命中 `space:`),标签长度设上限防长句误判。
  */
 internal object LyricCreditLineFilter {
 
-    /** 创作/制作角色词(每个角色独立扫描,顺序不影响结果)。 */
-    private val CREDIT_ROLE_WORDS = listOf(
-        // 简体
-        "作词", "作曲", "编曲", "词曲", "填词", "谱曲",
-        // 繁体(zh-Hant 歌词源同样常见)
-        "作詞", "編曲", "詞曲", "填詞", "譜曲",
-        "lyricist", "composer", "arranger", "songwriter",
-        "written", "composed", "arranged", "produced", "lyrics"
+    /**
+     * 角色词:标签**等于**它,或**以它结尾**。
+     * 词表 = 上游 HyperLyric LEADING_MUSIC_INFO_PATTERN + CN+ 既有开场清理的乐器词表
+     * + 真机实测名单补录(调校/音乐总监/吉他/和音/弦乐/弦乐监制/民族伴唱监制/混音母带…)。
+     */
+    private val ROLE_TOKENS = listOf(
+        // 创作/制作(简繁)
+        "作词", "作詞", "作词人", "作詞人", "作词者", "作詞者", "作曲", "作曲人", "作曲者",
+        "编曲", "編曲", "编曲人", "词曲", "詞曲", "填词", "填詞", "谱曲", "譜曲", "配器",
+        "调校", "調校", "校对", "校對", "配唱", "监唱", "監唱",
+        "制作人", "製作人", "出品人", "发行人", "發行人", "监制", "監製", "总监", "總監",
+        "制作", "製作", "统筹", "統籌", "企划", "企劃", "策划", "策劃", "导演", "導演",
+        "录音", "錄音", "录音师", "錄音師", "录音室", "錄音室", "录音棚", "錄音棚",
+        "混音", "混音师", "混音師", "混音室", "缩混", "縮混", "混缩", "混縮",
+        "母带", "母帶", "母带师", "母帶師", "母版", "调音师", "調音師", "处理", "處理",
+        "后期", "後期", "工作室", "协力", "協力", "指导", "指導",
+        "和声", "和聲", "和音", "伴唱", "合唱", "童声", "童聲", "人声", "人聲",
+        "演奏", "演奏者", "演唱", "演唱者",
+        "人声编辑", "人聲編輯", "音频编辑", "音頻編輯", "编辑", "編輯", "编写", "編寫",
+        "工程师", "工程師", "助理",
+        // 乐器(带「琴/笛/箫/鼓/胡/筝」等字的乐器名多数由下面的后缀规则兜住)
+        "吉他", "木吉他", "电吉他", "電吉他", "贝斯", "貝斯", "贝司", "鼓", "打击乐", "打擊樂",
+        "键盘", "鍵盤", "钢琴", "鋼琴", "合成器", "电子琴", "電子琴",
+        "弦乐", "弦樂", "管弦乐", "管弦樂", "交响乐", "交響樂", "乐团", "樂團", "乐队", "樂隊",
+        "指挥", "指揮", "小提琴", "中提琴", "大提琴", "低音提琴",
+        "长笛", "長笛", "萨克斯", "薩克斯", "小号", "小號", "长号", "長號", "圆号", "圓號",
+        "二胡", "琵琶", "古筝", "古箏", "笛子", "唢呐", "嗩吶", "马头琴", "馬頭琴",
+        "口琴", "竖琴", "豎琴", "手风琴", "手風琴", "拍板", "三弦", "箜篌", "木鱼", "木魚",
+        "扬琴", "柳琴", "月琴", "古琴", "天琴",
+        // 视觉/发行
+        "封面", "设计", "設計", "视觉", "視覺", "文案", "宣发", "宣發", "发行", "發行",
+        "出品", "版权", "版權", "公司", "插画", "插畫", "摄影", "攝影"
     )
 
-    /** 整句短语前缀(常以空格而非冒号引出人名的分工写明)。 */
-    private val CREDIT_PHRASE_PREFIXES = listOf(
-        "vocals recorded", "background vocal", "backing vocal",
-        "mixed in dolby atmos", "recorded by", "performed by"
+    /**
+     * 只做**整标签**匹配的短词:作后缀会误伤真歌词
+     * (「歌词：」「插曲：」会被 `词`/`曲` 后缀吞掉)。
+     * 乐器字(琴/笛/箫/鼓/胡/筝…)反过来必须能作后缀——中文乐器名是长尾
+     * (古琴/天琴/骨笛/南音洞箫/二胡/扬琴…),逐个列举列不全。
+     */
+    private val EXACT_LABELS = listOf("词", "詞", "曲")
+
+    /** 可作后缀的乐器字:命中「以该字结尾的标签」,如 古琴/天琴/骨笛/洞箫/二胡/扬琴。 */
+    private val INSTRUMENT_SUFFIX_CHARS = listOf(
+        "琴", "笛", "箫", "簫", "鼓", "胡", "筝", "箏", "笙", "阮", "埙", "塤", "锣", "鑼", "钹", "鈸"
+    )
+
+    /** 英文角色词:按词边界匹配(整标签 / `X guitar` / `guitar X`),避免 sp 命中 space。 */
+    private val EN_ROLE_TOKENS = listOf(
+        "lyricist", "composer", "arranger", "songwriter", "producer", "produced",
+        "lyrics", "music", "written", "composed", "arranged",
+        "recorded", "recording", "mixed", "mixing", "mastered", "mastering", "engineer",
+        "vocals", "vocal", "backing vocal", "background vocal", "choir", "conductor",
+        "guitar", "bass", "drum", "drums", "keyboard", "piano", "strings", "violin",
+        "cello", "viola", "flute", "saxophone", "trumpet", "orchestra", "synth",
+        "programming", "production", "op", "sp", "publisher", "label", "artwork", "design"
+    )
+
+    /** 空格分隔的英文短语(无冒号的整句形态)。 */
+    private val EN_PHRASES = listOf(
+        "lyrics by", "music by", "written by", "composed by", "arranged by",
+        "produced by", "mixed by", "mastered by", "recorded by", "performed by",
+        "vocals recorded", "background vocal", "backing vocal", "mixed in dolby atmos"
+    )
+
+    /**
+     * 括号标签型只认无歧义的创作角色:和声/演唱/乐器类可以作行首标记
+     * (如「(和声) 歌词正文」),不能当名单吞掉。
+     */
+    private val BRACKET_LABELS = listOf(
+        "作词", "作詞", "作曲", "编曲", "編曲", "词曲", "詞曲", "填词", "填詞", "谱曲", "譜曲",
+        "制作人", "製作人", "监制", "監製", "出品人", "调校", "調校",
+        "lyricist", "composer", "arranger", "producer", "lyrics"
     )
 
     /** 装饰性左括号族:【…】/ (…) / 「…」等。 */
@@ -220,6 +283,11 @@ internal object LyricCreditLineFilter {
 
     /** 角色词后的右括号族:仅这些收尾才构成「标签」形态(裸文本如「作曲家的梦想」不算)。 */
     private val LEAD_CLOSERS = charArrayOf('】', ']', ')', '）', '』', '」')
+
+    private val SEPARATORS = charArrayOf(':', '/', '=')
+
+    /** 标签长度上限:比这更长的前缀不可能是制作名单标签,防长句误判。 */
+    private const val MAX_LABEL_LENGTH = 12
 
     /**
      * 归一化:全角标点统一到半角、连续空白压平、去掉行首装饰符号。
@@ -251,61 +319,54 @@ internal object LyricCreditLineFilter {
     fun isCreditLine(rawText: String): Boolean {
         val text = normalize(rawText)
         if (text.isEmpty()) return false
-        val lower = text.lowercase()
 
-        // 1) 角色 + 分隔符:`作词：张三` / `Composer: John` / `编曲/李四`
-        for (role in CREDIT_ROLE_WORDS) {
-            var from = 0
-            while (true) {
-                val index = lower.indexOf(role, from)
-                if (index < 0) break
-                from = index + 1
-                if (!isWordHead(text, index)) continue
-                var cursor = index + role.length
-                while (cursor < lower.length && (lower[cursor] == ' ' || lower[cursor] == '\t')) {
-                    cursor++
-                }
-                if (cursor < lower.length && lower[cursor] in charArrayOf(':', '/', '=')) {
-                    return true
-                }
+        // 1) 标签 + 分隔符:取第一个分隔符之前的标签做角色判定。
+        //    「混音/母带：罗文Rown」这类把斜杠当分隔的写法,标签即「混音」。
+        val separator = text.indexOfFirst { it in SEPARATORS }
+        if (separator > 0) {
+            val label = text.substring(0, separator).trim()
+            if (label.isNotEmpty() && label.length <= MAX_LABEL_LENGTH && isRoleLabel(label)) {
+                return true
             }
         }
 
         // 2) 空格分隔的英文短语:`Lyrics by Bob` / `Composed by John`
-        if (CREDIT_PHRASE_PREFIXES.any { lower.startsWith(it) }) return true
-        if (lower.startsWith("lyrics by") || lower.startsWith("music by") ||
-            lower.startsWith("written by") || lower.startsWith("composed by") ||
-            lower.startsWith("arranged by") || lower.startsWith("produced by")
-        ) {
-            return true
-        }
+        val lower = text.lowercase()
+        if (EN_PHRASES.any { lower.startsWith(it) }) return true
 
         // 3) 括号标签型:`【作词】 张三` / `(作曲) 李四` / 裸标签 `【作词】`
         //    必须紧跟右括号才算标签——否则「作曲家的梦想」这类真歌词会被误吞。
         val bare = text.trimStart(*LEAD_DECORATIONS)
-        for (role in CREDIT_ROLE_WORDS) {
-            if (!bare.startsWith(role)) continue
-            val next = bare.getOrNull(role.length) ?: continue
+        for (label in BRACKET_LABELS) {
+            if (!bare.startsWith(label)) continue
+            val next = bare.getOrNull(label.length) ?: continue
             if (next in LEAD_CLOSERS) return true
         }
         return false
     }
 
-    /** [index] 处是否为一个词的左边界(行首,或左侧非字母数字)。 */
-    private fun isWordHead(text: String, index: Int): Boolean {
-        if (index == 0) return true
-        return !text[index - 1].isLetterOrDigit()
+    /** 标签是否为制作名单角色:整标签、以角色词结尾(复合标签)、或英文按词边界。 */
+    private fun isRoleLabel(label: String): Boolean {
+        if (label in EXACT_LABELS) return true
+        for (token in ROLE_TOKENS) {
+            if (label == token || label.endsWith(token)) return true
+        }
+        for (ch in INSTRUMENT_SUFFIX_CHARS) {
+            if (label.length >= 2 && label.endsWith(ch)) return true
+        }
+        val lower = label.lowercase()
+        for (token in EN_ROLE_TOKENS) {
+            if (lower == token ||
+                lower.endsWith(" " + token) ||
+                lower.startsWith(token + " ")
+            ) {
+                return true
+            }
+        }
+        return false
     }
 }
 
-/**
- * 主行/下一行的名单归类结果(「不显示非歌词内容」)。
- *
- * 分类只做一次、两处消费:实机投影([com.eza.hyperglow.aod.projectToDisplay])与 App 内
- * 预览(ProducerCollectors.toPreviewSnapshot)共用本函数,避免两边各写一份判定而在
- * 「预览即实机」上失守。**如何呈现**(占位符/空档预览/窗口)由各消费方按自己的既有
- * 门控决定,不在这里。
- */
 internal data class CreditLineFlags(
     val lineIsCredit: Boolean,
     val nextLineIsCredit: Boolean
