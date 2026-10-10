@@ -469,12 +469,27 @@ class SpicyLyricProducerTest {
             listOf(
                 row(role = "LEAD", startMs = 10_000L, endMs = 30_000L, text = "main"),
                 row(role = "INTERLUDE", startMs = 12_000L, endMs = 28_000L, text = "break"),
-                row(role = "BACKGROUND", startMs = 29_500L, endMs = 40_000L, text = "tail")
+                // 非伴唱行(lead 行偶然重叠):共享窗口仅 500ms → 无候选(既不覆盖也不预加入)。
+                row(role = "LEAD", startMs = 29_500L, endMs = 40_000L, text = "tail")
             )
         )
-        // 间奏行不参与;尾行与主行重叠仅 500ms → 无候选(既不覆盖也不预加入)。
         val out = producer.toProducerState(spicyState(positionMs = 15_000L), doc)
         assertNull(out.duetLine)
+    }
+
+    @Test
+    fun duetConcurrentAdoptsShortAuthoredBackingVocal() {
+        // 同一时间形态(重叠 500ms),但尾行是**显式伴唱行**(role=BACKGROUND):正重叠即加入,
+        // 作者编排的短应答不再被一秒门整段吞掉(上游 fefe5c54)。
+        val doc = document(
+            "Syllable",
+            listOf(
+                row(role = "LEAD", startMs = 10_000L, endMs = 30_000L, text = "main"),
+                row(role = "BACKGROUND", startMs = 29_500L, endMs = 40_000L, text = "backing")
+            )
+        )
+        val out = producer.toProducerState(spicyState(positionMs = 15_000L), doc)
+        assertEquals("backing", out.duetLine?.text)
     }
 
     @Test
