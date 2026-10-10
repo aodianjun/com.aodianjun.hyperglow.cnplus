@@ -282,6 +282,7 @@ object CustomizationRepository {
         artworkSizeDp = artworkSizeDp,
         duetAlignment = duetAlignment,
         duetConcurrent = duetConcurrent,
+        interludeCountdown = interludeCountdown,
         // per-surface 内容项:携带本面已解析值,canonicalize 往返不丢失按面独立性。
         metadataParts = metadataParts,
         metadataSeparators = metadataSeparators,

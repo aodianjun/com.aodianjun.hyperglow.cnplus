@@ -389,6 +389,15 @@ internal fun LyricAppearanceSection(
                     stringResource(R.string.setting_duet_concurrent),
                     summary = stringResource(R.string.summary_duet_concurrent)
                 )
+                // 长间奏倒计时圆点(per-surface):本行 end 与下一行 start 空隙 ≥4s 时,歌词行
+                // 槽位改画三个倒计时圆点(参考 HyperLyric 同名方案)。息屏与锁屏各自独立开关;
+                // 关闭后间奏期恢复原来的上一行滞留/下一行预览呈现,零变化。
+                SwitchPreference(
+                    selectedProfile.interludeCountdown,
+                    { enabled -> updateSelected { it.copy(interludeCountdown = enabled) } },
+                    stringResource(R.string.setting_interlude_countdown),
+                    summary = stringResource(R.string.summary_interlude_countdown)
+                )
                 // 识别对唱标记(per-surface):标记是内容级解释,息屏与锁屏各自独立生效,
                 // 改本面不影响另一面。本面未显式设置时以文档级值作有效值。
                 SwitchPreference(
@@ -1257,8 +1266,29 @@ internal fun collectDemoSnapshot(
         ruby = line.ruby,
         // 演示并发行(和声):让「显示并发歌词(对唱)」开关在无实时歌词时也能在预览里
         // 看出效果;装配规则见 [demoDuetLine](纯函数,JVM 可测)。
-        duetLine = demoDuetLine(line)
+        duetLine = demoDuetLine(line),
+        // 演示长间奏窗口:让「长间奏显示倒计时圆点」开关在无实时歌词时也能在预览里看出效果。
+        // 只在一轮循环里的一拍携带(装配见 [demoInterludeSpan],纯函数 JVM 可测),
+        // 其余各拍照常显示歌词文本——与演示并发行同式:演示数据只承载"这一拍有该特性"。
+        interludeStartMs = demoInterludeSpan(index)?.first ?: 0L,
+        interludeEndMs = demoInterludeSpan(index)?.last ?: 0L
     )
+}
+
+/**
+ * 演示快照的长间奏窗口(纯函数,JVM 可测):只在循环里的一拍([DEMO_INTERLUDE_INDEX])携带,
+ * 其余各拍返回 null(无长间奏),预览照常显示歌词文本。
+ *
+ * 窗口取 [DEMO_INTERLUDE_WINDOW_MS](5s,确实过 4s 阈值),并把该拍的演示位置放在窗口内
+ * [DEMO_INTERLUDE_ENTRY_PROGRESS](40%)处 —— 落在"前两个点已点亮、尚未开始渐隐"的
+ * 阶段,是最能说明该特性的定格形态。演示位置在一拍内不变(演示快照逐拍切换,不像实机
+ * 逐帧投影),故圆点是定格的;这与演示并发行同为静态演示数据,不是逐帧动画。
+ */
+internal fun demoInterludeSpan(index: Int): LongRange? {
+    if (index != DEMO_INTERLUDE_INDEX) return null
+    val positionMs = index * DEMO_LINE_SWITCH_MS
+    val startMs = positionMs - (DEMO_INTERLUDE_WINDOW_MS * DEMO_INTERLUDE_ENTRY_PROGRESS).toLong()
+    return startMs..(startMs + DEMO_INTERLUDE_WINDOW_MS)
 }
 
 /**
@@ -1456,6 +1486,21 @@ internal val DEMO_LINES_EN = listOf(
 
 /** How long each demo line stays on screen before cycling to the next. */
 internal const val DEMO_LINE_SWITCH_MS = 2_500L
+
+/**
+ * 演示快照携带长间奏窗口的拍号(纯函数 [demoInterludeSpan] 用):只在这一拍演示圆点,
+ * 其余各拍照常显示歌词文本。
+ */
+private const val DEMO_INTERLUDE_INDEX = 1
+
+/** 演示长间奏窗口长度:5s,确实过 [MIN_INTERLUDE_GAP_MS](4s) 阈值。 */
+private const val DEMO_INTERLUDE_WINDOW_MS = 5_000L
+
+/**
+ * 演示圆点的定格进度(窗口内):40% —— 前两个点已点亮、渐隐段(60%)尚未开始,
+ * 是最能说明该特性的形态。
+ */
+private const val DEMO_INTERLUDE_ENTRY_PROGRESS = 0.4f
 
 /**
  * 演示逐字时间戳:把演示行切成词(空格处切分,否则每 2 字一块),首词按长音节加权

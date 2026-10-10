@@ -154,6 +154,13 @@ data class SurfaceProfile(
      * 锁屏恒 solo;关闭后快照不携带并发行,呈现与关闭前 solo 行为逐字一致。默认开(上游同值)。
      */
     val duetConcurrent: Boolean = true,
+    /**
+     * 长间奏倒计时圆点(参考 HyperLyric limczhh/HyperLyric 同名方案):本行 end 与下一行
+     * start 之间的空隙 ≥4s 时,歌词行槽位改画三个倒计时圆点(逐点点亮 + 末段渐隐),
+     * 取代上一行滞留/下一行预览。per-surface 开关,锁屏与息屏各自独立;默认开。
+     * 详见 root.aod.InterludeDots / aod.InterludeCountdown。
+     */
+    val interludeCountdown: Boolean = true,
     val rubyVisible: Boolean = true,
     val weight: String = "Medium",
     val textSize: String = "normal",
@@ -334,6 +341,8 @@ data class CompiledSurfaceProfile(
     val duetAlignment: Boolean = true,
     /** 对唱并发行开关,见 [SurfaceProfile.duetConcurrent];仅息屏面消费,锁屏编译进档但不渲染。 */
     val duetConcurrent: Boolean = true,
+    /** 长间奏倒计时圆点开关,见 [SurfaceProfile.interludeCountdown];每个 surface 独立生效。 */
+    val interludeCountdown: Boolean = true,
     /** 歌曲信息显示部分;由该 surface 的 [SurfaceProfile.metadataParts] 解析(空则继承文档级)编译而来。 */
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 歌曲信息逐槽分隔符序列;由该 surface 的 [SurfaceProfile.metadataSeparators] 解析编译而来。 */

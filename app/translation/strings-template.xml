@@ -360,6 +360,8 @@
     <string name="summary_lyric_time_offset">Positive values show lyrics later, negative values earlier (±5 s)</string>
 <string name="setting_duet_concurrent">Show concurrent lines (duet)</string>
 <string name="summary_duet_concurrent">When another sung line overlaps the current line by at least one second, show both lines together, each with its own karaoke timing. Lockscreen and always-on display switch independently.</string>
+    <string name="setting_interlude_countdown">Countdown dots for long interludes</string>
+    <string name="summary_interlude_countdown">When the gap between the current line and the next one lasts at least 4 seconds, show three dots in the lyric row that light up one by one and fade out as the next line approaches. Lockscreen and always-on display switch independently.</string>
     <string name="setting_secondary_text_size">Auxiliary text size</string>
     <string name="setting_secondary_auto_size">Adaptive auxiliary text size</string>
     <string name="summary_secondary_auto_size">Shrink to the readable minimum when the auxiliary text does not fit</string>

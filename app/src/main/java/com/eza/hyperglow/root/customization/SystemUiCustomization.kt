@@ -73,7 +73,10 @@ internal object SystemUiCustomizationValidator {
                 cardColor = rawLockscreen.cardColor,
                 metadataParts = rawAod.metadataParts,
                 metadataSeparators = rawAod.metadataSeparators,
-                duetMarkers = rawAod.duetMarkers
+                duetMarkers = rawAod.duetMarkers,
+                // 长间奏倒计时圆点:与 linkSurfaces 的其它歌词呈现项同批继承息屏值
+                // (开关只决定「本面画不画圆点」,不牵动快照内容)。
+                interludeCountdown = rawAod.interludeCountdown
             )
         } else {
             rawLockscreen

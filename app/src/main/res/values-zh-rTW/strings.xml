@@ -334,6 +334,8 @@
     <string name="summary_lyric_time_offset">正數延後顯示,負數提前顯示(±5 秒)</string>
 <string name="setting_duet_concurrent">顯示並發歌詞（對唱）</string>
 <string name="summary_duet_concurrent">另一行唱詞與主行播放視窗重疊達到 1 秒時,兩行同時顯示、各畫各的逐字掃光。鎖屏與熄屏各自獨立開關。</string>
+    <string name="setting_interlude_countdown">長間奏顯示倒數圓點</string>
+    <string name="summary_interlude_countdown">當前行與下一行之間的空隙達到 4 秒時,歌詞行位置改畫三個圓點,隨下一行臨近逐點亮起再漸隱。鎖屏與熄屏各自獨立開關。</string>
     <string name="setting_secondary_text_size">輔助文字大小</string>
     <string name="setting_secondary_auto_size">輔助文字自適應大小</string>
     <string name="summary_secondary_auto_size">裝不下時縮小到可讀下限</string>

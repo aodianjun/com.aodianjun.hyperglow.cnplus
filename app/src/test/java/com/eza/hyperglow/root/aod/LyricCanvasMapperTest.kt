@@ -113,6 +113,73 @@ class LyricCanvasMapperTest {
     }
 
     @Test
+    fun mapperResolvesInterludeDotsWindowPerSurface() {
+        // 投影层只下发**原始空隙**两端,per-surface 的开关与「显示下一行」延迟映射
+        // 在映射层解析:同一份快照投到两面,各自拿到自己的窗口。
+        val snapshot = LyricSnapshot(
+            visible = true,
+            original = "main",
+            durationMs = 60_000L,
+            interludeStartMs = 12_000L,
+            interludeEndMs = 24_000L
+        )
+        // 息屏:开关开、未开「显示下一行」→ 保留 1s 延迟(参考实现默认档)。
+        val aod = snapshot.toAodCanvasContent(duetOn)
+        assertEquals(13_000L, aod.interludeDotsStartMs)
+        assertEquals(24_000L, aod.interludeDotsEndMs)
+
+        // 开了「显示下一行歌词」:圆点从间奏起点即开始(无需为上一行保留停留)。
+        val withNext = snapshot.toAodCanvasContent(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(showNextLine = true)
+                    )
+                )
+            ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        )
+        assertEquals(12_000L, withNext.interludeDotsStartMs)
+        assertEquals(24_000L, withNext.interludeDotsEndMs)
+
+        // 「辅助文字显示第二行歌词」同样把延迟映射为 0(该面也在屏上展示下一行)。
+        val withSecondaryNext = snapshot.toAodCanvasContent(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(secondaryNextLine = true)
+                    )
+                )
+            ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        )
+        assertEquals(12_000L, withSecondaryNext.interludeDotsStartMs)
+
+        // 本面开关关闭:窗口整体清空,呈现与改动前逐字一致。
+        val off = snapshot.toAodCanvasContent(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(interludeCountdown = false)
+                    )
+                )
+            ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        )
+        assertEquals(0L, off.interludeDotsStartMs)
+        assertEquals(0L, off.interludeDotsEndMs)
+    }
+
+    @Test
+    fun mapperLeavesInterludeDotsEmptyWhenSnapshotCarriesNoWindow() {
+        // 无长间奏的快照(0/0):两面都不会拿到窗口。
+        val content = LyricSnapshot(
+            visible = true,
+            original = "main",
+            durationMs = 60_000L
+        ).toAodCanvasContent(duetOn)
+        assertEquals(0L, content.interludeDotsStartMs)
+        assertEquals(0L, content.interludeDotsEndMs)
+    }
+
+    @Test
     fun mapperCarriesSecondarySizeSettingsAndFallsBackToDefaults() {
         // 辅助字号倍率/自适应大小按面透传(per-surface);profile=null(演示/无配置)回落
         // 默认 100/true —— 与 SurfaceProfile 默认值同源,画布行装配据此拟合字号。

@@ -45,6 +45,14 @@ internal fun LyricSnapshot.toAodCanvasContent(
     }
     // 本面「识别对唱标记」:开启时隐去行首标记,并取标记识别版分侧;关闭时原样显示、取身份版。
     val duetMarkers = profile?.duetMarkers != false
+    // 长间奏倒计时圆点(per-surface):投影层只携带原始空隙两端,本面开关与「显示下一行」
+    // 延迟映射在此解析(见 interludeDotsWindow)。关闭时窗口为 null,呈现与改动前逐字一致。
+    val interludeDots = interludeDotsWindow(
+        interludeStartMs = interludeStartMs,
+        interludeEndMs = interludeEndMs,
+        enabled = profile?.interludeCountdown != false,
+        showsNextLine = profile?.showNextLine == true || profile?.secondaryNextLine == true
+    )
     // 大元数据引导:主行位置显示本面组装后的歌曲信息(快照下发的是占位符,这里替换)。
     val surfaceOriginal = when {
         largeMetadata -> surfaceMetadata
@@ -151,6 +159,8 @@ internal fun LyricSnapshot.toAodCanvasContent(
     artworkAdaptiveScale = artwork.adaptiveScale,
     artworkSizeDp = artwork.sizeDp,
     playbackPaused = pauseRetentionEligible,
+    interludeDotsStartMs = interludeDots?.first ?: 0L,
+    interludeDotsEndMs = interludeDots?.last ?: 0L,
     // 并发行门控(实机与预览同源,见 duetLineCarried):同尺寸并发行只认本面对唱开关;
     // 和声行两段门控——候选携带(对唱开关 ∨ 勾了和声档)且未被多选里的「和声」取消勾选。
     duetLine = if (duet && duetLineCarried(
