@@ -422,7 +422,7 @@ fun auxShowsTranslation(mode: String): Boolean =
  * [SECONDARY_MODE_NO_HARMONY] 在则隐藏。
  */
 fun auxHarmonyShown(mode: String): Boolean =
-    mode !in SECONDARY_LEGACY_MODES && SECONDARY_MODE_NO_HARMONY !in auxTokenSet(mode)
+    mode in SECONDARY_LEGACY_MODES || SECONDARY_MODE_NO_HARMONY !in auxTokenSet(mode)
 
 /**
  * 和声候选是否与「显示并发歌词(对唱)」解耦放行:历史和声档(选中即放行)或多选里勾了和声
