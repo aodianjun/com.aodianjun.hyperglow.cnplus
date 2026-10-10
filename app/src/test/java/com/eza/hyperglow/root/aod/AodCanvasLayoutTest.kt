@@ -1730,6 +1730,84 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun clausePunctuationEndsPhrasesForLineBreaks() {
+        assertTrue(endsWithClausePunctuation("pire,"))
+        assertTrue(endsWithClausePunctuation("toi."))
+        assertTrue(endsWithClausePunctuation("vraiment ? »"))
+        assertTrue(endsWithClausePunctuation("終わり。"))
+        assertFalse(endsWithClausePunctuation("toi"))
+        assertFalse(endsWithClausePunctuation("(toi)"))
+        assertFalse(endsWithClausePunctuation(""))
+    }
+
+    @Test
+    fun balancedSplitPrefersCommaBreakWhenItNeedsNoExtraLine() {
+        val widths = listOf(20f, 50f, 45f, 30f, 20f, 35f)
+        // 不带标点提示时,均衡断点落在 "c'est" 之后。
+        assertEquals(
+            listOf(0 until 3, 3 until 6),
+            balancedChunkRanges(widths, 130f, 2)
+        )
+        // "Le pire," 单独成行后余下部分放得下第二行,于是同为两行时逗号断点胜出。
+        assertEquals(
+            listOf(0 until 2, 2 until 6),
+            balancedChunkRanges(
+                widths,
+                130f,
+                2,
+                breakAfter = listOf(false, true, false, false, false, false)
+            )
+        )
+    }
+
+    @Test
+    fun punctuationHintNeverAddsAnotherLine() {
+        assertEquals(
+            listOf(0 until 2, 2 until 4),
+            balancedChunkRanges(
+                listOf(50f, 50f, 50f, 50f),
+                100f,
+                3,
+                breakAfter = listOf(false, false, true, false)
+            )
+        )
+    }
+
+    @Test
+    fun punctuationWeightingStaysInertWithoutUsableBreaks() {
+        // 无标点提示(空表/全 false)时结果与加权前逐值一致。
+        val widths = listOf(40f, 40f, 40f, 40f)
+        assertEquals(
+            balancedChunkRanges(widths, 120f, 3),
+            balancedChunkRanges(widths, 120f, 3, breakAfter = emptyList())
+        )
+        assertEquals(
+            balancedChunkRanges(widths, 120f, 3),
+            balancedChunkRanges(widths, 120f, 3, breakAfter = listOf(false, false, false, false))
+        )
+        val uneven = listOf(20f, 50f, 45f, 30f, 20f, 35f)
+        assertEquals(
+            balancedChunkRanges(uneven, 130f, 2),
+            balancedChunkRanges(
+                uneven,
+                130f,
+                2,
+                breakAfter = listOf(false, false, false, false, false, false)
+            )
+        )
+        // 末块以标点结尾不构成行间断点,断点与无提示时一致。
+        assertEquals(
+            balancedChunkRanges(uneven, 130f, 2),
+            balancedChunkRanges(
+                uneven,
+                130f,
+                2,
+                breakAfter = listOf(false, false, false, false, false, true)
+            )
+        )
+    }
+
+    @Test
     fun legacyWrappingUsesUpstreamGreedyBreaksInsteadOfBalancing() {
         assertEquals(
             listOf(0 until 3, 3 until 4),

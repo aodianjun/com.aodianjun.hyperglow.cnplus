@@ -471,7 +471,12 @@ private fun layoutWordLines(
     val chunkWidths = chunks.map { chunk ->
         chunk.sumOf { (it.width + it.gapAfter).toDouble() }.toFloat()
     }
-    val lines = balancedChunkRanges(chunkWidths, availableWidth, maxLines).map { range ->
+    val lines = balancedChunkRanges(
+        chunkWidths,
+        availableWidth,
+        maxLines,
+        chunks.map { chunk -> endsWithClausePunctuation(chunk.lastOrNull()?.word?.text.orEmpty()) }
+    ).map { range ->
         wordLine(original, range.flatMap { chunks[it] })
     }
     return lines.ifEmpty { listOf(LyricLayoutLine("", 0f, null, null)) }
