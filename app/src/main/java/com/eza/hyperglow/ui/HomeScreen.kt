@@ -253,6 +253,10 @@ internal fun HomeScreen(
     var filterNonMusicSources by remember {
         mutableStateOf(initialConfig.filterNonMusicSources)
     }
+    // 「不显示非歌词内容(作词/作曲等)」:歌词里的制作名单行整行隐藏。
+    var hideCreditLines by remember {
+        mutableStateOf(initialConfig.hideCreditLines)
+    }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
@@ -587,17 +591,21 @@ internal fun HomeScreen(
                         val aodProfile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
                         // 每面各自组装歌曲信息、按本面「识别对唱标记」隐去标记:切换面时
                         // 使用该面自己的快照,改一面的内容项不影响另一面。
+                        // 「不显示非歌词内容」是应用级偏好(非按面),两面预览同值传入,
+                        // 保证预览与实机投影层用同一分类函数(预览即实机)。
                         val lockscreenLive = collectLiveSnapshot(
                             lockscreenProfile.metadataParts,
                             lockscreenProfile.metadataSeparators,
                             lockscreenProfile.duetMarkers,
-                            lockscreenProfile.hideAlbumWhenSameAsTitle
+                            lockscreenProfile.hideAlbumWhenSameAsTitle,
+                            hideCreditLines
                         )
                         val aodLive = collectLiveSnapshot(
                             aodProfile.metadataParts,
                             aodProfile.metadataSeparators,
                             aodProfile.duetMarkers,
-                            aodProfile.hideAlbumWhenSameAsTitle
+                            aodProfile.hideAlbumWhenSameAsTitle,
+                            hideCreditLines
                         )
                         var previewAod by rememberSaveable { mutableStateOf(false) }
                         Column(
@@ -630,6 +638,18 @@ internal fun HomeScreen(
                                 stringResource(R.string.setting_filter_non_music_sources),
                                 summary = stringResource(
                                     R.string.summary_filter_non_music_sources
+                                )
+                            )
+                            SwitchPreference(
+                                hideCreditLines,
+                                { enabled ->
+                                    if (updateHideCreditLines(context, enabled)) {
+                                        hideCreditLines = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_hide_credit_lines),
+                                summary = stringResource(
+                                    R.string.summary_hide_credit_lines
                                 )
                             )
                         }

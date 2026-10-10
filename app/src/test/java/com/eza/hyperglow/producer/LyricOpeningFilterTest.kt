@@ -127,4 +127,73 @@ class LyricOpeningFilterTest {
     fun emptyInputReturnsEmpty() {
         assertEquals(0, LyricOpeningFilter.filterOpeningMetadata(emptyList()).size)
     }
+
+    // --- 制作名单行识别(「不显示非歌词内容」开关的判定核心)---
+
+    @Test
+    fun creditLinesAreDetected_cnEnAndBracketForms() {
+        assertTrue(LyricCreditLineFilter.isCreditLine("作词：张三"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("作曲：李四"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("编曲：王五"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("词曲：赵六"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("作词 : 张三"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("Composer: John"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("lyricist: Bob"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("Arranger / Alice"))
+        // 括号标签型(含无名字的裸标签)
+        assertTrue(LyricCreditLineFilter.isCreditLine("【作词】 张三"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("(作曲) 李四"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("【作词】"))
+        // 空格隔开的英文分工写明
+        assertTrue(LyricCreditLineFilter.isCreditLine("Lyrics by Bob"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("Composed by John"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("Music by Someone"))
+        // 繁体与全角同样归一后命中(zh-Hant 歌词源常见)
+        assertTrue(LyricCreditLineFilter.isCreditLine("作詞：山田"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("編曲：山田"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("填詞：李四"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("ＬＹＲＩＣＩＳＴ：John"))
+        // 「标签: 内容」形态本身即名单,内容长短不影响判定
+        assertTrue(LyricCreditLineFilter.isCreditLine("词曲：这是一句够长的歌词正文内容"))
+    }
+
+    @Test
+    fun ordinaryLyricsAreNeverTreatedAsCreditLines() {
+        // 保守原则的核心:宁可漏判(照常显示),不可错判(吞掉真歌词)。
+        assertFalse(LyricCreditLineFilter.isCreditLine("真正的第一句歌词"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("我作曲给你听")) // 句中出现,非行首分工
+        // 行首是角色词前缀但不成标签的真歌词:没有分隔符/右括号,绝不吞。
+        assertFalse(LyricCreditLineFilter.isCreditLine("作曲家的梦想"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("作词人的自白"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("I was composed and calm"))
+        assertFalse(LyricCreditLineFilter.isCreditLine(""))
+        assertFalse(LyricCreditLineFilter.isCreditLine("   "))
+        // 词边界:recomposed 内部的 composed 不能命中(左侧须非字母数字)。
+        assertFalse(LyricCreditLineFilter.isCreditLine("recomposed the melody"))
+        // 只有角色词、没有分隔/收尾时不算名单。
+        assertFalse(LyricCreditLineFilter.isCreditLine("作词"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("作曲"))
+    }
+
+    @Test
+    fun classifyCreditLinesRespectsTheSwitch() {
+        // 开关关闭:一律不判为名单(保持历史行为)。
+        val off = classifyCreditLines("作词：张三", "作曲：李四", hideCredits = false)
+        assertFalse(off.lineIsCredit)
+        assertFalse(off.nextLineIsCredit)
+
+        // 开关打开:分别归类主行与下一行。
+        val on = classifyCreditLines("作词：张三", "真正的歌词", hideCredits = true)
+        assertTrue(on.lineIsCredit)
+        assertFalse(on.nextLineIsCredit)
+
+        val both = classifyCreditLines("作词：张三", "作曲：李四", hideCredits = true)
+        assertTrue(both.lineIsCredit)
+        assertTrue(both.nextLineIsCredit)
+
+        // 空白行不参与归类。
+        val blank = classifyCreditLines("", "", hideCredits = true)
+        assertFalse(blank.lineIsCredit)
+        assertFalse(blank.nextLineIsCredit)
+    }
 }

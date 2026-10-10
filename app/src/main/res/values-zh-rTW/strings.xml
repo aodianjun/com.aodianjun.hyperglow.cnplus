@@ -78,6 +78,8 @@
     <string name="summary_lyric_source_superlyric">使用 SuperLyric Xposed 模塊，通過 Binder 實時推送當前歌詞行。</string>
     <string name="summary_lyric_source_lyricinfo">使用 LyricInfo Xposed 模塊，讀取注入到媒體會話元數據中的歌詞。</string>
     <string name="setting_filter_non_music_sources">影片等非音樂音訊不顯示歌詞</string>
+    <string name="setting_hide_credit_lines">不顯示非歌詞內容（作詞/作曲等）</string>
+    <string name="summary_hide_credit_lines">把「作詞/作曲/編曲」這類製作名單行當作非歌詞隱藏，不在息屏與鎖屏上顯示；遇到這類行時自動顯示下一句歌詞或播放佔位符。</string>
     <string name="summary_filter_non_music_sources">識別當前音訊源（播放器應用與工作階段宣告的音訊內容類型）：影片、播客等非音樂內容播放時不顯示歌詞。</string>
     <string name="label_active_source">當前歌詞源</string>
     <string name="summary_active_source">%1$s · %2$s</string>

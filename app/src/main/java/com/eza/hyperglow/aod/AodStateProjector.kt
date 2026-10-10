@@ -11,6 +11,7 @@ import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricLayoutGroup
 import com.eza.hyperglow.producer.LyricRuby
 import com.eza.hyperglow.producer.LyricWord
+import com.eza.hyperglow.producer.classifyCreditLines
 import com.eza.hyperglow.root.HookLogger
 
 /**
@@ -84,7 +85,18 @@ internal fun projectToDisplay(
     val fallbackLine = state.line.takeIf {
         !extrapolationInvalid && !unsynced && !noLyrics && kind == LyricKind.NONE && state.status == "ready" && it.isNotBlank()
     }
-    val presentable = hasActiveLine || fallbackLine != null
+    // --- 「不显示非歌词内容(作词/作曲等)」---
+    // 开关关闭(默认)时本节空转(activeIsCredit/nextLineIsCredit 恒 false),保持历史行为。
+    // 分类由 producer 侧共享纯函数给出,App 内预览走同一函数,避免两边判定分叉。
+    val creditFlags = classifyCreditLines(state.line, state.nextLine, prefs.hideCreditLines)
+    // 活动行本身是制作名单时的处理与间奏保持一致:名单行占位会让屏幕在开场几行一直显示
+    // 「作词：…」这类非歌词文本;这里把名单行当作「无活动行」,交给下方既有的空档预览/
+    // 占位逻辑接手(有下一行则提前显示下一行,否则显示 🎶)。
+    val activeIsCredit = hasActiveLine && creditFlags.lineIsCredit
+    val effectiveHasActiveLine = hasActiveLine && !activeIsCredit
+    // 下一行同样是名单时不把它顶到主行/下一行槽位,继续回退到占位符。
+    val nextLineIsCredit = creditFlags.nextLineIsCredit
+    val presentable = effectiveHasActiveLine || fallbackLine != null
 
     // --- 元数据（原始歌名/歌手/专辑随状态下发，由各渲染面按自己的「歌曲信息内容」组装）---
     // 保持一份文档级默认组装值作为兜底(旧消费方/降级),真正的按面组装在渲染侧完成。
@@ -118,19 +130,22 @@ internal fun projectToDisplay(
 
     // --- 原文/罗马音/翻译（原 project() 的 original/romanized/translated 分支）---
     // 文本一律下发原始形态(含行首标记);隐去标记与否由渲染面按自己的开关决定。
-    val presentedLineText = state.line.takeIf { hasActiveLine && !showLargeMetadata }
+    val presentedLineText = state.line.takeIf { effectiveHasActiveLine && !showLargeMetadata }
     // 中文歌被错误标注日语假名注音(网易云常见:中文歌词配日语 furigana/罗马音),AOD 上
     // 显示出来既难看又误导。语言为 zh 且 ruby 注音含假名时,拒绝整行的 ruby/罗马音
     // (上游 8422d78)。
-    val rejectJapaneseReading = hasActiveLine && hasLanguageInconsistentKanaRuby(
+    val rejectJapaneseReading = effectiveHasActiveLine && hasLanguageInconsistentKanaRuby(
         state.language,
         state.ruby.map { it.reading }
     )
     // 空档预览:无活动行(前奏/间奏/行间空档)且确有下一行文本时,主行提前显示下一行,
     // 替代 🎶 占位符(owner 2026-10-06 定案)。外推不可信(数据源停写、外推越界/过长)时
     // 保持占位符——预览行同样来自过期快照,不能让空档把「清空旧行」的外推防护绕过去。
-    val previewNextLine = !hasActiveLine && !extrapolationInvalid &&
-        hasTimedLyrics && state.status != "loading" && state.nextLine.trim().isNotEmpty()
+    // 活动行被「不显示非歌词内容」判为制作名单时同样适用(名单不当主行显示),
+    // 但下一行本身也是名单时不开预览,避免把名单从主行搬到主行的位置。
+    val previewNextLine = !effectiveHasActiveLine && !extrapolationInvalid &&
+        hasTimedLyrics && state.status != "loading" && state.nextLine.trim().isNotEmpty() &&
+        !nextLineIsCredit
     // 大元数据引导时,占位符交给渲染面用本面「歌曲信息内容」组装后的文本替换(见 largeMetadata)。
     val original = when {
         unsynced || noLyrics -> PLAYING_PLACEHOLDER
@@ -154,16 +169,23 @@ internal fun projectToDisplay(
     // 空档预览:主行已占用下一行 → 下一行槽位清空,避免同一句同时出现在主行与下一行两处。
     val nextLine = if (showLargeMetadata || unsynced || noLyrics || previewNextLine) {
         ""
+    } else if (nextLineIsCredit) {
+        // 下一行是制作名单时不进「下一行」槽位,避免名单从主行搬到下一行。
+        ""
     } else {
         state.nextLine
     }
     // 下一行的辅助文字(音标/翻译):与下一行同门控;文本不剥离对唱标记(与 translatedLine 同口径)。
-    val nextLineRomanized = if (showLargeMetadata || unsynced || noLyrics || previewNextLine) {
+    val nextLineRomanized = if (
+        showLargeMetadata || unsynced || noLyrics || previewNextLine || nextLineIsCredit
+    ) {
         ""
     } else {
         state.nextLineRomanized
     }
-    val nextLineTranslated = if (showLargeMetadata || unsynced || noLyrics || previewNextLine) {
+    val nextLineTranslated = if (
+        showLargeMetadata || unsynced || noLyrics || previewNextLine || nextLineIsCredit
+    ) {
         ""
     } else {
         state.nextLineTranslated
@@ -217,7 +239,7 @@ internal fun projectToDisplay(
     // --- per-word（透传真实词级数据）---
     // 真实词级时间戳随 words 下发：统一扫光管线以其计算整块进度（无行级时间时），
     // 逐字卡拉OK路径（逐字源+关闭发光）以逐词时间驱动缩放/渐变。
-    val effectiveWords = if (showLargeMetadata || !hasActiveLine) {
+    val effectiveWords = if (showLargeMetadata || !effectiveHasActiveLine) {
         emptyList()
     } else {
         state.words.orEmpty()
@@ -226,10 +248,10 @@ internal fun projectToDisplay(
     // --- 行级同步标志（统一走整行水平扫光）---
     // 有活动歌词行时一律行级同步，以整行水平扫光为主要效果；
     // NONE/UNSYNCED 无活动行 → false。
-    val lineLevelSync = hasActiveLine && !showLargeMetadata
+    val lineLevelSync = effectiveHasActiveLine && !showLargeMetadata
 
     // --- ruby / layoutGroup（原 presentedRow.words/ruby/layoutGroups）---
-    val words = if (showLargeMetadata || !hasActiveLine) {
+    val words = if (showLargeMetadata || !effectiveHasActiveLine) {
         emptyList()
     } else {
         effectiveWords.map {
@@ -238,19 +260,23 @@ internal fun projectToDisplay(
             }
         }
     }
-    val ruby = if (showLargeMetadata || !hasActiveLine || rejectJapaneseReading) {
+    val ruby = if (showLargeMetadata || !effectiveHasActiveLine || rejectJapaneseReading) {
         emptyList()
     } else {
         state.ruby.map(::toDisplayRuby)
     }
     // 插件逐字翻译词表:与 words 同一门控(大元数据引导/无活动行时不下发);「拒绝日语假名
     // 注音」只作用于音标,翻译片段原样下发(它不来自注音通道)。
-    val translationWords = if (showLargeMetadata || !hasActiveLine) {
+    val translationWords = if (showLargeMetadata || !effectiveHasActiveLine) {
         emptyList()
     } else {
         state.translationWords.map(::toDisplayWord)
     }
-    val layoutGroups = if (showLargeMetadata || !hasActiveLine) emptyList() else state.layoutGroups.map(::toDisplayLayoutGroup)
+    val layoutGroups = if (showLargeMetadata || !effectiveHasActiveLine) {
+        emptyList()
+    } else {
+        state.layoutGroups.map(::toDisplayLayoutGroup)
+    }
 
     // --- 对唱并发行(息屏 + 锁屏卡片,移植上游 99ba119d4 duet/secondLine)---
     // 生产者已按时间轴重叠预计算候选(契约:投影不选行),这里只做策略与格式转换:
@@ -279,7 +305,7 @@ internal fun projectToDisplay(
     val duetConcurrent = (aodProfile?.duetConcurrent ?: true) ||
         (lockscreenProfile?.duetConcurrent ?: true) ||
         harmonyAsAux
-    val duetLine = if (!duetConcurrent || showLargeMetadata || !hasActiveLine) {
+    val duetLine = if (!duetConcurrent || showLargeMetadata || !effectiveHasActiveLine) {
         null
     } else {
         state.duetLine?.let { line ->
@@ -312,7 +338,7 @@ internal fun projectToDisplay(
     val interludeGap = interludeSpan(
         lineStartMs = state.lineStartMs,
         lineEndMs = state.lineEndMs,
-        hasActiveLine = hasActiveLine,
+        hasActiveLine = effectiveHasActiveLine,
         nextLineStartMs = state.nextLineStartMs,
         extrapolationReliable = !extrapolationInvalid
     )
@@ -361,8 +387,8 @@ internal fun projectToDisplay(
         alignedRightMarkers = state.alignedRightMarkers,
         lineLevelSync = lineLevelSync,
         // 空档预览时行窗口取下一行起点(退化窗 → 进度恒 0 = 未唱);其余无活动行时刻保持 0/0。
-        lineStartMs = if (hasActiveLine) state.lineStartMs else previewWindowMs ?: 0L,
-        lineEndMs = if (hasActiveLine) state.lineEndMs else previewWindowMs ?: 0L,
+        lineStartMs = if (effectiveHasActiveLine) state.lineStartMs else previewWindowMs ?: 0L,
+        lineEndMs = if (effectiveHasActiveLine) state.lineEndMs else previewWindowMs ?: 0L,
         durationMs = state.durationMs,
         positionMs = position,
         sampledAtElapsedMs = now,

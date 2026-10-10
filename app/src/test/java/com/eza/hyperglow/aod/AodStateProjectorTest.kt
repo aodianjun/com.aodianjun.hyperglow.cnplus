@@ -119,6 +119,9 @@ class AodStateProjectorTest {
         layoutGroups: List<LyricLayoutGroup> = emptyList(),
         hasTimedLyrics: Boolean = true,
         nextLineStartMs: Long? = null,
+        nextLine: String = "",
+        nextLineRomanized: String = "",
+        nextLineTranslated: String = "",
         language: String = "",
         positionMs: Long = 0L,
         durationMs: Long = 180_000L,
@@ -163,6 +166,9 @@ class AodStateProjectorTest {
         layoutGroups = layoutGroups,
         hasTimedLyrics = hasTimedLyrics,
         nextLineStartMs = nextLineStartMs,
+        nextLine = nextLine,
+        nextLineRomanized = nextLineRomanized,
+        nextLineTranslated = nextLineTranslated,
         language = language
     )
 
@@ -1283,4 +1289,125 @@ class AodStateProjectorTest {
         assertEquals(0L, out.lineEndMs)
     }
 
+    // --- 「不显示非歌词内容(作词/作曲等)」---
+
+    private fun creditPrefs(hideCreditLines: Boolean) = prefs.copy(hideCreditLines = hideCreditLines)
+
+    private fun projectWithPrefs(
+        state: LyricProducerState,
+        hideCreditLines: Boolean,
+        now: Long = 0L
+    ): AodDisplayState =
+        projectToDisplay(
+            state = state,
+            now = now,
+            prefs = creditPrefs(hideCreditLines),
+            compiled = compiled,
+            metadataIntroPolicy = SongMetadataIntroPolicy(),
+            powerSessionPolicy = AodPowerSessionPolicy(),
+            userId = 0
+        )
+
+    @Test
+    fun creditLinesAreShownWhenTheSwitchIsOff() {
+        // 默认(关闭)零行为变化:名单行照常显示——历史行为与 LyricOpeningFilter 的
+        // 保守语义(作词/作曲不隐藏)都由本用例钉住。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "作词：张三",
+            lineIndex = 0,
+            lineStartMs = 1_000L,
+            lineEndMs = 3_000L
+        )
+        val out = projectWithPrefs(s, hideCreditLines = false)
+        assertEquals("作词：张三", out.original)
+    }
+
+    @Test
+    fun creditLineIsReplacedByNextLyricWhenTheSwitchIsOn() {
+        // 名单行不当主行:与实机的空档预览同口径,主行提前显示下一行真实歌词。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "作词：张三",
+            lineIndex = 0,
+            lineStartMs = 1_000L,
+            lineEndMs = 3_000L,
+            nextLine = "真正的第一句歌词",
+            nextLineStartMs = 3_000L
+        )
+        val out = projectWithPrefs(s, hideCreditLines = true)
+        assertEquals("真正的第一句歌词", out.original)
+        // 下一行已被顶到主行 → 「下一行」槽位清空,同一句不出现两次。
+        assertEquals("", out.nextLine)
+        assertFalse(out.lineLevelSync)
+        assertTrue(out.words.isEmpty())
+    }
+
+    @Test
+    fun creditLineFallsBackToPlaceholderWhenNoRealNextLineExists() {
+        // 名单行且下一行也是名单 → 不把名单搬到主行/下一行,回落到播放占位符。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "作词：张三",
+            lineIndex = 0,
+            lineStartMs = 1_000L,
+            lineEndMs = 3_000L,
+            nextLine = "作曲：李四",
+            nextLineStartMs = 3_000L
+        )
+        val out = projectWithPrefs(s, hideCreditLines = true)
+        assertEquals("🎶", out.original)
+        assertEquals("", out.nextLine)
+    }
+
+    @Test
+    fun creditNextLineIsDroppedFromTheNextLineSlot() {
+        // 主行是正常歌词、下一行是名单:下一行槽位清空,主行不变。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "真正的歌词",
+            lineIndex = 0,
+            lineStartMs = 1_000L,
+            lineEndMs = 3_000L,
+            nextLine = "作曲：李四",
+            nextLineRomanized = "zuò qǔ",
+            nextLineTranslated = "composer",
+            nextLineStartMs = 3_000L
+        )
+        val out = projectWithPrefs(s, hideCreditLines = true)
+        assertEquals("真正的歌词", out.original)
+        assertEquals("", out.nextLine)
+        assertEquals("", out.nextLineRomanized)
+        assertEquals("", out.nextLineTranslated)
+        // 关闭开关时同状态下发原值(零回归)。
+        val off = projectWithPrefs(s, hideCreditLines = false)
+        assertEquals("作曲：李四", off.nextLine)
+        assertEquals("zuò qǔ", off.nextLineRomanized)
+    }
+
+    @Test
+    fun normalLyricsAreUnaffectedByTheSwitch() {
+        // 普通歌词:开关开与关逐字段一致(保守原则的外层验证)。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "真正的歌词",
+            romanizedLine = "roma",
+            translatedLine = "tr",
+            lineIndex = 0,
+            lineStartMs = 1_000L,
+            lineEndMs = 3_000L,
+            nextLine = "下一句歌词",
+            nextLineStartMs = 3_000L
+        )
+        val on = projectWithPrefs(s, hideCreditLines = true)
+        val off = projectWithPrefs(s, hideCreditLines = false)
+        assertEquals("真正的歌词", on.original)
+        assertEquals(off.original, on.original)
+        assertEquals(off.romanized, on.romanized)
+        assertEquals(off.translated, on.translated)
+        assertEquals(off.nextLine, on.nextLine)
+        assertEquals(off.lineStartMs, on.lineStartMs)
+        assertEquals(off.lineEndMs, on.lineEndMs)
+        assertTrue(on.lineLevelSync)
+    }
 }

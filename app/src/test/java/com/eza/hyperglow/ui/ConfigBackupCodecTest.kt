@@ -64,7 +64,8 @@ class ConfigBackupCodecTest {
         aodBrightnessLevel = 73,
         aodDebugShowCanvasFrame = true,
         aodRefreshRateCap = 90,
-        filterNonMusicSources = false
+        filterNonMusicSources = false,
+        hideCreditLines = true
     )
 
     /** 每个补充设置面字段都取非默认值;插件值覆盖 SharedPreferences 全部六种原生类型。 */

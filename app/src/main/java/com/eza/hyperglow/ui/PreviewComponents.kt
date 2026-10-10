@@ -261,13 +261,15 @@ internal fun AppearanceLivePreview(
     metadataSeparators: String,
     duetMarkers: Boolean = true,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
+    hideCreditLines: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val live = collectLiveSnapshot(
         metadataParts,
         metadataSeparators,
         duetMarkers,
-        profile.hideAlbumWhenSameAsTitle
+        profile.hideAlbumWhenSameAsTitle,
+        hideCreditLines
     )
     LyricPreviewSurface(
         profile = profile,

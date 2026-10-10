@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
+import com.eza.hyperglow.aod.PLAYING_PLACEHOLDER
 import com.eza.hyperglow.aod.interludeSpan
 import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.plugin.PluginPipeline
@@ -15,6 +16,7 @@ import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.LyricSource
 import com.eza.hyperglow.producer.ProducerConnection
 import com.eza.hyperglow.producer.SongArtworkRepository
+import com.eza.hyperglow.producer.classifyCreditLines
 import com.eza.hyperglow.producer.isSameTrackIdentity
 import com.eza.hyperglow.producer.stripDuetMarker
 import com.eza.hyperglow.producer.stripDuetMarkerWords
@@ -98,7 +100,8 @@ internal fun collectLiveSnapshot(
     metadataParts: String,
     metadataSeparators: String,
     duetMarkers: Boolean = true,
-    hideAlbumWhenSameAsTitle: Boolean = false
+    hideAlbumWhenSameAsTitle: Boolean = false,
+    hideCreditLines: Boolean = false
 ): LyricSnapshot? {
     val active by collectActiveState()
     // 封面帧出帧后驱动重组(帧到达前字段为空,预览不显示,与实机 fail-closed 一致)。
@@ -109,7 +112,8 @@ internal fun collectLiveSnapshot(
         metadataSeparators,
         duetMarkers,
         hideAlbumWhenSameAsTitle,
-        artworkFrame
+        artworkFrame,
+        hideCreditLines
     )
 }
 
@@ -134,18 +138,28 @@ internal fun LyricProducerState.toPreviewSnapshot(
     metadataSeparators: String,
     duetMarkers: Boolean,
     hideAlbumWhenSameAsTitle: Boolean,
-    artworkFrame: ArtworkFrame?
+    artworkFrame: ArtworkFrame?,
+    hideCreditLines: Boolean = false
 ): LyricSnapshot {
     val frame = artworkFrame?.takeIf {
         isSameTrackIdentity(title, artist, it.title, it.artist)
     }
+    // 「不显示非歌词内容」与实机投影层共用同一分类函数(预览即实机):活动行是制作名单时
+    // 按「无活动行」处理——有真实下一行则提前显示下一行(与实机空档预览同口径),否则留空;
+    // 下一行是名单时清空「下一行」槽位,名单不会从主行搬到下一行。
+    // 开关关闭时 classifyCreditLines 恒返回 false,以下分支与改动前逐字段一致。
+    val creditFlags = classifyCreditLines(line, nextLine, hideCreditLines)
+    val effectiveHasActiveLine =
+        lineIndex >= 0 && line.isNotBlank() && !creditFlags.lineIsCredit
+    val previewNextLine = creditFlags.lineIsCredit && !creditFlags.nextLineIsCredit &&
+        nextLine.trim().isNotEmpty()
     // 长间奏窗口:与实机投影层同一判据函数(本行 end → 下一行 start,≥4s),让
     // 「长间奏显示倒计时圆点」在连上实时歌词源时与实机同拍(预览即实机)。面级开关与
     // 「显示下一行」的延迟映射不在这里做——由渲染侧按本面 profile 解析(见 LyricCanvasMapper)。
     val interlude = interludeSpan(
         lineStartMs = lineStartMs,
         lineEndMs = lineEndMs,
-        hasActiveLine = lineIndex >= 0 && line.isNotBlank(),
+        hasActiveLine = effectiveHasActiveLine,
         nextLineStartMs = nextLineStartMs
     )
     return LyricSnapshot(
@@ -153,14 +167,23 @@ internal fun LyricProducerState.toPreviewSnapshot(
     trackGeneration = generation.toLong(),
     updatedAtElapsedMs = sampledAtElapsedMs,
     visible = true,
-    original = if (duetMarkers) stripDuetMarker(line) else line,
-    romanized = romanizedLine,
-    translated = translatedLine,
-    nextLine = if (duetMarkers) stripDuetMarker(nextLine) else nextLine,
+    original = when {
+        // 空档预览:主行显示下一行(实机同口径,名单不当主行)。
+        previewNextLine -> if (duetMarkers) stripDuetMarker(nextLine) else nextLine
+        // 名单行无真实下一行可顶替时,与实机同为「播放中占位符」,不留空白。
+        creditFlags.lineIsCredit -> PLAYING_PLACEHOLDER
+        else -> if (duetMarkers) stripDuetMarker(line) else line
+    },
+    romanized = if (previewNextLine) nextLineRomanized else romanizedLine,
+    translated = if (previewNextLine) nextLineTranslated else translatedLine,
+    nextLine = when {
+        previewNextLine || creditFlags.nextLineIsCredit -> ""
+        else -> if (duetMarkers) stripDuetMarker(nextLine) else nextLine
+    },
     // 下一行辅助文字原样透传(与实机 projectToDisplay 同口径,不剥对唱标记);
     // 「显示第二行辅助文字」预览行构建直接消费这两个字段,缺了预览就少第四行。
-    nextLineRomanized = nextLineRomanized,
-    nextLineTranslated = nextLineTranslated,
+    nextLineRomanized = if (previewNextLine || creditFlags.nextLineIsCredit) "" else nextLineRomanized,
+    nextLineTranslated = if (previewNextLine || creditFlags.nextLineIsCredit) "" else nextLineTranslated,
     metadata = composeSongMetadata(
         title = title,
         artist = artist,
@@ -176,45 +199,41 @@ internal fun LyricProducerState.toPreviewSnapshot(
     // 有活动行且非大元数据引导态。预览不建模换歌引导态,故取「有活动行」即实机稳态。
     // 此前用 `words == null`(无逐字时间)当判据,逐字源被判成非行级同步 → 主行渲染路径落到
     // 整块横扫,与实机(带行窗的逐字源走共享逐行扫光)不一致;演示快照恒写 true,只有连上
-    // 实时歌词源才看得出来。
-    lineLevelSync = lineIndex >= 0 && line.isNotBlank(),
-    lineStartMs = lineStartMs,
-    lineEndMs = lineEndMs,
+    // 实时歌词源才看得出来。活动行被判为名单时同步关闭(与实机的 effectiveHasActiveLine 同口径)。
+    lineLevelSync = effectiveHasActiveLine,
+    // 空档预览时行窗口取下一行起点(退化窗 → 进度恒 0 = 未唱),与实机 projectToDisplay 同口径。
+    lineStartMs = if (effectiveHasActiveLine || !previewNextLine) lineStartMs else nextLineStartMs ?: 0L,
+    lineEndMs = if (effectiveHasActiveLine || !previewNextLine) lineEndMs else nextLineStartMs ?: 0L,
     durationMs = durationMs,
     positionMs = positionMs,
     sampledAtElapsedMs = sampledAtElapsedMs,
     speed = speed,
-    words = (if (duetMarkers) stripDuetMarkerWords(words ?: emptyList()) else words ?: emptyList()).map {
-        LyricWord(
-            text = it.text,
-            romanized = it.romanized,
-            startMs = it.startMs,
-            endMs = it.endMs,
-            boundaryAfter = it.boundaryAfter,
-            sourceStart = it.sourceStart,
-            sourceEnd = it.sourceEnd
-        )
-    },
-    ruby = ruby.map { LyricRuby(it.start, it.end, it.reading) },
-    layoutGroups = layoutGroups.map {
+    words = if (!effectiveHasActiveLine) emptyList() else
+        (if (duetMarkers) stripDuetMarkerWords(words ?: emptyList()) else words ?: emptyList()).map {
+            LyricWord(
+                text = it.text,
+                romanized = it.romanized,
+                startMs = it.startMs,
+                endMs = it.endMs,
+                boundaryAfter = it.boundaryAfter,
+                sourceStart = it.sourceStart,
+                sourceEnd = it.sourceEnd
+            )
+        },
+    ruby = if (!effectiveHasActiveLine) emptyList() else ruby.map { LyricRuby(it.start, it.end, it.reading) },
+    layoutGroups = if (!effectiveHasActiveLine) emptyList() else layoutGroups.map {
         LyricLayoutGroup(it.start, it.end, it.kind, it.keepTogether, it.confidence)
     },
     artworkJpeg = frame?.jpeg ?: ByteArray(0),
     artworkKey = frame?.key ?: "",
     // 对唱并发行:与主行同口径按本面「识别对唱标记」剥离文本/词表并选分侧,剥空(纯标记行)
     // 整条丢弃;是否上屏由渲染侧按本面「显示并发歌词(对唱)」门控(与实机 LyricCanvasMapper 同源)。
-    duetLine = toPreviewDuetLine(duetMarkers),
+    duetLine = if (!effectiveHasActiveLine) null else toPreviewDuetLine(duetMarkers),
     interludeStartMs = interlude?.first ?: 0L,
     interludeEndMs = interlude?.last ?: 0L
     )
 }
 
-/**
- * 实时快照的并发行映射(纯函数,JVM 可测;与实机 AodStateProjector 同口径):按本面「识别
- * 对唱标记」剥离文本/词表并选分侧,剥空(纯标记行)整条丢弃。和声身份(role=BG 的 x-bg 回声)
- * 原样透传——预览渲染侧据此走辅助行车道,漏传时预览把和声按对唱同款大字行渲染,正是真机
- * 2026-10-07 反馈的错观感(演示快照自带标记,掩盖了这一缺口,见 [demoDuetLine])。
- */
 internal fun LyricProducerState.toPreviewDuetLine(duetMarkers: Boolean): LyricDuetLine? =
     duetLine?.let { line ->
         val duetText = if (duetMarkers) stripDuetMarker(line.text) else line.text

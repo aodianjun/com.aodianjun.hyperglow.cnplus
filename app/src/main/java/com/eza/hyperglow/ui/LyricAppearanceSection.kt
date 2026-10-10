@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
+import com.eza.hyperglow.aod.AodRenderPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
@@ -128,6 +129,9 @@ internal fun LyricAppearanceSection(
     footer: (@Composable () -> Unit)? = null
 ) {
     val context = LocalContext.current
+    // 「不显示非歌词内容」是应用级偏好(非按面),外观编辑页的悬浮预览同样要跟随它,
+    // 否则编辑页预览与实机/首页预览分叉(预览即实机)。
+    val hideCreditLines = remember { AodRenderPreferences.read(context).hideCreditLines }
     // 状态按曲面重建:两个分段复用同一实现,切分段即换编辑面(文档同源,各自只改本面)。
     var editorState by remember(surface) {
         mutableStateOf(
@@ -297,7 +301,8 @@ internal fun LyricAppearanceSection(
                 // 内容项取本面编译后的已解析值(含文档级兜底),预览与实机同源。
                 metadataParts = compiledPreviewProfile.metadataParts,
                 metadataSeparators = compiledPreviewProfile.metadataSeparators,
-                duetMarkers = compiledPreviewProfile.duetMarkers
+                duetMarkers = compiledPreviewProfile.duetMarkers,
+                hideCreditLines = hideCreditLines
             )
         }
         LazyColumn(
