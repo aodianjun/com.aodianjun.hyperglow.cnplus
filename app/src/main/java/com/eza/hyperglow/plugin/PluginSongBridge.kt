@@ -314,7 +314,14 @@ object PluginSongBridge {
                     voiceSlotRowIndexAt(rows, slots, VOICE_SLOT_SECONDARY, state.positionMs)
                 hasSecondVoice -> -1
                 else -> selectDuetLineIndex(
-                    windows = rows.map { DuetLineWindow(it.begin, it.end, it.text.isNullOrBlank()) },
+                    windows = rows.map {
+                        DuetLineWindow(
+                            it.begin,
+                            it.end,
+                            it.text.isNullOrBlank(),
+                            isHarmonyRow(it)
+                        )
+                    },
                     primaryIndex = primaryIndex,
                     positionMs = state.positionMs
                 )
@@ -446,10 +453,13 @@ object PluginSongBridge {
     )
 
     /**
-     * 活动行的**同句和声行**下标(role=BG 且与活动行共享窗口 ≥ [MIN_CONCURRENT_OVERLAP_MS]);
-     * 无则 -1。AMLL TTML 的 x-bg 和声与主行同窗(实测窗口完全相同),HyperLyric 把它折进
-     * 父行的 secondary 车道随父行显示;CN+ 的插件映射成独立行,故在此按行身份挂回活动行。
-     * 不要求位置落在和声窗口内——父行窗口常远长于和声本身,位置采样又是按行跳的。
+     * 活动行的**同句和声行**下标(role=BG 且与活动行共享窗口为正);无则 -1。AMLL TTML 的
+     * x-bg 和声与主行同窗(实测窗口完全相同),HyperLyric 把它折进父行的 secondary 车道随
+     * 父行显示;CN+ 的插件把它映射成独立行,故在此按行身份挂回活动行。不要求位置落在和声
+     * 窗口内——父行窗口常远长于和声本身,位置采样又是按行跳的。
+     *
+     * 门槛取**正重叠**(上游 fefe5c54 的伴唱加入规则):显式伴唱行只要有共享窗口即加入,
+     * 短回声(重叠 <1s)不再被一秒门整段吞掉;共享窗口为零(首尾相接)仍不算同句。
      */
     private fun accompanimentRowIndex(rows: List<PluginLyricLine>, primaryIndex: Int): Int {
         if (primaryIndex !in rows.indices) return -1
@@ -459,7 +469,7 @@ object PluginSongBridge {
                 index != primaryIndex &&
                     isHarmonyRow(row) &&
                     !row.text.isNullOrBlank() &&
-                    minOf(primary.end, row.end) - maxOf(primary.begin, row.begin) >= MIN_CONCURRENT_OVERLAP_MS
+                    minOf(primary.end, row.end) - maxOf(primary.begin, row.begin) > 0L
             }
             .maxByOrNull { it.value.begin }
             ?.index
