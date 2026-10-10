@@ -151,13 +151,13 @@ internal fun LyricSnapshot.toAodCanvasContent(
     artworkAdaptiveScale = artwork.adaptiveScale,
     artworkSizeDp = artwork.sizeDp,
     playbackPaused = pauseRetentionEligible,
-    // 和声行与「显示并发歌词(对唱)」解耦(见 SECONDARY_MODE_BACKGROUND_VOCAL):本面辅助文字
-    // 内容档选「和声」时,和声候选同样放行——即使本面关掉了对唱开关;同尺寸并发行(非和声)
-    // 仍只认本面的对唱开关。
-    duetLine = if (duet && ((profile?.duetConcurrent ?: true) ||
-            (duetLine?.harmony == true &&
-                profile?.secondaryMode ==
-                com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL))
+    // 并发行门控(实机与预览同源,见 duetLineCarried):同尺寸并发行只认本面对唱开关;
+    // 和声行两段门控——候选携带(对唱开关 ∨ 勾了和声档)且未被多选里的「和声」取消勾选。
+    duetLine = if (duet && duetLineCarried(
+            profile?.duetConcurrent ?: true,
+            duetLine?.harmony == true,
+            profile?.secondaryMode ?: "Main only"
+        )
     ) {
         duetLine?.let { line ->
             // 本面「识别对唱标记」:同源剥离并发行文本与逐字词表;剥空(纯标记行)整条丢弃。

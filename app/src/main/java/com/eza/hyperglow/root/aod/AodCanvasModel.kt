@@ -157,8 +157,8 @@ internal fun hasFirstLineAuxText(
     romanized: String,
     translated: String
 ): Boolean {
-    val showReading = secondaryMode == "Transliteration" || secondaryMode == "Both"
-    val showTranslation = secondaryMode == "Translation" || secondaryMode == "Both"
+    val showReading = com.eza.hyperglow.customization.auxShowsReading(secondaryMode)
+    val showTranslation = com.eza.hyperglow.customization.auxShowsTranslation(secondaryMode)
     return (showReading && romanized.isNotBlank()) || (showTranslation && translated.isNotBlank())
 }
 
@@ -235,12 +235,12 @@ internal fun secondLineAuxRows(
 ): List<SecondLineAuxRow> {
     if (!nextLineAux) return emptyList()
     val rows = ArrayList<SecondLineAuxRow>(2)
-    if ((secondaryMode == "Transliteration" || secondaryMode == "Both") &&
+    if (com.eza.hyperglow.customization.auxShowsReading(secondaryMode) &&
         nextLineRomanized.isNotBlank()
     ) {
         rows += SecondLineAuxRow.ROMANIZED
     }
-    if ((secondaryMode == "Translation" || secondaryMode == "Both") &&
+    if (com.eza.hyperglow.customization.auxShowsTranslation(secondaryMode) &&
         nextLineTranslated.isNotBlank()
     ) {
         rows += SecondLineAuxRow.TRANSLATED
@@ -285,6 +285,23 @@ internal data class AodCanvasLineIdentity(
     val lineEndMs: Long,
     val original: String
 )
+
+/**
+ * 并发行是否进入本面画布内容(实机 LyricCanvasMapper 与预览 previewDuetVisible 同源):
+ * 同尺寸并发行只认本面「显示并发歌词(对唱)」开关;和声行两段门控——①候选携带:对唱开关
+ * 开启或勾了「和声」内容档(见 auxHarmonyAsAux,与投影层同判据);②和声显示:多选里取消
+ * 勾选「和声」即隐藏(见 auxHarmonyShown)。两段缺一都会让预览与实机不一致。
+ */
+internal fun duetLineCarried(
+    duetConcurrent: Boolean,
+    harmony: Boolean,
+    secondaryMode: String
+): Boolean = if (harmony) {
+    (duetConcurrent || com.eza.hyperglow.customization.auxHarmonyAsAux(secondaryMode)) &&
+        com.eza.hyperglow.customization.auxHarmonyShown(secondaryMode)
+} else {
+    duetConcurrent
+}
 
 internal fun aodCanvasLineIdentity(content: AodCanvasContent): AodCanvasLineIdentity =
     AodCanvasLineIdentity(

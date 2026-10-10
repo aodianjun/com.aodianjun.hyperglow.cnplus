@@ -79,6 +79,32 @@ class LyricCanvasMapperTest {
         assertEquals("echo", harmony.text)
         // 非和声并发行不受该档影响:对唱开关关闭时照旧丢弃。
         assertNull(snapshot().toAodCanvasContent(harmonyProfile, duet = true).duetLine)
+
+        // 多选里取消勾选「和声」(显式关闭位)时整条和声不进画布内容——即使对唱开关开着。
+        val harmonyOffProfile = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        duetConcurrent = true,
+                        secondaryMode = "Translation,NoHarmony"
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertNull(harmonySnapshot.toAodCanvasContent(harmonyOffProfile, duet = true).duetLine)
+
+        // 多选里勾了和声(内容集合)时同样与对唱开关解耦。
+        val harmonyOnProfile = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        duetConcurrent = false,
+                        secondaryMode = "Translation,BackgroundVocal"
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertNotNull(harmonySnapshot.toAodCanvasContent(harmonyOnProfile, duet = true).duetLine)
     }
 
     @Test

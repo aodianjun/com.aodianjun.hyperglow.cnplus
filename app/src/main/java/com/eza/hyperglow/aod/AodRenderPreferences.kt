@@ -142,15 +142,14 @@ internal fun normalizeAodAlignment(value: String?): String = when (value) {
     else -> "auto"
 }
 
-internal fun normalizeAodSecondary(value: String?): String = when (value) {
-    "Transliteration" -> "Transliteration"
-    "Translation" -> "Translation"
-    "Both" -> "Both"
-    // 和声(x-bg 回声)作为辅助文字内容:与「对唱」开关解耦,见
-    // com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL。
-    "BackgroundVocal" -> "BackgroundVocal"
-    else -> "Main only"
-}
+/**
+ * AOD 侧辅助文字模式归一:与编译/SystemUI/设置页共用同一份词表归一
+ * ([com.eza.hyperglow.customization.normalizeAuxMode])——多选档(逗号连接的集合 +
+ * 和声状态位)必须原样通过,历史四档同样原样保留;两处归一不一致会让 wire 的
+ * validate_rewrote_fields 拒收整份配置(实机表现为「设置页正常、实机毫无变化」)。
+ */
+internal fun normalizeAodSecondary(value: String?): String =
+    com.eza.hyperglow.customization.normalizeAuxMode(value)
 
 internal fun normalizeAodOverflow(value: String?): String = when (value) {
     "Clip" -> "Clip"

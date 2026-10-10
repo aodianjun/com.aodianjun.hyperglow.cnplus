@@ -2174,8 +2174,8 @@ internal class AodLyricCanvasView(
                 lineHeight
             )
         }
-        val showReading = content.secondaryMode == "Transliteration" || content.secondaryMode == "Both"
-        val showTranslation = content.secondaryMode == "Translation" || content.secondaryMode == "Both"
+        val showReading = com.eza.hyperglow.customization.auxShowsReading(content.secondaryMode)
+        val showTranslation = com.eza.hyperglow.customization.auxShowsTranslation(content.secondaryMode)
         // 辅助文字逐字效果(见 SurfaceProfile.secondaryWordKaraoke):第一行辅助行取当前行窗口;
         // 关闭时恒空,行按静态绘制零变化。
         val auxKaraokeWindow = if (content.secondaryWordKaraoke) {
@@ -2241,8 +2241,12 @@ internal class AodLyricCanvasView(
         // 堆叠出来就是两条一样的大字行(真机 2026-10-07 反馈的错观感);改走辅助行车道,
         // 与第一行辅助行同规格——参照 HyperLyric 把 x-bg 折进父行 secondary 车道。
         val duet = content.duetLine
+        // 和声行可被显式关掉(多选里取消勾选「和声」,见 SECONDARY_MODE_NO_HARMONY):
+        // 此时整条和声不上屏,且独立「下一行」行按下方 anti-dup 判据恢复(不再被和声挤掉)。
+        val harmonyHidden = duet != null && duet.harmony &&
+            !com.eza.hyperglow.customization.auxHarmonyShown(content.secondaryMode)
         var duetLayout: OriginalLayout? = null
-        if (duet != null && duet.text.isNotBlank()) {
+        if (duet != null && duet.text.isNotBlank() && !harmonyHidden) {
             if (duet.harmony) {
                 // 复用辅助行装配:同一字号公式/亮度档/「辅助文字逐字效果」路径(行窗口取和声
                 // 自己的,逐字推进与和声同拍);换行档取主行行数——和声多是主行文本的回声。
@@ -2361,8 +2365,9 @@ internal class AodLyricCanvasView(
         // 「显示第二行辅助文字」开启时第二行歌词行本身也按辅助文字形态呈现(即使「辅助
         // 文字显示第二行歌词」关闭——此时以「显示下一行歌词」为前提),独立下一行行形态
         // 同样追加其辅助行。颜色恒走「下一行颜色」(secondLineColorArgb),不随形态改用辅助行颜色。
-        // 对唱并发行在场时独立下一行行整体让位(见上)。
-        if (duet == null || duet.text.isBlank()) when (secondLinePresentation(
+        // 对唱并发行在场时独立下一行行整体让位(见上);和声被显式关掉(harmonyHidden)时
+        // 和声不在场,让位规则不适用——下一行行照常呈现。
+        if (harmonyHidden || duet == null || duet.text.isBlank()) when (secondLinePresentation(
             content.secondaryNextLine,
             content.showNextLine,
             content.nextLine.isNotBlank(),

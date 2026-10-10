@@ -384,6 +384,113 @@ const val SECONDARY_TEXT_SIZE_PERCENT_DEFAULT = 100
 const val SECONDARY_MODE_BACKGROUND_VOCAL = "BackgroundVocal"
 
 /**
+ * 辅助文字内容档「不要和声」:多选样式的显式关闭位。词表里恒有且只有一个和声状态位
+ * ([SECONDARY_MODE_BACKGROUND_VOCAL] 或本值),历史四档(不含状态位)按「显示和声」解释
+ * ——既保历史行为逐字节不变,也让多选写出的值永不与历史档撞名(见 [normalizeAuxMode])。
+ */
+const val SECONDARY_MODE_NO_HARMONY = "NoHarmony"
+
+/** 辅助文字内容词表(多选样式的条目,顺序即摘要与规范序)。 */
+val SECONDARY_CONTENT_TOKENS = listOf(
+    "Transliteration",
+    "Translation",
+    SECONDARY_MODE_BACKGROUND_VOCAL
+)
+
+/** 历史四档 + #246 的和声档:按「显示和声」解释,归一化时原样保留(不与多选值混同)。 */
+private val SECONDARY_LEGACY_MODES = setOf(
+    "Main only",
+    "Transliteration",
+    "Translation",
+    "Both",
+    SECONDARY_MODE_BACKGROUND_VOCAL
+)
+
+private fun auxTokenSet(mode: String): Set<String> =
+    mode.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+
+/** 第一行辅助行是否取音标(转写)。历史档与多选档同源判据。 */
+fun auxShowsReading(mode: String): Boolean =
+    mode == "Transliteration" || mode == "Both" || "Transliteration" in auxTokenSet(mode)
+
+/** 第一行辅助行是否取翻译。历史档与多选档同源判据。 */
+fun auxShowsTranslation(mode: String): Boolean =
+    mode == "Translation" || mode == "Both" || "Translation" in auxTokenSet(mode)
+
+/**
+ * 和声辅助行是否显示:历史档恒显示(行为不变);多选档按状态位——显式关闭位
+ * [SECONDARY_MODE_NO_HARMONY] 在则隐藏。
+ */
+fun auxHarmonyShown(mode: String): Boolean =
+    mode !in SECONDARY_LEGACY_MODES && SECONDARY_MODE_NO_HARMONY !in auxTokenSet(mode)
+
+/**
+ * 和声候选是否与「显示并发歌词(对唱)」解耦放行:历史和声档(选中即放行)或多选里勾了和声
+ * ——此时即使本面关掉对唱开关也要拿到和声候选(见 AodStateProjector / LyricCanvasMapper)。
+ */
+fun auxHarmonyAsAux(mode: String): Boolean =
+    mode == SECONDARY_MODE_BACKGROUND_VOCAL ||
+        SECONDARY_MODE_BACKGROUND_VOCAL in auxTokenSet(mode)
+
+/**
+ * 辅助文字模式归一(编译 / SystemUI 二次校验 / AOD 归一化 / Spicy 桥 / 设置页共用一份,
+ * 各处不一致会让 wire 的 validate_rewrote_fields 拒收整份配置):
+ * 历史档原样保留;多选值按词表规范化(去重、定序、和声状态位恒有且只有一个)。
+ */
+fun normalizeAuxMode(value: String?): String {
+    val v = value?.trim().orEmpty()
+    if (v.isEmpty()) return "Main only"
+    if (v in SECONDARY_LEGACY_MODES) return v
+    val tokens = auxTokenSet(v)
+    val hasContent = "Transliteration" in tokens || "Translation" in tokens
+    val hasHarmonyState = SECONDARY_MODE_BACKGROUND_VOCAL in tokens ||
+        SECONDARY_MODE_NO_HARMONY in tokens
+    // 词表外的值(历史遗留/损坏配置)按历史缺省「仅主歌词」处理,不臆造内容档。
+    if (!hasContent && !hasHarmonyState) return "Main only"
+    val harmonyOff = SECONDARY_MODE_NO_HARMONY in tokens
+    val out = ArrayList<String>(3)
+    if ("Transliteration" in tokens) out += "Transliteration"
+    if ("Translation" in tokens) out += "Translation"
+    out += if (harmonyOff) SECONDARY_MODE_NO_HARMONY else SECONDARY_MODE_BACKGROUND_VOCAL
+    return out.joinToString(",")
+}
+
+/**
+ * 多选样式的勾选态:内容条目在 [mode] 下是否选中(设置页与摘要共用同一判据)。
+ */
+fun auxContentChecked(mode: String, token: String): Boolean = when (token) {
+    "Transliteration" -> auxShowsReading(mode)
+    "Translation" -> auxShowsTranslation(mode)
+    SECONDARY_MODE_BACKGROUND_VOCAL -> auxHarmonyShown(mode)
+    else -> false
+}
+
+/**
+ * 多选样式的一次勾选/取消:在 [mode] 上翻转 [token] 后按 [normalizeAuxMode] 规范落地。
+ * 非词表条目原样返回(防误写)。
+ */
+fun toggleAuxContent(mode: String, token: String): String {
+    if (token !in SECONDARY_CONTENT_TOKENS) return mode
+    val tokens = auxTokenSet(mode).toMutableSet()
+    // 历史档先展开成显式集合:历史档恒含和声,展开后与多选语义同源。
+    if (mode in SECONDARY_LEGACY_MODES) {
+        tokens.clear()
+        if (mode == "Transliteration" || mode == "Both") tokens += "Transliteration"
+        if (mode == "Translation" || mode == "Both") tokens += "Translation"
+        tokens += SECONDARY_MODE_BACKGROUND_VOCAL
+    }
+    if (token in tokens) tokens -= token else tokens += token
+    if (token == SECONDARY_MODE_BACKGROUND_VOCAL && token in tokens) {
+        tokens -= SECONDARY_MODE_NO_HARMONY
+    }
+    if (token == SECONDARY_MODE_BACKGROUND_VOCAL && token !in tokens) {
+        tokens += SECONDARY_MODE_NO_HARMONY
+    }
+    return normalizeAuxMode(tokens.joinToString(","))
+}
+
+
+/**
  * 辅助文字字号倍率归一:compile 与 SystemUI 二次校验必须调用同一份(两处归一不一致会让
  * wire 的 validate_rewrote_fields 拒收整份配置,实机表现为「设置页正常、实机毫无变化」)。
  */

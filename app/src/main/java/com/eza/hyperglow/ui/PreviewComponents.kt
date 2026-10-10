@@ -660,10 +660,10 @@ private fun LyricPreviewSurface(
                         )
                     )
                 } else {
-                    val showReading = profile.secondaryMode == "Transliteration" ||
-                        profile.secondaryMode == "Both"
-                    val showTranslation = profile.secondaryMode == "Translation" ||
-                        profile.secondaryMode == "Both"
+                    val showReading =
+                        com.eza.hyperglow.customization.auxShowsReading(profile.secondaryMode)
+                    val showTranslation =
+                        com.eza.hyperglow.customization.auxShowsTranslation(profile.secondaryMode)
                     listOfNotNull(
                         duet.romanized.takeIf { showReading && it.isNotBlank() }?.let {
                             PreviewBlockRow(
@@ -1186,11 +1186,8 @@ internal fun previewDuetVisible(
     duetConcurrent: Boolean,
     duetLine: LyricDuetLine?,
     secondaryMode: String = "Main only"
-): Boolean = duetLine != null && duetLine.text.isNotBlank() && (
-    duetConcurrent ||
-        (duetLine.harmony &&
-            secondaryMode == com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL)
-    )
+): Boolean = duetLine != null && duetLine.text.isNotBlank() &&
+    com.eza.hyperglow.root.aod.duetLineCarried(duetConcurrent, duetLine.harmony, secondaryMode)
 
 /**
  * 并发行内容键(纯函数,JVM 可测;与实机 AodLyricCanvasView 的 duetLineKey 同口径:
@@ -1251,12 +1248,15 @@ private fun previewSecondaryLines(
             italic = true
         )
     }
-    return when (profile.secondaryMode) {
-        "Transliteration" -> listOfNotNull(reading)
-        "Translation" -> listOfNotNull(translation)
-        "Both" -> listOfNotNull(reading, translation)
-        else -> emptyList()
+    // 第一行辅助行清单:与实机 buildRows 同源判据(历史档与多选档共用,见 auxShowsReading)。
+    val rows = ArrayList<PreviewSecondaryLine>(2)
+    if (com.eza.hyperglow.customization.auxShowsReading(profile.secondaryMode)) {
+        reading?.let { rows += it }
     }
+    if (com.eza.hyperglow.customization.auxShowsTranslation(profile.secondaryMode)) {
+        translation?.let { rows += it }
+    }
+    return rows
 }
 
 /**

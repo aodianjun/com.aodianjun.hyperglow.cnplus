@@ -417,19 +417,13 @@ internal fun LyricAppearanceSection(
                     valueRange = LyricTimeOffset.MIN_OFFSET_MS.toFloat()..LyricTimeOffset.MAX_OFFSET_MS.toFloat(),
                     steps = 199
                 )
+                // 辅助文字内容:多选(转写 / 翻译 / 和声 可任意组合,逐项勾选即时生效)。
+                // 值为逗号连接的内容集合 + 和声状态位(词表见 SECONDARY_CONTENT_TOKENS);
+                // 历史四档按「显示和声」解释,归一与校验共用 normalizeAuxMode。
                 AodChoiceRow(AodChoiceKind.SECONDARY_TEXT, selectedProfile.secondaryMode) {
                     openChoice(
                         AodChoiceKind.SECONDARY_TEXT,
-                        listOf(
-                            "Main only",
-                            "Transliteration",
-                            "Translation",
-                            "Both",
-                            // 和声(x-bg 回声)作为辅助文字内容:与「显示并发歌词(对唱)」解耦,
-                            // 选中后和声行照常走辅助行车道,音标/翻译不取(参考 HyperLyric 的
-                            // BACKGROUND_VOCAL 档)。
-                            com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL
-                        ),
+                        com.eza.hyperglow.customization.SECONDARY_CONTENT_TOKENS,
                         selectedProfile.secondaryMode
                     ) { value -> updateSelected { it.copy(secondaryMode = value) } }
                 }
@@ -471,19 +465,27 @@ internal fun LyricAppearanceSection(
                     stringResource(R.string.setting_secondary_auto_size),
                     summary = stringResource(R.string.summary_secondary_auto_size)
                 )
-                if (selectedProfile.secondaryMode != "Main only" ||
-                    selectedProfile.secondaryNextLine
-                ) {
+                // 露出门槛:任一辅助内容在显示(音标/翻译/和声,和声默认在——见 auxHarmonyShown)
+                // 时露出;多选里三者都不勾时没有辅助行可作用,不露出。
+                val auxAnyContent =
+                    com.eza.hyperglow.customization.auxShowsReading(selectedProfile.secondaryMode) ||
+                        com.eza.hyperglow.customization.auxShowsTranslation(
+                            selectedProfile.secondaryMode
+                        ) ||
+                        com.eza.hyperglow.customization.auxHarmonyShown(
+                            selectedProfile.secondaryMode
+                        )
+                if (auxAnyContent || selectedProfile.secondaryNextLine) {
                     SwitchPreference(
                         selectedProfile.secondaryTextBright,
                         { bright -> updateSelected { it.copy(secondaryTextBright = bright) } },
                         stringResource(R.string.setting_bright_secondary_text)
                     )
                 }
-                // 辅助文字逐字效果(per-surface):第一行辅助文字行(音标/翻译)随歌词逐字点亮。
-                // 只在辅助文字模式非「仅主行」时露出(没有第一行辅助文字行时该开关无对象);
+                // 辅助文字逐字效果(per-surface):第一行辅助文字行(音标/翻译)与和声行随歌词逐字点亮。
+                // 只在有辅助内容显示时露出(没有任何辅助行时该开关无对象,见 auxAnyContent);
                 // 第二行歌词及其辅助行不参与。
-                if (selectedProfile.secondaryMode != "Main only") {
+                if (auxAnyContent) {
                     SwitchPreference(
                         selectedProfile.secondaryWordKaraoke,
                         { enabled ->
@@ -1085,7 +1087,33 @@ internal fun LyricAppearanceSection(
 
     // 选项弹窗最后合成:保证在内容编辑弹窗之上弹出(逐槽分隔符选择需要覆盖在其上方)。
     activeChoice?.let { selected ->
-        if (selected.kind == AodChoiceKind.FONT) {
+        if (selected.kind == AodChoiceKind.SECONDARY_TEXT) {
+            // 辅助文字内容:多选。逐项勾选即时生效(不关闭弹窗);勾选态用本地状态推进——
+            // AodChoice.current 是打开弹窗那一刻的快照,拿它判勾选会永远停在打开时的样子。
+            var mode by remember(selected) { mutableStateOf(selected.current) }
+            WindowDialog(
+                title = stringResource(selected.kind.titleRes),
+                show = true,
+                onDismissRequest = { activeChoice = null }
+            ) {
+                Column {
+                    selected.values.forEach { value ->
+                        SwitchPreference(
+                            com.eza.hyperglow.customization.auxContentChecked(mode, value),
+                            { _ ->
+                                val next = com.eza.hyperglow.customization.toggleAuxContent(
+                                    mode,
+                                    value
+                                )
+                                mode = next
+                                selected.onSelect(next)
+                            },
+                            auxContentItemLabel(context, value)
+                        )
+                    }
+                }
+            }
+        } else if (selected.kind == AodChoiceKind.FONT) {
             FontChoiceDialog(
                 selected = selected,
                 customNames = customFontNames,
@@ -1731,6 +1759,16 @@ private fun effectiveTextSizePercent(profile: SurfaceProfile): Int = when (profi
     else -> 100
 }
 
+/** 辅助文字多选条目标签(内容词表条目;摘要另按集合拼接,见 [choiceDisplayLabel])。 */
+private fun auxContentItemLabel(context: android.content.Context, token: String): String =
+    context.getString(
+        when (token) {
+            "Transliteration" -> R.string.option_transliteration
+            "Translation" -> R.string.option_translation
+            else -> R.string.option_background_vocal
+        }
+    )
+
 private fun choiceDisplayLabel(
     context: android.content.Context,
     kind: AodChoiceKind,
@@ -1852,14 +1890,25 @@ private fun choiceDisplayLabel(
         "500" -> R.string.option_slow
         else -> R.string.option_normal
     })
-    AodChoiceKind.SECONDARY_TEXT -> context.getString(when (value) {
-        "Transliteration" -> R.string.option_transliteration
-        "Translation" -> R.string.option_translation
-        "Both" -> R.string.option_both
-        com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL ->
-            R.string.option_background_vocal
-        else -> R.string.option_main_only
-    })
+    AodChoiceKind.SECONDARY_TEXT -> {
+        // 多选摘要:已勾选内容按词表序以 " + " 连接;一个都不勾显示「仅主歌词」。
+        val parts = buildList {
+            if (com.eza.hyperglow.customization.auxShowsReading(value)) {
+                add(context.getString(R.string.option_transliteration))
+            }
+            if (com.eza.hyperglow.customization.auxShowsTranslation(value)) {
+                add(context.getString(R.string.option_translation))
+            }
+            if (com.eza.hyperglow.customization.auxHarmonyShown(value)) {
+                add(context.getString(R.string.option_background_vocal))
+            }
+        }
+        if (parts.isEmpty()) {
+            context.getString(R.string.option_main_only)
+        } else {
+            parts.joinToString(" + ")
+        }
+    }
     AodChoiceKind.LONG_LINES -> context.getString(
         if (value == "Clip") R.string.option_clip else R.string.option_wrap
     )

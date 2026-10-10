@@ -175,7 +175,7 @@ object SceneCompiler {
                 easing = profile.transition.easing.takeIf { it in EASINGS } ?: "fast_out_slow_in"
             ),
             alignment = profile.alignment.takeIf { it in ALIGNMENTS } ?: "auto",
-            secondaryMode = profile.secondaryMode.takeIf { it in SECONDARY_MODES } ?: "Main only",
+            secondaryMode = normalizeAuxMode(profile.secondaryMode),
             secondaryTextBright = profile.secondaryTextBright,
             secondaryWordKaraoke = profile.secondaryWordKaraoke,
             secondaryTextSizePercent = normalizeSecondaryTextSizePercent(
@@ -305,13 +305,8 @@ object SceneCompiler {
     private val TRANSITIONS = setOf("continuity", "crossfade", "none")
     private val EASINGS = setOf("fast_out_slow_in", "linear", "ease_out")
     private val ALIGNMENTS = setOf("auto", "start", "center", "end")
-    private val SECONDARY_MODES = setOf(
-        "Main only",
-        "Transliteration",
-        "Translation",
-        "Both",
-        SECONDARY_MODE_BACKGROUND_VOCAL
-    )
+    // 辅助文字模式不再是固定档位集合:历史四档 + 多选内容集合,校验即归一
+    // (见 normalizeAuxMode;词表外的值回落「仅主歌词」)。
     private val WEIGHTS = setOf("Regular", "Medium", "Bold")
     private val TEXT_SIZES = setOf("small", "normal", "large", "xlarge", "custom")
     private val FONT_FAMILIES = setOf("noto", "spotify", "apple", "noto-sc", "custom")
