@@ -151,6 +151,7 @@ internal object ConfigBackupCodec {
         BackupBooleanField(AodRenderPreferences.FILTER_NON_MUSIC_SOURCES) {
             it.filterNonMusicSources
         },
+        BackupBooleanField(AodRenderPreferences.HIDE_CREDIT_LINES) { it.hideCreditLines },
         BackupBooleanField(AodRenderPreferences.AOD_POWER_SAVER) { it.aodPowerSaver }
     )
 
@@ -710,6 +711,11 @@ internal object ConfigBackupCodec {
                 AodRenderPreferences.FILTER_NON_MUSIC_SOURCES,
                 base.filterNonMusicSources,
                 DEFAULTS.filterNonMusicSources
+            ),
+            hideCreditLines = stored.resolveBoolean(
+                AodRenderPreferences.HIDE_CREDIT_LINES,
+                base.hideCreditLines,
+                DEFAULTS.hideCreditLines
             ),
             aodPowerSaver = stored.resolveBoolean(
                 AodRenderPreferences.AOD_POWER_SAVER,

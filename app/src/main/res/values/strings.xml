@@ -79,6 +79,8 @@
     <string name="summary_lyric_source_superlyric">Uses the SuperLyric Xposed module, which pushes active lines over Binder.</string>
     <string name="summary_lyric_source_lyricinfo">Uses the LyricInfo Xposed module, reading lyrics injected into MediaSession metadata.</string>
     <string name="setting_filter_non_music_sources">Hide lyrics for video and other non-music audio</string>
+    <string name="setting_hide_credit_lines">Hide non-lyric lines (credits)</string>
+    <string name="summary_hide_credit_lines">Lines such as 作词/作曲/编曲 (lyricist, composer, arranger) are treated as credits rather than lyrics and are hidden while playing. Applies to both AOD and the lock screen.</string>
     <string name="summary_filter_non_music_sources">Identifies the current audio source (the player app and the audio content type it declares). Video apps and other non-music sources will not show lyrics.</string>
     <string name="label_active_source">Active source</string>
     <string name="summary_active_source">%1$s · %2$s</string>

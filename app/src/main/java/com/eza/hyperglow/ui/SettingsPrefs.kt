@@ -314,6 +314,23 @@ internal fun updateFilterNonMusicSources(
     return true
 }
 
+/**
+ * 「不显示非歌词内容(作词/作曲等)」开关(应用级偏好):歌词里的制作名单行在投影层整行
+ * 隐藏(见 producer/LyricCreditLineFilter)。投影层每帧懒读该偏好,切换立即生效;
+ * 下发运行时配置保持与其余设置一致的广播行为。
+ */
+internal fun updateHideCreditLines(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.HIDE_CREDIT_LINES, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 internal fun updateAodBrightnessBoost(context: android.content.Context, enabled: Boolean): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putBoolean(AodRenderPreferences.AOD_BRIGHTNESS_BOOST, enabled)

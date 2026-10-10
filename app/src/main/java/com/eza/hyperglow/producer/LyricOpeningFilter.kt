@@ -176,3 +176,149 @@ internal object LyricOpeningFilter {
     private const val TITLE_ARTIST_MAX_TIME_MS = 15_000L
     private const val ARTIST_CONTINUATION_GAP_MS = 2_000L
 }
+
+/**
+ * 制作名单行识别(「隐藏非歌词内容」开关的判定核心)。
+ *
+ * 与 [LyricOpeningFilter] 的关系必须说清,否则极易误改:
+ * - 移植自上游/Bridge 的开场清理词表**刻意不含**「作词/作曲」——这类制作名单常被源摆
+ *   在开头当曲目介绍,Bridge 选择保守保留;[LyricOpeningFilterTest] 已把该边界固化成
+ *   断言(isProductionCreditLine("作词：张三") == false)。
+ * - 但用户并不想在歌词字幕里看到「作词：张三」。本对象是为此新增的**用户可选**能力,
+ *   默认关闭时不参与任何链路,因此不改变上述保守语义。
+ *
+ * 判据(均要求「角色词 + 分隔/收尾」,避免吞掉正文):
+ * 1. 中英日角色 + 分隔符(`:：=／/`):如 `作词：周杰伦`、`Composer: John`;
+ * 2. 空格分隔的英文短语:`Lyrics by Bob`、`Composed by John`;
+ * 3. 括号装饰型:`【作词】 张三`、`(作曲) 李四`。
+ *
+ * 保守原则与 LyricOpeningFilter 一致:宁可漏判(照常显示),不可错判(吞掉真歌词)。
+ * 句中出现的角色词不算,英语词还要求左侧非字母(避开 composed/composer 内部命中)。
+ */
+internal object LyricCreditLineFilter {
+
+    /** 创作/制作角色词(每个角色独立扫描,顺序不影响结果)。 */
+    private val CREDIT_ROLE_WORDS = listOf(
+        // 简体
+        "作词", "作曲", "编曲", "词曲", "填词", "谱曲",
+        // 繁体(zh-Hant 歌词源同样常见)
+        "作詞", "編曲", "詞曲", "填詞", "譜曲",
+        "lyricist", "composer", "arranger", "songwriter",
+        "written", "composed", "arranged", "produced", "lyrics"
+    )
+
+    /** 整句短语前缀(常以空格而非冒号引出人名的分工写明)。 */
+    private val CREDIT_PHRASE_PREFIXES = listOf(
+        "vocals recorded", "background vocal", "backing vocal",
+        "mixed in dolby atmos", "recorded by", "performed by"
+    )
+
+    /** 装饰性左括号族:【…】/ (…) / 「…」等。 */
+    private val LEAD_DECORATIONS = charArrayOf(
+        '[', '【', '(', '（', '「', '『', '♪', '♫', '♬', '·', '•'
+    )
+
+    /** 角色词后的右括号族:仅这些收尾才构成「标签」形态(裸文本如「作曲家的梦想」不算)。 */
+    private val LEAD_CLOSERS = charArrayOf('】', ']', ')', '）', '』', '」')
+
+    /**
+     * 归一化:全角标点统一到半角、连续空白压平、去掉行首装饰符号。
+     * 归一集中在入口做一次,判定各分支不再各自解释字符串。
+     */
+    private fun normalize(value: String): String {
+        val folded = buildString(value.length) {
+            for (ch in value) {
+                when {
+                    ch == '：' -> append(':')
+                    ch == '／' -> append('/')
+                    ch == '　' -> append(' ')
+                    ch in 'Ａ'..'Ｚ' -> append((ch.code - 0xFEE0).toChar())
+                    ch in 'ａ'..'ｚ' -> append((ch.code - 0xFEE0).toChar())
+                    else -> append(ch)
+                }
+            }
+        }
+        return folded.trim()
+            .trimStart(*LEAD_DECORATIONS)
+            .replace(Regex("\\s+"), " ")
+    }
+
+    /**
+     * 是否为制作名单行:true → 开关打开时隐藏该行。
+     *
+     * 空白/空行一律返回 false(不是歌词也不是名单,交给投影层既有逻辑处理)。
+     */
+    fun isCreditLine(rawText: String): Boolean {
+        val text = normalize(rawText)
+        if (text.isEmpty()) return false
+        val lower = text.lowercase()
+
+        // 1) 角色 + 分隔符:`作词：张三` / `Composer: John` / `编曲/李四`
+        for (role in CREDIT_ROLE_WORDS) {
+            var from = 0
+            while (true) {
+                val index = lower.indexOf(role, from)
+                if (index < 0) break
+                from = index + 1
+                if (!isWordHead(text, index)) continue
+                var cursor = index + role.length
+                while (cursor < lower.length && (lower[cursor] == ' ' || lower[cursor] == '\t')) {
+                    cursor++
+                }
+                if (cursor < lower.length && lower[cursor] in charArrayOf(':', '/', '=')) {
+                    return true
+                }
+            }
+        }
+
+        // 2) 空格分隔的英文短语:`Lyrics by Bob` / `Composed by John`
+        if (CREDIT_PHRASE_PREFIXES.any { lower.startsWith(it) }) return true
+        if (lower.startsWith("lyrics by") || lower.startsWith("music by") ||
+            lower.startsWith("written by") || lower.startsWith("composed by") ||
+            lower.startsWith("arranged by") || lower.startsWith("produced by")
+        ) {
+            return true
+        }
+
+        // 3) 括号标签型:`【作词】 张三` / `(作曲) 李四` / 裸标签 `【作词】`
+        //    必须紧跟右括号才算标签——否则「作曲家的梦想」这类真歌词会被误吞。
+        val bare = text.trimStart(*LEAD_DECORATIONS)
+        for (role in CREDIT_ROLE_WORDS) {
+            if (!bare.startsWith(role)) continue
+            val next = bare.getOrNull(role.length) ?: continue
+            if (next in LEAD_CLOSERS) return true
+        }
+        return false
+    }
+
+    /** [index] 处是否为一个词的左边界(行首,或左侧非字母数字)。 */
+    private fun isWordHead(text: String, index: Int): Boolean {
+        if (index == 0) return true
+        return !text[index - 1].isLetterOrDigit()
+    }
+}
+
+/**
+ * 主行/下一行的名单归类结果(「不显示非歌词内容」)。
+ *
+ * 分类只做一次、两处消费:实机投影([com.eza.hyperglow.aod.projectToDisplay])与 App 内
+ * 预览(ProducerCollectors.toPreviewSnapshot)共用本函数,避免两边各写一份判定而在
+ * 「预览即实机」上失守。**如何呈现**(占位符/空档预览/窗口)由各消费方按自己的既有
+ * 门控决定,不在这里。
+ */
+internal data class CreditLineFlags(
+    val lineIsCredit: Boolean,
+    val nextLineIsCredit: Boolean
+)
+
+internal fun classifyCreditLines(
+    line: String,
+    nextLine: String,
+    hideCredits: Boolean
+): CreditLineFlags {
+    if (!hideCredits) return CreditLineFlags(false, false)
+    return CreditLineFlags(
+        lineIsCredit = line.isNotBlank() && LyricCreditLineFilter.isCreditLine(line),
+        nextLineIsCredit = nextLine.isNotBlank() && LyricCreditLineFilter.isCreditLine(nextLine)
+    )
+}
