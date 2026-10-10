@@ -26,15 +26,20 @@ release with the same name in the mirror repository**.
 | Version number source | `versionCode` / `versionName` in `app/build.gradle.kts` |
 | Mirror credentials | The workspace's classic PAT (`gh_token.txt` / `.gh_pat`) — it has admin on the mirror repo (verified 2026-10-07) |
 
-## Current Push Status (verified 2026-10-07)
+## Current Push Status (verified 2026-10-11)
 
 Repository files: synced to the source `main` on 2026-10-07 (mirror commit `7b9d4e69`,
-"Sync upstream main (v0.3.166 / versionCode 193)") — the first sync since `89-0.3.70`.
+"Sync upstream main (v0.3.166 / versionCode 193)") — the first sync since `89-0.3.70`;
+re-synced on 2026-10-11 (mirror commit `9c19ebed`, "Sync upstream main (v0.3.168 /
+versionCode 195)"; 34 added + 68 updated + 0 deleted, all blob SHAs verified, mirror-only
+files preserved).
 
 **Update this table** after every "push LSP" run; read it before the next push to see which versions are still missing.
 
 | Source repository release | Mirror status |
 |---|---|
+| `195-0.3.168` | ✅ Pushed (2026-10-11, workspace classic PAT) — carries the non-lyric-line filter and its device-verified detection rewrite |
+| `194-0.3.167` | ✅ Pushed (2026-10-07, workspace classic PAT) |
 | `193-0.3.166` | ✅ Pushed (2026-10-07, workspace classic PAT) — first stable release since 109 |
 | `0.3.83` – `0.3.165` (83 Pre-releases) | ➖ Optional: pre-release test builds, skipped by convention |
 | `121-0.3.94` (Pre-release) | ➖ Optional: pre-release test build, may be skipped |
@@ -170,15 +175,19 @@ LSPosed 模块仓库（modules.lsposed.org）**实际读取的是
 | 版本号来源 | `app/build.gradle.kts` 的 `versionCode` / `versionName` |
 | 镜像凭证 | 工作区的 classic PAT（`gh_token.txt` / `.gh_pat`）——实测对镜像仓有 admin（2026-10-07 核实） |
 
-## 当前推送状态（2026-10-07 核实）
+## 当前推送状态（2026-10-11 核实）
 
 仓库文件：已于 2026-10-07 同步到源仓库 `main`（镜像 commit `7b9d4e69`，
-"Sync upstream main (v0.3.166 / versionCode 193)"）——`89-0.3.70` 之后首次同步。
+"Sync upstream main (v0.3.166 / versionCode 193)"）——`89-0.3.70` 之后首次同步；
+2026-10-11 再次同步（镜像 commit `9c19ebed`，"Sync upstream main (v0.3.168 /
+versionCode 195)"；新增 34、更新 68、删除 0，逐 blob SHA 核验通过，镜像自有文件保留）。
 
 每次执行"推送 LSP"后**更新本表**，下次推送前先读此表判断还缺哪些版本。
 
 | 源仓库 release | 镜像状态 |
 |---|---|
+| `195-0.3.168` | ✅ 已推送（2026-10-11，工作区 classic PAT）——含「不显示非歌词内容」开关及其按真机实测重写的判定 |
+| `194-0.3.167` | ✅ 已推送（2026-10-07，工作区 classic PAT） |
 | `193-0.3.166` | ✅ 已推送（2026-10-07，工作区 classic PAT）——109 之后的第一个正式发行版 |
 | `0.3.83` – `0.3.165`（83 个预发行） | ➖ 可选：预发行测试版，按惯例不推 |
 | `121-0.3.94`（Pre-release） | ➖ 可选：预发行测试版，可不推 |
@@ -373,6 +382,11 @@ Learned while pushing `193-0.3.166`; read before the next push.
   ③ 强制更新 `refs/tags/{tag}`（`PATCH /git/refs/tags/{tag}`，`force: true`）；④ 再建 release
   （`tag_name: {tag}`）——此时 `created_at` 就是新提交的日期。
 - **`make_latest` 必须是字符串 `"true"`**，传 JSON 布尔会 422。
+- **资产上传必须打 `uploads.github.com`**（`POST https://uploads.github.com/repos/{org}/{repo}/
+  releases/{id}/assets?name={name}`）。用 `api.github.com` 的同名端点会得到 404 `Not Found`
+  （release 已建好也一样），排查时别误判成权限问题。
+- **`gh` 不在本机 PATH**：以上 REST 端点用脚本直连即可（`gh_token.txt`/`.gh_pat` 的 classic PAT
+  对镜像仓有 admin）。
 - **本机下载 APK**：`release-assets.githubusercontent.com` 在 Windows 上会因 schannel
   `CRYPT_E_REVOCATION_OFFLINE (0x80092013)` 失败——加 `curl --ssl-no-revoke`。单连接会被限速到
   ~50 KB/s，用并行 Range 分块（8 块：52 MB 约 2 分钟）。务必用资产的 `digest` 字段（`sha256:…`，
