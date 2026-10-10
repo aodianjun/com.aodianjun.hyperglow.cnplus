@@ -1,6 +1,9 @@
 package com.eza.hyperglow.root.aod
 
 import com.eza.hyperglow.customization.ARTWORK_SIZE_DEFAULT_DP
+import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
+import com.eza.hyperglow.customization.MAX_SONG_INFO_ARTIST_SIZE_PERCENT
+import com.eza.hyperglow.customization.MIN_SONG_INFO_ARTIST_SIZE_PERCENT
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_MAX
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_MIN
@@ -117,6 +120,64 @@ internal fun metadataTextSizeMultiplier(percent: Int): Float =
 /** 歌曲信息字号(sp):14sp 基准 × 用户百分比(50%~200%)。 */
 internal fun metadataTextSizeSp(percent: Int): Float =
     14f * metadataTextSizeMultiplier(percent)
+
+// --- 歌曲信息切片与布局(上游 amarinne/hyperglow 99ba119 项 #1 / 84a0c9ce 项 #2/#3) ---
+
+/**
+ * 歌曲信息的逻辑切片:按硬换行或行内中点 `·` 分段(实机画布与预览同源)。
+ * 空/纯空白切片丢弃,与 LyricLayoutEngine.layoutMetadataLines 的切片口径一致。
+ */
+internal fun metadataLineTexts(text: String): List<String> =
+    text.split('·', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+
+/** single 布局:所有切片用行内中点分隔符并成一行(整行按歌名字号,见 metadataArtistPieceIndexes)。 */
+internal fun metadataSingleLineText(text: String): String =
+    metadataLineTexts(text).joinToString(" · ")
+
+/** 出厂歌手行字号系数(默认百分比 ÷ 100),画布初始 Paint 与预览同源。 */
+internal const val SONG_INFO_ARTIST_SCALE = DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT / 100f
+
+/** 歌手行字号系数:百分比钳在编辑器范围(40..100)内,防坏值画出零高/超大行。 */
+internal fun songInfoArtistScale(percent: Int): Float =
+    (percent.coerceIn(MIN_SONG_INFO_ARTIST_SIZE_PERCENT, MAX_SONG_INFO_ARTIST_SIZE_PERCENT) /
+        100f)
+
+/**
+ * 混合字号行堆的逐行基线偏移(相对首行基线),按文档排版的行盒算法:每行由「上一行
+ * descent + 下一行 ascent」推进,而不是按最高行取统一行盒——后者会把小字歌手行多推一个
+ * 歌名行距,看起来像两块。全同字号时逐值等于 `index × (descent − ascent)`,既有呈现零变化。
+ * ascent 为负(基线上方距离),故步进是上一行 descent 减下一行 ascent。
+ */
+internal fun mixedSizeLineBaselineOffsets(
+    ascents: FloatArray,
+    descents: FloatArray,
+    gap: Float = 0f
+): FloatArray {
+    val count = min(ascents.size, descents.size)
+    val offsets = FloatArray(count)
+    for (index in 1 until count) {
+        offsets[index] = offsets[index - 1] + descents[index - 1] + gap - ascents[index]
+    }
+    return offsets
+}
+
+/** 混合字号行堆的总高:首行 ascent 顶到末行 descent 底。 */
+internal fun mixedSizeLineStackHeight(
+    offsets: FloatArray,
+    ascents: FloatArray,
+    descents: FloatArray
+): Float {
+    val count = minOf(offsets.size, ascents.size, descents.size)
+    if (count == 0) return 0f
+    return offsets[count - 1] + descents[count - 1] - ascents[0]
+}
+
+/**
+ * 堆叠歌曲信息中按歌手字号渲染的切片下标(从 0 起):第 0 片是歌名,其后各片是歌手/专辑
+ * 署名。行内分隔符把全部切片并成单行时(片数 ≤1)无歌手行,恒空集。
+ */
+internal fun metadataArtistPieceIndexes(pieceCount: Int): Set<Int> =
+    if (pieceCount <= 1) emptySet() else (1 until pieceCount).toSet()
 
 /**
  * 辅助文字字号倍率(相对主行的百分比,50..150):100 = 历史值。倍率只作用于 0.48 比例项
@@ -275,15 +336,27 @@ internal fun artworkSpinDegrees(spin: Boolean, nowElapsedMs: Long): Float {
 internal fun artworkSpinEffective(spin: Boolean, spinWhenPaused: Boolean, playbackPaused: Boolean): Boolean =
     spin && (!playbackPaused || spinWhenPaused)
 
+/**
+ * 主行块内第 [lineIndex] 行的基线(相对块首行基线):混合字号块([offsets] 非空)按逐行
+ * 行盒推进(见 [mixedSizeLineBaselineOffsets]),其余按统一行高 + 行距。
+ * 混合字号的步进已含行距,不再二次计入 [lineGap]。
+ */
 internal fun originalLineBaseline(
     rowBaseline: Float,
     lineIndex: Int,
     lineHeight: Float,
     precedingRuby: Float,
     rubyHeight: Float,
-    lineGap: Float = 0f
-): Float = rowBaseline + lineIndex * lineHeight + precedingRuby + rubyHeight +
-    lineIndex * lineGap
+    lineGap: Float = 0f,
+    offsets: FloatArray = FloatArray(0)
+): Float {
+    val step = if (offsets.size > lineIndex) {
+        offsets[lineIndex]
+    } else {
+        lineIndex * (lineHeight + lineGap)
+    }
+    return rowBaseline + step + precedingRuby + rubyHeight
+}
 
 internal fun originalRowHeight(
     lineHeight: Float,

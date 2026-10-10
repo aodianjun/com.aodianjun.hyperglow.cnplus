@@ -13,9 +13,11 @@ import com.eza.hyperglow.customization.normalizeCardColor
 import com.eza.hyperglow.customization.normalizeLineTransition
 import com.eza.hyperglow.customization.normalizeLineTransitionSpeed
 import com.eza.hyperglow.customization.normalizeLyricLineLimit
+import com.eza.hyperglow.customization.normalizeMetadataLayout
 import com.eza.hyperglow.customization.normalizeMetadataParts
 import com.eza.hyperglow.customization.normalizeMetadataSeparators
 import com.eza.hyperglow.customization.normalizeSecondaryTextSizePercent
+import com.eza.hyperglow.customization.normalizeSongInfoArtistSizePercent
 import com.eza.hyperglow.aod.normalizePauseLingerMs
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
 import com.eza.hyperglow.root.surface.SurfacePolicyResolver
@@ -156,6 +158,14 @@ internal object SystemUiCustomizationValidator {
             metadataVisible = profile.metadataVisible && widgets.any { it.type == "metadata" },
             metadataAnchor = if (profile.metadataAnchor == "bottom") "bottom" else "top",
             metadataSizePercent = profile.metadataSizePercent.coerceIn(50, 200),
+            // 与 SceneCompiler.compileProfile 同源归一(未知值回落 stacked);两处不一致
+            // 会让 validate 改写字段、wire 的 hash 校验拒收整份配置。
+            metadataLayout = normalizeMetadataLayout(profile.metadataLayout),
+            // 与 SceneCompiler.compileProfile 同源归一(越界回落默认而非钳制);两处不一致
+            // 会让 validate 改写字段、wire 的 hash 校验拒收整份配置。
+            metadataArtistSizePercent = normalizeSongInfoArtistSizePercent(
+                profile.metadataArtistSizePercent
+            ),
             metadataAlignment = profile.metadataAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             nextLineAlignment = profile.nextLineAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             artworkVisible = profile.artworkVisible,

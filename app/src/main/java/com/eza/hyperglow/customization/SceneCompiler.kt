@@ -190,6 +190,10 @@ object SceneCompiler {
                 supportedWidgets.any { it.type == "metadata" },
             metadataAnchor = if (profile.metadataAnchor == "bottom") "bottom" else "top",
             metadataSizePercent = profile.metadataSizePercent.coerceIn(50, 200),
+            metadataLayout = normalizeMetadataLayout(profile.metadataLayout),
+            metadataArtistSizePercent = normalizeSongInfoArtistSizePercent(
+                profile.metadataArtistSizePercent
+            ),
             metadataAlignment = profile.metadataAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             nextLineAlignment = profile.nextLineAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             artworkVisible = profile.artworkVisible,

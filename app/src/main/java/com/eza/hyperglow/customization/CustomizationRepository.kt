@@ -272,6 +272,8 @@ object CustomizationRepository {
         metadataVisible = metadataVisible,
         metadataAnchor = metadataAnchor,
         metadataSizePercent = metadataSizePercent,
+        metadataLayout = metadataLayout,
+        metadataArtistSizePercent = metadataArtistSizePercent,
         metadataAlignment = metadataAlignment,
         nextLineAlignment = nextLineAlignment,
         artworkVisible = artworkVisible,

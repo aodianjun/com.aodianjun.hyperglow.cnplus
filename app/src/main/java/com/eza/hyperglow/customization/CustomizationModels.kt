@@ -105,7 +105,21 @@ data class SurfaceProfile(
     val secondaryNextLine: Boolean = false,
     val metadataVisible: Boolean = false,
     val metadataAnchor: String = "top",
+    /**
+     * 歌曲信息布局(`stacked` / `single`;上游 amarinne/hyperglow 99ba119 项 #1):
+     * `stacked` 按本面分隔符组装,含换行槽位时歌名在上、歌手/专辑各占一行;
+     * `single` 把所有切片用行内中点分隔符并成一行(整行按歌名字号)。
+     * 未知值一律按 `stacked` 处理(见 [normalizeMetadataLayout])。
+     */
+    val metadataLayout: String = METADATA_LAYOUT_STACKED,
     val metadataSizePercent: Int = 100,
+    /**
+     * 堆叠式歌曲信息的歌手行字号(相对歌名行的百分比,40..100,默认 80;上游
+     * amarinne/hyperglow 84a0c9ce 项 #2)。仅当歌曲信息按换行分隔符堆叠成多行时生效
+     * (见 [metadataStacksArtistLine]);行内分隔符(如 ` · `)把歌名/歌手并成一行时整行按
+     * 歌名字号,本值不参与。越界值经 [normalizeSongInfoArtistSizePercent] 回落默认值而非钳制。
+     */
+    val metadataArtistSizePercent: Int = DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
     /**
      * 歌曲信息(歌名/歌手)对齐:auto/start/center/end。"auto" 跟随主歌词对齐的解析结果
      * (见 resolveRowAlignmentMode),显式值独立于主对齐生效。
@@ -306,6 +320,10 @@ data class CompiledSurfaceProfile(
     /** 卡片背景色 token,见 [CARD_COLOR_VALUES]。仅当 backgroundStyle=="card" 时生效。 */
     val cardColor: String = "black",
     val metadataSizePercent: Int = 100,
+    /** 歌曲信息布局(stacked/single),见 [SurfaceProfile.metadataLayout];编译时经 [normalizeMetadataLayout] 归一。 */
+    val metadataLayout: String = METADATA_LAYOUT_STACKED,
+    /** 堆叠式歌曲信息的歌手行字号百分比,见 [SurfaceProfile.metadataArtistSizePercent];编译时经 [normalizeSongInfoArtistSizePercent] 归一。 */
+    val metadataArtistSizePercent: Int = DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
     val rubyVisible: Boolean = true,
     val secondaryTextBright: Boolean = true,
     /** 辅助文字逐字效果,见 [SurfaceProfile.secondaryWordKaraoke]。 */
@@ -614,6 +632,21 @@ const val METADATA_SEPARATOR_NEWLINE = "newline"
 /** 默认逐槽分隔符序列(默认两部分之间一个换行)。 */
 const val METADATA_SEPARATORS_DEFAULT = METADATA_SEPARATOR_NEWLINE
 
+// --- 歌曲信息布局:stacked / single(上游 amarinne/hyperglow 99ba119 项 #1) ---
+
+/** 堆叠布局:含换行槽位时歌名在上、歌手/专辑各占一行(历史默认行为)。 */
+const val METADATA_LAYOUT_STACKED = "stacked"
+
+/** 单行布局:所有切片用行内中点分隔符并成一行,整行按歌名字号。 */
+const val METADATA_LAYOUT_SINGLE = "single"
+
+/** 歌曲信息布局 token 词表(设置界面选项来源)。 */
+val METADATA_LAYOUTS = listOf(METADATA_LAYOUT_STACKED, METADATA_LAYOUT_SINGLE)
+
+/** 布局归一:只有 `single` 走单行,其余(含未知/空值)一律按 [METADATA_LAYOUT_STACKED]。 */
+internal fun normalizeMetadataLayout(value: String?): String =
+    if (value == METADATA_LAYOUT_SINGLE) METADATA_LAYOUT_SINGLE else METADATA_LAYOUT_STACKED
+
 /** 歌曲信息分隔符 token 词表;"newline" 为换行,其余为行内分隔符(见 [metadataSeparatorText])。 */
 val METADATA_SEPARATORS = listOf(
     METADATA_SEPARATOR_NEWLINE,
@@ -729,6 +762,46 @@ internal fun metadataExpectedExtraLines(parts: String, separators: String): Int 
         .count { it == METADATA_SEPARATOR_NEWLINE }
     return (newlineGaps - 1).coerceAtLeast(0)
 }
+
+// --- 歌曲信息:堆叠式歌手字号(上游 amarinne/hyperglow 84a0c9ce 项 #2) ---
+
+/**
+ * 堆叠式歌曲信息的歌手行默认字号(相对歌名行的百分比):80 复刻出厂的小字号歌手行,
+ * 设置界面把范围收在 40..100,歌手段永不大于其上方歌名。
+ */
+const val DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT = 80
+const val MIN_SONG_INFO_ARTIST_SIZE_PERCENT = 40
+const val MAX_SONG_INFO_ARTIST_SIZE_PERCENT = 100
+
+/**
+ * 堆叠式歌手行字号归一:越界/零值回落出厂默认而非钳制(上游同语义)——坏文档渲染出默认的
+ * 层级关系,而不是被钳到 0 变成零高行(行盒按字号量 ascent/descent,零字号行高为 0)。
+ * compile 与 SystemUI 二次校验必须调用同一份(两处归一不一致会让 wire 的
+ * validate_rewrote_fields 拒收整份配置,实机表现为「设置页正常、实机毫无变化」)。
+ */
+internal fun normalizeSongInfoArtistSizePercent(value: Int): Int =
+    if (value in MIN_SONG_INFO_ARTIST_SIZE_PERCENT..MAX_SONG_INFO_ARTIST_SIZE_PERCENT) {
+        value
+    } else {
+        DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
+    }
+
+/**
+ * 歌曲信息是否堆叠出独立的歌手行(第 0 行歌名之后的各行按歌手字号渲染):
+ * [layout] 为 `single`(全部切片并成一行)时恒为 false;否则按本面有效 parts/separators
+ * 组装后至少含一个换行槽位、且显示部分 ≥2 个。行内分隔符(如 ` · `)把各部分并成一行时
+ * 同样恒为 false —— 整行按歌名字号,歌手字号设置对结果无影响(设置界面据此隐藏该项)。
+ */
+internal fun metadataStacksArtistLine(
+    parts: String,
+    separators: String,
+    layout: String = METADATA_LAYOUT_STACKED
+): Boolean =
+    normalizeMetadataLayout(layout) == METADATA_LAYOUT_STACKED &&
+        metadataGapCount(parts) > 0 &&
+        normalizeMetadataSeparators(separators, parts)
+            .split(',')
+            .any { it == METADATA_SEPARATOR_NEWLINE }
 
 // --- 歌曲图片:形状与旋转 ---
 

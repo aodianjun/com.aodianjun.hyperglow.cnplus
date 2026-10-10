@@ -2,6 +2,7 @@ package com.eza.hyperglow.root.aod
 
 import android.graphics.Paint
 import android.graphics.Rect
+import android.text.TextPaint
 
 /**
  * 歌词布局引擎 —— 预览(PreviewComponents)与实机(AodLyricCanvasView)共用的换行/测量核心,
@@ -51,8 +52,8 @@ internal data class LyricLayoutLine(
     val words: List<PlacedWord> = emptyList()
 )
 
-/** 副文本/歌曲信息一行:换行/测量结果。 */
-internal data class LyricLayoutTextLine(val text: String, val width: Float)
+/** 副文本/歌曲信息一行:换行/测量结果。[pieceIndex] 为歌曲信息切片下标(硬换行分段,0=歌名段)。 */
+internal data class LyricLayoutTextLine(val text: String, val width: Float, val pieceIndex: Int = 0)
 
 /** 主歌词布局结果:行 + 是否走词级时间布局(词非空)。 */
 internal data class LyricLayoutResult(
@@ -66,7 +67,7 @@ internal class TextMeasurePort(
     val breakAt: (String, Float) -> Int
 )
 
-private fun Paint.measurePort(): TextMeasurePort =
+internal fun Paint.measurePort(): TextMeasurePort =
     TextMeasurePort(measure = { measureText(it) }, breakAt = { text, maxWidth -> breakText(text, true, maxWidth, null) })
 
 // ---- Paint 适配入口(实机/预览渲染侧) ----
@@ -102,7 +103,7 @@ internal fun layoutMetadataLines(
     text: String,
     paint: Paint,
     availableWidth: Float
-): List<LyricLayoutTextLine> = layoutMetadataLines(text, paint.measurePort(), availableWidth)
+): List<LyricLayoutTextLine> = layoutMetadataLines(text, availableWidth, { paint.measurePort() })
 
 /** 辅助行自适应折行结果:独立 Paint 副本(不污染共享 paint)+ 拟合字号(sp)+ 该字号下的折行。 */
 internal data class FittedSecondaryLines(
@@ -228,21 +229,28 @@ internal fun layoutSecondaryLines(
 /**
  * 歌曲信息(歌名/歌手/专辑)专用换行:切片已由投影层按配置的分隔符组装 —— 换行分隔符下
  * 每个切片一行;行内分隔符(如 " · ")自身可能含 `·`,因此只按硬换行拆段,不再把 `·` 当
- * 行边界。单行放不下就 token 换行,合计最多 [MAX_METADATA_LAYOUT_LINES] 行(不受歌词偏好门控)。
+ * 行边界。单行放不下就 token 换行,合计最多 [maxLines] 行(不受歌词偏好门控)。
+ *
+ * 混合字号(上游 amarinne/hyperglow 84a0c9ce 项 #2/#3):每段经 [metricsForPiece] 取自己的
+ * 测量端口(歌名段大字号、歌手段小字号),返回的每行携带其所属段下标。
  */
 internal fun layoutMetadataLines(
     text: String,
-    metrics: TextMeasurePort,
-    availableWidth: Float
+    availableWidth: Float,
+    metricsForPiece: (pieceIndex: Int) -> TextMeasurePort,
+    maxLines: Int = MAX_METADATA_LAYOUT_LINES
 ): List<LyricLayoutTextLine> {
     val segments = text.split('\n')
     val out = ArrayList<LyricLayoutTextLine>()
+    var pieceIndex = -1
     for (segment in segments) {
         val clean = segment.trim()
         if (clean.isEmpty()) continue
-        if (out.size >= MAX_METADATA_LAYOUT_LINES) break
+        pieceIndex++
+        if (out.size >= maxLines) break
+        val metrics = metricsForPiece(pieceIndex)
         if (metrics.measure(clean) <= availableWidth) {
-            out += LyricLayoutTextLine(clean, metrics.measure(clean))
+            out += LyricLayoutTextLine(clean, metrics.measure(clean), pieceIndex)
             continue
         }
         val tokens = secondaryTokens(clean).flatMap { token -> splitOversizeToken(token, metrics, availableWidth) }
@@ -252,11 +260,42 @@ internal fun layoutMetadataLines(
             tokens.map(metrics.measure),
             metrics.measure(" "),
             availableWidth,
-            (MAX_METADATA_LAYOUT_LINES - out.size).coerceAtLeast(1)
+            (maxLines - out.size).coerceAtLeast(1)
         )
-        out += wrapped.map { line -> LyricLayoutTextLine(line, metrics.measure(line)) }
+        out += wrapped.map { line -> LyricLayoutTextLine(line, metrics.measure(line), pieceIndex) }
     }
     return out
+}
+
+/** 单测量端口版(全同字号的既有入口):所有切片共用 [metrics]。 */
+internal fun layoutMetadataLines(
+    text: String,
+    metrics: TextMeasurePort,
+    availableWidth: Float,
+    maxLines: Int = MAX_METADATA_LAYOUT_LINES
+): List<LyricLayoutTextLine> = layoutMetadataLines(text, availableWidth, { metrics }, maxLines)
+
+/**
+ * 逐片 Paint 版(预览入口,与实机 wrapMetadataText 的 metricsForPiece 同源):
+ * 每个切片用自己的 Paint 测量 —— 歌名段歌名字号、其后各片歌手字号(见
+ * [metadataArtistPieceIndexes]);切片下标口径与 [metadataLineTexts] 一致,
+ * 超出片表时回落最后一片,空片表直接空集。
+ */
+internal fun layoutMetadataLines(
+    text: String,
+    piecePaints: List<TextPaint>,
+    availableWidth: Float,
+    maxLines: Int = MAX_METADATA_LAYOUT_LINES
+): List<LyricLayoutTextLine> {
+    if (piecePaints.isEmpty()) return emptyList()
+    return layoutMetadataLines(
+        text = text,
+        availableWidth = availableWidth,
+        metricsForPiece = { index ->
+            piecePaints.getOrElse(index) { piecePaints.last() }.measurePort()
+        },
+        maxLines = maxLines
+    )
 }
 
 /** 超宽 token 切片(切点走 CJK 避头尾);不超宽原样返回。 */

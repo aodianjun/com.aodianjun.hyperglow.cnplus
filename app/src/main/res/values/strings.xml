@@ -381,6 +381,10 @@
     <string name="setting_show_next_line">Show next line</string>
     <string name="setting_show_song_info">Show song info</string>
     <string name="choice_song_info_position">Song info position</string>
+    <string name="choice_song_info_layout">Song info layout</string>
+    <string name="option_song_info_layout_stacked">Stacked</string>
+    <string name="option_song_info_layout_single">Single line</string>
+    <string name="setting_song_info_artist_size">Artist line size</string>
     <string name="setting_song_info_size">Song info size</string>
     <string name="setting_song_info_parts">Song info content</string>
     <string name="setting_hide_album_same_as_title">Hide album when it matches the title</string>
