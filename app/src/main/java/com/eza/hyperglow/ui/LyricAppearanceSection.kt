@@ -63,6 +63,13 @@ import com.eza.hyperglow.customization.ARTWORK_SIZE_MAX_DP
 import com.eza.hyperglow.customization.ARTWORK_SIZE_MIN_DP
 import com.eza.hyperglow.customization.METADATA_SEPARATORS
 import com.eza.hyperglow.customization.METADATA_SEPARATOR_NEWLINE
+import com.eza.hyperglow.customization.METADATA_LAYOUTS
+import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
+import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
+import com.eza.hyperglow.customization.MAX_SONG_INFO_ARTIST_SIZE_PERCENT
+import com.eza.hyperglow.customization.MIN_SONG_INFO_ARTIST_SIZE_PERCENT
+import com.eza.hyperglow.customization.metadataStacksArtistLine
+import com.eza.hyperglow.customization.normalizeMetadataLayout
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_MAX
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_MIN
 import com.eza.hyperglow.customization.SceneCompiler
@@ -609,6 +616,57 @@ internal fun LyricAppearanceSection(
                             }
                         }
                     )
+                    AodChoiceRow(
+                        AodChoiceKind.SONG_INFO_LAYOUT,
+                        normalizeMetadataLayout(selectedProfile.metadataLayout)
+                    ) {
+                        openChoice(
+                            AodChoiceKind.SONG_INFO_LAYOUT,
+                            METADATA_LAYOUTS,
+                            normalizeMetadataLayout(selectedProfile.metadataLayout)
+                        ) { value -> updateSelected { it.copy(metadataLayout = value) } }
+                    }
+                    // 堆叠式歌手行字号:仅当本面组装确实产出独立的歌手行时才有意义
+                    // (single 布局、或行内分隔符把各部分并成一行时整行按歌名字号)。
+                    if (metadataStacksArtistLine(
+                            effectiveMetadataParts,
+                            effectiveMetadataSeparators,
+                            selectedProfile.metadataLayout
+                        )
+                    ) {
+                        TextSizePreference(
+                            title = stringResource(R.string.setting_song_info_artist_size),
+                            percent = selectedProfile.metadataArtistSizePercent.coerceIn(
+                                MIN_SONG_INFO_ARTIST_SIZE_PERCENT,
+                                MAX_SONG_INFO_ARTIST_SIZE_PERCENT
+                            ),
+                            // 滑杆边界取歌手字号自己的范围(默认 50..200 会把 − 按钮在 50 以下禁用)。
+                            minPercent = MIN_SONG_INFO_ARTIST_SIZE_PERCENT,
+                            maxPercent = MAX_SONG_INFO_ARTIST_SIZE_PERCENT,
+                            onDecrease = {
+                                updateSelected {
+                                    it.copy(
+                                        metadataArtistSizePercent =
+                                            (it.metadataArtistSizePercent - 5).coerceIn(
+                                                MIN_SONG_INFO_ARTIST_SIZE_PERCENT,
+                                                MAX_SONG_INFO_ARTIST_SIZE_PERCENT
+                                            )
+                                    )
+                                }
+                            },
+                            onIncrease = {
+                                updateSelected {
+                                    it.copy(
+                                        metadataArtistSizePercent =
+                                            (it.metadataArtistSizePercent + 5).coerceIn(
+                                                MIN_SONG_INFO_ARTIST_SIZE_PERCENT,
+                                                MAX_SONG_INFO_ARTIST_SIZE_PERCENT
+                                            )
+                                    )
+                                }
+                            }
+                        )
+                    }
                     // 内容编辑:勾选/排序显示部分(歌名/歌手/专辑),并逐槽独立选择相邻两项之间的分隔符。
                     ArrowPreference(
                         title = stringResource(R.string.setting_song_info_parts),
@@ -1851,6 +1909,13 @@ private fun choiceDisplayLabel(
     AodChoiceKind.SONG_INFO_POSITION -> context.getString(
         if (value == "bottom") R.string.option_bottom else R.string.option_top
     )
+    AodChoiceKind.SONG_INFO_LAYOUT -> context.getString(
+        if (value == METADATA_LAYOUT_SINGLE) {
+            R.string.option_song_info_layout_single
+        } else {
+            R.string.option_song_info_layout_stacked
+        }
+    )
     AodChoiceKind.SONG_INFO_SEPARATOR -> metadataSeparatorDisplayLabel(context, value)
     AodChoiceKind.SONG_ARTWORK_SHAPE -> context.getString(
         if (value == ARTWORK_SHAPE_CIRCLE) {
@@ -1998,6 +2063,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     LONG_LINES(R.string.choice_long_lines),
     LYRIC_LINES(R.string.choice_lyric_lines),
     SONG_INFO_POSITION(R.string.choice_song_info_position),
+    SONG_INFO_LAYOUT(R.string.choice_song_info_layout),
     SONG_INFO_SEPARATOR(R.string.choice_song_info_separator),
     SONG_ARTWORK_SHAPE(R.string.choice_song_artwork_shape),
     TEXT_WEIGHT(R.string.choice_text_weight),

@@ -73,6 +73,9 @@ import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
+import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
+import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
+import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.aod.AodCanvasRuby
 import com.eza.hyperglow.root.aod.AodCanvasWord
@@ -100,6 +103,10 @@ import com.eza.hyperglow.root.aod.baseTextSizeSp
 import com.eza.hyperglow.root.aod.duetAlignedRight
 import com.eza.hyperglow.root.aod.duetRowTransitionTimeline
 import com.eza.hyperglow.root.aod.layoutMetadataLines
+import com.eza.hyperglow.root.aod.metadataArtistPieceIndexes
+import com.eza.hyperglow.root.aod.metadataLineTexts
+import com.eza.hyperglow.root.aod.metadataSingleLineText
+import com.eza.hyperglow.root.aod.songInfoArtistScale
 import com.eza.hyperglow.root.aod.isLongKaraokeSyllable
 import com.eza.hyperglow.root.aod.karaokeFloatSinkPx
 import com.eza.hyperglow.root.aod.KaraokeWordRun
@@ -788,7 +795,9 @@ private fun LyricPreviewSurface(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
                             regularTypeface, availablePx, metadataAlign,
                             previewArtwork,
-                            Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp)
+                            Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp),
+                            layout = profile.metadataLayout,
+                            artistSizePercent = profile.metadataArtistSizePercent
                         )
                     }
                     // 行块(主行+辅助文字+下一行)按行分流三段式换行:离场行组(主行+辅助
@@ -1038,7 +1047,9 @@ private fun LyricPreviewSurface(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
                             regularTypeface, availablePx, metadataAlign,
                             previewArtwork,
-                            Modifier.padding(top = METADATA_LYRIC_GAP_DP.dp)
+                            Modifier.padding(top = METADATA_LYRIC_GAP_DP.dp),
+                            layout = profile.metadataLayout,
+                            artistSizePercent = profile.metadataArtistSizePercent
                         )
                     }
                 }
@@ -1089,6 +1100,12 @@ private fun previewArtworkFromSnapshot(
     )
 }
 
+/** 预览歌曲信息的一行:文本 + 该行实际字号(堆叠式歌手行小于歌名行)。 */
+private data class PreviewMetadataLine(
+    val text: String,
+    val fontSize: androidx.compose.ui.unit.TextUnit
+)
+
 /**
  * 歌曲信息行:歌曲图片显示时按「图片槽+间距+文本块」成组布局(几何公式与实机
  * wrapMetadataText 同源),[textAlign] 作用于整组——图片恒在文本块左侧。
@@ -1102,7 +1119,9 @@ private fun PreviewMetaLine(
     availableWidthPx: Int,
     textAlign: TextAlign,
     artwork: PreviewArtwork?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    layout: String = METADATA_LAYOUT_STACKED,
+    artistSizePercent: Int = DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
 ) {
     val size = previewMetadataTextSizeSp(sizePercent)
     val density = LocalDensity.current
@@ -1117,13 +1136,50 @@ private fun PreviewMetaLine(
     } else {
         0f
     }
-    // 换行与实机 layoutMetadataLines 同算法:切片/折行后最多 MAX_METADATA_LAYOUT_LINES 行,溢出丢弃(无省略号)。
-    val lines = remember(text, sizePx, typeface, availableWidthPx, leadingPx) {
+    // 换行与实机 wrapMetadataText 同算法(布局 + 混合字号同源):single 布局把所有切片并成
+    // 一行(整行歌名字号);stacked 逐片测量——歌名段用歌名字号、其后各片用歌手字号
+    // (songInfoArtistScale),过宽的切片继续换行而非缩小整块。
+    val lines = remember(
+        text, sizePx, typeface, availableWidthPx, leadingPx, layout, artistSizePercent
+    ) {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = sizePx
             this.typeface = typeface
         }
-        layoutMetadataLines(text, paint, (availableWidthPx - leadingPx).coerceAtLeast(1f))
+        if (layout == METADATA_LAYOUT_SINGLE) {
+            val single = metadataSingleLineText(text)
+            if (single.isBlank()) {
+                emptyList()
+            } else {
+                layoutMetadataLines(
+                    single, paint, (availableWidthPx - leadingPx).coerceAtLeast(1f)
+                ).map { PreviewMetadataLine(it.text, size) }
+            }
+        } else {
+            val pieces = metadataLineTexts(text)
+            val artistIndexes = metadataArtistPieceIndexes(pieces.size)
+            val artistSize = sizePx * songInfoArtistScale(artistSizePercent)
+            layoutMetadataLines(
+                text = text,
+                piecePaints = pieces.mapIndexed { index, _ ->
+                    if (index in artistIndexes) {
+                        TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                            textSize = artistSize
+                            this.typeface = typeface
+                        }
+                    } else {
+                        paint
+                    }
+                },
+                availableWidth = (availableWidthPx - leadingPx).coerceAtLeast(1f)
+            ).map { line ->
+                val lineSize = if (line.pieceIndex in artistIndexes) artistSize else sizePx
+                PreviewMetadataLine(
+                    line.text,
+                    with(density) { lineSize.toSp() }
+                )
+            }
+        }
     }
     val groupArrangement = when (textAlign) {
         TextAlign.Center -> Arrangement.Center
@@ -1154,7 +1210,7 @@ private fun PreviewMetaLine(
             lines.forEach { line ->
                 Text(
                     line.text,
-                    fontSize = size,
+                    fontSize = line.fontSize,
                     fontFamily = FontFamily(typeface),
                     color = color,
                     textAlign = textAlign,

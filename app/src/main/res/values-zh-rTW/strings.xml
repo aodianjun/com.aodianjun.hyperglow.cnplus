@@ -351,6 +351,10 @@
     <string name="setting_show_next_line">顯示下一行歌詞</string>
     <string name="setting_show_song_info">顯示歌曲信息</string>
     <string name="choice_song_info_position">歌曲信息位置</string>
+    <string name="choice_song_info_layout">歌曲信息版面</string>
+    <string name="option_song_info_layout_stacked">堆疊</string>
+    <string name="option_song_info_layout_single">單行</string>
+    <string name="setting_song_info_artist_size">歌手行大小</string>
     <string name="setting_song_info_size">歌曲信息大小</string>
     <string name="setting_song_info_parts">歌曲信息內容</string>
     <string name="setting_hide_album_same_as_title">專輯與歌名一致時隱藏專輯</string>

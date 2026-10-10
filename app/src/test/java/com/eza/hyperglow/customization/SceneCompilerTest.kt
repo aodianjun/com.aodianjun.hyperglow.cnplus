@@ -131,6 +131,84 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun songInfoLayoutSurvivesCompilationAndDefaultsWhenUnset() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataLayout = "single"),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile()
+                )
+            )
+        )
+        assertEquals(
+            "single",
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).metadataLayout
+        )
+        assertEquals(
+            METADATA_LAYOUT_STACKED,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).metadataLayout
+        )
+    }
+
+    @Test
+    fun unknownSongInfoLayoutFallsBackToStacked() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataLayout = "bogus"),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(metadataLayout = "")
+                )
+            )
+        )
+        assertEquals(
+            METADATA_LAYOUT_STACKED,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).metadataLayout
+        )
+        assertEquals(
+            METADATA_LAYOUT_STACKED,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).metadataLayout
+        )
+    }
+
+    @Test
+    fun songInfoArtistSizeSurvivesCompilationAndDefaultsWhenUnset() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataArtistSizePercent = 55),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile()
+                )
+            )
+        )
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+
+        assertEquals(55, aod.metadataArtistSizePercent)
+        assertEquals(DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT, lockscreen.metadataArtistSizePercent)
+    }
+
+    @Test
+    fun outOfRangeSongInfoArtistSizeFallsBackToDefault() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataArtistSizePercent = 0),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(metadataArtistSizePercent = 400)
+                )
+            )
+        )
+
+        assertEquals(
+            DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).metadataArtistSizePercent
+        )
+        assertEquals(
+            DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).metadataArtistSizePercent
+        )
+    }
+
+    @Test
     fun metadataSizeClampsAndFuriganaPreferenceSurvivesValidation() {
         val compiled = SceneCompiler.compile(
             CustomizationDocument(

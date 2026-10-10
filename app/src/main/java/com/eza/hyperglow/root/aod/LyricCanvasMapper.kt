@@ -2,11 +2,13 @@ package com.eza.hyperglow.root.aod
 
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
+import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
 import com.eza.hyperglow.customization.METADATA_PARTS_DEFAULT
 import com.eza.hyperglow.customization.METADATA_SEPARATORS_DEFAULT
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.composeSongMetadata
+import com.eza.hyperglow.customization.normalizeMetadataLayout
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.producer.stripDuetMarker
 import com.eza.hyperglow.producer.stripDuetMarkerRun
@@ -143,6 +145,9 @@ internal fun LyricSnapshot.toAodCanvasContent(
     metadataVisible = profile?.metadataVisible ?: metadataVisible,
     metadataAnchor = if ((profile?.metadataAnchor ?: metadataAnchor) == "bottom") "bottom" else "top",
     metadataSizePercent = profile?.metadataSizePercent ?: 100,
+    metadataLayout = normalizeMetadataLayout(profile?.metadataLayout),
+    metadataArtistSizePercent = profile?.metadataArtistSizePercent
+        ?: DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
     adaptiveSectioning = profile?.adaptiveSectioning ?: adaptiveSectioning,
     palette = profile?.palette.orEmpty(),
     showNextLine = profile?.showNextLine ?: false,

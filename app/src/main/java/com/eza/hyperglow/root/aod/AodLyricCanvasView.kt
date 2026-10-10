@@ -18,6 +18,8 @@ import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
+import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
+import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
 import com.eza.hyperglow.producer.DuetLineWindow
 import com.eza.hyperglow.producer.shouldAdoptDuetLineCandidate
 import com.eza.hyperglow.root.HookLogger
@@ -314,12 +316,18 @@ internal class AodLyricCanvasView(
         context.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_IGNORE_SECURITY)
     }.getOrNull()
     private val metadataPaint = paint(14f, 0xB3FFFFFF.toInt(), Typeface.NORMAL)
+    /** 堆叠式歌曲信息的歌手行 Paint(字号按 metadataArtistSizePercent 缩放,见 applyContentStyle)。 */
+    private val metadataArtistPaint =
+        paint(14f * SONG_INFO_ARTIST_SCALE, 0xB3FFFFFF.toInt(), Typeface.NORMAL)
     private val artworkPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var artworkBitmap: Bitmap? = null
     private var artworkBitmapKey = ""
     /** 暂停停转时冻结的旋转角:节拍门停后偶发重绘不推进角度,恢复播放前保持停转时刻画面。 */
     private var lastArtworkSpinAngle = 0f
     private val originalPaint = paint(27f, Color.WHITE, Typeface.NORMAL)
+    /** 切歌开场占位里歌手段的歌词字号 Paint(字号按 metadataArtistSizePercent 缩放)。 */
+    private val introArtistPaint =
+        paint(27f * SONG_INFO_ARTIST_SCALE, Color.WHITE, Typeface.NORMAL)
     private val romanizedPaint = paint(17f, Color.WHITE, Typeface.NORMAL)
     private val translatedPaint = paint(17f, Color.WHITE, Typeface.ITALIC)
     private val nextLinePaint = paint(15f, 0x59FFFFFF.toInt(), Typeface.NORMAL).apply {
@@ -328,6 +336,8 @@ internal class AodLyricCanvasView(
     private val rubyPaint = paint(11f, 0xB3FFFFFF.toInt(), Typeface.NORMAL).apply {
         textAlign = Paint.Align.CENTER
     }
+    /** 共享扫光块里混合字号行(堆叠开场占位的歌手段)的临时 Paint(见 glowLinePaint;逐帧复用)。 */
+    private val glowLineScratchPaint = Paint()
     private val debugFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xAAFF5252.toInt() // 画布边界(逻辑帧 ow×oh)
         style = Paint.Style.STROKE
@@ -1766,7 +1776,8 @@ internal class AodLyricCanvasView(
                 layout.original.lineHeight,
                 precedingRuby,
                 line.rubyHeight,
-                layout.original.lineGap
+                layout.original.lineGap,
+                layout.original.baselineOffsets()
             )
             if (line.ruby.isNotEmpty()) drawRuby(canvas, line, lineBaseline, bright)
             precedingRuby += line.rubyHeight
@@ -1890,15 +1901,18 @@ internal class AodLyricCanvasView(
         val baseSp = baseTextSizeSp(forContent.original) * sizeScale
         val typeface = resolveTypeface(forContent.fontFamily, forContent.weight)
         originalPaint.typeface = typeface
+        introArtistPaint.typeface = typeface
         if (forContent.fontFamily != "auto") {
             val regularTypeface = resolveTypeface(forContent.fontFamily, "Regular")
             metadataPaint.typeface = regularTypeface
+            metadataArtistPaint.typeface = regularTypeface
             romanizedPaint.typeface = regularTypeface
             translatedPaint.typeface = Typeface.create(regularTypeface, Typeface.ITALIC)
             nextLinePaint.typeface = regularTypeface
             rubyPaint.typeface = regularTypeface
         } else {
             metadataPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            metadataArtistPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             romanizedPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             translatedPaint.typeface = Typeface.create("sans-serif", Typeface.ITALIC)
             nextLinePaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
@@ -1907,6 +1921,12 @@ internal class AodLyricCanvasView(
         originalPaint.textSize = baseSp * scaledDensity
         // 字号公式收口到 AodCanvasTextMetrics 共享纯函数(与预览同源,杜绝两套换算漂移)。
         metadataPaint.textSize = metadataTextSizeSp(forContent.metadataSizePercent) * scaledDensity
+        // 歌手行字号 = 歌名行字号 × 歌手百分比(40..100,见 SurfaceProfile.metadataArtistSizePercent)。
+        metadataArtistPaint.textSize =
+            metadataPaint.textSize * songInfoArtistScale(forContent.metadataArtistSizePercent)
+        // 开场占位的歌手段字号 = 歌词字号 × 歌手百分比(上游 84a0c9ce 项 #2/#3 同式)。
+        introArtistPaint.textSize =
+            originalPaint.textSize * songInfoArtistScale(forContent.metadataArtistSizePercent)
         romanizedPaint.textSize =
             secondaryReadingTextSizeSp(baseSp, forContent.secondaryTextSizePercent) * scaledDensity
         translatedPaint.textSize =
@@ -1917,7 +1937,9 @@ internal class AodLyricCanvasView(
 
     private fun captureRenderStyle(): RenderStyleSnapshot = RenderStyleSnapshot(
         metadataPaint = Paint(metadataPaint),
+        metadataArtistPaint = Paint(metadataArtistPaint),
         originalPaint = Paint(originalPaint),
+        introArtistPaint = Paint(introArtistPaint),
         romanizedPaint = Paint(romanizedPaint),
         translatedPaint = Paint(translatedPaint),
         rubyPaint = Paint(rubyPaint),
@@ -1927,7 +1949,9 @@ internal class AodLyricCanvasView(
 
     private fun applyRenderStyle(style: RenderStyleSnapshot) {
         metadataPaint.set(style.metadataPaint)
+        metadataArtistPaint.set(style.metadataArtistPaint)
         originalPaint.set(style.originalPaint)
+        introArtistPaint.set(style.introArtistPaint)
         romanizedPaint.set(style.romanizedPaint)
         translatedPaint.set(style.translatedPaint)
         rubyPaint.set(style.rubyPaint)
@@ -1966,12 +1990,18 @@ internal class AodLyricCanvasView(
                 content.playbackPaused
             ) && artworkBitmap != null
 
-    /** 歌曲信息行基线(锚点感知):底部锚点向上排,顶部锚点向下排(与 drawMetadata 同式)。 */
+    /**
+     * 歌曲信息行基线(锚点感知):底部锚点向上排,顶部锚点向下排(与 drawMetadata 同式)。
+     * 行距按逐行行盒偏移(混合字号时小字歌手段有自己的推进;全同字号逐值等于旧式
+     * index × lineHeight)。
+     */
     private fun metadataLineBaseline(metadata: PositionedRow, index: Int): Float =
         if (content.metadataAnchor == "bottom") {
-            metadata.baseline - (metadata.row.lines.size - 1 - index) * metadata.row.lineHeight
+            val last = metadata.row.lines.size - 1
+            metadata.baseline - (metadata.row.lineBaselineOffset(last) -
+                metadata.row.lineBaselineOffset(index))
         } else {
-            metadata.baseline + index * metadata.row.lineHeight
+            metadata.baseline + metadata.row.lineBaselineOffset(index)
         }
 
     /**
@@ -2006,11 +2036,14 @@ internal class AodLyricCanvasView(
         val metrics = metadata.row.paint.fontMetrics
         // 图片槽与文本块同心中线:文本视觉中线 = 首末行基线中点 + (ascent + descent)/2
         // (纯函数与预览 Row 居中同源;此前这里符号写反,图片整体低于文本约 0.7×字号)。
+        // 混合字号(堆叠歌曲信息)取首行歌名的 ascent 与末行歌手的 descent,与逐行行盒同源。
+        val firstMetrics = metadata.row.paintAt(0).fontMetrics
+        val lastMetrics = metadata.row.paintAt(lines.size - 1).fontMetrics
         val textMiddleY = metadataTextCenterY(
             metadataLineBaseline(metadata, 0),
             metadataLineBaseline(metadata, lines.size - 1),
-            metrics.ascent,
-            metrics.descent
+            firstMetrics.ascent,
+            lastMetrics.descent
         )
         val top = textMiddleY - side / 2f
         return RectF(groupLeft, top, groupLeft + side, top + side)
@@ -2072,8 +2105,6 @@ internal class AodLyricCanvasView(
         canvas.save()
         val metadataClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
         canvas.clipRect(metadataClip[0], metadataClip[1], metadataClip[2], metadataClip[3])
-        metadata.row.paint.color = resolvedPalette.metadataText
-        metadata.row.paint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
         // 歌曲图片画在文本下层、文本块左侧。离场帧(renderStyle!=null)不画旧图:
         // 曲目不变的换行过渡走整帧 alpha=1(见 drawOrientedContent),图片不随行闪。
         if (renderStyle == null) {
@@ -2082,11 +2113,16 @@ internal class AodLyricCanvasView(
         metadata.row.lines.forEachIndexed { index, line ->
             // 底部锚点时行向上排（末行贴近屏幕底），顶部锚点向下排。
             val lineBaseline = metadataLineBaseline(metadata, index)
+            // 逐行 Paint:堆叠式歌曲信息的歌手段用小字号 Paint 画在自己的行盒里
+            // (上游 84a0c9ce 项 #2/#3),歌名行回落整行 Paint。
+            val paint = line.paint ?: metadata.row.paint
+            paint.color = resolvedPalette.metadataText
+            paint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
             canvas.drawText(
                 line.text,
                 line.startX,
                 lineBaseline,
-                metadata.row.paint
+                paint
             )
         }
         canvas.restore()
@@ -2113,12 +2149,15 @@ internal class AodLyricCanvasView(
         } ?: return
         val destinationLine = destinationRow.row.lines.singleOrNull() ?: return
         val value = progress.coerceIn(0f, 1f)
+        // 无歌名的堆叠行(只剩歌手段)形变落点取该行自己的小字号 Paint,而不是歌名 Paint
+        // (上游 84a0c9ce 项 #3:落点字号跟随目标行,否则落定瞬间字号跳变)。
+        val destinationPaint = destinationLine.paint ?: currentRenderStyle.metadataPaint
         val paint = Paint(
             if (value < 0.5f) snapshot.renderStyle.originalPaint
-            else currentRenderStyle.metadataPaint
+            else destinationPaint
         ).apply {
             textSize = snapshot.renderStyle.originalPaint.textSize +
-                (currentRenderStyle.metadataPaint.textSize -
+                (destinationPaint.textSize -
                     snapshot.renderStyle.originalPaint.textSize) * value
             color = interpolateAodColor(
                 // 源色取主行实际绘制所用的「已唱颜色」:主行三条渲染路径(静态/扫光块/
@@ -2258,12 +2297,19 @@ internal class AodLyricCanvasView(
                 RowKind.ORIGINAL,
                 content.original,
                 originalPaint,
+                // 混合字号块(堆叠式开场占位)按逐行行盒记账;其余与 originalRowHeight 逐值相等。
                 originalRowHeight(
                     lineHeight,
                     originalLayout.lineCount,
                     originalLayout.rubyHeight,
                     originalLayout.lineGap
-                ),
+                ).let { uniform ->
+                    if (originalLayout.mixedSize) {
+                        originalLayout.stackedHeight + originalLayout.rubyHeight
+                    } else {
+                        uniform
+                    }
+                },
                 ROW_GAP_BEFORE_ORIGINAL_DP * density,
                 emptyList(),
                 lineHeight
@@ -2645,9 +2691,55 @@ internal class AodLyricCanvasView(
         lines: List<TextLine>,
         auxKaraokeWindow: LongRange? = null
     ): Row {
-        val metrics = paint.fontMetrics
-        val lineHeight = safeSecondaryLineHeight(metrics.ascent, metrics.descent, metrics.bottom)
-        return Row(kind, text, paint, lineHeight * lines.size, gap, lines, lineHeight, auxKaraokeWindow)
+        // 逐行行盒(上游 84a0c9ce 项 #3):高度按每行自己的 ascent/descent 推进
+        // (上一行 descent + 下一行 ascent),堆叠歌曲信息的小字号歌手段才不被多推一个
+        // 歌名行距;全同字号时逐值等于旧式 lineHeight × 行数,既有呈现零变化。
+        val probe = Row(kind, text, paint, 0f, gap, lines, 0f, auxKaraokeWindow)
+        return probe.copy(
+            height = probe.stackHeight(),
+            lineHeight = probe.uniformLineHeight()
+        )
+    }
+
+    /** 某行实际绘制用的 Paint:堆叠歌曲信息的歌手段携带小字号 Paint,其余行回落整行 Paint。 */
+    private fun Row.paintAt(index: Int): Paint =
+        lines.getOrNull(index)?.paint ?: paint
+
+    private fun Row.ascentAt(index: Int): Float = paintAt(index).fontMetrics.ascent
+
+    /** 行盒底沿:descent 含字体基线下方越界量,与行盒步进同式。 */
+    private fun Row.descentAt(index: Int): Float {
+        val metrics = paintAt(index).fontMetrics
+        return metrics.descent + max(0f, metrics.bottom - metrics.descent)
+    }
+
+    private fun Row.baselineOffsets(): FloatArray =
+        mixedSizeLineBaselineOffsets(
+            FloatArray(lines.size) { ascentAt(it) },
+            FloatArray(lines.size) { descentAt(it) }
+        )
+
+    /** [index] 行基线相对整行首行基线的偏移(行内无行距;全同字号 = index × 统一行高)。 */
+    private fun Row.lineBaselineOffset(index: Int): Float {
+        if (index <= 0) return 0f
+        var offset = 0f
+        for (line in 0 until index) offset += descentAt(line) - ascentAt(line + 1)
+        return offset
+    }
+
+    private fun Row.stackHeight(): Float = mixedSizeLineStackHeight(
+        baselineOffsets(),
+        FloatArray(lines.size) { ascentAt(it) },
+        FloatArray(lines.size) { descentAt(it) }
+    )
+
+    /** 行内最高单行盒(统一字号栈的步进);仅作 legacy 读数的兜底。 */
+    private fun Row.uniformLineHeight(): Float {
+        var tallest = 0f
+        for (index in lines.indices) {
+            tallest = max(tallest, descentAt(index) - ascentAt(index))
+        }
+        return tallest
     }
 
     /**
@@ -2754,22 +2846,19 @@ internal class AodLyricCanvasView(
                 "bottom" -> "bottom"
                 else -> "top"
             }
-            val metadataMetrics = metadata.paint.fontMetrics
+            // 带高按文本块实际绘制高记账:混合字号(堆叠歌曲信息的歌手段)走逐行行盒
+            // (首行 ascent 顶到末行 descent 底),单一行盒会把小字行多推一个歌名行距、
+            // 整块多占高(上游 84a0c9ce 项 #3);全同字号时逐值等于旧式行盒。
             val metadataBounds = metadataLayoutBounds(
                 anchor,
                 oh.toFloat(),
                 padTop.toFloat(),
                 padBottom.toFloat(),
-                metadataMetrics.ascent,
-                metadataMetrics.descent,
+                metadata.ascentAt(0),
+                metadata.descentAt((metadata.lines.size - 1).coerceAtLeast(0)),
                 METADATA_LYRIC_GAP_DP * density,
                 // 带高 = max(文本块高, 图片槽边长):文本块在带内居中,歌词从带沿让出(见纯函数 KDoc)。
-                blockHeight = metadataBlockHeightPx(
-                    metadata.lines.size,
-                    metadata.lineHeight,
-                    metadataMetrics.ascent,
-                    metadataMetrics.descent
-                ),
+                blockHeight = metadata.stackHeight(),
                 bandHeight = if (artworkSlotActive(content)) {
                     artworkSidePx(
                         metadata.paint.textSize,
@@ -2990,16 +3079,19 @@ internal class AodLyricCanvasView(
                         originalLayout.lineHeight,
                         precedingRuby,
                         line.rubyHeight,
-                        originalLayout.lineGap
+                        originalLayout.lineGap,
+                        originalLayout.baselineOffsets()
                     )
                     val lineClipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
                     if (line.ruby.isNotEmpty()) {
                         drawRuby(canvas, line, lineBaseline)
                     }
-                    originalPaint.shader = null
-                    originalPaint.setShadowLayer(0f, 0f, 0f, 0)
-                    setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-                    drawOriginalText(canvas, line, lineBaseline)
+                    // 堆叠式开场占位:歌手段按自己的小字号 Paint 画在自己的行盒里。
+                    val paint = line.paint ?: originalPaint
+                    paint.shader = null
+                    paint.setShadowLayer(0f, 0f, 0f, 0)
+                    setTextAlpha(paint, 1f, 1f, resolvedPalette.sungText)
+                    drawOriginalText(canvas, line, lineBaseline, paint)
                     if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
                     precedingRuby += line.rubyHeight
                     lineIndex++
@@ -3110,12 +3202,14 @@ internal class AodLyricCanvasView(
                 duetLayout.lineHeight,
                 precedingRuby,
                 line.rubyHeight,
-                duetLayout.lineGap
+                duetLayout.lineGap,
+                duetLayout.baselineOffsets()
             )
-            originalPaint.shader = null
-            originalPaint.setShadowLayer(0f, 0f, 0f, 0)
-            setTextAlpha(originalPaint, 1f, 1f, resolvedPalette.sungText)
-            drawOriginalText(canvas, line, lineBaseline)
+            val paint = line.paint ?: originalPaint
+            paint.shader = null
+            paint.setShadowLayer(0f, 0f, 0f, 0)
+            setTextAlpha(paint, 1f, 1f, resolvedPalette.sungText)
+            drawOriginalText(canvas, line, lineBaseline, paint)
             precedingRuby += line.rubyHeight
             lineIndex++
         }
@@ -3398,7 +3492,8 @@ internal class AodLyricCanvasView(
                 originalLayout.lineHeight,
                 precedingRuby,
                 line.rubyHeight,
-                originalLayout.lineGap
+                originalLayout.lineGap,
+                originalLayout.baselineOffsets()
             )
             if (line.ruby.isNotEmpty()) {
                 drawRuby(canvas, line, lineBaseline)
@@ -3408,7 +3503,10 @@ internal class AodLyricCanvasView(
                 left = line.startX,
                 width = line.width,
                 baseline = capturedBaseline,
-                drawText = { c, p -> drawLineTextForGlow(c, line, capturedBaseline, p) }
+                // 混合字号行(堆叠式开场占位的歌手段)以行自己的小字号绘制(见 glowLinePaint)。
+                drawText = { c, p ->
+                    drawLineTextForGlow(c, line, capturedBaseline, glowLinePaint(line, p))
+                }
             )
             precedingRuby += line.rubyHeight
             lineIndex++
@@ -3467,6 +3565,20 @@ internal class AodLyricCanvasView(
     }
 
     /**
+     * 共享扫光块的行绘制 Paint:混合字号行(堆叠式开场占位的歌手段)完整继承渲染核心
+     * 本次施加的颜色/Shader/阴影,仅替换字号与字体 —— 直接把行自己的 Paint 递进去会
+     * 丢掉 dim 底/扫光带的着色状态,照抄渲染核心的 Paint 再改字号才能既小又同步亮灭。
+     */
+    private fun glowLinePaint(line: OriginalLine, rendererPaint: Paint): Paint {
+        val linePaint = line.paint ?: return rendererPaint
+        if (linePaint === rendererPaint) return rendererPaint
+        glowLineScratchPaint.set(rendererPaint)
+        glowLineScratchPaint.textSize = linePaint.textSize
+        glowLineScratchPaint.typeface = linePaint.typeface
+        return glowLineScratchPaint
+    }
+
+    /**
      * 逐字卡拉OK路径（[betterLyrics] 为「BetterLyrics」档）：词级进度/放大/扫光与
      * 未唱下沉、已唱上浮、长音节辉光统一委托共享渲染核心 [LyricWordKaraokeRenderer]
      * （预览同源，杜绝效果漂移）。逐字时间源用真词时间窗;行级源（[betterLyrics] 且
@@ -3494,13 +3606,16 @@ internal class AodLyricCanvasView(
         var lineIndex = 0
         while (lineIndex < lines.size) {
             val line = lines[lineIndex]
+            // 混合字号行(堆叠式开场占位的歌手段)按行自己的小字号测量与绘制;其余行回落主行 Paint。
+            val linePaint = line.paint ?: originalPaint
             val lineBaseline = originalLineBaseline(
                 baseline,
                 lineIndex,
                 originalLayout.lineHeight,
                 precedingRuby,
                 line.rubyHeight,
-                originalLayout.lineGap
+                originalLayout.lineGap,
+                originalLayout.baselineOffsets()
             )
             val lineClipSave = clipOriginalLine(canvas, lineBaseline, line.rubyHeight)
             if (line.ruby.isNotEmpty()) {
@@ -3538,10 +3653,10 @@ internal class AodLyricCanvasView(
                 for (block in syntheticKaraokeBlocks(line.text)) {
                     while (index < block.first) {
                         val unitEnd = karaokeUnitEnd(line.text, index, block.first)
-                        prefix += originalPaint.measureText(line.text, index, unitEnd)
+                        prefix += linePaint.measureText(line.text, index, unitEnd)
                         index = unitEnd
                     }
-                    val blockWidth = originalPaint.measureText(line.text, block.first, block.last + 1)
+                    val blockWidth = linePaint.measureText(line.text, block.first, block.last + 1)
                     val blockWindow = syntheticCharTimeWindow(
                         blockStartMs,
                         blockEndMs,
@@ -3557,7 +3672,7 @@ internal class AodLyricCanvasView(
                     var charIndex = block.first
                     while (charIndex <= block.last) {
                         val charEnd = karaokeUnitEnd(line.text, charIndex, block.last + 1)
-                        val charWidth = originalPaint.measureText(line.text, charIndex, charEnd)
+                        val charWidth = linePaint.measureText(line.text, charIndex, charEnd)
                         val charWindow = syntheticCharTimeWindow(
                             blockStartMs,
                             blockEndMs,
@@ -3597,7 +3712,7 @@ internal class AodLyricCanvasView(
             }
             LyricWordKaraokeRenderer.draw(
                 canvas = canvas,
-                paint = originalPaint,
+                paint = linePaint,
                 runs = runs,
                 baseline = lineBaseline,
                 sungColor = resolvedPalette.sungText,
@@ -3749,6 +3864,20 @@ internal class AodLyricCanvasView(
         content: AodCanvasContent,
         availableWidth: Float
     ): OriginalLayout {
+        // 切歌开场占位(大元数据引导):主行位置显示本面组装的歌曲信息,换行沿用歌曲信息
+        // 口径(上游 amarinne/hyperglow 99ba119 项 #1)——过宽的切片在**歌词字号**下继续换行
+        // 到后续行,而不是把整块缩小到一行;堆叠布局下歌手段按 [introArtistPaint] 的小字号,
+        // 行盒按每行自己的度量推进(84a0c9ce 项 #3)。
+        if (isSongChangeMetadataPlaceholder(
+                content.original,
+                content.metadata,
+                content.lineStartMs,
+                content.lineEndMs,
+                content.words.any { it.endMs > it.startMs }
+            )
+        ) {
+            return buildMetadataIntroLayout(content, availableWidth)
+        }
         // 换行/词行布局统一委托 LyricLayoutEngine(与预览同源,断行一致)。
         val layout = layoutOriginalLines(
             original = content.original,
@@ -3773,6 +3902,75 @@ internal class AodLyricCanvasView(
             // 真实词窗判据(见 hasTimedWordWindows):行级标记不再压过它,渲染路径决策
             // (planOriginalLine / shouldUseSharedLineLevelSweep)与效果余量共用这一位。
             hasTimedWordWindows(content.words)
+        )
+    }
+
+    /**
+     * 切歌开场占位的主行布局(上游 99ba119 项 #1 + 84a0c9ce 项 #2/#3):
+     * `single` 把所有切片并成一行(整行歌词字号);`stacked` 逐片排 —— 第 0 片歌名按
+     * [originalPaint]、其后各片歌手/专辑署名按 [introArtistPaint] 的小字号。
+     * 两种布局下过宽切片都在**歌词字号**下继续换行(上限走歌词行数档),不再整体缩小;
+     * 每行携带自己的 Paint,行盒按每行自己的度量推进(见 [OriginalLayout.lineAscents])。
+     */
+    private fun buildMetadataIntroLayout(
+        content: AodCanvasContent,
+        availableWidth: Float
+    ): OriginalLayout {
+        val pieces = if (content.metadataLayout == METADATA_LAYOUT_SINGLE) {
+            listOf(metadataSingleLineText(content.metadata)).filter { it.isNotBlank() }
+        } else {
+            metadataLineTexts(content.metadata)
+        }
+        val artistIndexes = metadataArtistPieceIndexes(pieces.size)
+        val limit = lyricLayoutLineLimit()
+        val painted = ArrayList<Pair<LyricLayoutTextLine, Paint>>(pieces.size)
+        pieces.forEachIndexed { index, piece ->
+            val paint = if (index in artistIndexes) introArtistPaint else originalPaint
+            layoutMetadataLines(
+                text = piece,
+                metrics = paint.measurePort(),
+                availableWidth = availableWidth,
+                maxLines = limit
+            ).forEach { line -> painted += line to paint }
+        }
+        if (painted.isEmpty()) {
+            val metrics = originalPaint.fontMetrics
+            return OriginalLayout(
+                emptyList(),
+                metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density,
+                LYRIC_LINE_GAP_DP * density,
+                false
+            )
+        }
+        val lines = painted.map { (line, paint) ->
+            val visual = visualExtents(line.text, paint, line.width)
+            OriginalLine(
+                text = line.text,
+                // 开场占位无词表:换行/绘制都按整行文本,逐字合成路径由空词表自然回落。
+                words = emptyList(),
+                width = line.width,
+                startX = alignedStart(line.width, alignment, visual.first, visual.second),
+                charStart = null,
+                charEnd = null,
+                paint = paint.takeUnless { it === originalPaint }
+            )
+        }
+        val metrics = originalPaint.fontMetrics
+        val lineHeight = metrics.descent - metrics.ascent + LYRIC_LINE_EXTRA_HEIGHT_DP * density
+        // 混合字号:逐行 ascent/descent 让歌手段按自己的行盒落在歌名段之下;全同字号
+        // (single 或只有一片)时恒空,保持普通歌词块的统一行盒。
+        val mixed = artistIndexes.isNotEmpty() && lines.size > 1
+        return OriginalLayout(
+            lines,
+            lineHeight,
+            LYRIC_LINE_GAP_DP * density,
+            false,
+            if (mixed) FloatArray(lines.size) { painted[it].second.fontMetrics.ascent }
+            else FloatArray(0),
+            if (mixed) FloatArray(lines.size) {
+                val fm = painted[it].second.fontMetrics
+                fm.descent + max(0f, fm.bottom - fm.descent)
+            } else FloatArray(0)
         )
     }
 
@@ -3994,8 +4192,14 @@ internal class AodLyricCanvasView(
         ).map { textLine(it.text, it.width, paint, lineAlignment) }
 
     /**
-     * 歌曲信息（歌名/歌手）专用换行：委托 LyricLayoutEngine.layoutMetadataLines
+     * 歌曲信息(歌名/歌手)专用换行:委托 LyricLayoutEngine.layoutMetadataLines
      * (与预览同源,最多 MAX_SECONDARY_LAYOUT_LINES 行);定位 X 按 metadata 对齐解析。
+     *
+     * **布局(上游 99ba119 项 #1)与混合字号(84a0c9ce 项 #2/#3)**:`single` 把所有切片用
+     * 行内中点分隔符并成一行(整行按歌名字号);`stacked` 按硬换行切片逐片测量 —— 第 0 片
+     * 歌名、其后各片歌手/专辑署名按 [metadataArtistPaint] 的小字号测量,每行携带自己的
+     * Paint,行盒才按真实行宽排(见 [Row.lineBaselineOffset] 的逐行行盒)。
+     * 两种布局下过宽的切片都换行到后续行,而不是把整块缩小。
      *
      * 歌曲图片槽:图片显示时文本可用宽先扣掉前置宽度(槽+间距,公式同源
      * AodCanvasTextMetrics),[alignment] 作用于「图片+文本块」整组——图片恒在
@@ -4018,24 +4222,54 @@ internal class AodLyricCanvasView(
         } else {
             0f
         }
-        val lines = layoutMetadataLines(
-            text = text,
-            paint = paint,
-            availableWidth = (availableWidth - leading).coerceAtLeast(1f)
-        )
-        if (leading <= 0f) {
-            return lines.map { textLine(it.text, it.width, paint, lineAlignment) }
-        }
-        val blockWidth = lines.maxOfOrNull { it.width } ?: 0f
-        val groupWidth = leading + blockWidth
-        val groupLeft = alignedStart(groupWidth, lineAlignment, 0f, groupWidth)
-        return lines.map { line ->
-            val inBlock = when (lineAlignment) {
-                Alignment.CENTER -> (blockWidth - line.width) / 2f
-                Alignment.END -> blockWidth - line.width
-                else -> 0f
+        val usable = (availableWidth - leading).coerceAtLeast(1f)
+        val laidOut = if (content.metadataLayout == METADATA_LAYOUT_SINGLE) {
+            val single = metadataSingleLineText(text)
+            if (single.isBlank()) return emptyList()
+            // 单行布局:整行按歌名字号,换行上限按歌词行数档(长歌名继续换行而非缩小整块)。
+            layoutMetadataLines(
+                text = single,
+                metrics = paint.measurePort(),
+                availableWidth = usable,
+                maxLines = lyricLayoutLineLimit()
+            ).map { line -> line to paint }
+        } else {
+            val pieces = metadataLineTexts(text)
+            val artistIndexes = metadataArtistPieceIndexes(pieces.size)
+            layoutMetadataLines(
+                text = text,
+                availableWidth = usable,
+                metricsForPiece = { index ->
+                    (if (index in artistIndexes) metadataArtistPaint else paint).measurePort()
+                },
+                maxLines = MAX_METADATA_LAYOUT_LINES
+            ).map { line ->
+                // 每行携带自己那片的 Paint:歌手段小字号、其余歌名字号。
+                line to if (line.pieceIndex in artistIndexes) metadataArtistPaint else paint
             }
-            TextLine(line.text, line.width, groupLeft + leading + inBlock)
+        }
+        return if (leading <= 0f) {
+            laidOut.map { (line, linePaint) ->
+                val visual = visualExtents(line.text, linePaint, line.width)
+                TextLine(
+                    line.text,
+                    line.width,
+                    alignedStart(line.width, lineAlignment, visual.first, visual.second),
+                    paint = linePaint
+                )
+            }
+        } else {
+            val blockWidth = laidOut.maxOfOrNull { it.first.width } ?: 0f
+            val groupWidth = leading + blockWidth
+            val groupLeft = alignedStart(groupWidth, lineAlignment, 0f, groupWidth)
+            laidOut.map { (line, linePaint) ->
+                val inBlock = when (lineAlignment) {
+                    Alignment.CENTER -> (blockWidth - line.width) / 2f
+                    Alignment.END -> blockWidth - line.width
+                    else -> 0f
+                }
+                TextLine(line.text, line.width, groupLeft + leading + inBlock, paint = linePaint)
+            }
         }
     }
 
@@ -4170,30 +4404,31 @@ internal class AodLyricCanvasView(
         canvas: Canvas,
         line: OriginalLine,
         baseline: Float,
+        paint: Paint = originalPaint,
         glow: Float = 0f
     ) {
         if (line.ruby.isEmpty()) {
-            drawGlowHalo(canvas, line.text, 0, line.text.length, line.startX, baseline, originalPaint, glow)
-            canvas.drawText(line.text, line.startX, baseline, originalPaint)
+            drawGlowHalo(canvas, line.text, 0, line.text.length, line.startX, baseline, paint, glow)
+            canvas.drawText(line.text, line.startX, baseline, paint)
             return
         }
         if (line.textRuns.isEmpty()) {
-            drawGlowHalo(canvas, line.text, 0, line.text.length, line.startX, baseline, originalPaint, glow)
-            canvas.drawText(line.text, line.startX, baseline, originalPaint)
+            drawGlowHalo(canvas, line.text, 0, line.text.length, line.startX, baseline, paint, glow)
+            canvas.drawText(line.text, line.startX, baseline, paint)
             return
         }
         var index = 0
         while (index < line.textRuns.size) {
             val run = line.textRuns[index]
             val runX = line.startX + run.x
-            drawGlowHalo(canvas, line.text, run.start, run.end, runX, baseline, originalPaint, glow)
+            drawGlowHalo(canvas, line.text, run.start, run.end, runX, baseline, paint, glow)
             canvas.drawText(
                 line.text,
                 run.start,
                 run.end,
                 runX,
                 baseline,
-                originalPaint
+                paint
             )
             index++
         }
@@ -4210,11 +4445,13 @@ internal class AodLyricCanvasView(
         var lineIndex = 0
         while (lineIndex < row.lines.size) {
             val line = row.lines[lineIndex]
-            val lineBaseline = baseline + lineIndex * row.lineHeight
+            // 逐行行盒 + 逐行 Paint:堆叠歌曲信息的歌手段用小字号 Paint 画在自己的行盒里。
+            val lineBaseline = baseline + row.lineBaselineOffset(lineIndex)
             if (row.kind == RowKind.METADATA) {
-                row.paint.color = resolvedPalette.metadataText
-                row.paint.alpha = 255
-                canvas.drawText(line.text, line.startX, lineBaseline, row.paint)
+                val paint = line.paint ?: row.paint
+                paint.color = resolvedPalette.metadataText
+                paint.alpha = 255
+                canvas.drawText(line.text, line.startX, lineBaseline, paint)
             } else if (row.kind == RowKind.NEXT_LINE) {
                 drawNextLine(canvas, row.paint, line.text, line.startX, lineBaseline)
             } else {
@@ -4523,13 +4760,17 @@ internal class AodLyricCanvasView(
         val charEnd: Int?,
         val ruby: List<RubyPlacement> = emptyList(),
         val rubyHeight: Float = 0f,
-        val textRuns: List<OriginalTextRun> = emptyList()
+        val textRuns: List<OriginalTextRun> = emptyList(),
+        /** 歌手段的小字号 Paint(仅堆叠式切歌开场占位携带);null = 用整块主行 Paint。 */
+        val paint: Paint? = null
     )
     private data class TextLine(
         val text: String,
         val width: Float,
         val startX: Float,
-        val timedSegments: List<SecondaryTimedSegment> = emptyList()
+        val timedSegments: List<SecondaryTimedSegment> = emptyList(),
+        /** 歌手段的小字号 Paint(仅堆叠式歌曲信息携带);null = 用整行 Paint。 */
+        val paint: Paint? = null
     )
     private data class BaseRun(val x: Float, val width: Float)
     private data class RubyPlacement(
@@ -4564,7 +4805,11 @@ internal class AodLyricCanvasView(
     )
     private data class RenderStyleSnapshot(
         val metadataPaint: Paint,
+        /** 歌手行 Paint(堆叠式歌曲信息的小字号行;见 applyContentStyle)。 */
+        val metadataArtistPaint: Paint,
         val originalPaint: Paint,
+        /** 切歌开场占位的歌手段 Paint(歌词字号 × 歌手百分比)。 */
+        val introArtistPaint: Paint,
         val romanizedPaint: Paint,
         val translatedPaint: Paint,
         val rubyPaint: Paint,
@@ -4577,12 +4822,45 @@ internal class AodLyricCanvasView(
         val lineHeight: Float,
         val lineGap: Float,
         /** 该行是否带真实词窗(见 [hasTimedWordWindows]):渲染路径决策与效果余量共用。 */
-        val timed: Boolean
+        val timed: Boolean,
+        /**
+         * 逐行 ascent/descent:仅混合字号块(堆叠式切歌开场占位:小字号歌手段在歌词字号的
+         * 歌名段之下)携带,行盒按每行自己的字体度量推进;普通歌词块恒空,保持单一行盒
+         * (上游 amarinne/hyperglow 84a0c9ce 项 #3)。
+         */
+        val lineAscents: FloatArray = FloatArray(0),
+        val lineDescents: FloatArray = FloatArray(0)
     ) {
         val lineCount: Int
             get() = lines.size
         val rubyHeight: Float
             get() = lines.sumOf { it.rubyHeight.toDouble() }.toFloat()
+        private val mixedOffsets: FloatArray
+            get() = mixedSizeLineBaselineOffsets(lineAscents, lineDescents, lineGap)
+
+        /** 行集是否携带混合字号(逐行度量),即不能用统一行盒排版。 */
+        val mixedSize: Boolean
+            get() = lineAscents.size == lines.size && lineAscents.isNotEmpty()
+
+        /** [lineIndex] 相对块首行基线的偏移(混合字号按逐行行盒,其余按统一行高 + 行距)。 */
+        fun baselineOffset(lineIndex: Int): Float =
+            if (mixedSize) mixedOffsets[lineIndex.coerceIn(0, lines.size - 1)]
+            else lineIndex * (lineHeight + lineGap)
+
+        /** 逐行基线偏移数组(混合字号非空,其余恒空 → 调用方回落统一行高)。 */
+        fun baselineOffsets(): FloatArray = if (mixedSize) mixedOffsets else FloatArray(0)
+
+        /**
+         * 整块文本高(行距已含)。混合字号 = 首行 ascent 顶到末行 descent 底
+         * ([mixedOffsets] 的步进已含 [lineGap],不再二次计入);统一字号 = 旧式行高 × 行数
+         * + 行距 × (行数 − 1),与 [originalRowHeight] 逐值相等。
+         */
+        val stackedHeight: Float
+            get() = if (mixedSize) {
+                mixedSizeLineStackHeight(mixedOffsets, lineAscents, lineDescents)
+            } else {
+                lineHeight * lines.size + lineGap * (lines.size - 1).coerceAtLeast(0)
+            }
     }
 
     private data class LayoutState(

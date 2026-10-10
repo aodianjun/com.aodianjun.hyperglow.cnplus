@@ -1,5 +1,7 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
+
 internal data class AodCanvasLayoutGroup(
     val start: Int,
     val end: Int,
@@ -74,6 +76,21 @@ internal data class AodCanvasContent(
     val metadataVisible: Boolean,
     val metadataAnchor: String,
     val metadataSizePercent: Int = 100,
+    /**
+     * 歌曲信息布局(`stacked` / `single`;上游 amarinne/hyperglow 99ba119 项 #1):
+     * `single` 把所有切片用行内中点分隔符并成一行(整行按歌名字号),`stacked` 按本面
+     * 分隔符组装(含换行槽位时歌名在上、歌手/专辑各占一行)。未知值按 stacked 处理。
+     * 两种布局下过宽的切片都换行到后续行,而不是把整块缩小。
+     */
+    val metadataLayout: String = METADATA_LAYOUT_STACKED,
+    /**
+     * 堆叠式歌曲信息的歌手行字号百分比(40..100,默认 80;上游 amarinne/hyperglow
+     * 84a0c9ce 项 #2):按本面有效 parts/separators 组装出多行堆叠时,第 0 行(歌名)之后的
+     * 各行按该字号渲染;行内分隔符并成一行(或 [metadataLayout] 为 single)时整行按歌名
+     * 字号,本值不参与。
+     */
+    val metadataArtistSizePercent: Int =
+        com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
     val adaptiveSectioning: Boolean,
     val palette: Map<String, String>,
     val secondaryTextBright: Boolean = true,
