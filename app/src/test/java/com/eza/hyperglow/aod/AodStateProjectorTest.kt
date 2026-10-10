@@ -119,6 +119,9 @@ class AodStateProjectorTest {
         layoutGroups: List<LyricLayoutGroup> = emptyList(),
         hasTimedLyrics: Boolean = true,
         nextLineStartMs: Long? = null,
+        nextLine: String = "",
+        nextLineRomanized: String = "",
+        nextLineTranslated: String = "",
         language: String = "",
         positionMs: Long = 0L,
         durationMs: Long = 180_000L,
@@ -163,6 +166,9 @@ class AodStateProjectorTest {
         layoutGroups = layoutGroups,
         hasTimedLyrics = hasTimedLyrics,
         nextLineStartMs = nextLineStartMs,
+        nextLine = nextLine,
+        nextLineRomanized = nextLineRomanized,
+        nextLineTranslated = nextLineTranslated,
         language = language
     )
 
