@@ -120,7 +120,9 @@ source range, lexical kind, keep-together intent, and confidence. AOD projects t
 Binder without changing timed words. The module-local persisted `Adaptive sectioning` preference
 defaults on: lexical chunks and secondary-row tokens are balanced across the required line count;
 Japanese particles stay with preceding phrases, Chinese dictionary phrases stay together, and Korean
-authored spaces remain break points. Groups wider than the canvas may emergency-break. With the
+authored spaces remain break points. Within the minimal line count, a break after clause punctuation
+costs less than an arbitrary split, so phrases break at commas and sentence ends when that needs no
+extra line. Groups wider than the canvas may emergency-break. With the
 preference off, AOD ignores layout groups and restores upstream behavior: timed words wrap greedily
 in source order without balancing, but transported fragments marked as parts of the same lexical word
 remain indivisible. Untimed text uses `Paint.breakText`, and each secondary row stays a single clipped
@@ -139,14 +141,23 @@ X sweep across every visible lyric row. Word/syllable timing remains unchanged.
 ## Security And Lifecycle
 
 - Producer endpoints accept only UIDs containing `com.spotify.music`.
+- The app declares `forceQueryable` so Spotify can discover its bridge service and provider without
+  changing Spotify's manifest. Package visibility does not grant access; both endpoints validate caller UID.
+  Per AOSP `AppsFilterImpl`, the flag is only honored when the declaring package is system-installed,
+  so a priv-app/preinstalled install is what it actually serves; it is declared to match upstream and
+  changes nothing for a user-installed module.
 - AOD callback accepts only system UID containing `com.android.systemui`.
 - Protocol, sequence, payload size, document identity, row count, word count, timing, and text bounds fail closed. Document pipes use the declared compressed byte count as an exact frame boundary and reject short/truncated frames.
 - Closed producer render-mode strings are normalized once at bridge ingress. Current values are
   preserved, known legacy aliases are canonicalized, unknown values use producer-safe defaults, and
   custom text size is clamped before state enters projection/rendering.
 - The producer retains at most one bounded immutable state and one compressed document for the
-  current session. Each Binder connection receives state first, then document, once; normal service
-  process death uses Android's existing automatic reconnect without creating a duplicate bind.
+  current session. Each Binder connection receives state first, then document, once. Android has no
+  automatic reconnect for a bound-service client: after the app process dies the client receives
+  `onServiceDisconnected` and no later `onServiceConnected`, so rebinding after service process death
+  is the producer client's responsibility. HyperGlow cannot recover that binding from its own side and
+  must not be specified as if it could. The provider transport is the exception, because every
+  `ContentResolver.call` re-acquires the provider and therefore survives app process death.
   Explicit clear, generation retirement, and disable discard both retained payloads.
 - App-to-SystemUI lyric state keeps the `onState(Bundle)` ABI but carries a versioned scalar envelope; full snapshots use one encoded body bounded to 48 KiB aggregate UTF-8 text, plus a separately bounded 24 KiB song-artwork JPEG frame (carried only when package/track-verified; empty otherwise), within a 96 KiB encoded-bytes ceiling. Hidden and keepalive messages remain scalar-only. The duet concurrent line (wire body v4, PR #118) rides in the same body and shares the 48 KiB text aggregate.
 - The scalar envelope carries Spotify `playbackActive` explicitly. Power policy never infers pause
@@ -384,7 +395,8 @@ AOD 亮度请求钳制到 Xiaomi 自身可读的 AOD 亮度级别。在暂停、
 Bridge 文档版本 1 接受可选的行级 `layoutGroups`。每个分组携带 UTF-16 源区间、词法类别、保持
 同组的意图以及置信度。AOD 通过 Binder 投递这些字段，且不改变逐时歌词词。模块本地持久化的
 `Adaptive sectioning` 偏好默认开启：词法块与次级行 token 会在所需行数内均衡分布；日语助词与其
-前置短语保持同组，中文词典词组保持完整，韩语中手工输入的空格仍作为可断行点。宽度超过画布的
+前置短语保持同组，中文词典词组保持完整，韩语中手工输入的空格仍作为可断行点。在最小行数内，
+子句标点之后的断点代价低于任意切分，因此不需要多出一行时短语断在逗号与句末。宽度超过画布的
 分组可以进行紧急断行。关闭该偏好后，AOD 会忽略布局分组并恢复上游行为：逐时词按源顺序贪婪
 换行、不做均衡，但被标记为同一词法单词组成部分的传输片段仍不可拆分。非逐时文本使用
 `Paint.breakText`，每个次级行保持为单条被裁剪的行。传输的音译片段即便位于该单一行上，也保留
@@ -400,14 +412,18 @@ profile 开关只选择亮色或暗色呈现，从不改变时序节奏。行级
 ## 安全与生命周期
 
 - 生产者端点只接受包含 `com.spotify.music` 的 UID。
+- 应用声明 `forceQueryable`，让 Spotify 无需改动自身 manifest 即可发现本模块的 bridge service 与 provider。包可见性不授予访问权限；两端仍各自校验 caller UID。按 AOSP `AppsFilterImpl` 的实现，该标志只在声明方为系统安装时被读取，因此真正生效的是 priv-app/预装安装；保留该声明是为与上游对齐，对用户安装的模块不改变任何行为。
 - AOD 回调只接受包含 `com.android.systemui` 的系统 UID。
 - 协议、序列号、载荷大小、文档标识、行数、词数、时序与文本边界一律 fail closed。文档管道以声明的压缩字节数作为精确的帧边界，并拒绝过短/截断的帧。
 - 封闭的生产者渲染模式字符串会在 bridge 入口处一次性归一化。当前值原样保留，已知的遗留别名
   转换为规范形式，未知值使用对生产者安全的默认值，自定义文字大小会在状态进入 projection/渲染
   之前被钳制。
 - 生产者为当前会话至多保留一份受限的不可变状态和一份压缩文档。每个 Binder 连接先接收一次
-  状态，再接收一次文档；正常的服务进程死亡走 Android 既有的自动重连，不会产生重复绑定。
-  显式清除、generation 退役与禁用操作都会丢弃这两份保留的载荷。
+  状态，再接收一次文档。Android **不会**为 bound-service 客户端自动重连：应用进程死亡后客户端
+  只会收到 `onServiceDisconnected`，不会再收到 `onServiceConnected`，因此服务进程死亡后的重绑是
+  生产者客户端自己的职责。HyperGlow 无法从自己这一侧恢复该绑定，也不得被规范成仿佛它能做到。
+  provider 传输是例外，因为每次 `ContentResolver.call` 都会重新获取 provider，因此能挺过应用
+  进程死亡。显式清除、generation 退役与禁用操作都会丢弃这两份保留的载荷。
 - App 到 SystemUI 的歌词状态保留 `onState(Bundle)` ABI，但携带版本化的标量信封；完整 snapshot 使用单一编码体，限制为 UTF-8 文本合计 48 KiB，另加单独限额的歌曲图片 JPEG 帧 24 KiB（仅包名/曲目校对通过时携带，否则为空），编码后总上限 96 KiB。隐藏与 keepalive 消息保持纯标量。对唱并发行（wire body v4,PR #118）随同一编码体携带,共享 48 KiB 文本聚合预算。
 - 标量信封显式携带 Spotify 的 `playbackActive`。电源策略绝不会从歌词可见性、媒体行、其他媒体
   播放器或渲染器状态推断暂停。

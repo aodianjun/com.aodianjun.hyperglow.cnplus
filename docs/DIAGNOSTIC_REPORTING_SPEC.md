@@ -124,6 +124,14 @@ timeout:
 - lines from the newest LSPosed module log only, after a fixed 512 KiB tail bound, containing
   `HyperGlow` or `com.eza.hyperglow`, maximum 64 KiB.
 
+Root access is probed first, and that probe is the one command with a longer window: a root manager
+asks the user to approve the app and the command waits for that tap, so a five-second window would
+time out and destroy a grant the user was about to give. The probe also tries the known absolute
+`su` locations after `PATH`, because a manager that installs its binary outside the app's `PATH`
+otherwise fails to spawn, and a spawn failure is indistinguishable from a refusal in the report.
+A `su` that runs and refuses reports `denied`; a `su` that cannot be spawned at any known location,
+or a probe that outruns its window, reports `error`.
+
 Root denial produces a metadata-only report. Oversized sections preserve the first 25% and newest
 75% with an explicit truncation marker. Line-based sections discard partial boundary lines so a
 retained LSPosed fragment cannot lose its module-identity prefix.
@@ -264,6 +272,12 @@ App 进程日志镜像（`diagnostic-trace.log` 加一次轮转）只在诊断�
 - 进程为 HyperGlow、SystemUI 或 Spotify 的 crash 缓冲区块，最大 64 KiB；
 - 仅来自最新 LSPosed 模块日志、经固定 512 KiB 尾部截取后包含 `HyperGlow` 或
   `com.eza.hyperglow` 的行，最大 64 KiB。
+
+root 权限探测最先执行，且它是唯一拥有更长窗口的命令：root 管理器会要求用户批准本应用、
+命令要等用户那一次点击，因此 5 秒窗口会超时并毁掉一次用户正要给出的授权。探测还会在
+`PATH` 之后再试已知的 `su` 绝对路径，因为把二进制装到应用 `PATH` 之外的管理器否则无法
+spawn，而在报告里 spawn 失败与拒绝无从区分。运行起来但拒绝的 `su` 报 `denied`；在任何已知
+位置都无法 spawn 的 `su`，或跑过了自己窗口的探测，报 `error`。
 
 root 被拒绝时生成仅含元数据的报告。超限的段落会保留最前 25% 与最新 75%，并附带显式
 截断标记。基于行的段落会丢弃不完整的边界行，确保被保留的 LSPosed 片段不会丢失其模块
