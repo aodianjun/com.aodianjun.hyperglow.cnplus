@@ -264,10 +264,11 @@ internal fun projectToDisplay(
     // 辅助文字内容档「和声」(见 SECONDARY_MODE_BACKGROUND_VOCAL)与「显示并发歌词(对唱)」
     // 解耦:选中该档的曲面即使关掉对唱开关也要拿到候选,渲染面再按本面档位放行和声行
     // (和声走辅助行车道、同尺寸并发行不渲染,见 LyricCanvasMapper)。
-    val harmonyAsAux = aodProfile?.secondaryMode ==
-        com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL ||
-        lockscreenProfile?.secondaryMode ==
-        com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL
+    val harmonyAsAux = com.eza.hyperglow.customization.auxHarmonyAsAux(
+        aodProfile?.secondaryMode ?: "Main only"
+    ) || com.eza.hyperglow.customization.auxHarmonyAsAux(
+        lockscreenProfile?.secondaryMode ?: "Main only"
+    )
     HookLogger.iThrottled("duet-proj", 5_000L, "AodStateProjector") {
         val incoming = state.duetLine
         "Duet proj: in=${incoming?.text?.take(16)} inWin=${incoming?.lineStartMs}..${incoming?.lineEndMs} " +
