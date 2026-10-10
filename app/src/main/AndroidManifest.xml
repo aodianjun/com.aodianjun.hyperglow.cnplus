@@ -14,11 +14,25 @@
     </queries>
 
     <!-- enableOnBackInvokedCallback:预测性返回手势(API 33+)的显式开关。App 内导航
-         走 miuix-nav 的 NavDisplay,它经 androidx.navigationevent 接收逐帧返回进度。 -->
+         走 miuix-nav 的 NavDisplay,它经 androidx.navigationevent 接收逐帧返回进度。
+
+         forceQueryable(上游 84a0c9ce 项 #4):声明本应用对所有应用可见。Android 11+ 的包
+         可见性只认**调用方**的 <queries>——本桥的调用方是 Spotify 宿主进程(Spicy EX 以
+         Xposed 模块注入其中),它不会为 CN+ 声明 queries,所以被调方一侧得自己声明。
+
+         两点边界(照 AOSP 实现写,别照字面语义想):
+         1. AppsFilterImpl.addPackageInternal 只在 `newPkgSetting.isSystem()` 成立时才读这个
+            标志(与 mSystemAppsQueryable / config_forceQueryablePackages 同在 isSystem 的
+            合取里),**普通用户安装的 Xposed 模块因此不生效**;系统安装(priv-app / 预装)
+            或调用方持有 QUERY_ALL_PACKAGES 才是它真正落地的条件。保留此声明是为了与上游
+            对齐并在系统安装场景下生效,它本身不改变用户安装时的行为。
+         2. 包可见性 ≠ 授权:它只放开「看得见」。两端仍各自校验调用方 UID
+            (见 bridge/CallerValidator.isSpotify / isSystemUi)。 -->
     <application
         android:name=".HyperGlowApplication"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
+        android:forceQueryable="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
