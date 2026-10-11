@@ -117,6 +117,12 @@ internal class ProjectionReleaseGate {
     fun isCurrent(token: Long): Boolean = token == generation
 }
 
+/**
+ * [AodProjectionEngine.classifyStaleSample] 的处置结果:同会话过时样本软跳过(由 collect
+ * 送达的当前样本驱动投影),会话失效才释放(发布 visible=false 的 Hidden)。
+ */
+internal enum class StaleSampleAction { SoftSkip, Release }
+
 object AodProjectionEngine {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var scheduler: Job? = null
@@ -177,6 +183,15 @@ object AodProjectionEngine {
         }
         cancelRelease()
         if (!isCurrentActive(state)) {
+            // 引用不等只说明样本被新实例替代,不说明会话失效:arbiter 播放中每 ~100ms tick
+            // 写新实例(签名含递增 sequence),收集协程读到 S_n 后 arbiter 已写 S_{n+1} 是
+            // 常态。同会话(producerId/generation/trackUri 相同)软跳过——当前样本会经
+            // collect 送达并由其驱动投影,过时样本交给 canPublish 的 token 校验拒绝。
+            // 只有换歌/换源或 active 已清空才走原释放路径:releaseNow 发布 visible=false
+            // 的 Hidden,而 Xiaomi 的 hide 不可逆,误判即终态隐藏。
+            if (classifyStaleSample(state, LyricProducers.arbiter.active.value) ==
+                StaleSampleAction.SoftSkip
+            ) return
             cancelPauseConfirmation()
             releaseNow(playbackActive = false)
             return
@@ -217,6 +232,27 @@ object AodProjectionEngine {
      */
     private fun isCurrentActive(state: LyricProducerState): Boolean =
         LyricProducers.arbiter.active.value === state
+
+    /**
+     * [handleState] 收到「引用已非当前」样本时的处置判定(纯函数,便于单测)。
+     *
+     * 会话身份由 [ProjectionSessionIdentity] 决定:同一会话的新实例只是位置/内容更新
+     * (arbiter 每 ~100ms tick 写新引用),不是会话失效——软跳过,当前样本会经 collect
+     * 送达并由其驱动投影;只有 [current] 为 null(active 已清空)或会话不同(换歌/换源)
+     * 才是真失效,需要释放。
+     *
+     * 调用方保证 [sample] 已被引用相等判为「非当前」;实例相同不属于本函数,防御性返回
+     * [StaleSampleAction.SoftSkip](同一实例必然同会话,绝不释放——Hidden 不可逆)。
+     */
+    internal fun classifyStaleSample(
+        sample: LyricProducerState,
+        current: LyricProducerState?
+    ): StaleSampleAction = when {
+        current == null -> StaleSampleAction.Release
+        ProjectionSessionIdentity.from(current) == ProjectionSessionIdentity.from(sample) ->
+            StaleSampleAction.SoftSkip
+        else -> StaleSampleAction.Release
+    }
 
     @Synchronized
     private fun ensureScheduler(state: LyricProducerState) {
