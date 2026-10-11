@@ -84,7 +84,10 @@ internal fun PluginManagementScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var plugins by remember { mutableStateOf(PluginRuntime.installed()) }
+    // 插件加载在后台通道异步完成（2.6）：以 reload 代次为 key，冷启动加载完成后
+    // 列表自动刷新，不会把「加载尚未完成」的空表一直记在 remember 里。
+    val reloadGeneration by PluginRuntime.reloadGeneration.collectAsState()
+    var plugins by remember(reloadGeneration) { mutableStateOf(PluginRuntime.installed()) }
     var processingEnabled by remember {
         mutableStateOf(AodRenderPreferences.read(context).pluginProcessingEnabled)
     }
@@ -116,7 +119,8 @@ internal fun PluginManagementScreen(
                 PluginInstaller.install(context, bytes)
             }
             if (manifest != null) {
-                PluginRuntime.reloadAll()
+                // 加载在后台通道执行（2.6）：只挂起等待，不阻塞主线程。
+                PluginRuntime.reloadAllAndAwait()
                 refresh()
                 Toast.makeText(
                     context,
@@ -281,9 +285,6 @@ internal fun PluginManagementScreen(
                             colors = ButtonDefaults.textButtonColorsPrimary(),
                             onClick = {
                                 val removed = PluginInstaller.uninstall(context, pluginId)
-                                PluginRuntime.reloadAll()
-                                PluginSettingsStore.clear(context, pluginId)
-                                refresh()
                                 uninstallPluginId = null
                                 Toast.makeText(
                                     context,
@@ -293,6 +294,14 @@ internal fun PluginManagementScreen(
                                     ),
                                     Toast.LENGTH_LONG
                                 ).show()
+                                // 重载在 runtime 自己的后台通道执行（2.6），不依赖本页作用域；
+                                // 设置清理排在 reload 之后（与原同步顺序一致），列表由 reload 代次刷新。
+                                val reload = PluginRuntime.reloadAll()
+                                scope.launch {
+                                    reload.join()
+                                    PluginSettingsStore.clear(context, pluginId)
+                                    refresh()
+                                }
                             }
                         )
                     }
