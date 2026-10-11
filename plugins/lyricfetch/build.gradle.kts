@@ -29,6 +29,8 @@ java {
 
 dependencies {
     compileOnly(project(":plugins:api"))
+    // 测试源集要访问 API 类型（处理器/缓存的签名），compileOnly 不传递给 test。
+    testImplementation(project(":plugins:api"))
     // 解析能力来源之一：多格式歌词解析（LRC / Enhanced LRC / YRC / KRC / TTML /
     // Lyricify Syllable 自动识别）。打进插件 dex，宿主不需要知道它。
     implementation("com.mocharealm.accompanist:lyrics-core:0.4.7")

@@ -25,6 +25,8 @@ java {
 
 dependencies {
     compileOnly(project(":plugins:api"))
+    // 测试源集要访问 API 类型（处理器/缓存的签名），compileOnly 不传递给 test。
+    testImplementation(project(":plugins:api"))
     testImplementation(kotlin("test"))
 }
 

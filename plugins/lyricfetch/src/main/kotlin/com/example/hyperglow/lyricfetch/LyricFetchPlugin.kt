@@ -144,7 +144,11 @@ internal class LyricFetchProcessor(
 
     /**
      * 取词（带缓存）：先查缓存，未命中再按来源顺序取，命中即停并把结果写回缓存。
-     * 未命中同样缓存（负缓存），避免逐行源每 15s 重跑链时反复打网络。
+     *
+     * 结局三分类（见 [ProviderFetch]）：命中写正缓存；**全部问过的来源都给出确定的
+     * 「无匹配」**才写 7 天负缓存（有意行为，避免逐行源每 15s 重跑链时反复打网络）；
+     * 任一来源传输失败 / 预算耗尽 → 结局未知，只写短退避记录（[CachedOutcome.Failure]），
+     * 到期自动重试——别把瞬时网络故障毒化成 7 天负缓存。
      */
     private fun resolve(
         query: TrackQuery,
@@ -159,32 +163,53 @@ internal class LyricFetchProcessor(
         val accept: (List<ParsedLine>) -> Boolean = { lines ->
             lines.isNotEmpty() && (!upgradeOnly || LyricsPipeline.hasWordLevel(lines))
         }
-        var stored: CachedOutcome = CachedOutcome.Miss
         // 宿主每处理器 40s 上限：这里自留 30s 总预算，按剩余时间逐来源下发，
         // 宁可不取词也不能把宿主链拖到超时被丢弃。
         val deadline = System.currentTimeMillis() + TOTAL_BUDGET_MS
+        var unknown = false // 任一来源失败 / 预算耗尽 → 结局未知，只能短退避
         for (provider in providers(providerPref)) {
             val remaining = (deadline - System.currentTimeMillis()).toInt()
-            if (remaining < MIN_PROVIDER_BUDGET_MS) break
-            val raw = runCatching { provider.fetch(query, remaining) }.getOrNull() ?: continue
-            val lines = LyricsPipeline.parse(raw, mergeSyllables, wantTranslation)
-            if (accept(lines)) {
-                stored = CachedOutcome.Hit(raw)
-                cache.put(
-                    key = key,
-                    outcome = stored,
-                    title = displayTitle(query),
-                    summary = hitSummary(provider, lines),
-                )
-                return stored.raw() to lines
+            if (remaining < MIN_PROVIDER_BUDGET_MS) {
+                // 预算耗尽：后面的来源还没问过，结局未知。
+                unknown = true
+                break
+            }
+            val fetched = runCatching { provider.fetch(query, remaining) }
+                .getOrElse { ProviderFetch.Failure }
+            when (fetched) {
+                is ProviderFetch.Hit -> {
+                    val lines = LyricsPipeline.parse(fetched.raw, mergeSyllables, wantTranslation)
+                    if (accept(lines)) {
+                        cache.put(
+                            key = key,
+                            outcome = CachedOutcome.Hit(fetched.raw),
+                            title = displayTitle(query),
+                            summary = hitSummary(provider, lines),
+                        )
+                        return fetched.raw to lines
+                    }
+                    // 内容不满足升级条件（如行级而非逐字）：对该来源是确定结论，继续问下一个。
+                }
+                ProviderFetch.NoMatch -> Unit
+                ProviderFetch.Failure -> unknown = true
             }
         }
-        cache.put(
-            key = key,
-            outcome = stored,
-            title = displayTitle(query) + MISS_SUFFIX,
-            summary = MISS_SUMMARY,
-        )
+        if (unknown) {
+            // 传输失败 / 预算耗尽：短退避，到期自动重试（区别于「确定无匹配」的 7 天负缓存）。
+            cache.put(
+                key = key,
+                outcome = CachedOutcome.Failure,
+                title = displayTitle(query) + FAILURE_SUFFIX,
+                summary = FAILURE_SUMMARY,
+            )
+        } else {
+            cache.put(
+                key = key,
+                outcome = CachedOutcome.Miss,
+                title = displayTitle(query) + MISS_SUFFIX,
+                summary = MISS_SUMMARY,
+            )
+        }
         return null to emptyList()
     }
 
@@ -194,12 +219,11 @@ internal class LyricFetchProcessor(
         mergeSyllables: Boolean,
         wantTranslation: Boolean,
     ): Pair<RawLyrics?, List<ParsedLine>> = when (outcome) {
-        is CachedOutcome.Miss -> null to emptyList()
+        // 确定无匹配与短退避失败都返回空：失败记录只用来挡一小段时间内的重试。
+        is CachedOutcome.Miss, is CachedOutcome.Failure -> null to emptyList()
         is CachedOutcome.Hit -> outcome.raw to
             LyricsPipeline.parse(outcome.raw, mergeSyllables, wantTranslation)
     }
-
-    private fun CachedOutcome.raw(): RawLyrics? = (this as? CachedOutcome.Hit)?.raw
 
     private fun cacheKeyOf(
         query: TrackQuery,
@@ -294,5 +318,9 @@ internal class LyricFetchProcessor(
 
         const val MISS_SUFFIX = "（未命中）"
         const val MISS_SUMMARY = "在线来源未找到可用歌词；重新取词请在缓存页删除本条目"
+
+        /** 传输失败/预算耗尽的短退避条目：与「未命中」区分展示，1 分钟内自动重试。 */
+        const val FAILURE_SUFFIX = "（取词失败）"
+        const val FAILURE_SUMMARY = "在线来源暂时取词失败（网络/超时）；稍后自动重试，删除本条可立即重试"
     }
 }
