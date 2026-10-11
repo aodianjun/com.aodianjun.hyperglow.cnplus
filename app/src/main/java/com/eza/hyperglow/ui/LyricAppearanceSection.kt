@@ -1,5 +1,6 @@
 package com.eza.hyperglow.ui
 
+import android.content.Context
 import android.graphics.Typeface
 import android.provider.OpenableColumns
 import android.widget.Toast
@@ -24,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -131,7 +133,18 @@ internal fun LyricAppearanceSection(
     val context = LocalContext.current
     // 「不显示非歌词内容」是应用级偏好(非按面),外观编辑页的悬浮预览同样要跟随它,
     // 否则编辑页预览与实机/首页预览分叉(预览即实机)。
-    val hideCreditLines = remember { AodRenderPreferences.read(context).hideCreditLines }
+    // 该偏好可在本分段之外变更(首页开关/备份导入):无键 remember 会把组合期首读值冻结,
+    // 这里按仓库既有模式(HomeScreen/AodBehaviorScreen)注册偏好变更监听,变更即重读,
+    // 预览实时跟随(读取缝见 AodRenderPreferences.readHideCreditLines)。
+    var hideCreditLines by remember {
+        mutableStateOf(AodRenderPreferences.read(context).hideCreditLines)
+    }
+    DisposableEffect(context) {
+        val prefs = context.getSharedPreferences(AodRenderPreferences.PREFS, Context.MODE_PRIVATE)
+        val observer = AodRenderPreferences.HideCreditLinesObserver { hideCreditLines = it }
+        prefs.registerOnSharedPreferenceChangeListener(observer)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(observer) }
+    }
     // 状态按曲面重建:两个分段复用同一实现,切分段即换编辑面(文档同源,各自只改本面)。
     var editorState by remember(surface) {
         mutableStateOf(

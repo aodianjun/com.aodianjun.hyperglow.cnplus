@@ -7,9 +7,18 @@ internal object DiagnosticDraftStore {
     private const val PREFS = "diagnostic_draft"
     private const val FILE_NAME = "diagnostic-report-pending.json"
 
+    /**
+     * 把待发送报告落盘为草稿。
+     *
+     * 契约:任何失败都返回 false,绝不抛异常。失败含两类:
+     * 1. [DiagnosticReportCodec.encode] 的 `require` 校验不通过(非法报告/超客户端上限)——
+     *    2026-10 修复:此前 encode 在 try 之外,校验异常会逃逸 Boolean 契约;
+     * 2. 磁盘写入或偏好提交抛出的 IO 异常。
+     * 返回 false 时草稿文件与偏好均保持原状(encode 失败不会留下半截文件)。
+     */
     fun save(context: Context, report: DiagnosticReportEnvelope): Boolean {
-        val encoded = DiagnosticReportCodec.encode(report)
         return try {
+            val encoded = DiagnosticReportCodec.encode(report)
             File(context.cacheDir, FILE_NAME).writeText(encoded, Charsets.UTF_8)
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putLong(KEY_CREATED_AT, System.currentTimeMillis())

@@ -502,4 +502,26 @@ object AodRenderPreferences {
             .putString(LYRIC_SOURCE, source.name)
             .apply()
     }
+
+    /**
+     * 单键读取缝:「不显示非歌词内容」[HIDE_CREDIT_LINES] 直接读原始偏好值,不经过 [read]
+     * 的组合期缓存——偏好变更监听回调与 [read] 缓存失效监听的通知顺序不保证,回调里再走
+     * 缓存可能拿到本次变更前的旧值;原始读取保证观察者拿到本次变更后的值。坏类型回落
+     * 默认值(与 [read] 的 safe* 口径一致)。
+     */
+    internal fun readHideCreditLines(prefs: SharedPreferences): Boolean =
+        prefs.safeBoolean(HIDE_CREDIT_LINES, false)
+
+    /**
+     * 「不显示非歌词内容」偏好观察缝:注册为 [SharedPreferences.OnSharedPreferenceChangeListener]
+     * 后,仅当 [HIDE_CREDIT_LINES] 变化时回调变更后的值。生命周期(注册/注销)由调用方按仓库
+     * 既有 DisposableEffect 模式管理(见 HomeScreen/AodBehaviorScreen)。
+     */
+    internal class HideCreditLinesObserver(
+        private val onChanged: (Boolean) -> Unit
+    ) : SharedPreferences.OnSharedPreferenceChangeListener {
+        override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
+            if (key == HIDE_CREDIT_LINES) onChanged(readHideCreditLines(prefs))
+        }
+    }
 }
