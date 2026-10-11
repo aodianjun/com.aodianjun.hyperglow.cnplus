@@ -90,8 +90,22 @@ object CustomizationRepository {
         return compiled
     }
 
-    @Synchronized
+    /**
+     * 保存文档。持久化在 repository 监视器内完成([saveDocumentLocked]),回调 [onChange]
+     * 必须在**最外层锁之外**执行:回调链(LyricProducers.onCustomizationChanged →
+     * Lyricon 对唱快照 → loadCompiled)会去取文件 facade 类监视器,而 SDK 回调线程
+     * (LyriconSdkCallbacks → refreshDuetAlignment 持 facade 类锁 → loadCompiled)反向要
+     * repository 锁 —— 持锁回调即构成反向锁序死锁(2026-10 审查 2.1)。
+     */
     fun saveDocument(context: Context, document: CustomizationDocument): Boolean {
+        val saved = saveDocumentLocked(context, document)
+        if (saved) notifyChange()
+        return saved
+    }
+
+    /** 写入核心(持 repository 监视器);回调由公开入口在锁外补发,见 [saveDocument]。 */
+    @Synchronized
+    private fun saveDocumentLocked(context: Context, document: CustomizationDocument): Boolean {
         val normalized = canonicalizeDocument(document) ?: return false
         val encoded = SceneCompiler.json.encodeToString(normalized)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -102,24 +116,41 @@ object CustomizationRepository {
             .putString(KEY_DOCUMENT, encoded)
             .putInt(KEY_MIGRATION_VERSION, CURRENT_CUSTOMIZATION_VERSION)
         if (previous != null) editor.putString(KEY_PREVIOUS_DOCUMENT, previous)
-        val saved = editor.commit()
-        if (saved) runCatching { onChange?.invoke() }
+        return editor.commit()
+    }
+
+    /** 同 [saveDocument]:解析与持久化持锁,回调锁外。 */
+    fun importDocument(context: Context, raw: String): Boolean {
+        val saved = importDocumentLocked(context, raw)
+        if (saved) notifyChange()
         return saved
     }
 
     @Synchronized
-    fun importDocument(context: Context, raw: String): Boolean {
+    private fun importDocumentLocked(context: Context, raw: String): Boolean {
         val document = SceneCompiler.decodeDocument(raw) ?: return false
-        return saveDocument(context, document)
+        return saveDocumentLocked(context, document)
     }
 
     @Synchronized
     fun exportDocument(context: Context): String =
         SceneCompiler.json.encodeToString(loadDocument(context))
 
+    /** 同 [saveDocument]:持久化持锁,回调锁外。 */
+    fun reset(context: Context): Boolean {
+        val saved = resetLocked(context)
+        if (saved) notifyChange()
+        return saved
+    }
+
     @Synchronized
-    fun reset(context: Context): Boolean =
-        saveDocument(context, SceneCompiler.safeDefaultDocument())
+    private fun resetLocked(context: Context): Boolean =
+        saveDocumentLocked(context, SceneCompiler.safeDefaultDocument())
+
+    /** 锁外补发回调,保持既有语义:仍包 runCatching,失败保存不触发(由调用方判定)。 */
+    private fun notifyChange() {
+        runCatching { onChange?.invoke() }
+    }
 
     internal fun documentFromLegacy(config: AodRenderConfig): CustomizationDocument {
         val common = SurfaceProfile(
