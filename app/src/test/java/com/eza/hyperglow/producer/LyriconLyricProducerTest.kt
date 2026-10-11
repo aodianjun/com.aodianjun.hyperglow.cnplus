@@ -16,6 +16,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Tests for [LyriconLyricProducer]: SDK callback → boundary mapping, and the
@@ -46,6 +50,32 @@ class LyriconLyricProducerTest {
         override fun removeConnectionListener(listener: ConnectionListener) {}
         override fun subscribeActivePlayer(listener: ActivePlayerListener): Boolean = false
         override fun unsubscribeActivePlayer(listener: ActivePlayerListener): Boolean = false
+        override fun register() {}
+        override fun unregister() {}
+        override fun destroy() {}
+    }
+
+    /**
+     * 可配置的 [LyriconSubscriber] 桩:记录订阅/退订调用次数并返回指定的 subscribe 结果
+     * (2.10 重建成败判据用 —— 旧实现丢弃 subscribe 返回值,失败重建无从判定)。
+     */
+    private class StubSubscriber(private val acceptSubscribe: Boolean) : LyriconSubscriber {
+        override val subscriberInfo: SubscriberInfo = SubscriberInfo("test", "test")
+        var subscribeCalls = 0
+        var unsubscribeCalls = 0
+
+        override fun addConnectionListener(listener: ConnectionListener) {}
+        override fun removeConnectionListener(listener: ConnectionListener) {}
+        override fun subscribeActivePlayer(listener: ActivePlayerListener): Boolean {
+            subscribeCalls++
+            return acceptSubscribe
+        }
+
+        override fun unsubscribeActivePlayer(listener: ActivePlayerListener): Boolean {
+            unsubscribeCalls++
+            return true
+        }
+
         override fun register() {}
         override fun unregister() {}
         override fun destroy() {}
@@ -2004,6 +2034,337 @@ class LyriconLyricProducerTest {
         assertEquals(3_600L, state.positionMs)
         assertEquals("second", state.line)
         assertEquals(1, state.lineIndex)
+    }
+
+    // --- 2.10 强制重建订阅的成败判据(旧实现丢弃 subscribe 返回值,失败的重建被重锚的
+    //     静默基线掩盖成「看起来新鲜」,下一次尝试再等 20s 静默 + 30s 冷却) ---
+
+    @Test
+    fun resubscribeOutcome_recoveredWhenPositionArrivesAfterRebuild() {
+        // 重建成功:subscribe 被 SDK 接受 + 验证窗内收到 onPositionChanged → 不升级。
+        assertEquals(
+            ResubscribeOutcome.RECOVERED,
+            classifyResubscribeOutcome(
+                subscribeAccepted = true,
+                positionArrivedSinceResubscribe = true,
+                sinceRebuildMs = LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS,
+                playing = true
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeOutcome_failedImmediatelyWhenSdkRejectsSubscribe() {
+        // subscribeActivePlayer=false:本次重建不可能恢复回调链,无需等验证窗直接判失败。
+        assertEquals(
+            ResubscribeOutcome.FAILED,
+            classifyResubscribeOutcome(
+                subscribeAccepted = false,
+                positionArrivedSinceResubscribe = false,
+                sinceRebuildMs = 0L,
+                playing = true
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeOutcome_pendingWithinVerifyWindow() {
+        // 验证窗未结束且尚无位置回调:判据未定,不计数。
+        assertEquals(
+            ResubscribeOutcome.PENDING,
+            classifyResubscribeOutcome(
+                subscribeAccepted = true,
+                positionArrivedSinceResubscribe = false,
+                sinceRebuildMs = LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS - 1L,
+                playing = true
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeOutcome_failedWhenNoPositionWithinWindowWhilePlaying() {
+        // 「重建后 X 秒内无 onPositionChanged」= 重建无效(播放中位置流本应毫秒级恢复)。
+        assertEquals(
+            ResubscribeOutcome.FAILED,
+            classifyResubscribeOutcome(
+                subscribeAccepted = true,
+                positionArrivedSinceResubscribe = false,
+                sinceRebuildMs = LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS,
+                playing = true
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeOutcome_inconclusiveWhilePausedPastWindow() {
+        // 暂停中位置流安静是预期行为:不得把「无位置回调」计为重建失败。
+        assertEquals(
+            ResubscribeOutcome.INCONCLUSIVE,
+            classifyResubscribeOutcome(
+                subscribeAccepted = true,
+                positionArrivedSinceResubscribe = false,
+                sinceRebuildMs = LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS * 10,
+                playing = false
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeCooldown_keepsBaseUntilEscalationThreshold() {
+        val base = LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+        assertEquals(base, resubscribeCooldownMs(0))
+        assertEquals(base, resubscribeCooldownMs(1))
+        assertEquals(base, resubscribeCooldownMs(LyriconLyricProducer.RESUBSCRIBE_FAILURE_ESCALATION_N - 1))
+    }
+
+    @Test
+    fun resubscribeCooldown_backsOffWithPowersOfTwoAfterEscalation() {
+        val base = LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+        assertEquals(base * 2, resubscribeCooldownMs(3))
+        assertEquals(base * 4, resubscribeCooldownMs(4))
+        assertEquals(base * 8, resubscribeCooldownMs(5))
+        // 封顶:继续失败不再拉长冷却(重试永不停止,只是间隔封顶)。
+        assertEquals(
+            LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MAX_MS,
+            resubscribeCooldownMs(9)
+        )
+    }
+
+    @Test
+    fun forceResubscribe_recordsSubscribeReturnValueAndRearmsVerdict() {
+        // 旧实现丢弃 subscribeActivePlayer 返回值:SDK 拒绝订阅时同样重锚静默基线,
+        // 现场看不到「这次重建根本没生效」。现在必须记录返回值并武装成败判据。
+        val sub = StubSubscriber(acceptSubscribe = false)
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.subscriber = sub
+        producer.isPlayingState = true
+        producer.lastPositionCallbackElapsedMs = 10_000L
+
+        clockValue = 10_000L + LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS + 1_000L
+        producer.maybeResubscribeOnPositionSilence()
+
+        assertEquals(1, sub.subscribeCalls)
+        assertFalse("SDK 拒绝订阅必须被记录", producer.lastResubscribeAccepted)
+        assertFalse("重建后尚无位置回调", producer.positionArrivedSinceResubscribe)
+        assertFalse("判据已武装,等待结算", producer.resubscribeOutcomeSettled)
+        assertEquals(clockValue, producer.lastForcedResubscribeElapsedMs)
+    }
+
+    @Test
+    fun verifyPendingResubscribe_resetsFailureStreakAfterPositionArrives() {
+        // 重建成功(subscribe 接受 + 收到 onPositionChanged)→ 失败连击清零、不升级。
+        val sub = StubSubscriber(acceptSubscribe = true)
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.subscriber = sub
+        producer.isPlayingState = true
+        producer.lastPositionCallbackElapsedMs = 10_000L
+        producer.consecutiveResubscribeFailures = 2 // 已有失败连击
+
+        clockValue = 10_000L + LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS + 1_000L
+        producer.maybeResubscribeOnPositionSilence()
+        assertTrue(producer.lastResubscribeAccepted)
+
+        clockValue += 500L
+        producer.playerListener.onPositionChanged(1_500L) // 位置通道恢复
+
+        producer.verifyPendingResubscribe()
+
+        assertEquals(0, producer.consecutiveResubscribeFailures)
+        assertTrue(producer.resubscribeOutcomeSettled)
+    }
+
+    @Test
+    fun verifyPendingResubscribe_escalatesAndBacksOffAfterConsecutiveIneffectiveRebuilds() {
+        // 连续 N 次「重建后验证窗内无 onPositionChanged」→ 结算为失败并升级:
+        // 更强告警 + 冷却退避(实例级重建不采纳,见 escalateResubscribeFailures 的评估)。
+        val sub = StubSubscriber(acceptSubscribe = true)
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.subscriber = sub
+        producer.isPlayingState = true
+        producer.lastPositionCallbackElapsedMs = 10_000L
+
+        var attemptAt = clockValue
+        repeat(LyriconLyricProducer.RESUBSCRIBE_FAILURE_ESCALATION_N) { index ->
+            // 基础冷却(未达阈值前不退化)后再次触发重建。
+            clockValue = attemptAt + LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS + 1L
+            producer.maybeResubscribeOnPositionSilence()
+            assertEquals("attempt ${index + 1} must rebuild", index + 1, sub.subscribeCalls)
+            attemptAt = clockValue
+            // 验证窗结束仍无位置回调 → 本次重建无效。
+            clockValue = attemptAt + LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS
+            producer.verifyPendingResubscribe()
+        }
+
+        assertEquals(
+            LyriconLyricProducer.RESUBSCRIBE_FAILURE_ESCALATION_N,
+            producer.consecutiveResubscribeFailures
+        )
+        assertTrue(producer.resubscribeOutcomeSettled)
+
+        // 退避生效:45s 时(旧的基础 30s 冷却本已允许)不得再重建。
+        clockValue = attemptAt + 45_000L
+        producer.maybeResubscribeOnPositionSilence()
+        assertEquals(3, sub.subscribeCalls)
+        assertEquals(
+            LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS * 2,
+            resubscribeCooldownMs(producer.consecutiveResubscribeFailures)
+        )
+
+        // 退避冷却过期后仍会重试 —— 升级只放慢节奏,不放弃恢复。
+        clockValue = attemptAt + resubscribeCooldownMs(producer.consecutiveResubscribeFailures) + 1L
+        producer.maybeResubscribeOnPositionSilence()
+        assertEquals(4, sub.subscribeCalls)
+    }
+
+    // --- 2.11 停播检测/播放态观测必须按「播放器包名」查 MediaSession(提供端插件包名不是
+    //     MediaSession 的归属者:提供端 ≠ 播放器时查询恒 null,issue #27 停止清曲目不触发) ---
+
+    @Test
+    fun sessionQueryPackage_prefersPlayerPackageOverProvider() {
+        assertEquals(
+            "com.netease.cloudmusic",
+            sessionQueryPackage(
+                activePlayerPackage = "com.netease.cloudmusic",
+                activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+            )
+        )
+    }
+
+    @Test
+    fun sessionQueryPackage_fallsBackToProviderWhenPlayerMissing() {
+        // 回落语义:播放器包名缺失/空白时退回提供端包名(覆盖 SDK 未上报 playerPackageName
+        // 的老版本/异常上报,保持历史行为)。
+        assertEquals(
+            "io.github.proify.lyricon.cmprovider",
+            sessionQueryPackage(
+                activePlayerPackage = null,
+                activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+            )
+        )
+        assertEquals(
+            "io.github.proify.lyricon.cmprovider",
+            sessionQueryPackage(
+                activePlayerPackage = " ",
+                activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+            )
+        )
+    }
+
+    @Test
+    fun sessionQueryPackage_nullWhenNeitherPackageKnown() {
+        assertNull(sessionQueryPackage(activePlayerPackage = null, activeProviderPackage = null))
+        assertNull(sessionQueryPackage(activePlayerPackage = null, activeProviderPackage = " "))
+    }
+
+    @Test
+    fun stopDetection_queriesPlayerPackageAndClearsStoppedTrack() {
+        // issue #27 真机链:provider=歌词提供端插件(cmprovider)、player=网易云。旧实现用
+        // 提供端包名查 getActiveSessions 恒 null →「停止清曲目」永不触发;修正后按播放器
+        // 包名查询,连续 STOP_CONFIRMATIONS 次 STOPPED 即释放陈旧曲目。
+        var clockValue = 0L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        val queried = mutableListOf<String>()
+        producer.activePlayerPlaybackStateReader = { pkg ->
+            queried += pkg
+            MediaPlayback.STOPPED
+        }
+
+        repeat(LyriconLyricProducer.STOP_CONFIRMATIONS) { producer.maybeClearOnStoppedPlayer() }
+
+        assertEquals(
+            List(LyriconLyricProducer.STOP_CONFIRMATIONS) { "com.netease.cloudmusic" },
+            queried
+        )
+        assertNull("stopped session must release the stale track", producer.state.value)
+        assertNull(producer.currentSong)
+    }
+
+    @Test
+    fun stopDetection_fallsBackToProviderPackageWhenPlayerUnknown() {
+        // 播放器包名未知时按提供端包名查询(回落路径仍能清曲目,保持历史行为)。
+        var clockValue = 0L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = null
+        producer.playerListener.onSongChanged(threeLineSong())
+        val queried = mutableListOf<String>()
+        producer.activePlayerPlaybackStateReader = { pkg ->
+            queried += pkg
+            MediaPlayback.STOPPED
+        }
+
+        repeat(LyriconLyricProducer.STOP_CONFIRMATIONS) { producer.maybeClearOnStoppedPlayer() }
+
+        assertEquals(
+            List(LyriconLyricProducer.STOP_CONFIRMATIONS) { "io.github.proify.lyricon.cmprovider" },
+            queried
+        )
+        assertNull(producer.state.value)
+    }
+
+    @Test
+    fun sessionPlayingObservation_usesPlayerPackage() {
+        // sessionPlayingObserved 恒 false(看门狗兜底失效)的根因是查询用错了包名:
+        // 播放器会话在播 → 观测必须为 true;提供端会话(查不到)不得影响结论。
+        var clockValue = 0L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        val queried = mutableListOf<String>()
+        producer.activePlayerPlaybackStateReader = { pkg ->
+            queried += pkg
+            if (pkg == "com.netease.cloudmusic") MediaPlayback.PLAYING else null
+        }
+
+        producer.refreshSessionPlaying()
+
+        assertEquals(listOf("com.netease.cloudmusic"), queried)
+        assertEquals(true, producer.sessionPlayingObserved)
+    }
+
+    // --- 2.12 sequence/generation 原子性(并发入口上的编号) ---
+
+    @Test
+    fun sequence_incrementsAtomicallyUnderConcurrentPositionCallbacks() {
+        // 位置回调在 Dispatchers.Default、跨源 seek 转发与看门狗都在并发入口上:volatile 上的
+        // `++` 是读-改-写,交错会丢号。原子递增后每次发射恰好消耗一个编号(无歌词歌曲:
+        // 发射路径不触碰 TimingNavigator 等共享缓存,隔离出编号本身的并发行为)。
+        val producer = LyriconLyricProducer { 1_000L }
+        producer.playerListener.onSongChanged(
+            Song(id = "nolyrics-long", name = "No Lyrics", artist = "A", duration = 1_000_000L)
+        )
+        // onSongChanged 自身已发射一次(metadata-only),基线之后的每次位置回调恰好消耗一个编号。
+        val baseSequence = producer.sequence.get()
+
+        val threads = 4
+        val perThread = 500
+        val nextPosition = AtomicLong(1_000L)
+        val done = CountDownLatch(threads)
+        repeat(threads) {
+            Thread {
+                repeat(perThread) {
+                    producer.playerListener.onPositionChanged(nextPosition.incrementAndGet())
+                }
+                done.countDown()
+            }.start()
+        }
+
+        assertTrue("concurrent callbacks must finish", done.await(30, TimeUnit.SECONDS))
+        assertEquals(baseSequence + (threads * perThread).toLong(), producer.sequence.get())
+    }
+
+    @Test
+    fun sessionNumberingFieldsAreAtomic() {
+        // 2.12:sequence/generation 必须用原子类型(volatile 上的 `++` 在多线程入口会丢号)。
+        assertEquals(AtomicLong::class.java, producer.sequence.javaClass)
+        assertEquals(AtomicInteger::class.java, producer.generation.javaClass)
     }
 
     private fun markerDuetSong(): Song = Song(
