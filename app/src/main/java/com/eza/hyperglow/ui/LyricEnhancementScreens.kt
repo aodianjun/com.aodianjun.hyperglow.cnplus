@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -88,7 +89,11 @@ internal fun LyricEnhancementScreen(
     val context = LocalContext.current
     val languageTag = currentLanguageTag(context)
     // 已加载且提供歌词处理器的插件即"歌词增强"插件;加载失败/纯缓存类插件不在此列。
-    val plugins = remember { PluginRuntime.installed().filter { it.processors.isNotEmpty() } }
+    // 加载在后台通道异步完成（2.6）：以 reload 代次为 key，冷启动加载完成后列表自动刷新。
+    val reloadGeneration by PluginRuntime.reloadGeneration.collectAsState()
+    val plugins = remember(reloadGeneration) {
+        PluginRuntime.installed().filter { it.processors.isNotEmpty() }
+    }
 
     Scaffold(
         containerColor = appSurfaceColor(),
