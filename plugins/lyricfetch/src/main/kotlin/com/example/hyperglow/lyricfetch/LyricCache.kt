@@ -5,10 +5,16 @@ import com.lidesheng.hyperlyric.plugin.api.PluginCacheEntry
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** 缓存里存的东西：命中（原始歌词）或未命中。 */
+/** 缓存里存的东西：命中（原始歌词）、确定未命中、或传输失败的短退避记录。 */
 internal sealed interface CachedOutcome {
     data class Hit(val raw: RawLyrics) : CachedOutcome
     data object Miss : CachedOutcome
+
+    /**
+     * 传输失败 / 预算耗尽的短退避记录：结局未知，只在 [LyricCache.FAILURE_TTL_MS] 内挡重试，
+     * 到期自动重新取词——绝不能把瞬时网络故障当成「确定无匹配」写成 7 天负缓存。
+     */
+    data object Failure : CachedOutcome
 }
 
 /**
@@ -25,7 +31,8 @@ internal sealed interface CachedOutcome {
  *
  * 过期策略：条目超过 [TTL_MS]（7 天）视为未命中并顺手删除——在线歌词会更新，
  * 留一个可自愈的上限比"永久缓存 + 手动清理"更稳妥。条目数超过 [MAX_ENTRIES]
- * 时按时间淘汰最旧的。
+ * 时按时间淘汰最旧的。传输失败的短退避记录（[CachedOutcome.Failure]）只存活
+ * [FAILURE_TTL_MS]（1 分钟），到期即失效、下次链运行自动重试。
  *
  * 格式版本见 [FORMAT_VERSION]：升级后旧记录一律解码失败，[entries] 在读列表时
  * 顺手清掉它们的正文——键规则变更（如去掉时长）后设备上残留的旧条目因此自动失效，
@@ -42,7 +49,7 @@ internal class LyricCache(
     /** 取缓存；过期/损坏/缺失一律返回 null（调用方按未命中处理）。 */
     fun get(key: String): CachedOutcome? {
         memory[key]?.let { cached ->
-            if (!isExpired(cached.savedAt)) return cached.outcome
+            if (!isExpired(cached)) return cached.outcome
             memory.remove(key)
             runCatching { cache.remove(key) }
             updateIndex { it.remove(key) }
@@ -50,7 +57,7 @@ internal class LyricCache(
         }
         val stored = runCatching { cache.getString(key) }.getOrNull() ?: return null
         val record = runCatching { decode(stored) }.getOrNull() ?: return null
-        if (isExpired(record.savedAt)) {
+        if (isExpired(record)) {
             runCatching { cache.remove(key) }
             updateIndex { it.remove(key) }
             return null
@@ -76,7 +83,13 @@ internal class LyricCache(
         }
     }
 
-    private fun isExpired(savedAt: Long): Boolean = nowMs() - savedAt > TTL_MS
+    private fun isExpired(record: Record): Boolean = nowMs() - record.savedAt > ttlMsOf(record.outcome)
+
+    /** 过期判据按结局取 TTL：传输失败只挡一段短退避，其余按 7 天。 */
+    private fun ttlMsOf(outcome: CachedOutcome): Long = when (outcome) {
+        is CachedOutcome.Failure -> FAILURE_TTL_MS
+        else -> TTL_MS
+    }
 
     /**
      * 宿主缓存页用：当前条目元数据。已消失或**按当前格式解不出**（旧版本 / 损坏）的条目
@@ -125,6 +138,7 @@ internal class LyricCache(
             put("savedAt", savedAt)
             when (outcome) {
                 is CachedOutcome.Miss -> put("miss", true)
+                is CachedOutcome.Failure -> put("fail", true)
                 is CachedOutcome.Hit -> {
                     put("miss", false)
                     put("provider", outcome.raw.providerId)
@@ -142,20 +156,22 @@ internal class LyricCache(
         val json = JSONObject(stored)
         val savedAt = json.optLong("savedAt")
         if (json.optInt("v") != FORMAT_VERSION) return null
-        val outcome = if (json.optBoolean("miss")) {
-            CachedOutcome.Miss
-        } else {
-            val content = json.optString("content").takeIf { it.isNotBlank() } ?: return null
-            CachedOutcome.Hit(
-                RawLyrics(
-                    providerId = json.optString("provider"),
-                    content = content,
-                    translation = json.optString("translation").takeIf { it.isNotBlank() },
-                    matchedTitle = json.optString("title"),
-                    matchedArtists = json.optString("artists"),
-                    matchedDurationMs = json.optLong("durationMs").takeIf { it > 0L },
+        val outcome = when {
+            json.optBoolean("miss") -> CachedOutcome.Miss
+            json.optBoolean("fail") -> CachedOutcome.Failure
+            else -> {
+                val content = json.optString("content").takeIf { it.isNotBlank() } ?: return null
+                CachedOutcome.Hit(
+                    RawLyrics(
+                        providerId = json.optString("provider"),
+                        content = content,
+                        translation = json.optString("translation").takeIf { it.isNotBlank() },
+                        matchedTitle = json.optString("title"),
+                        matchedArtists = json.optString("artists"),
+                        matchedDurationMs = json.optLong("durationMs").takeIf { it > 0L },
+                    )
                 )
-            )
+            }
         }
         Record(outcome, savedAt)
     }.getOrNull()
@@ -196,6 +212,14 @@ internal class LyricCache(
         const val FORMAT_VERSION = 2
         const val INDEX_KEY = "__lyricfetch_index__"
         const val TTL_MS = 7L * 24 * 60 * 60 * 1000
+
+        /**
+         * 传输失败/预算耗尽的退避时长（1 分钟）。宿主逐行源每 15s 重跑链，短退避把重试
+         * 压到至多 1 次/分钟、网络恢复后最多 1 分钟自愈；比 7 天负缓存温和得多。
+         * 编码新增 `fail` 标记不升 [FORMAT_VERSION]：旧版本读到只会解不出并顺手清掉，
+         * 不会误当命中，不必让设备上已有的 v2 缓存整片失效。
+         */
+        const val FAILURE_TTL_MS = 60_000L
         const val MAX_ENTRIES = 100
     }
 }

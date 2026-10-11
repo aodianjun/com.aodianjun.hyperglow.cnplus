@@ -45,7 +45,7 @@ internal object QqMusicProvider : LyricProvider {
             TrackMatch.Candidate(mid, title, artists, album, durationMs)
     }
 
-    override fun fetch(query: TrackQuery, budgetMs: Int): RawLyrics? {
+    override fun fetch(query: TrackQuery, budgetMs: Int): ProviderFetch {
         val startedAt = System.currentTimeMillis()
         val keyword = buildString {
             append(query.title)
@@ -70,13 +70,17 @@ internal object QqMusicProvider : LyricProvider {
             searchBody.toString(),
             headers,
             budgetMs = budgetMs * 6 / 10,
-        ) ?: return null
+        ) ?: return ProviderFetch.Failure
         val candidates = parseSearch(searchResponse)
-        val best = pickBest(query, candidates.map { it.toMatchCandidate() }) ?: return null
+        if (candidates.isEmpty()) {
+            // 搜索响应必须是 song.list 结构：限流/错误响应按失败处理，别写 7 天负缓存。
+            return if (hasSearchShape(searchResponse)) ProviderFetch.NoMatch else ProviderFetch.Failure
+        }
+        val best = pickBest(query, candidates.map { it.toMatchCandidate() }) ?: return ProviderFetch.NoMatch
         val candidate = candidates.first { it.mid == best.id }
 
         val remaining = budgetMs - (System.currentTimeMillis() - startedAt).toInt()
-        if (remaining < 1_000) return null
+        if (remaining < 1_000) return ProviderFetch.Failure
         val lyricBody = JSONObject()
             .put("comm", comm())
             .put(
@@ -94,18 +98,36 @@ internal object QqMusicProvider : LyricProvider {
                     ),
             )
         val lyricResponse = Http.postJson(API, lyricBody.toString(), headers, budgetMs = remaining)
-            ?: return null
-        val parsed = parseLyric(lyricResponse) ?: return null
+            ?: return ProviderFetch.Failure
+        val parsed = parseLyric(lyricResponse)
+            ?: return if (isLyricResponse(lyricResponse)) ProviderFetch.NoMatch else ProviderFetch.Failure
 
-        return RawLyrics(
-            providerId = id,
-            content = parsed.content,
-            translation = parsed.translation,
-            matchedTitle = candidate.title,
-            matchedArtists = candidate.artists.joinToString("/"),
-            matchedDurationMs = candidate.durationMs,
+        return ProviderFetch.Hit(
+            RawLyrics(
+                providerId = id,
+                content = parsed.content,
+                translation = parsed.translation,
+                matchedTitle = candidate.title,
+                matchedArtists = candidate.artists.joinToString("/"),
+                matchedDurationMs = candidate.durationMs,
+            )
         )
     }
+
+    /** 搜索响应是否为预期结构（song.list 数组）：区分限流/错误响应与「确无候选」。 */
+    private fun hasSearchShape(body: String): Boolean = runCatching {
+        JSONObject(body)
+            .optJSONObject("music.search.SearchCgiService")
+            ?.optJSONObject("data")
+            ?.optJSONObject("body")
+            ?.optJSONObject("song")
+            ?.optJSONArray("list") != null
+    }.getOrDefault(false)
+
+    /** 歌词响应是否是一次正常返回（code 0 或缺省）：限流与错误响应按失败处理，不写负缓存。 */
+    private fun isLyricResponse(body: String): Boolean = runCatching {
+        JSONObject(body).optInt("code", 0) == 0
+    }.getOrDefault(false)
 
     internal fun parseSearch(body: String): List<QqCandidate> {
         val list = runCatching {
