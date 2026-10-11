@@ -1189,9 +1189,6 @@ internal object AodStateWireBundleCodec {
         envelope.body?.let { putByteArray(KEY_BODY, it) }
     }
 
-    fun snapshotFromBundle(bundle: Bundle): AodStateWireMessage? =
-        AodStateWireCodec.decode(envelopeFromBundle(bundle))
-
     /**
      * 抽出信封与解码分离,使被拒时能报出闸门名。Bundle 仍在这里解成自有标量/字节
      * (Binder 还持有它的时候)。
