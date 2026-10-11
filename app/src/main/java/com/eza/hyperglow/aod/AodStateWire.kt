@@ -921,6 +921,10 @@ internal object AodStateWireCodec {
         ) return false
         val styles = listOf(
             snapshot.burnInPattern,
+            // aodRotationMode 在编码体里同样按样式串写入,解码侧走 readStyleString(budget)
+            // 计入同一个聚合预算;这里漏计会让「编码通过、解码拒收」——差值 4~9 字节
+            // (portrait/landscape/auto),刚好压线的包会静默丢失。
+            snapshot.aodRotationMode,
             snapshot.weight,
             snapshot.textSizeMode,
             snapshot.secondaryMode,

@@ -124,6 +124,49 @@ class AodStateWireCodecTest {
         assertNull(AodStateWireCodec.encode(multibyteOverflow))
     }
 
+    /**
+     * 聚合预算两端同口径:aodRotationMode 在编码体里按样式串写入、解码侧计入同一个
+     * 聚合预算,校验侧漏计会让「编码通过、解码拒收」(差值 4~9 字节)的包在消费端静默
+     * 丢失。这里钉住「解码侧口径正好 48KiB 通过、多 1 字节在编码侧就被拒」。
+     */
+    @Test
+    fun rotationModeCountsTowardTheSameAggregateBudgetAsTheDecoder() {
+        val cap = AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES
+        // snapshotValue 的固定文本:original/nextLine/metadata + 13 项样式。
+        val fixedBytes = listOf(
+            "line", "nextline", "track",
+            "static_bottom", "Medium", "normal", "Main only", "Gradient", "Off", "Fluid",
+            "Top to bottom", "Wrap", "Fade up", "noto", "auto", "top"
+        ).sumOf(::aodUtf8Bytes)
+        val rotationBytes = aodUtf8Bytes("landscape")
+
+        val atCap = snapshotMessage(
+            value = snapshotValue(words = fillWords(cap - fixedBytes - rotationBytes))
+        )
+        val envelope = requireNotNull(AodStateWireCodec.encode(atCap))
+
+        assertEquals(atCap, AodStateWireCodec.decode(envelope))
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue(words = fillWords(cap - fixedBytes - rotationBytes + 1))
+                )
+            )
+        )
+    }
+
+    /** 以 500 字节词填满 [bytes]:整词 + 一个精确补齐词(单字段上限内)。 */
+    private fun fillWords(bytes: Int): List<AodStateWireWord> {
+        val full = bytes / AodStateWireLimits.MAX_LYRIC_CHARS
+        val rest = bytes % AodStateWireLimits.MAX_LYRIC_CHARS
+        return List(full) { AodStateWireWord("x".repeat(500), "", 0L, 1L, false, -1, -1) } +
+            if (rest > 0) {
+                listOf(AodStateWireWord("x".repeat(rest), "", 0L, 1L, false, -1, -1))
+            } else {
+                emptyList()
+            }
+    }
+
     @Test
     fun bodyCeilingTruncationUnknownVersionAndUnknownKindFailClosed() {
         val envelope = requireNotNull(AodStateWireCodec.encode(snapshotMessage()))

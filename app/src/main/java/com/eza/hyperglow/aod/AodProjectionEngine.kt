@@ -400,6 +400,9 @@ object AodProjectionEngine {
     ) {
         cancelRelease()
         publicationGuard.invalidate()
+        // 发布代次递增必须排在 Hidden 之前：在途投影（验证已过、提交未到）的旧可见快照
+        // 会被 AodStateBridge.publishIfCurrent 在 bridge 锁内拒绝，不再覆盖这次 release。
+        AodStateBridge.invalidatePublications()
         stopStatusKeepAlive()
         stopScheduler()
         if (!playbackActive) powerSessionPolicy.clear()
@@ -417,12 +420,18 @@ object AodProjectionEngine {
      * Maps [state] to [AodDisplayState] via the pure [projectToDisplay] function (spec clause 8:
      * projection MUST NOT re-select the active line — producers do that). Publication is gated on
      * the state still being the arbiter's current active state and the token matching.
+     *
+     * 提交前的发布代次采样必须排在最终验证（[ProjectionPublicationGuard.canPublish]）**之前**：
+     * 验证与提交分属 guard/bridge 两把锁，暂停确认或延迟释放可在两者之间插入 release；
+     * 采样之后的任何 release 都会让 [AodStateBridge.publishIfCurrent] 在 bridge 锁内拒绝
+     * 这次旧提交（TOCTOU 窗口关闭）。不能只靠 canPublish——它已经返回、锁已释放。
      */
     private fun project(
         state: LyricProducerState,
         now: Long = SystemClock.elapsedRealtime(),
         publicationToken: ProjectionPublicationToken
     ) {
+        val publicationEpoch = AodStateBridge.currentPublicationEpoch()
         publishCustomizationIfDue(now)
         val prefs = appContext?.let(AodRenderPreferences::read) ?: AodRenderConfig()
         val compiled = appContext?.let(CustomizationRepository::loadCompiled)
@@ -463,7 +472,7 @@ object AodProjectionEngine {
             ) || !isCurrentActive(state) || !state.playing
         ) return
         logRenderModeProbe(compiled, projectedState)
-        AodStateBridge.publish(projectedState)
+        AodStateBridge.publishIfCurrent(publicationEpoch, projectedState)
     }
 
     private var lastRenderProbeKey = ""

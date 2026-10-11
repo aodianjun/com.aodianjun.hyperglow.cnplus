@@ -2,6 +2,7 @@ package com.eza.hyperglow.aod
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -275,6 +276,200 @@ class AodStateBridgeTest {
         val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
         assertTrue(publication.message is AodStateWireMessage.Snapshot)
         assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    /**
+     * 对唱并发行与主行共享 MAX_WORDS:联合 128 词通过(并发行整条保留);129 词(以及文档
+     * 举例的主 80 + duet 60 = 140)时只丢并发行,主文本逐字保留——此前两边各自合法、合计
+     * 超限时 wire 校验拒收整包,整屏降级为 Hidden(该行整屏消失,只留一条 warning)。
+     */
+    @Test
+    fun jointWordBudgetKeepsDuetAt128AndDropsOnlyTheDuetBeyondIt() {
+        val kept = normalizeAodDisplayState(
+            state().copy(
+                words = mainWords(68),
+                duetLine = duetLine(words = duetWords(60))
+            )
+        )
+        assertEquals(128, kept.words.size + requireNotNull(kept.duetLine).words.size)
+        assertSnapshotRoundTrip(kept)
+
+        for (mainCount in listOf(69, 80)) {
+            val degraded = normalizeAodDisplayState(
+                state().copy(
+                    words = mainWords(mainCount),
+                    duetLine = duetLine(words = duetWords(60))
+                )
+            )
+            assertNull(
+                "主 $mainCount 词 + duet 60 词合计 ${mainCount + 60} 词应整条丢弃并发行",
+                degraded.duetLine
+            )
+            assertEquals(mainCount, degraded.words.size)
+            assertEquals(mainWords(mainCount).map { it.text }, degraded.words.map { it.text })
+            assertEquals("line", degraded.original)
+            assertSnapshotRoundTrip(degraded)
+        }
+    }
+
+    /**
+     * 联合聚合 UTF-8 预算:主行 + 并发行合计正好 48KiB 时并发行保留且往返一致;多 1 字节时
+     * 只丢并发行(主行原文与词表逐字保留,整包仍是 Snapshot)。此前超限会让 wire 拒收整包。
+     */
+    @Test
+    fun jointAggregateBudgetBoundaryKeepsTheLineAndDropsOnlyTheDuet() {
+        val cap = AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES
+        val mainText = "界".repeat(AodStateWireLimits.MAX_LYRIC_CHARS)
+        val base = state().copy(
+            original = mainText,
+            words = listOf(AodDisplayWord("x", "", 0L, 1L, false))
+        )
+        val baseBytes = aggregateTextBytes(base)
+        val duetText = "界".repeat(AodStateWireLimits.MAX_LYRIC_CHARS)
+        val filler = "界".repeat(143)
+        val fillerCount = 100
+        val tailBytes = cap - baseBytes - aodUtf8Bytes(duetText) * 3 -
+            aodUtf8Bytes(filler) * fillerCount
+        assertTrue(
+            "补齐词须落在单字段上限内(实际 $tailBytes 字节)",
+            tailBytes in 1..AodStateWireLimits.MAX_LYRIC_CHARS * 3
+        )
+        val tailWord = AodDisplayWord("x".repeat(tailBytes), "", 0L, 1L, false)
+        val atLimit = base.copy(
+            duetLine = duetLine(
+                text = duetText,
+                romanized = duetText,
+                translated = duetText,
+                words = List(fillerCount) { AodDisplayWord(filler, "", 0L, 1L, false) } + tailWord
+            )
+        )
+
+        val normalized = normalizeAodDisplayState(atLimit)
+        val duet = requireNotNull(normalized.duetLine)
+        assertEquals(cap, aggregateTextBytes(normalized))
+        assertEquals(mainText, normalized.original)
+        assertEquals(listOf("x"), normalized.words.map { it.text })
+        assertEquals(duetText, duet.text)
+        assertEquals(tailWord.text, duet.words.last().text)
+        assertSnapshotRoundTrip(normalized)
+
+        val overLimit = normalizeAodDisplayState(
+            atLimit.copy(
+                duetLine = requireNotNull(atLimit.duetLine).let { line ->
+                    line.copy(words = line.words.dropLast(1) + tailWord.copy(text = tailWord.text + "x"))
+                }
+            )
+        )
+        assertNull("多 1 字节即整条丢弃并发行", overLimit.duetLine)
+        assertEquals(mainText, overLimit.original)
+        assertEquals(listOf("x"), overLimit.words.map { it.text })
+        assertSnapshotRoundTrip(overLimit)
+    }
+
+    /**
+     * 并发行词级罗马音同样计入联合聚合预算(与 wire 并发行段同序:文本 → 罗马音 → 译文 →
+     * 词表逐条的文本/罗马音):漏计这一档会让 wire 拒收整包、整屏 Hidden。
+     */
+    @Test
+    fun duetWordRomanizedCountsTowardTheJointAggregateBudget() {
+        val duetText = "界".repeat(AodStateWireLimits.MAX_LYRIC_CHARS)
+        val duetWords = List(120) {
+            AodDisplayWord("x", "界".repeat(AodStateWireLimits.MAX_LYRIC_CHARS), 0L, 1L, false)
+        }
+
+        val overBudget = normalizeAodDisplayState(
+            state().copy(duetLine = duetLine(text = duetText, words = duetWords))
+        )
+
+        assertNull("120 词 × 1500B 罗马音远超 48KiB,整条并发行应被丢弃", overBudget.duetLine)
+        assertSnapshotRoundTrip(overBudget)
+
+        // 同一条并发行只去掉词级罗马音就装得下:证明计入的正是罗马音那一档。
+        val withinBudget = normalizeAodDisplayState(
+            state().copy(
+                duetLine = duetLine(
+                    text = duetText,
+                    words = duetWords.map { it.copy(romanized = "") }
+                )
+            )
+        )
+
+        assertEquals(120, requireNotNull(withinBudget.duetLine).words.size)
+        assertSnapshotRoundTrip(withinBudget)
+    }
+
+    private fun mainWords(count: Int) = List(count) { AodDisplayWord("m$it", "", 0L, 1L, false) }
+
+    private fun duetWords(count: Int) = List(count) { AodDisplayWord("d$it", "", 0L, 1L, false) }
+
+    private fun duetLine(
+        text: String = "duet line",
+        romanized: String = "",
+        translated: String = "",
+        words: List<AodDisplayWord> = emptyList()
+    ) = AodDisplayDuetLine(
+        text = text,
+        romanized = romanized,
+        translated = translated,
+        lineStartMs = 0L,
+        lineEndMs = 1_000L,
+        words = words
+    )
+
+    private fun assertSnapshotRoundTrip(normalized: AodDisplayState) {
+        val publication = encodeNormalizedAodStatePublication(normalized, 9L, 10L)
+        assertTrue(publication.message is AodStateWireMessage.Snapshot)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    /**
+     * 与 [AodStateWireCodec] 同序的聚合 UTF-8 字节合计(只用于构造精确的 48KiB 边界;
+     * 是否真的被 wire 接受由 encode/decode 往返把关)。顺序按编码体读取序,含
+     * aodRotationMode——解码侧把它计入同一个预算(此前校验侧漏计,压线包会「编码通过、
+     * 解码拒收」)。
+     */
+    private fun aggregateTextBytes(state: AodDisplayState): Int {
+        var total = 0
+        fun add(value: String) {
+            total += aodUtf8Bytes(value)
+        }
+        listOf(
+            state.burnInPattern,
+            state.aodRotationMode,
+            state.original,
+            state.romanized,
+            state.translated,
+            state.nextLine,
+            state.nextLineRomanized,
+            state.nextLineTranslated,
+            state.metadata,
+            state.title,
+            state.artist,
+            state.album,
+            state.weight,
+            state.textSizeMode,
+            state.secondaryMode,
+            state.animationMode,
+            state.glowMode,
+            state.motionMode,
+            state.lineSyncFillMode,
+            state.overflowMode,
+            state.transitionMode,
+            state.fontFamily,
+            state.alignmentMode,
+            state.metadataAnchor
+        ).forEach(::add)
+        state.words.forEach { add(it.text); add(it.romanized) }
+        state.translationWords.forEach { add(it.text); add(it.romanized) }
+        state.ruby.forEach { add(it.reading) }
+        state.layoutGroups.forEach { add(it.kind) }
+        state.duetLine?.let { duet ->
+            add(duet.text)
+            add(duet.romanized)
+            add(duet.translated)
+            duet.words.forEach { add(it.text); add(it.romanized) }
+        }
+        return total
     }
 
     private fun state(
