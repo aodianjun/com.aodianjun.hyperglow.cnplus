@@ -14,6 +14,23 @@ import io.github.proify.lyricon.subscriber.ProviderInfo
  * listener objects capture the producer as the enclosing extension receiver, so
  * member references resolve unchanged against its internal state.
  */
+
+/**
+ * 2.11:停播检测/播放态观测该用哪个包名查 MediaSession。
+ *
+ * [LyriconLyricProducer.activePlayerPackage](`ProviderInfo.playerPackageName`)是「谁在播」的
+ * 答案,MediaSession 的会话归属于播放器应用;[LyriconLyricProducer.activeProviderPackage] 是
+ * 歌词**提供端**插件包名(如 `io.github.proify.lyricon.cmprovider`),对识别「谁在播」无用
+ * —— 提供端 ≠ 播放器时用提供端包名查询恒 null(issue #27 的「停止清曲目」永不触发、
+ * 无通知权限时 `sessionPlayingObserved` 恒 false)。
+ *
+ * 回落语义:播放器包名缺失/空白时回落到提供端包名(覆盖 SDK 未上报 playerPackageName 的
+ * 老版本/异常上报,保持历史行为);两者都不可用时返回 null(不查询,检测安全地 no-op)。
+ */
+internal fun sessionQueryPackage(activePlayerPackage: String?, activeProviderPackage: String?): String? =
+    activePlayerPackage?.takeIf { it.isNotBlank() }
+        ?: activeProviderPackage?.takeIf { it.isNotBlank() }
+
 internal fun LyriconLyricProducer.createConnectionListener(): ConnectionListener =
     object : ConnectionListener {
         override fun onConnected(s: LyriconSubscriber) {
@@ -123,7 +140,7 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             songAbsentSinceMs = -1L
             providerSyncPendingSinceMs = -1L
             noSongDropLogged = false
-            generation++
+            generation.incrementAndGet()
             val lyrics = current.lyrics
             navigator = if (!lyrics.isNullOrEmpty()) {
                 TimingNavigator(lyrics.toTypedArray())
@@ -247,6 +264,9 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             val now = clock()
             // Feed heartbeat for the position-silence watchdog (see maybeResubscribeOnSilence).
             lastPositionCallbackElapsedMs = now
+            // 2.10:重建订阅的成功判据 —— 重建动作后收到 onPositionChanged 即位置通道已恢复
+            // (见 verifyPendingResubscribe;结算后本标记在下次重建时复位)。
+            positionArrivedSinceResubscribe = true
             // issue #64:歌曲侧看门狗的「位置在推进」心跳 —— 值在变化证明播放器真在播、
             // SDK 位置通道活着(冻结的写入端只会重复同一值)。独立于下方所有残留/门控分支。
             if (position != lastPositionFeedValueMs) {

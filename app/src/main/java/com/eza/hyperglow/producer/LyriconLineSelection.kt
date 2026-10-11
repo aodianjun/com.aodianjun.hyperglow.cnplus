@@ -267,11 +267,12 @@ internal fun LyriconLyricProducer.emit() {
     // 翻译冗余对兜底:与主行同源走 effectiveTranslation(只带 translationWords 的源不丢译文)。
     val nextLineTranslatedText = nextLyricLine?.effectiveTranslation().orEmpty()
     val duetLine = duetLineCandidate(displayPos)
-    sequence++
     mutableState.value = LyricProducerState(
         producerId = LyriconLyricProducer.PRODUCER_ID,
-        generation = generation,
-        sequence = sequence,
+        generation = generation.get(),
+        // 2.12:编号递增用原子操作(并发入口交错时 volatile 上的 `++` 会丢号);
+        // 同一次递增的值直接进入状态,避免二次读取。
+        sequence = sequence.incrementAndGet(),
         status = "ready",
         trackUri = "lyricon:${song.id ?: song.name}",
         title = song.name.orEmpty(),
