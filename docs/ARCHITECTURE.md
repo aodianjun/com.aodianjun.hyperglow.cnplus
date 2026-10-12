@@ -146,7 +146,8 @@ X sweep across every visible lyric row. Word/syllable timing remains unchanged.
   Per AOSP `AppsFilterImpl`, the flag is only honored when the declaring package is system-installed,
   so a priv-app/preinstalled install is what it actually serves; it is declared to match upstream and
   changes nothing for a user-installed module.
-- AOD callback accepts only system UID containing `com.android.systemui`.
+- AOD callback accepts only the caller UID resolved from the `com.android.systemui` package; SystemUI
+  is not always uid 1000, so a hardcoded system-UID check would reject valid callbacks.
 - Protocol, sequence, payload size, document identity, row count, word count, timing, and text bounds fail closed. Document pipes use the declared compressed byte count as an exact frame boundary and reject short/truncated frames.
 - Closed producer render-mode strings are normalized once at bridge ingress. Current values are
   preserved, known legacy aliases are canonicalized, unknown values use producer-safe defaults, and
@@ -175,8 +176,10 @@ X sweep across every visible lyric row. Word/syllable timing remains unchanged.
   missing Xiaomi symbols clears output and restores stock AOD placement.
 - Lockscreen lyrics require explicit opt-in and hide for unsupported/custom themes, secondary
   displays, bouncer/auth entry, stale state, or insufficient safe geometry.
-- While visible playback is active, including loading/no-lyrics fallback, a 4-second bounded heartbeat
-  refreshes snapshot freshness.
+- While visible playback is active, including loading/no-lyrics fallback, a bounded heartbeat refreshes
+  snapshot freshness: most beats are scalar keepalive messages on a 1.5-second cadence, and a full
+  snapshot is re-sent on a 4.5-second republish threshold (about 6 seconds on the loading/no-lyrics
+  fallback path).
   It pulses Xiaomi's AOD draw wake lock for 5.5 seconds only when AOD keepalive is enabled.
 - Device-verified `MiuiShowStyleController.smartHide()` and `hideDoze()` policy calls are suppressed
   only during the independent Spotify-playing AOD power session or a bounded playing-state transport
@@ -413,7 +416,7 @@ profile 开关只选择亮色或暗色呈现，从不改变时序节奏。行级
 
 - 生产者端点只接受包含 `com.spotify.music` 的 UID。
 - 应用声明 `forceQueryable`，让 Spotify 无需改动自身 manifest 即可发现本模块的 bridge service 与 provider。包可见性不授予访问权限；两端仍各自校验 caller UID。按 AOSP `AppsFilterImpl` 的实现，该标志只在声明方为系统安装时被读取，因此真正生效的是 priv-app/预装安装；保留该声明是为与上游对齐，对用户安装的模块不改变任何行为。
-- AOD 回调只接受包含 `com.android.systemui` 的系统 UID。
+- AOD 回调只接受由 `com.android.systemui` 包名解析出的调用方 UID；SystemUI 并不总是 uid 1000，硬编码系统 UID 检查会拒绝正常调用。
 - 协议、序列号、载荷大小、文档标识、行数、词数、时序与文本边界一律 fail closed。文档管道以声明的压缩字节数作为精确的帧边界，并拒绝过短/截断的帧。
 - 封闭的生产者渲染模式字符串会在 bridge 入口处一次性归一化。当前值原样保留，已知的遗留别名
   转换为规范形式，未知值使用对生产者安全的默认值，自定义文字大小会在状态进入 projection/渲染
@@ -438,8 +441,9 @@ profile 开关只选择亮色或暗色呈现，从不改变时序节奏。行级
   Binder 死亡、surface 脱离或 Xiaomi 符号缺失都会清除输出并恢复原生 AOD 摆放。
 - 锁屏歌词需要显式开启，并在遇到不受支持/自定义主题、副屏、bouncer/鉴权入口、过期状态或安全
   几何不足时隐藏。
-- 当可见播放处于活跃状态（包括加载中/无歌词回退）时，一个间隔 4 秒的受限心跳会刷新 snapshot
-  的新鲜度。
+- 当可见播放处于活跃状态（包括加载中/无歌词回退）时，受限心跳会刷新 snapshot 的新鲜度：心跳
+  多为 1.5 秒一拍的纯标量 keepalive，snapshot 年龄超过 4.5 秒重发门槛时则改发全量快照
+  （加载中/无歌词回退路径下约 6 秒）。
   仅在启用 AOD keepalive 时，它才会为 Xiaomi 的 AOD 绘制 wake lock 发放 5.5 秒的脉冲。
 - 仅在独立的 Spotify 播放期 AOD 电源会话或受限的播放状态传输宽限期间，设备已验证的
   `MiuiShowStyleController.smartHide()` 与 `hideDoze()` 策略调用才会被抑制。每个播放中的歌曲

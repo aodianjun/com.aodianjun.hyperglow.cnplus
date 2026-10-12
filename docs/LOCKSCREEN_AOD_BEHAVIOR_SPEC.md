@@ -259,8 +259,10 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   A resumed producer or a new session inside that window cancels the pending pause, so a song change
   never releases AOD lifetime or replays Xiaomi hide policy. The window opens once per session; a
   producer that keeps publishing while paused must not reopen it.
-- Ready, loading, and no-lyrics visible playback all receive the same 4-second freshness heartbeat;
-  unchanged fallback snapshots are refreshed instead of expiring after 5 seconds.
+- Ready, loading, and no-lyrics visible playback all receive the same freshness heartbeat: scalar
+  keepalive beats on a 1.5-second cadence, with a full snapshot re-sent on the 4.5-second republish
+  threshold (about 6 seconds on the fallback refresh loop); unchanged fallback snapshots are refreshed
+  instead of expiring after 15 seconds.
 - The wake broker retains the latest verified `DozeHost` as one bounded recovery reference across
   AOD plugin teardown. If a persistent session has no attached AOD surface, each bounded heartbeat
   may retry the same wake identity until Xiaomi recreates the surface. Interactive-screen requests
@@ -916,7 +918,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 经校验的生命周期守卫还拥有一个窄幅亮度覆盖。在精确的 Xiaomi `DOZE_AOD` 状态下，通过 `MiuiDozeBrightnessTimeoutAdapter` 的较低非零请求会被钳制到 Xiaomi 自身的正 `CommonUtils.BRIGHTNESS_ON` 值。达到或高于该值的请求直接通过。零/关闭请求，以及 `DOZE_AOD_PAUSING`、`DOZE_AOD_PAUSED`、普通 `DOZE`、pulse、finish、未知状态或非活动守卫中的所有请求，均原样通过。这使口袋与接近传感暂停保持权威。守卫激活与释放时会通过原生适配器重新提交 Xiaomi 的上一次原始请求，因此 Xiaomi 保持其原生亮度超时行为，并在歌词 keepalive 结束时按原生适配器的正常延迟重新获得控制。
 - 一个被显式标记为 Spotify 仍在播放的瞬态隐藏沿，会在任何携带经校验 keepalive 意图的 snapshot 之后启动一个有界的 30 秒电源 grace。带时值歌词与由 `Also keep AOD active without timed lyrics` 保持的未带时值会话同样符合条件；歌词时值属于内容能力，绝不作为生命周期策略的门控。下一个可见 snapshot 会取消该 grace 而不重放 Xiaomi 隐藏策略。暂停/非播放状态立即释放。这防止短暂的生产者/状态间隙在歌曲中途中关闭 AOD。Projection 过期会保留已活动的经校验 keepalive 请求；断开连接、显式清除、暂停与 grace 到期仍然会释放它。
 - 换歌期间的非播放 `loading` 沿被投影为该有界的仍在播放 transport 间隙。其他所有非播放沿都是暂定的：Spotify 会在下一个 generation 到达前大约一秒将结束曲目报告为 `ready`/未播放，因此该沿首先被投影为同样的仍在播放 transport 间隙，只有在有界的 5 秒确认窗口之后、生产者仍在同一会话上处于非播放状态时，才成为真正的暂停保留。在该窗口内恢复的生产者或新会话会取消待定暂停，因此切歌永远不会释放 AOD 生命周期或重放 Xiaomi 隐藏策略。该窗口每会话只打开一次；在暂停时仍持续发布的生产者不得重新打开它。
-- ready、loading 与无歌词的可见播放都接收相同的 4 秒新鲜度心跳；未变化的 fallback snapshot 会被刷新，而不是在 5 秒后过期。
+- ready、loading 与无歌词的可见播放都接收相同的新鲜度心跳：纯标量 keepalive 按 1.5 秒节奏发送，snapshot 年龄超过 4.5 秒重发门槛时改发全量快照（回退刷新循环下约 6 秒）；未变化的 fallback snapshot 会被刷新，而不是在 15 秒后过期。
 - wake broker 将最近验证的 `DozeHost` 保留为一个有界的恢复引用，跨越 AOD 插件卸载周期。如果持久会话没有附加的 AOD surface，每个有界心跳都可以重试相同的 wake 身份，直到 Xiaomi 重建该 surface。交互式亮屏请求保持被抑制，系统 AOD 总开关设置保持权威。
 - broker 从两条接缝捕获该宿主：仅经 `DozeTriggers` 构造器拿到的宿主，在"先于 hook 安装就构建 AOD 插件实例"的 ROM 上永远观察不到。因此它同样从既有的 AOD 可见性接缝收养一个活跃的 `DozeHost`，两种情况都只保留同一个有界引用。构造器所供给的验证是"该 `DozeHost` 正被 Xiaomi 自己使用"，不接受任何更弱的证据；重复捕获已持有的同一实例不算新捕获。
 - 一次 broker 无法服务的 wake 会具名指出缺失的引用——宿主、wake 方法或电源管理器——而不是报一个无差别的"不可用"。在该报告里，缺失引用优先于交互式亮屏，因此普通的抑制永不被描述成故障，故障也永不会藏在抑制背后。每个不同的原因各报一次；恢复会清除闩锁，使之后的回归能再次被报出。
