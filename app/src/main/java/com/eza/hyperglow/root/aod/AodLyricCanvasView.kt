@@ -299,7 +299,15 @@ internal class AodLyricCanvasView(
      * 避免再次出现静默的整屏空白。
      */
     private fun lyricClipBounds(left: Int, top: Int, right: Int, bottom: Int): IntArray {
-        if (left < right && top < bottom) return intArrayOf(left, top, right, bottom)
+        // 复用缓冲:所有调用方都在返回后立即消费(clipRect/mapLandscapeLogicalRect),
+        // 不跨下一次调用持有;绘制为单线程(主线程),无并发访问。
+        if (left < right && top < bottom) {
+            clipBoundsScratch[0] = left
+            clipBoundsScratch[1] = top
+            clipBoundsScratch[2] = right
+            clipBoundsScratch[3] = bottom
+            return clipBoundsScratch
+        }
         if (!invalidClipRectWarned) {
             invalidClipRectWarned = true
             HookLogger.w(
@@ -307,8 +315,15 @@ internal class AodLyricCanvasView(
                 "Lyric clip rect invalid (l=$left t=$top r=$right b=$bottom); degrading to full frame"
             )
         }
-        return intArrayOf(0, 0, ow, oh)
+        clipBoundsScratch[0] = 0
+        clipBoundsScratch[1] = 0
+        clipBoundsScratch[2] = ow
+        clipBoundsScratch[3] = oh
+        return clipBoundsScratch
     }
+
+    /** [lyricClipBounds] 的复用缓冲(见其注释:调用方均在返回后立即消费)。 */
+    private val clipBoundsScratch = IntArray(4)
 
     private val density = resources.displayMetrics.density
     private val scaledDensity = resources.displayMetrics.scaledDensity
@@ -338,6 +353,41 @@ internal class AodLyricCanvasView(
     }
     /** 共享扫光块里混合字号行(堆叠开场占位的歌手段)的临时 Paint(见 glowLinePaint;逐帧复用)。 */
     private val glowLineScratchPaint = Paint()
+    /** 歌曲信息形变帧的临时 Paint(见 drawMetadataMorph;逐帧 set 基线再改字号/颜色,等价新建)。 */
+    private val metadataMorphScratchPaint = Paint()
+    /** 歌曲图片圆形裁剪路径(见 drawArtwork;reset 后重加椭圆,逐帧复用)。 */
+    private val artworkClipScratchPath = Path()
+    /** 歌曲图片目标矩形(见 drawArtwork;set 后即用,逐帧复用)。 */
+    private val artworkDestinationScratch = RectF()
+    /** 歌曲图片槽矩形(见 metadataArtworkRect;唯一调用方 drawArtwork 立即消费)。 */
+    private val metadataArtworkScratch = RectF()
+    /** 翻转透视过渡的 Camera/Matrix(见 beginTransitionFrameLayer;save/restore 复位,逐帧复用)。 */
+    private val transitionScratchCamera = Camera()
+    private val transitionScratchMatrix = Matrix()
+    /** 主行/并发行逐字卡拉OK的词位表缓冲(每次调用内按行 clear;绘制单线程,顺序使用)。 */
+    private val karaokeRunsScratch = ArrayList<KaraokeWordRun>(16)
+    /** 辅助文字行逐字效果的词位表缓冲(与主行分开持有,互不覆盖)。 */
+    private val auxKaraokeRunsScratch = ArrayList<KaraokeWordRun>(16)
+    /**
+     * 行级源逐字合成几何缓存(键见 [SyntheticKaraokeKey],覆盖合成分支全部输入):
+     * 同布局同窗口的字符切片/测宽/时间窗跨帧复用,布局重建时清空。
+     */
+    private val syntheticRunCache =
+        BoundedDrawCache<SyntheticKaraokeKey, List<SyntheticKaraokeUnit>>(SYNTHETIC_RUN_CACHE_CAPACITY)
+    /**
+     * 共享扫光块行集合缓存(键=布局实例+基线):LyricGlowRow 与其绘制闭包只依赖这两者,
+     * 跨帧复用免去每帧重建集合/闭包;几何(布局或基线)变化时键变化自然重算。
+     */
+    private val glowRowsCache =
+        BoundedDrawCache<GlowRowsKey, List<LyricGlowRow>>(GLOW_ROWS_CACHE_CAPACITY)
+
+    /** [glowRowsCache] 键:布局按实例身份、基线按值(同布局换基线=几何变,必须重算)。 */
+    private class GlowRowsKey(private val layout: OriginalLayout, private val baseline: Float) {
+        override fun equals(other: Any?): Boolean =
+            other is GlowRowsKey && other.layout === layout && other.baseline == baseline
+
+        override fun hashCode(): Int = 31 * System.identityHashCode(layout) + baseline.hashCode()
+    }
     private val debugFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xAAFF5252.toInt() // 画布边界(逻辑帧 ow×oh)
         style = Paint.Style.STROKE
@@ -1805,7 +1855,8 @@ internal class AodLyricCanvasView(
         val sinkPx = karaokeFloatSinkPx(row.lineHeight)
         val alphaFactor = steadyTextAlpha(staticSecondaryTextFactor(content.secondaryTextBright))
         val totalWidth = row.lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
-        val runs = ArrayList<KaraokeWordRun>(16)
+        // 复用缓冲:按行 clear 后重建;与主行词位表分开持有,互不覆盖。
+        val runs = auxKaraokeRunsScratch
         var precedingWidth = 0f
         row.lines.forEachIndexed { lineIndex, line ->
             val lineBaseline = baseline + lineIndex * row.lineHeight
@@ -1829,48 +1880,37 @@ internal class AodLyricCanvasView(
             } else {
                 // 无逐字时间(翻译行/纯行级音标):按行窗口 + 行内几何合成——中文逐字成块、
                 // 西文按词成块,块内字符各自扫光、共享块级高亮进度(与主行行级源同式)。
-                var prefix = 0f
-                var charIndex = 0
-                for (block in syntheticKaraokeBlocks(line.text)) {
-                    while (charIndex < block.first) {
-                        val unitEnd = karaokeUnitEnd(line.text, charIndex, block.first)
-                        prefix += paint.measureText(line.text, charIndex, unitEnd)
-                        charIndex = unitEnd
-                    }
-                    val blockWidth = paint.measureText(line.text, block.first, block.last + 1)
-                    val blockWindow = syntheticCharTimeWindow(
-                        window.first,
-                        window.last,
-                        totalWidth,
-                        precedingWidth + prefix,
-                        blockWidth
+                // 几何(切片/测宽/时间窗)走与主行同一份缓存(键含行窗口,互不串用)。
+                val units = syntheticRunUnits(
+                    text = line.text,
+                    paint = paint,
+                    windowStartMs = window.first,
+                    windowEndMs = window.last,
+                    totalWidth = totalWidth,
+                    precedingWidth = precedingWidth,
+                    lineStartX = line.startX
+                )
+                var unitIndex = 0
+                while (unitIndex < units.size) {
+                    val unit = units[unitIndex]
+                    runs += KaraokeWordRun(
+                        text = unit.text,
+                        x = unit.x,
+                        width = unit.width,
+                        playedFraction = timedWordProgress(
+                            position,
+                            unit.windowStartMs,
+                            unit.windowEndMs
+                        ),
+                        durationMs = unit.windowEndMs - unit.windowStartMs,
+                        longSyllable = unit.longSyllable,
+                        highlightFraction = if (unit.longSyllable) {
+                            timedWordProgress(position, unit.highlightStartMs, unit.highlightEndMs)
+                        } else {
+                            -1f
+                        }
                     )
-                    val blockHighlight = timedWordProgress(position, blockWindow.first, blockWindow.last)
-                    val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
-                    var blockChar = block.first
-                    while (blockChar <= block.last) {
-                        val charEnd = karaokeUnitEnd(line.text, blockChar, block.last + 1)
-                        val charWidth = paint.measureText(line.text, blockChar, charEnd)
-                        val charWindow = syntheticCharTimeWindow(
-                            window.first,
-                            window.last,
-                            totalWidth,
-                            precedingWidth + prefix,
-                            charWidth
-                        )
-                        runs += KaraokeWordRun(
-                            text = line.text.substring(blockChar, charEnd),
-                            x = line.startX + prefix,
-                            width = charWidth,
-                            playedFraction = timedWordProgress(position, charWindow.first, charWindow.last),
-                            durationMs = charWindow.last - charWindow.first,
-                            longSyllable = blockLong,
-                            highlightFraction = if (blockLong) blockHighlight else -1f
-                        )
-                        prefix += charWidth
-                        blockChar = charEnd
-                    }
-                    charIndex = block.last + 1
+                    unitIndex++
                 }
             }
             if (runs.isNotEmpty()) {
@@ -2046,7 +2086,10 @@ internal class AodLyricCanvasView(
             lastMetrics.descent
         )
         val top = textMiddleY - side / 2f
-        return RectF(groupLeft, top, groupLeft + side, top + side)
+        // 复用缓冲:唯一调用方(drawMetadata)拿到后立即交给 drawArtwork 消费,不跨调用持有。
+        return metadataArtworkScratch.apply {
+            set(groupLeft, top, groupLeft + side, top + side)
+        }
     }
 
     /**
@@ -2060,7 +2103,9 @@ internal class AodLyricCanvasView(
         val clip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
         canvas.clipRect(clip[0], clip[1], clip[2], clip[3])
         if (content.artworkShape == ARTWORK_SHAPE_CIRCLE) {
-            canvas.clipPath(Path().apply { addOval(rect, Path.Direction.CW) })
+            artworkClipScratchPath.reset()
+            artworkClipScratchPath.addOval(rect, Path.Direction.CW)
+            canvas.clipPath(artworkClipScratchPath)
         }
         if (content.artworkSpin) {
             val angle = if (
@@ -2083,12 +2128,14 @@ internal class AodLyricCanvasView(
         )
         val drawWidth = bitmap.width * scale
         val drawHeight = bitmap.height * scale
-        val destination = RectF(
-            rect.centerX() - drawWidth / 2f,
-            rect.centerY() - drawHeight / 2f,
-            rect.centerX() + drawWidth / 2f,
-            rect.centerY() + drawHeight / 2f
-        )
+        val destination = artworkDestinationScratch.apply {
+            set(
+                rect.centerX() - drawWidth / 2f,
+                rect.centerY() - drawHeight / 2f,
+                rect.centerX() + drawWidth / 2f,
+                rect.centerY() + drawHeight / 2f
+            )
+        }
         canvas.drawBitmap(bitmap, null, destination, artworkPaint)
         canvas.restore()
     }
@@ -2152,10 +2199,10 @@ internal class AodLyricCanvasView(
         // 无歌名的堆叠行(只剩歌手段)形变落点取该行自己的小字号 Paint,而不是歌名 Paint
         // (上游 84a0c9ce 项 #3:落点字号跟随目标行,否则落定瞬间字号跳变)。
         val destinationPaint = destinationLine.paint ?: currentRenderStyle.metadataPaint
-        val paint = Paint(
-            if (value < 0.5f) snapshot.renderStyle.originalPaint
-            else destinationPaint
-        ).apply {
+        // 复用缓冲:set(基线) 与 Paint(基线) 构造等价(全量拷贝),再逐帧改字号/颜色/阴影;
+        // 只在本函数内使用一次,不重入(drawMetadataMorph 每帧至多一次)。
+        val paint = metadataMorphScratchPaint.apply {
+            set(if (value < 0.5f) snapshot.renderStyle.originalPaint else destinationPaint)
             textSize = snapshot.renderStyle.originalPaint.textSize +
                 (destinationPaint.textSize -
                     snapshot.renderStyle.originalPaint.textSize) * value
@@ -2240,6 +2287,9 @@ internal class AodLyricCanvasView(
             built.originalLayout,
             built.duetLayout
         )
+        // 布局重建 = 内容/几何换代:派生缓存整体失效(键已覆盖输入,这里再兜底防跨代滞留)。
+        syntheticRunCache.clear()
+        glowRowsCache.clear()
         contentBoundsChangedListener?.invoke()
     }
 
@@ -3248,11 +3298,15 @@ internal class AodLyricCanvasView(
         if (frame.rotationXDeg != 0f || frame.rotationYDeg != 0f) {
             // 翻转档:Camera 透视等价于 View/graphicsLayer 的 rotationX/Y
             // (Camera 坐标 Y 向上、屏幕 Y 向下,故取负号对齐语义)。
-            val camera = Camera()
-            val matrix = Matrix()
+            // 复用缓冲:save/restore 把 Camera 复位为单位阵(旋转会累加,必须复位);
+            // getMatrix 全量覆写 9 个值,矩阵无需 reset。本块内自包含,不重入。
+            val camera = transitionScratchCamera
+            val matrix = transitionScratchMatrix
+            camera.save()
             camera.rotateX(-frame.rotationXDeg)
             camera.rotateY(-frame.rotationYDeg)
             camera.getMatrix(matrix)
+            camera.restore()
             matrix.preTranslate(-pivotX, -pivotY)
             matrix.postTranslate(pivotX, pivotY)
             canvas.concat(matrix)
@@ -3479,35 +3533,60 @@ internal class AodLyricCanvasView(
         fillMode: String = LyricGlowRenderer.FILL_LEFT_TO_RIGHT_WHOLE_BLOCK
     ) {
         val lines = originalLayout.lines
-        val glowRows = ArrayList<LyricGlowRow>(lines.size)
+        // 行集合与绘制闭包只依赖(布局实例, 基线):同布局同基线跨帧复用,免去每帧重建
+        // ArrayList/LyricGlowRow/闭包;布局或基线变化时键变化,自然重算(几何零漂移)。
+        val glowRows = glowRowsCache.getOrCompute(GlowRowsKey(originalLayout, baseline)) {
+            val rows = ArrayList<LyricGlowRow>(lines.size)
+            var cachedRuby = 0f
+            var cachedLineIndex = 0
+            while (cachedLineIndex < lines.size) {
+                val line = lines[cachedLineIndex]
+                val lineBaseline = originalLineBaseline(
+                    baseline,
+                    cachedLineIndex,
+                    originalLayout.lineHeight,
+                    cachedRuby,
+                    line.rubyHeight,
+                    originalLayout.lineGap,
+                    originalLayout.baselineOffsets()
+                )
+                val capturedBaseline = lineBaseline
+                rows += LyricGlowRow(
+                    left = line.startX,
+                    width = line.width,
+                    baseline = capturedBaseline,
+                    // 混合字号行(堆叠式开场占位的歌手段)以行自己的小字号绘制(见 glowLinePaint)。
+                    drawText = { c, p ->
+                        drawLineTextForGlow(c, line, capturedBaseline, glowLinePaint(line, p))
+                    }
+                )
+                cachedRuby += line.rubyHeight
+                cachedLineIndex++
+            }
+            rows
+        }
         var precedingRuby = 0f
         var lineIndex = 0
         // 外层统一裁剪（非 Wrap 溢出模式），替代原先逐行 clip，与预览整块绘制一致。
         val outerClip = clipOriginalBlock(canvas, baseline, originalLayout)
+        // ruby 仍逐帧绘制:与旧实现的绘制顺序一致(裁剪后、扫光块前,按行推进)。
         while (lineIndex < lines.size) {
             val line = lines[lineIndex]
-            val lineBaseline = originalLineBaseline(
-                baseline,
-                lineIndex,
-                originalLayout.lineHeight,
-                precedingRuby,
-                line.rubyHeight,
-                originalLayout.lineGap,
-                originalLayout.baselineOffsets()
-            )
             if (line.ruby.isNotEmpty()) {
-                drawRuby(canvas, line, lineBaseline)
+                drawRuby(
+                    canvas,
+                    line,
+                    originalLineBaseline(
+                        baseline,
+                        lineIndex,
+                        originalLayout.lineHeight,
+                        precedingRuby,
+                        line.rubyHeight,
+                        originalLayout.lineGap,
+                        originalLayout.baselineOffsets()
+                    )
+                )
             }
-            val capturedBaseline = lineBaseline
-            glowRows += LyricGlowRow(
-                left = line.startX,
-                width = line.width,
-                baseline = capturedBaseline,
-                // 混合字号行(堆叠式开场占位的歌手段)以行自己的小字号绘制(见 glowLinePaint)。
-                drawText = { c, p ->
-                    drawLineTextForGlow(c, line, capturedBaseline, glowLinePaint(line, p))
-                }
-            )
             precedingRuby += line.rubyHeight
             lineIndex++
         }
@@ -3600,7 +3679,8 @@ internal class AodLyricCanvasView(
         val position = projectedPosition()
         val sinkPx = karaokeFloatSinkPx(originalLayout.lineHeight)
         val totalWidth = lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
-        val runs = ArrayList<KaraokeWordRun>(8)
+        // 复用缓冲:按行 clear 后重建;本函数内自包含(渲染核心同步消费),不重入。
+        val runs = karaokeRunsScratch
         var precedingWidth = 0f
         var precedingRuby = 0f
         var lineIndex = 0
@@ -3648,51 +3728,41 @@ internal class AodLyricCanvasView(
                 // 行级源合成:按词块划分(中文逐字、西文按词),块内字符各自扫光进度、
                 // 共享块级高亮进度——整块在演唱期间同步放大/辉光(可见),未唱整块下沉、
                 // 唱到逐字上浮;推进前缘与行级扫光几何同式。
-                var prefix = 0f
-                var index = 0
-                for (block in syntheticKaraokeBlocks(line.text)) {
-                    while (index < block.first) {
-                        val unitEnd = karaokeUnitEnd(line.text, index, block.first)
-                        prefix += linePaint.measureText(line.text, index, unitEnd)
-                        index = unitEnd
-                    }
-                    val blockWidth = linePaint.measureText(line.text, block.first, block.last + 1)
-                    val blockWindow = syntheticCharTimeWindow(
-                        blockStartMs,
-                        blockEndMs,
-                        totalWidth,
-                        precedingWidth + prefix,
-                        blockWidth
+                // 字符切片/测宽/时间窗与播放位置无关 → 走几何缓存(键覆盖全部输入,
+                // 见 syntheticRunUnits);逐帧只按 position 换算进度,测量口径不变。
+                val units = syntheticRunUnits(
+                    text = line.text,
+                    paint = linePaint,
+                    windowStartMs = blockStartMs,
+                    windowEndMs = blockEndMs,
+                    totalWidth = totalWidth,
+                    precedingWidth = precedingWidth,
+                    lineStartX = line.startX
+                )
+                var unitIndex = 0
+                while (unitIndex < units.size) {
+                    val unit = units[unitIndex]
+                    runs += KaraokeWordRun(
+                        text = unit.text,
+                        x = unit.x,
+                        width = unit.width,
+                        playedFraction = timedWordProgress(
+                            position,
+                            unit.windowStartMs,
+                            unit.windowEndMs
+                        ),
+                        durationMs = unit.windowEndMs - unit.windowStartMs,
+                        longSyllable = unit.longSyllable,
+                        // 长音节按合成块时长判定:短词块(不足 700ms)不放大、不辉光;被拖长的
+                        // 长词块整块同步放大+辉光(块内共享高亮进度)。「BetterLyrics」档扫光按
+                        // 口径 B 逐词块判定(见 karaokeSweepEnabled):长块整块亮起不扫光、短块照常。
+                        highlightFraction = if (unit.longSyllable) {
+                            timedWordProgress(position, unit.highlightStartMs, unit.highlightEndMs)
+                        } else {
+                            -1f
+                        }
                     )
-                    val blockHighlight = timedWordProgress(position, blockWindow.first, blockWindow.last)
-                    // 长音节按合成块时长判定:短词块(不足 700ms)不放大、不辉光;被拖长的长词块
-                    // 整块同步放大+辉光(块内共享高亮进度)。「BetterLyrics」档扫光按口径 B 逐
-                    // 词块判定(见 karaokeSweepEnabled):长块整块亮起不扫光、短块照常词内扫光。
-                    val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
-                    var charIndex = block.first
-                    while (charIndex <= block.last) {
-                        val charEnd = karaokeUnitEnd(line.text, charIndex, block.last + 1)
-                        val charWidth = linePaint.measureText(line.text, charIndex, charEnd)
-                        val charWindow = syntheticCharTimeWindow(
-                            blockStartMs,
-                            blockEndMs,
-                            totalWidth,
-                            precedingWidth + prefix,
-                            charWidth
-                        )
-                        runs += KaraokeWordRun(
-                            text = line.text.substring(charIndex, charEnd),
-                            x = line.startX + prefix,
-                            width = charWidth,
-                            playedFraction = timedWordProgress(position, charWindow.first, charWindow.last),
-                            durationMs = charWindow.last - charWindow.first,
-                            longSyllable = blockLong,
-                            highlightFraction = if (blockLong) blockHighlight else -1f
-                        )
-                        prefix += charWidth
-                        charIndex = charEnd
-                    }
-                    index = block.last + 1
+                    unitIndex++
                 }
             }
             if (lineIndex == 0) {
@@ -3726,6 +3796,80 @@ internal class AodLyricCanvasView(
             precedingWidth += line.width
             precedingRuby += line.rubyHeight
             lineIndex++
+        }
+    }
+
+    /**
+     * 行级源逐字合成的几何单元(见 [SyntheticKaraokeUnit]):字符切片/测宽/时间窗只依赖
+     * (文本、Paint 测量态、行块窗口、行块总宽、行前累计宽、行起始 x)——全部进缓存键
+     * (见 [SyntheticKaraokeKey]),同一布局逐帧命中,不再每帧 substring/measureText/建
+     * LongRange;测量口径不变(同一输入仍取同一 measureText/syntheticCharTimeWindow 结果)。
+     */
+    private fun syntheticRunUnits(
+        text: String,
+        paint: Paint,
+        windowStartMs: Long,
+        windowEndMs: Long,
+        totalWidth: Float,
+        precedingWidth: Float,
+        lineStartX: Float
+    ): List<SyntheticKaraokeUnit> {
+        val key = SyntheticKaraokeKey(
+            text = text,
+            textSize = paint.textSize,
+            typeface = paint.typeface,
+            windowStartMs = windowStartMs,
+            windowEndMs = windowEndMs,
+            totalWidth = totalWidth,
+            precedingWidth = precedingWidth,
+            lineStartX = lineStartX
+        )
+        return syntheticRunCache.getOrCompute(key) {
+            val units = ArrayList<SyntheticKaraokeUnit>(text.length.coerceAtMost(64))
+            var prefix = 0f
+            var index = 0
+            for (block in syntheticKaraokeBlocks(text)) {
+                while (index < block.first) {
+                    val unitEnd = karaokeUnitEnd(text, index, block.first)
+                    prefix += paint.measureText(text, index, unitEnd)
+                    index = unitEnd
+                }
+                val blockWidth = paint.measureText(text, block.first, block.last + 1)
+                val blockWindow = syntheticCharTimeWindow(
+                    windowStartMs,
+                    windowEndMs,
+                    totalWidth,
+                    precedingWidth + prefix,
+                    blockWidth
+                )
+                val blockLong = isLongKaraokeSyllable(blockWindow.last - blockWindow.first)
+                var charIndex = block.first
+                while (charIndex <= block.last) {
+                    val charEnd = karaokeUnitEnd(text, charIndex, block.last + 1)
+                    val charWidth = paint.measureText(text, charIndex, charEnd)
+                    val charWindow = syntheticCharTimeWindow(
+                        windowStartMs,
+                        windowEndMs,
+                        totalWidth,
+                        precedingWidth + prefix,
+                        charWidth
+                    )
+                    units += SyntheticKaraokeUnit(
+                        text = text.substring(charIndex, charEnd),
+                        x = lineStartX + prefix,
+                        width = charWidth,
+                        longSyllable = blockLong,
+                        windowStartMs = charWindow.first,
+                        windowEndMs = charWindow.last,
+                        highlightStartMs = blockWindow.first,
+                        highlightEndMs = blockWindow.last
+                    )
+                    prefix += charWidth
+                    charIndex = charEnd
+                }
+                index = block.last + 1
+            }
+            units
         }
     }
 
@@ -3966,11 +4110,11 @@ internal class AodLyricCanvasView(
             LYRIC_LINE_GAP_DP * density,
             false,
             if (mixed) FloatArray(lines.size) { painted[it].second.fontMetrics.ascent }
-            else FloatArray(0),
+            else EMPTY_LINE_OFFSETS,
             if (mixed) FloatArray(lines.size) {
                 val fm = painted[it].second.fontMetrics
                 fm.descent + max(0f, fm.bottom - fm.descent)
-            } else FloatArray(0)
+            } else EMPTY_LINE_OFFSETS
         )
     }
 
@@ -4828,27 +4972,38 @@ internal class AodLyricCanvasView(
          * 歌名段之下)携带,行盒按每行自己的字体度量推进;普通歌词块恒空,保持单一行盒
          * (上游 amarinne/hyperglow 84a0c9ce 项 #3)。
          */
-        val lineAscents: FloatArray = FloatArray(0),
-        val lineDescents: FloatArray = FloatArray(0)
+        val lineAscents: FloatArray = EMPTY_LINE_OFFSETS,
+        val lineDescents: FloatArray = EMPTY_LINE_OFFSETS
     ) {
         val lineCount: Int
             get() = lines.size
         val rubyHeight: Float
             get() = lines.sumOf { it.rubyHeight.toDouble() }.toFloat()
-        private val mixedOffsets: FloatArray
-            get() = mixedSizeLineBaselineOffsets(lineAscents, lineDescents, lineGap)
 
         /** 行集是否携带混合字号(逐行度量),即不能用统一行盒排版。 */
+        private val mixedSizeActive: Boolean =
+            lineAscents.size == lines.size && lineAscents.isNotEmpty()
+
+        /**
+         * 逐行基线偏移:构造期算一次(此前是 getter —— 每次访问都重算一个新数组,
+         * 绘制热路径按行访问时每帧多次分配)。输入全是构造期不可变值,缓存与逐次重算逐值等价。
+         */
+        private val mixedOffsets: FloatArray = if (mixedSizeActive) {
+            mixedSizeLineBaselineOffsets(lineAscents, lineDescents, lineGap)
+        } else {
+            EMPTY_LINE_OFFSETS
+        }
+
         val mixedSize: Boolean
-            get() = lineAscents.size == lines.size && lineAscents.isNotEmpty()
+            get() = mixedSizeActive
 
         /** [lineIndex] 相对块首行基线的偏移(混合字号按逐行行盒,其余按统一行高 + 行距)。 */
         fun baselineOffset(lineIndex: Int): Float =
-            if (mixedSize) mixedOffsets[lineIndex.coerceIn(0, lines.size - 1)]
+            if (mixedSizeActive) mixedOffsets[lineIndex.coerceIn(0, lines.size - 1)]
             else lineIndex * (lineHeight + lineGap)
 
-        /** 逐行基线偏移数组(混合字号非空,其余恒空 → 调用方回落统一行高)。 */
-        fun baselineOffsets(): FloatArray = if (mixedSize) mixedOffsets else FloatArray(0)
+        /** 逐行基线偏移数组(混合字号非空,其余恒空 → 调用方回落统一行高;只读)。 */
+        fun baselineOffsets(): FloatArray = mixedOffsets
 
         /**
          * 整块文本高(行距已含)。混合字号 = 首行 ascent 顶到末行 descent 底
@@ -4856,7 +5011,7 @@ internal class AodLyricCanvasView(
          * + 行距 × (行数 − 1),与 [originalRowHeight] 逐值相等。
          */
         val stackedHeight: Float
-            get() = if (mixedSize) {
+            get() = if (mixedSizeActive) {
                 mixedSizeLineStackHeight(mixedOffsets, lineAscents, lineDescents)
             } else {
                 lineHeight * lines.size + lineGap * (lines.size - 1).coerceAtLeast(0)
@@ -4887,5 +5042,9 @@ internal class AodLyricCanvasView(
         private const val CADENCE_DIAGNOSTIC_TAG = "AodCanvasCadence"
         private const val GLOW_HALO_ALPHA = 235
         private const val GLOW_HALO_RADIUS = 0.52f
+        /** 逐字合成几何缓存容量:一帧用到的行(主行+辅助行+并发行)≤6,留余量。 */
+        private const val SYNTHETIC_RUN_CACHE_CAPACITY = 12
+        /** 扫光块行集合缓存容量:主行块与并发行块各一,容量 4 足够且保持有界。 */
+        private const val GLOW_ROWS_CACHE_CAPACITY = 4
     }
 }
