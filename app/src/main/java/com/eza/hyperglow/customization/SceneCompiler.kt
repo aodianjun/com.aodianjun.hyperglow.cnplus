@@ -74,6 +74,20 @@ object SceneCompiler {
         return runCatching { json.decodeFromString<CustomizationDocument>(raw) }.getOrNull()
     }
 
+    /**
+     * [decodeDocument] 的 JsonElement 入口:导入端(ConfigBackupCodec)已把备份信封解析成
+     * JsonElement,这里复用同一元素,省掉 toString → parseToJsonElement → decodeFromString 的
+     * 重复解析(测量报告 2.4:子文档二次解析 ≈ +50–100% 子文档解析成本,仅导入时一次)。
+     * 安全检查与 [decodeDocument] 完全一致:按紧凑序列化计的大小上限 + unsafe schema 拒绝。
+     */
+    internal fun decodeDocumentElement(element: JsonElement): CustomizationDocument? {
+        if (element.toString().toByteArray().size > MAX_CONFIG_BYTES) return null
+        if (containsUnsafeSchemaElement(element)) return null
+        return runCatching {
+            json.decodeFromJsonElement(CustomizationDocument.serializer(), element)
+        }.getOrNull()
+    }
+
     internal fun finalizeCompiled(configuration: CompiledCustomization): CompiledCustomization? {
         val orderedProfiles = linkedMapOf<String, CompiledSurfaceProfile>()
         configuration.profiles[SURFACE_LOCKSCREEN]?.let { orderedProfiles[SURFACE_LOCKSCREEN] = it }
