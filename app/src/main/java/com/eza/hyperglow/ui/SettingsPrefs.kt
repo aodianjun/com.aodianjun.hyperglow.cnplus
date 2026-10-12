@@ -163,9 +163,25 @@ internal fun exportAllConfig(context: android.content.Context): String =
         collectSideSettings(context)
     )
 
-internal fun importAllConfig(context: android.content.Context, raw: String): Boolean {
-    // 以当前生效配置为基底:载荷缺省的键保持现状(旧备份没有的新键不被清成默认值)。
-    val result = ConfigBackupCodec.decode(raw.toByteArray(), AodRenderPreferences.read(context))
+/**
+ * 解析备份载荷:纯解码,无副作用。JSON/文档解码不得在主线程运行(STYLE_GUIDE §4),
+ * 导入端在 IO 通道调用本函数,再把结果交回原线程 [applyImportedConfig] 落盘+通知。
+ * 以当前生效配置为基底:载荷缺省的键保持现状(旧备份没有的新键不被清成默认值)。
+ */
+internal fun decodeImportedConfig(
+    context: android.content.Context,
+    raw: String
+): ConfigBackupDecodeResult =
+    ConfigBackupCodec.decode(raw.toByteArray(), AodRenderPreferences.read(context))
+
+/**
+ * 落盘并应用已解析的导入结果。含插件 onConfigChanged / 生产者 onCustomizationChanged
+ * 等通知,调用线程与搬线程前一致(设置页/导入端都在主线程触发)。
+ */
+internal fun applyImportedConfig(
+    context: android.content.Context,
+    result: ConfigBackupDecodeResult
+): Boolean {
     if (result !is ConfigBackupDecodeResult.Success) return false
     if (!configBackupWritePreferences(context, result.preferences)) return false
     val document = result.customizationDocument

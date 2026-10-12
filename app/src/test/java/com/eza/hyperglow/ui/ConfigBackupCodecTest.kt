@@ -530,4 +530,45 @@ class ConfigBackupCodecTest {
             result
         )
     }
+
+    @Test
+    fun customizationSectionKeepsSchemaSafetyOnElementPath() {
+        // 子文档走「复用 JsonElement」入口后,安全检查必须与 decodeDocument(raw) 一致:
+        // unsafe schema 值(路径/URL/命令形态)仍整体拒绝。
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "customization": {"version": 1, "name": "file:///tmp/x"}
+            }
+        """.trimIndent()
+
+        val result = ConfigBackupCodec.decode(payload.toByteArray())
+
+        assertEquals(
+            ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED),
+            result
+        )
+    }
+
+    @Test
+    fun oversizeCustomizationSectionIsRejectedOnElementPath() {
+        // 子文档大小上限(SceneCompiler.MAX_CONFIG_BYTES,按紧凑序列化计)在复用
+        // JsonElement 后仍生效:信封整体未超 MAX_BYTES,但子文档自身超限即拒绝。
+        val padding = "x".repeat(SceneCompiler.MAX_CONFIG_BYTES + 1)
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "customization": {"version": 1, "id": "safe", "padding": "$padding"}
+            }
+        """.trimIndent()
+
+        val result = ConfigBackupCodec.decode(payload.toByteArray())
+
+        assertEquals(
+            ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED),
+            result
+        )
+    }
 }

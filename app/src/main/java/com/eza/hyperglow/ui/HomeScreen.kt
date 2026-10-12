@@ -42,7 +42,11 @@ import com.eza.hyperglow.DiagnosticLoggingPreferences
 import com.eza.hyperglow.DIAGNOSTIC_LOG_LEVELS
 import com.eza.hyperglow.LOG_RETENTION_DAYS
 import com.eza.hyperglow.root.utils.ShellUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import com.eza.hyperglow.aod.AodLyricBridgeService
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
@@ -172,31 +176,45 @@ internal fun HomeScreen(
             Toast.LENGTH_LONG
         ).show()
     }
+    // 导入串行化锁:导入搬 IO 通道后不再被主线程天然串行化,并发导入会互相交错写 prefs/文档。
+    val importMutex = remember { Mutex() }
     val importConfigLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val raw = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val bytes = input.readNBytes(MAX_CONFIG_FILE_BYTES + 1)
-                if (bytes.size > MAX_CONFIG_FILE_BYTES) error("Config file too large")
-                bytes.toString(Charsets.UTF_8)
-            } ?: error("Config file unavailable")
-        }.getOrNull()
-        val imported = raw != null && importAllConfig(context, raw)
-        if (imported) {
-            // 写入 SharedPreferences 会自动触发 AodRenderPreferences 缓存失效,
-            // 这里同步把运行时配置推给 SystemUI 生效。
-            publishRuntimeConfiguration(context)
+        scope.launch {
+            val imported = importMutex.withLock {
+                // 读 ≤2MiB + UTF-8 解码 + 信封/子文档 JSON 解析搬 IO 通道(SAF I/O 与
+                // JSON/文档解码不得在主线程,STYLE_GUIDE §4;本地估算 50–200ms/次,真机未测)。
+                val decoded = withContext(Dispatchers.IO) {
+                    val raw = runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            val bytes = input.readNBytes(MAX_CONFIG_FILE_BYTES + 1)
+                            if (bytes.size > MAX_CONFIG_FILE_BYTES) error("Config file too large")
+                            bytes.toString(Charsets.UTF_8)
+                        } ?: error("Config file unavailable")
+                    }.getOrNull()
+                    raw?.let { decodeImportedConfig(context, it) }
+                }
+                // 落盘与侧设置应用留在原线程:插件 onConfigChanged / 生产者 onCustomizationChanged
+                // 的调用线程与搬线程前一致(设置页同样在主线程触发)。
+                val ok = decoded != null && applyImportedConfig(context, decoded)
+                if (ok) {
+                    // 写入 SharedPreferences 会自动触发 AodRenderPreferences 缓存失效,
+                    // 这里同步把运行时配置推给 SystemUI 生效。
+                    publishRuntimeConfiguration(context)
+                }
+                ok
+            }
+            Toast.makeText(
+                context,
+                context.getString(
+                    if (imported) R.string.toast_config_imported
+                    else R.string.toast_config_import_invalid
+                ),
+                Toast.LENGTH_LONG
+            ).show()
         }
-        Toast.makeText(
-            context,
-            context.getString(
-                if (imported) R.string.toast_config_imported
-                else R.string.toast_config_import_invalid
-            ),
-            Toast.LENGTH_LONG
-        ).show()
     }
     var capabilityReport by remember { mutableStateOf(XiaomiCapabilityStore.read(context)) }
     DisposableEffect(context) {

@@ -335,7 +335,7 @@ internal object ConfigBackupCodec {
     /**
      * 解码载荷。[base] 是导入端的当前配置:载荷里缺省的键保持 [base] 值(旧备份没有的新键
      * 保持现状,不会被清成默认值),键在但形状不符才回落该键默认值。纯函数,不接触 Android;
-     * 调用方(见 [importAllConfig])传入当前生效配置,测试默认以出厂默认值为基底。
+     * 调用方(导入端 [decodeImportedConfig])传入当前生效配置,测试默认以出厂默认值为基底。
      */
     fun decode(
         payload: ByteArray,
@@ -365,7 +365,9 @@ internal object ConfigBackupCodec {
 
         val document = when (val rawCustomization = envelope[CUSTOMIZATION_KEY]) {
             null -> null
-            is JsonObject -> SceneCompiler.decodeDocument(rawCustomization.toString())
+            // 复用信封已解析出的 JsonElement(不再 toString→重新解析):安全检查
+            // (unsafe schema + 大小上限)在入口内保留,校验强度不变。
+            is JsonObject -> SceneCompiler.decodeDocumentElement(rawCustomization)
                 ?: return ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED)
             else -> return ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED)
         }

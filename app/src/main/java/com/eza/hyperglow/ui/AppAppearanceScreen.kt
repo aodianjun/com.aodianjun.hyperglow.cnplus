@@ -537,7 +537,9 @@ private fun BackgroundImageDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val previewBitmap = remember(pendingUri, hasBackgroundImage, backgroundImageMtime) {
+    // 预览解码(所选大图 / 已存背景,本地估算 50–300ms/次,真机未测)搬 IO 通道:
+    // 连续换图时 latest wins,旧结果不覆盖新选择;解码期间保留上一张预览,不闪回占位。
+    val previewBitmap = rememberAppAsyncResource<Bitmap>(pendingUri, hasBackgroundImage, backgroundImageMtime) {
         when {
             pendingUri != null -> decodePreviewBitmap(context, pendingUri)
             hasBackgroundImage -> loadAppBackgroundBitmap(context)
