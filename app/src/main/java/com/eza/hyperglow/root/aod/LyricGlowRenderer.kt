@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.aod
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
 
@@ -39,8 +40,46 @@ internal object LyricGlowRenderer {
     /** Pass 3 扫光拖尾(渐隐前缘)的过渡不透明度。 */
     private const val SWEEP_TAIL_ALPHA = 150
 
+    /** 扫光渐变缓存容量:键只有 sung 色,正常 ≤2-3 个;超限整表清空保持有界。 */
+    private const val SWEEP_SHADER_CACHE_CAPACITY = 8
+
     /** 5 段渐变 stop 位置:常亮区→高光峰→拖尾→渐隐。 */
     private val SWEEP_STOPS = floatArrayOf(0f, 0.30f, 0.48f, 0.72f, 1f)
+
+    /**
+     * 扫光渐变按 sung 色缓存(键覆盖全部构造输入:颜色数组与 stops 均由 sung 色/常量决定)。
+     * 逐行几何(位置/边界)不进入构造,而由 [sweepMatrix] 的 localMatrix 逐帧表达:
+     * 规范化渐变 (0→1) 经 scale(band)+translate(sweepStart) 映射到 [sweepStart, sweepStart+band],
+     * 与旧式「按 sweepStart/sweepEnd 逐行新建 LinearGradient」逐像素等价,但每帧零 shader 分配。
+     * Android 16 语义已核实:setLocalMatrix 丢弃 native 实例、下次使用重建(Paint.getNativeInstance
+     * 重取),已录制绘制指令持有旧 native shader 不受影响。仅绘制线程(主线程)访问。
+     */
+    private val sweepShaderCache = HashMap<Int, LinearGradient>(SWEEP_SHADER_CACHE_CAPACITY)
+
+    /** 逐帧复用的 localMatrix:M = T(sweepStart) · S(band)。 */
+    private val sweepMatrix = Matrix()
+
+    private fun sweepShader(sungColor: Int): LinearGradient {
+        sweepShaderCache[sungColor]?.let { return it }
+        if (sweepShaderCache.size >= SWEEP_SHADER_CACHE_CAPACITY) sweepShaderCache.clear()
+        val red = Color.red(sungColor)
+        val green = Color.green(sungColor)
+        val blue = Color.blue(sungColor)
+        val transparent = Color.argb(0, red, green, blue)
+        val tail = Color.argb(SWEEP_TAIL_ALPHA, red, green, blue)
+        val peak = Color.argb(255, (red + 255 * 3) / 4, (green + 255 * 3) / 4, (blue + 255 * 3) / 4)
+        val shader = LinearGradient(
+            0f, 0f, 1f, 0f,
+            intArrayOf(sungColor, sungColor, peak, tail, transparent),
+            SWEEP_STOPS,
+            Shader.TileMode.CLAMP
+        )
+        sweepShaderCache[sungColor] = shader
+        return shader
+    }
+
+    /** 测试钩子:验证扫光渐变缓存键等价性(同色命中同一实例、异色 miss、容量有界)。 */
+    internal fun sweepShaderForTest(sungColor: Int): LinearGradient = sweepShader(sungColor)
 
     fun draw(
         canvas: Canvas,
@@ -142,23 +181,17 @@ internal object LyricGlowRenderer {
         }
 
         // Pass 3: 扫光亮部 —— band 左侧 CLAMP 常亮,白色峰值高光,后缘长拖尾渐隐
-        val red = Color.red(sungColor)
-        val green = Color.green(sungColor)
-        val blue = Color.blue(sungColor)
-        val transparent = Color.argb(0, red, green, blue)
-        val tail = Color.argb(SWEEP_TAIL_ALPHA, red, green, blue)
-        val peak = Color.argb(255, (red + 255 * 3) / 4, (green + 255 * 3) / 4, (blue + 255 * 3) / 4)
+        val shader = sweepShader(sungColor)
         rows.forEachIndexed { index, row ->
             val lp = rowProgress[index]
             if (lp <= 0f) return@forEachIndexed
+            val band = sweepBandWidth(row.width)
             val sweepStart = sweepGradientStart(row.left, row.width, lp)
-            val sweepEnd = sweepStart + sweepBandWidth(row.width)
-            paint.shader = LinearGradient(
-                sweepStart, 0f, sweepEnd, 0f,
-                intArrayOf(sungColor, sungColor, peak, tail, transparent),
-                SWEEP_STOPS,
-                Shader.TileMode.CLAMP
-            )
+            // local t∈[0,1] → device [sweepStart, sweepStart+band](等价旧式 sweepStart..sweepEnd)。
+            sweepMatrix.setScale(band, 1f)
+            sweepMatrix.postTranslate(sweepStart, 0f)
+            shader.setLocalMatrix(sweepMatrix)
+            paint.shader = shader
             paint.color = sungColor
             paint.alpha = 255
             row.drawText(canvas, paint)

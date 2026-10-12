@@ -337,6 +337,12 @@ internal fun artworkSpinEffective(spin: Boolean, spinWhenPaused: Boolean, playba
     spin && (!playbackPaused || spinWhenPaused)
 
 /**
+ * 共享空行偏移数组:仅作「无混合字号」的只读回落值,默认参数与回落分支不再每次分配
+ * (基线/偏移在绘制热路径按行调用)。
+ */
+internal val EMPTY_LINE_OFFSETS: FloatArray = FloatArray(0)
+
+/**
  * 主行块内第 [lineIndex] 行的基线(相对块首行基线):混合字号块([offsets] 非空)按逐行
  * 行盒推进(见 [mixedSizeLineBaselineOffsets]),其余按统一行高 + 行距。
  * 混合字号的步进已含行距,不再二次计入 [lineGap]。
@@ -348,7 +354,7 @@ internal fun originalLineBaseline(
     precedingRuby: Float,
     rubyHeight: Float,
     lineGap: Float = 0f,
-    offsets: FloatArray = FloatArray(0)
+    offsets: FloatArray = EMPTY_LINE_OFFSETS
 ): Float {
     val step = if (offsets.size > lineIndex) {
         offsets[lineIndex]

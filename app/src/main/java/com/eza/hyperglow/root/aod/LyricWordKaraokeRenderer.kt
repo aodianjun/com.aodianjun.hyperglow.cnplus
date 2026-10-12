@@ -3,6 +3,7 @@ package com.eza.hyperglow.root.aod
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
 import kotlin.math.roundToInt
@@ -321,13 +322,47 @@ internal object LyricWordKaraokeRenderer {
         val safeExtent = extent.coerceAtLeast(0f)
         val band = (safeExtent * SWEEP_BAND_FRACTION).coerceAtLeast(1f)
         val start = origin - band + (safeExtent + band) * progress.coerceIn(0f, 1f)
+        val shader = sweepShader(color)
+        // local t∈[0,1] → device [start, start+band](等价旧式按 start/start+band 逐词新建)。
+        sweepMatrix.setScale(band, 1f)
+        sweepMatrix.postTranslate(start, 0f)
+        shader.setLocalMatrix(sweepMatrix)
+        paint.shader = shader
+    }
+
+    /**
+     * 词内扫光渐变缓存:键=全部构造输入(sung 色;stops 常量、颜色数组由色值导出),
+     * 逐词几何经 [sweepMatrix] 的 localMatrix 表达 —— 逐字档每帧 O(字数) 次新建
+     * LinearGradient 降为零分配。Android 16 语义已核实:setLocalMatrix 丢弃 native
+     * 实例、下次使用重建(Paint.getNativeInstance 重取),已录制的绘制指令持有旧
+     * native shader 不受影响。仅绘制线程(主线程)访问。
+     */
+    private val sweepShaderCache = HashMap<Int, LinearGradient>(SWEEP_SHADER_CACHE_CAPACITY)
+
+    /** 逐帧复用的 localMatrix:M = T(start) · S(band)。 */
+    private val sweepMatrix = Matrix()
+
+    private fun sweepShader(color: Int): LinearGradient {
+        sweepShaderCache[color]?.let { return it }
+        if (sweepShaderCache.size >= SWEEP_SHADER_CACHE_CAPACITY) sweepShaderCache.clear()
         val transparent = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
         val middle = Color.argb(184, Color.red(color), Color.green(color), Color.blue(color))
-        paint.shader = LinearGradient(
-            start, 0f, start + band, 0f,
+        val shader = LinearGradient(
+            0f, 0f, 1f, 0f,
             intArrayOf(color, middle, transparent),
-            floatArrayOf(0f, 0.45f, 1f),
+            SWEEP_STOPS,
             Shader.TileMode.CLAMP
         )
+        sweepShaderCache[color] = shader
+        return shader
     }
+
+    /** 测试钩子:验证词内扫光渐变缓存键等价性(同色命中同一实例、异色 miss、容量有界)。 */
+    internal fun sweepShaderForTest(color: Int): LinearGradient = sweepShader(color)
+
+    /** 3 段渐变 stop 位置:sung→中亮(0.45)→透明。 */
+    private val SWEEP_STOPS = floatArrayOf(0f, 0.45f, 1f)
+
+    /** 扫光渐变缓存容量:键只有 sung 色,正常 ≤2-3 个;超限整表清空保持有界。 */
+    private const val SWEEP_SHADER_CACHE_CAPACITY = 8
 }
