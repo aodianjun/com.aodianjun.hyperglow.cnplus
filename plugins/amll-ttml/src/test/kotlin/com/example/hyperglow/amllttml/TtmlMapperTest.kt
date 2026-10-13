@@ -180,6 +180,10 @@ class TtmlMapperTest {
             """<span ttm:role="x-roman">ban chang</span></span></p>"""
     )
 
+    /**
+     * 0.5.0 实测：库仍不给和声行填 phonetic（x-bg 内嵌的 x-roman 它不读），这里的 `ban chang`
+     * 只能来自 [scanRawLines] 的回扫兜底——该用例同时钉住「兜底仍然必要」这一事实。
+     */
     @Test
     fun timedBackgroundKeepsLibraryRowsAndGetsRoman() {
         val rows = TtmlMapper.map(timedBgTtml, duet = true, translation = true, background = true)
@@ -202,6 +206,47 @@ class TtmlMapperTest {
 
         assertEquals(2, rows.size, "去掉 x-roman 后行本身不变")
         assertNull(rows.first { role(it) == TtmlMapper.ROLE_BG }.roma, "库与原文都没有音译时不得凭空补")
+    }
+
+    // ---- 行级 x-roman 的库侧音译（lyrics-core 0.5.0 起 SyncedLine.phonetic 有值并被消费）------
+
+    /** 逐字主行 + 行级 x-roman（roman 无时轴）：0.5.0 起由库填 `SyncedLine.phonetic`，映射直接带上。 */
+    private val wordLevelLineRomanTtml = wrap(
+        """<p begin="00:05.000" end="00:09.000" ttm:agent="v1">""" +
+            """<span begin="00:05.000" end="00:06.000">一</span>""" +
+            """<span begin="00:06.000" end="00:07.000">行</span>""" +
+            """<span ttm:role="x-roman">yi hang</span></p>"""
+    )
+
+    @Test
+    fun wordLevelLineRomanComesFromLibraryPhonetic() {
+        val rows = TtmlMapper.map(wordLevelLineRomanTtml, duet = true, translation = true, background = true)
+
+        assertEquals(1, rows.size)
+        val lead = rows.single()
+        assertEquals(TtmlMapper.ROLE_LEAD, role(lead))
+        assertEquals("一行", lead.text)
+        assertEquals(listOf("一", "行"), lead.words?.map { it.text })
+        assertEquals("yi hang", lead.roma, "行级 x-roman 由库填入 phonetic，映射必须优先采用库值")
+    }
+
+    /** 纯行级主行 + 行级 x-roman/x-translation：两个字段都由库给出，plainLine 一并带上。 */
+    @Test
+    fun plainLineCarriesLibraryPhoneticAndTranslation() {
+        val ttml = wrap(
+            """<p begin="00:05.000" end="00:09.000" ttm:agent="v1">一行歌词""" +
+                """<span ttm:role="x-translation">a line of lyrics</span>""" +
+                """<span ttm:role="x-roman">yi hang ge ci</span></p>"""
+        )
+
+        val rows = TtmlMapper.map(ttml, duet = true, translation = true, background = true)
+
+        assertEquals(1, rows.size)
+        val lead = rows.single()
+        assertEquals("一行歌词", lead.text)
+        assertNull(lead.words, "行级主行没有逐字词表")
+        assertEquals("a line of lyrics", lead.translation)
+        assertEquals("yi hang ge ci", lead.roma, "0.5.0 起 SyncedLine.phonetic 有值，必须带上")
     }
 
     @Test

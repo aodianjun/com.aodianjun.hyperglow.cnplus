@@ -123,6 +123,10 @@ type，就不挂对应的键——不发明源里没有的值（宿主对缺省�
   再生器 `mapper_probe/WriteGolden.kt`，逐列对照 `check_golden.py`）。负向对照：`Probe3Agent`
   修改前后两份输出逐行比对——54 行中 52 行只多出身份两列、2 行（无身份）原样，同窗多 `<p>` 的
   病态输入行结构逐字节不动（`check_agent_probe.py`）。
+- **lyrics-core 0.5.0 适配**（证据：unit-tested）：依赖升到 0.5.0 后按实测重核两处兜底——
+  0.5.0 仍不给和声行填 `phonetic`（x-bg 内嵌的 x-roman 不读）、行级 x-bg（无内层时轴）仍被
+  整条丢弃，兜底照旧必要；同时新增消费 `SyncedLine.phonetic`（0.4.7 没有该字段）：行级 x-roman
+  现在由库给出，逐字主行与纯行级主行都直接带上（新增 2 个单测钉住，模块 47/47）。
 - **真实接口**（证据：real-api）：`api.amll.dev` 的 search/get 端点按 §3 实测。
 - **真机**：**未验证**——宿主渲染行为（对唱分侧、和声行、缓存页交互）待安装 ZIP 后冒烟。
 
@@ -149,7 +153,9 @@ type，就不挂对应的键——不发明源里没有的值（宿主对缺省�
 - [accompanist-lyrics-core](https://github.com/6xingyv/accompanist-lyrics-core)（Apache-2.0，
   作者 6xingyv）——TTML 解析内核（`TTMLParser`），**随插件打进 dex**；1.0.2 起的原文回扫
   按它的 internal 解析口径（`SimpleXmlParser` 的标签/文本归档、时间戳解析、实体解码与空白
-  折叠）移植了一个最小实现——这些 API 在 0.4.7 里是 internal，插件无法直接复用。
+  折叠）移植了一个最小实现——这些 API 在 0.4.7 里是 internal（0.5.0 起 `SimpleXmlParser` /
+  `XmlElement` / `parseAsTime` 已公开，但 `normalizeXmlTextContent` / `extractAllText` 仍私有，
+  回扫继续自实现以与库口径逐字节一致）。
 - 匹配打分（标题/艺人归一化与硬否决）与缓存索引模式与同仓库 `plugins/lyricfetch` 同源
   （同仓库代码复用）；其打分语义又对齐 [Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)
   （Apache-2.0）的 CompareHelper，仅移植行为与参数、未复制代码。
@@ -302,5 +308,7 @@ See the Chinese section — AMLL TTML DataBase / amll-ttml-api (MIT / Apache-2.0
 the platforms and rights holders; public endpoints only), accompanist-lyrics-core (Apache-2.0,
 bundled into the dex; since 1.0.2 the raw-rescan scanner mirrors its internal parse semantics —
 tag/text archiving, timestamp parsing, entity decoding and whitespace folding — because those
-APIs are `internal` in 0.4.7 and cannot be reused directly), and match/cache patterns shared with
+APIs are `internal` in 0.4.7 — `SimpleXmlParser` / `XmlElement` / `parseAsTime` became public in
+0.5.0, but the text-normalization helpers are still private, so the rescan stays self-implemented
+to keep byte-for-byte parity), and match/cache patterns shared with
 `plugins/lyricfetch` in this repository.
