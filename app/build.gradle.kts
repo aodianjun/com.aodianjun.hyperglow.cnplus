@@ -202,7 +202,9 @@ dependencies {
     implementation("io.github.proify.lyricon:subscriber:0.1.70")
     // SuperLyricApi — Binder-based receiver for lyrics published by the SuperLyric
     // Xposed module (com.hchen.superlyricapi: SuperLyricHelper / ISuperLyricReceiver).
-    implementation("com.github.HChenX:SuperLyricApi:3.4")
+    // 3.7 起支持全量歌词包（allLyrics/currentLyricIndex/duration/position/lyricId）与
+    // 行级 translation/secondary；旧版模块（≤3.4）的逐行包在新 jar 下仍按旧语义解析。
+    implementation("com.github.HChenX:SuperLyricApi:3.7")
     // LyricInfo needs no dependency: it injects lyrics into MediaSession metadata
     // (MediaMetadata.extras.lyricInfo, elrc format), consumed via MediaSessionManager.
     compileOnly("io.github.libxposed:api:102.0.0")

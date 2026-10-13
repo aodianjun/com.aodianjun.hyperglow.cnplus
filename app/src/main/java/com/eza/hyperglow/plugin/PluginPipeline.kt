@@ -31,9 +31,10 @@ import kotlinx.coroutines.launch
  *
  * 数据边界（v2）：三条输入路径汇入同一条插件链——
  * - Spicy 整首文档（SpicyBridgeDocumentStore，v1 起有，语义不变）；
- * - 内存持有整首行数组的生产者（Lyricon/LyricInfo）经 fullSongSnapshot 直读，每会话一次；
- * - 纯逐行源（SuperLyric）经 [LineStreamAggregator] 边播边聚合，首行立即跑链、
- *   之后按 [STREAM_CHAIN_MIN_INTERVAL_MS] 节流补跑（控制增量 LLM 调用频率）。
+ * - 内存持有整首行数组的生产者（Lyricon/LyricInfo，以及 SuperLyric 3.7+ 模块带 allLyrics
+ *   时）经 fullSongSnapshot 直读，每会话一次；
+ * - 无整首数据的逐行源（SuperLyric 旧模块）经 [LineStreamAggregator] 边播边聚合，
+ *   首行立即跑链、之后按 [STREAM_CHAIN_MIN_INTERVAL_MS] 节流补跑（控制增量 LLM 调用频率）。
  * 三条路径的产物统一走 [PluginSongBridge.enrichState] 富化，行内容字段覆盖、
  * 时间轴字段保留生产者权威值。
  */
@@ -168,9 +169,9 @@ object PluginPipeline {
 
     /**
      * 逐行源（Lyricon/LyricInfo/SuperLyric）的插件链入口：
-     * - 内存里有整首行数组的生产者（Lyricon/LyricInfo）：fullSongSnapshot 直读，
-     *   每会话一次（内容指纹去重）；
-     * - 纯逐行源（SuperLyric）：聚合器累积，本会话首行立即跑链，之后按
+     * - 内存里有整首行数组的生产者（Lyricon/LyricInfo；SuperLyric 3.7+ 模块带 allLyrics
+     *   时同样直读快照）：fullSongSnapshot 直读，每会话一次（内容指纹去重）；
+     * - 无整首数据的逐行源（SuperLyric 旧模块）：聚合器累积，本会话首行立即跑链，之后按
      *   [STREAM_CHAIN_MIN_INTERVAL_MS] 节流补跑——链运行中不重排（半截 LLM 调用
      *   是浪费），期间到来的新行记 dirty，链完成后按剩余窗口补评。
      */
