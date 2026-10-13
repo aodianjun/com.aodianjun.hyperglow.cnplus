@@ -20,9 +20,9 @@ import com.mocharealm.accompanist.lyrics.core.parser.TTMLParser
  *    角色写进 metadata 的 "role"（LEAD/BG）——与 Spicy 文档桥、lyricfetch 同一约定；
  * 3. **翻译开关**：`translation` 关闭时不挂翻译；
  * 4. **原文回扫**：库只认「内层带时轴」的 x-bg——规范 §5/§7.3 允许的行级 x-bg（纯文本）
- *    会被它整条丢弃，x-bg 内嵌的 x-roman 它也从不读取（和声行的 phonetic 恒为 null）。
- *    这两类都是规范内的合法写法，丢了就是内容损失，由 [scanRawLines] 在原文上找回；
- *    只在库没给出对应内容时兜底，库给出的部分一律不动。
+ *    会被它整条丢弃；x-bg 内嵌的 x-roman 它也不读（0.5.0 起 x-roman 只为「行本身」提供
+ *    phonetic，和声行的 phonetic 仍恒为 null）。这两类都是规范内的合法写法，丢了就是内容
+ *    损失，由 [scanRawLines] 在原文上找回；只在库没给出对应内容时兜底，库给出的部分一律不动。
  * 5. **演唱者身份**：`ttm:agent`（规范 §7.2：「在 `<p>` 标签上使用 `ttm:agent` 属性，并通过
  *    在 `<head>` 中定义的 `xml:id` (如 `v1`) 来指明演唱者。」）随行带进 metadata 的
  *    "agent"/"agentType"——库只用它算 alignment，算完即丢，宿主拿不到身份就分不清
@@ -162,8 +162,8 @@ internal object TtmlMapper {
         text = line.syllables.joinToString("") { it.content },
         words = line.syllables.toWords(),
         translation = line.translation?.takeIf { translation && it.isNotBlank() },
-        // 库从不为和声行填 phonetic（x-bg 内嵌的 x-roman 它根本不读），缺的音译由原文回扫兜底；
-        // 库哪天自己填了，一律以库的为准。
+        // 0.5.0 实测：和声行的 phonetic 仍恒为 null（x-bg 内嵌的 x-roman 库不读，iTunes 转写
+        // 元数据也只挂主行），缺的音译由原文回扫兜底；库哪天自己填了，一律以库的为准（左支）。
         roma = line.phonetic?.takeIf { it.isNotBlank() }
             ?: fallbackRoma?.takeIf { it.isNotBlank() },
     )
@@ -177,6 +177,9 @@ internal object TtmlMapper {
             metadata = rowMetadata(ROLE_LEAD, raw),
             text = line.content,
             translation = line.translation?.takeIf { translation && it.isNotBlank() },
+            // 行级 x-roman 的音译：0.5.0 起库为「行本身」填 phonetic（0.4.7 的 SyncedLine 没有
+            // 该字段），有就带上——与 [mainLine] 同一口径（库给出的部分一律不动）。
+            roma = line.phonetic?.takeIf { it.isNotBlank() },
         )
 
     /**
@@ -251,7 +254,7 @@ internal data class RawLine(
  *
  * - `begin` / `end`：span 自身的窗口（规范 §7.3：可选，缺省由调用方回退 `<p>` 的窗口）；
  * - `text`：去掉辅助 span 后的文本，按库口径（实体解码 + 空白折叠 + trim）归一化；
- * - `roman`：内嵌 x-roman 的文本——库从不读它（和声行的 phonetic 恒为 null），这是 x-roman 兜底的来源；
+ * - `roman`：内嵌 x-roman 的文本——库不读它（0.5.0 实测和声行的 phonetic 恒为 null），这是 x-roman 兜底的来源；
  * - `syllables`：库谓词下的内层时轴音节；**非空即说明库会自行解析成和声行**，兜底只处理为空的情况。
  */
 internal data class RawBgSpan(
@@ -267,7 +270,8 @@ internal data class RawBgSpan(
  *
  * 为什么要有这一步：库的 [TTMLParser] 只把「内层带时轴 `<span>`」的 x-bg 解析成和声行，
  * 行级写法（`<span ttm:role="x-bg">(伴唱)</span>`，规范 §5/§7.3 明确允许）会被整条丢弃；
- * x-bg 内嵌的 x-roman 它也从不读取。这两类都是规范内的合法写法，丢了就是内容损失。
+ * x-bg 内嵌的 x-roman 它也不读（0.5.0 起 x-roman 只喂「行本身」的 phonetic）。这两类都是
+ * 规范内的合法写法，丢了就是内容损失。
  *
  * 演唱者身份同理是库外信息：库读 `ttm:agent` 只为算 alignment，算完即丢（规范 §7.2：
  * 「在 `<p>` 标签上使用 `ttm:agent` 属性，并通过在 `<head>` 中定义的 `xml:id` (如 `v1`) 来
@@ -275,9 +279,10 @@ internal data class RawBgSpan(
  * agent。」），宿主拿不到 id/type 就分不清真对唱与单纯重叠。id 按库的取法原样带出（属性名恰为
  * `ttm:agent`）；type 由 `<head>` 的 `<ttm:agent xml:id="…" type="…"/>` 声明解析。
  *
- * 为什么自己写扫描器而不是复用库的：库的 `SimpleXmlParser` / `XmlElement` / `parseAsTime`
- * 在 0.4.7 里都是 internal，插件无法引用；这里按库的同一口径复刻最小实现（含实体解码、
- * 空白折叠、时间戳解析），且只服务于兜底路径——形状异常时最坏也只是「不补」，不影响既有输出。
+ * 为什么自己写扫描器而不是复用库的：0.4.7 里 `SimpleXmlParser` / `XmlElement` / `parseAsTime`
+ * 都是 internal，插件无法引用；0.5.0 起这三个已公开，但文本归一化（`normalizeXmlTextContent` /
+ * `extractAllText`）仍是库内私有，且回扫必须与库的归档口径逐字节一致——继续按同一口径自实现，
+ * 不为部分复用引入行为漂移。它只服务于兜底路径：形状异常时最坏也只是「不补」，不影响既有输出。
  */
 internal fun scanRawLines(ttml: String): List<RawLine> {
     val root = parseRawXml(ttml) ?: return emptyList()

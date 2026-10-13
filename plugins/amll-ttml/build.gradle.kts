@@ -1,8 +1,9 @@
 // HyperLyric 兼容插件：AMLL TTML 逐字歌词（从 AMLL TTML DataBase 取词）。
 //
 // 与 plugins/lyricfetch 同一打包管线（d8 → manifest.json + classes.dex），两处差异：
-// 1. 依赖 accompanist-lyrics-core（Apache-2.0，纯 Kotlin/JVM），用它的 TTMLParser
-//    解析 TTML（逐字/翻译/音译/和声/对唱 agent）；类随插件打进 dex（宿主契约允许）；
+// 1. 依赖 accompanist-lyrics-core（Apache-2.0，纯 Kotlin/JVM；传递依赖
+//    kotlinx-serialization-json，随库一起打进 dex），用它的 TTMLParser 解析 TTML（逐字/翻译/
+//    音译/和声/对唱 agent）；类随插件打进 dex（宿主契约允许）；
 // 2. d8 输入因此不止插件自身 jar，还要带上 runtime 依赖（kotlin-stdlib 仍由宿主提供，
 //    只作为 --classpath 参与解析）。
 //
@@ -34,7 +35,7 @@ dependencies {
     // runtimeClasspath,api 依旧只是 compileOnly)。
     testImplementation(project(":plugins:api"))
     // TTML 解析内核(与 lyricfetch 同款依赖;AMLL TTML 用其中的 TTMLParser)。
-    implementation("com.mocharealm.accompanist:lyrics-core:0.4.7")
+    implementation("com.mocharealm.accompanist:lyrics-core:0.5.0")
     // org.json 由 Android 平台提供（插件进程内解析为平台副本），因此 compileOnly：
     // 编译期需要、绝不打进 dex。JVM 单测没有平台副本，故测试侧显式引入同一实现。
     compileOnly("org.json:json:20240303")
@@ -115,7 +116,8 @@ val amllTtmlDex = tasks.register<Exec>("dexPlugin") {
         val runtimeJars = configurations.runtimeClasspath.get()
         // kotlin-stdlib 由宿主 App 进程提供：只作 classpath，不进 dex。
         val stdlibJars = runtimeJars.filter { it.name.startsWith("kotlin-stdlib") }
-        // 其余运行时依赖（accompanist-lyrics-core）随插件一起进 dex。
+        // 其余运行时依赖（accompanist-lyrics-core 与其传递依赖 kotlinx-serialization-json/core）
+        // 随插件一起进 dex。
         val bundledJars = runtimeJars.filterNot { it.name.startsWith("kotlin-stdlib") }
         val outputDir = amllTtmlDexOutput.get().asFile
         outputDir.deleteRecursively()
