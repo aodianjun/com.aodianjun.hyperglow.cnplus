@@ -23,7 +23,7 @@ below is load-bearing: it is the fallback order (invariant 3).
 |---|---|---|---|---|
 | `SPICY` | `SpicyLyricProducer` | Spicy EX pushes versioned Binder state and document through `SpicyLyricBridgeService` | from the bridge document | Spicy document store |
 | `LYRICON` | `LyriconLyricProducer` | Lyricon subscriber SDK (`SharedMemory` position) | per-word from the rich line | `fullSongSnapshot()` |
-| `SUPERLYRIC` | `SuperLyricLyricProducer` | SuperLyric system-service Binder line push | when the pushed line carries words | none — host-side `LineStreamAggregator` |
+| `SUPERLYRIC` | `SuperLyricLyricProducer` | SuperLyric system-service Binder push (3.7+ modules: one full `allLyrics` payload per track + delta line packets; older modules: per-line) | when the active line carries words | `fullSongSnapshot()` on 3.7+ modules; none (host-side `LineStreamAggregator`) on older modules |
 | `LYRICINFO` | `LyricInfoLyricProducer` | LyricInfo notification `MediaMetadata.extras.lyricInfo` (elrc/lrc via `ElrcParser`) | from elrc word markers | `fullSongSnapshot()` |
 
 A producer whose source is absent MUST NOT crash the host: `connection` stays `DISCONNECTED` and
@@ -235,7 +235,7 @@ surface needs the hardware verification path described in `docs/REGRESSION.md` u
 |---|---|---|---|---|
 | `SPICY` | `SpicyLyricProducer` | Spicy EX 经 `SpicyLyricBridgeService` 推送带版本的 Binder 状态与文档 | 来自 bridge 文档 | Spicy 文档库 |
 | `LYRICON` | `LyriconLyricProducer` | Lyricon 订阅 SDK（位置取自 `SharedMemory`） | 来自富行模型的逐词时序 | `fullSongSnapshot()` |
-| `SUPERLYRIC` | `SuperLyricLyricProducer` | SuperLyric 系统服务 Binder 逐行推送 | 推送行自带词时才有 | 无——宿主侧 `LineStreamAggregator` |
+| `SUPERLYRIC` | `SuperLyricLyricProducer` | SuperLyric 系统服务 Binder 推送（3.7+ 模块：每首一次全量 `allLyrics` 包 + 跨行增量包；旧模块：逐行推送） | 活动行自带词时才有 | 3.7+ 模块走 `fullSongSnapshot()`；旧模块无——宿主侧 `LineStreamAggregator` |
 | `LYRICINFO` | `LyricInfoLyricProducer` | LyricInfo 通知 `MediaMetadata.extras.lyricInfo`（elrc/lrc，经 `ElrcParser`） | 来自 elrc 词标记 | `fullSongSnapshot()` |
 
 源不存在时生产者绝不能让宿主崩溃：`connection` 保持 `DISCONNECTED`、`state` 保持 null，由仲裁者

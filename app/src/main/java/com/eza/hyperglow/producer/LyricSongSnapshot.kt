@@ -4,8 +4,9 @@ package com.eza.hyperglow.producer
  * 生产者侧的「整首歌歌词快照」：插件处理链对非 Spicy 源的输入。
  *
  * v1 数据边界只有 Spicy 路径有整首文档；v2 起内存里本就持有整首行数组的生产者
- * （Lyricon/LyricInfo）经 [LyricProducer.fullSongSnapshot] 直接提供快照，纯逐行源
- * （SuperLyric）由宿主侧聚合器（LineStreamAggregator）按同一形状合成。快照必须携带
+ * （Lyricon/LyricInfo）经 [LyricProducer.fullSongSnapshot] 直接提供快照；SuperLyric
+ * 在 3.7+ 模块下也带全曲（allLyrics）直读快照，旧模块仍由宿主侧聚合器
+ * （LineStreamAggregator）按同一形状合成。快照必须携带
  * 与当前 [LyricProducerState] 一致的 producerId/generation/trackUri 三元组，管线据此
  * 校验会话匹配——不匹配视为过渡态丢弃，等下一次发射。
  *
