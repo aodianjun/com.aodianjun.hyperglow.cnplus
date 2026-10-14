@@ -68,7 +68,7 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 - HyperLyric-compatible plugins, with an in-app lyric-enhancement section (plugin settings) and
   plugin cache management; the plugin chain covers every lyrics source, full-song and
   line-by-line alike. Four official plugins ship as separate ZIPs from the
-  [`plugins` release](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/tag/plugins):
+  [`plugins` release](https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/tag/plugins):
   **lyricfetch** (online lyrics: NetEase word-level, QQ, LRCLIB), **scriptconvert**
   (Simplified ⇄ Traditional), **amll-ttml** (AMLL TTML word-level lyrics with duet, harmony and
   translation) and **ai-translation** (any OpenAI-compatible endpoint).
@@ -108,7 +108,7 @@ APK from [Releases](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/
 > [!TIP]
 > Optional plugins (online lyrics lookup, Simplified ⇄ Traditional conversion, AMLL TTML
 > word-level lyrics, AI translation) are distributed as separate ZIPs on the
-> [`plugins` release](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/tag/plugins);
+> [`plugins` release](https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/tag/plugins);
 > install them in-app from the plugin management page (**Install from local ZIP**).
 
 1. Enable HyperGlow in LSPosed.
@@ -211,7 +211,7 @@ before opening a pull request:
 - 文档级歌词时间偏移（±5 秒、50ms 档），选行与逐字扫光一并生效。
 - 音译、翻译与罗马音随歌词源提供（Spicy EX Full、Lyricon、LyricInfo 的翻译/罗马音 lane）。
 - 可配置的换行动画：内置 30 种退场/进场预设（淡入淡出、滑动、缩放、翻转、旋转等），另有跟随歌词源的 Auto 档，速率支持 Slowest/Slow/Normal/Fast/Fastest 五档。
-- HyperLyric 兼容插件，应用内提供「歌词增强」（插件设置）板块与插件缓存管理；插件链覆盖全部歌词源（整首与逐行皆可）。五个官方插件以独立 ZIP 从 [`plugins` 发行](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/tag/plugins) 下载：**lyricfetch**（在线取词：网易云逐字 / QQ / LRCLIB）、**scriptconvert**（简 ⇄ 繁）、**amll-ttml**（AMLL TTML 逐字歌词，含对唱/和声/翻译）、**ai-translation**（任意 OpenAI 兼容接口）、**ai-translation-words**（AI 逐字翻译：把译文按原词的逐字时间对齐成词级片段，配合「辅助文字逐字效果」让翻译辅助行随唱逐字点亮）。
+- HyperLyric 兼容插件，应用内提供「歌词增强」（插件设置）板块与插件缓存管理；插件链覆盖全部歌词源（整首与逐行皆可）。五个官方插件以独立 ZIP 从 [`plugins` 发行](https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/tag/plugins) 下载：**lyricfetch**（在线取词：网易云逐字 / QQ / LRCLIB）、**scriptconvert**（简 ⇄ 繁）、**amll-ttml**（AMLL TTML 逐字歌词，含对唱/和声/翻译）、**ai-translation**（任意 OpenAI 兼容接口）、**ai-translation-words**（AI 逐字翻译：把译文按原词的逐字时间对齐成词级片段，配合「辅助文字逐字效果」让翻译辅助行随唱逐字点亮）。
 
 - AOD 时钟位置、锚定式时钟定位与防烧屏位移。
 - AOD 歌词跟随设备横竖屏旋转（横屏/反向横屏），可选隐藏横屏下的系统息屏内容。
@@ -243,7 +243,7 @@ before opening a pull request:
 
 > [!TIP]
 > 可选插件（在线取词、简 ⇄ 繁转换、AMLL TTML 逐字歌词、AI 翻译、AI 逐字翻译）以独立 ZIP 发布在
-> [`plugins` 发行](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/tag/plugins)，
+> [`plugins` 发行](https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/tag/plugins)，
 > 在应用内「插件管理」页 **从本地 ZIP 安装** 即可。
 
 1. 在 LSPosed 中启用 HyperGlow。

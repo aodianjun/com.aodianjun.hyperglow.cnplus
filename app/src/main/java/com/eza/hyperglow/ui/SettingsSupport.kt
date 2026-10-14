@@ -53,11 +53,13 @@ internal enum class SettingsTab {
 
 internal const val GITHUB_URL = "https://github.com/amarinne/hyperglow"
 internal const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus"
+/** LSPosed 模块仓库（LSP 实际读取的镜像仓库）；插件发行也镜像到这里，插件下载走此仓库。 */
+internal const val LSP_MODULE_URL = "https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus"
 /**
  * 插件 ZIP 的滚动预发行页（docs/PLUGIN_RELEASE_CONVENTIONS.md 定义的唯一发布通道）：
  * 每次 main 构建刷新，资产名固定，用户从这里下载插件包再本地安装。
  */
-internal const val PLUGINS_RELEASE_URL = "$GITHUB_CNPLUS_URL/releases/tag/plugins"
+internal const val PLUGINS_RELEASE_URL = "$LSP_MODULE_URL/releases/tag/plugins"
 /** 项目落地页(GitHub Pages):关于页「支持」入口指向此处,内含微信赞赏码与支付宝收款码。 */
 internal const val PROJECT_SITE_URL = "https://aodianjun.github.io/hyperglow-cnplus-site/"
 internal const val SPICY_EX_GITHUB_URL = "https://github.com/amarinne/spicy-ex/releases"
