@@ -151,10 +151,12 @@ jobs:
             echo "HyperGlow 插件包（滚动更新）。" > plugins-body.md
           fi
           gh release delete "$TAG" --repo "$MIRROR_REPO" --yes --cleanup-tag || true
+          # 镜像仓库里的插件发行版按正式发行版发布（不用预发行），
+          # 但显式 --latest=false，避免抢占版本发行版的 Latest（LSPosed 版本识别依赖它）。
           gh release create "$TAG" --repo "$MIRROR_REPO" \
             --title "HyperGlow Plugins (latest)" \
             --notes-file plugins-body.md \
-            --prerelease \
+            --latest=false \
             dist/plugins/*.zip
           echo "Mirror plugin assets:" && gh release view "$TAG" --repo "$MIRROR_REPO" \
             --json assets --jq '.assets[].name'
