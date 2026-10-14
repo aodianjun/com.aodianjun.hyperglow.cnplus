@@ -52,7 +52,8 @@ internal enum class SettingsTab {
 }
 
 internal const val GITHUB_URL = "https://github.com/amarinne/hyperglow"
-internal const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus"
+/** CN+ 仓库已迁移到 Gitee；关于页的仓库入口指向此处。 */
+internal const val GITEE_CNPLUS_URL = "https://gitee.com/Mr__Pit/com.aodianjun.hyperglow.cnplus"
 /** LSPosed 模块仓库（LSP 实际读取的镜像仓库）；插件发行也镜像到这里，插件下载走此仓库。 */
 internal const val LSP_MODULE_URL = "https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus"
 /**

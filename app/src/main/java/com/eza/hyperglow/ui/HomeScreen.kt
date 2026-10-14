@@ -995,7 +995,7 @@ internal fun HomeScreen(
                             ArrowPreference(
                                 title = stringResource(R.string.action_hyperglow_cnplus_github),
                                 onClick = {
-                                    openExternalUrl(context, GITHUB_CNPLUS_URL)
+                                    openExternalUrl(context, GITEE_CNPLUS_URL)
                                 }
                             )
                             ArrowPreference(

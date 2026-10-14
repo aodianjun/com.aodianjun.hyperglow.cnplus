@@ -110,10 +110,11 @@ internal data class ContributorEntry(
     val contributions: Int
 )
 
+/** 关于页「更新日志 / 贡献者」改读 LSP 镜像仓库（源仓库已迁至 Gitee，镜像仓同步更及时）。 */
 private const val CNPLUS_RELEASES_API =
-    "https://api.github.com/repos/aodianjun/com.aodianjun.hyperglow.cnplus/releases?per_page=20"
+    "https://api.github.com/repos/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases?per_page=20"
 private const val CNPLUS_CONTRIBUTORS_API =
-    "https://api.github.com/repos/aodianjun/com.aodianjun.hyperglow.cnplus/contributors?per_page=50"
+    "https://api.github.com/repos/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/contributors?per_page=50"
 private const val ABOUT_QUERY_TIMEOUT_MS = 8_000
 
 /**
