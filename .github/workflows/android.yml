@@ -97,6 +97,9 @@ jobs:
           name: hyperglow-debug-${{ matrix.variant }}
           path: ${{ env.APK_PATH }}
           if-no-files-found: error
+          # 制品仅用于同一 run 内 build → publish-debug 传递 APK（以及人工下载）;
+          # Actions 制品额度仅 500MB,历史调试包曾堆到数十 GB 导致上传全部失败,故压到最短保留期。
+          retention-days: 1
 
   # 汇总两个 debug 变体并发布为预发行 release。必须独立 job:矩阵两个变体并行,
   # 若各自 delete+create+upload 会互相覆盖(后删的删掉先传的 APK),导致缺一个变体。
@@ -202,6 +205,8 @@ jobs:
           name: hyperglow-plugins
           path: plugins/*/build/distributions/hyperglow-*-plugin.zip
           if-no-files-found: error
+          # 同 build job:制品只用于 run 内传递/人工下载,压到最短保留期以省额度。
+          retention-days: 1
 
       - name: Publish plugin ZIPs to rolling pre-release
         if: github.ref == 'refs/heads/main'
@@ -335,6 +340,8 @@ jobs:
             ${{ env.RELEASE_APK }}
             ${{ env.DEBUG_APK }}
           if-no-files-found: error
+          # 同 build job:制品只用于 run 内传递/人工下载,压到最短保留期以省额度。
+          retention-days: 1
 
       - name: Publish APKs and update release notes
         # 上传到正式发布 tag(默认取版本号,如 v0.3.65;可用 RELEASE_TAG 覆盖),
