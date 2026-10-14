@@ -5,7 +5,7 @@
 //
 // 产物：`./gradlew :plugins:demo:pluginZip`
 //   → build/distributions/hyperglow-demo-plugin.zip（manifest.json + classes.dex）
-// 管线：jar → build-tools d8（--lib android.jar，--classpath kotlin-stdlib）→ zip。
+// 管线：jar → build-tools d8（--lib android.jar；kotlin-stdlib 与其余 runtime 依赖一起进 dex）→ zip。
 import java.util.Properties
 
 plugins {
@@ -65,9 +65,9 @@ val demoDex = tasks.register<Exec>("dexPlugin") {
         if (!demoAndroidJar.isFile) {
             throw GradleException("android.jar not found at ${demoAndroidJar.absolutePath}.")
         }
-        // kotlin-stdlib 由宿主 App 进程提供：作为 classpath 参与解析，不进 dex。
-        val stdlibJars = configurations.runtimeClasspath.get()
-            .filter { it.name.startsWith("kotlin-stdlib") }
+        // 插件自包含：kotlin-stdlib 打进 dex（宿主 release 包 R8 改名后无法按原名提供）。
+        val bundledJars = configurations.runtimeClasspath.get()
+            .filterNot { it.name.startsWith("kotlin-stdlib-jdk") }
         val outputDir = demoDexOutput.get().asFile
         outputDir.deleteRecursively()
         outputDir.mkdirs()
@@ -79,13 +79,10 @@ val demoDex = tasks.register<Exec>("dexPlugin") {
                 add("33")
                 add("--lib")
                 add(demoAndroidJar.absolutePath)
-                stdlibJars.forEach { jar ->
-                    add("--classpath")
-                    add(jar.absolutePath)
-                }
                 add("--output")
                 add(outputDir.absolutePath)
                 add(demoJar.get().archiveFile.get().asFile.absolutePath)
+                bundledJars.forEach { jar -> add(jar.absolutePath) }
             }
         )
     }

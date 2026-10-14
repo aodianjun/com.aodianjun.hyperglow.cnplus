@@ -4,8 +4,8 @@
 // 1. 依赖 accompanist-lyrics-core（Apache-2.0，纯 Kotlin/JVM；传递依赖
 //    kotlinx-serialization-json，随库一起打进 dex），用它的 TTMLParser 解析 TTML（逐字/翻译/
 //    音译/和声/对唱 agent）；类随插件打进 dex（宿主契约允许）；
-// 2. d8 输入因此不止插件自身 jar，还要带上 runtime 依赖（kotlin-stdlib 仍由宿主提供，
-//    只作为 --classpath 参与解析）。
+// 2. d8 输入因此不止插件自身 jar，还要带上全部 runtime 依赖（含 kotlin-stdlib——宿主
+//    release 包 R8 改名后无法按原名提供 kotlin.*，插件必须自带）。
 //
 // 产物：`./gradlew :plugins:amll-ttml:pluginZip`
 //   → build/distributions/hyperglow-amll-ttml-plugin.zip（manifest.json + classes.dex）
@@ -114,11 +114,10 @@ val amllTtmlDex = tasks.register<Exec>("dexPlugin") {
             "android.jar not found under ${amllTtmlSdkDir}/platforms."
         )
         val runtimeJars = configurations.runtimeClasspath.get()
-        // kotlin-stdlib 由宿主 App 进程提供：只作 classpath，不进 dex。
-        val stdlibJars = runtimeJars.filter { it.name.startsWith("kotlin-stdlib") }
-        // 其余运行时依赖（accompanist-lyrics-core 与其传递依赖 kotlinx-serialization-json/core）
-        // 随插件一起进 dex。
-        val bundledJars = runtimeJars.filterNot { it.name.startsWith("kotlin-stdlib") }
+        // 插件必须自包含：宿主 release 包经 R8 混淆，kotlin-stdlib 全量改名（无 kotlin.** keep），
+        // 双亲回退解析不到 kotlin.*；自带副本按 child-first 加载，才是唯一可靠来源。
+        // 排除 kotlin-stdlib-jdk7/jdk8 兼容壳（Kotlin 2.x 下为空 jar），防 d8 重复类。
+        val bundledJars = runtimeJars.filterNot { it.name.startsWith("kotlin-stdlib-jdk") }
         val outputDir = amllTtmlDexOutput.get().asFile
         outputDir.deleteRecursively()
         outputDir.mkdirs()
@@ -130,10 +129,6 @@ val amllTtmlDex = tasks.register<Exec>("dexPlugin") {
                 add("33")
                 add("--lib")
                 add(androidJar.absolutePath)
-                stdlibJars.forEach { jar ->
-                    add("--classpath")
-                    add(jar.absolutePath)
-                }
                 add("--output")
                 add(outputDir.absolutePath)
                 add(amllTtmlJar.get().archiveFile.get().asFile.absolutePath)

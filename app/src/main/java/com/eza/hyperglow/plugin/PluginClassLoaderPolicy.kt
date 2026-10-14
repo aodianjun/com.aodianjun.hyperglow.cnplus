@@ -16,6 +16,9 @@ import java.nio.ByteOrder
  *  - 其余类（含插件自带的 kotlin./kotlinx. 副本）：插件 dex 中存在的优先用
  *    插件自己的（子优先），不存在再回退双亲。API 边界上无 kotlin 类型穿越
  *    （见 PluginApi.kt 打包契约），子优先不会破坏类型一致。
+ *
+ * 宿主 release dex 内不存在任何 kotlin.** 类（R8 全量改名），kotlin.* 只能由插件自带
+ * ——回退双亲不是备选。
  */
 internal object PluginClassLoaderPolicy {
 
@@ -88,9 +91,9 @@ internal object PluginClassLoaderPolicy {
 
     private const val DEX_HEADER_SIZE = 0x70
     private const val STRING_IDS_OFF = 0x3C
-    private const val TYPE_IDS_OFF = 0x4C
+    private const val TYPE_IDS_OFF = 0x44    // DEX 头 type_ids_off
     private const val CLASS_DEFS_SIZE = 0x60
-    private const val CLASS_DEFS_OFF = 0x68
+    private const val CLASS_DEFS_OFF = 0x64  // DEX 头 class_defs_off
     private const val STRING_ID_ITEM_SIZE = 4
     private const val TYPE_ID_ITEM_SIZE = 4
     private const val CLASS_DEF_ITEM_SIZE = 32

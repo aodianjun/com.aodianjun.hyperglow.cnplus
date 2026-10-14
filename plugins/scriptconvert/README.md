@@ -53,7 +53,7 @@ HyperLyric / HyperGlow 插件体系的补充成员：把歌词在**简体 ⇄ �
 
 打包需要 Android SDK build-tools（`d8`）与 `android.jar`，定位规则与 `plugins/template`
 一致（`local.properties` 的 `sdk.dir` → `ANDROID_HOME`）。纯 Kotlin/JVM 模块，
-`:plugins:api` 为 `compileOnly`，`kotlin-stdlib` 由宿主提供、不进 dex。
+`:plugins:api` 为 `compileOnly`（宿主提供）；`kotlin-stdlib` 随插件打进 dex（插件自包含）。
 
 ## 本地开发
 

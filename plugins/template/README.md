@@ -34,7 +34,7 @@
 ## 打包清单（ZIP 内容）
 
 - `manifest.json`（来自 `src/main/plugin/`）
-- `classes.dex`（jar 经 build-tools d8 转换；kotlin-stdlib 由宿主提供，不进 dex）
+- `classes.dex`（jar 经 build-tools d8 转换；含 kotlin-stdlib 在内的全部运行时依赖，插件自包含）
 
 ---
 
@@ -74,5 +74,5 @@ surface (PluginCache, multiple settings, the change protocol); this template is 
 ## ZIP contents
 
 - `manifest.json` (from `src/main/plugin/`)
-- `classes.dex` (jar converted with build-tools d8; kotlin-stdlib is provided by the host and
-  never packaged into the dex)
+- `classes.dex` (jar converted with build-tools d8; self-contained — every runtime dependency
+  including kotlin-stdlib is packaged into the dex)

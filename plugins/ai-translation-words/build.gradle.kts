@@ -2,7 +2,7 @@
 //
 // 与 plugins/lyricfetch、plugins/amll-ttml 同一打包管线（d8 → manifest.json + classes.dex）。
 // 依赖面比它们更小：**没有任何第三方运行时库**（HTTP 用 java.net，JSON 用平台 org.json），
-// 因此 d8 输入只有插件自身 jar；kotlin-stdlib 由宿主提供（--classpath）。
+// 因此 d8 输入为插件自身 jar + kotlin-stdlib（宿主 release 包 R8 改名，无法提供 kotlin.*）。
 //
 // 产物：`./gradlew :plugins:ai-translation-words:pluginZip`
 //   → build/distributions/hyperglow-ai-translation-words-plugin.zip（manifest.json + classes.dex）
@@ -103,10 +103,10 @@ val aiTransWordsDex = tasks.register<Exec>("dexPlugin") {
             "android.jar not found under ${aiTransWordsSdkDir}/platforms."
         )
         val runtimeJars = configurations.runtimeClasspath.get()
-        // kotlin-stdlib 由宿主 App 进程提供：只作 classpath，不进 dex。
-        val stdlibJars = runtimeJars.filter { it.name.startsWith("kotlin-stdlib") }
-        // 本插件无其他运行时依赖；此过滤保持与兄弟插件同构（未来加依赖时自动进 dex）。
-        val bundledJars = runtimeJars.filterNot { it.name.startsWith("kotlin-stdlib") }
+        // 插件必须自包含：宿主 release 包经 R8 混淆，kotlin-stdlib 全量改名（无 kotlin.** keep），
+        // 双亲回退解析不到 kotlin.*；自带副本按 child-first 加载，才是唯一可靠来源。
+        // 排除 kotlin-stdlib-jdk7/jdk8 兼容壳（Kotlin 2.x 下为空 jar），防 d8 重复类。
+        val bundledJars = runtimeJars.filterNot { it.name.startsWith("kotlin-stdlib-jdk") }
         val outputDir = aiTransWordsDexOutput.get().asFile
         outputDir.deleteRecursively()
         outputDir.mkdirs()
@@ -118,10 +118,6 @@ val aiTransWordsDex = tasks.register<Exec>("dexPlugin") {
                 add("33")
                 add("--lib")
                 add(androidJar.absolutePath)
-                stdlibJars.forEach { jar ->
-                    add("--classpath")
-                    add(jar.absolutePath)
-                }
                 add("--output")
                 add(outputDir.absolutePath)
                 add(aiTransWordsJar.get().archiveFile.get().asFile.absolutePath)
