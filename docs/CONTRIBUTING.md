@@ -59,6 +59,12 @@ which rules are easy to miss.
   first. The fingerprint in `plugins/api/api-contract.fingerprint` is enforced in CI
   (`python3 plugins/api/check-api-fingerprint.py`; `--emit` prints the current hash) —
   update the golden value only against upstream, never to silence a rename.
+- **Debug builds are signed with the committed, non-secret debug keystore** so every machine and
+  CI produce the same debug signature (overwrite-installs work). Its password is intentionally
+  **not** stored in the repository: set `HYPERGLOW_DEBUG_STORE_PASSWORD` to create the fixed
+  `hyperglowDebug` signing config (same value for store and key password; the value is not a
+  secret — ask a maintainer). Without it, debug builds fall back to AGP's machine-local debug
+  signing, which only breaks overwrite-installs across machines.
 
 ## CI and releases
 
@@ -121,6 +127,10 @@ reports are triaged against `docs/DEVICE_COMPAT_MATRIX.md`.
   声明变更必须先等上游契约变更。`plugins/api/api-contract.fingerprint` 中的指纹由 CI 强制
   （`python3 plugins/api/check-api-fingerprint.py`；`--emit` 打印当前哈希）——只在跟随上游时
   更新金标值，绝不用它掩盖改名。
+- **调试包用仓库内的固定调试密钥签名**，保证多机与 CI 的调试签名一致（跨机器可覆盖安装）。
+  其口令刻意**不入库**：设置环境变量 `HYPERGLOW_DEBUG_STORE_PASSWORD` 才会创建固定的
+  `hyperglowDebug` 签名配置（store 与 key 同口令；该值不是机密，可向维护者索取）。未设置时
+  debug 构建回退 AGP 的本机默认调试签名——只影响跨机器的覆盖安装。
 
 ## CI 与发版
 
