@@ -11,7 +11,7 @@
         "zh-TW": "用任意 OpenAI 相容介面翻譯目前歌詞（網址/模型/Key 均可設定），結果依曲目快取。"
     },
     "author": "HyperGlow CN+",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "apiVersion": 1,
     "entry": "com.example.hyperglow.aitranslation.AiTranslationPlugin",
     "activationSettingKey": "enabled",
