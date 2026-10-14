@@ -268,8 +268,11 @@ against arbitrary third-party code in SystemUI applies to plugin code as well.
   location (Android 14 rejects writable dex paths), and loaded through dedicated class loaders
   (`PathClassLoader` / `InMemoryDexClassLoader`).
 - Class-loader delegation is a load boundary, not a security sandbox: host-owned prefixes (`java.`,
-  `android.`, `kotlin.`, `androidx.`, the plugin API contract package) resolve parent-first and
-  everything else resolves child-first, so a plugin cannot shadow host classes.
+  `javax.`, `android.`, `androidx.`, `dalvik.`, `libcore.`, `org.json.`, `org.w3c.`, `org.xml.`,
+  `org.xmlpull.`, and the plugin API contract package) resolve parent-first; everything else —
+  including the `kotlin.` / `kotlinx.` helpers a plugin bundles — resolves child-first, so the
+  plugin's own copies win and it cannot shadow platform or API classes. (Full rule:
+  `docs/PLUGIN_DEVELOPMENT.md` §11.)
 - The plugin API surface is the byte-fingerprinted contract under `plugins/api`; CI fails when the
   contract changes without an explicit fingerprint update.
 - Trust model: a plugin is user-installed input of untrusted origin. Installing it grants it the app
@@ -514,8 +517,11 @@ AOD 宿主容器以及锁屏控制器/宿主/几何接缝；未知 profile 仍�
 - 安装与加载分阶段进行：插件包先做结构性校验（`PluginManifest`：id 格式、对宿主的 API 版本、
   入口点、设置 schema），写入只读位置（Android 14 拒绝可写 dex 路径），再经专用类加载器
   （`PathClassLoader` / `InMemoryDexClassLoader`）加载。
-- 类加载器委派是加载边界，不是安全沙箱：宿主拥有的前缀（`java.`、`android.`、`kotlin.`、
-  `androidx.`、插件 API 契约包）按双亲优先解析，其余按子优先解析，因此插件无法遮蔽宿主类。
+- 类加载器委派是加载边界，不是安全沙箱：宿主拥有的前缀（`java.`、`javax.`、`android.`、
+  `androidx.`、`dalvik.`、`libcore.`、`org.json.`、`org.w3c.`、`org.xml.`、`org.xmlpull.`、
+  插件 API 契约包）按双亲优先解析；其余——**包括插件自带的 `kotlin.` / `kotlinx.` 副本**——
+  按子优先解析：插件自己的副本胜出，插件无法遮蔽平台类或 API 类。（完整规则见
+  `docs/PLUGIN_DEVELOPMENT.md` §11。）
 - 插件 API 面是 `plugins/api` 下带字节指纹的契约；契约变更而没有显式更新指纹时，CI 会失败。
 - 信任模型：插件是用户自行安装的不可信来源输入。安装它所授予的是 app 进程自身的能力——没有
   SystemUI 访问权、没有 root、没有 Xposed hook。manifest 校验仅是结构性的；当前没有加密的
