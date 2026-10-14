@@ -16,6 +16,26 @@ works** — the mirror has not auto-synced since 89-0.3.70 (2026-08-18); everyth
 109-0.3.82 onwards was pushed manually. Therefore "pushing LSP" = **manually creating a
 release with the same name in the mirror repository**.
 
+## Automation (stable releases)
+
+Publishing a **stable** release no longer needs the manual steps below: the
+[`lsposed-mirror`](../.github/workflows/lsposed-mirror.yml) workflow runs on the `release`
+event (`released` / non-prerelease `published`) and, for the tag `{VC}-{VN}`:
+
+1. force-syncs the source `main` branch content to the mirror's default branch;
+2. creates/refreshes the version release in the mirror, attaching both APKs;
+3. refreshes the rolling `plugins` pre-release in the mirror with the plugin ZIPs.
+
+Requirements:
+
+- Actions secret **`LSP_REPO_TOKEN`** — a classic PAT with `repo` scope that may access the
+  `Xposed-Modules-Repo` organization (the default `GITHUB_TOKEN` is rejected by the org).
+- The workflow may also be run manually (`workflow_dispatch`, optional `tag` input) to
+  backfill a version.
+
+Pre-release / debug builds are deliberately **not** mirrored. The manual procedure below
+remains the fallback when the workflow is disabled or the token is unavailable.
+
 ## Key Conventions
 
 | Item | Value |
@@ -152,6 +172,23 @@ LSPosed 模块仓库（modules.lsposed.org）**实际读取的是
 **官方 bot 的"编辑源仓库 release 自动同步"机制已失效**——
 镜像在 89-0.3.70（2026-08-18）之后就没再自动同步过（109-0.3.82 起为手动推送）。
 因此"推送 LSP" = **手动在镜像仓库创建同名 release**。
+
+## 自动化（正式发行版）
+
+发布**正式版**后不再需要下方的手动步骤：[`lsposed-mirror`](../.github/workflows/lsposed-mirror.yml)
+workflow 会在 `release` 事件（`released` / 非预发行的 `published`）触发，对 tag `{VC}-{VN}` 自动：
+
+1. 把源仓库 `main` 分支内容强制同步到镜像仓库默认分支；
+2. 在镜像仓库创建/刷新版本 release，挂上两个 APK；
+3. 在镜像仓库滚动刷新 `plugins` 预发行，挂上插件 ZIP。
+
+要求：
+
+- Actions secret **`LSP_REPO_TOKEN`** —— 有 `repo` 权限、可访问 `Xposed-Modules-Repo`
+  组织的 classic PAT（默认 `GITHUB_TOKEN` 会被该组织拒绝）。
+- 也可 `workflow_dispatch` 手动触发（可选 `tag` 入参）以补推某个版本。
+
+预发行/debug 版本刻意**不**镜像。当 workflow 被停用或 token 不可用时，仍按下方手动流程兜底。
 
 ## 关键约定
 

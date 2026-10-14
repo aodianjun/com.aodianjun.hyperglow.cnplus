@@ -1,0 +1,160 @@
+name: Mirror stable release to Xposed-Modules-Repo
+
+# 正式发行版发布后，自动镜像到 LSPosed 模块仓库
+# （Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus）：
+#   1. 把源仓库 main 分支的内容同步到镜像仓库的默认分支；
+#   2. 在镜像仓库创建/刷新版本 release（tag 为 {versionCode}-{versionName}），挂上两个 APK；
+#   3. 在镜像仓库滚动刷新 `plugins` 预发行，挂上插件 ZIP。
+# 背景与约定见 docs/LSPOSED_PUSH.md、docs/PLUGIN_RELEASE_CONVENTIONS.md。
+# 镜像仓库需要能访问 Xposed-Modules-Repo 组织的 PAT（默认 GITHUB_TOKEN 会被 org 拒绝），
+# 以 Actions secret `LSP_REPO_TOKEN` 提供（classic PAT，repo 权限）。
+on:
+  release:
+    # released: 预发行被提升为正式版；published: 直接发布正式版。
+    types: [released, published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要镜像的 release tag（如 109-0.3.82）；留空则取最新 release"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_REPO: ${{ github.repository }}
+  MIRROR_REPO: Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus
+  MIRROR_TOKEN: ${{ secrets.LSP_REPO_TOKEN }}
+
+concurrency:
+  group: lsposed-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    # 仅正式发行版触发；预发行/debug 不镜像（workflow_dispatch 手动触发不受此限）。
+    if: github.event_name != 'release' || github.event.release.prerelease == false
+    steps:
+      - name: Check mirror token is configured
+        run: |
+          if [ -z "${MIRROR_TOKEN}" ]; then
+            echo "::error::Actions secret LSP_REPO_TOKEN is not configured; cannot push to ${MIRROR_REPO}. See docs/LSPOSED_PUSH.md."
+            exit 1
+          fi
+
+      - name: Resolve release tag
+        id: rel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release view --repo "$SOURCE_REPO" --json tagName --jq '.tagName')
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # 只镜像符合 LSPosed 规范的 {versionCode}-{versionName} tag；其余跳过。
+          if printf '%s' "$TAG" | grep -Eq '^[0-9]+-[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::tag '$TAG' does not match {versionCode}-{versionName}; skipping mirror (LSPosed convention)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout source repository
+        if: steps.rel.outputs.skip != 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # 仅同步 main 分支内容到镜像默认分支；不使用 --mirror，避免删掉镜像仓库里
+      # LSPosed 读取的 release tag。
+      - name: Sync repository content to mirror
+        if: steps.rel.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.LSP_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          DEFAULT_BRANCH=$(gh api "repos/${MIRROR_REPO}" --jq '.default_branch')
+          git remote add mirror "https://x-access-token:${MIRROR_TOKEN}@github.com/${MIRROR_REPO}.git"
+          git push mirror "HEAD:refs/heads/${DEFAULT_BRANCH}" --force
+          echo "Synced source main -> ${MIRROR_REPO}:${DEFAULT_BRANCH}"
+
+      - name: Download release APKs from source
+        if: steps.rel.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/apks
+          gh release download "${{ steps.rel.outputs.tag }}" --repo "$SOURCE_REPO" \
+            --pattern '*.apk' --dir dist/apks
+          if ! find dist/apks -maxdepth 1 -name '*.apk' | grep -q .; then
+            echo "::error::no APK assets on source release ${{ steps.rel.outputs.tag }}"
+            exit 1
+          fi
+          ls -l dist/apks
+
+      - name: Publish version release to mirror
+        if: steps.rel.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.LSP_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.rel.outputs.tag }}"
+          gh release view "$TAG" --repo "$SOURCE_REPO" --json body --jq '.body' > version-body.md
+          if [ ! -s version-body.md ]; then
+            echo "镜像自 https://github.com/${SOURCE_REPO}/releases/tag/${TAG} 的正式发行版。" > version-body.md
+          fi
+          # 幂等：先删旧 release（同时清理 tag）再重建，确保资产与源 release 一致。
+          gh release delete "$TAG" --repo "$MIRROR_REPO" --yes --cleanup-tag || true
+          gh release create "$TAG" --repo "$MIRROR_REPO" \
+            --title "HyperGlow CN+ ${TAG}" \
+            --notes-file version-body.md \
+            dist/apks/*.apk
+          echo "Mirror release assets:" && gh release view "$TAG" --repo "$MIRROR_REPO" \
+            --json assets --jq '.assets[].name'
+
+      - name: Download plugin ZIPs from source
+        if: steps.rel.outputs.skip != 'true'
+        id: plugins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/plugins
+          # 插件发布在滚动预发行 tag `plugins`（见 docs/PLUGIN_RELEASE_CONVENTIONS.md）。
+          if gh release download plugins --repo "$SOURCE_REPO" \
+               --pattern 'hyperglow-*-plugin.zip' --dir dist/plugins 2>/dev/null \
+             && find dist/plugins -maxdepth 1 -name '*.zip' | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no plugin ZIPs found on the source 'plugins' release; skipping plugin mirror."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+          ls -l dist/plugins || true
+
+      - name: Publish plugins release to mirror
+        if: steps.rel.outputs.skip != 'true' && steps.plugins.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.LSP_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="plugins"
+          gh release view "$TAG" --repo "$SOURCE_REPO" --json body --jq '.body' > plugins-body.md
+          if [ ! -s plugins-body.md ]; then
+            echo "HyperGlow 插件包（滚动更新）。" > plugins-body.md
+          fi
+          gh release delete "$TAG" --repo "$MIRROR_REPO" --yes --cleanup-tag || true
+          gh release create "$TAG" --repo "$MIRROR_REPO" \
+            --title "HyperGlow Plugins (latest)" \
+            --notes-file plugins-body.md \
+            --prerelease \
+            dist/plugins/*.zip
+          echo "Mirror plugin assets:" && gh release view "$TAG" --repo "$MIRROR_REPO" \
+            --json assets --jq '.assets[].name'
