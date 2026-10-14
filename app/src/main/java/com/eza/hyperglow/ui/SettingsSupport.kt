@@ -109,10 +109,11 @@ internal fun openExternalUrl(context: android.content.Context, url: String) {
     }
 }
 
+/** 检查更新读 LSP 镜像仓库（LSP 实际读取的发布源），不再读源仓库。 */
 internal fun queryLatestReleaseTag(): String? {
     var connection: HttpURLConnection? = null
     return try {
-        val url = URL("https://api.github.com/repos/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest")
+        val url = URL("https://api.github.com/repos/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/latest")
         connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = 5000

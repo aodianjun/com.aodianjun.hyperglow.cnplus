@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 
-/** GitHub 最新正式版信息,用于主页"检查更新"。 */
+/** GitHub 最新正式版信息,用于主页"检查更新";读 LSP 镜像仓库而非源仓库。 */
 internal data class LatestReleaseInfo(
     val tag: String,
     /** GitHub release 资产的 SHA256（不含 "sha256:" 前缀）。空集合表示未取到哈希。 */
@@ -17,7 +17,7 @@ internal data class LatestReleaseInfo(
 internal fun queryLatestReleaseInfo(): LatestReleaseInfo? {
     var connection: HttpURLConnection? = null
     return try {
-        val url = URL("https://api.github.com/repos/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest")
+        val url = URL("https://api.github.com/repos/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/latest")
         connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = 5000

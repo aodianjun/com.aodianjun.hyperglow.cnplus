@@ -983,15 +983,7 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item {
-                        SettingsCard {
-                            ArrowPreference(
-                                title = stringResource(R.string.about_support),
-                                summary = stringResource(R.string.summary_about_support),
-                                onClick = { openExternalUrl(context, PROJECT_SITE_URL) }
-                            )
-                        }
-                    }
+                    // 「支持」入口按需求暂时隐藏（保留字符串与 PROJECT_SITE_URL 以便恢复）。
                     item {
                         SettingsCard {
                             ArrowPreference(
