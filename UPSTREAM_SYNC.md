@@ -10,11 +10,11 @@
 
 ## Current Status
 
-- **CN+ version**: 0.3.167 (194) as of 2026-10-07; the upstream baseline was advanced to `fefe5c54` (v0.3.199) on 2026-10-10 — every item of the `1537c58 → fefe5c54` delta is disposed in the tables below and `.github/upstream-baseline.txt` now records `fefe5c54`.
-- **Baseline (last fully disposed increment)**: 2026-10-05 `fefe5c54`, version 0.3.199 (224) — fully disposed in the 2026-10-10 pass: item #2 ported (PR #251), item #1 deferred (inert without the producer side), item #3 landed partially (the spec text for the join rule), item #4 not applicable. The same pass disposed of `84a0c9ce` (vC221 / 0.3.196): items #2/#3/#4 ported, item #1 evaluated as unaffected, #5 landed partially, #6 not applicable.
+- **CN+ version**: 0.3.167 (194) as of 2026-10-07; the upstream baseline was advanced to `2eaa191` (v0.3.212) on 2026-10-18 — every item of the `fefe5c54 → 2eaa191` delta is disposed in the tables below and `.github/upstream-baseline.txt` now records `2eaa191`.
+- **Baseline (last fully disposed increment)**: 2026-10-16 `2eaa191`, version 0.3.212 (237) — fully disposed in the 2026-10-18 pass (PR #273): all 5 commits ported, see the `Ported — fefe5c54 → 2eaa191` section below. The previous baseline 2026-10-05 `fefe5c54`, version 0.3.199 (224), was fully disposed in the 2026-10-10 pass: item #2 ported (PR #251), item #1 deferred (inert without the producer side), item #3 landed partially (the spec text for the join rule), item #4 not applicable. The same pass disposed of `84a0c9ce` (vC221 / 0.3.196): items #2/#3/#4 ported, item #1 evaluated as unaffected, #5 landed partially, #6 not applicable.
 - **Upstream, previous increment**: 2026-09-28 `99ba119`, version 0.3.191 (216) — fully disposed in the 2026-10-10 pass: items #1/#9/#11 ported and #13 landed with the batch, item #2 deliberately not ported (replaced by the local long-interlude countdown-dots feature), item #4 deferred, items #10/#12 not applicable.
-- **Newest synced item**: the 2026-10-10 batch — `99ba119` items #1/#9/#11, `84a0c9ce` items #2/#3/#4, `fefe5c54` item #2, plus the local countdown-dots enhancement; see their rows in the synced table below.
-- **Upstream ahead — delta ported into the working tree (2026-10-18)**: upstream advanced to `2eaa191` (2026-10-16, v0.3.212 / versionCode 237) — 5 commits, +1749/−212 over 46 files, from the baseline `fefe5c54` (v0.3.199). Every row of the delta is disposed as ported (2026-10-18) in the section below; `.github/upstream-baseline.txt` stays at `fefe5c54` and advances only when the port PR lands.
+- **Newest synced item**: the 2026-10-18 batch — every item of `fefe5c54 → 2eaa191` (`1d45ade`, `2c8cf74`, `5ecb5df`, `f7a8287`, `2eaa191`) ported (PR #273); preceded by the 2026-10-10 batch — `99ba119` items #1/#9/#11, `84a0c9ce` items #2/#3/#4, `fefe5c54` item #2, plus the local countdown-dots enhancement. See their rows in the tables below.
+- **Upstream status (2026-10-18)**: upstream `2eaa191` (2026-10-16, v0.3.212 / versionCode 237) is now the recorded baseline — the 5-commit delta (+1749/−212 over 46 files) from `fefe5c54` (v0.3.199) was ported in PR #273, so `.github/upstream-baseline.txt` now records `2eaa191` and every row of the delta is disposed in the section below.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
   HierarchyFields.kt and its use across all hooks, missingProbeNames, and miuix via the public Maven Central repository
@@ -62,11 +62,11 @@
 | `bf988be` | 2026-08-03 | bump 0.3.50 | ➖ Version number not applicable (CN+ has an independent version numbering scheme) |
 | Earlier commits | ≤2026-08-03 | FAQ / diagnostics policy / history | ➖ Not individually verified (the baseline as a whole already includes them) |
 
-## Ported — `fefe5c54 → 2eaa191` (2026-10-18, awaiting port PR)
+## Ported — `fefe5c54 → 2eaa191` (2026-10-18, PR #273)
 
 > Upstream advanced from the recorded baseline `fefe5c54` (v0.3.199) to
 > `2eaa19191f41f5106d47e74dafc14f032117e69c` (v0.3.212 / versionCode 237, 2026-10-16): **5 commits**,
-> +1749/−212 over 46 files. `.github/upstream-baseline.txt` stays at `fefe5c54` until the port PR lands.
+> +1749/−212 over 46 files. `.github/upstream-baseline.txt` advances to `2eaa191` with PR #273.
 >
 > Commits: `1d45ade` (README only, +2) · `2c8cf74` (vC229 / 0.3.204, 2026-10-12 — docs/FAQ/diagnostic
 > policy + the Spicy EX setup probe; 25 files, +776/−58) · `5ecb5df` (vC236 / 0.3.211, 2026-10-16 —
@@ -75,7 +75,7 @@
 > `2eaa191` (vC237 / 0.3.212, 2026-10-16 — SurfaceEvidence once-per-process facts, application-hook
 > candidate loop, symbol-log parameter types; 8 files, +97/−50).
 >
-> **Disposition (2026-10-18) — all rows ported into the working tree:** `5ecb5df` #1 (bridge document
+> **Disposition (2026-10-18, PR #273) — all rows ported:** `5ecb5df` #1 (bridge document
 > identity + duration tolerance) and #2 (reducer: a clear no longer retires the generation) ported
 > with their tests; #3 (lockscreen pause-linger ownership) ported with a CN+ adaptation against the
 > `retentionAnchor`/`edgeFor` gap branch; #4/#5 (HyperOS 4 seams + named-seam logging) ported,
