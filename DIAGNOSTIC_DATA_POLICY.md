@@ -24,6 +24,10 @@ or embedded API credentials.
   presence of the LSPosed log directories, matching module `module.prop` id/name/version/versionCode,
   detected root-solution marker (`ksu`, `ap`, or `magisk`), and only manager package names matching
   `lsposed`, `lspatch`, or `edxposed`.
+- If guided capture runs with root: a fixed read-only probe reads only three Spicy EX status tokens —
+  whether the module is registered/enabled in LSPosed for the current user, whether `com.spotify.music`
+  is in its scope, and only the single HyperGlow publishing boolean from Spotify's `SpotifyPlus.xml`.
+  No preference values, paths, or free-form content are returned.
 
 ## Never included
 
@@ -77,6 +81,9 @@ HyperGlow 自身不会向任何地方发送诊断数据。当您打开**报告�
   及有限长度的进程名；`/data/adb` 下选取的框架证据，包括 LSPosed 日志目录是否存在、匹配模块的
   `module.prop` id/name/version/versionCode、检测到的 root 方案标识（`ksu`、`ap` 或 `magisk`），
   以及仅与 `lsposed`、`lspatch` 或 `edxposed` 匹配的管理器包名。
+- 如果引导式采集以 root 权限运行：一个固定只读探针仅读取三个 Spicy EX 状态令牌——模块是否在
+  当前用户的 LSPosed 中注册/启用、`com.spotify.music` 是否在其作用域内，以及仅从 Spotify 的
+  `SpotifyPlus.xml` 读取向 HyperGlow 发布的单个布尔值。不会返回任何偏好值、路径或自由文本内容。
 
 ## 永不包含
 

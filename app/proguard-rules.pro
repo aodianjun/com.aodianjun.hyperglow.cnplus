@@ -3,6 +3,9 @@
 -keep class com.eza.hyperglow.root.HookEntry { *; }
 -keep class com.eza.hyperglow.** extends android.app.Service { *; }
 -keep class com.eza.hyperglow.** extends android.content.ContentProvider { *; }
+# SpicySetupProbe — the diagnostic root process launches this class by fully-qualified name
+# through app_process, so the class name and main(String[]) entry point must survive R8.
+-keep class com.eza.hyperglow.diagnostics.SpicySetupProbe { public static void main(java.lang.String[]); }
 # SuperLyricApi — keep the Binder receiver types unobfuscated (required by the API docs).
 -keep class com.hchen.superlyricapi.* { *; }
 # HyperLyric plugin API — plugin dexes link these classes by FQCN through the parent

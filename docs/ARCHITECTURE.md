@@ -159,7 +159,11 @@ X sweep across every visible lyric row. Word/syllable timing remains unchanged.
   is the producer client's responsibility. HyperGlow cannot recover that binding from its own side and
   must not be specified as if it could. The provider transport is the exception, because every
   `ContentResolver.call` re-acquires the provider and therefore survives app process death.
-  Explicit clear, generation retirement, and disable discard both retained payloads.
+  Explicit clear drops both retained payloads but does not retire the generation, so a producer that
+  clears for a reason of its own may resume at the same generation; a disable discards both retained
+  payloads. A held document's identity is its track URI plus a whole-second duration tolerance: the
+  producer rounds a track's length to the whole second, so an exact comparison would drop a document
+  the producer never re-requests and leave the rest of the song untimed.
 - App-to-SystemUI lyric state keeps the `onState(Bundle)` ABI but carries a versioned scalar envelope; full snapshots use one encoded body bounded to 48 KiB aggregate UTF-8 text, plus a separately bounded 24 KiB song-artwork JPEG frame (carried only when package/track-verified; empty otherwise), within a 96 KiB encoded-bytes ceiling. Hidden and keepalive messages remain scalar-only. The duet concurrent line (wire body v4, PR #118) rides in the same body and shares the 48 KiB text aggregate.
 - The scalar envelope carries Spotify `playbackActive` explicitly. Power policy never infers pause
   from lyric visibility, media rows, another media player, or renderer state.
@@ -429,7 +433,9 @@ profile 开关只选择亮色或暗色呈现，从不改变时序节奏。行级
   只会收到 `onServiceDisconnected`，不会再收到 `onServiceConnected`，因此服务进程死亡后的重绑是
   生产者客户端自己的职责。HyperGlow 无法从自己这一侧恢复该绑定，也不得被规范成仿佛它能做到。
   provider 传输是例外，因为每次 `ContentResolver.call` 都会重新获取 provider，因此能挺过应用
-  进程死亡。显式清除、generation 退役与禁用操作都会丢弃这两份保留的载荷。
+  进程死亡。显式清除会丢弃两份保留的载荷，但不再退役 generation，因此生产者因自身原因清除后可在
+  同一 generation 上恢复；禁用操作会丢弃两份保留的载荷。持有文档的身份由其曲目 URI 加整秒时长容差
+  决定：生产者把曲目长度取整到整秒，精确比较会丢弃生产者不再重新请求的文档，让余下整首歌不计时。
 - App 到 SystemUI 的歌词状态保留 `onState(Bundle)` ABI，但携带版本化的标量信封；完整 snapshot 使用单一编码体，限制为 UTF-8 文本合计 48 KiB，另加单独限额的歌曲图片 JPEG 帧 24 KiB（仅包名/曲目校对通过时携带，否则为空），编码后总上限 96 KiB。隐藏与 keepalive 消息保持纯标量。对唱并发行（wire body v4,PR #118）随同一编码体携带,共享 48 KiB 文本聚合预算。
 - 标量信封显式携带 Spotify 的 `playbackActive`。电源策略绝不会从歌词可见性、媒体行、其他媒体
   播放器或渲染器状态推断暂停。

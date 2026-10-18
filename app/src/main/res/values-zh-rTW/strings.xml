@@ -549,11 +549,12 @@
     <string name="diagnostic_preview_json">報告 JSON</string>
     <string name="diagnostic_data_policy">數據政策</string>
     <string name="diagnostic_accept_policy">我接受此政策</string>
-    <string name="diagnostic_included_data_summary">引導捕獲可能包含篩選後的 HyperGlow 日誌、允許的崩潰摘要、SystemUI/HyperGlow 的 USER、UID、PID 和進程名，以及固定的 /data/adb 框架標記、module.prop 的 id/name/version/versionCode、Root 方案標記和匹配的 LSPosed 管理器包名。不會包含完整應用列表或任意文件。</string>
+    <string name="diagnostic_included_data_summary">引導捕獲可能包含篩選後的 HyperGlow 日誌、允許的崩潰摘要、SystemUI/HyperGlow 的 USER、UID、PID 和進程名，以及固定的 /data/adb 框架標記、module.prop 的 id/name/version/versionCode、Root 方案標記和匹配的 LSPosed 管理器包名，以及 Spicy EX 是否啟用、Spotify 是否已在其作用域中選擇和其 HyperGlow 發布設定。不會包含完整應用列表或任意文件。</string>
     <string name="diagnostic_upload">上傳</string>
     <string name="diagnostic_uploading">正在上傳…</string>
     <string name="diagnostic_report_received">報告已收到</string>
     <string name="diagnostic_report_id">報告 ID\n%1$s</string>
+    <string name="diagnostic_follow_up_notice">此報告系統不支援開發者或維護者回覆。如需跟進，請透過 GitHub 或 Telegram 群直接聯繫他們。</string>
     <string name="diagnostic_clip_label">HyperGlow 報告 ID</string>
     <string name="diagnostic_report_id_copied">報告 ID 已複製</string>
     <string name="diagnostic_included_json">包含的 JSON</string>
@@ -568,6 +569,12 @@
     <string name="diagnostic_check_root">Root 權限</string>
     <string name="diagnostic_check_systemui">SystemUI 注入</string>
     <string name="diagnostic_check_profile">兼容配置</string>
+    <string name="diagnostic_check_spicy_ex_enabled">已在 LSPosed 中啟用 Spicy EX</string>
+    <string name="diagnostic_check_spicy_ex_scope">已在 Spicy EX 作用域中選擇 Spotify</string>
+    <string name="diagnostic_check_spicy_ex_publishing">向 HyperGlow 發布歌詞</string>
+    <string name="diagnostic_check_value_not_checked">（未檢查）</string>
+    <string name="diagnostic_check_value_not_registered">（未註冊）</string>
+    <string name="diagnostic_check_value_default_off">（預設關閉）</string>
     <string name="diagnostic_check_spotify_bridge">歌詞源橋接</string>
     <string name="diagnostic_check_packages">必需應用</string>
 

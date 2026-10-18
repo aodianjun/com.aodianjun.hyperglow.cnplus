@@ -125,7 +125,11 @@ internal object DiagnosticCaptureManager {
                         DiagnosticTraceFile.readForReport(session.startedAtUtcMillis)
                     },
                     runner = DiagnosticRootProcessRunner
-                ).collect(session.startedAtUtcMillis)
+                ).collect(
+                    session.startedAtUtcMillis,
+                    context.applicationInfo.sourceDir,
+                    android.os.Process.myUid() / 100_000
+                )
             }
         } finally {
             restored = endSession(context, session, DiagnosticCaptureLifecycleEvent.FINISH)

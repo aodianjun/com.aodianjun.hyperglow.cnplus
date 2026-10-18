@@ -14,7 +14,7 @@
 - **Baseline (last fully disposed increment)**: 2026-10-05 `fefe5c54`, version 0.3.199 (224) — fully disposed in the 2026-10-10 pass: item #2 ported (PR #251), item #1 deferred (inert without the producer side), item #3 landed partially (the spec text for the join rule), item #4 not applicable. The same pass disposed of `84a0c9ce` (vC221 / 0.3.196): items #2/#3/#4 ported, item #1 evaluated as unaffected, #5 landed partially, #6 not applicable.
 - **Upstream, previous increment**: 2026-09-28 `99ba119`, version 0.3.191 (216) — fully disposed in the 2026-10-10 pass: items #1/#9/#11 ported and #13 landed with the batch, item #2 deliberately not ported (replaced by the local long-interlude countdown-dots feature), item #4 deferred, items #10/#12 not applicable.
 - **Newest synced item**: the 2026-10-10 batch — `99ba119` items #1/#9/#11, `84a0c9ce` items #2/#3/#4, `fefe5c54` item #2, plus the local countdown-dots enhancement; see their rows in the synced table below.
-- **Upstream is ahead — pending evaluation (detected 2026-10-18)**: upstream advanced to `2eaa191` (2026-10-16, v0.3.212 / versionCode 237) — 5 commits, +1749/−212 over 46 files, from the baseline `fefe5c54` (v0.3.199). The baseline file still records `fefe5c54`; every row of the delta is evaluated in the Pending Evaluation section below, and the baseline advances only with the port PR.
+- **Upstream ahead — delta ported into the working tree (2026-10-18)**: upstream advanced to `2eaa191` (2026-10-16, v0.3.212 / versionCode 237) — 5 commits, +1749/−212 over 46 files, from the baseline `fefe5c54` (v0.3.199). Every row of the delta is disposed as ported (2026-10-18) in the section below; `.github/upstream-baseline.txt` stays at `fefe5c54` and advances only when the port PR lands.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
   HierarchyFields.kt and its use across all hooks, missingProbeNames, and miuix via the public Maven Central repository
@@ -62,12 +62,11 @@
 | `bf988be` | 2026-08-03 | bump 0.3.50 | ➖ Version number not applicable (CN+ has an independent version numbering scheme) |
 | Earlier commits | ≤2026-08-03 | FAQ / diagnostics policy / history | ➖ Not individually verified (the baseline as a whole already includes them) |
 
-## Pending Evaluation — `fefe5c54 → 2eaa191` (detected 2026-10-18)
+## Ported — `fefe5c54 → 2eaa191` (2026-10-18, awaiting port PR)
 
 > Upstream advanced from the recorded baseline `fefe5c54` (v0.3.199) to
 > `2eaa19191f41f5106d47e74dafc14f032117e69c` (v0.3.212 / versionCode 237, 2026-10-16): **5 commits**,
-> +1749/−212 over 46 files. Every row is disposed below; `.github/upstream-baseline.txt` stays at
-> `fefe5c54` until a port PR lands and this section moves into Synced / Not Synced.
+> +1749/−212 over 46 files. `.github/upstream-baseline.txt` stays at `fefe5c54` until the port PR lands.
 >
 > Commits: `1d45ade` (README only, +2) · `2c8cf74` (vC229 / 0.3.204, 2026-10-12 — docs/FAQ/diagnostic
 > policy + the Spicy EX setup probe; 25 files, +776/−58) · `5ecb5df` (vC236 / 0.3.211, 2026-10-16 —
@@ -75,6 +74,17 @@
 > lockscreen pause-linger ownership; 22 files, +921/−151) · `f7a8287` (README only, +2/−2) ·
 > `2eaa191` (vC237 / 0.3.212, 2026-10-16 — SurfaceEvidence once-per-process facts, application-hook
 > candidate loop, symbol-log parameter types; 8 files, +97/−50).
+>
+> **Disposition (2026-10-18) — all rows ported into the working tree:** `5ecb5df` #1 (bridge document
+> identity + duration tolerance) and #2 (reducer: a clear no longer retires the generation) ported
+> with their tests; #3 (lockscreen pause-linger ownership) ported with a CN+ adaptation against the
+> `retentionAnchor`/`edgeFor` gap branch; #4/#5 (HyperOS 4 seams + named-seam logging) ported,
+> including the matching `XiaomiCapabilityResolver` five-argument `doAnimationToAod` probe;
+> `2eaa191` #1/#4 (SurfaceEvidence + canvas `surfaceKind`), #5 (symbol-source log with parameter
+> types), and #2/#3 (application-hook candidate pair + ordered method resolve) ported; `2c8cf74`
+> (Spicy EX setup probe, report contract/policy/checklist UI/strings/ProGuard) ported with CN+
+> wording; the FAQ "Spicy EX Lite/Full → Spicy EX" rename synced. #6 (AodProjectionEngine identity
+> skew) and the README-only / version-bump rows are not applicable.
 
 **`5ecb5df` item #1 — Bridge document identity + duration tolerance. ✅ Port directly — high value.**
 `SpicyBridgeDocument.matches` stops requiring `producerId`/`generation` and decides on track URI plus
@@ -183,9 +193,12 @@ mostly N/A; only the "Spicy EX Lite or Full → Spicy EX" wording maps to CN+'s
 scheme); and `5ecb5df`'s `AodLyricCanvasView` `DuetSectionId` `equals`/`hashCode` change (CN+ has zero
 presence of the upstream duet machinery — see the `84a0c9ce` item #1 row).
 
-**Suggested port order:** #1/#2 (bridge correctness — self-contained, with tests) → #3 (lockscreen) →
-the #5 logging + #4 SurfaceEvidence → the `2c8cf74` docs (for landed items) → defer the #4 seam
-candidates (HyperOS 4) until there is a device or a report.
+**Port record (2026-10-18):** executed in the suggested order — #1/#2 (bridge correctness, with
+tests) → #3 (lockscreen, with CN+ adaptation) → the #5 logging + #4 SurfaceEvidence → the `2c8cf74`
+docs (for landed items) → the #4 seam candidates (HyperOS 4) were also ported, not deferred, together
+with the five-argument `doAnimationToAod` capability probe. Full unit-test suite green except the
+`root`-only `PluginInstallerTest` dex read-only assertion (environment: the sandbox runs as root, so
+`canWrite()` reports true regardless of the read-only bit).
 
 ## Previous passes — all rows disposed (2026-10-10)
 
@@ -286,7 +299,7 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
 - **基线（已完整处置的上一增量）**：2026-10-05 `fefe5c54`，版本 0.3.199 (224) —— 2026-10-10 一轮全部处置：项 #2 已移植（PR #251）、项 #1 暂缓（缺生产端即惰性）、项 #3 部分落地（伴唱规则的规范文本）、项 #4 不适用。同轮处置 `84a0c9ce`（vC221 / 0.3.196）：项 #2/#3/#4 已移植、项 #1 评估为不受影响、#5 部分落地、#6 不适用。
 - **上游上一个增量**：2026-09-28 `99ba119`，版本 0.3.191 (216) —— 2026-10-10 一轮全部处置：项 #1/#9/#11 已移植、#13 随批落地，项 #2 有意不移植（由本地「长间奏倒计时圆点」替代）、项 #4 暂缓、项 #10/#12 不适用。
 - **最新已同步项**：2026-10-10 一批 —— `99ba119` 项 #1/#9/#11、`84a0c9ce` 项 #2/#3/#4、`fefe5c54` 项 #2，外加本地「倒计时圆点」增强；见「已同步」表。
-- **上游已领先——待评估（2026-10-18 侦测）**：上游从基线 `fefe5c54`（v0.3.199）推进到 `2eaa191`（2026-10-16，v0.3.212 / versionCode 237）——5 个提交，46 文件 +1749/−212。基线文件仍记录 `fefe5c54`；该增量逐项评估见下方「待评估」节，基线仅在移植 PR 落地后推进。
+- **上游已领先——增量已移植入工作树（2026-10-18）**：上游从基线 `fefe5c54`（v0.3.199）推进到 `2eaa191`（2026-10-16，v0.3.212 / versionCode 237）——5 个提交，46 文件 +1749/−212。该增量逐项已按「已移植（2026-10-18）」处置（见下方各节）；`.github/upstream-baseline.txt` 保持 `fefe5c54`，仅在移植 PR 落地后推进。
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
   HierarchyFields.kt 及全 hook 使用、missingProbeNames、miuix 走 Maven Central 公共仓库
@@ -334,11 +347,13 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
 | `bf988be` | 2026-08-03 | bump 0.3.50 | ➖ 版本号不适用（CN+ 独立版本号体系） |
 | 更早提交 | ≤2026-08-03 | FAQ / 诊断政策 / 历史 | ➖ 未逐个核对（基线整体已含） |
 
-## 待评估 —— `fefe5c54 → 2eaa191`（2026-10-18 侦测）
+## 已移植 —— `fefe5c54 → 2eaa191`（2026-10-18，待移植 PR 落地）
 
-> 上游从已记录基线 `fefe5c54`（v0.3.199）推进到 `2eaa19191f41f5106d47e74dafc14f032117e69c`（v0.3.212 / versionCode 237，2026-10-16）：**5 个提交**，46 文件 +1749/−212。下列逐项处置；`.github/upstream-baseline.txt` 在移植 PR 落地、本节移入「已同步 / 未同步」两表之前保持 `fefe5c54`。
+> 上游从已记录基线 `fefe5c54`（v0.3.199）推进到 `2eaa19191f41f5106d47e74dafc14f032117e69c`（v0.3.212 / versionCode 237，2026-10-16）：**5 个提交**，46 文件 +1749/−212。`.github/upstream-baseline.txt` 在移植 PR 落地前保持 `fefe5c54`。
 >
 > 提交：`1d45ade`（仅 README，+2）· `2c8cf74`（vC229 / 0.3.204，2026-10-12——docs/FAQ/诊断政策 + Spicy EX 环境探测；25 文件 +776/−58）· `5ecb5df`（vC236 / 0.3.211，2026-10-16——桥接文档身份+时长容差、状态 reducer 去墓碑、HyperOS 4 接缝、具名接缝日志、锁屏暂停驻留归属；22 文件 +921/−151）· `f7a8287`（仅 README，+2/−2）· `2eaa191`（vC237 / 0.3.212，2026-10-16——SurfaceEvidence 每进程一次事实、应用 hook 候选循环、符号日志带参数类型；8 文件 +97/−50）。
+>
+> **处置（2026-10-18）——全部行已移植入工作树：** `5ecb5df` #1（桥接文档身份 + 时长容差）与 #2（reducer：clear 不再退役 generation）连同测试一并移植；#3（锁屏暂停驻留归属）按 CN+ 适配移植，守卫改写为针对 `retentionAnchor`/`edgeFor` 的间隙分支；#4/#5（HyperOS 4 接缝 + 具名接缝日志）已移植，含配套的 `XiaomiCapabilityResolver` 五参 `doAnimationToAod` 探针；`2eaa191` #1/#4（SurfaceEvidence + 画布 `surfaceKind`）、#5（符号来源日志带参数类型）与 #2/#3（应用 hook 候选对 + 有序方法解析）已移植；`2c8cf74`（Spicy EX 环境探测、报告契约/政策/清单 UI/字符串/ProGuard）以 CN+ 措辞移植；FAQ 的「Spicy EX Lite/Full → Spicy EX」改名已同步。#6（AodProjectionEngine 身份偏移）与仅 README / 版本号行不适用。
 
 **`5ecb5df` 项 #1 —— 桥接文档身份 + 时长容差。✅ 直接移植——高价值。**
 `SpicyBridgeDocument.matches` 不再要求 `producerId`/`generation`，改由曲目 URI + `documentDurationsAgree` 判定（文档时长 ≤0 时以 state 实测时长为准；真实时长须落在 `DOCUMENT_DURATION_TOLERANCE_MS = 1000` 内，因为生产者把曲目长度取整到整秒）；`spicyBridgeDocumentTimingFault` 的行/填充/词边界改按 `max(document, state)` 约束；新增 `spicyBridgeDocumentCommitFault`，允许文档在 state 到达前提交（以自身声明时长约束）；`spicyBridgeDocumentMismatch` 去掉 producer/generation 两支。CN+ 原样带着同一套严格闸门——
@@ -389,7 +404,7 @@ HyperOS 4 / Android 17 的三处接缝形态：① 应用类改为候选**对**�
 
 **不适用行：** `1d45ade` 与 `f7a8287`（仅 README）；版本号行 `2c8cf74` vC229 / 0.3.204、`5ecb5df` vC236 / 0.3.211、`2eaa191` vC237 / 0.3.212（CN+ 独立版本号体系）；以及 `5ecb5df` 的 `AodLyricCanvasView` `DuetSectionId` `equals`/`hashCode` 改动（CN+ 零存在上游对唱机制——见 `84a0c9ce` 项 #1 行）。
 
-**建议移植顺序：** #1/#2（桥接正确性——自洽、带测试）→ #3（锁屏）→ #5 日志 + #4 SurfaceEvidence → `2c8cf74` 文档（仅已落地项）→ 暂缓 #4 接缝候选（HyperOS 4），待有设备或报告再上。
+**移植记录（2026-10-18）：** 按建议顺序执行 —— #1/#2（桥接正确性，带测试）→ #3（锁屏，含 CN+ 适配）→ #5 日志 + #4 SurfaceEvidence → `2c8cf74` 文档（仅已落地项）→ #4 接缝候选（HyperOS 4）亦一并移植而非暂缓，连同五参 `doAnimationToAod` 能力探针。全量单测绿，仅 `root` 环境下的 `PluginInstallerTest` dex 只读断言失败（沙箱以 root 运行，`canWrite()` 无视只读位恒返回 true）。
 
 ## 历轮处置记录 —— 全部行已处置（2026-10-10）
 

@@ -283,6 +283,15 @@ internal object XiaomiCapabilityResolver {
                 "boolean",
                 "boolean",
                 "boolean"
+            ) || hasMethod(
+                classLoader,
+                ANIMATION_HELPER,
+                "doAnimationToAod",
+                "boolean",
+                "boolean",
+                "boolean",
+                "boolean",
+                ANIMATION_TRACKER
             ),
             linkageGeometry = hasNoArgMethod(
                 classLoader,
@@ -513,6 +522,7 @@ internal object XiaomiCapabilityResolver {
     private const val KEYGUARD_CLOCK_CONTAINER =
         "com.android.keyguard.clock.KeyguardClockContainer"
     private const val ANIMATION_HELPER = "com.android.keyguard.clock.animation.AnimationHelper"
+    private const val ANIMATION_TRACKER = "com.android.keyguard.clock.animation.AnimationTracker"
     private const val KEYGUARD_SENSOR_INJECTOR =
         "com.android.keyguard.injector.KeyguardSensorInjector"
     private const val KEYGUARD_EDITOR_HELPER =
