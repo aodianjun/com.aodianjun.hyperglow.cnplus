@@ -64,6 +64,11 @@ internal data class AodCanvasContent(
     val textSizeCustom: Int,
     val secondaryMode: String,
     val animationMode: String,
+    /**
+     * 自定义单词效果(声明式 DSL);非 null 时覆盖 [animationMode] 的内置三档,
+     * 由共享解释器逐词求值。来自 per-surface 编译档,随配置通道下发。
+     */
+    val wordEffect: com.eza.hyperglow.customization.WordEffectSpec? = null,
     val glowMode: String,
     val motionMode: String,
     val lineSyncFillMode: String,

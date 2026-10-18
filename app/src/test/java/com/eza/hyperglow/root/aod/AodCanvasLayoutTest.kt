@@ -1307,6 +1307,59 @@ class AodCanvasLayoutTest {
     }
 
     @Test
+    fun customWordEffectAlwaysRoutesToWordKaraokeAndKeepsFrames() {
+        // 自定义效果在场:即使 animationMode 是 Minimal、源无词窗、行级效果为 None,
+        // 也必须走词级卡拉OK并逐帧求值(解释器需要逐词进度)。
+        for (mode in listOf("Minimal", "Gradient", "BetterLyrics")) {
+            assertEquals(
+                OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, "Left to right (main only)"),
+                planOriginalLine(
+                    animationMode = mode,
+                    timed = false,
+                    lineLevelSync = true,
+                    lineSyncFillMode = "Left to right (main only)",
+                    lineStartMs = 1_000L,
+                    lineEndMs = 3_000L,
+                    hasWordEffect = true
+                )
+            )
+        }
+        assertFalse(
+            shouldUseSharedLineLevelSweep(
+                lineLevelSync = true,
+                hasOriginalLines = true,
+                animationMode = "Gradient",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L,
+                timed = false,
+                hasWordEffect = true
+            )
+        )
+        assertTrue(
+            hasActiveCanvasTiming(
+                lineLevelSync = true,
+                lineSyncFillMode = "None",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L,
+                words = emptyList(),
+                hasWordEffect = true
+            )
+        )
+        // 没有效果时旧行为不变:Minimal 恒静态。
+        assertEquals(
+            OriginalLinePlan(OriginalLinePath.STATIC, "None"),
+            planOriginalLine(
+                animationMode = "Minimal",
+                timed = false,
+                lineLevelSync = true,
+                lineSyncFillMode = "Left to right (main only)",
+                lineStartMs = 1_000L,
+                lineEndMs = 3_000L
+            )
+        )
+    }
+
+    @Test
     fun rubyStartSelectsContainingWrappedLine() {
         assertEquals(0, rubyLineIndex(4, listOf(0, 8), listOf(8, 16)))
         assertEquals(1, rubyLineIndex(8, listOf(0, 8), listOf(8, 16)))

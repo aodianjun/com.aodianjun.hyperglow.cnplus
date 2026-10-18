@@ -408,6 +408,7 @@
     <string name="choice_font">字体</string>
     <string name="section_effects">效果</string>
     <string name="choice_word_animation">单词动画</string>
+    <string name="choice_word_effect">自定义单词效果</string>
     <string name="choice_glow">发光</string>
     <string name="choice_line_progress_effect">整行进度效果</string>
     <string name="choice_text_brightness">文字亮度</string>
@@ -427,6 +428,10 @@
     <string name="section_both_surfaces">两个显示区域</string>
     <string name="action_import_appearance">导入外观文件</string>
     <string name="action_import_custom_font">导入自定义字体</string>
+    <string name="action_import_word_effect_pack">导入单词效果包</string>
+    <string name="action_open_word_effect_studio">在线编辑单词效果</string>
+    <string name="summary_word_effect_studio">在浏览器里编辑并导出效果包，再回到这里导入。</string>
+    <string name="toast_word_effect_studio_unavailable">没有可用的浏览器</string>
     <string name="action_export_appearance">导出外观文件</string>
     <string name="action_reset_surfaces">重置两个显示区域</string>
     <string name="dialog_reset_title">重置息屏和锁屏设置？</string>
@@ -510,6 +515,7 @@
     <string name="option_gradient">渐变</string>
     <string name="option_betterlyrics">BetterLyrics</string>
     <string name="option_off">关闭</string>
+    <string name="option_word_effect_none">关闭</string>
     <string name="option_on">开启</string>
     <string name="option_none">无</string>
     <string name="option_top_to_bottom">从上到下</string>
@@ -559,6 +565,8 @@
     <string name="toast_appearance_invalid">这不是有效的 HyperGlow 外观文件</string>
     <string name="toast_custom_font_imported">已导入自定义字体</string>
     <string name="toast_custom_font_invalid">这不是有效的字体文件</string>
+    <string name="toast_word_effect_imported">已导入 %1$d 个单词效果</string>
+    <string name="toast_word_effect_invalid">单词效果包无效</string>
     <string name="toast_appearance_exported">已导出外观文件</string>
     <string name="toast_appearance_export_failed">无法导出外观文件</string>
     <string name="toast_appearance_save_failed">无法保存外观设置</string>

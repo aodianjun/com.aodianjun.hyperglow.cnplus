@@ -80,14 +80,17 @@ internal fun planDuetRow(
     lineLevelSync: Boolean,
     lineSyncFillMode: String,
     lineStartMs: Long,
-    lineEndMs: Long
+    lineEndMs: Long,
+    /** 自定义单词效果在场(并发行与主行共用同一效果)。 */
+    hasWordEffect: Boolean = false
 ): OriginalLinePlan = planOriginalLine(
     animationMode = animationMode,
     timed = timed,
     lineLevelSync = lineLevelSync,
     lineSyncFillMode = lineSyncFillMode,
     lineStartMs = lineStartMs,
-    lineEndMs = lineEndMs
+    lineEndMs = lineEndMs,
+    hasWordEffect = hasWordEffect
 )
 
 /**

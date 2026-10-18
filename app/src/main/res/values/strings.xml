@@ -409,6 +409,7 @@
     <string name="choice_font">Font</string>
     <string name="section_effects">Effects</string>
     <string name="choice_word_animation">Word animation</string>
+    <string name="choice_word_effect">Custom word effect</string>
     <string name="choice_glow">Glow</string>
     <string name="choice_line_progress_effect">Line progress effect</string>
     <string name="choice_text_brightness">Text brightness</string>
@@ -428,6 +429,10 @@
     <string name="section_both_surfaces">Both surfaces</string>
     <string name="action_import_appearance">Import appearance file</string>
     <string name="action_import_custom_font">Import custom font</string>
+    <string name="action_import_word_effect_pack">Import word effect pack</string>
+    <string name="action_open_word_effect_studio">Online effect editor</string>
+    <string name="summary_word_effect_studio">Edit and export a pack in your browser, then import it here.</string>
+    <string name="toast_word_effect_studio_unavailable">No browser available</string>
     <string name="action_export_appearance">Export appearance file</string>
     <string name="action_reset_surfaces">Reset both surfaces</string>
     <string name="dialog_reset_title">Reset AOD and lock screen settings?</string>
@@ -511,6 +516,7 @@
     <string name="option_gradient">Gradient</string>
     <string name="option_betterlyrics">BetterLyrics</string>
     <string name="option_off">Off</string>
+    <string name="option_word_effect_none">Off</string>
     <string name="option_on">On</string>
     <string name="option_none">None</string>
     <string name="option_top_to_bottom">Top to bottom</string>
@@ -560,6 +566,8 @@
     <string name="toast_appearance_invalid">This is not a valid HyperGlow appearance file</string>
     <string name="toast_custom_font_imported">Custom font imported</string>
     <string name="toast_custom_font_invalid">This is not a valid font file</string>
+    <string name="toast_word_effect_imported">Word effect pack imported: %1$d</string>
+    <string name="toast_word_effect_invalid">Invalid word effect pack</string>
     <string name="toast_appearance_exported">Appearance file exported</string>
     <string name="toast_appearance_export_failed">Could not export the appearance file</string>
     <string name="toast_appearance_save_failed">Could not save the appearance settings</string>

@@ -79,6 +79,12 @@ import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_MUSIC_INFO
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.resolveLineTransition
+import com.eza.hyperglow.effect.EffectColors
+import com.eza.hyperglow.effect.EffectFrameContext
+import com.eza.hyperglow.effect.EffectLineSample
+import com.eza.hyperglow.effect.EffectVm
+import com.eza.hyperglow.effect.EffectWordSample
+import com.eza.hyperglow.root.aod.AndroidEffectRenderSink
 import com.eza.hyperglow.root.aod.AodCanvasRuby
 import com.eza.hyperglow.root.aod.AodCanvasWord
 import com.eza.hyperglow.root.aod.alignMissingWordOffsets
@@ -566,7 +572,8 @@ private fun LyricPreviewSurface(
         lineLevelSync = snapshot.lineLevelSync,
         lineSyncFillMode = profile.lineSyncFillMode,
         lineStartMs = snapshot.lineStartMs,
-        lineEndMs = snapshot.lineEndMs
+        lineEndMs = snapshot.lineEndMs,
+        hasWordEffect = profile.wordEffect != null
     )
     val previewFillMode = previewPlan.fillMode
     // 词级卡拉OK路径(与实机 drawOriginal 的 WORD_KARAOKE 分支同义):带真实词窗的行,
@@ -647,7 +654,7 @@ private fun LyricPreviewSurface(
                     textSize, lyricTypeface, regularTypeface,
                     previewRuby, availablePx, profile.lyricLineLimit, profile.overflow,
                     profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText,
-                    previewWordKaraoke
+                    previewWordKaraoke, profile.wordEffect
                 ) {
                     buildPreviewMainLayout(
                         text = snapshot.original,
@@ -658,6 +665,7 @@ private fun LyricPreviewSurface(
                         words = snapshot.words,
                         betterLyrics = profile.animation == "BetterLyrics",
                         wordKaraoke = previewWordKaraoke,
+                        wordEffect = profile.wordEffect,
                         unsungColorArgb = resolvedColors.unsungText,
                         lineSpanMs = demoLineSpanMs,
                         // 行窗起点:演示快照为 0(合成词窗自 0 起,行为不变);实时快照
@@ -713,12 +721,14 @@ private fun LyricPreviewSurface(
                     lineLevelSync = snapshot.lineLevelSync,
                     lineSyncFillMode = profile.lineSyncFillMode,
                     lineStartMs = duet.lineStartMs,
-                    lineEndMs = duet.lineEndMs
+                    lineEndMs = duet.lineEndMs,
+                    hasWordEffect = profile.wordEffect != null
                 ).path == OriginalLinePath.WORD_KARAOKE
                 val duetLayout = remember(
                     duet, duetTextAlign, duetWordKaraoke, duetSpanMs, textSize, lyricTypeface,
                     regularTypeface, availablePx, profile.lyricLineLimit, profile.overflow,
-                    profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText
+                    profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText,
+                    profile.wordEffect
                 ) {
                     if (duet == null || duet.harmony) {
                         null
@@ -733,6 +743,7 @@ private fun LyricPreviewSurface(
                             words = duet.words,
                             betterLyrics = profile.animation == "BetterLyrics",
                             wordKaraoke = duetWordKaraoke,
+                            wordEffect = profile.wordEffect,
                             unsungColorArgb = resolvedColors.unsungText,
                             // 行级源的字符合成时间轴取并发行自己的行窗(与实机并发行扫光同拍)。
                             lineSpanMs = duetSpanMs,
@@ -1600,6 +1611,8 @@ private class PreviewMainLayout(
     val betterLyrics: Boolean = false,
     /** 决策函数给出的词级卡拉OK路径(与实机 drawOriginal 的 WORD_KARAOKE 分支同义)。 */
     val wordKaraoke: Boolean = false,
+    /** 自定义单词效果(与实机 drawWordKaraoke(effect=...) 同源);null = 内置档。 */
+    val wordEffect: com.eza.hyperglow.customization.WordEffectSpec? = null,
     /** 未唱底字色(与实机 resolvedPalette.unsungText 同源)。 */
     val unsungColorArgb: Int = 0,
     /**
@@ -1653,6 +1666,8 @@ private fun buildPreviewMainLayout(
     betterLyrics: Boolean,
     /** 词级卡拉OK路径(planOriginalLine 决策):真实词窗的行非 Minimal 档一律为真。 */
     wordKaraoke: Boolean,
+    /** 自定义单词效果;null = 内置档。随布局冻结,渲染时与实机共用同一解释器。 */
+    wordEffect: com.eza.hyperglow.customization.WordEffectSpec? = null,
     unsungColorArgb: Int,
     lineSpanMs: Long,
     /** 本行播放窗口起点(演示快照=0):合成词窗与实时扫光都以它为基准。 */
@@ -1773,11 +1788,16 @@ private fun buildPreviewMainLayout(
             )
         }
     )
+    // 零窗占位词(布局分组合成)不是真实词级时间源:与实机 isTimedKaraokeWord 同判,
+    // 否则它们会让词位列表非空、跳过下面的行级合成,整行静态全亮。
+    val timedWords = alignedWords.filter { it.text.isNotBlank() && it.endMs > it.startMs }
     val wordRuns = when {
-        wordKaraoke && alignedWords.isNotEmpty() ->
-            result.lines.map { line -> previewWordRuns(line, text.length, alignedWords, paint) }
+        wordKaraoke && timedWords.isNotEmpty() ->
+            result.lines.map { line -> previewWordRuns(line, text.length, timedWords, paint) }
         // 合成源只吃行文本与行宽(与副文本行同型),主行行表按同一口径转换后共用。
-        wordKaraoke && betterLyrics -> syntheticPreviewWordRuns(
+        // 自定义效果与 BetterLyrics 一样需要词块:行级源(LRC)没有词时间,必须合成,
+        // 否则预览没有词位、效果只在实机可见。
+        wordKaraoke && (betterLyrics || wordEffect != null) -> syntheticPreviewWordRuns(
             result.lines.map { LyricLayoutTextLine(it.text, it.width) },
             paint,
             lineStartMs,
@@ -1801,6 +1821,7 @@ private fun buildPreviewMainLayout(
         wordSpanEndMs = wordSpanEndMs,
         betterLyrics = betterLyrics,
         wordKaraoke = wordKaraoke,
+        wordEffect = wordEffect,
         unsungColorArgb = unsungColorArgb,
         lineSpanMs = lineSpanMs,
         lineStartMs = lineStartMs
@@ -2937,20 +2958,38 @@ private fun PreviewMainLayer(
                 progress
             )
             drawIntoCanvas { canvas ->
-                drawPreviewKaraokeRuns(
-                    canvas = canvas.nativeCanvas,
-                    paint = layout.paint,
-                    runsPerLine = layout.wordRuns,
-                    baselines = layout.baselines,
-                    startsX = layout.startsX,
-                    virtualPosition = virtualPosition,
-                    sungColorArgb = sungArgb,
-                    unsungColorArgb = layout.unsungColorArgb,
-                    glowColorArgb = glowArgb,
-                    glowEnabled = glowEnabled,
-                    betterLyrics = layout.betterLyrics,
-                    sinkPx = karaokeFloatSinkPx(layout.lineHeight)
-                )
+                if (layout.wordEffect?.program != null) {
+                    // 沙箱效果程序接管整块:所有视觉行/所有词一次性装进上下文,VM 只执行
+                    // 一次(与实机整块语义同源);程序自己绘制文本,不能再走逐行
+                    // drawPreviewKaraokeRuns,否则同一块会被画两遍。
+                    drawPreviewKaraokeBlock(
+                        canvas = canvas.nativeCanvas,
+                        paint = layout.paint,
+                        layout = layout,
+                        virtualPosition = virtualPosition,
+                        sungColorArgb = sungArgb,
+                        glowColorArgb = glowArgb
+                    )
+                } else {
+                    drawPreviewKaraokeRuns(
+                        canvas = canvas.nativeCanvas,
+                        paint = layout.paint,
+                        runsPerLine = layout.wordRuns,
+                        baselines = layout.baselines,
+                        startsX = layout.startsX,
+                        virtualPosition = virtualPosition,
+                        sungColorArgb = sungArgb,
+                        unsungColorArgb = layout.unsungColorArgb,
+                        glowColorArgb = glowArgb,
+                        glowEnabled = glowEnabled,
+                        betterLyrics = layout.betterLyrics,
+                        sinkPx = karaokeFloatSinkPx(layout.lineHeight),
+                        effect = layout.wordEffect,
+                        lineTexts = layout.lines.map { it.text },
+                        lineStartMs = layout.lineStartMs,
+                        lineSpanMs = layout.lineSpanMs
+                    )
+                }
             }
         } else {
             val rows = ArrayList<LyricGlowRow>(layout.lines.size)
@@ -2992,13 +3031,24 @@ private fun drawPreviewKaraokeRuns(
     sungColorArgb: Int,
     unsungColorArgb: Int,
     glowColorArgb: Int,
+    /** 强调色(与实机 resolvedPalette.accent 同源);缺省回落辉光色。 */
+    accentColorArgb: Int = glowColorArgb,
     glowEnabled: Boolean,
     betterLyrics: Boolean,
     sinkPx: Float,
-    alphaFactor: Float = 1f
+    alphaFactor: Float = 1f,
+    /** 自定义单词效果;与实机 drawWordKaraoke 同源,非 null 时解释器接管。 */
+    effect: com.eza.hyperglow.customization.WordEffectSpec? = null,
+    /** 各行文本(与 [runsPerLine] 下标对齐);供沙箱效果程序读取整行上下文。 */
+    lineTexts: List<String> = emptyList(),
+    /** 该行块播放窗口起点(与实机 drawWordKaraoke 的 blockStartMs 同口径)。 */
+    lineStartMs: Long = 0L,
+    /** 该行块窗口跨度(与实机 blockEndMs - blockStartMs 同口径)。 */
+    lineSpanMs: Long = 0L
 ) {
     runsPerLine.forEachIndexed { index, runs ->
-        if (runs.isEmpty()) return@forEachIndexed
+        // 程序效果即使没有词位也可能用 lineText 绘制(与实机一致);DSL/内置档仍跳过空行。
+        if (runs.isEmpty() && effect?.program == null) return@forEachIndexed
         val baseline = baselines.getOrNull(index) ?: return@forEachIndexed
         val startX = startsX.getOrNull(index) ?: return@forEachIndexed
         val karaokeRuns = ArrayList<KaraokeWordRun>(runs.size)
@@ -3015,8 +3065,54 @@ private fun drawPreviewKaraokeRuns(
                     timedWordProgress(virtualPosition, run.highlightStartMs, run.highlightEndMs)
                 } else {
                     -1f
+                },
+                startMs = run.startMs,
+                endMs = run.endMs
+            )
+        }
+        // 沙箱效果程序的整行上下文:仅当效果带程序时构建(内置/DSL 路径零开销)。
+        val effectContext = if (effect?.program != null) {
+            EffectFrameContext(
+                timeMs = virtualPosition,
+                wallClockMs = android.os.SystemClock.elapsedRealtime(),
+                deltaMs = 0L,
+                frameIndex = 0L,
+                lineText = lineTexts.getOrElse(index) { "" },
+                lineStartMs = lineStartMs,
+                lineEndMs = lineStartMs + lineSpanMs,
+                lineProgress = if (lineSpanMs > 0L) {
+                    ((virtualPosition - lineStartMs).toFloat() / lineSpanMs.toFloat())
+                        .coerceIn(0f, 1f)
+                } else {
+                    0f
+                },
+                lineIndex = index,
+                canvasWidth = canvas.width.toFloat(),
+                canvasHeight = canvas.height.toFloat(),
+                textSize = paint.textSize,
+                baseline = baseline,
+                colors = EffectColors(
+                    sungColorArgb,
+                    unsungColorArgb,
+                    glowColorArgb,
+                    accentColorArgb
+                ),
+                words = karaokeRuns.mapIndexed { runIndex, run ->
+                    EffectWordSample(
+                        text = run.text,
+                        x = run.x,
+                        width = run.width,
+                        startMs = run.startMs,
+                        endMs = run.endMs,
+                        progress = run.playedFraction,
+                        index = runIndex,
+                        longSyllable = run.longSyllable ||
+                            run.durationMs >= (effect?.longSyllableMs ?: 700)
+                    )
                 }
             )
+        } else {
+            null
         }
         LyricWordKaraokeRenderer.draw(
             canvas = canvas,
@@ -3029,8 +3125,106 @@ private fun drawPreviewKaraokeRuns(
             glowEnabled = glowEnabled,
             betterLyrics = betterLyrics,
             sinkPx = sinkPx,
-            alphaFactor = alphaFactor
+            alphaFactor = alphaFactor,
+            effect = effect,
+            effectContext = effectContext
         )
+    }
+}
+
+/**
+ * 整块逐字效果程序绘制(预览侧):与实机 drawWordKaraoke 的整块语义同源——把整块歌词的
+ * **所有视觉行与所有词**一次性装进 [EffectFrameContext],[EffectVm] 每帧只执行一次;
+ * 程序自己负责绘制文本,调用方不得再走逐行 [drawPreviewKaraokeRuns](避免双重绘制)。
+ * 程序超预算/异常中止时记一条告警日志,本帧该块留空(与实机同一降级口径)。
+ */
+private fun drawPreviewKaraokeBlock(
+    canvas: android.graphics.Canvas,
+    paint: TextPaint,
+    layout: PreviewMainLayout,
+    virtualPosition: Long,
+    sungColorArgb: Int,
+    glowColorArgb: Int
+) {
+    val effect = layout.wordEffect ?: return
+    val program = effect.program ?: return
+    // 行窗跨度(实时=真实行窗,演示=切换周期);整块所有视觉行共用同一播放窗口。
+    val lineStartMs = layout.lineStartMs
+    val lineSpanMs = layout.lineSpanMs
+    val lineProgress = if (lineSpanMs > 0L) {
+        ((virtualPosition - lineStartMs).toFloat() / lineSpanMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val lines = layout.lines.mapIndexed { index, line ->
+        EffectLineSample(
+            text = line.text,
+            index = index,
+            startMs = lineStartMs,
+            endMs = lineStartMs + lineSpanMs,
+            progress = lineProgress,
+            x = layout.startsX[index],
+            width = line.width,
+            baseline = layout.baselines[index],
+            height = layout.lineHeight
+        )
+    }
+    // 整块词表:跨视觉行顺序编号(globalIndex),行下标/基线随词携带,程序按词自己落位。
+    val words = ArrayList<EffectWordSample>(
+        layout.wordRuns.sumOf { it.size }
+    )
+    var globalIndex = 0
+    layout.wordRuns.forEachIndexed { lineIndex, runs ->
+        val baseline = layout.baselines.getOrNull(lineIndex) ?: return@forEachIndexed
+        val startX = layout.startsX.getOrNull(lineIndex) ?: return@forEachIndexed
+        runs.forEach { run ->
+            words += EffectWordSample(
+                text = run.text,
+                x = startX + run.x,
+                width = run.width,
+                startMs = run.startMs,
+                endMs = run.endMs,
+                progress = timedWordProgress(virtualPosition, run.startMs, run.endMs),
+                index = globalIndex++,
+                longSyllable = run.longSyllable ||
+                    (run.endMs - run.startMs) >= effect.longSyllableMs,
+                lineIndex = lineIndex,
+                baseline = baseline
+            )
+        }
+    }
+    val blockWidth = layout.lines.indices.maxOfOrNull {
+        layout.startsX[it] + layout.lines[it].width
+    } ?: 0f
+    // 整块上下文:标量行字段取首行(与实机整块调用同口径),完整行/词数据在 lines/words。
+    val context = EffectFrameContext(
+        timeMs = virtualPosition,
+        wallClockMs = android.os.SystemClock.elapsedRealtime(),
+        deltaMs = 0L,
+        frameIndex = 0L,
+        lineText = layout.lines.firstOrNull()?.text ?: "",
+        lineStartMs = lineStartMs,
+        lineEndMs = lineStartMs + lineSpanMs,
+        lineProgress = lineProgress,
+        lineIndex = 0,
+        canvasWidth = canvas.width.toFloat(),
+        canvasHeight = canvas.height.toFloat(),
+        textSize = paint.textSize,
+        baseline = layout.baselines.firstOrNull() ?: 0f,
+        colors = EffectColors(sungColorArgb, layout.unsungColorArgb, glowColorArgb, glowColorArgb),
+        words = words,
+        lines = lines,
+        blockWidth = blockWidth,
+        blockHeight = layout.blockHeight
+    )
+    val sink = AndroidEffectRenderSink(canvas, paint, context.colors)
+    val rendered = runCatching {
+        EffectVm(program).render(context, sink)
+    }.getOrElse { false }
+    // 程序可能留下未配对的 save;先弹回宿主深度,再决定是否记录中止。
+    runCatching { sink.restoreAll() }
+    if (!rendered) {
+        android.util.Log.w("PreviewComponents", "effect program aborted")
     }
 }
 

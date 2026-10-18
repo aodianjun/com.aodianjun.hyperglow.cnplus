@@ -18,6 +18,7 @@ import com.eza.hyperglow.customization.normalizeMetadataParts
 import com.eza.hyperglow.customization.normalizeMetadataSeparators
 import com.eza.hyperglow.customization.normalizeSecondaryTextSizePercent
 import com.eza.hyperglow.customization.normalizeSongInfoArtistSizePercent
+import com.eza.hyperglow.customization.normalizeWordEffectSpec
 import com.eza.hyperglow.aod.normalizePauseLingerMs
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
 import com.eza.hyperglow.root.surface.SurfacePolicyResolver
@@ -187,6 +188,9 @@ internal object SystemUiCustomizationValidator {
                 profile.animation in ANIMATIONS -> profile.animation
                 else -> "Gradient"
             },
+            // 与 SceneCompiler.compileProfile 同源归一:两处不一致会让 validate 改写字段、
+            // 配置 hash 校验拒收整份配置。
+            wordEffect = normalizeWordEffectSpec(profile.wordEffect),
             glow = if (profile.glow == "On") "On" else "Off",
             lineSyncFillMode = normalizeLineSyncFillMode(profile.lineSyncFillMode),
             overflow = if (profile.overflow == "Clip") "Clip" else "Wrap",

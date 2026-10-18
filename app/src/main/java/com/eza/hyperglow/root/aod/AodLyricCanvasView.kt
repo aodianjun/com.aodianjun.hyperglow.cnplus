@@ -20,6 +20,11 @@ import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
 import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
+import com.eza.hyperglow.effect.EffectColors
+import com.eza.hyperglow.effect.EffectFrameContext
+import com.eza.hyperglow.effect.EffectLineSample
+import com.eza.hyperglow.effect.EffectVm
+import com.eza.hyperglow.effect.EffectWordSample
 import com.eza.hyperglow.producer.DuetLineWindow
 import com.eza.hyperglow.producer.shouldAdoptDuetLineCandidate
 import com.eza.hyperglow.root.HookLogger
@@ -327,6 +332,17 @@ internal class AodLyricCanvasView(
 
     /** [lyricClipBounds] 的复用缓冲(见其注释:调用方均在返回后立即消费)。 */
     private val clipBoundsScratch = IntArray(4)
+
+    /**
+     * 帧级裁剪:自定义单词效果允许大位移/大缩放/旋转,裁剪放宽到整帧,避免效果被内容区
+     * 切平;内置三档仍裁到内容区(历史行为逐值不变)。效果自己负责不越出画布。
+     */
+    private fun frameClipBounds(): IntArray =
+        if (content.wordEffect != null) {
+            lyricClipBounds(0, 0, ow, oh)
+        } else {
+            lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        }
 
     private val density = resources.displayMetrics.density
     private val scaledDensity = resources.displayMetrics.scaledDensity
@@ -671,7 +687,9 @@ internal class AodLyricCanvasView(
                 nextContent.secondaryMode,
                 nextContent.romanized,
                 nextContent.translated
-            )
+            ),
+            // 自定义单词效果逐帧求值,必须续帧。
+            hasWordEffect = nextContent.wordEffect != null
         )
         resolvedPalette = resolveAodPalette(nextContent.palette)
         alignment = viewAlignment(
@@ -1459,7 +1477,7 @@ internal class AodLyricCanvasView(
         } else {
             canvas.save()
         }
-        val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        val frameClip = frameClipBounds()
         canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
         drawOriginal(canvas, placement.baselinePx)
         canvas.restoreToCount(layer)
@@ -1545,7 +1563,7 @@ internal class AodLyricCanvasView(
         // 所有歌词绘制路径(原文/注音/翻译/逐字扫光/发光块)共享这一处逻辑裁剪:
         // 即使整词不可分或动画越界超出其测量宽度,也强制限制在周围 padding 框内,
         // 取代原先逐 drawText 的 clip,成为唯一统一边界。
-        val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        val frameClip = frameClipBounds()
         canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
         // 对唱共享缩放:并发行在场且行堆叠总高超出内容区时整块按同一比例缩小(0.3 绝对
         // 下限,见 duetSharedFitScale);枢轴取内容框中心,与 Zoom 档同口径。缺席恒 1 不介入。
@@ -1565,7 +1583,9 @@ internal class AodLyricCanvasView(
             drawContent.lineStartMs,
             drawContent.lineEndMs,
             // 带真实词窗的行压过行级标记,走 drawOriginal 的词级卡拉OK分支(与决策函数同源)。
-            drawLayout.original.timed
+            drawLayout.original.timed,
+            // 自定义单词效果在场:恒走词级卡拉OK,共享扫光块不得拦截。
+            hasWordEffect = drawContent.wordEffect != null
         )
         if (sharedLineLevelSweep) {
             drawSharedLineLevelRows(
@@ -2831,7 +2851,8 @@ internal class AodLyricCanvasView(
             lineLevelSync = forContent.lineLevelSync,
             lineSyncFillMode = forContent.lineSyncFillMode,
             lineStartMs = forContent.lineStartMs,
-            lineEndMs = forContent.lineEndMs
+            lineEndMs = forContent.lineEndMs,
+            hasWordEffect = forContent.wordEffect != null
         )
         val mainGlow = when (plan.path) {
             OriginalLinePath.STATIC -> false
@@ -2847,8 +2868,27 @@ internal class AodLyricCanvasView(
         } else {
             rows.first()
         }
-        val topOverdraw = rowEffectOverdrawPx(topRow, mainGlow, mainSink, auxGlow, betterLyrics)
-        val bottomOverdraw = rowEffectOverdrawPx(rows.last(), mainGlow, mainSink, auxGlow, betterLyrics)
+        // 自定义效果的大位移/大缩放/旋转/辉光半径:按规格取保守上界,与内置辉光/下沉取大者。
+        // 否则 translateY ±2em、scale 3 之类的效果会被歌词块裁剪沿切平。
+        val effectOverdraw = forContent.wordEffect?.let { spec ->
+            // 效果作用于主行,取主行自己的字号/行高;没有主行时才回落到边缘行。
+            val referenceRow = rows.firstOrNull {
+                it.kind == RowKind.ORIGINAL || it.kind == RowKind.DUET_ORIGINAL
+            } ?: topRow ?: rows.last()
+            com.eza.hyperglow.customization.wordEffectVerticalOverdrawPx(
+                spec = spec,
+                textSizePx = referenceRow.paint.textSize,
+                lineHeightPx = referenceRow.lineHeight
+            )
+        } ?: 0f
+        val topOverdraw = maxOf(
+            rowEffectOverdrawPx(topRow, mainGlow, mainSink, auxGlow, betterLyrics),
+            effectOverdraw
+        )
+        val bottomOverdraw = maxOf(
+            rowEffectOverdrawPx(rows.last(), mainGlow, mainSink, auxGlow, betterLyrics),
+            effectOverdraw
+        )
         return CanvasEffectEdges(
             needs = canvasEffectEdgeNeeds(
                 topRowOverdrawPx = topOverdraw,
@@ -3111,6 +3151,12 @@ internal class AodLyricCanvasView(
 
     private fun drawOriginal(canvas: Canvas, baseline: Float) {
         val originalLayout = layout.original
+        // 沙箱效果程序:整句歌词的全部视觉行一次性交给 VM,程序自绘文本(含跨行排版),
+        // 宿主不再走内置三档/DSL 路径,避免双重绘制。program 为 null 时以下路径逐字节不变。
+        if (content.wordEffect?.program != null) {
+            drawWordEffectProgramBlock(canvas, baseline, originalLayout)
+            return
+        }
         val lines = originalLayout.lines
         // 主行渲染路径由共享决策函数给出(与 App 内预览读同一份,杜绝两侧分支树漂移):
         // 静态全亮 / 词级卡拉OK / 共享扫光块三选一。
@@ -3120,7 +3166,8 @@ internal class AodLyricCanvasView(
             lineLevelSync = content.lineLevelSync,
             lineSyncFillMode = content.lineSyncFillMode,
             lineStartMs = content.lineStartMs,
-            lineEndMs = content.lineEndMs
+            lineEndMs = content.lineEndMs,
+            hasWordEffect = content.wordEffect != null
         )
         when (plan.path) {
             // 静态全亮，无扫光/发光（Minimal 档或行进度效果 None）。
@@ -3161,7 +3208,8 @@ internal class AodLyricCanvasView(
                 canvas,
                 baseline,
                 originalLayout,
-                betterLyrics = content.animationMode == "BetterLyrics"
+                betterLyrics = content.animationMode == "BetterLyrics",
+                effect = content.wordEffect
             )
             // 统一共享管线：dim 底 + 光晕(发光开启时) + 扫光带,fillMode 由决策函数给出
             // (逐行依次 / 整块同时 / 纵向推进 / None 静态)。整块进度：行级时间优先，
@@ -3208,6 +3256,18 @@ internal class AodLyricCanvasView(
             drawDuetStatic(canvas, duetLayout, baseline)
             return
         }
+        // 沙箱效果程序:并发行同样整块只跑一次(单行布局,时间窗取并发行自己的),
+        // 程序自绘文本;DSL/内置路径仅在无程序时生效。
+        if (content.wordEffect?.program != null) {
+            drawWordEffectProgramBlock(
+                canvas,
+                baseline,
+                duetLayout,
+                duet.lineStartMs,
+                duet.lineEndMs
+            )
+            return
+        }
         // 渲染路径与主行**同一决策函数**(见 [planDuetRow]):并发行带真实词窗时走词级卡拉OK
         // (逐词真实时间戳),行级源才落共享扫光块。此前并发行恒走扫光块——整块进度按行窗
         // 线性铺满,插件行窗若含拖长音(实测「乐鸣东方」末字「方」独占 5.65s)就会在音频
@@ -3218,7 +3278,8 @@ internal class AodLyricCanvasView(
             lineLevelSync = content.lineLevelSync,
             lineSyncFillMode = content.lineSyncFillMode,
             lineStartMs = duet.lineStartMs,
-            lineEndMs = duet.lineEndMs
+            lineEndMs = duet.lineEndMs,
+            hasWordEffect = content.wordEffect != null
         )
         when (duetPlan.path) {
             OriginalLinePath.STATIC -> drawDuetStatic(canvas, duetLayout, baseline)
@@ -3229,7 +3290,8 @@ internal class AodLyricCanvasView(
                 betterLyrics = content.animationMode == "BetterLyrics",
                 blockStartMs = duet.lineStartMs,
                 blockEndMs = duet.lineEndMs,
-                probeTag = "duet-karaoke-probe"
+                probeTag = "duet-karaoke-probe",
+                effect = content.wordEffect
             )
             OriginalLinePath.BLOCK_SWEEP -> drawOriginalGlowBlock(
                 canvas,
@@ -3410,7 +3472,7 @@ internal class AodLyricCanvasView(
                 (padTop + (oh - padBottom)) / 2f
             )
         }
-        val frameClip = lyricClipBounds(padLeft, padTop, ow - padRight, oh - padBottom)
+        val frameClip = frameClipBounds()
         canvas.clipRect(frameClip[0], frameClip[1], frameClip[2], frameClip[3])
         return layer
     }
@@ -3679,7 +3741,9 @@ internal class AodLyricCanvasView(
         betterLyrics: Boolean = false,
         blockStartMs: Long = content.lineStartMs,
         blockEndMs: Long = content.lineEndMs,
-        probeTag: String = "karaoke-probe"
+        probeTag: String = "karaoke-probe",
+        /** 自定义单词效果;非 null 时解释器接管逐词变换(内置三档不受影响)。 */
+        effect: com.eza.hyperglow.customization.WordEffectSpec? = null
     ) {
         val lines = originalLayout.lines
         val position = projectedPosition()
@@ -3724,13 +3788,16 @@ internal class AodLyricCanvasView(
                         width = placed.width,
                         playedFraction = timedWordProgress(position, word.startMs, word.endMs),
                         durationMs = durationMs,
-                        longSyllable = isLongKaraokeSyllable(durationMs)
+                        longSyllable = isLongKaraokeSyllable(durationMs),
+                        startMs = word.startMs,
+                        endMs = word.endMs
                     )
                 }
                 x += placed.width + placed.gapAfter
                 wordIndex++
             }
-            if (runs.isEmpty() && betterLyrics) {
+            // 自定义效果同样需要词块:行级源(无逐字时间)按字符合成,否则 runs 为空整行不画。
+            if (runs.isEmpty() && (betterLyrics || effect != null)) {
                 // 行级源合成:按词块划分(中文逐字、西文按词),块内字符各自扫光进度、
                 // 共享块级高亮进度——整块在演唱期间同步放大/辉光(可见),未唱整块下沉、
                 // 唱到逐字上浮;推进前缘与行级扫光几何同式。
@@ -3766,7 +3833,9 @@ internal class AodLyricCanvasView(
                             timedWordProgress(position, unit.highlightStartMs, unit.highlightEndMs)
                         } else {
                             -1f
-                        }
+                        },
+                        startMs = unit.windowStartMs,
+                        endMs = unit.windowEndMs
                     )
                     unitIndex++
                 }
@@ -3786,6 +3855,47 @@ internal class AodLyricCanvasView(
                         "word0=[${firstWord?.startMs}..${firstWord?.endMs}]"
                 }
             }
+            // 沙箱效果程序的整行上下文:仅当效果带程序时构建(DSL/内置路径零开销)。
+            // 词样本与 runs 同源同序(含合成源),程序读到的 x/宽/进度与内置路径逐值一致。
+            val effectContext = if (effect?.program != null) {
+                EffectFrameContext(
+                    timeMs = position,
+                    wallClockMs = SystemClock.elapsedRealtime(),
+                    deltaMs = 0L,
+                    frameIndex = 0L,
+                    lineText = line.text,
+                    lineStartMs = blockStartMs,
+                    lineEndMs = blockEndMs,
+                    lineProgress = timedWordProgress(position, blockStartMs, blockEndMs)
+                        .coerceIn(0f, 1f),
+                    lineIndex = lineIndex,
+                    canvasWidth = ow.toFloat(),
+                    canvasHeight = oh.toFloat(),
+                    textSize = linePaint.textSize,
+                    baseline = lineBaseline,
+                    colors = EffectColors(
+                        resolvedPalette.sungText,
+                        resolvedPalette.unsungText,
+                        resolvedPalette.glow,
+                        resolvedPalette.accent
+                    ),
+                    words = runs.mapIndexed { runIndex, run ->
+                        EffectWordSample(
+                            text = run.text,
+                            x = run.x,
+                            width = run.width,
+                            startMs = run.startMs,
+                            endMs = run.endMs,
+                            progress = run.playedFraction,
+                            index = runIndex,
+                            longSyllable = run.longSyllable ||
+                                run.durationMs >= (effect?.longSyllableMs ?: 700)
+                        )
+                    }
+                )
+            } else {
+                null
+            }
             LyricWordKaraokeRenderer.draw(
                 canvas = canvas,
                 paint = linePaint,
@@ -3796,12 +3906,191 @@ internal class AodLyricCanvasView(
                 glowColor = resolvedPalette.glow,
                 glowEnabled = content.glowMode != "Off",
                 betterLyrics = betterLyrics,
-                sinkPx = sinkPx
+                sinkPx = sinkPx,
+                effect = effect,
+                effectContext = effectContext
             )
             if (lineClipSave != -1) canvas.restoreToCount(lineClipSave)
             precedingWidth += line.width
             precedingRuby += line.rubyHeight
             lineIndex++
+        }
+    }
+
+    /**
+     * 沙箱效果程序的**整块**绘制:整句歌词的全部视觉行/词一次性交给 [EffectVm],VM 每帧
+     * 只执行一次,程序自行调用受控绘制原语画文本(宿主不再走内置三档/DSL 路径,避免双重
+     * 绘制)。与 [drawWordKaraoke] 的逐行上下文不同,`EffectFrameContext.lines` 携带全部
+     * 折行几何,`words[].lineIndex/baseline` 标明每个词所属的视觉行,程序可按整块排版
+     * (跨行背景、整句扫光等);ruby 程序拿不到,仍由宿主按行先画。
+     *
+     * runs 与 [drawWordKaraoke] 同源同序(真实词窗优先,行级源按字符合成),程序读到的
+     * x/宽/进度与内置路径逐值一致;程序超预算中止时记一条节流告警。
+     *
+     * [blockStartMs]/[blockEndMs] 为主行/并发行各自的行窗口(默认取当前内容行窗)。
+     */
+    private fun drawWordEffectProgramBlock(
+        canvas: Canvas,
+        baseline: Float,
+        originalLayout: OriginalLayout,
+        blockStartMs: Long = content.lineStartMs,
+        blockEndMs: Long = content.lineEndMs
+    ) {
+        val effect = content.wordEffect ?: return
+        val program = effect.program ?: return
+        val lines = originalLayout.lines
+        val position = projectedPosition()
+        val totalWidth = lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
+        val longSyllableMs = effect.longSyllableMs
+        val allWords = ArrayList<EffectWordSample>(16)
+        val allLines = ArrayList<EffectLineSample>(lines.size)
+        // 复用词块缓冲:逐行 clear 后重建,本函数内同步消费,不重入。
+        val runs = karaokeRunsScratch
+        var precedingWidth = 0f
+        var precedingRuby = 0f
+        var wordIndex = 0
+        var lineIndex = 0
+        while (lineIndex < lines.size) {
+            val line = lines[lineIndex]
+            // 混合字号行(堆叠式开场占位的歌手段)按行自己的小字号测量;其余行回落主行 Paint。
+            val linePaint = line.paint ?: originalPaint
+            val lineBaseline = originalLineBaseline(
+                baseline,
+                lineIndex,
+                originalLayout.lineHeight,
+                precedingRuby,
+                line.rubyHeight,
+                originalLayout.lineGap,
+                originalLayout.baselineOffsets()
+            )
+            // 程序拿不到注音数据:ruby 仍由宿主先画(与词级卡拉OK同一绘制顺序)。
+            if (line.ruby.isNotEmpty()) {
+                drawRuby(canvas, line, lineBaseline)
+            }
+            runs.clear()
+            var x = 0f
+            var lineWordIndex = 0
+            while (lineWordIndex < line.words.size) {
+                val placed = line.words[lineWordIndex]
+                val word = placed.word
+                val durationMs = word.endMs - word.startMs
+                if (isTimedKaraokeWord(word.startMs, word.endMs)) {
+                    runs += KaraokeWordRun(
+                        text = word.text,
+                        x = line.startX + x,
+                        width = placed.width,
+                        playedFraction = timedWordProgress(position, word.startMs, word.endMs),
+                        durationMs = durationMs,
+                        longSyllable = isLongKaraokeSyllable(durationMs),
+                        startMs = word.startMs,
+                        endMs = word.endMs
+                    )
+                }
+                x += placed.width + placed.gapAfter
+                lineWordIndex++
+            }
+            // 程序路径恒需词块:行级源(无逐字时间)按字符合成,口径与 drawWordKaraoke 一致。
+            if (runs.isEmpty()) {
+                val units = syntheticRunUnits(
+                    text = line.text,
+                    paint = linePaint,
+                    windowStartMs = blockStartMs,
+                    windowEndMs = blockEndMs,
+                    totalWidth = totalWidth,
+                    precedingWidth = precedingWidth,
+                    lineStartX = line.startX
+                )
+                var unitIndex = 0
+                while (unitIndex < units.size) {
+                    val unit = units[unitIndex]
+                    runs += KaraokeWordRun(
+                        text = unit.text,
+                        x = unit.x,
+                        width = unit.width,
+                        playedFraction = timedWordProgress(
+                            position,
+                            unit.windowStartMs,
+                            unit.windowEndMs
+                        ),
+                        durationMs = unit.windowEndMs - unit.windowStartMs,
+                        longSyllable = unit.longSyllable,
+                        startMs = unit.windowStartMs,
+                        endMs = unit.windowEndMs
+                    )
+                    unitIndex++
+                }
+            }
+            var runIndex = 0
+            while (runIndex < runs.size) {
+                val run = runs[runIndex]
+                allWords += EffectWordSample(
+                    text = run.text,
+                    x = run.x,
+                    width = run.width,
+                    startMs = run.startMs,
+                    endMs = run.endMs,
+                    progress = run.playedFraction,
+                    index = wordIndex++,
+                    longSyllable = run.longSyllable || run.durationMs >= longSyllableMs,
+                    lineIndex = lineIndex,
+                    baseline = lineBaseline
+                )
+                runIndex++
+            }
+            allLines += EffectLineSample(
+                text = line.text,
+                index = lineIndex,
+                startMs = blockStartMs,
+                endMs = blockEndMs,
+                progress = timedWordProgress(position, blockStartMs, blockEndMs).coerceIn(0f, 1f),
+                x = line.startX,
+                width = line.width,
+                baseline = lineBaseline,
+                height = originalLayout.lineHeight
+            )
+            precedingWidth += line.width
+            precedingRuby += line.rubyHeight
+            lineIndex++
+        }
+        // 整块几何:宽取最右视觉行的右缘(与词坐标同系),高取布局自身的整块高(含行距)。
+        val blockWidth = lines.maxOfOrNull { it.startX + it.width } ?: 0f
+        val colors = EffectColors(
+            resolvedPalette.sungText,
+            resolvedPalette.unsungText,
+            resolvedPalette.glow,
+            resolvedPalette.accent
+        )
+        val context = EffectFrameContext(
+            timeMs = position,
+            wallClockMs = SystemClock.elapsedRealtime(),
+            deltaMs = 0L,
+            frameIndex = 0L,
+            lineText = lines.firstOrNull()?.text ?: "",
+            lineStartMs = blockStartMs,
+            lineEndMs = blockEndMs,
+            lineProgress = timedWordProgress(position, blockStartMs, blockEndMs).coerceIn(0f, 1f),
+            lineIndex = 0,
+            canvasWidth = ow.toFloat(),
+            canvasHeight = oh.toFloat(),
+            textSize = originalPaint.textSize,
+            baseline = allLines.firstOrNull()?.baseline ?: baseline,
+            colors = colors,
+            words = allWords,
+            lines = allLines,
+            blockWidth = blockWidth,
+            blockHeight = originalLayout.stackedHeight
+        )
+        val sink = AndroidEffectRenderSink(canvas, originalPaint, colors)
+        val rendered = runCatching {
+            EffectVm(program).render(context, sink)
+        }.getOrElse { false }
+        // 程序可能留下未配对的 save;先弹回宿主深度,再决定是否记录中止。
+        runCatching { sink.restoreAll() }
+        if (!rendered) {
+            HookLogger.iThrottled("effect-program-block", 2_000L, "AodLyricCanvasView") {
+                "effect program block aborted (${program.code.size} instructions, " +
+                    "lines=${lines.size} words=${allWords.size})"
+            }
         }
     }
 

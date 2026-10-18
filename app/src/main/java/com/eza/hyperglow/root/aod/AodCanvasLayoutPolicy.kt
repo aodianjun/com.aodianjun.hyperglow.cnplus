@@ -63,9 +63,11 @@ internal fun shouldUseSharedLineLevelSweep(
     animationMode: String,
     lineStartMs: Long,
     lineEndMs: Long,
-    timed: Boolean
+    timed: Boolean,
+    /** 自定义单词效果在场时恒走词级卡拉OK,共享扫光块不得拦截。 */
+    hasWordEffect: Boolean = false
 ): Boolean = lineLevelSync && hasOriginalLines && animationMode != "Minimal" &&
-    animationMode != "BetterLyrics" && !timed &&
+    animationMode != "BetterLyrics" && !timed && !hasWordEffect &&
     lineEndMs > lineStartMs
 
 /** 原始主行的渲染路径(实机画布与 App 内预览三选一,见 [planOriginalLine])。 */
@@ -112,11 +114,17 @@ internal fun planOriginalLine(
     lineLevelSync: Boolean,
     lineSyncFillMode: String,
     lineStartMs: Long,
-    lineEndMs: Long
+    lineEndMs: Long,
+    /** 自定义单词效果在场:无论源是否带词窗,一律走词级卡拉OK(解释器需要逐词进度)。 */
+    hasWordEffect: Boolean = false
 ): OriginalLinePlan {
     val effectiveFill = resolvedLineSyncFillMode(lineLevelSync, lineSyncFillMode)
-    if (animationMode == "Minimal") {
+    // 自定义效果覆盖内置档:即使 animationMode 是 Minimal,用户选了效果也要动。
+    if (animationMode == "Minimal" && !hasWordEffect) {
         return OriginalLinePlan(OriginalLinePath.STATIC, "None")
+    }
+    if (hasWordEffect) {
+        return OriginalLinePlan(OriginalLinePath.WORD_KARAOKE, effectiveFill)
     }
     // 真实词窗压过歌词源的行级标记:非 Minimal 档一律词级卡拉OK。行级源(无词窗)才按
     // 行级标记走共享扫光块,「行进度效果」四档也只对后者生效。
@@ -129,7 +137,8 @@ internal fun planOriginalLine(
             animationMode,
             lineStartMs,
             lineEndMs,
-            timed = timed
+            timed = timed,
+            hasWordEffect = hasWordEffect
         )
     ) {
         return OriginalLinePlan(OriginalLinePath.BLOCK_SWEEP, effectiveFill)
@@ -151,9 +160,12 @@ internal fun hasActiveCanvasTiming(
      * 辅助文字逐字效果是否在本帧内容上生效(开关开启且确有第一行辅助文字行):
      * 它是独立于主行进度效果的时序动画,行级同步 + 进度效果 None(主行静态)时仍需续帧。
      */
-    auxKaraoke: Boolean = false
+    auxKaraoke: Boolean = false,
+    /** 自定义单词效果在场:解释器逐帧求值,必须续帧(不受行级 None 提前返回影响)。 */
+    hasWordEffect: Boolean = false
 ): Boolean {
     if (speed <= 0f) return false
+    if (hasWordEffect) return true
     // 行级同步 + 进度效果选 None:不驱动主行进度时序,歌词静态呈现(与预览 None 一致);
     // 该提前返回只对**没有真实词窗**的行成立——带真实词窗的行压过行级标记,非 Minimal 档
     // 走词级卡拉OK(见 [planOriginalLine]),逐字动画仍需逐帧推进。辅助文字逐字效果

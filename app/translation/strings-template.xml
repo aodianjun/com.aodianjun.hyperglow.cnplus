@@ -405,6 +405,14 @@
     <string name="choice_font">Font</string>
     <string name="section_effects">Effects</string>
     <string name="choice_word_animation">Word animation</string>
+    <string name="choice_word_effect">Custom word effect</string>
+    <string name="action_import_word_effect_pack">Import word effect pack</string>
+    <string name="action_open_word_effect_studio">Online effect editor</string>
+    <string name="summary_word_effect_studio">Edit and export a pack in your browser, then import it here.</string>
+    <string name="toast_word_effect_studio_unavailable">No browser available</string>
+    <string name="option_word_effect_none">Off</string>
+    <string name="toast_word_effect_imported">Word effect pack imported: %1$d</string>
+    <string name="toast_word_effect_invalid">Invalid word effect pack</string>
     <string name="choice_glow">Glow</string>
     <string name="choice_line_progress_effect">Line progress effect</string>
     <string name="choice_text_brightness">Text brightness</string>

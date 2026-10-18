@@ -1,0 +1,2129 @@
+{
+  "format": "hyperglow-word-effect-pack",
+  "version": 1,
+  "name": "Program Effect Pack",
+  "author": "HyperGlow",
+  "effects": [
+    {
+      "id": "program_bounce",
+      "name": "Program Bounce",
+      "program": {
+        "version": 1,
+        "maxLocals": 8,
+        "constants": [
+          {
+            "type": "number",
+            "value": "0"
+          },
+          {
+            "type": "number",
+            "value": "2"
+          },
+          {
+            "type": "number",
+            "value": "0.35"
+          },
+          {
+            "type": "number",
+            "value": "1"
+          },
+          {
+            "type": "number",
+            "value": "0.18"
+          },
+          {
+            "type": "number",
+            "value": "3.14159"
+          },
+          {
+            "type": "number",
+            "value": "0.65"
+          }
+        ],
+        "code": [
+          {
+            "op": "wordCount"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 1
+          },
+          {
+            "op": "lt"
+          },
+          {
+            "op": "jz",
+            "arg": 69
+          },
+          {
+            "op": "save"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 7
+          },
+          {
+            "op": "loadLocal",
+            "arg": 7
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 7
+          },
+          {
+            "op": "wordField",
+            "text": "width"
+          },
+          {
+            "op": "const",
+            "arg": 1
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "globalField",
+            "text": "baseline"
+          },
+          {
+            "op": "globalField",
+            "text": "textSize"
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "sub"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 7
+          },
+          {
+            "op": "wordField",
+            "text": "progress"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "const",
+            "arg": 4
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 5
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "translate"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "scale"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "neg"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "neg"
+          },
+          {
+            "op": "translate"
+          },
+          {
+            "op": "colorField",
+            "text": "sung"
+          },
+          {
+            "op": "setColor"
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "const",
+            "arg": 6
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 7
+          },
+          {
+            "op": "wordField",
+            "text": "text"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 7
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "globalField",
+            "text": "baseline"
+          },
+          {
+            "op": "drawText"
+          },
+          {
+            "op": "restore"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "jump",
+            "arg": 4
+          },
+          {
+            "op": "end"
+          }
+        ]
+      }
+    },
+    {
+      "id": "program_spin",
+      "name": "Program Spin",
+      "program": {
+        "version": 1,
+        "maxLocals": 5,
+        "constants": [
+          {
+            "type": "number",
+            "value": "0"
+          },
+          {
+            "type": "number",
+            "value": "2"
+          },
+          {
+            "type": "number",
+            "value": "0.35"
+          },
+          {
+            "type": "number",
+            "value": "360"
+          },
+          {
+            "type": "number",
+            "value": "1"
+          }
+        ],
+        "code": [
+          {
+            "op": "wordCount"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 1
+          },
+          {
+            "op": "lt"
+          },
+          {
+            "op": "jz",
+            "arg": 56
+          },
+          {
+            "op": "save"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "width"
+          },
+          {
+            "op": "const",
+            "arg": 1
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 3
+          },
+          {
+            "op": "globalField",
+            "text": "baseline"
+          },
+          {
+            "op": "globalField",
+            "text": "textSize"
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "sub"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 4
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "translate"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "progress"
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "rotate"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "neg"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "neg"
+          },
+          {
+            "op": "translate"
+          },
+          {
+            "op": "colorField",
+            "text": "sung"
+          },
+          {
+            "op": "setColor"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "progress"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "text"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "globalField",
+            "text": "baseline"
+          },
+          {
+            "op": "drawText"
+          },
+          {
+            "op": "restore"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 4
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "jump",
+            "arg": 4
+          },
+          {
+            "op": "end"
+          }
+        ]
+      }
+    },
+    {
+      "id": "program_line_wave",
+      "name": "Program Line Wave",
+      "program": {
+        "version": 1,
+        "maxLocals": 8,
+        "constants": [
+          {
+            "type": "number",
+            "value": "0"
+          },
+          {
+            "type": "number",
+            "value": "0.08"
+          },
+          {
+            "type": "number",
+            "value": "0.14"
+          },
+          {
+            "type": "number",
+            "value": "0.12"
+          },
+          {
+            "type": "number",
+            "value": "0.28"
+          },
+          {
+            "type": "number",
+            "value": "0.5"
+          },
+          {
+            "type": "number",
+            "value": "1"
+          },
+          {
+            "type": "number",
+            "value": "2"
+          },
+          {
+            "type": "number",
+            "value": "0.9"
+          },
+          {
+            "type": "number",
+            "value": "3.14159"
+          },
+          {
+            "type": "number",
+            "value": "0.15"
+          },
+          {
+            "type": "number",
+            "value": "0.35"
+          },
+          {
+            "type": "number",
+            "value": "0.65"
+          }
+        ],
+        "code": [
+          {
+            "op": "lineCount"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 1
+          },
+          {
+            "op": "lt"
+          },
+          {
+            "op": "jz",
+            "arg": 57
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "line"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "x"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "width"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 4
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "height"
+          },
+          {
+            "op": "const",
+            "arg": 1
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 5
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "baseline"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "height"
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 6
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "progress"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 7
+          },
+          {
+            "op": "colorField",
+            "text": "sung"
+          },
+          {
+            "op": "setColor"
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "const",
+            "arg": 4
+          },
+          {
+            "op": "loadLocal",
+            "arg": 7
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 6
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "drawRoundRect"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 6
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "jump",
+            "arg": 4
+          },
+          {
+            "op": "wordCount"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 1
+          },
+          {
+            "op": "lt"
+          },
+          {
+            "op": "jz",
+            "arg": 144
+          },
+          {
+            "op": "save"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "width"
+          },
+          {
+            "op": "const",
+            "arg": 7
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "progress"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 5
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "index"
+          },
+          {
+            "op": "const",
+            "arg": 8
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "const",
+            "arg": 9
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 6
+          },
+          {
+            "op": "loadLocal",
+            "arg": 6
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "globalField",
+            "text": "textSize"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "const",
+            "arg": 10
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 7
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "baseline"
+          },
+          {
+            "op": "globalField",
+            "text": "textSize"
+          },
+          {
+            "op": "const",
+            "arg": 11
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "sub"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 7
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 6
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 6
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 6
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "translate"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 6
+          },
+          {
+            "op": "loadLocal",
+            "arg": 6
+          },
+          {
+            "op": "scale"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "neg"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "neg"
+          },
+          {
+            "op": "translate"
+          },
+          {
+            "op": "colorField",
+            "text": "sung"
+          },
+          {
+            "op": "setColor"
+          },
+          {
+            "op": "const",
+            "arg": 11
+          },
+          {
+            "op": "const",
+            "arg": 12
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "text"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "baseline"
+          },
+          {
+            "op": "drawText"
+          },
+          {
+            "op": "restore"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 6
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "jump",
+            "arg": 61
+          },
+          {
+            "op": "end"
+          }
+        ]
+      }
+    },
+    {
+      "id": "program_line_gradient",
+      "name": "Program Line Gradient",
+      "program": {
+        "version": 1,
+        "maxLocals": 8,
+        "constants": [
+          {
+            "type": "number",
+            "value": "0"
+          },
+          {
+            "type": "number",
+            "value": "0.3"
+          },
+          {
+            "type": "number",
+            "value": "0.7"
+          },
+          {
+            "type": "number",
+            "value": "1"
+          },
+          {
+            "type": "number",
+            "value": "0.16"
+          },
+          {
+            "type": "number",
+            "value": "2"
+          },
+          {
+            "type": "number",
+            "value": "0.75"
+          },
+          {
+            "type": "number",
+            "value": "0.08"
+          },
+          {
+            "type": "number",
+            "value": "0.1"
+          },
+          {
+            "type": "number",
+            "value": "0.5"
+          },
+          {
+            "type": "number",
+            "value": "260"
+          }
+        ],
+        "code": [
+          {
+            "op": "save"
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "globalField",
+            "text": "blockWidth"
+          },
+          {
+            "op": "globalField",
+            "text": "blockHeight"
+          },
+          {
+            "op": "colorField",
+            "text": "sung"
+          },
+          {
+            "op": "colorField",
+            "text": "accent"
+          },
+          {
+            "op": "setGradient"
+          },
+          {
+            "op": "wordCount"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 1
+          },
+          {
+            "op": "lt"
+          },
+          {
+            "op": "jz",
+            "arg": 40
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "progress"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 3
+          },
+          {
+            "op": "const",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "text"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "baseline"
+          },
+          {
+            "op": "drawText"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "jump",
+            "arg": 12
+          },
+          {
+            "op": "clearGradient"
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "line"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "globalField",
+            "text": "blockWidth"
+          },
+          {
+            "op": "const",
+            "arg": 4
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "height"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 4
+          },
+          {
+            "op": "globalField",
+            "text": "blockWidth"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "lineField",
+            "text": "progress"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "sub"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 5
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "baseline"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 6
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "sub"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 6
+          },
+          {
+            "op": "const",
+            "arg": 7
+          },
+          {
+            "op": "const",
+            "arg": 8
+          },
+          {
+            "op": "const",
+            "arg": 9
+          },
+          {
+            "op": "const",
+            "arg": 9
+          },
+          {
+            "op": "globalField",
+            "text": "time"
+          },
+          {
+            "op": "const",
+            "arg": 10
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "colorField",
+            "text": "glow"
+          },
+          {
+            "op": "setColor"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "loadLocal",
+            "arg": 6
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 9
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 9
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "drawRoundRect"
+          },
+          {
+            "op": "restore"
+          },
+          {
+            "op": "end"
+          }
+        ]
+      }
+    },
+    {
+      "id": "program_particles",
+      "name": "Program Particles",
+      "program": {
+        "version": 1,
+        "maxLocals": 8,
+        "constants": [
+          {
+            "type": "number",
+            "value": "0"
+          },
+          {
+            "type": "number",
+            "value": "0.4"
+          },
+          {
+            "type": "number",
+            "value": "0.6"
+          },
+          {
+            "type": "number",
+            "value": "1"
+          },
+          {
+            "type": "number",
+            "value": "28"
+          },
+          {
+            "type": "number",
+            "value": "0.5"
+          },
+          {
+            "type": "number",
+            "value": "1800"
+          },
+          {
+            "type": "number",
+            "value": "2.399"
+          },
+          {
+            "type": "number",
+            "value": "0.2"
+          },
+          {
+            "type": "number",
+            "value": "2100"
+          },
+          {
+            "type": "number",
+            "value": "1.7"
+          },
+          {
+            "type": "number",
+            "value": "1.5"
+          },
+          {
+            "type": "number",
+            "value": "900"
+          },
+          {
+            "type": "number",
+            "value": "0.9"
+          },
+          {
+            "type": "number",
+            "value": "0.12"
+          },
+          {
+            "type": "number",
+            "value": "0.3"
+          },
+          {
+            "type": "number",
+            "value": "700"
+          },
+          {
+            "type": "number",
+            "value": "1.3"
+          }
+        ],
+        "code": [
+          {
+            "op": "wordCount"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 1
+          },
+          {
+            "op": "lt"
+          },
+          {
+            "op": "jz",
+            "arg": 32
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "colorField",
+            "text": "sung"
+          },
+          {
+            "op": "setColor"
+          },
+          {
+            "op": "const",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "progress"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "text"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "wordField",
+            "text": "baseline"
+          },
+          {
+            "op": "drawText"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "jump",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 4
+          },
+          {
+            "op": "storeLocal",
+            "arg": 1
+          },
+          {
+            "op": "lineCount"
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "max"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 7
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 1
+          },
+          {
+            "op": "lt"
+          },
+          {
+            "op": "jz",
+            "arg": 136
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 7
+          },
+          {
+            "op": "mod"
+          },
+          {
+            "op": "line"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "width"
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "globalField",
+            "text": "wall"
+          },
+          {
+            "op": "const",
+            "arg": 6
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 7
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "baseline"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "lineAtField",
+            "text": "height"
+          },
+          {
+            "op": "const",
+            "arg": 8
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "globalField",
+            "text": "wall"
+          },
+          {
+            "op": "const",
+            "arg": 9
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 10
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "cos"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "sub"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 11
+          },
+          {
+            "op": "const",
+            "arg": 11
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "globalField",
+            "text": "wall"
+          },
+          {
+            "op": "const",
+            "arg": 12
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 13
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 5
+          },
+          {
+            "op": "const",
+            "arg": 14
+          },
+          {
+            "op": "const",
+            "arg": 15
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "globalField",
+            "text": "wall"
+          },
+          {
+            "op": "const",
+            "arg": 16
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 17
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "colorField",
+            "text": "accent"
+          },
+          {
+            "op": "setColor"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "loadLocal",
+            "arg": 5
+          },
+          {
+            "op": "drawCircle"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "jump",
+            "arg": 40
+          },
+          {
+            "op": "end"
+          }
+        ]
+      }
+    }
+  ]
+}

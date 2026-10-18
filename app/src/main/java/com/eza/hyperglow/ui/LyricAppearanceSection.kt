@@ -1,7 +1,9 @@
 package com.eza.hyperglow.ui
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Typeface
+import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.annotation.StringRes
@@ -50,6 +52,8 @@ import androidx.compose.ui.graphics.toArgb
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.CustomFontEntry
 import com.eza.hyperglow.customization.CustomFontStore
+import com.eza.hyperglow.customization.WordEffectPackStore
+import com.eza.hyperglow.customization.WordEffectSpec
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
@@ -285,6 +289,46 @@ internal fun LyricAppearanceSection(
             ),
             Toast.LENGTH_LONG
         ).show()
+    }
+
+    // 已导入的单词效果包清单:导入即落盘,选择器按导入顺序列出;选中时整份规格写入本面 profile,
+    // 因此删包/换设备后已选效果仍可渲染(与自定义字体同式:一次导入可含多条,互不覆盖)。
+    var wordEffects by remember { mutableStateOf(WordEffectPackStore.list(context)) }
+    // 展示名取规格自带 name(导入时已归一),选择器摘要与实机同源。
+    val wordEffectNames = remember(wordEffects) {
+        wordEffects.associate { it.id to it.name }
+    }
+    val effectImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: android.net.Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                input.readNBytes(WordEffectPackStore.MAX_PACK_BYTES + 1)
+            }
+        }.getOrNull()
+        val result = bytes?.let {
+            WordEffectPackStore.import(context, it, queryDisplayName(context, uri) ?: "")
+        }
+        if (result != null && result.ok) {
+            wordEffects = WordEffectPackStore.list(context)
+            // 默认选中最后一条导入项:用户刚导入的包立即在预览里可见。
+            updateSelected { it.copy(wordEffect = result.imported.last()) }
+            Toast.makeText(
+                context,
+                context.getString(
+                    R.string.toast_word_effect_imported,
+                    result.imported.size
+                ),
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            Toast.makeText(
+                context,
+                context.getString(R.string.toast_word_effect_invalid),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     val selectedProfile = editorState.document.profiles[editorState.selectedSurface] ?: SurfaceProfile()
@@ -858,8 +902,64 @@ internal fun LyricAppearanceSection(
                         AodChoiceKind.WORD_ANIMATION,
                         listOf("Minimal", "Gradient", "BetterLyrics"),
                         selectedProfile.animation
-                    ) { value -> updateSelected { it.copy(animation = value) } }
+                    ) { value ->
+                        // 选内置档 = 退出自定义效果;否则效果会继续覆盖内置档,用户以为设置没生效。
+                        updateSelected { it.copy(animation = value, wordEffect = null) }
+                    }
                 }
+                // 自定义单词效果包:选择器第一项固定为「关闭」,其后按导入顺序列出效果 id;
+                // 选中即把整份规格写进本面(渲染器/预览直接消费,不依赖包文件仍在)。
+                val currentEffect = selectedProfile.wordEffect
+                val effectChoices = remember(wordEffects, currentEffect) {
+                    buildList {
+                        add("none")
+                        wordEffects.forEach { if (it.id !in this) add(it.id) }
+                        // 当前效果已被删包时仍列出,保证可见可关(与字体选择器的当前项兜底同式)。
+                        if (currentEffect != null && currentEffect.id !in this) {
+                            add(currentEffect.id)
+                        }
+                    }
+                }
+                val effectNames = remember(wordEffectNames, currentEffect) {
+                    if (currentEffect == null) {
+                        wordEffectNames
+                    } else {
+                        wordEffectNames + (currentEffect.id to currentEffect.name)
+                    }
+                }
+                AodChoiceRow(
+                    AodChoiceKind.WORD_EFFECT,
+                    currentEffect?.id ?: "none",
+                    customEffectNames = effectNames
+                ) {
+                    openChoice(
+                        AodChoiceKind.WORD_EFFECT,
+                        effectChoices,
+                        currentEffect?.id ?: "none"
+                    ) { value ->
+                        if (value == "none") {
+                            updateSelected { it.copy(wordEffect = null) }
+                        } else {
+                            val spec = wordEffects.firstOrNull { it.id == value }
+                                ?: currentEffect?.takeIf { it.id == value }
+                            if (spec != null) updateSelected { it.copy(wordEffect = spec) }
+                        }
+                    }
+                }
+                ArrowPreference(
+                    title = stringResource(R.string.action_import_word_effect_pack),
+                    onClick = {
+                        effectImportLauncher.launch(
+                            arrayOf("application/json", "text/plain", "*/*")
+                        )
+                    }
+                )
+                // 在线编辑器:浏览器里调好效果 → 导出 .hgwordanim.json → 回到上一行导入。
+                ArrowPreference(
+                    title = stringResource(R.string.action_open_word_effect_studio),
+                    summary = stringResource(R.string.summary_word_effect_studio),
+                    onClick = { openWordEffectStudio(context) }
+                )
                 AodChoiceRow(AodChoiceKind.GLOW, selectedProfile.glow) {
                     openChoice(AodChoiceKind.GLOW, listOf("Off", "On"), selectedProfile.glow) { value ->
                         updateSelected { it.copy(glow = value) }
@@ -1229,7 +1329,12 @@ internal fun LyricAppearanceSection(
                 Column {
                     selected.values.forEach { value ->
                         RadioButtonPreference(
-                            choiceDisplayLabel(context, selected.kind, value),
+                            choiceDisplayLabel(
+                                context,
+                                selected.kind,
+                                value,
+                                customEffectNames = wordEffectNames
+                            ),
                             selected.current == value,
                             {
                                 selected.onSelect(value)
@@ -1652,6 +1757,21 @@ private fun demoWordSpans(text: String): List<IntRange> {
     return spans
 }
 
+/** Word Effect Studio:纯静态网页编辑器,导出 .hgwordanim.json 后回到设置页导入。 */
+private const val WORD_EFFECT_STUDIO_URL = "https://aodianjun.github.io/word-effect-studio/"
+
+private fun openWordEffectStudio(context: Context) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(WORD_EFFECT_STUDIO_URL))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }.onFailure {
+        Toast.makeText(
+            context,
+            R.string.toast_word_effect_studio_unavailable,
+            Toast.LENGTH_LONG
+        ).show()
+    }
+}
+
 /** SAF 文档选择器里取原始文件名,作为字体展示名;取不到时由存储层回落到 id。 */
 private fun queryDisplayName(
     context: android.content.Context,
@@ -1749,12 +1869,13 @@ private fun AodChoiceRow(
     kind: AodChoiceKind,
     value: String,
     customFontNames: Map<String, String> = emptyMap(),
+    customEffectNames: Map<String, String> = emptyMap(),
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
     ArrowPreference(
         title = stringResource(kind.titleRes),
-        summary = choiceDisplayLabel(context, kind, value, customFontNames),
+        summary = choiceDisplayLabel(context, kind, value, customFontNames, customEffectNames),
         onClick = onClick
     )
 }
@@ -1910,7 +2031,8 @@ private fun choiceDisplayLabel(
     context: android.content.Context,
     kind: AodChoiceKind,
     value: String,
-    customFontNames: Map<String, String> = emptyMap()
+    customFontNames: Map<String, String> = emptyMap(),
+    customEffectNames: Map<String, String> = emptyMap()
 ): String = when (kind) {
     AodChoiceKind.POSITION -> context.getString(when (value) {
         "below_stock_clock" -> R.string.option_below_clock
@@ -2079,6 +2201,12 @@ private fun choiceDisplayLabel(
         "BetterLyrics" -> R.string.option_betterlyrics
         else -> R.string.option_gradient
     })
+    AodChoiceKind.WORD_EFFECT -> if (value == "none") {
+        context.getString(R.string.option_word_effect_none)
+    } else {
+        // 效果包展示名优先,取不到(历史 id)回落原 id,保证可见可改。
+        customEffectNames[value] ?: value
+    }
     AodChoiceKind.GLOW -> context.getString(
         if (value == "On") R.string.option_on else R.string.option_off
     )
@@ -2111,6 +2239,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     TEXT_SIZE(R.string.choice_text_size),
     FONT(R.string.choice_font),
     WORD_ANIMATION(R.string.choice_word_animation),
+    WORD_EFFECT(R.string.choice_word_effect),
     GLOW(R.string.choice_glow),
     LINE_PROGRESS(R.string.choice_line_progress_effect),
     LINE_TRANSITION(R.string.choice_line_transition),

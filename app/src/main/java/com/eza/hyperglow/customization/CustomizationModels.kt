@@ -189,6 +189,13 @@ data class SurfaceProfile(
     val textSizeCustom: Int = 100,
     val fontFamily: String = "spotify",
     val animation: String = "Gradient",
+    /**
+     * 自定义单词效果(声明式动画 DSL,见 [WordEffectSpec])。非 null 时覆盖 [animation]
+     * 的三档内置分支,由共享解释器逐词求值;null = 使用内置档,行为逐值不变。
+     * 随配置文档/配置备份保存,并随 `CompiledCustomizationBundleCodec` 的 JSON 配置通道
+     * 下发到 SystemUI,不占用逐帧 wire 的样式串预算。
+     */
+    val wordEffect: WordEffectSpec? = null,
     val glow: String = "Off",
     val lineSyncFillMode: String = "Left to right (main only)",
     val overflow: String = "Wrap",
@@ -313,6 +320,8 @@ data class CompiledSurfaceProfile(
     val textSizeCustom: Int,
     val fontFamily: String,
     val animation: String,
+    /** 自定义单词效果;由 [SurfaceProfile.wordEffect] 经 [normalizeWordEffectSpec] 编译而来。 */
+    val wordEffect: WordEffectSpec? = null,
     val glow: String,
     val lineSyncFillMode: String,
     val overflow: String,

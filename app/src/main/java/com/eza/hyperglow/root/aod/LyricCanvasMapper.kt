@@ -137,6 +137,8 @@ internal fun LyricSnapshot.toAodCanvasContent(
     secondaryAutoSize = profile?.secondaryAutoSize ?: true,
     lyricLineLimit = profile?.lyricLineLimit ?: 3,
     animationMode = profile?.animation ?: animationMode,
+    // 自定义效果随 per-surface 编译档进入画布内容;null = 内置档,行为不变。
+    wordEffect = profile?.wordEffect,
     glowMode = profile?.glow ?: glowMode,
     motionMode = normalizeAodMotion(motionMode),
     lineSyncFillMode = when (profile?.lineSyncFillMode) {
