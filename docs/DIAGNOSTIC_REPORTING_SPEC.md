@@ -58,7 +58,7 @@ All accepted report data is retained indefinitely until a maintainer manually de
 - HyperGlow version/build type;
 - manufacturer, brand, model, device, product, Android build/security/fingerprint, locales;
 - fixed-allowlist Xiaomi properties;
-- HyperGlow, SystemUI, Xiaomi AOD, and Spotify package versions;
+- HyperGlow, SystemUI, Xiaomi AOD, Spotify, and Spicy EX package versions;
 - capability protocol/age, effective profile state, raw symbol probes, resolved capabilities;
 - configured surface flags, callback presence, and privacy-safe active lyric-producer status/age
   (whichever of Spicy EX, Lyricon, SuperLyric, or LyricInfo is feeding lyrics);
@@ -66,6 +66,10 @@ All accepted report data is retained indefinitely until a maintainer manually de
 - bounded setup state and failure keys for root, SystemUI hook/report, verified profile, lyric
   producer bridge, and required package presence/version metadata. Spotify is only a required
   package while no alternate lyric source is connected.
+- three Spicy EX setup status tokens read by a fixed read-only root probe: whether the module is
+  registered/enabled in LSPosed for the current user, whether `com.spotify.music` is in its scope,
+  and only the single HyperGlow publishing boolean from Spotify's `SpotifyPlus.xml`. The probe
+  returns fixed status tokens only — no preference values, paths, or free-form content.
 - current active-source track URI, title, artist, album, lyric provider/source, detected language,
   timing type, current line index, and bounded original/transliterated/translated lyric lines when
   present;
@@ -122,7 +126,9 @@ timeout:
   into that bounded log section;
 - crash-buffer blocks whose process is HyperGlow, SystemUI, or Spotify, maximum 64 KiB;
 - lines from the newest LSPosed module log only, after a fixed 512 KiB tail bound, containing
-  `HyperGlow` or `com.eza.hyperglow`, maximum 64 KiB.
+  `HyperGlow` or `com.eza.hyperglow`, maximum 64 KiB;
+- a fixed read-only Spicy EX setup probe (APK path and user id come from the running process, never
+  from report text or imported settings) that returns only the three setup status tokens above.
 
 Root access is probed first, and that probe is the one command with a longer window: a root manager
 asks the user to approve the app and the command waits for that tap, so a five-second window would
@@ -216,7 +222,7 @@ HyperGlow 可以向共享的诊断 intake 提交一份由用户触发的私密�
 - HyperGlow 版本/构建类型；
 - 厂商、品牌、型号、设备、产品、Android 构建/安全补丁/指纹、语言区域；
 - 固定白名单的 Xiaomi 属性；
-- HyperGlow、SystemUI、Xiaomi AOD 与 Spotify 的软件包版本；
+- HyperGlow、SystemUI、Xiaomi AOD、Spotify 与 Spicy EX 的软件包版本；
 - capability 协议/时效、生效 profile 状态、原始符号 probe、解析出的 capability；
 - 已配置的 surface 开关、回调存在性以及隐私安全的活跃歌词生产者状态/时效（Spicy EX、
   Lyricon、SuperLyric 或 LyricInfo 中当前正在供给歌词的那个源）；
@@ -224,6 +230,9 @@ HyperGlow 可以向共享的诊断 intake 提交一份由用户触发的私密�
 - 受限的环境状态与失败键，涵盖 root、SystemUI hook/报告、已验证 profile、歌词生产者
   bridge 以及必需软件包的存在性/版本元数据。仅当没有任何备用歌词源连接时，Spotify 才是
   必需软件包；
+- 三个 Spicy EX 环境状态令牌，由固定只读的 root 探针读取：模块是否在当前用户的 LSPosed 中
+  注册/启用、`com.spotify.music` 是否在其作用域内，以及仅从 Spotify 的 `SpotifyPlus.xml`
+  取 HyperGlow 发布的单个布尔值。探针只返回固定的状态令牌——不含任何偏好值、路径或自由文本。
 - 当前活跃源的曲目 URI、标题、艺术家、专辑、歌词提供者/来源、检测到的语言、时序类型、
   当前行索引，以及存在时受限的原文/音译/翻译歌词行；
 - 用户描述；
@@ -272,6 +281,8 @@ App 进程日志镜像（`diagnostic-trace.log` 加一次轮转）只在诊断�
 - 进程为 HyperGlow、SystemUI 或 Spotify 的 crash 缓冲区块，最大 64 KiB；
 - 仅来自最新 LSPosed 模块日志、经固定 512 KiB 尾部截取后包含 `HyperGlow` 或
   `com.eza.hyperglow` 的行，最大 64 KiB。
+- 固定的只读 Spicy EX 环境探针（APK 路径与用户 id 取自运行中的进程，绝不来自报告文本或
+  导入的设置），只返回上述三个环境状态令牌。
 
 root 权限探测最先执行，且它是唯一拥有更长窗口的命令：root 管理器会要求用户批准本应用、
 命令要等用户那一次点击，因此 5 秒窗口会超时并毁掉一次用户正要给出的授权。探测还会在

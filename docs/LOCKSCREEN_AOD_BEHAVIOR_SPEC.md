@@ -14,6 +14,11 @@ customization, and fallback.
 - Lockscreen and AOD render separate views from the same content, row, timing anchor, and track
   generation.
 - A newly attached surface receives the cached latest snapshot immediately.
+- A producer `clear` drops the held state and document without retiring the generation, so a producer
+  that clears for a reason of its own may resume at the same generation. A held document belongs to
+  the current track by its track URI plus a whole-second duration tolerance (the producer rounds the
+  track length to the whole second), so an advance of the producer's session bookkeeping does not
+  invalidate it, and a document the producer never re-requests is not dropped for the rest of the song.
 - Stale expiry, Binder death, caller failure, or invalid payload hides every subscriber. A hidden
   state explicitly marked as a real Spotify pause may retain the last valid lyric snapshot under the
   shared bounded policy below. Terminal hidden state clears it.
@@ -843,6 +848,9 @@ above and must fail back to Xiaomi's original target.
 - SystemUI 使用一个经过校验的 Binder 客户端和一个不可变的、surface 中立的歌词 snapshot。Binder 状态在投递到主线程之前，同步解码为自有不可变数据，并遵守共享的数量、UTF-8 与编码体积限制。
 - 锁屏与 AOD 基于相同的内容、行、时间锚点与曲目 generation 渲染各自的视图。
 - 新附加的 surface 会立即收到缓存的最新 snapshot。
+- 生产者 `clear` 会丢弃持有的状态与文档，但不退役 generation，因此生产者因自身原因清除后可在同一
+  generation 上恢复。持有文档按其曲目 URI 加整秒时长容差属于当前曲目（生产者把曲目长度取整到整秒），
+  因此生产者会话记账的推进不会使其失效，也不会让一份生产者不再重新请求的文档在余下整首歌里被丢弃。
 - 过期、Binder 死亡、调用方失败或无效 payload 会隐藏所有订阅方。被显式标记为真实 Spotify 暂停的隐藏状态，可以按照下文的共享有界策略保留最后的有效歌词 snapshot。终态隐藏状态会将其清除。
 - 过期 snapshot 在投递边界、订阅方看到之前就被丢弃。producer 按 1.5 秒节奏发布全量快照或心跳，而 MIUI doze 可能把 SystemUI 一次冻结约 20 秒，因此单次解冻会整批投递积压（真机实测：19ms 内 12 条，卡拉OK 位置跨度约 18 秒播放内容）。可见快照年龄超过 1.5 秒即丢弃，一批里只有最新状态会落地。换歌/换源（track generation 变化）、隐藏与暂停驻留边沿、以及绑定后的首条快照恒投递；被丢快照仍推进 revision 水位，并在其 keepalive/wake 标量与持有态不同时按最新值更新，keepalive 链绝不因此断开。
 - 状态/配置携带应用用户 ID；SystemUI 用户切换时会清除/重新绑定，并拒绝前一用户的缓存 payload。

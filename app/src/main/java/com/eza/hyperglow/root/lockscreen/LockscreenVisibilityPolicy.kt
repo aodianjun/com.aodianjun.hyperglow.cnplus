@@ -94,7 +94,10 @@ internal fun retainedLockscreenSnapshotAfterUpdate(
         pauseRetentionEligible = true,
         fallbackElapsedMs = incoming.updatedAtElapsedMs.coerceIn(0L, nowElapsedMs)
     )
-    val candidate = retained ?: lastVisible?.let {
+    // 只有本次暂停事件已拥有的卡才能复用。普通 Spotify 暂停会先以仍在播放的传输间隙发布,
+    // 复用该间隙卡会把「Spotify 暂停之后」窗口从间隙边界起算并在暂停真正发生前就耗尽:
+    // 一个确认的暂停若其间隙已超过配置窗口,卡片会当场被丢弃。
+    val candidate = retained?.takeIf { it.pauseRetentionEligible } ?: lastVisible?.let {
         freezeLockscreenSnapshot(it, pauseAtElapsedMs)
     }
     candidate?.takeIf {
@@ -115,6 +118,21 @@ internal fun retainedLockscreenSnapshotAfterUpdate(
 } else {
     null
 }
+
+/**
+ * 保留卡剩余的「Spotify 暂停之后」窗口,或 null 表示该计时根本不管辖它。
+ *
+ * 仍在播放的隐藏边是传输间隙而非暂停:其卡由 [retainedLockscreenSnapshotAfterUpdate] 内
+ * 间隙自身的界([PAUSED_AOD_KEEP_ALIVE_MS])约束,因此对间隙卡启动该计时会在普通换歌几
+ * 秒后即退役上一首的行。
+ */
+internal fun lockscreenPauseLingerRemainingMs(
+    retained: LyricSnapshot?,
+    pauseLingerMs: Long,
+    nowElapsedMs: Long
+): Long? = retained
+    ?.takeIf { it.pauseRetentionEligible }
+    ?.let { pauseLingerRemainingMs(it.sampledAtElapsedMs, pauseLingerMs, nowElapsedMs) }
 
 internal fun shouldKeepLockscreenAwake(
     enabled: Boolean,

@@ -23,14 +23,19 @@ internal data class CapturedDiagnosticData(
     val crashExcerpt: String,
     val lsposedLines: String,
     val commandFailures: List<String>,
-    val truncationFlags: Map<String, Boolean>
+    val truncationFlags: Map<String, Boolean>,
+    val spicySetup: SpicySetupEvidence = SpicySetupEvidence()
 )
 
 internal class DiagnosticCaptureCollector(
     private val appTraceReader: () -> String = { "" },
     private val runner: DiagnosticRootCommandRunner
 ) {
-    fun collect(startedAtUtcMillis: Long): CapturedDiagnosticData {
+    fun collect(
+        startedAtUtcMillis: Long,
+        apkPath: String? = null,
+        userId: Int = 0
+    ): CapturedDiagnosticData {
         val rootAccessStatus = checkDiagnosticRootAccess(runner)
         if (rootAccessStatus != "granted") {
             // 镜像不依赖 root:拒绝路径也带上 App 侧证据,报告不至于只剩元数据。
@@ -59,7 +64,15 @@ internal class DiagnosticCaptureCollector(
         val results = commands.associate { (name, command) ->
             name to runner.run(command, DiagnosticLimits.COMMAND_TIMEOUT_MS)
         }
-        val failures = results.filterValues { it.timedOut || it.exitCode != 0 }.keys.toList()
+        val failures = results.filterValues { it.timedOut || it.exitCode != 0 }.keys.toMutableList()
+        // Spicy EX 的 LSPosed 作用域/发布设置只有 root 侧能读,是"已装却在播放仍无歌词"这一
+        // 类报告的第一手证据。命令与用户 id 只取自本进程,不来自报告文本或导入的设置。
+        val probeCommand = apkPath?.let { spicySetupProbeCommand(it, userId) }
+        val probeResult = probeCommand?.let { runner.run(it, DiagnosticLimits.COMMAND_TIMEOUT_MS) }
+        val spicySetup = probeResult?.takeIf {
+            !it.timedOut && it.exitCode == 0 && !it.outputTruncated
+        }?.let { parseSpicySetupEvidence(it.output, userId) }
+        if (apkPath != null && spicySetup == null) failures += "spicy_setup"
         val rawLogs = buildString {
             val processResult = results.getValue("systemui_processes")
             val systemUiProcesses = filterSystemUiProcessLines(processResult.output)
@@ -111,7 +124,8 @@ internal class DiagnosticCaptureCollector(
             crashExcerpt = crash.text,
             lsposedLines = lsposed.text,
             commandFailures = failures,
-            truncationFlags = flags
+            truncationFlags = flags,
+            spicySetup = spicySetup ?: SpicySetupEvidence()
         )
     }
 

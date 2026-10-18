@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.SurfaceEvidence
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
@@ -77,20 +78,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
     private var retentionAnchor: LyricRetentionAnchor? = null
     private val pauseLingerExpiry = object : Runnable {
         override fun run() {
-            val retained = retainedMediaSnapshot ?: return
-            val remaining = pauseLingerRemainingMs(
-                retained.sampledAtElapsedMs,
-                customization?.pauseLingerMs ?: 5_000L,
-                SystemClock.elapsedRealtime()
-            )
-            if (remaining != null) {
-                if (remaining != Long.MAX_VALUE) mainHandler.postDelayed(this, remaining)
-                return
-            }
-            retainedMediaSnapshot = null
-            retentionAnchor = null
-            lastVisibleSnapshot = null
-            requestRefresh()
+            retainedMediaSnapshot?.let(::refreshPauseLingerExpiry)
         }
     }
     private var stockMediaPlayerObserved = false
@@ -169,15 +157,22 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
     fun attach(controller: Any, root: ViewGroup?) {
         mainHandler.post {
             val candidateRoot = root ?: readField(controller, "keyguardRootView") as? ViewGroup
-                ?: return@post
+                ?: run {
+                    SurfaceEvidence.once("lockscreen_surface_disabled_root")
+                    return@post
+                }
             XiaomiCapabilityResolver.observeContext(candidateRoot.context)
             val supported = XiaomiCapabilityResolver.hasCapability(XiaomiCapability.LOCKSCREEN_HOST) &&
                 XiaomiCapabilityResolver.hasCapability(XiaomiCapability.LOCKSCREEN_GEOMETRY)
             if (!supported) {
+                SurfaceEvidence.once("lockscreen_surface_disabled_capability")
                 if (controllerRef.get() === controller) detachCurrent()
                 return@post
             }
-            val candidateHost = findHost(controller, candidateRoot) ?: return@post
+            val candidateHost = findHost(controller, candidateRoot) ?: run {
+                SurfaceEvidence.once("lockscreen_surface_disabled_host")
+                return@post
+            }
             if (shouldReuseLockscreenHost(hostRef.get(), candidateHost, surface != null)) {
                 controllerRef = WeakReference(controller)
                 rootRef = WeakReference(candidateRoot)
@@ -211,6 +206,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             SystemUiLyricProjectionRuntime.projection.attach(this, candidateRoot.context)
             SystemUiLyricProjectionRuntime.projection.reportCapabilities()
             HookLogger.i(TAG, "Lockscreen surface attached")
+            SurfaceEvidence.once("lockscreen_surface_attached")
         }
     }
 
@@ -372,19 +368,31 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
 
     private fun schedulePauseLingerExpiry(retained: LyricSnapshot?) {
         cancelPauseLingerExpiry()
-        retained ?: return
-        val remaining = pauseLingerRemainingMs(
-            retained.sampledAtElapsedMs,
+        retained?.let(::refreshPauseLingerExpiry)
+    }
+
+    /**
+     * 为保留卡重新推导「Spotify 暂停之后」窗口,并据此安排下一次检查或退役该卡。该计时只
+     * 管暂停驻留:仍在播放的传输间隙卡归间隙自身的界,故此处不动它。
+     */
+    private fun refreshPauseLingerExpiry(retained: LyricSnapshot) {
+        val remaining = lockscreenPauseLingerRemainingMs(
+            retained,
             customization?.pauseLingerMs ?: 5_000L,
             SystemClock.elapsedRealtime()
-        ) ?: run {
-            retainedMediaSnapshot = null
-            retentionAnchor = null
-            lastVisibleSnapshot = null
-            requestRefresh()
+        )
+        if (remaining == null) {
+            if (retained.pauseRetentionEligible) discardRetainedSnapshot()
             return
         }
         if (remaining != Long.MAX_VALUE) mainHandler.postDelayed(pauseLingerExpiry, remaining)
+    }
+
+    private fun discardRetainedSnapshot() {
+        retainedMediaSnapshot = null
+        retentionAnchor = null
+        lastVisibleSnapshot = null
+        requestRefresh()
     }
 
     private fun cancelPauseLingerExpiry() {
@@ -1017,7 +1025,8 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 lyricCanvas = AodLyricCanvasView(
                     context,
                     useDozeHandlerCadence = true,
-                    refreshRateCapProvider = { customization?.aodRefreshRateCap ?: 0 }
+                    refreshRateCapProvider = { customization?.aodRefreshRateCap ?: 0 },
+                    surfaceKind = LyricSurfaceKind.LOCKSCREEN
                 ).also { canvas ->
                     canvas.visibility = View.GONE
                     canvas.isClickable = false

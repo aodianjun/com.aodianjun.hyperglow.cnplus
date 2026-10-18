@@ -11,7 +11,10 @@ internal data class HyperGlowSetupInput(
     val alternateLyricSourceConnected: Boolean,
     val systemUiPackagePresent: Boolean,
     val xiaomiAodPackagePresent: Boolean,
-    val spotifyPackagePresent: Boolean
+    val spotifyPackagePresent: Boolean,
+    /** Spicy EX（`com.eza.spicyex`）已安装。仅用于门控 Spicy 前置条件诊断，不进入必需包判定。 */
+    val spicyExPackagePresent: Boolean = false,
+    val spicySetup: SpicySetupEvidence = SpicySetupEvidence()
 )
 
 /**
@@ -67,6 +70,21 @@ internal fun resolveHyperGlowSetupChecks(input: HyperGlowSetupInput): HyperGlowS
         hardFailure = true
     }
     if (!input.anyProducerBridgePresent) failures += "producer_bridge"
+    // Spicy EX 的 LSPosed 启用/Spotify 作用域/发布设置可能与已在运行或 LSPatch 补丁过的
+    // Spotify 进程不一致。仅当没有任何活跃生产者（即用户确实依赖 Spicy 路径）且 Spicy EX
+    // 已安装时才诊断这些前置条件——CN+ 还运行 Lyricon/SuperLyric/LyricInfo，故不把它们当成
+    // 硬性失败，只作为警告码给出线索。
+    if (!input.anyProducerBridgePresent && input.spicyExPackagePresent) {
+        if (input.spicySetup.moduleStatus in setOf("disabled", "not_registered")) {
+            failures += "spicy_ex_module_disabled"
+        }
+        if (input.spicySetup.spotifyScopeStatus == "not_selected") {
+            failures += "spicy_ex_spotify_scope_missing"
+        }
+        if (input.spicySetup.publishingStatus in setOf("disabled", "default_disabled")) {
+            failures += "spicy_ex_publishing_disabled"
+        }
+    }
 
     return HyperGlowSetupChecks(
         setupState = when {
@@ -82,6 +100,9 @@ internal fun resolveHyperGlowSetupChecks(input: HyperGlowSetupInput): HyperGlowS
         // wire 字段名 spotifyProducerBridgePresent 保留（intake allowlist 已映射），
         // 语义为"任一歌词生产者桥接存在"。
         spotifyProducerBridgePresent = input.anyProducerBridgePresent,
+        spicyExModuleStatus = input.spicySetup.moduleStatus,
+        spicyExSpotifyScopeStatus = input.spicySetup.spotifyScopeStatus,
+        spicyExPublishingStatus = input.spicySetup.publishingStatus,
         requiredPackagesPresent = input.systemUiPackagePresent &&
             input.xiaomiAodPackagePresent &&
             (input.spotifyPackagePresent || input.alternateLyricSourceConnected)

@@ -13,6 +13,7 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.SurfaceEvidence
 import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
@@ -402,6 +403,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                             "aodHostContainer=${report.symbols.aodHostContainer} " +
                             "profile=${report.profileState.wireValue}"
                     )
+                    SurfaceEvidence.once("aod_surface_disabled_capability")
                     return@runCatching
                 }
 
@@ -414,6 +416,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                         TAG,
                         "mTableModeContainer unavailable; surface disabled. Fields: $fields"
                     )
+                    SurfaceEvidence.once("aod_surface_disabled_container")
                     return@runCatching
                 }
                 HookLogger.i(TAG, "Burn-in container resolved; building surface")
@@ -485,8 +488,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 }
                 SystemUiLyricProjectionRuntime.projection.attach(this, root.context)
                 HookLogger.i(TAG, "Surface attached")
+                SurfaceEvidence.once("aod_surface_attached")
             }.onFailure {
                 runCatching { detachCurrent() }
+                SurfaceEvidence.once("aod_surface_attach_failed")
                 HookLogger.e(TAG, "Attach failed", it)
             }
         }

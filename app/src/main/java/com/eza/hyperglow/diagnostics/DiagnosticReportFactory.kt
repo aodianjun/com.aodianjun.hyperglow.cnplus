@@ -132,7 +132,10 @@ internal object DiagnosticReportFactory {
                 systemUiPackagePresent = commonMetadata.packageVersions["systemui"]?.present == true,
                 xiaomiAodPackagePresent =
                     commonMetadata.packageVersions["xiaomi_aod"]?.present == true,
-                spotifyPackagePresent = commonMetadata.packageVersions["spotify"]?.present == true
+                spotifyPackagePresent = commonMetadata.packageVersions["spotify"]?.present == true,
+                spicyExPackagePresent =
+                    commonMetadata.packageVersions["spicy_ex"]?.present == true,
+                spicySetup = captured.spicySetup
             )
         )
         return DiagnosticReportEnvelope(
@@ -261,7 +264,8 @@ internal object DiagnosticReportFactory {
                 "hyperglow" to packageVersion(context, context.packageName),
                 "systemui" to packageVersion(context, "com.android.systemui"),
                 "xiaomi_aod" to packageVersion(context, "com.miui.aod"),
-                "spotify" to packageVersion(context, "com.spotify.music")
+                "spotify" to packageVersion(context, "com.spotify.music"),
+                "spicy_ex" to packageVersion(context, SPICY_EX_PACKAGE)
             )
         )
 
@@ -301,6 +305,7 @@ internal object DiagnosticReportFactory {
         "ro.miui.build.region"
     )
     private const val PROPERTY_TIMEOUT_MS = 500L
+    private const val SPICY_EX_PACKAGE = "com.eza.spicyex"
 
     private fun emptyMediaEvidence() = DiagnosticMediaEvidence(
         present = false,
