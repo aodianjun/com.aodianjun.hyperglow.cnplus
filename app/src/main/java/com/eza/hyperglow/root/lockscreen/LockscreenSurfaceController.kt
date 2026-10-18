@@ -13,6 +13,7 @@ import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.SurfaceEvidence
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.root.aod.AodLyricCanvasView
@@ -436,6 +437,10 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 rect.height >= minHeight(host)
         )
         val baseVisible = eligibleSnapshot != null && shouldShowLockscreen(visibilityInputs)
+            // 纯音乐 RESTORE_DEFAULT(per-surface):本面「交还系统默认」——不显示 CN+ 歌词卡片
+            // (含卡片背景/进度条),整块交还系统锁屏默认内容。仅当本面行为取 RESTORE_DEFAULT 时生效。
+            && !(eligibleSnapshot.pureMusic &&
+                currentLockscreenProfile().noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT)
         val anchorReady = !reverseAnchorGateActive ||
             (rect != null && reverseAnchorGate.observe(rect, SystemClock.elapsedRealtime()))
         val anchorPending = reverseAnchorGateActive && eligibleSnapshot != null && !anchorReady

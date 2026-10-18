@@ -60,6 +60,11 @@ data class AodDisplayState(
      * 由渲染面替换 [original] 的占位符(见 root/aod/LyricCanvasMapper)。
      */
     val largeMetadata: Boolean = false,
+    /**
+     * 纯音乐曲目(整首歌词只有「纯音乐请欣赏」标记,见 producer.PureMusicLyrics):渲染面
+     * 按本面「无歌词/纯音乐歌词行为」在保持原标记/替换为歌曲信息/交还系统默认间选择。
+     */
+    val pureMusic: Boolean = false,
     /** 对唱分侧(元数据身份版);标记识别版见 [alignedRightMarkers],由渲染面按本面开关选用。 */
     val alignedRight: Boolean = false,
     /** 对唱分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
@@ -754,6 +759,7 @@ private fun AodDisplayState.toWireMessage(
             artist = artist,
             album = album,
             largeMetadata = largeMetadata,
+            pureMusic = pureMusic,
             alignedRight = alignedRight,
             alignedRightMarkers = alignedRightMarkers,
             lineLevelSync = lineLevelSync,

@@ -56,7 +56,13 @@ internal fun projectToDisplay(
     powerSessionPolicy: AodPowerSessionPolicy,
     userId: Int,
     artworkJpeg: ByteArray = ByteArray(0),
-    artworkKey: String = ""
+    artworkKey: String = "",
+    /**
+     * 曲目级纯音乐结论(见 `producer.resolvePureMusic`):整首歌词只有「纯音乐请欣赏」
+     * 标记时为真。由引擎从整首快照/当前行判定后注入(纯函数保持无生产者依赖),随快照下发,
+     * 各渲染面按本面「无歌词/纯音乐歌词行为」消费。
+     */
+    pureMusic: Boolean = false
 ): AodDisplayState {
     val position = projectedPosition(state, now)
 
@@ -384,6 +390,7 @@ internal fun projectToDisplay(
         artist = state.artist,
         album = state.album,
         largeMetadata = showLargeMetadata,
+        pureMusic = pureMusic,
         alignedRight = state.alignedRight,
         alignedRightMarkers = state.alignedRightMarkers,
         lineLevelSync = lineLevelSync,

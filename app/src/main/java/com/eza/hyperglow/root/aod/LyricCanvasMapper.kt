@@ -5,6 +5,9 @@ import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
 import com.eza.hyperglow.customization.METADATA_PARTS_DEFAULT
 import com.eza.hyperglow.customization.METADATA_SEPARATORS_DEFAULT
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_MUSIC_INFO
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.composeSongMetadata
@@ -47,6 +50,13 @@ internal fun LyricSnapshot.toAodCanvasContent(
     }
     // 本面「识别对唱标记」:开启时隐去行首标记,并取标记识别版分侧;关闭时原样显示、取身份版。
     val duetMarkers = profile?.duetMarkers != false
+    // 本面「无歌词/纯音乐歌词行为」(per-surface,与「识别对唱标记」同式):纯音乐曲目(整首只有
+    // 「纯音乐请欣赏」标记,见 producer.PureMusicLyrics)的标记行语义只在本层解释一次;生产者侧
+    // 照常下发原始标记行。KEEP(默认)不改动,MUSIC_INFO 复用「大元数据引导」的主行槽位替换路径,
+    // RESTORE_DEFAULT 清空全部内容(系统内容抑制由控制器解除,见 AodSurfaceController)。
+    val noLyricsBehavior = profile?.noLyricsBehavior ?: NO_LYRICS_BEHAVIOR_KEEP
+    val pureMusicMusicInfo = pureMusic && noLyricsBehavior == NO_LYRICS_BEHAVIOR_MUSIC_INFO
+    val pureMusicRestore = pureMusic && noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
     // 长间奏倒计时圆点(per-surface):投影层只携带原始空隙两端,本面开关与「显示下一行」
     // 延迟映射在此解析(见 interludeDotsWindow)。关闭时窗口为 null,呈现与改动前逐字一致。
     val interludeDots = interludeDotsWindow(
@@ -56,13 +66,15 @@ internal fun LyricSnapshot.toAodCanvasContent(
         showsNextLine = profile?.showNextLine == true || profile?.secondaryNextLine == true
     )
     // 大元数据引导:主行位置显示本面组装后的歌曲信息(快照下发的是占位符,这里替换)。
+    // 纯音乐 MUSIC_INFO 复用同一路径:标记行槽位改显示本面歌曲信息;RESTORE_DEFAULT 直接置空。
     val surfaceOriginal = when {
-        largeMetadata -> surfaceMetadata
+        pureMusicRestore -> ""
+        largeMetadata || pureMusicMusicInfo -> surfaceMetadata
         duetMarkers -> stripDuetMarker(original)
         else -> original
     }
     val surfaceAlignedRight = if (duetMarkers) alignedRightMarkers else alignedRight
-    return AodCanvasContent(
+    val content = AodCanvasContent(
     trackGeneration = trackGeneration,
     metadata = surfaceMetadata,
     original = surfaceOriginal,
@@ -212,6 +224,49 @@ internal fun LyricSnapshot.toAodCanvasContent(
         null
     }
     )
+    // 纯音乐/无歌词三态收尾(per-surface):MUSIC_INFO 清掉标记行的词级/辅助/并发行/间奏数据
+    // (标记不是歌词,不参与卡拉OK/逐字);RESTORE_DEFAULT 再清空歌曲信息与封面,交还系统默认。
+    return when {
+        pureMusicRestore -> content.copy(
+            metadata = "",
+            metadataVisible = false,
+            original = "",
+            romanized = "",
+            translated = "",
+            nextLine = "",
+            nextLineRomanized = "",
+            nextLineTranslated = "",
+            words = emptyList(),
+            translationWords = emptyList(),
+            ruby = emptyList(),
+            layoutGroups = emptyList(),
+            alignedRight = false,
+            lineLevelSync = false,
+            duetLine = null,
+            interludeDotsStartMs = 0L,
+            interludeDotsEndMs = 0L,
+            artworkJpeg = ByteArray(0),
+            artworkKey = "",
+            artworkVisible = false
+        )
+        pureMusicMusicInfo -> content.copy(
+            romanized = "",
+            translated = "",
+            nextLine = "",
+            nextLineRomanized = "",
+            nextLineTranslated = "",
+            words = emptyList(),
+            translationWords = emptyList(),
+            ruby = emptyList(),
+            layoutGroups = emptyList(),
+            alignedRight = false,
+            lineLevelSync = false,
+            duetLine = null,
+            interludeDotsStartMs = 0L,
+            interludeDotsEndMs = 0L
+        )
+        else -> content
+    }
 }
 
 /**

@@ -716,6 +716,25 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   while it shows, and dots fill whatever remains of the interlude after it ends. Dots occupy the
   lyric-row slot only; the next-line lane and the duet lane are unaffected. A surface with the
   switch off renders exactly as before.
+- No-lyrics / pure music lyric behavior is a per-surface choice (keep by default), ported from
+  HyperLyric. A track whose whole lyric is the single marker line `纯音乐请欣赏` is a pure-music
+  track; the marker matches after stripping punctuation and whitespace, so variants such as
+  `纯音乐，请欣赏` or `纯音乐请欣赏 🎶` still count. The whole-song conclusion is resolved at the
+  projection layer from the active producer's full-song snapshot — matched against the current
+  session's producerId/generation/trackUri — and, for a streaming line-only source with no
+  snapshot, from the current line text. The marker's meaning is interpreted once, per surface, at
+  the render-mapping layer, exactly like duet-marker recognition, so the producer always publishes
+  the raw marker line. `Keep the marker` renders that line as a lyric, byte-for-byte as before.
+  `Replace with song info` reuses the generation-bound large-metadata lead slot: the marker row's
+  slot shows this surface's assembled song info, and the marker row's word-level data, auxiliary
+  lines (romanization/translation/next line), duet line, and interlude window are cleared — the
+  marker is not sung, so it never joins karaoke. `Use system default` renders no lyric, placeholder,
+  or song info, additionally drops the artwork, hands the surface back to the system default content,
+  and — on AOD — lifts that surface's stock-content suppression (otherwise the system content would
+  be hidden with nothing left to show); the lockscreen likewise hides the whole CN+ lyric card
+  (including its background and progress bar) for that surface. Non-pure-music tracks are untouched
+  by this choice, the two surfaces switch independently, and the App preview applies the same three
+  states through the same source so preview and device match.
 - Song info content is a document-level setting shared by both surfaces: which slices to show
   (title, artist, album), the order they render in, and one separator per adjacent pair. Selection
   order is display order (the selected order is preserved; unselected and blank slices are dropped;
@@ -1000,6 +1019,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
 - 每个 surface profile 存储歌曲信息布局：`stacked`（歌名在上、歌手/专辑在下，槽位分隔符为换行时各占一行——历史默认）或 `single`（所有切片用行内中点分隔符并成一行，整行按歌名字号）。未知值一律归一到 `stacked`。堆叠的某片或单行的整行过宽时，换行到后续行而不是把整块缩小到放得下。堆叠布局下歌手行还带自己的字号（相对歌名的百分比，40–100，默认 80；`single` 下不显示，整行用歌名字号）；越界值回落默认值而不是钳制，坏文档永远不会渲染出零高行。歌名与歌手字号不同时，行盒按「上一行 descent + 下一行 ascent」推进（文档排版的行盒规则），而不是按最高行取统一行盒；字号全同时逐值等于旧结果。
 - 长间奏倒计时圆点是 per-surface 开关（默认开）：本行 end 与下一行 start 的空隙达到 4 秒时，歌词行槽位改画三个倒计时圆点——随下一行临近逐点 smoothstep 点亮并放大（至多 +40%），进度 60% 起逐点渐隐（最右先隐），下一行上屏时圆点正好隐尽。圆点半径与间距跟随主行字号（0.25× 与 0.34×），取色走调色板的未唱/已唱语义 token（底色为未唱色 @128）。窗口自本行结束 1 秒后开始；本面已显示下一行时从结束点即开始——该判定在渲染映射层按面解析，因为同一份投影快照同时喂给两个曲面；外推不可信时不启动窗口。开场大元数据引导保持优先：引导显示期间不下发窗口，圆点只填引导结束后的剩余间奏。圆点只占歌词行槽位，下一行车道与并发行车道不受影响；开关关闭的曲面渲染与改动前逐字一致。
+- 「无歌词/纯音乐歌词行为」是每个 surface 独立的选项（默认「保持原标记」，移植自 HyperLyric）：整首歌词只有一行标记「纯音乐请欣赏」的曲目为纯音乐曲目——判定在投影层完成，首选活动生产者的整首快照（与当前会话的 producerId/generation/trackUri 匹配），无快照的逐行源回落当前行文本；标记文本剥离标点与空白后精确相等，故「纯音乐，请欣赏」「纯音乐请欣赏 🎶」等变体同样命中。标记的语义只按面在渲染映射层解释一次（与「识别对唱标记」同式），生产者侧照常下发原始标记行，纯音乐判定不侵入生产者。「保持原标记」把标记行照常当歌词渲染，逐字节同改动前。「替换为歌曲信息」复用开场大元数据引导的主行槽位：标记行槽位改显示本面按「歌曲信息内容」组装后的歌名/歌手，并清掉标记行的词级数据、辅助行（音译/翻译/下一行）、并发行与间奏窗口（标记不发声，不参与卡拉OK）。「交还系统默认」不显示任何歌词/占位与歌曲信息，并清空封面，把该面交还系统默认内容——息屏额外解除本面的系统内容抑制（否则系统内容被藏而本面又无可显示，成空白屏），锁屏则整块交出 CN+ 歌词卡片（含卡片背景与进度条）。非纯音乐曲目不受该选择影响；锁屏与息屏各自独立；App 内预览经同一来源套用同一三态，所见即所得。
 - 歌曲信息内容为 per-surface 设置,锁屏与息屏各自独立(未显式设置的曲面继承文档级默认值,旧文档升级语义不变):显示哪些切片(歌名/歌手/专辑)、它们的渲染顺序,以及每一对相邻切片之间的分隔符。快照携带原始歌名/歌手/专辑,由各渲染面按本面配置重新组装——改一面的选择不联动另一面的歌曲信息组装与高度预算。选择顺序即显示顺序(保留所选顺序;未选与空白切片丢弃;切片内部的 `·` 仍视作切片边界)。选中两项及以上时,每对相邻切片各有一个分隔符槽位,逐槽从同一词表独立选择——`newline`(每切片一行,历史默认)或行内连接(` · `、` - `、` | `、`、`、` / `)。分隔符序列归一化为所选部分推出的槽位数:缺项/非法项回落 `newline`,多余项截断,仅选一项时无槽位。本次改动前保存的文档携带单一旧字段 `metadataSeparator`,首次读取时按槽位展开并清空,只播种一次。画布仅在换行符处把组装后的元数据拆成行——绝不在分隔符文本处拆分——且最多渲染三行元数据。未知部分/分隔符值归一为默认。此外,每个 surface profile 还携带「专辑与歌名一致时隐藏专辑」开关(未显式设置的曲面继承文档级默认值):开启且专辑文本与歌名在去两端空白后逐字相等时,组装歌曲信息时丢弃专辑切片,该槽位不再产出;专辑与歌名不同或为空时不受影响。
 - 歌曲图片为 per-surface 设置,锁屏与息屏各自独立(显示开关、方形/圆形形状、自适应/固定尺寸、仅圆形可选旋转);旧文档中存的文档级全局值在首次读取时一次性播种到两个曲面。开启时歌曲信息块左侧恰好一个图片槽:槽边长默认自适应(歌曲信息字号 × 1.6,随字号缩放),关闭该 surface 的自适应开关时改取固定自定义边长(12–96dp,默认 22dp,即 100% 歌曲信息字号下的自适应边长),不随字号变化;与文本间距 6dp,行级对齐把「图片+文本块」当整组落位,文本块内各行仍按各自对齐排布。图片带高取「歌曲信息文本块高」与「图片槽边长」的较大者:图片高于文本块时带高随图片增长、文本块在带内垂直居中,图片不被内容裁剪框/锁屏卡片裁切,带高计入卡片实测高与歌曲信息组件预算(静态预算按图片槽边长 + 8dp 上下余量入账,大尺寸自定义图片不被裁切);图片与文本块共用同一视觉中线(首末行基线中点 + (ascent + descent)/2,而非裸基线中点)。音乐暂停驻留期间圆形封面默认停转(暂停期无逐帧开销),仅「音乐暂停时继续旋转」打开的曲面继续旋转。取图 fail-closed:只显示经校对的「当前播放的音乐软件」当前曲目的专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致)——系统播放窗口滞留的旧封面、其他包、或歧义命中一律不显示。封面帧有界(源图降采样至 ≤192px 后压成 ≤24KiB JPEG),按帧键解码一次。方形不旋转;圆形旋转为匀速 12 秒/圈,与逐字歌词共用有效节拍门(隐藏即停帧)。未知形状值归一为方形;旋转仅圆形生效。隐私:封面字节不出设备、不入诊断;功耗:静态封面不增加逐帧开销,旋转随既有节拍门停止(隐藏,或暂停且未开「音乐暂停时继续旋转」)。
 - 在绑定 generation 的歌曲 intro 期间，匹配的单行标题/艺术家文本会抑制重复的元数据行，并在三秒后形变为持久的元数据位置与大小。不兼容或换行的几何使用有界交叉淡化。两条路径都不改变整个 surface 的 alpha、keepalive 亮度策略或位置权威。

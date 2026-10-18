@@ -204,4 +204,70 @@ class LyricCanvasMapperTest {
         )
         assertTrue(fallback.secondaryAutoSize)
     }
+
+    // --- 无歌词/纯音乐歌词行为(per-surface 三态,见 SurfaceProfile.noLyricsBehavior)---
+
+    private fun pureMusicSnapshot() = LyricSnapshot(
+        visible = true,
+        original = "纯音乐请欣赏",
+        metadata = "Song\nArtist",
+        title = "Song",
+        artist = "Artist",
+        durationMs = 60_000L,
+        pureMusic = true
+    )
+
+    private fun profileWith(behavior: String) = SceneCompiler.compile(
+        CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(noLyricsBehavior = behavior)
+            )
+        )
+    ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+
+    @Test
+    fun mapperKeepsPureMusicMarkerWhenBehaviorIsKeep() {
+        // KEEP(默认):历史行为零变化——标记行照常当歌词显示。
+        val content = pureMusicSnapshot().toAodCanvasContent(profileWith("keep"))
+        assertEquals("纯音乐请欣赏", content.original)
+        // 歌曲信息区块保持快照原值(KEEP 不动元数据);是否显示仍由本面 metadataVisible 决定。
+        assertEquals("Song\nArtist", content.metadata)
+    }
+
+    @Test
+    fun mapperReplacesPureMusicMarkerWithSongInfo() {
+        // MUSIC_INFO:主行槽位改显示本面组装后的歌曲信息,并清掉标记行的词级数据。
+        val content = pureMusicSnapshot().toAodCanvasContent(profileWith("music_info"))
+        assertEquals(content.metadata, content.original)
+        assertTrue(content.original.isNotBlank())
+        assertTrue(content.words.isEmpty())
+        assertTrue(content.lineLevelSync.not())
+    }
+
+    @Test
+    fun mapperBlanksPureMusicContentForRestoreDefault() {
+        // RESTORE_DEFAULT:不显示任何歌词/占位与歌曲信息,交还系统默认(系统内容抑制另行解除)。
+        val content = pureMusicSnapshot().toAodCanvasContent(profileWith("restore_default"))
+        assertEquals("", content.original)
+        assertEquals("", content.metadata)
+        assertFalse(content.metadataVisible)
+        assertTrue(content.words.isEmpty())
+    }
+
+    @Test
+    fun mapperLeavesOrdinarySongUntouchedByNoLyricsBehavior() {
+        // 非纯音乐曲目:任何三态设置都不改动内容(判定在投影层已定,只有纯音乐才参与)。
+        val ordinary = LyricSnapshot(
+            visible = true,
+            original = "main",
+            metadata = "Song\nArtist",
+            title = "Song",
+            artist = "Artist",
+            durationMs = 60_000L,
+            pureMusic = false
+        )
+        val content = ordinary.toAodCanvasContent(profileWith("restore_default"))
+        assertEquals("main", content.original)
+        assertEquals("Song\nArtist", content.metadata)
+    }
 }

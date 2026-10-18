@@ -108,6 +108,11 @@ internal data class LyricSnapshot(
     val album: String = "",
     /** 大元数据引导态:渲染面用本面组装后的歌曲信息替换 original 占位符。 */
     val largeMetadata: Boolean = false,
+    /**
+     * 纯音乐曲目(整首歌词只有「纯音乐请欣赏」标记,见 producer.PureMusicLyrics):渲染面按
+     * 本面「无歌词/纯音乐歌词行为」在保持原标记/替换歌曲信息/交还系统默认间选择(per-surface)。
+     */
+    val pureMusic: Boolean = false,
     /** 分侧(元数据身份版);标记识别版见 [alignedRightMarkers]。 */
     val alignedRight: Boolean = false,
     /** 分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
@@ -169,6 +174,7 @@ internal data class LyricSnapshot(
         artist,
         album,
         largeMetadata,
+        pureMusic,
         alignedRight,
         alignedRightMarkers,
         lineLevelSync,
@@ -219,6 +225,11 @@ internal data class LyricRenderContent(
     val album: String = "",
     /** 大元数据引导态:渲染面用本面组装后的歌曲信息替换 original 占位符。 */
     val largeMetadata: Boolean = false,
+    /**
+     * 纯音乐曲目标记(见 [LyricSnapshot.pureMusic])。纳入变更指纹:同曲目下纯音乐标记
+     * 单独出现/消失(整首快照到达)时,控制器也要重投内容。
+     */
+    val pureMusic: Boolean = false,
     val alignedRight: Boolean,
     /** 分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
     val alignedRightMarkers: Boolean = false,
@@ -600,6 +611,7 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             artist = value.artist,
             album = value.album,
             largeMetadata = value.largeMetadata,
+            pureMusic = value.pureMusic,
             alignedRight = value.alignedRight,
             alignedRightMarkers = value.alignedRightMarkers,
             lineLevelSync = value.lineLevelSync,

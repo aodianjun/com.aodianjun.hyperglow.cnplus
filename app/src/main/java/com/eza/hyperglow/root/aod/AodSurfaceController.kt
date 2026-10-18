@@ -21,6 +21,7 @@ import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
@@ -1023,6 +1024,13 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     /** 是否应抑制系统息屏内容:全局开关 或 (横屏 && 随设备旋转 && 横屏隐藏开关)。 */
     private fun shouldSuppressStock(snapshot: LyricSnapshot?, renderable: Boolean): Boolean {
         if (!renderable || snapshot == null) return false
+        // 纯音乐 RESTORE_DEFAULT(per-surface):本面「交还系统默认」,必须解除抑制——
+        // 否则系统内容被藏而本面又无内容可显示(空白屏)。仅当本面行为取 RESTORE_DEFAULT 时生效。
+        if (snapshot.pureMusic &&
+            effectiveAodProfile().noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+        ) {
+            return false
+        }
         return shouldHideStockAodContent(
             suppressBase = snapshot.suppressStockAodContent,
             landscapeStep = currentRotationStep != AodOrientationStep.PORTRAIT,

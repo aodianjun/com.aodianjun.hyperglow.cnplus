@@ -76,6 +76,8 @@ import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
 import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
 import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_MUSIC_INFO
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.root.aod.AodCanvasRuby
 import com.eza.hyperglow.root.aod.AodCanvasWord
@@ -383,6 +385,66 @@ private fun rememberLivePreviewPosition(live: LyricSnapshot?): Long? {
 }
 
 /**
+ * 纯音乐/无歌词三态在预览快照上的应用(与实机 [com.eza.hyperglow.root.aod.toAodCanvasContent]
+ * 同源,per-surface,见 SurfaceProfile.noLyricsBehavior):非纯音乐曲目原样返回。
+ * - KEEP:原样(历史行为零变化)。
+ * - MUSIC_INFO:主行槽位改显示本面歌曲信息(快照的 metadata 即投影层按本面组装值),
+ *   并清掉标记行的词级/辅助/并发行/间奏数据(标记不是歌词,不参与卡拉OK/逐字)。
+ * - RESTORE_DEFAULT:清空歌词、歌曲信息与封面,交还系统默认(系统内容抑制由控制器解除)。
+ */
+private fun LyricSnapshot.applyNoLyricsBehavior(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile
+): LyricSnapshot {
+    if (!pureMusic) return this
+    return when (profile.noLyricsBehavior) {
+        NO_LYRICS_BEHAVIOR_MUSIC_INFO -> copy(
+            original = metadata,
+            romanized = "",
+            translated = "",
+            nextLine = "",
+            nextLineRomanized = "",
+            nextLineTranslated = "",
+            words = emptyList(),
+            translationWords = emptyList(),
+            ruby = emptyList(),
+            layoutGroups = emptyList(),
+            alignedRight = false,
+            alignedRightMarkers = false,
+            lineLevelSync = false,
+            duetLine = null,
+            interludeStartMs = 0L,
+            interludeEndMs = 0L
+        )
+        NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT -> copy(
+            metadata = "",
+            metadataVisible = false,
+            title = "",
+            artist = "",
+            album = "",
+            original = "",
+            romanized = "",
+            translated = "",
+            nextLine = "",
+            nextLineRomanized = "",
+            nextLineTranslated = "",
+            words = emptyList(),
+            translationWords = emptyList(),
+            ruby = emptyList(),
+            layoutGroups = emptyList(),
+            alignedRight = false,
+            alignedRightMarkers = false,
+            lineLevelSync = false,
+            duetLine = null,
+            interludeStartMs = 0L,
+            interludeEndMs = 0L,
+            artworkJpeg = ByteArray(0),
+            artworkKey = ""
+        )
+        else -> this
+    }
+}
+
+/**
  * 深色预览面板 + 歌词内容。高度自适应内容(上下限见 [PREVIEW_CARD_MIN_HEIGHT_DP] /
  * [PREVIEW_CARD_MAX_HEIGHT_DP]),大字号/多行不再被固定高度裁掉;「card」背景铺满面板,
  * 歌词块在面板内水平居中、垂直居中。
@@ -398,11 +460,13 @@ private fun LyricPreviewSurface(
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
-    val snapshot = live ?: collectDemoSnapshot(
+    // 纯音乐曲目按本面「无歌词/纯音乐歌词行为」先做一次内容覆盖(与实机 LyricCanvasMapper
+    // 同源),预览与实机三态一致:KEEP 原样、MUSIC_INFO 主行改歌曲信息、RESTORE_DEFAULT 全清。
+    val snapshot = (live ?: collectDemoSnapshot(
         metadataParts,
         metadataSeparators,
         profile.hideAlbumWhenSameAsTitle
-    )
+    )).applyNoLyricsBehavior(profile)
     // 实时时钟:有实时快照时逐帧外推真实播放位置(见 [rememberLivePreviewPosition]),
     // 预览的扫光/逐字随真实歌词时间;演示态为 null,行为不变。
     val livePositionMs = rememberLivePreviewPosition(live)
