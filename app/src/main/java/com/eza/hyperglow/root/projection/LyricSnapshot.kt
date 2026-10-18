@@ -71,6 +71,11 @@ internal data class LyricSnapshot(
     val aodEnabled: Boolean = true,
     val lockscreenEnabled: Boolean = false,
     val keepAlive: Boolean = false,
+    /**
+     * 有限时长保活（「保持息屏活动 N 分钟」）已到点。渲染面据此停掉绘制唤醒与 AOD
+     * 重唤醒——只放行 hide 不够，表面仍会持续点亮 AOD 直到播放停止。
+     */
+    val keepAliveExpired: Boolean = false,
     val positionFollowingEnabled: Boolean = false,
     val burnInPattern: String = "static_bottom",
     val burnInIntervalMs: Long = 60_000L,
@@ -266,6 +271,7 @@ internal data class LyricKeepAliveSignal(
     val revision: Long,
     val updatedAtElapsedMs: Long,
     val keepAlive: Boolean,
+    val keepAliveExpired: Boolean = false,
     val wakeSignal: Long,
     val playbackActive: Boolean = false,
     val pauseRetentionEligible: Boolean = false,
@@ -563,6 +569,7 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             aodEnabled = value.aodEnabled,
             lockscreenEnabled = value.lockscreenEnabled,
             keepAlive = keepAlive,
+            keepAliveExpired = keepAliveExpired,
             positionFollowingEnabled = value.positionFollowingEnabled,
             burnInPattern = value.burnInPattern,
             burnInIntervalMs = value.burnInIntervalMs,
@@ -689,6 +696,7 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             playbackActive = playbackActive,
             pauseRetentionEligible = pauseRetentionEligible && !playbackActive,
             keepAlive = keepAlive,
+            keepAliveExpired = keepAliveExpired,
             wakeSignal = wakeSignal
         )
     )
@@ -697,6 +705,7 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             revision = revision,
             updatedAtElapsedMs = updatedAtElapsedMs,
             keepAlive = keepAlive,
+            keepAliveExpired = keepAliveExpired,
             wakeSignal = wakeSignal,
             playbackActive = playbackActive,
             pauseRetentionEligible = false,

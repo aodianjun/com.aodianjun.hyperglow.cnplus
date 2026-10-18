@@ -198,6 +198,8 @@ internal sealed interface AodStateWireMessage {
     val wakeSignal: Long
     val playbackActive: Boolean
     val pauseRetentionEligible: Boolean
+    /** 有限时长保活已到点；消费侧据此停掉绘制唤醒/AOD 重唤醒（默认 false = 未知/未到点）。 */
+    val keepAliveExpired: Boolean
 
     data class Snapshot(
         override val revision: Long,
@@ -207,6 +209,7 @@ internal sealed interface AodStateWireMessage {
         override val wakeSignal: Long,
         override val playbackActive: Boolean = false,
         override val pauseRetentionEligible: Boolean = false,
+        override val keepAliveExpired: Boolean = false,
         val value: AodStateWireSnapshot
     ) : AodStateWireMessage
 
@@ -217,7 +220,8 @@ internal sealed interface AodStateWireMessage {
         override val keepAlive: Boolean,
         override val wakeSignal: Long,
         override val playbackActive: Boolean = false,
-        override val pauseRetentionEligible: Boolean = false
+        override val pauseRetentionEligible: Boolean = false,
+        override val keepAliveExpired: Boolean = false
     ) : AodStateWireMessage
 
     data class KeepAlive(
@@ -227,7 +231,8 @@ internal sealed interface AodStateWireMessage {
         override val keepAlive: Boolean,
         override val wakeSignal: Long,
         override val playbackActive: Boolean = false,
-        override val pauseRetentionEligible: Boolean = false
+        override val pauseRetentionEligible: Boolean = false,
+        override val keepAliveExpired: Boolean = false
     ) : AodStateWireMessage
 }
 
@@ -241,7 +246,8 @@ internal data class AodStateWireEnvelope(
     val wakeSignal: Long,
     val body: ByteArray?,
     val playbackActive: Boolean = false,
-    val pauseRetentionEligible: Boolean = false
+    val pauseRetentionEligible: Boolean = false,
+    val keepAliveExpired: Boolean = false
 )
 
 /**
@@ -280,7 +286,8 @@ internal object AodStateWireCodec {
                     wakeSignal = message.wakeSignal,
                     body = body,
                     playbackActive = message.playbackActive,
-                    pauseRetentionEligible = message.pauseRetentionEligible
+                    pauseRetentionEligible = message.pauseRetentionEligible,
+                    keepAliveExpired = message.keepAliveExpired
                 )
             }
             is AodStateWireMessage.Hidden -> AodStateWireEnvelope(
@@ -293,7 +300,8 @@ internal object AodStateWireCodec {
                 wakeSignal = message.wakeSignal,
                 body = null,
                 playbackActive = message.playbackActive,
-                pauseRetentionEligible = message.pauseRetentionEligible
+                pauseRetentionEligible = message.pauseRetentionEligible,
+                keepAliveExpired = message.keepAliveExpired
             )
             is AodStateWireMessage.KeepAlive -> AodStateWireEnvelope(
                 protocol = AodStateWireContract.PROTOCOL_VERSION,
@@ -305,7 +313,8 @@ internal object AodStateWireCodec {
                 wakeSignal = message.wakeSignal,
                 body = null,
                 playbackActive = message.playbackActive,
-                pauseRetentionEligible = message.pauseRetentionEligible
+                pauseRetentionEligible = message.pauseRetentionEligible,
+                keepAliveExpired = message.keepAliveExpired
             )
         }
     }
@@ -347,6 +356,7 @@ internal object AodStateWireCodec {
                         wakeSignal = envelope.wakeSignal,
                         playbackActive = envelope.playbackActive,
                         pauseRetentionEligible = envelope.pauseRetentionEligible,
+                        keepAliveExpired = envelope.keepAliveExpired,
                         value = snapshot
                     )
                 )
@@ -359,7 +369,8 @@ internal object AodStateWireCodec {
                     keepAlive = envelope.keepAlive,
                     wakeSignal = envelope.wakeSignal,
                     playbackActive = envelope.playbackActive,
-                    pauseRetentionEligible = envelope.pauseRetentionEligible
+                    pauseRetentionEligible = envelope.pauseRetentionEligible,
+                    keepAliveExpired = envelope.keepAliveExpired
                 )
             )
             AodStateWireContract.KIND_KEEPALIVE -> AodStateWireDecodeOutcome.Decoded(
@@ -370,7 +381,8 @@ internal object AodStateWireCodec {
                     keepAlive = envelope.keepAlive,
                     wakeSignal = envelope.wakeSignal,
                     playbackActive = envelope.playbackActive,
-                    pauseRetentionEligible = envelope.pauseRetentionEligible
+                    pauseRetentionEligible = envelope.pauseRetentionEligible,
+                    keepAliveExpired = envelope.keepAliveExpired
                 )
             )
             else -> AodStateWireDecodeOutcome.Rejected("unknown_kind")
@@ -1186,6 +1198,7 @@ internal object AodStateWireBundleCodec {
         putLong(KEY_WAKE_SIGNAL, envelope.wakeSignal)
         putBoolean(KEY_PLAYBACK_ACTIVE, envelope.playbackActive)
         putBoolean(KEY_PAUSE_RETENTION_ELIGIBLE, envelope.pauseRetentionEligible)
+        putBoolean(KEY_KEEP_ALIVE_EXPIRED, envelope.keepAliveExpired)
         envelope.body?.let { putByteArray(KEY_BODY, it) }
     }
 
@@ -1209,7 +1222,8 @@ internal object AodStateWireBundleCodec {
                 null
             },
             playbackActive = bundle.getBoolean(KEY_PLAYBACK_ACTIVE, false),
-            pauseRetentionEligible = bundle.getBoolean(KEY_PAUSE_RETENTION_ELIGIBLE, false)
+            pauseRetentionEligible = bundle.getBoolean(KEY_PAUSE_RETENTION_ELIGIBLE, false),
+            keepAliveExpired = bundle.getBoolean(KEY_KEEP_ALIVE_EXPIRED, false)
         )
         return envelope
     }
@@ -1223,5 +1237,6 @@ internal object AodStateWireBundleCodec {
     private const val KEY_WAKE_SIGNAL = "wakeSignal"
     private const val KEY_PLAYBACK_ACTIVE = "playbackActive"
     private const val KEY_PAUSE_RETENTION_ELIGIBLE = "pauseRetentionEligible"
+    private const val KEY_KEEP_ALIVE_EXPIRED = "keepAliveExpired"
     private const val KEY_BODY = "stateBody"
 }

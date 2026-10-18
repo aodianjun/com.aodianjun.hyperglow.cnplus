@@ -337,7 +337,14 @@ class SystemUiLyricProjectionTest {
         // revision 水位照常推进:随后同 revision 的心跳不再被拒,租约链不断。
         assertTrue(
             harness.projection.accept(
-                LyricProjectionMessage.KeepAlive(LyricKeepAliveSignal(2, 100_001, true, 9))
+                LyricProjectionMessage.KeepAlive(
+                    LyricKeepAliveSignal(
+                        revision = 2,
+                        updatedAtElapsedMs = 100_001,
+                        keepAlive = true,
+                        wakeSignal = 9
+                    )
+                )
             )
         )
     }
@@ -372,7 +379,14 @@ class SystemUiLyricProjectionTest {
 
         assertTrue(
             harness.projection.accept(
-                LyricProjectionMessage.KeepAlive(LyricKeepAliveSignal(4, 50, true, 9))
+                LyricProjectionMessage.KeepAlive(
+                    LyricKeepAliveSignal(
+                        revision = 4,
+                        updatedAtElapsedMs = 50,
+                        keepAlive = true,
+                        wakeSignal = 9
+                    )
+                )
             )
         )
         assertEquals(1, subscriber.snapshots.size)
@@ -455,6 +469,16 @@ class SystemUiLyricProjectionTest {
         ))
         assertFalse(shouldRenewAodDraw(
             LyricSurfaceKind.AOD, true, true, false, false, false, playbackActive = true
+        ))
+        // 有限时长保活到点后即使仍在播放也必须停掉续期：否则 mWakeLock 脉冲会把
+        // AOD 一直点亮到播放停止（0.3.169 实测）。
+        assertFalse(shouldRenewAodDraw(
+            LyricSurfaceKind.AOD, true, true, true, false, true, playbackActive = true,
+            keepAliveExpired = true
+        ))
+        assertFalse(shouldRenewAodDraw(
+            LyricSurfaceKind.AOD, true, true, true, false, false, playbackActive = true,
+            keepAliveExpired = true
         ))
         assertFalse(shouldRequestAodWake(true, false, true))
         assertFalse(shouldRequestAodWake(true, true, false))

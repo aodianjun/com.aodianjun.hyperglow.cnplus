@@ -48,6 +48,27 @@ class AodStateBridgeTest {
     }
 
     @Test
+    fun keepAliveExpiryEdgeForcesPublishAndSurvivesEncode() {
+        val last = state().copy(keepAlive = false, keepAliveExpired = false)
+
+        // 到点是语义边沿：位置连续也必须重发，否则 SystemUI 侧拿不到停续期的信号。
+        val expired = last.copy(
+            keepAliveExpired = true,
+            positionMs = 1_100L,
+            sampledAtElapsedMs = 1_100L
+        )
+        assertTrue(shouldRepublish(last, expired))
+
+        val publication = encodeNormalizedAodStatePublication(
+            normalizeAodDisplayState(expired),
+            revision = 11L,
+            updatedAtElapsedMs = 12L
+        )
+        assertTrue(publication.message.keepAliveExpired)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
     fun adaptiveSectioningDefaultsOnAndChangesRepublishState() {
         val last = state()
 

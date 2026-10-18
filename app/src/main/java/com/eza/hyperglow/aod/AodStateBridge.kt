@@ -19,6 +19,11 @@ data class AodDisplayState(
     val aodEnabled: Boolean = true,
     val lockscreenEnabled: Boolean = false,
     val keepAlive: Boolean = false,
+    /**
+     * 有限时长保活已到点（见 [AodPowerSessionDecision.keepAliveExpired]）。渲染面据此停掉
+     * 绘制唤醒与 AOD 重唤醒；与 [keepAlive]=false 的普通「本拍无请求」区分。
+     */
+    val keepAliveExpired: Boolean = false,
     val positionFollowingEnabled: Boolean = false,
     val burnInPattern: String = "static_bottom",
     val burnInIntervalMs: Long = 60_000L,
@@ -300,6 +305,7 @@ object AodStateBridge {
             userId = current.userId,
             updatedAtElapsedMs = updatedAt,
             keepAlive = current.keepAlive,
+            keepAliveExpired = current.keepAliveExpired,
             wakeSignal = current.wakeSignal,
             playbackActive = current.playbackActive,
             pauseRetentionEligible = current.pauseRetentionEligible
@@ -408,6 +414,7 @@ internal fun encodeNormalizedAodStatePublication(
             userId = state.userId,
             updatedAtElapsedMs = updatedAtElapsedMs,
             keepAlive = false,
+            keepAliveExpired = state.keepAliveExpired,
             wakeSignal = state.wakeSignal,
             playbackActive = state.playbackActive,
             pauseRetentionEligible = state.pauseRetentionEligible
@@ -700,6 +707,7 @@ private fun AodDisplayState.toWireMessage(
         userId = userId,
         updatedAtElapsedMs = updatedAtElapsedMs,
         keepAlive = keepAlive,
+        keepAliveExpired = keepAliveExpired,
         wakeSignal = wakeSignal,
         playbackActive = playbackActive,
         pauseRetentionEligible = pauseRetentionEligible
@@ -710,6 +718,7 @@ private fun AodDisplayState.toWireMessage(
         userId = userId,
         updatedAtElapsedMs = updatedAtElapsedMs,
         keepAlive = keepAlive,
+        keepAliveExpired = keepAliveExpired,
         wakeSignal = wakeSignal,
         playbackActive = playbackActive,
         pauseRetentionEligible = pauseRetentionEligible,

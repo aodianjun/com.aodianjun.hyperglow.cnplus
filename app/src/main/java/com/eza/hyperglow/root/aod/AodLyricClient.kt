@@ -46,9 +46,15 @@ internal fun shouldReplacePendingState(
  * 心跳 keepAlive 的播放宽限(issue #22):心跳的 keepAlive=false 不具备租约过期权威——
  * 切歌 BUFFERING 窗口里它会与 playbackActive=true 同时到达,直接采信会提前关闭 draw-wake
  * 续期。playbackActive=true 时宽限视为续期;租约过期权威仍只属于全量快照。
+ *
+ * 有限时长保活到点（[keepAliveExpired]）压过宽限：到点后播放仍在也不能再续期，
+ * 否则心跳会把刚释放的会话重新拉活。
  */
-internal fun heartbeatKeepAliveWithGrace(keepAlive: Boolean, playbackActive: Boolean): Boolean =
-    keepAlive || playbackActive
+internal fun heartbeatKeepAliveWithGrace(
+    keepAlive: Boolean,
+    playbackActive: Boolean,
+    keepAliveExpired: Boolean = false
+): Boolean = !keepAliveExpired && (keepAlive || playbackActive)
 
 /**
  * Preserve a pending state while applying a newer same-revision heartbeat to its scalar fields. A
@@ -67,14 +73,24 @@ internal fun mergePendingKeepAlive(
     return when (pending) {
         is AodStateWireMessage.Snapshot -> pending.copy(
             updatedAtElapsedMs = incoming.updatedAtElapsedMs,
-            keepAlive = heartbeatKeepAliveWithGrace(incoming.keepAlive, incoming.playbackActive),
+            keepAlive = heartbeatKeepAliveWithGrace(
+                incoming.keepAlive,
+                incoming.playbackActive,
+                incoming.keepAliveExpired
+            ),
+            keepAliveExpired = incoming.keepAliveExpired,
             wakeSignal = incoming.wakeSignal,
             playbackActive = incoming.playbackActive,
             pauseRetentionEligible = incoming.pauseRetentionEligible
         )
         is AodStateWireMessage.Hidden -> pending.copy(
             updatedAtElapsedMs = incoming.updatedAtElapsedMs,
-            keepAlive = heartbeatKeepAliveWithGrace(incoming.keepAlive, incoming.playbackActive),
+            keepAlive = heartbeatKeepAliveWithGrace(
+                incoming.keepAlive,
+                incoming.playbackActive,
+                incoming.keepAliveExpired
+            ),
+            keepAliveExpired = incoming.keepAliveExpired,
             wakeSignal = incoming.wakeSignal,
             playbackActive = incoming.playbackActive,
             pauseRetentionEligible = incoming.pauseRetentionEligible

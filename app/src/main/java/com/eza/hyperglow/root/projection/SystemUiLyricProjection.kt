@@ -93,6 +93,7 @@ internal fun droppedSnapshotKeepAliveSignal(
     held: LyricSnapshot
 ): LyricKeepAliveSignal? {
     val changed = dropped.keepAlive != held.keepAlive ||
+        dropped.keepAliveExpired != held.keepAliveExpired ||
         dropped.wakeSignal != held.wakeSignal ||
         dropped.playbackActive != held.playbackActive ||
         dropped.pauseRetentionEligible != held.pauseRetentionEligible
@@ -101,6 +102,7 @@ internal fun droppedSnapshotKeepAliveSignal(
         revision = dropped.revision,
         updatedAtElapsedMs = dropped.updatedAtElapsedMs,
         keepAlive = dropped.keepAlive,
+        keepAliveExpired = dropped.keepAliveExpired,
         wakeSignal = dropped.wakeSignal,
         playbackActive = dropped.playbackActive,
         pauseRetentionEligible = dropped.pauseRetentionEligible,
@@ -118,10 +120,16 @@ internal fun shouldRenewAodDraw(
     effectivelyVisible: Boolean,
     pendingStockMotion: Boolean,
     keepAlive: Boolean,
-    playbackActive: Boolean = false
+    playbackActive: Boolean = false,
+    /**
+     * 有限时长保活到点：即使仍在播放也不得续期绘制唤醒。只放行系统 hide 不够——
+     * 2.75s 一次的 mWakeLock 脉冲会让 AOD 表面一直亮到播放停止（0.3.169 实测）。
+     */
+    keepAliveExpired: Boolean = false
 ): Boolean = surfaceKind == LyricSurfaceKind.AOD &&
     attached &&
     sceneActive &&
+    !keepAliveExpired &&
     (keepAlive || playbackActive) &&
     (effectivelyVisible || pendingStockMotion)
 

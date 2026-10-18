@@ -354,6 +354,7 @@ internal fun projectToDisplay(
         aodEnabled = aodEnabled,
         lockscreenEnabled = lockscreenEnabled,
         keepAlive = powerDecision.keepAlive,
+        keepAliveExpired = powerDecision.keepAliveExpired,
         positionFollowingEnabled = prefs.experimentalPositionFollowing,
         burnInPattern = prefs.burnInPattern,
         burnInIntervalMs = prefs.burnInIntervalMs,

@@ -415,6 +415,13 @@ internal object AodWakeBroker {
             mainHandler.postDelayed(this, LYRICON_POLL_INTERVAL_MS)
             val activePower = powerManager ?: return
             if (activePower.isInteractive) return
+            // 有限时长保活到点后不得再强制唤醒：否则每 10s 重新点亮 AOD，到点熄灭永不生效。
+            // 只有「coordinator 明确判定本次会话到点」时才静默；投影断线/陈旧导致的
+            // clear 不会置位，issue #5 的兜底语义保持不变。
+            if (AodPowerCoordinator.isKeepAliveExpired()) {
+                lyriconWakeLogged = false
+                return
+            }
             if (!isLyriconPlaybackActive()) {
                 lyriconWakeLogged = false
                 return

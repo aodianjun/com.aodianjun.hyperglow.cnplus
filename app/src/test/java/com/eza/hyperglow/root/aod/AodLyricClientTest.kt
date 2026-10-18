@@ -65,6 +65,31 @@ class AodLyricClientTest {
         assertTrue(heartbeatKeepAliveWithGrace(keepAlive = true, playbackActive = false))
         assertTrue(heartbeatKeepAliveWithGrace(keepAlive = false, playbackActive = true))
         assertTrue(heartbeatKeepAliveWithGrace(keepAlive = true, playbackActive = true))
+        // 到点压过播放宽限：播放中也不得把会话续回去。
+        assertFalse(
+            heartbeatKeepAliveWithGrace(
+                keepAlive = false,
+                playbackActive = true,
+                keepAliveExpired = true
+            )
+        )
+    }
+
+    @Test
+    fun expiredHeartbeatMergesTheFlagAndSuppressesPlaybackGrace() {
+        val pending = hidden(revision = 7, updatedAt = 1_000, keepAlive = true)
+        val incoming = keepAlive(
+            revision = 7,
+            updatedAt = 2_000,
+            keepAlive = false,
+            playbackActive = true,
+            keepAliveExpired = true
+        )
+
+        val merged = mergePendingKeepAlive(pending, incoming) as AodStateWireMessage.Hidden
+
+        assertFalse(merged.keepAlive)
+        assertTrue(merged.keepAliveExpired)
     }
 
     @Test
@@ -92,13 +117,15 @@ class AodLyricClientTest {
         updatedAt: Long,
         keepAlive: Boolean = true,
         playbackActive: Boolean = false,
-        wakeSignal: Long = 0L
+        wakeSignal: Long = 0L,
+        keepAliveExpired: Boolean = false
     ) = AodStateWireMessage.KeepAlive(
         revision = revision,
         userId = 0,
         updatedAtElapsedMs = updatedAt,
         keepAlive = keepAlive,
         wakeSignal = wakeSignal,
-        playbackActive = playbackActive
+        playbackActive = playbackActive,
+        keepAliveExpired = keepAliveExpired
     )
 }

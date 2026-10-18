@@ -718,10 +718,15 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // 心跳 keepAlive=false 不具租约过期权威(issue #22):播放中宽限为续期,与下方
         // playback-active 脉搏注释同源;全量快照的 keepAlive=false 不受影响。
         val effectiveKeepAlive = retained?.keepAlive
-            ?: heartbeatKeepAliveWithGrace(signal.keepAlive, signal.playbackActive)
+            ?: heartbeatKeepAliveWithGrace(
+                signal.keepAlive,
+                signal.playbackActive,
+                signal.keepAliveExpired
+            )
         latestSnapshot = latestSnapshot?.copy(
             updatedAtElapsedMs = signal.updatedAtElapsedMs,
             keepAlive = effectiveKeepAlive,
+            keepAliveExpired = signal.keepAliveExpired,
             wakeSignal = signal.wakeSignal,
             playbackActive = signal.playbackActive,
             pauseRetentionEligible = signal.pauseRetentionEligible
@@ -1130,6 +1135,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 snapshot != null && canRenderAod(snapshot),
             pendingStockMotion = pendingStockMotionUpdate != null,
             keepAlive = snapshot?.keepAlive == true,
+            keepAliveExpired = snapshot?.keepAliveExpired == true ||
+                AodPowerCoordinator.isKeepAliveExpired(),
             playbackActive = snapshot?.playbackActive == true ||
                 AodWakeBroker.isLyriconPlaybackActive()
         )
@@ -1226,6 +1233,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // 亮屏时 AOD 本来就不呈现,不做任何恢复。
         if (root.display?.state == android.view.Display.STATE_ON) return
         val snapshot = latestSnapshot ?: return
+        if (snapshot.keepAliveExpired || AodPowerCoordinator.isKeepAliveExpired()) return
         if (!canRenderAod(snapshot)) return
         val playbackLive = snapshot.playbackActive || snapshot.keepAlive ||
             AodWakeBroker.isLyriconPlaybackActive()
@@ -2106,6 +2114,11 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     }
 
     private fun requestWakeIfAllowed(root: ViewGroup, directSurface: View, wakeRequired: Boolean) {
+        // 有限时长保活到点后，内容脉冲与重唤醒都必须停：继续 acquire AOD root 的
+        // mWakeLock 会把表面一直点亮到播放停止（只放行 smartHide 不够）。
+        if (latestSnapshot?.keepAliveExpired == true ||
+            AodPowerCoordinator.isKeepAliveExpired()
+        ) return
         if (!shouldRequestAodWake(
                 attached = rootRef.get() === root,
                 sceneActive = isSceneActive(),

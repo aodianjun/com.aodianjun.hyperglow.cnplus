@@ -52,6 +52,29 @@ class AodStateWireCodecTest {
     }
 
     @Test
+    fun keepAliveExpiredSurvivesEnvelopeRoundTrip() {
+        val snapshot = snapshotMessage().copy(keepAliveExpired = true)
+        assertEquals(
+            snapshot,
+            AodStateWireCodec.encode(snapshot)?.let(AodStateWireCodec::decode)
+        )
+
+        val keepAlive = AodStateWireMessage.KeepAlive(
+            revision = 9L,
+            userId = 10,
+            updatedAtElapsedMs = 902L,
+            keepAlive = false,
+            wakeSignal = 44L,
+            playbackActive = true,
+            keepAliveExpired = true
+        )
+        assertEquals(
+            keepAlive,
+            AodStateWireCodec.encode(keepAlive)?.let(AodStateWireCodec::decode)
+        )
+    }
+
+    @Test
     fun exactCollectionLimitsRoundTripAndOverLimitsFailClosedBeforeMapping() {
         val exact = snapshotMessage(
             value = snapshotValue(
