@@ -14,6 +14,7 @@ import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.SongArtworkRepository
+import com.eza.hyperglow.producer.resolvePureMusic
 import com.eza.hyperglow.root.projection.currentProcessUserId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -463,7 +464,8 @@ object AodProjectionEngine {
             powerSessionPolicy = powerSessionPolicy,
             userId = currentProcessUserId(),
             artworkJpeg = artwork?.jpeg ?: ByteArray(0),
-            artworkKey = artwork?.key ?: ""
+            artworkKey = artwork?.key ?: "",
+            pureMusic = resolvePureMusicFor(effectiveState)
         )
         if (!publicationGuard.canPublish(
                 token = publicationToken,
@@ -489,6 +491,21 @@ object AodProjectionEngine {
         if (key == lastRenderProbeKey) return
         lastRenderProbeKey = key
         AppLog.w("AodProjectionEngine", "Render mode probe: $key")
+    }
+
+    /**
+     * 曲目级纯音乐判定(见 [resolvePureMusic]):优先读活动源的整首快照——仅当会话三元组
+     * 与当前状态一致时采用(过渡态丢弃,等同不存在);拿不到整首数据(Spicy 文档路径、
+     * SuperLyric 旧模块)时回落当前行文本。快照实现按会话缓存,每拍调用不会重建,满足投影
+     * 高频路径的廉价要求。
+     */
+    private fun resolvePureMusicFor(state: LyricProducerState): Boolean {
+        val source = LyricProducers.arbiter.activeSource.value
+        val snapshot = source?.let { LyricProducers.arbiter.fullSongSnapshot(it) }
+        return resolvePureMusic(
+            fullSongRows = snapshot?.takeIf { it.matches(state) }?.rows,
+            currentLine = state.line
+        )
     }
 
     private fun publishCustomizationIfDue(now: Long) {

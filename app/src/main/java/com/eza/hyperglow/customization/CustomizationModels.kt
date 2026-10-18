@@ -175,6 +175,14 @@ data class SurfaceProfile(
      * 详见 root.aod.InterludeDots / aod.InterludeCountdown。
      */
     val interludeCountdown: Boolean = true,
+    /**
+     * 无歌词/纯音乐歌词行为(参考 HyperLyric 同名能力):整首只有「纯音乐请欣赏」标记的
+     * 纯音乐曲目,该标记行的呈现方式——[NO_LYRICS_BEHAVIOR_KEEP] 保持原标记(默认)、
+     * [NO_LYRICS_BEHAVIOR_MUSIC_INFO] 替换为歌曲信息、[NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT]
+     * 交还系统默认(不显示任何内容并解除系统内容抑制)。per-surface 设置,锁屏与息屏各自独立;
+     * 标记的语义解释放在渲染映射层(见 root.aod.LyricCanvasMapper),与「识别对唱标记」同式。
+     */
+    val noLyricsBehavior: String = NO_LYRICS_BEHAVIOR_KEEP,
     val rubyVisible: Boolean = true,
     val weight: String = "Medium",
     val textSize: String = "normal",
@@ -361,6 +369,8 @@ data class CompiledSurfaceProfile(
     val duetConcurrent: Boolean = true,
     /** 长间奏倒计时圆点开关,见 [SurfaceProfile.interludeCountdown];每个 surface 独立生效。 */
     val interludeCountdown: Boolean = true,
+    /** 无歌词/纯音乐歌词行为,见 [SurfaceProfile.noLyricsBehavior];每个 surface 独立生效。 */
+    val noLyricsBehavior: String = NO_LYRICS_BEHAVIOR_KEEP,
     /** 歌曲信息显示部分;由该 surface 的 [SurfaceProfile.metadataParts] 解析(空则继承文档级)编译而来。 */
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 歌曲信息逐槽分隔符序列;由该 surface 的 [SurfaceProfile.metadataSeparators] 解析编译而来。 */
@@ -390,6 +400,31 @@ internal fun normalizeLyricLineLimit(value: Int): Int = when (value) {
     in 1..5 -> value
     else -> DEFAULT_LYRIC_LINE_LIMIT
 }
+
+/**
+ * 无歌词/纯音乐歌词行为词表(参考 HyperLyric limczhh/HyperLyric「无歌词/纯音乐歌词行为」):
+ * - [NO_LYRICS_BEHAVIOR_KEEP]:保持原标记(默认,历史行为零变化)——整首只有
+ *   「纯音乐请欣赏」标记的曲目照常把该行当歌词渲染。
+ * - [NO_LYRICS_BEHAVIOR_MUSIC_INFO]:替换为歌曲信息——标记行位置改显示本面按
+ *   「歌曲信息内容」组装后的歌名/歌手。
+ * - [NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT]:交还系统默认——不显示任何歌词/占位,
+ *   并解除对本面系统内容(息屏系统时钟等)的抑制。
+ * 每个 surface 独立设置,锁屏与息屏各自生效。
+ */
+const val NO_LYRICS_BEHAVIOR_KEEP = "keep"
+const val NO_LYRICS_BEHAVIOR_MUSIC_INFO = "music_info"
+const val NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT = "restore_default"
+
+/** 无歌词/纯音乐歌词行为可选集(顺序即设置页选项顺序)。 */
+val NO_LYRICS_BEHAVIORS = listOf(
+    NO_LYRICS_BEHAVIOR_KEEP,
+    NO_LYRICS_BEHAVIOR_MUSIC_INFO,
+    NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+)
+
+/** 无歌词/纯音乐歌词行为归一:词表外(旧配置/损坏值)一律回落 [NO_LYRICS_BEHAVIOR_KEEP]。 */
+internal fun normalizeNoLyricsBehavior(value: String): String =
+    value.takeIf { it in NO_LYRICS_BEHAVIORS } ?: NO_LYRICS_BEHAVIOR_KEEP
 
 /** 辅助文字字号倍率下限(相对主行百分比)。 */
 const val SECONDARY_TEXT_SIZE_PERCENT_MIN = 50

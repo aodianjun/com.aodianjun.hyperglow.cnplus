@@ -187,7 +187,13 @@ internal data class AodStateWireSnapshot(
      * 不透明传递策略原语。
      */
     val interludeStartMs: Long = 0L,
-    val interludeEndMs: Long = 0L
+    val interludeEndMs: Long = 0L,
+    /**
+     * 纯音乐曲目标记(v11,参考 HyperLyric「无歌词/纯音乐歌词行为」):整首歌词只有
+     * 「纯音乐请欣赏」标记。渲染面按本面 noLyricsBehavior 决定保持原标记/替换歌曲信息/
+     * 交还系统默认;纯布尔,不进聚合文本预算。
+     */
+    val pureMusic: Boolean = false
 )
 
 internal sealed interface AodStateWireMessage {
@@ -517,6 +523,8 @@ internal object AodStateWireCodec {
                 // v10:长间奏窗口(原始空隙两端;0/0 = 无)。
                 output.writeLong(snapshot.interludeStartMs)
                 output.writeLong(snapshot.interludeEndMs)
+                // v11:纯音乐曲目标记(纯布尔,不进聚合文本预算)。
+                output.writeStrictBoolean(snapshot.pureMusic)
             }
             bytes.toByteArray().takeIf {
                 it.isNotEmpty() && it.size <= AodStateWireLimits.MAX_ENCODED_BODY_BYTES
@@ -726,6 +734,8 @@ internal object AodStateWireCodec {
             // v10:长间奏窗口(原始空隙两端;0/0 = 无)。
             val interludeStartMs = input.readLong()
             val interludeEndMs = input.readLong()
+            // v11:纯音乐曲目标记(纯布尔)。
+            val pureMusic = input.readStrictBoolean() ?: return null
             if (input.available() != 0) return null
             AodStateWireSnapshot(
                 trackGeneration = trackGeneration,
@@ -759,6 +769,7 @@ internal object AodStateWireCodec {
                 artist = artist,
                 album = album,
                 largeMetadata = largeMetadata,
+                pureMusic = pureMusic,
                 alignedRight = alignedRight,
                 alignedRightMarkers = alignedRightMarkers,
                 lineLevelSync = lineLevelSync,
@@ -1093,9 +1104,10 @@ internal object AodStateWireCodec {
      *  v7:metadata 区追加原始 title/artist/album + largeMetadata + 标记识别版分侧(主行与并发行),
      *  让渲染面按本面「歌曲信息内容」/「识别对唱标记」独立组装与选侧(per-surface);
      *  v6:样式区追加 aodLandscapeFullscreenSafeMarginPercent(横屏全屏化安全边界);
+     *  v11:整体尾部追加纯音乐曲目标记(pureMusic,纯布尔,不进聚合文本预算);
      *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
      *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
-    private const val BODY_VERSION = 10
+    private const val BODY_VERSION = 11
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

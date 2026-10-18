@@ -56,6 +56,9 @@ import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.LyricTimeOffset
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIORS
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
+import com.eza.hyperglow.customization.normalizeNoLyricsBehavior
 import com.eza.hyperglow.customization.METADATA_PART_ALBUM
 import com.eza.hyperglow.customization.METADATA_PART_ARTIST
 import com.eza.hyperglow.customization.METADATA_PART_TITLE
@@ -423,6 +426,19 @@ internal fun LyricAppearanceSection(
                     stringResource(R.string.setting_interlude_countdown),
                     summary = stringResource(R.string.summary_interlude_countdown)
                 )
+                // 无歌词/纯音乐歌词行为(per-surface):整首只有「纯音乐请欣赏」标记的纯音乐曲目,
+                // 该标记行的呈现方式——保持原标记 / 替换为歌曲信息 / 交还系统默认。息屏与锁屏各自独立。
+                AodChoiceRow(AodChoiceKind.NO_LYRICS_BEHAVIOR, selectedProfile.noLyricsBehavior) {
+                    openChoice(
+                        AodChoiceKind.NO_LYRICS_BEHAVIOR,
+                        NO_LYRICS_BEHAVIORS,
+                        selectedProfile.noLyricsBehavior
+                    ) { value ->
+                        updateSelected {
+                            it.copy(noLyricsBehavior = normalizeNoLyricsBehavior(value))
+                        }
+                    }
+                }
                 // 识别对唱标记(per-surface):标记是内容级解释,息屏与锁屏各自独立生效,
                 // 改本面不影响另一面。本面未显式设置时以文档级值作有效值。
                 SwitchPreference(
@@ -2040,6 +2056,12 @@ private fun choiceDisplayLabel(
     AodChoiceKind.LONG_LINES -> context.getString(
         if (value == "Clip") R.string.option_clip else R.string.option_wrap
     )
+    // 无歌词/纯音乐歌词行为(per-surface):整首只有「纯音乐请欣赏」标记时的呈现方式。
+    AodChoiceKind.NO_LYRICS_BEHAVIOR -> context.getString(when (value) {
+        "music_info" -> R.string.option_no_lyrics_behavior_music_info
+        "restore_default" -> R.string.option_no_lyrics_behavior_restore_default
+        else -> R.string.option_no_lyrics_behavior_keep
+    })
     AodChoiceKind.TEXT_WEIGHT -> context.getString(when (value) {
         "Regular" -> R.string.option_regular
         "Bold" -> R.string.option_bold
@@ -2079,6 +2101,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     SECOND_LINE_ALIGNMENT(R.string.choice_second_line_alignment),
     SECONDARY_TEXT(R.string.choice_secondary_text),
     LONG_LINES(R.string.choice_long_lines),
+    NO_LYRICS_BEHAVIOR(R.string.setting_no_lyrics_behavior),
     LYRIC_LINES(R.string.choice_lyric_lines),
     SONG_INFO_POSITION(R.string.choice_song_info_position),
     SONG_INFO_LAYOUT(R.string.choice_song_info_layout),
