@@ -332,6 +332,14 @@
     <string name="duration_1_hour">1 hour</string>
     <string name="duration_2_hours">2 hours</string>
     <string name="duration_indefinitely">Indefinitely</string>
+    <string name="duration_custom">Custom…</string>
+    <string name="duration_custom_minutes">%1$d min</string>
+    <string name="duration_custom_hours">%1$d h</string>
+    <string name="duration_custom_hours_minutes">%1$d h %2$d min</string>
+    <string name="dialog_custom_duration_title">Custom duration</string>
+    <string name="dialog_custom_duration_summary">Enter minutes (1–1440).</string>
+    <string name="dialog_custom_duration_hint">Minutes</string>
+    <string name="dialog_custom_duration_invalid">Enter a number between 1 and 1440.</string>
     <string name="duration_1_day">1 day</string>
     <string name="duration_3_days">3 days</string>
     <string name="duration_7_days">7 days</string>

@@ -16,6 +16,8 @@ import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.DiagnosticLogLevel
 import com.eza.hyperglow.R
 import com.eza.hyperglow.normalizeLogRetentionDays
+import com.eza.hyperglow.aod.MAX_KEEP_AWAKE_DURATION_MS
+import com.eza.hyperglow.aod.MIN_KEEP_AWAKE_DURATION_MS
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import kotlinx.serialization.json.*
 import java.net.HttpURLConnection
@@ -233,16 +235,29 @@ internal val BURN_IN_PATTERNS = listOf(
 )
 
 internal fun keepAwakeDurationLabel(context: android.content.Context, value: Long): String =
-    context.getString(
-        when (value) {
-            300_000L -> R.string.duration_5_minutes
-            600_000L -> R.string.duration_10_minutes
-            1_800_000L -> R.string.duration_30_minutes
-            3_600_000L -> R.string.duration_1_hour
-            7_200_000L -> R.string.duration_2_hours
-            else -> R.string.duration_indefinitely
+    when (value) {
+        300_000L -> context.getString(R.string.duration_5_minutes)
+        600_000L -> context.getString(R.string.duration_10_minutes)
+        1_800_000L -> context.getString(R.string.duration_30_minutes)
+        3_600_000L -> context.getString(R.string.duration_1_hour)
+        7_200_000L -> context.getString(R.string.duration_2_hours)
+        else -> if (value in MIN_KEEP_AWAKE_DURATION_MS..MAX_KEEP_AWAKE_DURATION_MS) {
+            customKeepAwakeDurationLabel(context, value)
+        } else {
+            context.getString(R.string.duration_indefinitely)
         }
-    )
+    }
+
+private fun customKeepAwakeDurationLabel(context: android.content.Context, value: Long): String {
+    val totalMinutes = (value / 60_000L).coerceAtLeast(1L).toInt()
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return when {
+        hours == 0 -> context.getString(R.string.duration_custom_minutes, minutes)
+        minutes == 0 -> context.getString(R.string.duration_custom_hours, hours)
+        else -> context.getString(R.string.duration_custom_hours_minutes, hours, minutes)
+    }
+}
 
 internal val KEEP_AWAKE_DURATIONS = listOf(
     300_000L,

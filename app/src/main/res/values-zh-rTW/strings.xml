@@ -305,6 +305,14 @@
     <string name="duration_1_hour">1 小時</string>
     <string name="duration_2_hours">2 小時</string>
     <string name="duration_indefinitely">無限期</string>
+    <string name="duration_custom">自訂…</string>
+    <string name="duration_custom_minutes">%1$d 分鐘</string>
+    <string name="duration_custom_hours">%1$d 小時</string>
+    <string name="duration_custom_hours_minutes">%1$d 小時 %2$d 分鐘</string>
+    <string name="dialog_custom_duration_title">自訂時長</string>
+    <string name="dialog_custom_duration_summary">輸入分鐘數（1–1440）。</string>
+    <string name="dialog_custom_duration_hint">分鐘</string>
+    <string name="dialog_custom_duration_invalid">請輸入 1–1440 之間的數字。</string>
     <string name="duration_1_day">1 天</string>
     <string name="duration_3_days">3 天</string>
     <string name="duration_7_days">7 天</string>

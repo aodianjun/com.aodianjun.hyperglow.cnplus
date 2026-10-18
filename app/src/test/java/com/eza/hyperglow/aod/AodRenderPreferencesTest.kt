@@ -89,15 +89,21 @@ class AodRenderPreferencesTest {
     }
 
     @Test
-    fun keepAwakeDurationAllowsOnlyOfferedSessionLengths() {
+    fun keepAwakeDurationAcceptsPresetsAndCustomRange() {
         assertEquals(-1L, normalizeKeepAwakeDurationMs(-1L))
         assertEquals(300_000L, normalizeKeepAwakeDurationMs(300_000L))
         assertEquals(600_000L, normalizeKeepAwakeDurationMs(600_000L))
         assertEquals(1_800_000L, normalizeKeepAwakeDurationMs(1_800_000L))
         assertEquals(3_600_000L, normalizeKeepAwakeDurationMs(3_600_000L))
         assertEquals(7_200_000L, normalizeKeepAwakeDurationMs(7_200_000L))
+        // 自定义时长：1 分钟 ~ 24 小时内的任意值都保留。
+        assertEquals(90_000L, normalizeKeepAwakeDurationMs(90_000L))
+        assertEquals(1_234_000L, normalizeKeepAwakeDurationMs(1_234_000L))
+        assertEquals(86_400_000L, normalizeKeepAwakeDurationMs(86_400_000L))
+        // 范围外回落不限时。
         assertEquals(-1L, normalizeKeepAwakeDurationMs(0L))
         assertEquals(-1L, normalizeKeepAwakeDurationMs(45_000L))
+        assertEquals(-1L, normalizeKeepAwakeDurationMs(86_400_001L))
     }
 
     @Test

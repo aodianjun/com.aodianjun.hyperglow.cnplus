@@ -298,10 +298,12 @@ internal const val AOD_ROTATION_MODE_LANDSCAPE = "landscape"
 internal const val AOD_ROTATION_MODE_LANDSCAPE_REVERSE = "landscape_reverse"
 internal const val AOD_ROTATION_MODE_AUTO = "auto"
 
-internal fun normalizeKeepAwakeDurationMs(value: Long): Long = when (value) {
-    300_000L, 600_000L, 1_800_000L, 3_600_000L, 7_200_000L -> value
-    else -> -1L
-}
+/** 自定义保活时长的合法范围（1 分钟 ~ 24 小时）；范围外视为不限时（-1）。 */
+internal const val MIN_KEEP_AWAKE_DURATION_MS = 60_000L
+internal const val MAX_KEEP_AWAKE_DURATION_MS = 86_400_000L
+
+internal fun normalizeKeepAwakeDurationMs(value: Long): Long =
+    if (value in MIN_KEEP_AWAKE_DURATION_MS..MAX_KEEP_AWAKE_DURATION_MS) value else -1L
 
 internal fun normalizePauseLingerMs(value: Long): Long = when (value) {
     -1L, 0L, 5_000L, 10_000L, 30_000L -> value

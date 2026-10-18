@@ -30,15 +30,16 @@ class AodPowerSessionPolicyTest {
         val expired = policy.resolve(first, 9_000L, persistentKeepAlive = false)
         assertFalse(expired.keepAlive)
         assertFalse(expired.presentationLeaseActive)
-        // 租约结束同样是「无保活资格」：渲染面必须停掉续期，否则 AOD 亮到播放停止。
-        assertTrue(expired.keepAliveExpired)
+        // 租约结束只是本拍不保活，不是有限时长到点：渲染续期必须继续，
+        // 否则播放中会提前卡顿/熄灭（0.3.169 修复回归）。
+        assertFalse(expired.keepAliveExpired)
     }
 
     @Test
     fun newGenerationStartsFreshLeaseAfterPreviousSongExpired() {
         val policy = AodPowerSessionPolicy(songChangeLeaseMs = 8_000L)
         policy.resolve(first, 1_000L, persistentKeepAlive = false)
-        assertTrue(policy.resolve(first, 9_000L, persistentKeepAlive = false).keepAliveExpired)
+        assertFalse(policy.resolve(first, 9_000L, persistentKeepAlive = false).keepAliveExpired)
 
         val next = first.copy(
             session = ProjectionSessionIdentity("producer", 2, "track:2")

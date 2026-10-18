@@ -37,16 +37,9 @@ internal class AodPowerSessionPolicy(
         }
         val leaseActive = nowElapsedMs < leaseUntilElapsedMs
         val requested = persistentKeepAlive || leaseActive
-        if (!requested) {
-            // 功能开着但本会话已无保活资格：未计时歌的呈现租约已过（「没有计时歌词时也保持」
-            // 关闭），与有限时长到点同义——渲染面必须停掉绘制续期/重唤醒，否则 AOD 会亮到
-            // 播放停止。暂停/关闭功能走上面的 clear 分支，不置此标志。
-            return AodPowerSessionDecision(
-                keepAlive = false,
-                presentationLeaseActive = false,
-                keepAliveExpired = true
-            )
-        }
+        // 呈现租约结束只说明本拍不再保活（未计时歌、歌词加载间隙等），不等于有限时长到点：
+        // 绘制续期仍应按 playbackActive 继续，否则播放中会提前卡顿/熄灭。
+        if (!requested) return AodPowerSessionDecision(false, false)
         val startedAt = keepAliveStartedAtElapsedMs ?: nowElapsedMs.also {
             keepAliveStartedAtElapsedMs = it
         }
