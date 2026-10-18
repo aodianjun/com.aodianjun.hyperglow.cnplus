@@ -126,7 +126,10 @@ internal data class HyperGlowSetupChecks(
     val systemUiHookActive: Boolean = false,
     val profileSupported: Boolean = false,
     val spotifyProducerBridgePresent: Boolean = false,
-    val requiredPackagesPresent: Boolean = false
+    val requiredPackagesPresent: Boolean = false,
+    val spicyExModuleStatus: String = "unknown",
+    val spicyExSpotifyScopeStatus: String = "unknown",
+    val spicyExPublishingStatus: String = "unknown"
 )
 
 @Serializable
@@ -222,6 +225,9 @@ internal object DiagnosticReportCodec {
             report.productMetadata.rootAccessStatus !in ROOT_ACCESS_STATES ||
             report.productMetadata.setupChecks.setupState !in SETUP_STATES ||
             report.productMetadata.setupChecks.rootAccessStatus !in ROOT_ACCESS_STATES ||
+            report.productMetadata.setupChecks.spicyExModuleStatus !in SPICY_MODULE_STATUSES ||
+            report.productMetadata.setupChecks.spicyExSpotifyScopeStatus !in SPICY_SCOPE_STATUSES ||
+            report.productMetadata.setupChecks.spicyExPublishingStatus !in SPICY_PUBLISHING_STATUSES ||
             !SETUP_FAILURE_KEYS.containsAll(report.productMetadata.setupChecks.setupFailures) ||
             report.capture.outcome !in CAPTURE_OUTCOMES ||
             report.capture.rootAccessStatus !in ROOT_ACCESS_STATES ||
@@ -330,7 +336,11 @@ internal object DiagnosticReportCodec {
         // spotify_bridge 是旧失败码，保留以便 decode 旧版报告；新码 producer_bridge
         // 覆盖所有歌词源（Spicy EX / Lyricon / SuperLyric / LyricInfo）。
         "spotify_bridge",
-        "producer_bridge"
+        "producer_bridge",
+        // Spicy EX 前置条件（LSPosed 启用 / Spotify 作用域 / 向 HyperGlow 发布）未满足。
+        "spicy_ex_module_disabled",
+        "spicy_ex_spotify_scope_missing",
+        "spicy_ex_publishing_disabled"
     )
     private val CAPTURE_OUTCOMES = setOf(
         "not_requested",
@@ -338,7 +348,7 @@ internal object DiagnosticReportCodec {
         "partial_capture",
         "metadata_only_root_denied"
     )
-    private val PACKAGE_KEYS = setOf("hyperglow", "systemui", "xiaomi_aod", "spotify")
+    private val PACKAGE_KEYS = setOf("hyperglow", "systemui", "xiaomi_aod", "spotify", "spicy_ex")
     private val XIAOMI_PROPERTY_KEYS = setOf(
         "ro.mi.os.version.name",
         "ro.mi.os.version.incremental",
@@ -354,7 +364,8 @@ internal object DiagnosticReportCodec {
         "systemui_processes",
         "framework",
         "crash",
-        "lsposed"
+        "lsposed",
+        "spicy_setup"
     )
     private val TRUNCATION_KEYS = setOf(
         "diagnosticEventsAndLogs",

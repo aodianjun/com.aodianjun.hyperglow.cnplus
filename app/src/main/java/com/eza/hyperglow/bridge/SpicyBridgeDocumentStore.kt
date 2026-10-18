@@ -19,6 +19,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.zip.GZIPInputStream
+import kotlin.math.abs
 
 data class SpicyBridgeWord(
     val text: String,
@@ -78,9 +79,17 @@ data class SpicyBridgeDocument(
     val processingVersion: Int,
     val rows: List<SpicyBridgeRow>
 ) {
+    /**
+     * 持有的文档在曲目一致、且时长与 state 相差不超过
+     * [DOCUMENT_DURATION_TOLERANCE_MS] 时仍然可用。
+     *
+     * `producerId` 与 `generation` 是生产者在上一份文档仍在途时推进的会话记账。要求二者
+     * 一致会丢弃一份无人重新请求的文档,从而让余下整首歌不计时:没有动画填充,keepalive
+     * 也退化为换歌租约。到达路径仍只在 bundle 元数据与 state 匹配时才提交文档,因此这道
+     * 闸门只决定一份已提交的文档是否属于 state 正在播放的曲目。
+     */
     fun matches(state: SpicyBridgeState): Boolean =
-        producerId == state.producerId && generation == state.generation &&
-            trackUri == state.trackUri && durationMs == state.durationMs
+        trackUri == state.trackUri && documentDurationsAgree(durationMs, state.durationMs)
 
     fun primaryRowAt(positionMs: Long): SpicyBridgeRow? {
         var lead: SpicyBridgeRow? = null
@@ -96,6 +105,39 @@ data class SpicyBridgeDocument(
         return lead ?: other
     }
 }
+
+/**
+ * 哪个身份字段使一份持有的文档不再属于生产者 state,或 null 表示仍匹配。时长排最后上报,
+ * 因为它是唯一在歌曲表象不变时也会漂移的字段:在曲目元数据稳定前解析出的文档会保留陈旧
+ * 时长,并被丢弃整首歌。
+ */
+internal fun spicyBridgeDocumentMismatch(
+    document: SpicyBridgeDocument,
+    state: SpicyBridgeState
+): String? = when {
+    document.matches(state) -> null
+    document.trackUri != state.trackUri ->
+        "track document=${document.trackUri} state=${state.trackUri}"
+    else -> "duration document=${document.durationMs} state=${state.durationMs} " +
+        "track=${state.trackUri}"
+}
+
+/**
+ * 生产者把曲目长度取整到整秒上报(`281000`),而 state 携带实测时长(`280757`)。实测文档
+ * 相差 54–486 ms,精确比较会拒掉 53 份中的 50 份,而被拒的文档整首歌都不会被重新请求。
+ */
+internal const val DOCUMENT_DURATION_TOLERANCE_MS = 1_000L
+
+/**
+ * 文档自身时长是否与已接受的 state 相符。
+ *
+ * 未声明可用时长的文档(`0`,或曲目元数据尚未稳定的生产者版本)不算不符:约束行的就是
+ * state 的实测时长,文档的身份即其曲目 URI。真实时长仍须落在
+ * [DOCUMENT_DURATION_TOLERANCE_MS] 内。
+ */
+internal fun documentDurationsAgree(documentMs: Long, stateMs: Long): Boolean =
+    stateMs > 0L && (documentMs <= 0L || abs(documentMs - stateMs) <= DOCUMENT_DURATION_TOLERANCE_MS)
+
 internal fun isValidSpicyBridgeDocumentTiming(
     document: SpicyBridgeDocument,
     acceptedDurationMs: Long
@@ -107,32 +149,67 @@ internal fun isValidSpicyBridgeDocumentTiming(
  * 拒绝原因报字面而非折叠成布尔:被拒的文档整首歌都不会被重新请求,所以"生产者发的
  * 时长与 state 不符"和"某一行越过歌长"是两回事——这正是 keepalive 静默回退到换歌
  * 租约时的全部诊断线索。fillEndMs 语义保持 CN+ 放宽版(不得越歌长,可越本行尾)。
+ *
+ * 亚秒级的时长不一致属于取整而非故障,故时长按 [DOCUMENT_DURATION_TOLERANCE_MS] 比较,
+ * 行界取两者时长较大者。未声明可用时长的文档改由 state 实测时长约束(生产者会在自身曲目
+ * 元数据稳定前发布文档)。曲目不同、时长差超过容差、或行越过两者仍会丢弃文档。
  */
 internal fun spicyBridgeDocumentTimingFault(
     document: SpicyBridgeDocument,
     acceptedDurationMs: Long
 ): String? {
     if (acceptedDurationMs <= 0L) return "state-duration=$acceptedDurationMs"
-    if (document.durationMs != acceptedDurationMs) {
+    if (!documentDurationsAgree(document.durationMs, acceptedDurationMs)) {
         return "duration document=${document.durationMs} state=$acceptedDurationMs"
     }
+    val limitMs = maxOf(document.durationMs, acceptedDurationMs)
     document.rows.forEachIndexed { index, row ->
-        if (row.startMs < 0L || row.endMs !in row.startMs..acceptedDurationMs) {
-            return "row[$index] start=${row.startMs} end=${row.endMs} duration=$acceptedDurationMs"
+        if (row.startMs < 0L || row.endMs !in row.startMs..limitMs) {
+            return "row[$index] start=${row.startMs} end=${row.endMs} duration=$limitMs"
         }
         // fillEndMs 允许越过本行 endMs 但不得越过歌长(上游 8422d78):数据源把
         // 跨行填充算进 fillEndMs 是合法数据,渲染端另行钳制行窗口。
-        if (row.fillEndMs !in row.startMs..acceptedDurationMs) {
-            return "row[$index] fillEnd=${row.fillEndMs} window=${row.startMs}..$acceptedDurationMs"
+        if (row.fillEndMs !in row.startMs..limitMs) {
+            return "row[$index] fillEnd=${row.fillEndMs} window=${row.startMs}..$limitMs"
         }
         row.words.forEachIndexed { wordIndex, word ->
-            if (word.startMs < 0L || word.endMs !in word.startMs..acceptedDurationMs) {
+            if (word.startMs < 0L || word.endMs !in word.startMs..limitMs) {
                 return "row[$index].word[$wordIndex] start=${word.startMs} end=${word.endMs} " +
-                    "duration=$acceptedDurationMs"
+                    "duration=$limitMs"
             }
         }
     }
     return null
+}
+
+/**
+ * 解析出的文档为何不能成为持有文档,或 null 表示可以。
+ *
+ * 文档可能在尚未接受任何 state 时到达:服务同步接受 state、在工作线程解析文档,两者只有
+ * 松散顺序,而曲目元数据尚未稳定的 state(零时长)会被判为无效,此时歌词文档已带真实
+ * 时长。在此丢弃的文档生产者不会再发——只有文档自身变化才会重新发布——于是余下整首歌
+ * 不计时、keepalive 退化为换歌租约。
+ *
+ * 无 state 时无从比较,只按文档自声明时长校验。这不会泄漏内容:投影拒绝使用与播放 state
+ * 不匹配的文档——[SpicyBridgeDocument.matches] 按曲目 URI 与时长判定,投影会清除任何不
+ * 匹配者——因此未校验的提交只有在匹配 state 到达后才有用,否则被丢弃。
+ */
+internal fun spicyBridgeDocumentCommitFault(
+    document: SpicyBridgeDocument,
+    state: SpicyBridgeState?
+): String? {
+    if (state == null) {
+        if (document.durationMs <= 0L) return "no-state document-duration=${document.durationMs}"
+        return spicyBridgeDocumentTimingFault(document, document.durationMs)
+    }
+    if (document.producerId != state.producerId ||
+        document.generation != state.generation ||
+        document.trackUri != state.trackUri
+    ) {
+        return "state-mismatch document=${document.generation}:${document.trackUri} " +
+            "state=${state.generation}:${state.trackUri}"
+    }
+    return spicyBridgeDocumentTimingFault(document, state.durationMs)
 }
 
 internal data class SpicyBridgeDocumentMetadata(
@@ -270,10 +347,16 @@ object SpicyBridgeDocumentStore {
             val generation = metadata.generation
             val trackUri = metadata.trackUri
 
+            // 尚无 state 时不再直接丢弃:服务同步接受 state、在工作线程解析文档,
+            // 二者只有松散顺序,且曲目元数据未稳定的 state(零时长)会被判为无效,
+            // 此时文档已带真实时长。无 state 的提交只按文档自声明时长校验(见
+            // [spicyBridgeDocumentCommitFault]),投影仍会拒绝与播放 state 不匹配者。
             val bridgeState = SpicyBridgeStore.state.value
-                ?: return "no-state generation=$generation track=$trackUri"
-            if (bridgeState.producerId != producerId || bridgeState.generation != generation ||
-                bridgeState.trackUri != trackUri
+            if (bridgeState != null && (
+                    bridgeState.producerId != producerId ||
+                        bridgeState.generation != generation ||
+                        bridgeState.trackUri != trackUri
+                    )
             ) {
                 return "state-mismatch document=$generation:$trackUri " +
                     "state=${bridgeState.generation}:${bridgeState.trackUri}"
@@ -401,17 +484,8 @@ object SpicyBridgeDocumentStore {
         arrivalRevision: Long,
         document: SpicyBridgeDocument
     ): String? {
-        val current = SpicyBridgeStore.state.value
-            ?: return "commit-no-state generation=${metadata.generation}"
-        if (current.producerId != metadata.producerId ||
-            current.generation != metadata.generation ||
-            current.trackUri != metadata.trackUri
-        ) {
-            return "commit-state-mismatch document=${metadata.generation}:${metadata.trackUri} " +
-                "state=${current.generation}:${current.trackUri}"
-        }
-        spicyBridgeDocumentTimingFault(document, current.durationMs)?.let {
-            return "commit-timing $it"
+        spicyBridgeDocumentCommitFault(document, SpicyBridgeStore.state.value)?.let {
+            return "commit-$it"
         }
         if (!commitOrder.accept(metadata.sessionIdentity, arrivalRevision)) {
             return "commit-order revision=$arrivalRevision"

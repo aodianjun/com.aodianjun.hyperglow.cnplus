@@ -23,6 +23,8 @@ import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
 import com.eza.hyperglow.producer.DuetLineWindow
 import com.eza.hyperglow.producer.shouldAdoptDuetLineCandidate
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.SurfaceEvidence
+import com.eza.hyperglow.root.projection.LyricSurfaceKind
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -31,7 +33,8 @@ internal class AodLyricCanvasView(
     context: Context,
     private val useDozeHandlerCadence: Boolean = false,
     private val powerSaverProvider: () -> Boolean = { false },
-    private val refreshRateCapProvider: () -> Int = { 0 }
+    private val refreshRateCapProvider: () -> Int = { 0 },
+    private val surfaceKind: LyricSurfaceKind = LyricSurfaceKind.AOD
 ) : View(context) {
     enum class Alignment { START, CENTER, END }
 
@@ -1523,6 +1526,9 @@ internal class AodLyricCanvasView(
                 it.row.kind != RowKind.METADATA && (!skipOriginal || it.row.kind != RowKind.ORIGINAL)
             }
         ) return
+        // 仅当本帧确实进入歌词绘制时才留证:门已排除"无可绘制歌词行"(全元数据或被
+        // skipOriginal 排除)的帧,在此计数才不会把空白首帧当成歌词首帧上报。
+        SurfaceEvidence.once("lyrics_first_frame_" + surfaceKind.name.lowercase())
         val savedContent = content
         val savedLayout = layout
         if (renderStyle != null) applyRenderStyle(renderStyle)

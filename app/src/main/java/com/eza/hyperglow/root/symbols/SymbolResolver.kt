@@ -205,6 +205,24 @@ object SymbolResolver {
         return resolution.first
     }
 
+    /**
+     * 形态随 ROM 代际迁移的接缝的有序候选。第一个解析成功的请求胜出,每次未命中都由
+     * [resolveMethod] 记在同一 feature 下,故现场日志会列出尝试过的每种形态,而不只是失败的
+     * 那一种。
+     *
+     * 精确名称解析仍是规则:候选是针对已知 ROM 构建核验过的成员,绝非猜测的邻居。
+     */
+    fun resolveMethodInOrder(
+        loader: ClassLoader,
+        featureId: String,
+        requests: List<SymbolRequest>
+    ): Method? {
+        for (request in requests) {
+            resolveMethod(loader, featureId, request)?.let { return it }
+        }
+        return null
+    }
+
     fun resolveMethod(
         loader: ClassLoader,
         featureId: String,
@@ -223,7 +241,8 @@ object SymbolResolver {
         }
         SymbolSourceLog.record(
             featureId,
-            "method:${request.ownerClassName ?: "*"}#${request.memberName}",
+            "method:${request.ownerClassName ?: "*"}#${request.memberName}" +
+                "(${request.parameterTypeNames.joinToString(",")})",
             outcome.symbol != null,
             outcome.symbol?.source
         )

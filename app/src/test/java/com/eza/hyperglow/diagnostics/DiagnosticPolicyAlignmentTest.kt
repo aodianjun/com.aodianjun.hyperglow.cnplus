@@ -234,7 +234,8 @@ class DiagnosticPolicyAlignmentTest {
     private val SETUP_CHECKS_KEYS = setOf(
         "setupState", "setupFailures", "rootAccessStatus", "capabilityReportPresent",
         "systemUiHookActive", "profileSupported", "spotifyProducerBridgePresent",
-        "requiredPackagesPresent"
+        "requiredPackagesPresent", "spicyExModuleStatus", "spicyExSpotifyScopeStatus",
+        "spicyExPublishingStatus"
     )
 
     private val MEDIA_EVIDENCE_KEYS = setOf(

@@ -369,6 +369,10 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                             text = stringResource(R.string.diagnostic_included_data_summary),
                             modifier = Modifier.padding(16.dp)
                         )
+                        Text(
+                            text = stringResource(R.string.diagnostic_follow_up_notice),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
                         ArrowPreference(
                             title = stringResource(R.string.diagnostic_preview_json),
                             onClick = { showPreviewDialog = true },
@@ -712,6 +716,7 @@ private fun DiagnosticSetupChecklist(checks: HyperGlowSetupChecks) {
             else -> R.string.diagnostic_setup_warning
         }
     )
+    val unknownSuffix = stringResource(R.string.diagnostic_check_value_not_checked)
     val lines = listOf(
         checklistLine(
             checks.rootAccessStatus == "granted",
@@ -724,6 +729,28 @@ private fun DiagnosticSetupChecklist(checks: HyperGlowSetupChecks) {
         checklistLine(
             checks.profileSupported,
             stringResource(R.string.diagnostic_check_profile)
+        ),
+        statusChecklistLine(
+            checks.spicyExModuleStatus,
+            "enabled",
+            stringResource(R.string.diagnostic_check_spicy_ex_enabled),
+            unknownSuffix,
+            mapOf(
+                "not_registered" to stringResource(R.string.diagnostic_check_value_not_registered)
+            )
+        ),
+        statusChecklistLine(
+            checks.spicyExSpotifyScopeStatus,
+            "selected",
+            stringResource(R.string.diagnostic_check_spicy_ex_scope),
+            unknownSuffix
+        ),
+        statusChecklistLine(
+            checks.spicyExPublishingStatus,
+            "enabled",
+            stringResource(R.string.diagnostic_check_spicy_ex_publishing),
+            unknownSuffix,
+            mapOf("default_disabled" to stringResource(R.string.diagnostic_check_value_default_off))
         ),
         checklistLine(
             checks.spotifyProducerBridgePresent,
@@ -744,6 +771,20 @@ private fun DiagnosticSetupChecklist(checks: HyperGlowSetupChecks) {
 
 private fun checklistLine(passed: Boolean, label: String, warning: Boolean = false): String =
     "${if (passed) "✓" else if (warning) "!" else "×"} $label"
+
+private val FAILED_SETUP_STATUSES = setOf("disabled", "not_registered", "not_selected", "default_disabled")
+
+private fun statusChecklistLine(
+    status: String,
+    passToken: String,
+    label: String,
+    unknownSuffix: String,
+    failedSuffixes: Map<String, String> = emptyMap()
+): String = when {
+    status == passToken -> "✓ $label"
+    status in FAILED_SETUP_STATUSES -> "! $label${failedSuffixes[status]?.let { " $it" }.orEmpty()}"
+    else -> "? $label $unknownSuffix"
+}
 
 @Composable
 private fun BasicDiagnosticSummary(report: DiagnosticReportEnvelope) {

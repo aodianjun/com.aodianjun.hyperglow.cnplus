@@ -10,10 +10,11 @@
 
 ## Current Status
 
-- **CN+ version**: 0.3.167 (194) as of 2026-10-07; the upstream baseline was advanced to `fefe5c54` (v0.3.199) on 2026-10-10 — every item of the `1537c58 → fefe5c54` delta is disposed in the tables below and `.github/upstream-baseline.txt` now records `fefe5c54`.
-- **Upstream latest**: 2026-10-05 `fefe5c54`, version 0.3.199 (224) — fully disposed in the 2026-10-10 pass: item #2 ported (PR #251), item #1 deferred (inert without the producer side), item #3 landed partially (the spec text for the join rule), item #4 not applicable. The same pass disposed of `84a0c9ce` (vC221 / 0.3.196): items #2/#3/#4 ported, item #1 evaluated as unaffected, #5 landed partially, #6 not applicable.
+- **CN+ version**: 0.3.167 (194) as of 2026-10-07; the upstream baseline was advanced to `2eaa191` (v0.3.212) on 2026-10-18 — every item of the `fefe5c54 → 2eaa191` delta is disposed in the tables below and `.github/upstream-baseline.txt` now records `2eaa191`.
+- **Baseline (last fully disposed increment)**: 2026-10-16 `2eaa191`, version 0.3.212 (237) — fully disposed in the 2026-10-18 pass (PR #273): all 5 commits ported, see the `Ported — fefe5c54 → 2eaa191` section below. The previous baseline 2026-10-05 `fefe5c54`, version 0.3.199 (224), was fully disposed in the 2026-10-10 pass: item #2 ported (PR #251), item #1 deferred (inert without the producer side), item #3 landed partially (the spec text for the join rule), item #4 not applicable. The same pass disposed of `84a0c9ce` (vC221 / 0.3.196): items #2/#3/#4 ported, item #1 evaluated as unaffected, #5 landed partially, #6 not applicable.
 - **Upstream, previous increment**: 2026-09-28 `99ba119`, version 0.3.191 (216) — fully disposed in the 2026-10-10 pass: items #1/#9/#11 ported and #13 landed with the batch, item #2 deliberately not ported (replaced by the local long-interlude countdown-dots feature), item #4 deferred, items #10/#12 not applicable.
-- **Newest synced item**: the 2026-10-10 batch — `99ba119` items #1/#9/#11, `84a0c9ce` items #2/#3/#4, `fefe5c54` item #2, plus the local countdown-dots enhancement; see their rows in the synced table below.
+- **Newest synced item**: the 2026-10-18 batch — every item of `fefe5c54 → 2eaa191` (`1d45ade`, `2c8cf74`, `5ecb5df`, `f7a8287`, `2eaa191`) ported (PR #273); preceded by the 2026-10-10 batch — `99ba119` items #1/#9/#11, `84a0c9ce` items #2/#3/#4, `fefe5c54` item #2, plus the local countdown-dots enhancement. See their rows in the tables below.
+- **Upstream status (2026-10-18)**: upstream `2eaa191` (2026-10-16, v0.3.212 / versionCode 237) is now the recorded baseline — the 5-commit delta (+1749/−212 over 46 files) from `fefe5c54` (v0.3.199) was ported in PR #273, so `.github/upstream-baseline.txt` now records `2eaa191` and every row of the delta is disposed in the section below.
 - **Upstream repository**: https://github.com/amarinne/hyperglow (default branch: main)
 - Baseline verification marks (2026-09-05): AodLyricBridgeService already includes dynamic uid matching,
   HierarchyFields.kt and its use across all hooks, missingProbeNames, and miuix via the public Maven Central repository
@@ -61,7 +62,145 @@
 | `bf988be` | 2026-08-03 | bump 0.3.50 | ➖ Version number not applicable (CN+ has an independent version numbering scheme) |
 | Earlier commits | ≤2026-08-03 | FAQ / diagnostics policy / history | ➖ Not individually verified (the baseline as a whole already includes them) |
 
-## Pending Evaluation — none (all rows disposed of in the 2026-10-10 pass)
+## Ported — `fefe5c54 → 2eaa191` (2026-10-18, PR #273)
+
+> Upstream advanced from the recorded baseline `fefe5c54` (v0.3.199) to
+> `2eaa19191f41f5106d47e74dafc14f032117e69c` (v0.3.212 / versionCode 237, 2026-10-16): **5 commits**,
+> +1749/−212 over 46 files. `.github/upstream-baseline.txt` advances to `2eaa191` with PR #273.
+>
+> Commits: `1d45ade` (README only, +2) · `2c8cf74` (vC229 / 0.3.204, 2026-10-12 — docs/FAQ/diagnostic
+> policy + the Spicy EX setup probe; 25 files, +776/−58) · `5ecb5df` (vC236 / 0.3.211, 2026-10-16 —
+> bridge document identity + reducer tombstone removal, HyperOS 4 seams, named-seam logging,
+> lockscreen pause-linger ownership; 22 files, +921/−151) · `f7a8287` (README only, +2/−2) ·
+> `2eaa191` (vC237 / 0.3.212, 2026-10-16 — SurfaceEvidence once-per-process facts, application-hook
+> candidate loop, symbol-log parameter types; 8 files, +97/−50).
+>
+> **Disposition (2026-10-18, PR #273) — all rows ported:** `5ecb5df` #1 (bridge document
+> identity + duration tolerance) and #2 (reducer: a clear no longer retires the generation) ported
+> with their tests; #3 (lockscreen pause-linger ownership) ported with a CN+ adaptation against the
+> `retentionAnchor`/`edgeFor` gap branch; #4/#5 (HyperOS 4 seams + named-seam logging) ported,
+> including the matching `XiaomiCapabilityResolver` five-argument `doAnimationToAod` probe;
+> `2eaa191` #1/#4 (SurfaceEvidence + canvas `surfaceKind`), #5 (symbol-source log with parameter
+> types), and #2/#3 (application-hook candidate pair + ordered method resolve) ported; `2c8cf74`
+> (Spicy EX setup probe, report contract/policy/checklist UI/strings/ProGuard) ported with CN+
+> wording; the FAQ "Spicy EX Lite/Full → Spicy EX" rename synced. #6 (AodProjectionEngine identity
+> skew) and the README-only / version-bump rows are not applicable.
+
+**`5ecb5df` item #1 — Bridge document identity + duration tolerance. ✅ Port directly — high value.**
+`SpicyBridgeDocument.matches` stops requiring `producerId`/`generation` and decides on track URI plus
+`documentDurationsAgree` (a document duration ≤ 0 is bounded by the state's measured duration; a real
+one must be within `DOCUMENT_DURATION_TOLERANCE_MS = 1000`, because the producer rounds the track to
+the whole second); `spicyBridgeDocumentTimingFault` bounds rows/fill/words against
+`max(document, state)`; a new `spicyBridgeDocumentCommitFault` commits a document that arrives before
+any accepted state (bounded by its own declared duration); `spicyBridgeDocumentMismatch` drops the
+producer/generation arms. CN+ carries the exact strict gate verbatim —
+[matches](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeDocumentStore.kt#L81-L83),
+[timingFault](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeDocumentStore.kt#L111-L136),
+[commit](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeDocumentStore.kt#L398-L421),
+[accept](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeDocumentStore.kt#L273-L279)
+— and `matches` is live on the producer path
+([SpicyLyricProducer](file:///workspace/app/src/main/java/com/eza/hyperglow/producer/SpicyLyricProducer.kt#L161),
+also DiagnosticReportFactory/PluginPipeline). The failure upstream fixes (a dropped document is never
+re-requested, so the rest of the song projects untimed and keepalive falls back to the song-change
+lease) applies to CN+ unchanged; keep CN+'s relaxed `fillEndMs` wording. Tests: the SpicyBridgeDocumentTest cases.
+
+**`5ecb5df` item #2 — State reducer: a clear no longer retires the generation. ✅ Port directly — high value.**
+`SpicyBridgeStateReducer` drops `tombstoneProducerId`/`tombstoneGeneration`; `clear` only drops the
+held state and relies on the ordering already inside `accept`. CN+ carries the tombstone verbatim
+([fields + accept gate](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeStore.kt#L154-L164),
+[clear](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeStore.kt#L248-L257)),
+so the same blackout is live here: the producer clears for a reason of its own, then resumes at the
+cleared generation, and every later payload at or below it is rejected for the rest of the song.
+
+**`5ecb5df` item #3 — Lockscreen pause-linger ownership. ⚠️ Port with CN+ adaptation.**
+Only a card this pause episode already owns may arm the `After Spotify pauses` clock: the candidate
+becomes `retained?.takeIf { it.pauseRetentionEligible }`, and the expiry runnable is re-derived per
+retained card (`lockscreenPauseLingerRemainingMs` / `refreshPauseLingerExpiry`). CN+ has the same reuse
+bug (`val candidate = retained ?: lastVisible?.let { … }`,
+[LockscreenVisibilityPolicy](file:///workspace/app/src/main/java/com/eza/hyperglow/root/lockscreen/LockscreenVisibilityPolicy.kt#L97))
+and the same inline `pauseLingerExpiry`
+([LockscreenSurfaceController](file:///workspace/app/src/main/java/com/eza/hyperglow/root/lockscreen/LockscreenSurfaceController.kt#L78-L95),
+[schedulePauseLingerExpiry](file:///workspace/app/src/main/java/com/eza/hyperglow/root/lockscreen/LockscreenSurfaceController.kt#L373-L388)),
+but CN+ adds a `retentionAnchor`/`edgeFor` layer upstream does not have, so the guard must be
+re-expressed against CN+'s gap branch (which already returns `pauseRetentionEligible=false`).
+Symptom: a still-playing transport-gap card arms the pause clock at the gap edge and retires the
+previous track's line a few seconds into an ordinary song change.
+
+**`5ecb5df` items #4+#5 / `2eaa191` items #2+#3 — HyperOS 4 seams + named-seam logging. ⚠️ Medium (forward-looking); the logging half is cheap and portable.**
+Three seam shapes for HyperOS 4 / Android 17: ① the application class is a candidate *pair*
+(`SystemUIApplication` ≤ HyperOS 3, `SystemUIApplicationImpl` on HyperOS 4), resolved as a
+(class, `onCreate`) pair, with a `SystemUIAppComponentFactoryBase#instantiateApplication` factory
+fallback and **two independent installs** (a renamed application class no longer kills the
+user-tracker hook); ② the lockscreen notification refresh falls back to the synthetic static
+`access$updateNotificationState(controller, boolean)` accessor (the controller arrives as
+`chain.args[0]`, not `thisObject`); ③ `doAnimationToAod` gains a five-argument candidate
+`(boolean,boolean,boolean,boolean,AnimationTracker)` beside the three-argument form (Linkage +
+ClockMorph). Supporting: `SymbolResolver.resolveMethodInOrder` (ordered exact candidates;
+`resolveClassInOrder` was added then removed in vC237), and per-hook `missingSeam(...)` + `loaderTag(...)`
+so a field log names the member that did not resolve, once per loader (CN+ currently returns
+silently on every miss). CN+ has none of this —
+[install](file:///workspace/app/src/main/java/com/eza/hyperglow/root/SystemUiLifecycleHook.kt#L19-L48)
+is the old single-`try` form, the lockscreen hooks `onUpdateNotificationState` only, and every hook
+has the bare `?: return`. **The logging half is a self-contained diagnostic win worth porting now;
+the seam candidates are only verifiable on a HyperOS 4 device (upstream has none either — see the
+`2c8cf74` FAQ).** Caveat if the seams are ported: upstream updated the hooks but left the capability
+probe on the three-argument `doAnimationToAod`, so a port must also update
+[XiaomiCapabilityResolver](file:///workspace/app/src/main/java/com/eza/hyperglow/root/capability/XiaomiCapabilityResolver.kt#L275-L288)
+or the capability reports missing on the new ROM.
+
+**`5ecb5df` item #6 — AodProjectionEngine identity-skew log. ➖ Not applicable.**
+`logDocumentIdentitySkew` records producer/generation divergence for a held document. CN+'s engine
+deliberately stopped reading the bridge stores
+([AodProjectionEngine](file:///workspace/app/src/main/java/com/eza/hyperglow/aod/AodProjectionEngine.kt#L154))
+and the document checks live in the producer — there is no held document to log against.
+
+**`2eaa191` items #1+#4 — SurfaceEvidence + canvas `surfaceKind`. ⚠️ Medium, portable.**
+A new `SurfaceEvidence` writes once-per-process facts on the always-on bootstrap channel
+(`aod_surface_attached` / `…_disabled_capability|container|attach_failed`, `lockscreen_surface_attached|…`,
+and `lyrics_first_frame_aod|lockscreen` when a frame actually draws a lyric block), and
+`AodLyricCanvasView` gains a `surfaceKind` parameter. CN+ already has `LyricSurfaceKind` and
+`HookLogger.bootstrap`, and both controllers publish `"Surface attached"` only on the
+diagnostic-gated channel, so the unconditional bootstrap fact answers "did the surface take a lyric
+on this ROM" without a reproduction window. The `lyrics_first_frame` site needs adapting to CN+'s own
+draw path (`AodLyricCanvasView` ~4.8k lines, structurally diverged).
+
+**`2eaa191` item #5 — SymbolResolver symbol-source log includes parameter types. ➖ Low value.**
+`method:owner#name` becomes `method:owner#name(params)`. One-line diagnostic refinement; the same
+commit's `resolveClassInOrder` removal is already folded into the seam item above.
+
+**`2c8cf74` — Spicy EX setup probe + docs/FAQ/policy. ⚠️ Needs CN+ appraisal (probe); sync doc text for landed items only.**
+① A new `SpicySetupEvidence` plus a fixed read-only root `SpicySetupProbe.java` reads the live LSPosed
+database (Spicy EX registration/enabled and `com.spotify.music` scope for the current user) and only
+the HyperGlow publishing boolean from Spotify's `SpotifyPlus.xml`, returning three status tokens
+(`module`/`scope`/`publishing`); the report contract, setup policy, checklist UI, strings
+(en + zh-rCN + template), and the proguard keep are extended. CN+ has none of it. The premise is
+upstream-specific — "Spicy EX is the only shipped producer" and a missing Spicy EX is a **hard** setup
+failure — while CN+ also runs Lyricon/SuperLyric/LyricInfo, so the hard-failure wording and the
+checklist copy need a CN+ rewrite even though the per-user scope/publishing statuses remain useful.
+② Docs: ARCHITECTURE (a clear does not retire the generation; document identity by track URI +
+tolerance; **credit filtering is the producer's responsibility — no local filter**; the setup probe),
+LOCKSCREEN_AOD_BEHAVIOR_SPEC (the same clear/identity text; no credit filter), DIAGNOSTIC_REPORTING_SPEC
++ DIAGNOSTIC_DATA_POLICY (the probe, the statuses, the "no replies" follow-up notice). Sync only the
+paragraphs corresponding to items actually landed in CN+ — CN+'s
+[ARCHITECTURE](file:///workspace/docs/ARCHITECTURE.md#L162) still reads "Explicit clear, generation
+retirement, and disable discard both retained payloads". ③ The FAQ/README restructure (upstream
+positioning incl. "check out the CN+ fork", a HyperOS 4 section, upstream-only scope wording) is
+mostly N/A; only the "Spicy EX Lite or Full → Spicy EX" wording maps to CN+'s
+[FAQ](file:///workspace/FAQ.md#L68).
+
+**Not applicable rows:** `1d45ade` and `f7a8287` (README only); the version bumps `2c8cf74` vC229 /
+0.3.204, `5ecb5df` vC236 / 0.3.211, `2eaa191` vC237 / 0.3.212 (CN+ has an independent version
+scheme); and `5ecb5df`'s `AodLyricCanvasView` `DuetSectionId` `equals`/`hashCode` change (CN+ has zero
+presence of the upstream duet machinery — see the `84a0c9ce` item #1 row).
+
+**Port record (2026-10-18):** executed in the suggested order — #1/#2 (bridge correctness, with
+tests) → #3 (lockscreen, with CN+ adaptation) → the #5 logging + #4 SurfaceEvidence → the `2c8cf74`
+docs (for landed items) → the #4 seam candidates (HyperOS 4) were also ported, not deferred, together
+with the five-argument `doAnimationToAod` capability probe. Full unit-test suite green except the
+`root`-only `PluginInstallerTest` dex read-only assertion (environment: the sandbox runs as root, so
+`canWrite()` reports true regardless of the read-only bit).
+
+## Previous passes — all rows disposed (2026-10-10)
 
 > The 2026-10-10 pass disposed of every row of the `1537c58 → fefe5c54` delta and moved them to the
 > synced / not-synced tables with their outcomes; `.github/upstream-baseline.txt` was advanced to
@@ -157,9 +296,10 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
 ## 当前状态
 
 - **CN+ 版本**：0.3.167 (194)（截至 2026-10-07）；上游基线已于 2026-10-10 推进到 `fefe5c54`（v0.3.199）——`1537c58 → fefe5c54` 增量的每一项均已在下方各表中处置，`.github/upstream-baseline.txt` 现记录 `fefe5c54`。
-- **上游最新**：2026-10-05 `fefe5c54`，版本 0.3.199 (224) —— 2026-10-10 一轮全部处置：项 #2 已移植（PR #251）、项 #1 暂缓（缺生产端即惰性）、项 #3 部分落地（伴唱规则的规范文本）、项 #4 不适用。同轮处置 `84a0c9ce`（vC221 / 0.3.196）：项 #2/#3/#4 已移植、项 #1 评估为不受影响、#5 部分落地、#6 不适用。
+- **基线（已完整处置的上一增量）**：2026-10-05 `fefe5c54`，版本 0.3.199 (224) —— 2026-10-10 一轮全部处置：项 #2 已移植（PR #251）、项 #1 暂缓（缺生产端即惰性）、项 #3 部分落地（伴唱规则的规范文本）、项 #4 不适用。同轮处置 `84a0c9ce`（vC221 / 0.3.196）：项 #2/#3/#4 已移植、项 #1 评估为不受影响、#5 部分落地、#6 不适用。
 - **上游上一个增量**：2026-09-28 `99ba119`，版本 0.3.191 (216) —— 2026-10-10 一轮全部处置：项 #1/#9/#11 已移植、#13 随批落地，项 #2 有意不移植（由本地「长间奏倒计时圆点」替代）、项 #4 暂缓、项 #10/#12 不适用。
 - **最新已同步项**：2026-10-10 一批 —— `99ba119` 项 #1/#9/#11、`84a0c9ce` 项 #2/#3/#4、`fefe5c54` 项 #2，外加本地「倒计时圆点」增强；见「已同步」表。
+- **上游已领先——增量已移植入工作树（2026-10-18）**：上游从基线 `fefe5c54`（v0.3.199）推进到 `2eaa191`（2026-10-16，v0.3.212 / versionCode 237）——5 个提交，46 文件 +1749/−212。该增量逐项已按「已移植（2026-10-18）」处置（见下方各节）；`.github/upstream-baseline.txt` 保持 `fefe5c54`，仅在移植 PR 落地后推进。
 - **上游仓库**：https://github.com/amarinne/hyperglow（default branch: main）
 - 基线核实标记（2026-09-05）：AodLyricBridgeService 已含 uid 动态匹配、
   HierarchyFields.kt 及全 hook 使用、missingProbeNames、miuix 走 Maven Central 公共仓库
@@ -207,7 +347,66 @@ Not from upstream — a CN+ user-requested change on top of the anchored-clock f
 | `bf988be` | 2026-08-03 | bump 0.3.50 | ➖ 版本号不适用（CN+ 独立版本号体系） |
 | 更早提交 | ≤2026-08-03 | FAQ / 诊断政策 / 历史 | ➖ 未逐个核对（基线整体已含） |
 
-## 待评估 —— 无（2026-10-10 一轮全部处置）
+## 已移植 —— `fefe5c54 → 2eaa191`（2026-10-18，待移植 PR 落地）
+
+> 上游从已记录基线 `fefe5c54`（v0.3.199）推进到 `2eaa19191f41f5106d47e74dafc14f032117e69c`（v0.3.212 / versionCode 237，2026-10-16）：**5 个提交**，46 文件 +1749/−212。`.github/upstream-baseline.txt` 在移植 PR 落地前保持 `fefe5c54`。
+>
+> 提交：`1d45ade`（仅 README，+2）· `2c8cf74`（vC229 / 0.3.204，2026-10-12——docs/FAQ/诊断政策 + Spicy EX 环境探测；25 文件 +776/−58）· `5ecb5df`（vC236 / 0.3.211，2026-10-16——桥接文档身份+时长容差、状态 reducer 去墓碑、HyperOS 4 接缝、具名接缝日志、锁屏暂停驻留归属；22 文件 +921/−151）· `f7a8287`（仅 README，+2/−2）· `2eaa191`（vC237 / 0.3.212，2026-10-16——SurfaceEvidence 每进程一次事实、应用 hook 候选循环、符号日志带参数类型；8 文件 +97/−50）。
+>
+> **处置（2026-10-18）——全部行已移植入工作树：** `5ecb5df` #1（桥接文档身份 + 时长容差）与 #2（reducer：clear 不再退役 generation）连同测试一并移植；#3（锁屏暂停驻留归属）按 CN+ 适配移植，守卫改写为针对 `retentionAnchor`/`edgeFor` 的间隙分支；#4/#5（HyperOS 4 接缝 + 具名接缝日志）已移植，含配套的 `XiaomiCapabilityResolver` 五参 `doAnimationToAod` 探针；`2eaa191` #1/#4（SurfaceEvidence + 画布 `surfaceKind`）、#5（符号来源日志带参数类型）与 #2/#3（应用 hook 候选对 + 有序方法解析）已移植；`2c8cf74`（Spicy EX 环境探测、报告契约/政策/清单 UI/字符串/ProGuard）以 CN+ 措辞移植；FAQ 的「Spicy EX Lite/Full → Spicy EX」改名已同步。#6（AodProjectionEngine 身份偏移）与仅 README / 版本号行不适用。
+
+**`5ecb5df` 项 #1 —— 桥接文档身份 + 时长容差。✅ 直接移植——高价值。**
+`SpicyBridgeDocument.matches` 不再要求 `producerId`/`generation`，改由曲目 URI + `documentDurationsAgree` 判定（文档时长 ≤0 时以 state 实测时长为准；真实时长须落在 `DOCUMENT_DURATION_TOLERANCE_MS = 1000` 内，因为生产者把曲目长度取整到整秒）；`spicyBridgeDocumentTimingFault` 的行/填充/词边界改按 `max(document, state)` 约束；新增 `spicyBridgeDocumentCommitFault`，允许文档在 state 到达前提交（以自身声明时长约束）；`spicyBridgeDocumentMismatch` 去掉 producer/generation 两支。CN+ 原样带着同一套严格闸门——
+[matches](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeDocumentStore.kt#L81-L83)、
+[timingFault](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeDocumentStore.kt#L111-L136)、
+[commit](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeDocumentStore.kt#L398-L421)、
+[accept](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeDocumentStore.kt#L273-L279)
+——且 `matches` 在生产者路径上是活的
+（[SpicyLyricProducer](file:///workspace/app/src/main/java/com/eza/hyperglow/producer/SpicyLyricProducer.kt#L161)，DiagnosticReportFactory/PluginPipeline 亦用）。上游所修的故障（被丢弃的文档永不被重新请求→余下整首歌不计时、keepalive 回落到换歌租约）在 CN+ 原样成立；保留 CN+ 放宽的 `fillEndMs` 措辞。测试：同款 SpicyBridgeDocumentTest 用例。
+
+**`5ecb5df` 项 #2 —— 状态 reducer：clear 不再退役 generation。✅ 直接移植——高价值。**
+`SpicyBridgeStateReducer` 去掉 `tombstoneProducerId`/`tombstoneGeneration`；`clear` 仅丢弃持有状态，顺序判定仍由 `accept` 内部承担。CN+ 原样带着墓碑
+（[字段+accept 闸门](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeStore.kt#L154-L164)、
+[clear](file:///workspace/app/src/main/java/com/eza/hyperglow/bridge/SpicyBridgeStore.kt#L248-L257)），
+因此同一黑屏故障在此成立：生产者因自身原因 clear 后又在被清除的 generation 上恢复，此后所有 ≤ 该 generation 的载荷整首歌都被拒。
+
+**`5ecb5df` 项 #3 —— 锁屏暂停驻留归属。⚠️ 需 CN+ 适配后移植。**
+只有本次暂停事件已拥有的卡片才能启动「Spotify 暂停之后」计时：候选改为 `retained?.takeIf { it.pauseRetentionEligible }`，到期 Runnable 按每张保留卡重新推导（`lockscreenPauseLingerRemainingMs` / `refreshPauseLingerExpiry`）。CN+ 有同样的复用缺陷（`val candidate = retained ?: lastVisible?.let { … }`，
+[LockscreenVisibilityPolicy](file:///workspace/app/src/main/java/com/eza/hyperglow/root/lockscreen/LockscreenVisibilityPolicy.kt#L97)）
+与同样的内联 `pauseLingerExpiry`
+（[LockscreenSurfaceController](file:///workspace/app/src/main/java/com/eza/hyperglow/root/lockscreen/LockscreenSurfaceController.kt#L78-L95)、
+[schedulePauseLingerExpiry](file:///workspace/app/src/main/java/com/eza/hyperglow/root/lockscreen/LockscreenSurfaceController.kt#L373-L388)），
+但 CN+ 多了一层上游没有的 `retentionAnchor`/`edgeFor`，守卫须改写为针对 CN+ 的间隙分支（该分支已返回 `pauseRetentionEligible=false`）。症状：仍在播放的传输间隙卡在间隙边界上启动了暂停计时，于是普通换歌几秒后上一首的行即被退役。
+
+**`5ecb5df` 项 #4+#5 / `2eaa191` 项 #2+#3 —— HyperOS 4 接缝 + 具名接缝日志。⚠️ 中价值（前瞻）；日志那一半便宜且可移植。**
+HyperOS 4 / Android 17 的三处接缝形态：① 应用类改为候选**对**（≤HyperOS 3 为 `SystemUIApplication`，HyperOS 4 为 `SystemUIApplicationImpl`），按 (类, `onCreate`) 成对解析，并以 `SystemUIAppComponentFactoryBase#instantiateApplication` 工厂发现兜底，且**两次安装彼此独立**（应用类改名不再连带打死 user-tracker hook）；② 锁屏通知刷新回落合成静态访问器 `access$updateNotificationState(controller, boolean)`（控制器在 `chain.args[0]` 而非 `thisObject`）；③ `doAnimationToAod` 在三参形式旁新增五参候选 `(boolean,boolean,boolean,boolean,AnimationTracker)`（Linkage + ClockMorph）。配套：`SymbolResolver.resolveMethodInOrder`（有序精确候选；`resolveClassInOrder` 在 vC237 加入后又被移除），以及各 hook 的 `missingSeam(...)` + `loaderTag(...)`——每个 loader 报一次未解析的成员（CN+ 目前每次 miss 都是静默 return）。CN+ 全无此物——
+[install](file:///workspace/app/src/main/java/com/eza/hyperglow/root/SystemUiLifecycleHook.kt#L19-L48)
+仍是旧的单 `try` 形式，锁屏只 hook `onUpdateNotificationState`，每个 hook 都是裸 `?: return`。**日志那一半是自洽的诊断收益、值得现在就移植；接缝候选只有在 HyperOS 4 设备上才可验证（上游也没有——见 `2c8cf74` 的 FAQ）。** 若移植接缝需带一条警告：上游改了 hook 却把能力探针留在三参 `doAnimationToAod`，移植时须一并更新
+[XiaomiCapabilityResolver](file:///workspace/app/src/main/java/com/eza/hyperglow/root/capability/XiaomiCapabilityResolver.kt#L275-L288)，
+否则新 ROM 上能力会报缺失。
+
+**`5ecb5df` 项 #6 —— AodProjectionEngine 身份偏移日志。➖ 不适用。**
+`logDocumentIdentitySkew` 为持有文档记录 producer/generation 偏移。CN+ 引擎早已刻意不再读桥接存储
+（[AodProjectionEngine](file:///workspace/app/src/main/java/com/eza/hyperglow/aod/AodProjectionEngine.kt#L154)），
+文档检查落在生产者也——没有可记录的持有文档。
+
+**`2eaa191` 项 #1+#4 —— SurfaceEvidence + 画布 `surfaceKind`。⚠️ 中价值，可移植。**
+新增 `SurfaceEvidence` 在常开 bootstrap 通道上写每进程一次的事实（`aod_surface_attached` / `…_disabled_capability|container|attach_failed`、`lockscreen_surface_attached|…`，以及真正画出歌词块时的 `lyrics_first_frame_aod|lockscreen`），`AodLyricCanvasView` 增 `surfaceKind` 参数。CN+ 已有 `LyricSurfaceKind` 与 `HookLogger.bootstrap`，两个控制器都只在诊断门控通道上发 `"Surface attached"`，因此无条件 bootstrap 事实能在无复现窗口时就回答「本 ROM 上表面是否真的接管了歌词」。`lyrics_first_frame` 落点须适配 CN+ 自己的绘制路径（`AodLyricCanvasView` 约 4.8k 行，结构已分叉）。
+
+**`2eaa191` 项 #5 —— SymbolResolver 符号来源日志带参数类型。➖ 低价值。**
+`method:owner#name` 变为 `method:owner#name(params)`。一行诊断细化；同提交里 `resolveClassInOrder` 的移除已并入上面的接缝项。
+
+**`2c8cf74` —— Spicy EX 环境探测 + docs/FAQ/政策。⚠️ 探测需 CN+ 评估；文档只抄已落地项。**
+① 新增 `SpicySetupEvidence` 与固定只读的 root `SpicySetupProbe.java`，读取实时 LSPosed 库（Spicy EX 注册/启用状态、当前用户的 `com.spotify.music` 作用域）并只从 Spotify 的 `SpotifyPlus.xml` 取 HyperGlow 发布布尔，返回三个状态 token（`module`/`scope`/`publishing`）；报告契约、环境策略、清单 UI、多语言字符串（en + zh-rCN + 模板）与 proguard keep 一并扩展。CN+ 全无此物。其前提是上游特有的——「Spicy EX 是唯一随附生产者」、缺 Spicy EX 属**硬**环境失败——而 CN+ 还跑 Lyricon/SuperLyric/LyricInfo，故硬失败措辞与清单文案需按 CN+ 重写，尽管按用户的作用域/发布状态本身仍有用。② 文档：ARCHITECTURE（clear 不退役 generation；文档身份按曲目 URI + 容差；**署名过滤归生产者——无本地过滤器**；环境探测）、LOCKSCREEN_AOD_BEHAVIOR_SPEC（同样的 clear/身份文本；无署名过滤）、DIAGNOSTIC_REPORTING_SPEC + DIAGNOSTIC_DATA_POLICY（探测、状态、「不支持回复」跟进提示）。只抄对应已落地项的段落——CN+ 的
+[ARCHITECTURE](file:///workspace/docs/ARCHITECTURE.md#L162)
+仍写着「显式清除、generation 退役与禁用操作都会丢弃这两份保留的载荷」。③ FAQ/README 重构（上游定位，含「见 CN+ fork」、HyperOS 4 一节、上游专属作用域措辞）基本不适用；只有「Spicy EX Lite 或 Full → Spicy EX」的措辞对应 CN+ 的
+[FAQ](file:///workspace/FAQ.md#L68)。
+
+**不适用行：** `1d45ade` 与 `f7a8287`（仅 README）；版本号行 `2c8cf74` vC229 / 0.3.204、`5ecb5df` vC236 / 0.3.211、`2eaa191` vC237 / 0.3.212（CN+ 独立版本号体系）；以及 `5ecb5df` 的 `AodLyricCanvasView` `DuetSectionId` `equals`/`hashCode` 改动（CN+ 零存在上游对唱机制——见 `84a0c9ce` 项 #1 行）。
+
+**移植记录（2026-10-18）：** 按建议顺序执行 —— #1/#2（桥接正确性，带测试）→ #3（锁屏，含 CN+ 适配）→ #5 日志 + #4 SurfaceEvidence → `2c8cf74` 文档（仅已落地项）→ #4 接缝候选（HyperOS 4）亦一并移植而非暂缓，连同五参 `doAnimationToAod` 能力探针。全量单测绿，仅 `root` 环境下的 `PluginInstallerTest` dex 只读断言失败（沙箱以 root 运行，`canWrite()` 无视只读位恒返回 true）。
+
+## 历轮处置记录 —— 全部行已处置（2026-10-10）
 
 > 2026-10-10 一轮把 `1537c58 → fefe5c54` 增量的每一行都处置完毕并移入「已同步 / 未同步」两表；`.github/upstream-baseline.txt` 已推进到 `fefe5c54`，上游扫描从此只报告其后的提交。
 >

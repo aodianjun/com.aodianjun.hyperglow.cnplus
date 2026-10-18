@@ -151,16 +151,10 @@ internal class SpicyBridgeStateReducer {
     var current: SpicyBridgeState? = null
         private set
 
-    private var tombstoneProducerId = ""
-    private var tombstoneGeneration = -1L
-
     fun accept(payload: SpicyBridgeStatePayload, now: Long): Boolean {
         if (payload.protocolVersion != SpicyBridgeStore.PROTOCOL_VERSION) return false
         if (payload.producerId.isBlank() || payload.producerId.length > 64 ||
             payload.generation < 0 || payload.sequence < 0L
-        ) return false
-        if (payload.producerId == tombstoneProducerId &&
-            payload.generation <= tombstoneGeneration
         ) return false
 
         current?.let { accepted ->
@@ -245,12 +239,14 @@ internal class SpicyBridgeStateReducer {
         return true
     }
 
+    /**
+     * 丢弃持有的 state。generation 不再退役:生产者总会在 clear 之后紧跟它的下一次更新,
+     * 而旧的墓碑会拒绝此后所有 ≤ 被清除 generation 的载荷,于是每当生产者因自身原因 clear
+     * 后又在同一 generation 上恢复,余下整首歌就会黑屏。[accept] 内仍对持有的 state 做
+     * 顺序判定,因此更旧的 generation 或更低的 sequence 无法替换当前值。
+     */
     fun clear(producerId: String, generation: Long) {
         if (producerId.isBlank()) return
-        if (producerId != tombstoneProducerId || generation > tombstoneGeneration) {
-            tombstoneProducerId = producerId
-            tombstoneGeneration = generation
-        }
         current?.let { accepted ->
             if (producerId == accepted.producerId && generation >= accepted.generation) current = null
         }
