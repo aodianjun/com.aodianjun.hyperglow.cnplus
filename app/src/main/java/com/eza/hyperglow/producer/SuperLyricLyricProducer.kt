@@ -268,6 +268,12 @@ class SuperLyricLyricProducer(
                 "SuperLyricLyricProducer",
                 "force re-register after $stalledFor ms without lyric (recovered)"
             )
+            if (stalledFor >= HARD_STALL_RECOVERY_MS) {
+                // 长时间停更：回调重挂仍无词。模块只在跨行时广播，重挂后不会补发当前行，
+                // 主动拉一次当前全量数据；先清掉陈旧状态，避免「同曲同行」去重把拉回值挡掉。
+                mutableState.value = null
+                maybePullLatestLyric("stall-${stalledFor}ms", force = true)
+            }
         } else {
             AppLog.w(
                 "SuperLyricLyricProducer",
@@ -287,7 +293,7 @@ class SuperLyricLyricProducer(
      * - 拉回的数据只在「当前无状态」或「曲目不同」时发射:同曲已有实时推送时拉取值更旧,
      *   不得回退覆盖(实时推送才是权威)。
      */
-    private fun maybePullLatestLyric(reason: String) {
+    private fun maybePullLatestLyric(reason: String, force: Boolean = false) {
         if (!started) return
         val now = clock()
         if (pulledLatestOnce && now - lastPullLatestElapsedMs < PULL_LATEST_COOLDOWN_MS) return
@@ -295,10 +301,18 @@ class SuperLyricLyricProducer(
         lastPullLatestElapsedMs = now
         scope.launch {
             val pulled = runCatching { SuperLyricHelper.getLatestLyric() }.getOrNull()
-                ?: return@launch
             if (!started) return@launch
+            if (pulled == null) {
+                if (force) {
+                    AppLog.w(
+                        "SuperLyricLyricProducer",
+                        "stall pull returned no data ($reason)"
+                    )
+                }
+                return@launch
+            }
             val current = mutableState.value
-            if (current != null && current.trackUri == trackUriOf(pulled)) {
+            if (!force && current != null && current.trackUri == trackUriOf(pulled)) {
                 AppLog.i(
                     "SuperLyricLyricProducer",
                     "cold-start pull: current track already live, skipped ($reason)"
@@ -576,6 +590,12 @@ class SuperLyricLyricProducer(
 
         /** No `onLyric` for this long while playing → the callback path is likely dropped. */
         private const val STALL_RECOVERY_MS = 60_000L
+
+        /**
+         * 停更超过该时长后，仅重挂回调已无法恢复（模块只在跨行广播，不会补发当前行）：
+         * 升级为强制拉取当前全量数据，避免整首歌一直无词。
+         */
+        private const val HARD_STALL_RECOVERY_MS = 120_000L
 
         /** Minimum gap between two forced re-registers, so a persistent stall doesn't hammer IPC. */
         private const val FORCE_RE_REGISTER_COOLDOWN_MS = 30_000L
