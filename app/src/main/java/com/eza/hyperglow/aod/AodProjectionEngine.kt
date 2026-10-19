@@ -171,6 +171,26 @@ object AodProjectionEngine {
                 SpicyBridgeStore.expireIfStale()
             }
         }
+        // 投影循环看门狗：一次引用竞态或生产者停更都不该让 100ms 投影永久停摆。
+        // 每秒检查一次，活跃会话下调度器/状态回退循环死了就重启；同时保证有限时长
+        // 保活策略至少每秒重算一次（到点才能按时撤唤醒）。
+        scope.launch {
+            while (true) {
+                delay(PROJECTION_TICKER_WATCHDOG_MS)
+                ensureProjectionTicker()
+            }
+        }
+    }
+
+    @Synchronized
+    private fun ensureProjectionTicker() {
+        val current = LyricProducers.arbiter.active.value ?: return
+        if (!current.playing) return
+        if (current.status == "ready") {
+            ensureScheduler(current)
+        } else if (shouldShowPlaybackFallback(current.status, current.playing)) {
+            startStatusKeepAlive(current)
+        }
     }
 
     @Synchronized
@@ -265,10 +285,11 @@ object AodProjectionEngine {
         scheduler = scope.launch {
             while (true) {
                 val current = LyricProducers.arbiter.active.value ?: break
-                if (!isCurrentActive(current) ||
-                    current.status != "ready" || !current.playing ||
-                    ProjectionSessionIdentity.from(current) != expectedSession
-                ) break
+                // 引用身份不是会话身份：arbiter 播放中每 ~100ms 写新实例，读到 S_n 后
+                // S_{n+1} 已落盘是常态。此处只按会话身份判定退出，否则一次竞态就会让
+                // 100ms 投影循环永久停摆——生产者不再发状态时 AOD 渲染冻结、到点判断
+                // 也不再重算（0.3.169 实测：画面动几秒就停、到点不熄灭）。
+                if (!shouldContinueProjectionTicker(current, expectedSession)) break
                 val publicationToken = publicationGuard.current(current) ?: break
                 val now = SystemClock.elapsedRealtime()
                 project(current, now, publicationToken)
@@ -292,7 +313,7 @@ object AodProjectionEngine {
             while (true) {
                 delay(FALLBACK_REFRESH_INTERVAL_MS)
                 val current = LyricProducers.arbiter.active.value ?: break
-                if (!isCurrentActive(current) || !canRefreshFallback(expected, current)) break
+                if (!canRefreshFallback(expected, current)) break
                 val publicationToken = publicationGuard.current(current) ?: break
                 val now = SystemClock.elapsedRealtime()
                 project(current, now, publicationToken)
@@ -558,6 +579,17 @@ object AodProjectionEngine {
 
     internal fun fallbackRefreshIntervalMs(): Long = FALLBACK_REFRESH_INTERVAL_MS
 
+    /**
+     * 投影 ticker 是否应继续：只按会话身份/播放状态判定，不看样本引用身份——
+     * arbiter 每 ~100ms 写新实例，引用比较会让循环在正常播放中误退出，
+     * 生产者停更后便再无人重启，表现为画面动几秒即冻结、到点也不撤唤醒。
+     */
+    internal fun shouldContinueProjectionTicker(
+        current: LyricProducerState?,
+        expectedSession: ProjectionSessionIdentity
+    ): Boolean = current != null && current.status == "ready" && current.playing &&
+        ProjectionSessionIdentity.from(current) == expectedSession
+
     fun shouldShowPlaybackFallback(status: String, playing: Boolean): Boolean =
         playing && (status == "loading" || status == "no_lyrics")
 
@@ -641,6 +673,7 @@ object AodProjectionEngine {
      */
     private const val KEEP_ALIVE_INTERVAL_MS = 1_500L
     private const val FALLBACK_REFRESH_INTERVAL_MS = 1_000L
+    private const val PROJECTION_TICKER_WATCHDOG_MS = 1_000L
     private const val TRANSITION_GRACE_MS = 1_500L
     internal const val PAUSE_CONFIRM_MS = 5_000L
     private const val CUSTOMIZATION_REFRESH_MS = 1_000L

@@ -3,6 +3,8 @@ package com.eza.hyperglow.aod
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.ProducerRenderModes
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -109,6 +111,40 @@ class AodProjectionStaleSampleTest {
         assertEquals(
             StaleSampleAction.SoftSkip,
             AodProjectionEngine.classifyStaleSample(sample, current)
+        )
+    }
+
+    @Test
+    fun projectionTickerSurvivesNewerInstanceOfSameSession() {
+        // 回归：arbiter 每 ~100ms 写新实例，100ms 投影 ticker 不能因引用身份变化退出——
+        // 退出后生产者停更便无人重启，表现为画面动几秒即冻结、到点也不撤唤醒。
+        val sample = state(sequence = 1L, positionMs = 100L)
+        val current = sample.copy(sequence = 2L, positionMs = 200L)
+        val session = ProjectionSessionIdentity.from(sample)
+
+        assertTrue(AodProjectionEngine.shouldContinueProjectionTicker(current, session))
+    }
+
+    @Test
+    fun projectionTickerStopsOnSessionOrPlaybackChange() {
+        val sample = state()
+        val session = ProjectionSessionIdentity.from(sample)
+
+        assertFalse(AodProjectionEngine.shouldContinueProjectionTicker(null, session))
+        assertFalse(
+            AodProjectionEngine.shouldContinueProjectionTicker(
+                sample.copy(trackUri = "spotify:track:b"), session
+            )
+        )
+        assertFalse(
+            AodProjectionEngine.shouldContinueProjectionTicker(
+                sample.copy(playing = false), session
+            )
+        )
+        assertFalse(
+            AodProjectionEngine.shouldContinueProjectionTicker(
+                sample.copy(status = "loading"), session
+            )
         )
     }
 
