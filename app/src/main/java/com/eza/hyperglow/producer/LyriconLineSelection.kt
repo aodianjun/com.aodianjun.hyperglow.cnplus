@@ -46,6 +46,35 @@ internal fun LyriconLyricProducer.advanceExtrapolation(now: Long, reason: String
     }
     if (lastRealPositionClockMs < 0L) return
     val sinceRealMs = now - lastRealPositionClockMs
+    // 熄屏后网易云停止写共享内存：先用播放器 MediaSession 的位置兜底（第二位置源），
+    // 只接受前进且不越歌长的值；拿不到再走墙钟外推。
+    if (sinceRealMs >= LyriconLyricProducer.STALE_POSITION_THRESHOLD_MS) {
+        val recovered = probeMediaSessionPosition(now)
+        if (recovered != null) {
+            lastRealPositionMs = recovered
+            lastRealPositionClockMs = now
+            lastRealPositionUpdateMs = now
+            currentPositionMs = recovered
+            extrapolating = false
+            positionUnknown = false
+            heldAtSongEndStale = false
+            songEndCleared = false
+            AppLog.i(
+                "LyriconLyricProducer",
+                "position recovered via MediaSession: pos=${recovered}ms"
+            )
+            return
+        }
+        if (now - lastPositionHealthLogMs >= LyriconLyricProducer.POSITION_HEALTH_LOG_MS) {
+            lastPositionHealthLogMs = now
+            AppLog.w(
+                "LyriconLyricProducer",
+                "position health: pos=$currentPositionMs lastReal=$lastRealPositionMs " +
+                    "stale=${sinceRealMs / 1000}s extrapolating=$extrapolating " +
+                    "duration=${currentSong?.duration ?: 0L}ms"
+            )
+        }
+    }
     val duration = currentSong?.duration ?: 0L
     val projected = lastRealPositionMs + sinceRealMs
     // 歌尾稳定钳制(issue #9):外推一旦越过歌曲时长,位置直接钳到 duration 并保持,
@@ -53,7 +82,26 @@ internal fun LyriconLyricProducer.advanceExtrapolation(now: Long, reason: String
     // 统一处理且只处理一次。否则每个 stalled 回调都会重走
     // "越界→清空→占位" 重建循环:60Hz 日志刷屏 + extrapolating 每帧反复翻转。
     if (duration > 0L && projected >= duration) {
+        // 位置源已停写时，外推撞到歌尾不等于真的播完：保持最后真实位置（当前行不消失），
+        // 等真实位置/第二位置源回来再对齐。只有真实位置在流动时越界才按播完处理。
+        if (sinceRealMs > LyriconLyricProducer.STALE_POSITION_THRESHOLD_MS &&
+            lastRealPositionMs > 0L &&
+            !songEndCleared
+        ) {
+            currentPositionMs = lastRealPositionMs
+            if (!heldAtSongEndStale) {
+                heldAtSongEndStale = true
+                AppLog.w(
+                    "LyriconLyricProducer",
+                    "position stale at song end; holding last real=${lastRealPositionMs}ms " +
+                        "(writer dead, not a real song end)"
+                )
+            }
+            return
+        }
         currentPositionMs = duration
+        songEndCleared = true
+        heldAtSongEndStale = false
         return
     }
     if (sinceRealMs > LyriconLyricProducer.MAX_EXTRAPOLATION_MS) {

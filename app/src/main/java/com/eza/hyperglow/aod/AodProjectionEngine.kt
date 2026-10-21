@@ -1,6 +1,9 @@
 package com.eza.hyperglow.aod
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.RuntimeCustomization
@@ -148,6 +151,7 @@ object AodProjectionEngine {
     private val publicationGuard = ProjectionPublicationGuard()
     private val releaseGate = ProjectionReleaseGate()
     private val powerSessionPolicy = AodPowerSessionPolicy()
+    private var screenReceiver: BroadcastReceiver? = null
     private val metadataIntroPolicy = SongMetadataIntroPolicy()
 
     /**
@@ -161,6 +165,7 @@ object AodProjectionEngine {
         if (started) return
         appContext = context.applicationContext
         started = true
+        registerScreenStateReceiver(context.applicationContext)
         publishCustomizationIfDue(SystemClock.elapsedRealtime())
         scope.launch {
             LyricProducers.arbiter.active.collect(::handleState)
@@ -190,6 +195,28 @@ object AodProjectionEngine {
             ensureScheduler(current)
         } else if (shouldShowPlaybackFallback(current.status, current.playing)) {
             startStatusKeepAlive(current)
+        }
+    }
+
+    /**
+     * 「保持息屏活动 N 分钟」的会话窗口从熄屏起算：熄屏前已播的时长不计入。
+     * 只注册系统广播 ACTION_SCREEN_OFF（受保护广播，第三方不可伪造）。
+     */
+    private fun registerScreenStateReceiver(context: Context) {
+        if (screenReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                    powerSessionPolicy.clear()
+                    AppLog.i("AodProjectionEngine", "screen off: keep-alive window restarted")
+                }
+            }
+        }
+        runCatching {
+            context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+            screenReceiver = receiver
+        }.onFailure {
+            AppLog.w("AodProjectionEngine", "screen state receiver unavailable", it)
         }
     }
 

@@ -57,6 +57,12 @@ import java.util.concurrent.atomic.AtomicLong
  * @param clock injectable monotonic clock (millis); defaults to [SystemClock.elapsedRealtime].
  *   Injected in unit tests so [emit] can run without Android's [SystemClock].
  */
+internal data class MediaSessionPosition(
+    val positionMs: Long,
+    val lastUpdateElapsedMs: Long,
+    val speed: Float
+)
+
 class LyriconLyricProducer(
     internal val clock: () -> Long = SystemClock::elapsedRealtime
 ) : LyricProducer {
@@ -147,6 +153,13 @@ class LyriconLyricProducer(
      */
     internal var activePlayerPlaybackStateReader: (String) -> Int? = { readActivePlayerPlaybackState(it) }
 
+    /**
+     * 第二位置源读取缝：播放器 MediaSession 的 position（共享内存停写时兜底）。
+     * 单测可替换本缝，避免依赖真实 MediaSessionManager。
+     */
+    internal var mediaSessionPositionReader: (String) -> MediaSessionPosition? =
+        { readActivePlayerPosition(it) }
+
     // --- Ingress state, updated by playerListener; read by emit(). @Volatile for cross-thread. ---
     @Volatile internal var currentSong: Song? = null
     @Volatile internal var navigator: TimingNavigator<RichLyricLine>? = null
@@ -206,6 +219,19 @@ class LyriconLyricProducer(
     // all the way to the song end over a long stall (the 19:33 capture extrapolated ~3m39s past
     // the real paused position and landed on the last line).
     @Volatile internal var positionUnknown: Boolean = false
+
+    /**
+     * 外推撞到歌尾但位置源已停写（熄屏冻结写入端）：不能当作真实播完去清行，
+     * 否则歌词会瞬间变成占位/消失。保持最后真实位置，等真实位置或第二位置源回来再对齐。
+     */
+    @Volatile internal var heldAtSongEndStale: Boolean = false
+
+    /** 已按「真实播完」清过行：后续停更不得把最后一行重新顶回来（避免占位↔歌词闪烁）。 */
+    @Volatile internal var songEndCleared: Boolean = false
+
+    /** 第二位置源（播放器 MediaSession）探测节流与健康度日志节流。 */
+    @Volatile internal var lastMediaSessionProbeMs: Long = 0L
+    @Volatile internal var lastPositionHealthLogMs: Long = 0L
 
     // --- Stale detection ---
     // If no real position update arrives for STALE_THRESHOLD_MS, the shared-memory writer
@@ -442,6 +468,8 @@ class LyriconLyricProducer(
         lastRealPositionUpdateMs = -1L
         extrapolating = false
         positionUnknown = false
+        heldAtSongEndStale = false
+        songEndCleared = false
         previousSongLastPositionMs = -1L
         seekRejectPositionMs = -1L
         seekClockMs = 0L
@@ -532,6 +560,44 @@ class LyriconLyricProducer(
                 ?.playbackState
                 ?.state
         }.getOrNull()
+    }
+
+    /**
+     * 读播放器 MediaSession 的播放位置（第二位置源）。只在共享内存停写时使用；
+     * 需要通知使用权（与播放态查询同一前提），拿不到时返回 null。
+     */
+    private fun readActivePlayerPosition(packageName: String): MediaSessionPosition? {
+        val manager = mediaSessionManager ?: return null
+        val component = notificationListenerComponent ?: return null
+        return runCatching {
+            manager.getActiveSessions(component)
+                .firstOrNull { it.packageName == packageName }
+                ?.playbackState
+                ?.takeIf { it.state == android.media.session.PlaybackState.STATE_PLAYING }
+                ?.let { ps ->
+                    MediaSessionPosition(
+                        positionMs = ps.position,
+                        lastUpdateElapsedMs = ps.lastPositionUpdateTime,
+                        speed = ps.playbackSpeed
+                    )
+                }
+        }.getOrNull()
+    }
+
+    /**
+     * 共享内存位置停写后的第二位置源探测（1s 节流）：只接受「比最后真实位置更靠前且不越歌长」
+     * 的 MediaSession 值，避免把冻结的旧值当新位置把歌词拉回去。
+     */
+    internal fun probeMediaSessionPosition(now: Long): Long? {
+        if (now - lastMediaSessionProbeMs < MEDIA_SESSION_POSITION_PROBE_MS) return null
+        lastMediaSessionProbeMs = now
+        val pkg = sessionQueryPackage(activePlayerPackage, activeProviderPackage) ?: return null
+        val sample = mediaSessionPositionReader(pkg) ?: return null
+        val duration = currentSong?.duration ?: 0L
+        if (sample.positionMs < 0L) return null
+        if (duration > 0L && sample.positionMs > duration + 2_000L) return null
+        if (sample.positionMs <= lastRealPositionMs) return null
+        return sample.positionMs
     }
 
     /**
@@ -813,6 +879,12 @@ class LyriconLyricProducer(
          * logged so the arbiter can consider falling back to another producer.
          */
         internal const val STALE_POSITION_THRESHOLD_MS = 15_000L
+
+        /** 共享内存停写后，第二位置源（MediaSession）的探测节流。 */
+        internal const val MEDIA_SESSION_POSITION_PROBE_MS = 1_000L
+
+        /** 位置停写期间的健康度采样日志节流（定位卡死现场用）。 */
+        internal const val POSITION_HEALTH_LOG_MS = 5_000L
 
         /**
          * Wall-clock budget after which a silent position source is treated with suspicion while

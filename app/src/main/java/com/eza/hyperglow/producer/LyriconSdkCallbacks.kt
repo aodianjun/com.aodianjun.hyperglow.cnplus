@@ -177,6 +177,8 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 lastRealPositionClockMs = clock()
                 extrapolating = false
                 positionUnknown = false
+                heldAtSongEndStale = false
+                songEndCleared = false
                 pauseStaleRejectMs = -1L
                 // Close the post-song-change plausibility gate (issue #11) for an in-session
                 // change (the song starts from 0): the next real position must be plausible for a
@@ -454,6 +456,8 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 // A real value also means the position source is alive again: clear the
                 // unknown-position marker so recomputeAndEmit re-selects the active line.
                 positionUnknown = false
+                heldAtSongEndStale = false
+                songEndCleared = false
                 if (wasExtrapolating && !monotonicResume) {
                     extrapolating = false
                     AppLog.i(

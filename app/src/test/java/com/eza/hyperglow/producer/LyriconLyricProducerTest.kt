@@ -862,10 +862,9 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun positionExtrapolation_pastBudgetPastSongEnd_capsAtSongDuration() {
-        // issue #9(AOD 歌词播完后永久卡占位):外推越过歌尾后,位置钳制到歌曲时长并稳定
-        // 占位 —— 不再标记 positionUnknown 冻结在预算值,也不再每帧重走
-        // "越界→清空→占位" 重建循环。等真实位置恢复(亮屏)后重新选中正确行。
+    fun positionExtrapolation_pastSongEnd_holdsLastRealLineWhenWriterStale() {
+        // 熄屏冻结写入端、外推越过歌尾：不能当作真播完清行（旧行为会让歌词变占位/消失）。
+        // 保持最后真实位置与当前行，等真实位置/第二位置源回来再对齐。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -874,15 +873,13 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // near end → line 2 (still inside [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Stall for 90s (well past the 45s budget, projected 96s ≥ duration 8s) → capped at duration.
+        // Stall for 90s (well past the stale threshold) → hold the last real line, not a placeholder.
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
 
         val state = producer.state.value!!
-        assertEquals(-1, state.lineIndex)                 // active line cleared
-        assertEquals("", state.line)
-        // Capped at the song duration, NOT frozen at the extrapolation budget (51s).
-        assertEquals(8_000L, state.positionMs)
+        assertEquals(2, state.lineIndex)      // active line held, not cleared
+        assertEquals(6_000L, state.positionMs) // held at the last real position
     }
 
     @Test
@@ -921,9 +918,8 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun positionExtrapolation_pastSongEnd_holdsStableCappedPlaceholder() {
-        // issue #9:外推越过歌尾后,后续仍停更的回调不得继续推进位置,行保持清空且位置
-        // 稳定钳在 duration,避免 60Hz 重复投递与 SystemUI 无去重的重建风暴。
+    fun positionExtrapolation_pastSongEnd_holdsLastRealLineWhileWriterStale() {
+        // 外推越过歌尾且写入端停写：保持最后真实位置与当前行，后续 stalled 回调不得推进。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -932,19 +928,18 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // near end → line 2
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Stall past the song end → capped at duration, line cleared.
+        // Stall past the song end → hold the last real line.
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
-        assertEquals(-1, producer.state.value!!.lineIndex)
+        assertEquals(2, producer.state.value!!.lineIndex)
 
         // A much later stalled callback must not advance the position further.
         clockValue = 200_000L
         producer.playerListener.onPositionChanged(6_000L)
 
         val state = producer.state.value!!
-        assertEquals(-1, state.lineIndex)
-        assertEquals("", state.line)
-        assertEquals(8_000L, state.positionMs) // stable, still capped at duration
+        assertEquals(2, state.lineIndex)
+        assertEquals(6_000L, state.positionMs) // stable at the last real position
     }
 
     @Test
@@ -1198,7 +1193,7 @@ class LyriconLyricProducerTest {
 
     @Test
     fun positionExtrapolation_afterSongEnd_realPositionRestoresLine() {
-        // 外推越过歌尾被钳制并清空行后,一旦真实位置恢复(亮屏 writer 恢复),应重新选中正确行。
+        // 外推越过歌尾且写入端停写时保持最后真实行；真实位置恢复后按真实位置重新选行。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -1207,10 +1202,10 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // line 2 (within [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // 超过预算且越过歌尾 → 钳制到 duration、清空活动行(issue #9)。
+        // 超过 stale 阈值且越过歌尾 → 保持最后真实行（不清空）。
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
-        assertEquals(-1, producer.state.value!!.lineIndex)
+        assertEquals(2, producer.state.value!!.lineIndex)
 
         // 真实位置恢复(新歌/重播),重新选中行。
         clockValue = 100_200L
@@ -2365,6 +2360,26 @@ class LyriconLyricProducerTest {
         // 2.12:sequence/generation 必须用原子类型(volatile 上的 `++` 在多线程入口会丢号)。
         assertEquals(AtomicLong::class.java, producer.sequence.javaClass)
         assertEquals(AtomicInteger::class.java, producer.generation.javaClass)
+    }
+
+    @Test
+    fun mediaSessionFallbackOnlyAcceptsForwardPositions() {
+        // 共享内存停写后的第二位置源：只接受前进且不越歌长的 MediaSession 值。
+        val fallbackProducer = LyriconLyricProducer { 1_000L }
+        fallbackProducer.activePlayerPackage = "com.netease.cloudmusic"
+        fallbackProducer.lastRealPositionMs = 5_000L
+        fallbackProducer.mediaSessionPositionReader = {
+            MediaSessionPosition(positionMs = 10_000L, lastUpdateElapsedMs = 1_000L, speed = 1f)
+        }
+
+        assertEquals(10_000L, fallbackProducer.probeMediaSessionPosition(1_000L))
+
+        // 冻结/回退值不接受（否则会把歌词拉回去）。
+        fallbackProducer.lastMediaSessionProbeMs = 0L
+        fallbackProducer.mediaSessionPositionReader = {
+            MediaSessionPosition(positionMs = 4_000L, lastUpdateElapsedMs = 1_000L, speed = 1f)
+        }
+        assertNull(fallbackProducer.probeMediaSessionPosition(3_000L))
     }
 
     private fun markerDuetSong(): Song = Song(
