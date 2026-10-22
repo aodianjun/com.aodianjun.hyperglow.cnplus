@@ -102,9 +102,9 @@ class AodProjectionLifecycleTest {
     }
 
     @Test
-    fun keepAlivePolicyDefaultsToTimedButAllowsExplicitUnsyncedOverride() {
+    fun keepAlivePolicyIgnoresLyricPresence() {
         assertTrue(AodProjectionEngine.shouldKeepAodAlive(true, true, true, false, true))
-        assertFalse(AodProjectionEngine.shouldKeepAodAlive(true, true, true, false, false))
+        assertTrue(AodProjectionEngine.shouldKeepAodAlive(true, true, true, false, false))
         assertTrue(AodProjectionEngine.shouldKeepAodAlive(true, true, true, true, false))
         assertFalse(AodProjectionEngine.shouldKeepAodAlive(false, true, true, true, true))
         assertFalse(AodProjectionEngine.shouldKeepAodAlive(true, false, true, true, true))

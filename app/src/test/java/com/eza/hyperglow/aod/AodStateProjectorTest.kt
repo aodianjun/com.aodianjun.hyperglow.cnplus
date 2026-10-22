@@ -711,10 +711,11 @@ class AodStateProjectorTest {
     // --- shouldKeepAodAliveFor 顶层函数 ---
 
     @Test
-    fun keepAliveRequiresPlayingAndAodAndKeepAwakeAndTimedOrUnsynced() {
+    fun keepAliveRequiresPlayingAndAodAndKeepAwakeOnly() {
+        // 无限期保活 + 时长定时器：歌词是否存在不再参与保活判定（避免位置源断供时提前熄灭）。
         assertTrue(shouldKeepAodAliveFor(true, true, true, false, true))
-        assertFalse(shouldKeepAodAliveFor(true, true, true, false, false)) // 无 timed、无 unsynced
-        assertTrue(shouldKeepAodAliveFor(true, true, true, true, false)) // unsynced 兜底
+        assertTrue(shouldKeepAodAliveFor(true, true, true, false, false))
+        assertTrue(shouldKeepAodAliveFor(true, true, true, true, false))
         assertFalse(shouldKeepAodAliveFor(false, true, true, true, true))
         assertFalse(shouldKeepAodAliveFor(true, false, true, true, true))
         assertFalse(shouldKeepAodAliveFor(true, true, false, true, true))

@@ -671,10 +671,10 @@ object AodProjectionEngine {
         playing: Boolean,
         aodEnabled: Boolean,
         keepAwake: Boolean,
-        keepAwakeUnsynced: Boolean,
-        hasTimedLyrics: Boolean
-    ): Boolean = playing && aodEnabled && keepAwake &&
-        (hasTimedLyrics || keepAwakeUnsynced)
+        // 与顶层 shouldKeepAodAliveFor 同源：保活不再依赖歌词是否存在（无限期 + 定时器）。
+        @Suppress("UNUSED_PARAMETER") keepAwakeUnsynced: Boolean,
+        @Suppress("UNUSED_PARAMETER") hasTimedLyrics: Boolean
+    ): Boolean = playing && aodEnabled && keepAwake
 
     fun isLineLevelDocumentType(type: String): Boolean =
         type.equals("Line", ignoreCase = true)

@@ -68,6 +68,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var lyricCanvas: AodLyricCanvasView? = null
     private var spicyAnimationView: AodSpicyAnimationView? = null
     private var latestSnapshot: LyricSnapshot? = null
+
+    /** 保活时长定时器已到点：歌词面已关闭，等新会话（expired 复位）再重新打开。 */
+    private var lyricsWindowEnded = false
     private var lastVisibleSnapshot: LyricSnapshot? = null
     private var retainedMediaSnapshot: LyricSnapshot? = null
     private var retentionAnchor: LyricRetentionAnchor? = null
@@ -392,6 +395,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     TAG,
                     "attach requested root=${root.javaClass.name} ${root.width}x${root.height}"
                 )
+                // AOD root 已经加载,用它所在的 loader 刷新 AOD 探针,避免能力上报端
+                // 因为没看到 classloader 事件而继续把 AOD 符号当成 pending。
+                XiaomiCapabilityResolver.observeAodLoader(root.javaClass.classLoader)
                 XiaomiCapabilityResolver.observeContext(root.context)
                 SystemUiLyricProjectionRuntime.projection.reportCapabilities()
                 if (!XiaomiCapabilityResolver.hasCapability(XiaomiCapability.AOD_SURFACE)) {
@@ -631,6 +637,13 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         val wasFollowingPosition = latestSnapshot?.positionFollowingEnabled == true
         latestSnapshot = resolvedSnapshot
+        // 「无限期保活 + 时长定时器」：到点只做一件事——关闭歌词面并释放时钟，不再靠
+        // smartHide 间接熄灭；到点后不再渲染新内容，等新会话（expired 复位）再打开。
+        if (resolvedSnapshot.keepAliveExpired) {
+            endLyricsWindow()
+            return
+        }
+        lyricsWindowEnded = false
         if (!incomingSnapshot.visible && retainedMediaSnapshot == null &&
             !incomingSnapshot.playbackActive
         ) {
@@ -737,6 +750,11 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             playbackActive = signal.playbackActive,
             pauseRetentionEligible = signal.pauseRetentionEligible
         )
+        if (signal.keepAliveExpired) {
+            endLyricsWindow()
+            return
+        }
+        lyricsWindowEnded = false
         updateLifetimeGuard()
         val wakeRequired = isNewAodWakeSignal(lastWakeSignal, signal.wakeSignal)
         lastWakeSignal = signal.wakeSignal
@@ -870,6 +888,19 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         lastRenderContent = null
         updateLifetimeGuard()
         if (pulse && wasVisible && isSceneActive()) rootRef.get()?.let(::pulseDrawWakeLock)
+    }
+
+    /**
+     * 保活时长到点：直接关闭歌词面并释放系统时钟控制（回到原厂时钟），
+     * 不再只依赖 smartHide 的 hide 回放。幂等；新会话（expired 复位）会重新打开歌词。
+     */
+    private fun endLyricsWindow() {
+        if (lyricsWindowEnded) return
+        lyricsWindowEnded = true
+        HookLogger.i(TAG, "Lyrics window expired; hiding lyrics and releasing stock clock")
+        hideSurfaceOnly(pulse = false)
+        setStockWidgetControlActive(false)
+        AodPositionHook.resetStockAnchor("lyrics window expired")
     }
 
     private fun detachCurrent() {

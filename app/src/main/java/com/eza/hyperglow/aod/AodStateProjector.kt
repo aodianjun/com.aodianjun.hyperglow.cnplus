@@ -513,7 +513,9 @@ internal fun shouldKeepAodAliveFor(
     playing: Boolean,
     aodEnabled: Boolean,
     keepAwake: Boolean,
-    keepAwakeUnsynced: Boolean,
-    hasTimedLyrics: Boolean
-): Boolean = playing && aodEnabled && keepAwake &&
-    (hasTimedLyrics || keepAwakeUnsynced)
+    // 保留参数以兼容调用点/测试。保活不再依赖歌词是否存在：改为「无限期保活 + 独立时长
+    // 定时器」——位置源断供/歌词未加载时 keepAlive 不再提前变 false，AOD 不会被 smartHide
+    // 提前收掉；时长到点由 keepAliveExpired 显式关闭歌词并释放时钟。
+    @Suppress("UNUSED_PARAMETER") keepAwakeUnsynced: Boolean,
+    @Suppress("UNUSED_PARAMETER") hasTimedLyrics: Boolean
+): Boolean = playing && aodEnabled && keepAwake
