@@ -895,12 +895,18 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
      * 不再只依赖 smartHide 的 hide 回放。幂等；新会话（expired 复位）会重新打开歌词。
      */
     private fun endLyricsWindow() {
-        if (lyricsWindowEnded) return
+        val first = !lyricsWindowEnded
         lyricsWindowEnded = true
-        HookLogger.i(TAG, "Lyrics window expired; hiding lyrics and releasing stock clock")
-        hideSurfaceOnly(pulse = false)
-        setStockWidgetControlActive(false)
-        AodPositionHook.resetStockAnchor("lyrics window expired")
+        if (first) {
+            HookLogger.i(TAG, "Lyrics window expired; hiding lyrics and releasing stock clock")
+            setStockWidgetControlActive(false)
+            AodPositionHook.resetStockAnchor("lyrics window expired")
+        }
+        // 歌词面可能晚于到点才 attach（或被杀后重建）：不能只隐藏一次就早退，
+        // 只要仍可见就继续隐藏，直到新会话把 expired 复位。
+        if (surface?.visibility == View.VISIBLE || lyricCanvas?.visibility == View.VISIBLE) {
+            hideSurfaceOnly(pulse = true)
+        }
     }
 
     private fun detachCurrent() {
