@@ -480,11 +480,23 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 startRenderStallWatchdog()
                 startStockSettleWatchdog()
                 LinkageTransitionCoordinator.onAodSurfaceMode(AodPositionHook.isLinkageMode())
-                applySuppressionAndRotation(latestSnapshot)
+                val windowEnded = lyricsWindowEnded ||
+                    latestSnapshot?.keepAliveExpired == true ||
+                    AodPowerCoordinator.isKeepAliveExpired()
+                if (windowEnded) {
+                    // 到点后重新 attach：不再压制原厂内容/钉时钟，保持歌词面隐藏。
+                    releaseStockClock()
+                } else {
+                    applySuppressionAndRotation(latestSnapshot)
+                }
                 val generation = attachmentGeneration
                 root.post {
                     if (generation == attachmentGeneration && rootRef.get() === root) {
                         root.display?.state?.let(LinkageTransitionCoordinator::onAodDisplayState)
+                        if (windowEnded) {
+                            hideSurfaceOnly(pulse = true)
+                            return@post
+                        }
                         val laidOut = layoutSurface(root, burnInContainer, directSurface)
                         HookLogger.i(
                             TAG,
@@ -899,14 +911,22 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         lyricsWindowEnded = true
         if (first) {
             HookLogger.i(TAG, "Lyrics window expired; hiding lyrics and releasing stock clock")
-            setStockWidgetControlActive(false)
-            AodPositionHook.resetStockAnchor("lyrics window expired")
+            releaseStockClock()
         }
         // 歌词面可能晚于到点才 attach（或被杀后重建）：不能只隐藏一次就早退，
         // 只要仍可见就继续隐藏，直到新会话把 expired 复位。
         if (surface?.visibility == View.VISIBLE || lyricCanvas?.visibility == View.VISIBLE) {
             hideSurfaceOnly(pulse = true)
         }
+    }
+
+    /** 释放系统时钟控制：停止托管位移/钉住/内容压制，并复位锚点。 */
+    private fun releaseStockClock() {
+        setStockWidgetControlActive(false)
+        AodPositionHook.setSuppressActive(false)
+        AodPositionHook.setHoldStockPosition(false)
+        AodPositionHook.setIntegralClockPin(false)
+        AodPositionHook.resetStockAnchor("lyrics window expired")
     }
 
     private fun detachCurrent() {
