@@ -108,6 +108,9 @@ class LyriconLyricProducer(
      */
     @Volatile internal var consecutiveResubscribeFailures = 0
 
+    /** 整体重建 subscriber 实例的最小间隔（避免失败抖动时反复创建/销毁）。 */
+    @Volatile internal var lastFullRebuildMs: Long = 0L
+
     /**
      * MediaSession 观测到的播放态(null=未知)。回调链死亡时 onPlaybackStateChanged 不再来,
      * isPlayingState 会冻结在 false —— 看门狗以本观测兜底(见 [watchdogPlaying])。
@@ -641,9 +644,74 @@ class LyriconLyricProducer(
             refreshSessionPlaying()
             // 2.10:先结算上一次重建的成败(失败计数/升级告警),再决定是否发起新的重建。
             verifyPendingResubscribe()
+            // 回调链彻底停发时（onPositionChanged 不再来），advanceExtrapolation 永远不会
+            // 被调用——第二位置源必须由看门狗主动驱动，否则只剩外推/卡死。
+            maybeRecoverPositionFromMediaSession()
             maybeResubscribeOnPositionSilence()
             maybeResubscribeOnSongFeed()
         }
+    }
+
+    /**
+     * 位置回调完全停发（回调链死）时的第二位置源续命：看门狗每 5s 主动探测 MediaSession，
+     * 拿到前进位置就重锚并重新发射状态。放在看门狗里而不是 advanceExtrapolation 里，
+     * 是因为后者只有 onPositionChanged 到达才会执行——回调彻底停发时它永远不跑。
+     */
+    private fun maybeRecoverPositionFromMediaSession() {
+        val now = clock()
+        val last = lastPositionCallbackElapsedMs
+        if (last < 0L || now - last < STALE_POSITION_THRESHOLD_MS) return
+        if (!watchdogPlaying(isPlayingState, sessionPlayingObserved)) return
+        val recovered = probeMediaSessionPosition(now) ?: return
+        lastRealPositionMs = recovered
+        lastRealPositionClockMs = now
+        lastRealPositionUpdateMs = now
+        currentPositionMs = recovered
+        extrapolating = false
+        positionUnknown = false
+        heldAtSongEndStale = false
+        songEndCleared = false
+        recomputeAndEmit()
+        AppLog.i(
+            "LyriconLyricProducer",
+            "position recovered via MediaSession (watchdog): pos=${recovered}ms"
+        )
+    }
+
+    /**
+     * 连续重订阅无效后，重建整个 subscriber 实例（不只是 subscribeActivePlayer）：
+     * 真机 2026-10-19 22:06 连续 6/7 次 subscribeAccepted=true 但 10s 内零回调，
+     * 说明 SDK 实例/回调链本身已死。先销毁旧实例再创建新实例（顺序执行，避免同一
+     * (包名,进程名) 身份下新旧实例的注册顺序竞态）。
+     */
+    private fun rebuildSubscriberInstance(reason: String) {
+        if (!started) return
+        val ctx = contextRef ?: return
+        AppLog.w("LyriconLyricProducer", "rebuilding subscriber instance ($reason)")
+        val old = subscriber
+        subscriber = null
+        runCatching {
+            old?.unsubscribeActivePlayer(playerListener)
+            old?.removeConnectionListener(connectionListener)
+            old?.unregister()
+            old?.destroy()
+        }.onFailure { AppLog.w("LyriconLyricProducer", "old subscriber cleanup failed", it) }
+        val sub = runCatching { LyriconFactory.createSubscriber(ctx.applicationContext) }.getOrNull()
+        if (sub == null) {
+            AppLog.e("LyriconLyricProducer", "subscriber rebuild failed: factory returned null")
+            return
+        }
+        subscriber = sub
+        sub.addConnectionListener(connectionListener)
+        val accepted = runCatching { sub.subscribeActivePlayer(playerListener) }.getOrDefault(false)
+        lastResubscribeAccepted = accepted
+        lastForcedResubscribeElapsedMs = clock()
+        positionArrivedSinceResubscribe = false
+        resubscribeOutcomeSettled = false
+        lastPositionCallbackElapsedMs = clock()
+        runCatching { sub.register() }
+            .onFailure { AppLog.w("LyriconLyricProducer", "subscriber register failed after rebuild", it) }
+        AppLog.i("LyriconLyricProducer", "subscriber rebuilt accepted=$accepted")
     }
 
     /**
@@ -750,6 +818,11 @@ class LyriconLyricProducer(
                 if (failures >= RESUBSCRIBE_FAILURE_ESCALATION_N) {
                     escalateResubscribeFailures(failures)
                 }
+                // 重订阅连续无效：升级为整体重建 subscriber 实例（60s 冷却，避免抖动）。
+                if (failures >= 1 && now - lastFullRebuildMs >= FULL_REBUILD_COOLDOWN_MS) {
+                    lastFullRebuildMs = now
+                    rebuildSubscriberInstance("resubscribe failed ${failures}x")
+                }
             }
             ResubscribeOutcome.INCONCLUSIVE -> {
                 resubscribeOutcomeSettled = true
@@ -765,18 +838,10 @@ class LyriconLyricProducer(
     /**
      * 2.10 升级路径:连续 [RESUBSCRIBE_FAILURE_ESCALATION_N] 次重建均无效后的处置。
      *
-     * 文档原方案是「升级为重建 subscriber 实例」;能力评估后不采纳,理由:
-     * 1) SDK 的 `CentralServiceReceiver` 是进程级单例(静态 listeners 集合 + isInitialized),
-     *    每个 subscriber 实例把自己的 ServiceListener 注册进该集合并各自 bind 中央服务,
-     *    而 `SubscriberInfo` 的身份是(包名, 进程名)—— 同进程内重建第二个实例期间新旧
-     *    实例共用同一身份,旧实例 unregister/destroy 与新实例 bind 的先后顺序无法在本仓库
-     *    单测覆盖,只能真机验证;
-     * 2) 本类持有 stop()/start() 语义:[watchdogScope] 在 stop() 里 cancel 且不可复用,
-     *    实例级重建会让 stop() 的单字段清理目标(subscriber)与在途旧实例脱钩 —— 可能泄漏
-     *    旧实例或双销毁,破坏既有生命周期契约。
-     * 因此升级只做:更强告警(含处置线索)+ 冷却退避([resubscribeCooldownMs],自本阈值起
-     * 2 的幂增长)+ 失败计数记录,让重试按更长间隔继续;不引入会破坏 stop/start 契约的
-     * 实例级重建。
+     * 只做更强告警 + 冷却退避；整体重建 subscriber 实例已由 [rebuildSubscriberInstance]
+     * 在每次重订阅失败后执行（[FULL_REBUILD_COOLDOWN_MS] 冷却）。真机 2026-10-19 22:06
+     * 连续 6/7 次 subscribeAccepted=true 但 10s 内零回调，证明只重订阅无法恢复；实例重建
+     * 顺序执行（先 destroy 旧实例再 create），避免同一 (包名,进程名) 身份下的注册竞态。
      */
     private fun escalateResubscribeFailures(failures: Int) {
         // AppLog.e 直连底层 android.util.Log(不走 traceEnabled 门控、不做容错):重建链路已在
@@ -931,7 +996,10 @@ class LyriconLyricProducer(
         internal const val RESUBSCRIBE_FAILURE_ESCALATION_N = 3
 
         /** 2.10:退避后的冷却上限(基础冷却按 2 的幂增长后的封顶)。 */
-        internal const val RESUBSCRIBE_COOLDOWN_MAX_MS = 240_000L
+        internal const val RESUBSCRIBE_COOLDOWN_MAX_MS = 60_000L
+
+        /** 整体重建 subscriber 实例的最小间隔。 */
+        internal const val FULL_REBUILD_COOLDOWN_MS = 60_000L
 
         /**
          * issue #64:位置通道活跃但歌曲数据长期缺席(半死)时,强制重建订阅前的缺席阈值。

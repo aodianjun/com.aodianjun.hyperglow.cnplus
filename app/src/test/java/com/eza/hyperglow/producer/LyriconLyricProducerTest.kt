@@ -2113,16 +2113,17 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun resubscribeCooldown_backsOffWithPowersOfTwoAfterEscalation() {
+    fun resubscribeCooldownBacksOffButCapsAtSixtySeconds() {
         val base = LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+        // 升级后按 2 的幂退避，但封顶 60s：持续失联时每 60s 重试一次（旧上限 240s 太慢）。
         assertEquals(base * 2, resubscribeCooldownMs(3))
-        assertEquals(base * 4, resubscribeCooldownMs(4))
-        assertEquals(base * 8, resubscribeCooldownMs(5))
-        // 封顶:继续失败不再拉长冷却(重试永不停止,只是间隔封顶)。
+        assertEquals(60_000L, resubscribeCooldownMs(4))
+        assertEquals(60_000L, resubscribeCooldownMs(5))
         assertEquals(
             LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MAX_MS,
             resubscribeCooldownMs(9)
         )
+        assertEquals(60_000L, LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MAX_MS)
     }
 
     @Test

@@ -433,9 +433,9 @@ class AodStateProjectorTest {
     }
 
     @Test
-    fun extrapolationCrossingSongEnd_clearsActiveLineInsteadOfShowingStaleLastLine() {
-        // 息屏时网易云停写位置；外推越过歌曲结尾 → 歌曲已结束/重播。活动行应被清空（显示 🎶），
-        // 而不是继续显示被钳制在末行的旧歌词。
+    fun extrapolationCrossingSongEnd_holdsActiveLineWhilePositionUnreliable() {
+        // 息屏时网易云停写位置；外推越过歌曲结尾 → 位置不可信，但不能清空活动行（旧行为
+        // 会让屏幕直接变 🎶/消失）。保持最后选中的行，等真实位置回来再按新位置选行。
         val s = state(
             positionMs = 179_000L,
             sampledAtElapsedMs = 0L,
@@ -450,10 +450,8 @@ class AodStateProjectorTest {
         )
         val out = project(s, now = 5_000L) // 179000 + 5000 = 184000 → 越界
 
-        assertEquals("🎶", out.original)
-        assertEquals(0L, out.lineStartMs)
-        assertEquals(0L, out.lineEndMs)
-        assertTrue(out.words.isEmpty())
+        assertEquals("stale last line", out.original)
+        assertEquals(180_000L, out.positionMs)
     }
 
     @Test

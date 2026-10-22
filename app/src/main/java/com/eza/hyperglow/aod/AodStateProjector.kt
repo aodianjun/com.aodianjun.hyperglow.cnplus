@@ -81,7 +81,10 @@ internal fun projectToDisplay(
     val kind = state.lyricKind
     val unsynced = kind == LyricKind.UNSYNCED
     val noLyrics = kind == LyricKind.NONE
-    val hasActiveLine = state.lineIndex >= 0 && state.line.isNotBlank() && !extrapolationInvalid
+    // 位置外推不可信时不再清空活动行：保持生产者最后选中的行（屏幕上最后一句可见歌词），
+    // 只把 extrapolationReliable 标记下发给渲染面；真实位置回来后再按新位置选行。
+    // 旧行为会让 AOD 在写端停写+外推到歌尾时直接变占位/消失（0.3.169 实测）。
+    val hasActiveLine = state.lineIndex >= 0 && state.line.isNotBlank()
     val hasTimedLyrics = state.hasTimedLyrics
     // 原 fallbackLine 条件：!unsynced && !noLyrics && document == null && status == "ready" && it.isNotBlank()
     // document==null 对应 producer 无行级数据（lyricKind==NONE 但 line 非空 → 生产者塞了无时序一行）。
