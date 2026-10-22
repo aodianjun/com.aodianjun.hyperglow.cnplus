@@ -920,13 +920,19 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
     }
 
-    /** 释放系统时钟控制：停止托管位移/钉住/内容压制，并复位锚点。 */
+    /** 释放系统时钟控制：停止托管位移/钉住/内容压制，并复位锚点与偏移。 */
     private fun releaseStockClock() {
         setStockWidgetControlActive(false)
         AodPositionHook.setSuppressActive(false)
         AodPositionHook.setHoldStockPosition(false)
         AodPositionHook.setIntegralClockPin(false)
+        AodPositionHook.setClockYOffset(0)
         AodPositionHook.resetStockAnchor("lyrics window expired")
+        // 清掉本控制器侧的时钟锚/记忆几何：下一次会话重新测量播种，避免抬起恢复时
+        // 仍按旧锚把原厂时钟钉在偏移位置。
+        clockAnchor = null
+        rememberedPhysicalClockBounds = null
+        rememberedPhysicalClockBoundsSinceElapsedMs = Long.MIN_VALUE
     }
 
     private fun detachCurrent() {
@@ -1746,7 +1752,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             directSurface.alpha = 1f
         }
         val snapshot = latestSnapshot
-        val visible = snapshot != null && canRenderAod(snapshot)
+        // 到点后任何路径都不得再显示歌词面（attach/几何刷新/自定义更新都会重走这里）：
+        // 统一在唯一显示点收口，避免「消失后又被 layout 重放顶回来」的闪烁。
+        val windowEnded = lyricsWindowEnded ||
+            snapshot?.keepAliveExpired == true ||
+            AodPowerCoordinator.isKeepAliveExpired()
+        val visible = !windowEnded && snapshot != null && canRenderAod(snapshot)
         directSurface.visibility = if (visible) View.VISIBLE else View.GONE
         if (visible && !snapshot.metadata.startsWith("AOD DEMO") &&
             lyricCanvas?.visibility != View.VISIBLE
@@ -2286,6 +2297,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     private fun wakeAodSurface(root: ViewGroup, directSurface: View) {
         if (!isSceneActive() || surface !== directSurface) return
+        if (lyricsWindowEnded || latestSnapshot?.keepAliveExpired == true ||
+            AodPowerCoordinator.isKeepAliveExpired()
+        ) return
         directSurface.visibility = View.VISIBLE
         if (!handoffActive && !initialRevealActive) directSurface.alpha = 1f
         directSurface.invalidate()
