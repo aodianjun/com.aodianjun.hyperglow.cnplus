@@ -220,6 +220,10 @@ object SceneCompiler {
             duetConcurrent = profile.duetConcurrent,
             interludeCountdown = profile.interludeCountdown,
             noLyricsBehavior = normalizeNoLyricsBehavior(profile.noLyricsBehavior),
+            tailTimeoutBehavior = normalizeTailTimeoutBehavior(profile.tailTimeoutBehavior),
+            tailTimeoutDelaySeconds = normalizeTailTimeoutDelaySeconds(
+                profile.tailTimeoutDelaySeconds
+            ),
             rubyVisible = profile.rubyVisible,
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",

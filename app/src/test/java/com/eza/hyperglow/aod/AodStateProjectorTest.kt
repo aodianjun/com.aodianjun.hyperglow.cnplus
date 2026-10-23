@@ -175,7 +175,9 @@ class AodStateProjectorTest {
     private fun project(
         state: LyricProducerState,
         now: Long = 0L,
-        compiled: CompiledCustomization? = this.compiled
+        compiled: CompiledCustomization? = this.compiled,
+        noLyrics: Boolean = state.lyricKind == LyricKind.NONE,
+        tailEligible: Boolean = false
     ): AodDisplayState =
         projectToDisplay(
             state = state,
@@ -184,8 +186,18 @@ class AodStateProjectorTest {
             compiled = compiled,
             metadataIntroPolicy = SongMetadataIntroPolicy(),
             powerSessionPolicy = AodPowerSessionPolicy(),
-            userId = 0
+            userId = 0,
+            noLyrics = noLyrics,
+            tailEligible = tailEligible
         )
+
+    @Test
+    fun tailEligibleIsForwardedToDisplayState() {
+        // 投影层只透传尾奏上下文;延迟到点与三态解释在渲染映射层(见 LyricCanvasMapper)。
+        val s = state(line = "last", lineIndex = 0, lineStartMs = 0L, lineEndMs = 5_000L)
+        assertTrue(project(s, tailEligible = true).tailEligible)
+        assertFalse(project(s, tailEligible = false).tailEligible)
+    }
 
     // --- 插件逐字翻译词表(translationWords,翻译辅助行按真实词窗点亮)---
 
@@ -307,6 +319,23 @@ class AodStateProjectorTest {
         assertEquals("None", out.transitionMode)
         assertFalse(out.lineLevelSync)
         assertTrue(out.words.isEmpty())
+        // 真无歌词:lyricKind==NONE 直接下发 noLyrics=true,渲染面据此走三态门控。
+        assertTrue(out.noLyrics)
+        assertFalse(out.pureMusic)
+    }
+
+    @Test
+    fun noneKind_explicitNoLyricsParameterFlowsToDisplayState() {
+        // 参数可显式注入(引擎按 effectiveState 传入):即便状态行是 LINE,也按入参下发。
+        val s = state(
+            lyricKind = LyricKind.LINE,
+            line = "marker",
+            lineIndex = 0,
+            lineStartMs = 0L,
+            lineEndMs = 1_000L
+        )
+        assertTrue(project(s, noLyrics = true).noLyrics)
+        assertFalse(project(s, noLyrics = false).noLyrics)
     }
 
     // --- lyricKind = UNSYNCED ---
@@ -357,6 +386,8 @@ class AodStateProjectorTest {
         assertEquals(3_000L, out.lineEndMs)
         assertTrue(out.alignedRight)
         assertTrue(out.words.isEmpty())
+        // 纯音乐标记行是 LINE:不得被误判为真无歌词。
+        assertFalse(out.noLyrics)
     }
 
     // --- lyricKind = SYLLABLE (活动行有 words) ---

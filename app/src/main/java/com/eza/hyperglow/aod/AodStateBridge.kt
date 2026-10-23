@@ -65,6 +65,19 @@ data class AodDisplayState(
      * 按本面「无歌词/纯音乐歌词行为」在保持原标记/替换为歌曲信息/交还系统默认间选择。
      */
     val pureMusic: Boolean = false,
+    /**
+     * 真无歌词曲目(producer `lyricKind == NONE`,整首没有任何歌词行):渲染面按本面
+     * 「无歌词/纯音乐歌词行为」在保持原占位/替换为歌曲信息/交还系统默认间选择。
+     * 纯音乐标记行是 LINE,不会落进本标记。
+     */
+    val noLyrics: Boolean = false,
+    /**
+     * 尾奏上下文:最后一句歌词结束后 producer 已清行、投影层补回最后一行,或最后一行仍在
+     * 且没有下一行。**不表示延迟已到点**——渲染面按本面
+     * [com.eza.hyperglow.customization.SurfaceProfile.tailTimeoutDelaySeconds] 计算
+     * `tailTimeoutActive` 后再解释 keep/music_info/restore_default 三态。
+     */
+    val tailEligible: Boolean = false,
     /** 对唱分侧(元数据身份版);标记识别版见 [alignedRightMarkers],由渲染面按本面开关选用。 */
     val alignedRight: Boolean = false,
     /** 对唱分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
@@ -760,6 +773,8 @@ private fun AodDisplayState.toWireMessage(
             album = album,
             largeMetadata = largeMetadata,
             pureMusic = pureMusic,
+            noLyrics = noLyrics,
+            tailEligible = tailEligible,
             alignedRight = alignedRight,
             alignedRightMarkers = alignedRightMarkers,
             lineLevelSync = lineLevelSync,

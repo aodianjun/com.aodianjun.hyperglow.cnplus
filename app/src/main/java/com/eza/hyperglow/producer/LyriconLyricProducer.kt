@@ -166,6 +166,15 @@ class LyriconLyricProducer(
     // --- Ingress state, updated by playerListener; read by emit(). @Volatile for cross-thread. ---
     @Volatile internal var currentSong: Song? = null
     @Volatile internal var navigator: TimingNavigator<RichLyricLine>? = null
+
+    /**
+     * 全歌合法行结束点(end > begin)的最大值;尾奏清行判据(见 `recomputeAndEmit`)。
+     * 对唱重叠时靠前的一行可能比按 begin 排序的最后一行结束得更晚,只看最后一行会提前清行
+     * (上游 HyperLyric 7.9 fdeb94f)。在 onSongChanged 重建行表时预计算一次,60Hz 选行路径
+     * 只读缓存、不扫全表;seek 不改变行表,无需更新。-1 表示没有合法 end,清行退回
+     * 「最后一行 end」旧语义。
+     */
+    @Volatile internal var maxLineEndMs: Long = -1L
     @Volatile internal var currentPositionMs: Long = 0L
     @Volatile internal var isPlayingState: Boolean = false
     @Volatile internal var currentLineIndex: Int = -1
@@ -457,6 +466,7 @@ class LyriconLyricProducer(
         resetStopDetection()
         currentSong = null
         navigator = null
+        maxLineEndMs = -1L
         currentLineIndex = -1
         cachedWords = null
         cachedTranslationWords = null

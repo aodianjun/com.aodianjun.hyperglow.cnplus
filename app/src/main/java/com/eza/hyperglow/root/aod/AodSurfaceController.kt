@@ -18,10 +18,10 @@ import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
+import com.eza.hyperglow.aod.tailTimeoutActive
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
-import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
@@ -1087,10 +1087,30 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     /** 是否应抑制系统息屏内容:全局开关 或 (横屏 && 随设备旋转 && 横屏隐藏开关)。 */
     private fun shouldSuppressStock(snapshot: LyricSnapshot?, renderable: Boolean): Boolean {
         if (!renderable || snapshot == null) return false
-        // 纯音乐 RESTORE_DEFAULT(per-surface):本面「交还系统默认」,必须解除抑制——
-        // 否则系统内容被藏而本面又无内容可显示(空白屏)。仅当本面行为取 RESTORE_DEFAULT 时生效。
-        if (snapshot.pureMusic &&
-            effectiveAodProfile().noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+        val profile = effectiveAodProfile()
+        // 无歌词内容(纯音乐标记行或真无歌词) RESTORE_DEFAULT(per-surface):本面「交还系统
+        // 默认」,必须解除抑制——否则系统内容被藏而本面又无内容可显示(空白屏)。
+        // 尾奏同理:按本面自己的延迟算到点与否,息屏与锁屏各等各的。
+        val tailActive = tailTimeoutActive(
+            tailEligible = snapshot.tailEligible,
+            lineStartMs = snapshot.lineStartMs,
+            lineEndMs = snapshot.lineEndMs,
+            positionMs = snapshot.positionMs,
+            sampledAtElapsedMs = snapshot.sampledAtElapsedMs,
+            speed = snapshot.speed,
+            nowElapsedMs = SystemClock.elapsedRealtime(),
+            delaySeconds = profile.tailTimeoutDelaySeconds
+        )
+        if (shouldReleaseStockForNoContent(
+                pureMusic = snapshot.pureMusic,
+                noLyrics = snapshot.noLyrics,
+                noLyricsBehavior = profile.noLyricsBehavior
+            ) ||
+            // 尾奏超时 RESTORE_DEFAULT:最后一行已被本面清空,同样交还系统默认。
+            shouldReleaseStockForTailTimeout(
+                tailActive = tailActive,
+                tailTimeoutBehavior = profile.tailTimeoutBehavior
+            )
         ) {
             return false
         }

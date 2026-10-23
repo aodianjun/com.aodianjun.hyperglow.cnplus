@@ -583,6 +583,65 @@ class AodStateWireCodecTest {
     }
 
     @Test
+    fun noLyricsFlagRoundTripsThroughWireBody() {
+        // v12:pureMusic 之后追加真无歌词标记;布尔值往返保持,旧字段一字不动。
+        val message = snapshotMessage(value = snapshotValue().copy(noLyrics = true))
+        val decoded = AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode)
+        assertEquals(message, decoded)
+        val value = (decoded as AodStateWireMessage.Snapshot).value
+        assertTrue(value.noLyrics)
+        assertFalse(value.pureMusic)
+        assertEquals("line", value.original)
+        assertEquals(12L, value.trackGeneration)
+
+        // false 同样往返(旧端默认值;新增布尔不改变旧字段的线格式)。
+        val none = snapshotMessage(value = snapshotValue().copy(noLyrics = false))
+        val decodedNone = AodStateWireCodec.encode(none)?.let(AodStateWireCodec::decode)
+        assertEquals(none, decodedNone)
+        assertFalse((decodedNone as AodStateWireMessage.Snapshot).value.noLyrics)
+
+        // 与 pureMusic 相邻:两者各自独立往返,不互相覆盖。
+        val both = snapshotMessage(
+            value = snapshotValue().copy(pureMusic = true, noLyrics = true)
+        )
+        val decodedBoth = AodStateWireCodec.encode(both)?.let(AodStateWireCodec::decode)
+        assertEquals(both, decodedBoth)
+        assertTrue((decodedBoth as AodStateWireMessage.Snapshot).value.pureMusic)
+        assertTrue(decodedBoth.value.noLyrics)
+    }
+
+    @Test
+    fun tailEligibleFlagRoundTripsThroughWireBody() {
+        // v12 尾部:noLyrics 之后追加 tailEligible(纯布尔);true/false 都保持往返。
+        val message = snapshotMessage(value = snapshotValue().copy(tailEligible = true))
+        val decoded = AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode)
+        assertEquals(message, decoded)
+        val value = (decoded as AodStateWireMessage.Snapshot).value
+        assertTrue(value.tailEligible)
+        assertFalse(value.noLyrics)
+        assertEquals("line", value.original)
+
+        val none = snapshotMessage(value = snapshotValue().copy(tailEligible = false))
+        val decodedNone = AodStateWireCodec.encode(none)?.let(AodStateWireCodec::decode)
+        assertEquals(none, decodedNone)
+        assertFalse((decodedNone as AodStateWireMessage.Snapshot).value.tailEligible)
+
+        // 与 noLyrics/pureMusic 相邻但互不覆盖。
+        val both = snapshotMessage(
+            value = snapshotValue().copy(
+                pureMusic = true,
+                noLyrics = true,
+                tailEligible = true
+            )
+        )
+        val decodedBoth = AodStateWireCodec.encode(both)?.let(AodStateWireCodec::decode)
+        assertEquals(both, decodedBoth)
+        assertTrue((decodedBoth as AodStateWireMessage.Snapshot).value.tailEligible)
+        assertTrue(decodedBoth.value.noLyrics)
+        assertTrue(decodedBoth.value.pureMusic)
+    }
+
+    @Test
     fun interludeWindowFailsClosedOnDegenerateOrOutOfRangeWindow() {
         // 半截窗口(起点为 0 却有终点):不透明传递策略原语,半截一律整包拒收。
         assertNull(

@@ -1337,4 +1337,115 @@ class SceneCompilerTest {
         assertFalse(linked.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeCountdown)
     }
 
+    @Test
+    fun tailTimeoutCompilesNormalizesAndSurvivesCanonicalizeRoundTrip() {
+        // 尾奏超时行为/延迟必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返:
+        // 非默认值漏字段会被逐字段重建映射静默弹回默认(KEEP / 3 秒)。
+        val configured = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    tailTimeoutBehavior = "music_info",
+                    tailTimeoutDelaySeconds = 12
+                )
+            )
+        )
+        val compiled = SceneCompiler.compile(configured)
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("music_info", compiled.tailTimeoutBehavior)
+        assertEquals(12, compiled.tailTimeoutDelaySeconds)
+
+        val validated = SystemUiCustomizationValidator.validate(
+            SceneCompiler.compile(configured)
+        )!!.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("music_info", validated.tailTimeoutBehavior)
+        assertEquals(12, validated.tailTimeoutDelaySeconds)
+
+        val canonical = CustomizationRepository.canonicalizeDocument(configured)!!
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("music_info", canonical.tailTimeoutBehavior)
+        assertEquals(12, canonical.tailTimeoutDelaySeconds)
+
+        // 默认值:keep / 3 秒。
+        val defaults = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("keep", defaults.tailTimeoutBehavior)
+        assertEquals(3, defaults.tailTimeoutDelaySeconds)
+    }
+
+    @Test
+    fun tailTimeoutNormalizesIllegalBehaviorAndClampsDelay() {
+        // 非法行为回落 keep;延迟钳到 0-30。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        tailTimeoutBehavior = "bogus",
+                        tailTimeoutDelaySeconds = 99
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("keep", compiled.tailTimeoutBehavior)
+        assertEquals(30, compiled.tailTimeoutDelaySeconds)
+
+        val negative = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        tailTimeoutDelaySeconds = -4
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals(0, negative.tailTimeoutDelaySeconds)
+    }
+
+    @Test
+    fun tailTimeoutStaysPerSurfaceAndFollowsLinkSurfaces() {
+        val offAod = SceneCompiler.compile(
+            CustomizationDocument(
+                linkSurfaces = false,
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        tailTimeoutBehavior = "restore_default",
+                        tailTimeoutDelaySeconds = 9
+                    )
+                )
+            )
+        )
+        assertEquals(
+            "restore_default",
+            offAod.profiles.getValue(SceneCompiler.SURFACE_AOD).tailTimeoutBehavior
+        )
+        assertEquals(
+            "keep",
+            offAod.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutBehavior
+        )
+        assertEquals(
+            3,
+            offAod.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutDelaySeconds
+        )
+
+        val linked = SystemUiCustomizationValidator.validate(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    linkSurfaces = true,
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                            tailTimeoutBehavior = "restore_default",
+                            tailTimeoutDelaySeconds = 9
+                        )
+                    )
+                )
+            )
+        )!!
+        assertEquals(
+            "restore_default",
+            linked.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutBehavior
+        )
+        assertEquals(
+            9,
+            linked.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutDelaySeconds
+        )
+    }
 }

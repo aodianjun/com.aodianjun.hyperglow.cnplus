@@ -92,6 +92,40 @@ class AodStateBridgeTest {
     }
 
     @Test
+    fun noLyricsFlagSurvivesNormalizedPublication() {
+        // AodDisplayState -> normalize -> wire 全链路:真无歌词标记必须活到渲染端,
+        // 且与 pureMusic 一样参与重发判定(状态字段变化即重发)。
+        val last = state()
+        assertTrue(shouldRepublish(last, last.copy(noLyrics = true)))
+
+        val publication = encodeNormalizedAodStatePublication(
+            normalizeAodDisplayState(last.copy(noLyrics = true)),
+            revision = 9L,
+            updatedAtElapsedMs = 10L
+        )
+        val message = publication.message as AodStateWireMessage.Snapshot
+        assertTrue(message.value.noLyrics)
+        assertFalse(message.value.pureMusic)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
+    fun tailEligibleFlagSurvivesNormalizedPublication() {
+        // 尾奏上下文标记与 noLyrics 同链路:归一化/编码后仍为真,且参与重发判定。
+        val last = state()
+        assertTrue(shouldRepublish(last, last.copy(tailEligible = true)))
+
+        val publication = encodeNormalizedAodStatePublication(
+            normalizeAodDisplayState(last.copy(tailEligible = true)),
+            revision = 10L,
+            updatedAtElapsedMs = 11L
+        )
+        val message = publication.message as AodStateWireMessage.Snapshot
+        assertTrue(message.value.tailEligible)
+        assertEquals(publication.message, AodStateWireCodec.decode(publication.envelope))
+    }
+
+    @Test
     fun utf16TruncationNeverSplitsEmojiSurrogatePair() {
         val source = "x".repeat(AodStateWireLimits.MAX_LYRIC_CHARS - 1) + "😀"
 

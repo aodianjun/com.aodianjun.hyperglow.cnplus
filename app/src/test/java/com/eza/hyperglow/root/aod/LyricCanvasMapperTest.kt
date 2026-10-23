@@ -270,4 +270,247 @@ class LyricCanvasMapperTest {
         assertEquals("main", content.original)
         assertEquals("Song\nArtist", content.metadata)
     }
+
+    // --- 真无歌词(producer lyricKind == NONE,快照 noLyrics=true)三态 ---
+
+    private fun noLyricsSnapshot(
+        original: String = "🎶",
+        metadata: String = "Song\nArtist",
+        title: String = "Song",
+        artist: String = "Artist"
+    ) = LyricSnapshot(
+        visible = true,
+        original = original,
+        metadata = metadata,
+        title = title,
+        artist = artist,
+        durationMs = 60_000L,
+        noLyrics = true
+    )
+
+    @Test
+    fun mapperKeepsNoLyricsPlaceholderWhenBehaviorIsKeep() {
+        // KEEP(默认):占位行照常显示,行为与接线前一致。
+        val content = noLyricsSnapshot().toAodCanvasContent(profileWith("keep"))
+        assertEquals("🎶", content.original)
+        assertEquals("Song\nArtist", content.metadata)
+    }
+
+    @Test
+    fun mapperReplacesNoLyricsPlaceholderWithSongInfo() {
+        // MUSIC_INFO:主行槽位改显示本面组装后的歌曲信息,并清掉占位行的词级数据。
+        val content = noLyricsSnapshot().toAodCanvasContent(profileWith("music_info"))
+        assertEquals("Song\nArtist", content.original)
+        assertEquals(content.metadata, content.original)
+        assertTrue(content.words.isEmpty())
+        assertTrue(content.lineLevelSync.not())
+    }
+
+    @Test
+    fun mapperFallsBackToOriginalWhenNoLyricsMetadataIsBlank() {
+        // MUSIC_INFO 但元数据为空:不能「隐藏了占位行却画不出任何东西」,回落原占位行。
+        val content = noLyricsSnapshot(metadata = "", title = "", artist = "")
+            .toAodCanvasContent(profileWith("music_info"))
+        assertEquals("🎶", content.original)
+        assertTrue(content.original.isNotBlank())
+        assertEquals("", content.metadata)
+    }
+
+    @Test
+    fun mapperBlanksNoLyricsContentForRestoreDefault() {
+        // RESTORE_DEFAULT:不显示占位/歌词与歌曲信息,交还系统默认(系统内容抑制另行解除)。
+        val content = noLyricsSnapshot().toAodCanvasContent(profileWith("restore_default"))
+        assertEquals("", content.original)
+        assertEquals("", content.metadata)
+        assertFalse(content.metadataVisible)
+        assertTrue(content.words.isEmpty())
+    }
+
+    @Test
+    fun stockReleaseGateCoversPureMusicAndTrueNoLyrics() {
+        // 控制器解除系统内容抑制的同一判据:纯音乐标记行与真无歌词都要在
+        // RESTORE_DEFAULT 时交还系统内容;其它行为组合保持抑制。
+        assertTrue(shouldReleaseStockForNoContent(true, false, "restore_default"))
+        assertTrue(shouldReleaseStockForNoContent(false, true, "restore_default"))
+        assertTrue(shouldReleaseStockForNoContent(true, true, "restore_default"))
+        assertFalse(shouldReleaseStockForNoContent(false, true, "music_info"))
+        assertFalse(shouldReleaseStockForNoContent(false, true, "keep"))
+        assertFalse(shouldReleaseStockForNoContent(false, false, "restore_default"))
+    }
+
+    // --- 尾奏超时三态(per-surface,见 SurfaceProfile.tailTimeoutBehavior)---
+
+    private fun tailSnapshot(
+        original: String = "last line",
+        metadata: String = "Song\nArtist",
+        title: String = "Song",
+        artist: String = "Artist",
+        positionMs: Long = 60_000L
+    ) = LyricSnapshot(
+        visible = true,
+        original = original,
+        metadata = metadata,
+        title = title,
+        artist = artist,
+        durationMs = 60_000L,
+        lineStartMs = 50_000L,
+        lineEndMs = 55_000L,
+        positionMs = positionMs,
+        sampledAtElapsedMs = positionMs,
+        lineLevelSync = true,
+        words = listOf(
+            com.eza.hyperglow.root.projection.LyricWord("last", "", 50_000L, 51_000L, true, 0, 4)
+        ),
+        tailEligible = true
+    )
+
+    private fun tailProfileWith(
+        behavior: String,
+        delaySeconds: Int = 3
+    ) = SceneCompiler.compile(
+        CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    tailTimeoutBehavior = behavior,
+                    tailTimeoutDelaySeconds = delaySeconds
+                )
+            )
+        )
+    ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+
+    @Test
+    fun mapperKeepsLastLineForTailKeep() {
+        // KEEP(默认):到点后原样保留最后一行(历史行为)。
+        val content = tailSnapshot().toAodCanvasContent(
+            tailProfileWith("keep"),
+            nowElapsedMs = 60_000L
+        )
+        assertEquals("last line", content.original)
+        assertEquals("Song\nArtist", content.metadata)
+        assertTrue(content.words.isNotEmpty())
+    }
+
+    @Test
+    fun mapperReplacesLastLineWithSongInfoForTailMusicInfo() {
+        val content = tailSnapshot().toAodCanvasContent(
+            tailProfileWith("music_info"),
+            nowElapsedMs = 60_000L
+        )
+        assertEquals("Song\nArtist", content.original)
+        assertEquals(content.metadata, content.original)
+        assertTrue(content.words.isEmpty())
+        assertTrue(content.lineLevelSync.not())
+    }
+
+    @Test
+    fun mapperFallsBackToLastLineWhenTailMusicInfoMetadataIsBlank() {
+        val content = tailSnapshot(metadata = "", title = "", artist = "")
+            .toAodCanvasContent(tailProfileWith("music_info"), nowElapsedMs = 60_000L)
+        assertEquals("last line", content.original)
+    }
+
+    @Test
+    fun mapperBlanksTailContentForRestoreDefault() {
+        val content = tailSnapshot().toAodCanvasContent(
+            tailProfileWith("restore_default"),
+            nowElapsedMs = 60_000L
+        )
+        assertEquals("", content.original)
+        assertEquals("", content.metadata)
+        assertFalse(content.metadataVisible)
+        assertTrue(content.words.isEmpty())
+        assertEquals("", content.artworkKey)
+    }
+
+    @Test
+    fun mapperDoesNotApplyTailBehaviorBeforeThisSurfacesDelay() {
+        // 同一快照在 57_000(position)时:delay=3 已过 deadline(58_000)? 未到,保持最后一行;
+        // 60_000 时才替换。这里验证 mapper 用本面 delay 而非无条件应用。
+        val snapshot = tailSnapshot(positionMs = 57_000L)
+        val before = snapshot.toAodCanvasContent(
+            tailProfileWith("music_info", delaySeconds = 3),
+            nowElapsedMs = 57_000L
+        )
+        assertEquals("last line", before.original)
+        val after = snapshot.toAodCanvasContent(
+            tailProfileWith("music_info", delaySeconds = 3),
+            nowElapsedMs = 58_000L
+        )
+        assertEquals("Song\nArtist", after.original)
+    }
+
+    @Test
+    fun tailTimeoutIsPerSurface() {
+        // 同一快照(lineEnd=10_000、position=13_000):AOD delay=3 已到点,锁屏 delay=10 未到点。
+        val snapshot = LyricSnapshot(
+            visible = true,
+            original = "last line",
+            metadata = "Song\nArtist",
+            title = "Song",
+            artist = "Artist",
+            durationMs = 60_000L,
+            lineStartMs = 5_000L,
+            lineEndMs = 10_000L,
+            positionMs = 13_000L,
+            sampledAtElapsedMs = 13_000L,
+            tailEligible = true
+        )
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        tailTimeoutBehavior = "music_info",
+                        tailTimeoutDelaySeconds = 3
+                    ),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        tailTimeoutBehavior = "music_info",
+                        tailTimeoutDelaySeconds = 10
+                    )
+                )
+            )
+        )
+        val aod = snapshot.toAodCanvasContent(
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD),
+            nowElapsedMs = 13_000L
+        )
+        val lockscreen = snapshot.toAodCanvasContent(
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
+            nowElapsedMs = 13_000L
+        )
+        assertEquals("Song\nArtist", aod.original)
+        assertEquals("last line", lockscreen.original)
+
+        // 20_000 时锁屏也到点。
+        val lockscreenLater = snapshot.toAodCanvasContent(
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN),
+            nowElapsedMs = 20_000L
+        )
+        assertEquals("Song\nArtist", lockscreenLater.original)
+    }
+
+    @Test
+    fun pureMusicAndNoLyricsTakePriorityOverTailBehavior() {
+        // 纯音乐/真无歌词标记优先:tailEligible 即使为真也不叠加尾奏三态。
+        val pure = tailSnapshot(original = "纯音乐请欣赏").copy(pureMusic = true)
+        val pureContent = pure.toAodCanvasContent(
+            tailProfileWith("restore_default"),
+            nowElapsedMs = 60_000L
+        )
+        assertEquals("纯音乐请欣赏", pureContent.original)
+
+        val none = tailSnapshot(original = "🎶").copy(noLyrics = true)
+        val noneContent = none.toAodCanvasContent(
+            tailProfileWith("restore_default"),
+            nowElapsedMs = 60_000L
+        )
+        assertEquals("🎶", noneContent.original)
+    }
+
+    @Test
+    fun stockReleaseGateCoversTailRestoreDefault() {
+        assertTrue(shouldReleaseStockForTailTimeout(true, "restore_default"))
+        assertFalse(shouldReleaseStockForTailTimeout(true, "music_info"))
+        assertFalse(shouldReleaseStockForTailTimeout(true, "keep"))
+        assertFalse(shouldReleaseStockForTailTimeout(false, "restore_default"))
+    }
 }

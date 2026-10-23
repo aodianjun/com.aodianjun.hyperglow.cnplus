@@ -63,6 +63,11 @@ import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIORS
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
 import com.eza.hyperglow.customization.normalizeNoLyricsBehavior
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIORS
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_DELAY_SECONDS_MAX
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_DELAY_SECONDS_MIN
+import com.eza.hyperglow.customization.normalizeTailTimeoutBehavior
+import com.eza.hyperglow.customization.normalizeTailTimeoutDelaySeconds
 import com.eza.hyperglow.customization.METADATA_PART_ALBUM
 import com.eza.hyperglow.customization.METADATA_PART_ARTIST
 import com.eza.hyperglow.customization.METADATA_PART_TITLE
@@ -483,6 +488,44 @@ internal fun LyricAppearanceSection(
                         }
                     }
                 }
+                // 尾奏超时行为(per-surface):最后一句歌词结束后延迟 N 秒,再决定保留最后一行
+                // / 替换为歌曲信息 / 交还系统默认。纯音乐/真无歌词由上一项优先接管。
+                AodChoiceRow(
+                    AodChoiceKind.TAIL_TIMEOUT_BEHAVIOR,
+                    selectedProfile.tailTimeoutBehavior
+                ) {
+                    openChoice(
+                        AodChoiceKind.TAIL_TIMEOUT_BEHAVIOR,
+                        TAIL_TIMEOUT_BEHAVIORS,
+                        selectedProfile.tailTimeoutBehavior
+                    ) { value ->
+                        updateSelected {
+                            it.copy(tailTimeoutBehavior = normalizeTailTimeoutBehavior(value))
+                        }
+                    }
+                }
+                // 尾奏超时延迟(0-30 秒,默认 3;只有 begin 的行额外 +5s,见投影层策略)。
+                SliderPreference(
+                    value = selectedProfile.tailTimeoutDelaySeconds.toFloat(),
+                    onValueChange = { raw ->
+                        updateSelected {
+                            it.copy(
+                                tailTimeoutDelaySeconds = normalizeTailTimeoutDelaySeconds(
+                                    raw.roundToInt()
+                                )
+                            )
+                        }
+                    },
+                    title = stringResource(R.string.setting_tail_timeout_delay),
+                    summary = stringResource(R.string.summary_tail_timeout_delay),
+                    valueText = stringResource(
+                        R.string.value_tail_timeout_delay_seconds,
+                        selectedProfile.tailTimeoutDelaySeconds
+                    ),
+                    valueRange = TAIL_TIMEOUT_DELAY_SECONDS_MIN.toFloat()..
+                        TAIL_TIMEOUT_DELAY_SECONDS_MAX.toFloat(),
+                    steps = TAIL_TIMEOUT_DELAY_SECONDS_MAX - TAIL_TIMEOUT_DELAY_SECONDS_MIN - 1
+                )
                 // 识别对唱标记(per-surface):标记是内容级解释,息屏与锁屏各自独立生效,
                 // 改本面不影响另一面。本面未显式设置时以文档级值作有效值。
                 SwitchPreference(
@@ -2184,6 +2227,12 @@ private fun choiceDisplayLabel(
         "restore_default" -> R.string.option_no_lyrics_behavior_restore_default
         else -> R.string.option_no_lyrics_behavior_keep
     })
+    // 尾奏超时行为(per-surface):最后一句结束后延迟窗口到期时的三态。
+    AodChoiceKind.TAIL_TIMEOUT_BEHAVIOR -> context.getString(when (value) {
+        "music_info" -> R.string.option_tail_timeout_behavior_music_info
+        "restore_default" -> R.string.option_tail_timeout_behavior_restore_default
+        else -> R.string.option_tail_timeout_behavior_keep
+    })
     AodChoiceKind.TEXT_WEIGHT -> context.getString(when (value) {
         "Regular" -> R.string.option_regular
         "Bold" -> R.string.option_bold
@@ -2230,6 +2279,7 @@ private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     SECONDARY_TEXT(R.string.choice_secondary_text),
     LONG_LINES(R.string.choice_long_lines),
     NO_LYRICS_BEHAVIOR(R.string.setting_no_lyrics_behavior),
+    TAIL_TIMEOUT_BEHAVIOR(R.string.setting_tail_timeout_behavior),
     LYRIC_LINES(R.string.choice_lyric_lines),
     SONG_INFO_POSITION(R.string.choice_song_info_position),
     SONG_INFO_LAYOUT(R.string.choice_song_info_layout),

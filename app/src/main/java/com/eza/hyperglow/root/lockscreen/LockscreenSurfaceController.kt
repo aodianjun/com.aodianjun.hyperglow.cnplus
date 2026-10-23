@@ -13,13 +13,15 @@ import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.SurfaceEvidence
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
-import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.root.aod.AodLyricCanvasView
 import com.eza.hyperglow.root.aod.AodCanvasVerticalAlignment
 import com.eza.hyperglow.root.aod.artworkSideDp
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
+import com.eza.hyperglow.aod.tailTimeoutActive
+import com.eza.hyperglow.root.aod.shouldReleaseStockForNoContent
+import com.eza.hyperglow.root.aod.shouldReleaseStockForTailTimeout
 import com.eza.hyperglow.root.aod.toAodCanvasContent
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
@@ -91,6 +93,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
     private var lastVisibilityDiagnostic: String? = null
     private var lastVisibilityStateKey: String? = null
     private var lastVisibilityDiagnosticAt = 0L
+    private var defaultThemeProbeLogged = false
     private var lastNotificationBounds: LockscreenNotificationBounds? = null
     private var lastNotificationTrace: String? = null
     private var lastNotificationTraceAt = 0L
@@ -405,7 +408,11 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val host = hostRef.get() ?: return
         val directSurface = surface ?: return
         val canvas = lyricCanvas ?: return
-        val mediaPlayerPresent = isStockMediaPlayerVisible(controller)
+        // CN+ 源可能不走 MIUI 锁屏媒体头;live 快照可见时仍允许锁屏卡独立布局。
+        val mediaPlayerPresent = resolveLockscreenMediaPlayerPresent(
+            stockMediaPlayerVisible = isStockMediaPlayerVisible(controller),
+            liveSnapshotVisible = latestSnapshot?.visible == true
+        )
         if (hasStockMediaPlayer(controller)) {
             stockMediaPlayerObserved = true
             AodSurfaceController.onStockMediaPlayerPresenceChanged(true)
@@ -425,10 +432,18 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val rect = layoutResult?.rect
         val supported = XiaomiCapabilityResolver.hasCapability(XiaomiCapability.LOCKSCREEN_HOST) &&
             XiaomiCapabilityResolver.hasCapability(XiaomiCapability.LOCKSCREEN_GEOMETRY)
+        val defaultThemeProbe = readBooleanOrNull(controller, "isDefaultTheme")
+        if (defaultThemeProbe == null && !defaultThemeProbeLogged) {
+            defaultThemeProbeLogged = true
+            HookLogger.w(
+                TAG,
+                "isDefaultTheme probe missing; assuming default theme for lockscreen lyrics"
+            )
+        }
         val visibilityInputs = LockscreenVisibilityInputs(
             featureEnabled = true,
             supported = supported,
-            defaultTheme = readBoolean(controller, "isDefaultTheme", false),
+            defaultTheme = resolveDefaultTheme(defaultThemeProbe),
             primaryDisplay = host.display?.displayId == Display.DEFAULT_DISPLAY,
             keyguardShowing = readBoolean(controller, "keyguardVisibility", false),
             bouncerShowing = isSecurityOrEditorObscured(controller),
@@ -436,11 +451,29 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             usableArea = rect != null && rect.width >= minWidth(host) &&
                 rect.height >= minHeight(host)
         )
+        val lockscreenProfile = currentLockscreenProfile()
+        // 尾奏按锁屏自己的延迟算到点与否(与息屏各自独立);纯音乐/真无歌词仍优先。
+        val tailActive = eligibleSnapshot != null && tailTimeoutActive(
+            tailEligible = eligibleSnapshot.tailEligible,
+            lineStartMs = eligibleSnapshot.lineStartMs,
+            lineEndMs = eligibleSnapshot.lineEndMs,
+            positionMs = eligibleSnapshot.positionMs,
+            sampledAtElapsedMs = eligibleSnapshot.sampledAtElapsedMs,
+            speed = eligibleSnapshot.speed,
+            nowElapsedMs = SystemClock.elapsedRealtime(),
+            delaySeconds = lockscreenProfile.tailTimeoutDelaySeconds
+        )
         val baseVisible = eligibleSnapshot != null && shouldShowLockscreen(visibilityInputs)
-            // 纯音乐 RESTORE_DEFAULT(per-surface):本面「交还系统默认」——不显示 CN+ 歌词卡片
-            // (含卡片背景/进度条),整块交还系统锁屏默认内容。仅当本面行为取 RESTORE_DEFAULT 时生效。
-            && !(eligibleSnapshot.pureMusic &&
-                currentLockscreenProfile().noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT)
+            // 无歌词内容(纯音乐标记行或真无歌词) RESTORE_DEFAULT(per-surface):本面「交还
+            // 系统默认」——不显示 CN+ 歌词卡片(含卡片背景/进度条),整块交还系统锁屏默认内容。
+            && !(eligibleSnapshot != null && (shouldReleaseStockForNoContent(
+                pureMusic = eligibleSnapshot.pureMusic,
+                noLyrics = eligibleSnapshot.noLyrics,
+                noLyricsBehavior = lockscreenProfile.noLyricsBehavior
+            ) || shouldReleaseStockForTailTimeout(
+                tailActive = tailActive,
+                tailTimeoutBehavior = lockscreenProfile.tailTimeoutBehavior
+            )))
         val anchorReady = !reverseAnchorGateActive ||
             (rect != null && reverseAnchorGate.observe(rect, SystemClock.elapsedRealtime()))
         val anchorPending = reverseAnchorGateActive && eligibleSnapshot != null && !anchorReady
@@ -464,24 +497,39 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             settledRectTracker.observe(rect, SystemClock.elapsedRealtime())
         }
         logVisibilityDiagnostic(visible, visibilityInputs)
-        directSurface.visibility = when {
+        // 只在目标值变化时写 visibility。每帧重复赋值会触发宿主 layout,再经
+        // layoutChangeListener 回到 requestRefresh,在自定义主题上形成刷新环。
+        val targetVisibility = when {
             visible -> View.VISIBLE
             anchorPending -> View.INVISIBLE
             else -> View.GONE
         }
-        sceneCard?.visibility = when {
-            visible -> View.VISIBLE
-            anchorPending -> View.INVISIBLE
-            else -> View.GONE
+        if (directSurface.visibility != targetVisibility) {
+            directSurface.visibility = targetVisibility
         }
-        canvas.visibility = when {
-            visible -> View.VISIBLE
-            anchorPending -> View.INVISIBLE
-            else -> View.GONE
+        sceneCard?.let { card ->
+            if (card.visibility != targetVisibility) card.visibility = targetVisibility
+        }
+        if (canvas.visibility != targetVisibility) {
+            canvas.visibility = targetVisibility
         }
         val progressEnabled = layoutResult?.progressVisible == true
         val showProgress = visible && progressEnabled && eligibleSnapshot.durationMs > 0L
-        progressView?.visibility = if (showProgress) View.VISIBLE else View.GONE
+        val progressVisibility = if (showProgress) View.VISIBLE else View.GONE
+        progressView?.let { progress ->
+            if (progress.visibility != progressVisibility) progress.visibility = progressVisibility
+        }
+        // 自定义主题的锁屏背景/容器可能盖在默认插入位(index=0)之上,卡片虽然
+        // visible=true 却看不见。仅在非默认主题且确实被压住时提到最前;默认主题
+        // 保持原有的「在原生子视图之后」层级,避免改变既有视觉。
+        if (visible && defaultThemeProbe == false) {
+            val parent = directSurface.parent as? ViewGroup
+            if (parent != null &&
+                parent.indexOfChild(directSurface) != parent.childCount - 1
+            ) {
+                directSurface.bringToFront()
+            }
+        }
         cardBackgroundView?.invalidate()
         if (showProgress) {
             progressView?.setPlayback(
@@ -523,7 +571,11 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 HookLogger.i(TAG, "Fallback lockscreen reveal animation started")
             }
         }
-        if (visible) LinkageTransitionCoordinator.onSurfaceReady(LyricSurfaceKind.LOCKSCREEN)
+        // ready 是「本面刚变为可见」的边沿信号,不是每帧心跳。每帧发送会让
+        // LinkageTransition 在自定义主题上刷屏并拖住主线程。
+        if (visible && !wasVisible) {
+            LinkageTransitionCoordinator.onSurfaceReady(LyricSurfaceKind.LOCKSCREEN)
+        }
     }
 
     private fun layoutCanvas(
@@ -790,11 +842,20 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         } else {
             null
         }
+        // 栈存在但 isShown=false(keyguard 淡入、通知被隐藏)时不按全屏占位处理,
+        // 否则 resolveLockscreenNotificationGeometry 会 fail-closed 成 0..hostHeight,
+        // 把锁屏歌词的可用区挤成零高度。
+        val useNotificationGeometry = shouldUseLockscreenNotificationGeometry(
+            hasNotification,
+            notification?.isShown == true
+        )
         val traceDue = HookLogger.traceEnabled &&
             SystemClock.elapsedRealtime() - lastNotificationTraceAt >=
             NOTIFICATION_TRACE_INTERVAL_MS
         val childTraces = if (traceDue) ArrayList<String>(4) else null
-        val current = if (notification != null && notification.visibility != View.GONE) {
+        val current = if (useNotificationGeometry &&
+            notification != null && notification.visibility != View.GONE
+        ) {
             val stackPosition = stableLayoutPositionInHost(host, notification)
             val linkageActive = sceneRole == LinkageSceneRole.TRANSITION_SOURCE ||
                 sceneRole == LinkageSceneRole.TRANSITION_TARGET
@@ -845,7 +906,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             deadBandPx
         )
         val geometry = resolveLockscreenNotificationGeometry(
-            hasNotification,
+            useNotificationGeometry,
             stabilizedCurrent,
             lastNotificationBounds,
             host.height
@@ -1432,6 +1493,25 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
 
     private fun readBoolean(owner: Any, name: String, fallback: Boolean): Boolean =
         (readField(owner, name) as? Boolean) ?: fallback
+
+    /**
+     * 字段缺失与方法式属性(如 Kotlin 的 `isDefaultTheme`)要区分开:前者返回 null,
+     * 后者按 `isDefaultTheme()`/`getIsDefaultTheme()` 取值。缺失时由调用方决定兜底,
+     * 不再把「探针没读到」误判成「非默认主题」。
+     */
+    private fun readBooleanOrNull(owner: Any, name: String): Boolean? {
+        (readField(owner, name) as? Boolean)?.let { return it }
+        val methodNames = listOf(
+            name,
+            "get" + name.replaceFirstChar { it.uppercase() }
+        )
+        for (methodName in methodNames) {
+            runCatching {
+                owner.javaClass.getMethod(methodName).invoke(owner) as? Boolean
+            }.getOrNull()?.let { return it }
+        }
+        return null
+    }
 
     private fun readFloat(owner: Any, name: String, fallback: Float): Float =
         (readField(owner, name) as? Number)?.toFloat() ?: fallback

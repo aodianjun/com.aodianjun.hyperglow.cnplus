@@ -350,6 +350,13 @@
     <string name="option_no_lyrics_behavior_keep">保持原標記</string>
     <string name="option_no_lyrics_behavior_music_info">替換為歌曲資訊</string>
     <string name="option_no_lyrics_behavior_restore_default">交還系統預設</string>
+    <string name="setting_tail_timeout_behavior">尾奏超時行為</string>
+    <string name="option_tail_timeout_behavior_keep">保留最後一行</string>
+    <string name="option_tail_timeout_behavior_music_info">替換為歌曲資訊</string>
+    <string name="option_tail_timeout_behavior_restore_default">交還系統預設</string>
+    <string name="setting_tail_timeout_delay">尾奏超時延遲</string>
+    <string name="summary_tail_timeout_delay">最後一句歌詞結束後等待多久再執行尾奏行為;只有開始時間的行額外等待 5 秒。</string>
+    <string name="value_tail_timeout_delay_seconds">%1$d 秒</string>
     <string name="setting_secondary_text_size">輔助文字大小</string>
     <string name="setting_secondary_auto_size">輔助文字自適應大小</string>
     <string name="summary_secondary_auto_size">裝不下時縮小到可讀下限</string>

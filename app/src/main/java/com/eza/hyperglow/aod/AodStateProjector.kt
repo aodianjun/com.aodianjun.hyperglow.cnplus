@@ -62,7 +62,18 @@ internal fun projectToDisplay(
      * 标记时为真。由引擎从整首快照/当前行判定后注入(纯函数保持无生产者依赖),随快照下发,
      * 各渲染面按本面「无歌词/纯音乐歌词行为」消费。
      */
-    pureMusic: Boolean = false
+    pureMusic: Boolean = false,
+    /**
+     * 真无歌词结论(producer `lyricKind == NONE`,整首没有任何歌词行):纯音乐标记行是
+     * LINE,不会落进本标记。渲染面按本面「无歌词/纯音乐歌词行为」消费;默认从 [state]
+     * 派生,调用方也可显式注入(引擎按 effectiveState 传入)。
+     */
+    noLyrics: Boolean = state.lyricKind == LyricKind.NONE,
+    /**
+     * 尾奏上下文(投影层 [TailLineRetentionPolicy] 的判定结果):快照只携带「是否处于尾奏」
+     * 这一事实,延迟到点与否由渲染面按本面 `tailTimeoutDelaySeconds` 计算。
+     */
+    tailEligible: Boolean = false
 ): AodDisplayState {
     val position = projectedPosition(state, now)
 
@@ -80,19 +91,19 @@ internal fun projectToDisplay(
     // --- 活动行判定（原 project() 用 document/row 派生，现直接读 producer 预计算字段）---
     val kind = state.lyricKind
     val unsynced = kind == LyricKind.UNSYNCED
-    val noLyrics = kind == LyricKind.NONE
+    val noLyricsKind = kind == LyricKind.NONE
     // 位置外推不可信时不再清空活动行：保持生产者最后选中的行（屏幕上最后一句可见歌词），
     // 只把 extrapolationReliable 标记下发给渲染面；真实位置回来后再按新位置选行。
     // 旧行为会让 AOD 在写端停写+外推到歌尾时直接变占位/消失（0.3.169 实测）。
     val hasActiveLine = state.lineIndex >= 0 && state.line.isNotBlank()
     val hasTimedLyrics = state.hasTimedLyrics
-    // 原 fallbackLine 条件：!unsynced && !noLyrics && document == null && status == "ready" && it.isNotBlank()
+    // 原 fallbackLine 条件：!unsynced && !noLyricsKind && document == null && status == "ready" && it.isNotBlank()
     // document==null 对应 producer 无行级数据（lyricKind==NONE 但 line 非空 → 生产者塞了无时序一行）。
     // 行首标记(对唱（男）/（女）/（合）与段落（副歌）/（间奏）等)识别:显示侧隐去与否改由
     // 各渲染面自己的「识别对唱标记」开关决定(见 root/aod/LyricCanvasMapper)。此处只下发原始
     // 文本,不再按文档级开关预先剥离——快照为息屏/锁屏共用,剥离必须推迟到按面渲染时才做。
     val fallbackLine = state.line.takeIf {
-        !extrapolationInvalid && !unsynced && !noLyrics && kind == LyricKind.NONE && state.status == "ready" && it.isNotBlank()
+        !extrapolationInvalid && !unsynced && !noLyricsKind && kind == LyricKind.NONE && state.status == "ready" && it.isNotBlank()
     }
     // --- 「不显示非歌词内容(作词/作曲等)」---
     // 开关关闭(默认)时本节空转(activeIsCredit/nextLineIsCredit 恒 false),保持历史行为。
@@ -120,7 +131,7 @@ internal fun projectToDisplay(
 
     // --- 引导大元数据状态（原 project() 的 lyricState 四分支）---
     val lyricState = when {
-        unsynced || noLyrics -> SongIntroLyricState.NONE
+        unsynced || noLyricsKind -> SongIntroLyricState.NONE
         presentable -> SongIntroLyricState.ACTIVE
         hasTimedLyrics -> SongIntroLyricState.INTERLUDE
         else -> SongIntroLyricState.UNKNOWN
@@ -157,7 +168,7 @@ internal fun projectToDisplay(
         !nextLineIsCredit
     // 大元数据引导时,占位符交给渲染面用本面「歌曲信息内容」组装后的文本替换(见 largeMetadata)。
     val original = when {
-        unsynced || noLyrics -> PLAYING_PLACEHOLDER
+        unsynced || noLyricsKind -> PLAYING_PLACEHOLDER
         presentedLineText != null -> presentedLineText
         previewNextLine -> state.nextLine
         hasTimedLyrics || state.status == "loading" -> PLAYING_PLACEHOLDER
@@ -166,17 +177,17 @@ internal fun projectToDisplay(
     }
     // 空档预览:主行现在是下一行,辅助文字跟着换到下一行的那份(沿用原门控)。
     val romanized = when {
-        showLargeMetadata || unsynced || noLyrics || rejectJapaneseReading -> ""
+        showLargeMetadata || unsynced || noLyricsKind || rejectJapaneseReading -> ""
         previewNextLine -> state.nextLineRomanized
         else -> state.romanizedLine
     }
     val translated = when {
-        showLargeMetadata || unsynced || noLyrics -> ""
+        showLargeMetadata || unsynced || noLyricsKind -> ""
         previewNextLine -> state.nextLineTranslated
         else -> state.translatedLine
     }
     // 空档预览:主行已占用下一行 → 下一行槽位清空,避免同一句同时出现在主行与下一行两处。
-    val nextLine = if (showLargeMetadata || unsynced || noLyrics || previewNextLine) {
+    val nextLine = if (showLargeMetadata || unsynced || noLyricsKind || previewNextLine) {
         ""
     } else if (nextLineIsCredit) {
         // 下一行是制作名单时不进「下一行」槽位,避免名单从主行搬到下一行。
@@ -186,14 +197,14 @@ internal fun projectToDisplay(
     }
     // 下一行的辅助文字(音标/翻译):与下一行同门控;文本不剥离对唱标记(与 translatedLine 同口径)。
     val nextLineRomanized = if (
-        showLargeMetadata || unsynced || noLyrics || previewNextLine || nextLineIsCredit
+        showLargeMetadata || unsynced || noLyricsKind || previewNextLine || nextLineIsCredit
     ) {
         ""
     } else {
         state.nextLineRomanized
     }
     val nextLineTranslated = if (
-        showLargeMetadata || unsynced || noLyrics || previewNextLine || nextLineIsCredit
+        showLargeMetadata || unsynced || noLyricsKind || previewNextLine || nextLineIsCredit
     ) {
         ""
     } else {
@@ -394,6 +405,8 @@ internal fun projectToDisplay(
         album = state.album,
         largeMetadata = showLargeMetadata,
         pureMusic = pureMusic,
+        noLyrics = noLyrics,
+        tailEligible = tailEligible,
         alignedRight = state.alignedRight,
         alignedRightMarkers = state.alignedRightMarkers,
         lineLevelSync = lineLevelSync,
@@ -419,7 +432,7 @@ internal fun projectToDisplay(
         overflowMode = aodProfile?.overflow ?: modes.overflow,
         // 换行动画与 producer 侧同一归一：profile.lineTransition 的 "Auto" 退默认 "Fade up"
         // （不能借用场景过渡 preset id，那是 AOD↔锁屏联动的词表，语义不同）。
-        transitionMode = if (noLyrics) {
+        transitionMode = if (noLyricsKind) {
             "None"
         } else {
             aodProfile?.let { resolveLineTransition(it.lineTransition, "Fade up") } ?: modes.transition

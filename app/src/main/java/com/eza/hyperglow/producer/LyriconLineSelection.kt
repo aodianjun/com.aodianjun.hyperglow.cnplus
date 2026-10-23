@@ -240,10 +240,20 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         emit()
         return
     }
-    // 最后一句歌词唱完后（position 越过其 end，歌曲进入尾奏/纯器乐段落），清空活动行
-    // 让投影显示 🎶 占位，而不是把最后一句滞留到歌曲结束。TimingNavigator 选择的是
+    // 最后一句歌词唱完后（position 越过全歌最晚结束点，歌曲进入尾奏/纯器乐段落），清空
+    // 活动行让投影显示 🎶 占位，而不是把最后一句滞留到歌曲结束。TimingNavigator 选择的是
     // 「最后一条 begin <= pos」的行，不检查 end，所以这里显式兜住结尾。
-    if (idx == nav.source.size - 1 && displayPos >= nav.source[idx].end) {
+    //
+    // 判据不能只看最后一行：对唱/重叠行里靠前的一行可能比按 begin 排序的最后一行结束得
+    // 更晚（上游 HyperLyric 7.9 fdeb94f），只看最后一行会在它还在唱时提前清行。
+    // [maxLineEndMs] 在 onSongChanged 重建行表时预计算（60Hz 路径只读缓存，不扫全表）；
+    // 没有合法 end（end > begin）时退回「最后一行 end」的旧判据。
+    val tailEnded = if (maxLineEndMs >= 0L) {
+        displayPos >= maxLineEndMs
+    } else {
+        idx == nav.source.size - 1 && displayPos >= nav.source[idx].end
+    }
+    if (tailEnded) {
         if (currentLineIndex != -1) {
             currentLineIndex = -1
             cachedWords = null
