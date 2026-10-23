@@ -143,6 +143,10 @@ internal class AodLyricClient(
     private var retryAttempt = 0
     private var bindUserId = -1
     private var lastNoBridgeReportElapsedMs = -1L
+    private var firstReportRequestElapsedMs = Long.MIN_VALUE
+    private var deferredReportLogged = false
+    private var lastReportedSummary: String? = null
+    private var lastReportElapsedMs = Long.MIN_VALUE
     private val connectWatchdog = Runnable { onConnectWatchdog() }
     private val pendingConfiguration = GenerationBoundLatest<WirePayload>()
     private val pendingState = GenerationBoundLatest<AodStateWireMessage>()
@@ -469,6 +473,10 @@ internal class AodLyricClient(
                 bindAttemptCount = 0
                 lastCapabilityReportGeneration = -1L
                 lastNoBridgeReportElapsedMs = -1L
+                firstReportRequestElapsedMs = Long.MIN_VALUE
+                deferredReportLogged = false
+                lastReportedSummary = null
+                lastReportElapsedMs = Long.MIN_VALUE
                 context = null
                 bindingUser = null
                 bound = false
@@ -488,8 +496,32 @@ internal class AodLyricClient(
             }
             return
         }
+        val now = SystemClock.elapsedRealtime()
+        if (firstReportRequestElapsedMs == Long.MIN_VALUE) firstReportRequestElapsedMs = now
+        // SystemUI 默认 loader 在 AOD dex 加载前只有 4 个探针;此时发 4/16 会把 App 端
+        // 上一次可用的报告覆盖成 unsupported_profile。等 AOD loader 或宽限期到再发。
+        if (XiaomiCapabilityResolver.shouldDeferCapabilityReport() &&
+            now - firstReportRequestElapsedMs < CAPABILITY_REPORT_AOD_GRACE_MS
+        ) {
+            if (!deferredReportLogged) {
+                deferredReportLogged = true
+                HookLogger.bootstrap(TAG, "capability_report_deferred_aod_pending")
+            }
+            return
+        }
         try {
             val snapshot = XiaomiCapabilityResolver.snapshot()
+            // classloader 事件会高频触发本方法;同一份探针结果在短时间内重复上报只会
+            // 反复写 SharedPreferences,按内容去重并保留 30s 的年龄上限。
+            val reportKey = snapshot.summary() + "#" + snapshot.rawProbes.hashCode()
+            if (reportKey == lastReportedSummary &&
+                lastReportElapsedMs != Long.MIN_VALUE &&
+                now - lastReportElapsedMs < CAPABILITY_REPORT_MIN_INTERVAL_MS
+            ) {
+                return
+            }
+            lastReportedSummary = reportKey
+            lastReportElapsedMs = now
             remote.reportCapabilities(XiaomiCapabilityBundleCodec.toBundle(snapshot))
             if (lastCapabilityReportGeneration != bindingGeneration) {
                 lastCapabilityReportGeneration = bindingGeneration
@@ -517,6 +549,10 @@ internal class AodLyricClient(
         private const val PER_USER_RANGE = 100_000L
         private const val NO_BRIDGE_REPORT_MARKER_INTERVAL_MS = 5_000L
         private const val CONNECT_WATCHDOG_MS = 5_000L
+        /** AOD dex 晚于默认 loader 加载;这段时间内不把默认 loader 的 4/16 快照当结算结果。 */
+        private const val CAPABILITY_REPORT_AOD_GRACE_MS = 90_000L
+        /** 同一份探针结果的重复上报间隔。 */
+        private const val CAPABILITY_REPORT_MIN_INTERVAL_MS = 30_000L
     }
 }
 

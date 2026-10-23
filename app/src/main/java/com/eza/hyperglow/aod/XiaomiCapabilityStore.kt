@@ -115,13 +115,47 @@ internal data class StoredXiaomiCapabilityReport(
     }
 }
 
+/**
+ * 默认 loader 的能力快照在 AOD dex 加载前必然缺少 AOD 探针。这样的快照会把 App 端
+ * 上一次可用的报告降级成 unsupported_profile;在宽限期内忽略这次降级,等 AOD 侧
+ * 的结算报告到达。超过宽限期仍接受,避免永久掩盖真正的能力丢失。
+ */
+internal fun shouldIgnorePartialAodDowngrade(
+    incomingProfileState: XiaomiProfileState,
+    incomingAodSurfaceProbe: Boolean,
+    existingProfileState: XiaomiProfileState,
+    existingAodSurfaceProbe: Boolean,
+    existingAgeMs: Long,
+    graceMs: Long = PARTIAL_AOD_DOWNGRADE_GRACE_MS
+): Boolean = incomingProfileState == XiaomiProfileState.UNSUPPORTED_PROFILE &&
+    !incomingAodSurfaceProbe &&
+    existingProfileState == XiaomiProfileState.AVAILABLE &&
+    existingAodSurfaceProbe &&
+    existingAgeMs in 0..graceMs
+
+internal const val PARTIAL_AOD_DOWNGRADE_GRACE_MS = 10 * 60 * 1000L
+
 internal object XiaomiCapabilityStore {
     internal const val PREFS = "xiaomi_capabilities"
 
     fun save(context: Context, bundle: Bundle) {
         val report = XiaomiCapabilityBundleCodec.fromBundle(bundle) ?: return
+        val now = System.currentTimeMillis()
+        val existing = read(context)
+        if (shouldIgnorePartialAodDowngrade(
+                incomingProfileState = report.profileState,
+                incomingAodSurfaceProbe =
+                    report.rawProbes[XiaomiSymbolProbe.AOD_SURFACE_LIFECYCLE] == true,
+                existingProfileState = existing.profileState,
+                existingAodSurfaceProbe =
+                    existing.rawProbes[XiaomiSymbolProbe.AOD_SURFACE_LIFECYCLE.name] == true,
+                existingAgeMs = now - existing.reportedAtUtcMillis
+            )
+        ) {
+            return
+        }
         val reportedAt = report.reportedAtUtcMillis.takeIf { it > 0L }
-            ?: System.currentTimeMillis()
+            ?: now
         val probeNames = report.rawProbes.keys.map { it.name }.toSet()
         val presentProbes = report.rawProbes.filterValues { it }.keys.map { it.name }.toSet()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

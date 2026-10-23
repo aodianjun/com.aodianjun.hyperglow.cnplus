@@ -224,6 +224,12 @@ internal object XiaomiCapabilityResolver {
      */
     @Volatile
     private var experimentalMode: Boolean = false
+    /**
+     * AOD dex 是否已经在本进程里被观测到。SystemUI 启动时默认 loader 只能看到 4 个探针,
+     * AOD 符号要等 AOD dex 加载后才出现;在那之前上报会把 4/16 的临时快照当成结算结果。
+     */
+    @Volatile
+    private var aodLoaderObserved = false
 
     @Synchronized
     fun setExperimentalMode(enabled: Boolean) {
@@ -325,6 +331,7 @@ internal object XiaomiCapabilityResolver {
     @Synchronized
     fun observeAodLoader(classLoader: ClassLoader) {
         if (!hasClass(classLoader, AOD_VIEW)) return
+        aodLoaderObserved = true
         aodSymbols = XiaomiSymbolSnapshot(
             aodSurface = hasNoArgMethod(classLoader, AOD_VIEW, "onAttachedToWindow") &&
                 hasNoArgMethod(classLoader, AOD_VIEW, "onDetachedFromWindow"),
@@ -371,6 +378,13 @@ internal object XiaomiCapabilityResolver {
         )
         logIfChanged()
     }
+
+    /**
+     * AOD 包存在但 AOD dex 尚未加载时,默认 loader 的快照必然缺少全部 AOD 探针。
+     * 能力上报端应等 AOD loader 或超时后再发,避免把 4/16 的临时快照写成结算结果。
+     */
+    internal fun shouldDeferCapabilityReport(): Boolean =
+        !aodLoaderObserved && aodVersion != "missing"
 
     @Synchronized
     fun observeContext(context: Context) {

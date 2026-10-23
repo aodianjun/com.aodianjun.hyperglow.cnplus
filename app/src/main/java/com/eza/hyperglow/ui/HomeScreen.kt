@@ -244,8 +244,12 @@ internal fun HomeScreen(
     val lockscreenEditorGestureSupported = effectiveReport.has(
         XiaomiCapability.LOCKSCREEN_EDITOR_GESTURE
     )
+    // supportState() 对 UNSUPPORTED_PROFILE + 实验模式已有解锁分支;界面门控若只认
+    // EXPERIMENTAL_ELIGIBLE,该分支永远没有入口。两种状态都显示开关,是否真的解锁
+    // 仍由 rawProbes 推导决定。
     val experimentalEligible = effectiveReport.profileState ==
-        XiaomiProfileState.EXPERIMENTAL_ELIGIBLE
+        XiaomiProfileState.EXPERIMENTAL_ELIGIBLE ||
+        effectiveReport.profileState == XiaomiProfileState.UNSUPPORTED_PROFILE
     var aodEnabled by remember {
         mutableStateOf(
             initialDocument.profiles[SceneCompiler.SURFACE_AOD]?.enabled

@@ -48,6 +48,16 @@ private val LOCKSCREEN_NOTIFICATION_CONTENT_CLASSES = setOf(
 internal fun isLockscreenNotificationContentClass(className: String): Boolean =
     className.substringAfterLast('.') in LOCKSCREEN_NOTIFICATION_CONTENT_CLASSES
 
+/**
+ * 通知栈存在不等于通知正在占屏。keyguard 淡入/通知被隐藏时栈的 visibility 仍可能是
+ * VISIBLE,但 isShown=false;此时若按 hasNotification 走全屏 fail-closed 占位,锁屏歌词
+ * 会被永久挤到零高度。只有栈真正 shown 时才把通知几何纳入布局。
+ */
+internal fun shouldUseLockscreenNotificationGeometry(
+    hasNotification: Boolean,
+    stackShown: Boolean
+): Boolean = hasNotification && stackShown
+
 internal fun shouldIncludeLockscreenNotificationChild(
     visibility: Int,
     alpha: Float,

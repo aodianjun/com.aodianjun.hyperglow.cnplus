@@ -12,6 +12,7 @@ import com.eza.hyperglow.root.aod.PAUSED_AOD_KEEP_ALIVE_MS
 internal data class LockscreenVisibilityInputs(
     val featureEnabled: Boolean,
     val supported: Boolean,
+    /** 仅用于诊断:自定义主题不再阻止显示,布局由 [usableArea] 与时钟/通知几何兜底。 */
     val defaultTheme: Boolean,
     val primaryDisplay: Boolean,
     val keyguardShowing: Boolean,
@@ -29,10 +30,26 @@ internal data class LockscreenVisibilityInputs(
  */
 internal const val LOCKSCREEN_PLAYBACK_FRESH_MS = 15_000L
 
+/**
+ * `isDefaultTheme` 在部分 ROM 上是方法而不是字段;探针缺失时不能把锁屏歌词永久关死。
+ * 只有明确读到 false(确实是非默认主题)才阻止显示。
+ */
+internal fun resolveDefaultTheme(probe: Boolean?): Boolean = probe ?: true
+
+/**
+ * CN+ 的 LyricInfo/Lyricon 源不一定在 MIUI 锁屏媒体头里可见。只要 producer 快照仍然
+ * visible,就允许锁屏卡按自己的几何独立布局,而不是因为媒体头隐藏整块丢弃。
+ */
+internal fun resolveLockscreenMediaPlayerPresent(
+    stockMediaPlayerVisible: Boolean,
+    liveSnapshotVisible: Boolean
+): Boolean = stockMediaPlayerVisible || liveSnapshotVisible
+
 internal fun shouldShowLockscreen(inputs: LockscreenVisibilityInputs): Boolean =
     inputs.featureEnabled &&
         inputs.supported &&
-        inputs.defaultTheme &&
+        // 自定义锁屏主题也允许显示:不再要求 defaultTheme。卡片位置由 usableArea、
+        // 时钟底部与通知几何共同决定;自定义主题布局差异大时可能出现重叠,由用户自行取舍。
         inputs.primaryDisplay &&
         inputs.keyguardShowing &&
         !inputs.bouncerShowing &&
