@@ -661,17 +661,39 @@ internal fun isLyricEligibleSource(
 )
 
 /**
- * Select the active line for [positionMs]; returns null once the position has passed the final
- * line's end (lyrics finished, song is in its instrumental outro) so projection shows the 🎶
+ * Select the active line for [positionMs]; returns null once the position has passed the latest
+ * line end (lyrics finished, song is in its instrumental outro) so projection shows the 🎶
  * placeholder instead of leaving the last line stuck on screen until the song ends.
+ *
+ * 尾奏终点取**所有行**合法 end(end > begin)的最大值,而不是按 begin 排序的最后一行:对唱
+ * 重叠歌词里靠前的一行可能比最后一行结束得更晚,只看最后一行会在它还在唱时提前清行
+ * (上游 HyperLyric 7.9 fdeb94f)。没有任何合法 end 时退回最后一行的 end,保持旧行为。
  */
 internal fun activeLinePastEndOrNull(
     lines: List<ElrcParser.TimedLine>,
     positionMs: Long
 ): ElrcParser.TimedLine? {
-    val active = ElrcParser.activeLineAt(lines, positionMs)
-    val last = lines.lastOrNull() ?: return active
-    return active?.takeUnless { positionMs >= last.endMs }
+    val active = ElrcParser.activeLineAt(lines, positionMs) ?: return null
+    var latestEndMs = Long.MIN_VALUE
+    for (line in lines) {
+        if (line.endMs > line.startMs && line.endMs > latestEndMs) latestEndMs = line.endMs
+    }
+    if (latestEndMs == Long.MIN_VALUE) {
+        // 异常数据(全部行 end 无效):沿用旧判据 —— 最后一行 end。
+        latestEndMs = lines.lastOrNull()?.endMs ?: return active
+    }
+    if (positionMs >= latestEndMs) return null
+    // 选中的行已唱完、但更早开始的一行仍覆盖当前时刻(对唱重叠):返回仍在唱的那一行,
+    // 而不是已经结束的最后一行。普通间奏没有任何行覆盖,仍返回上一句(保持旧语义)。
+    if (positionMs >= active.endMs) {
+        for (i in lines.indices.reversed()) {
+            val line = lines[i]
+            if (line.startMs <= positionMs && positionMs < line.endMs && line.endMs > line.startMs) {
+                return line
+            }
+        }
+    }
+    return active
 }
 
 internal fun isMonotonicExtrapolationResume(

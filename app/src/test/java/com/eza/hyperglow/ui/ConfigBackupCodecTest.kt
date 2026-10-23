@@ -3,7 +3,9 @@ package com.eza.hyperglow.ui
 import com.eza.hyperglow.DiagnosticLogLevel
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
+import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.producer.LyricSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -134,6 +136,30 @@ class ConfigBackupCodecTest {
         )
 
         assertEquals(document, (result as ConfigBackupDecodeResult.Success).customizationDocument)
+    }
+
+    @Test
+    fun tailTimeoutSettingsRoundTripThroughConfigBackup() {
+        // 新字段走同一份 customizationDocument JSON(encodeDefaults + ignoreUnknownKeys),
+        // ConfigBackupCodec 本身不需要改;这里验证非默认值不会在备份/恢复时丢失。
+        val document = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    tailTimeoutBehavior = "restore_default",
+                    tailTimeoutDelaySeconds = 17
+                )
+            )
+        )
+
+        val result = ConfigBackupCodec.decode(
+            ConfigBackupCodec.encode(AodRenderConfig(), document, ConfigBackupSideSettings())
+                .toByteArray()
+        )
+
+        val decoded = (result as ConfigBackupDecodeResult.Success).customizationDocument!!
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("restore_default", decoded.tailTimeoutBehavior)
+        assertEquals(17, decoded.tailTimeoutDelaySeconds)
     }
 
     @Test

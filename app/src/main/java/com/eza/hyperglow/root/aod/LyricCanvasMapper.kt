@@ -1,5 +1,6 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.aod.tailTimeoutActive
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
@@ -9,6 +10,10 @@ import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_MUSIC_INFO
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_KEEP
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_DELAY_SECONDS_DEFAULT
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.composeSongMetadata
 import com.eza.hyperglow.customization.normalizeMetadataLayout
@@ -31,7 +36,12 @@ import com.eza.hyperglow.root.projection.LyricWord
 internal fun LyricSnapshot.toAodCanvasContent(
     profile: CompiledSurfaceProfile? = null,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
-    duet: Boolean = false
+    duet: Boolean = false,
+    /**
+     * 尾奏判定用的单调时钟;null 时按 [android.os.SystemClock.elapsedRealtime] 取当前值
+     * (仅在 [tailEligible] 为真时读取,单测可显式传入保持可测)。
+     */
+    nowElapsedMs: Long? = null
 ): AodCanvasContent {
     // 本面「歌曲信息内容」:按本面 parts/separators 重新组装(原始 title/artist/album 随快照下发)。
     // 快照未携带任何原始切片时(旧消费方/演示态只给文档级组装值)回落 [metadata],
@@ -51,12 +61,32 @@ internal fun LyricSnapshot.toAodCanvasContent(
     // 本面「识别对唱标记」:开启时隐去行首标记,并取标记识别版分侧;关闭时原样显示、取身份版。
     val duetMarkers = profile?.duetMarkers != false
     // 本面「无歌词/纯音乐歌词行为」(per-surface,与「识别对唱标记」同式):纯音乐曲目(整首只有
-    // 「纯音乐请欣赏」标记,见 producer.PureMusicLyrics)的标记行语义只在本层解释一次;生产者侧
-    // 照常下发原始标记行。KEEP(默认)不改动,MUSIC_INFO 复用「大元数据引导」的主行槽位替换路径,
-    // RESTORE_DEFAULT 清空全部内容(系统内容抑制由控制器解除,见 AodSurfaceController)。
+    // 「纯音乐请欣赏」标记,见 producer.PureMusicLyrics)与真无歌词曲目(producer lyricKind==NONE)
+    // 的标记行语义只在本层解释一次;生产者侧照常下发原始标记行。KEEP(默认)不改动,MUSIC_INFO
+    // 复用「大元数据引导」的主行槽位替换路径,RESTORE_DEFAULT 清空全部内容(系统内容抑制由
+    // 控制器解除,见 AodSurfaceController)。
     val noLyricsBehavior = profile?.noLyricsBehavior ?: NO_LYRICS_BEHAVIOR_KEEP
-    val pureMusicMusicInfo = pureMusic && noLyricsBehavior == NO_LYRICS_BEHAVIOR_MUSIC_INFO
-    val pureMusicRestore = pureMusic && noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+    val noContent = pureMusic || noLyrics
+    val noContentMusicInfo = noContent && noLyricsBehavior == NO_LYRICS_BEHAVIOR_MUSIC_INFO
+    val noContentRestore = noContent && noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+    // 本面「尾奏超时行为」(per-surface,与「无歌词/纯音乐歌词行为」同式):快照只标记
+    // tailEligible(处于尾奏上下文),延迟到点由本面自己的 tailTimeoutDelaySeconds 在此
+    // 计算——息屏与锁屏延迟可以不同,互不等待。纯音乐/真无歌词优先,不叠加尾奏;
+    // KEEP(默认)在到点后仍原样保留最后一行,即历史行为。
+    val tailTimeoutBehavior = profile?.tailTimeoutBehavior ?: TAIL_TIMEOUT_BEHAVIOR_KEEP
+    val tailActive = tailEligible && !noContent && tailTimeoutActive(
+        tailEligible = true,
+        lineStartMs = lineStartMs,
+        lineEndMs = lineEndMs,
+        positionMs = positionMs,
+        sampledAtElapsedMs = sampledAtElapsedMs,
+        speed = speed,
+        nowElapsedMs = nowElapsedMs ?: android.os.SystemClock.elapsedRealtime(),
+        delaySeconds = profile?.tailTimeoutDelaySeconds ?: TAIL_TIMEOUT_DELAY_SECONDS_DEFAULT
+    )
+    val tail = tailActive
+    val tailMusicInfo = tail && tailTimeoutBehavior == TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO
+    val tailRestore = tail && tailTimeoutBehavior == TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT
     // 长间奏倒计时圆点(per-surface):投影层只携带原始空隙两端,本面开关与「显示下一行」
     // 延迟映射在此解析(见 interludeDotsWindow)。关闭时窗口为 null,呈现与改动前逐字一致。
     val interludeDots = interludeDotsWindow(
@@ -66,10 +96,11 @@ internal fun LyricSnapshot.toAodCanvasContent(
         showsNextLine = profile?.showNextLine == true || profile?.secondaryNextLine == true
     )
     // 大元数据引导:主行位置显示本面组装后的歌曲信息(快照下发的是占位符,这里替换)。
-    // 纯音乐 MUSIC_INFO 复用同一路径:标记行槽位改显示本面歌曲信息;RESTORE_DEFAULT 直接置空。
+    // 无歌词内容 MUSIC_INFO 复用同一路径:标记行槽位改显示本面歌曲信息;元数据为空时回落
+    // 原标记行(不能「隐藏了原内容却画不出任何东西」)。RESTORE_DEFAULT 直接置空。
     val surfaceOriginal = when {
-        pureMusicRestore -> ""
-        largeMetadata || pureMusicMusicInfo -> surfaceMetadata
+        noContentRestore || tailRestore -> ""
+        largeMetadata || noContentMusicInfo || tailMusicInfo -> surfaceMetadata.ifBlank { original }
         duetMarkers -> stripDuetMarker(original)
         else -> original
     }
@@ -226,50 +257,43 @@ internal fun LyricSnapshot.toAodCanvasContent(
         null
     }
     )
-    // 纯音乐/无歌词三态收尾(per-surface):MUSIC_INFO 清掉标记行的词级/辅助/并发行/间奏数据
-    // (标记不是歌词,不参与卡拉OK/逐字);RESTORE_DEFAULT 再清空歌曲信息与封面,交还系统默认。
+    // 无歌词内容三态收尾(per-surface,纯音乐与真无歌词同门控):MUSIC_INFO 清掉标记行的
+    // 词级/辅助/并发行/间奏数据(标记不是歌词,不参与卡拉OK/逐字);RESTORE_DEFAULT 再清空
+    // 歌曲信息与封面,交还系统默认。
     return when {
-        pureMusicRestore -> content.copy(
-            metadata = "",
-            metadataVisible = false,
-            original = "",
-            romanized = "",
-            translated = "",
-            nextLine = "",
-            nextLineRomanized = "",
-            nextLineTranslated = "",
-            words = emptyList(),
-            translationWords = emptyList(),
-            ruby = emptyList(),
-            layoutGroups = emptyList(),
-            alignedRight = false,
-            lineLevelSync = false,
-            duetLine = null,
-            interludeDotsStartMs = 0L,
-            interludeDotsEndMs = 0L,
-            artworkJpeg = ByteArray(0),
-            artworkKey = "",
-            artworkVisible = false
-        )
-        pureMusicMusicInfo -> content.copy(
-            romanized = "",
-            translated = "",
-            nextLine = "",
-            nextLineRomanized = "",
-            nextLineTranslated = "",
-            words = emptyList(),
-            translationWords = emptyList(),
-            ruby = emptyList(),
-            layoutGroups = emptyList(),
-            alignedRight = false,
-            lineLevelSync = false,
-            duetLine = null,
-            interludeDotsStartMs = 0L,
-            interludeDotsEndMs = 0L
-        )
+        noContentRestore || tailRestore -> content.blankAllTailContent()
+        noContentMusicInfo || tailMusicInfo -> content.blankTailEnhancements()
         else -> content
     }
 }
+
+/** 尾奏/无歌词 MUSIC_INFO:清掉词级/辅助/下一行/并发行/间奏数据(歌曲信息不参与卡拉OK)。 */
+private fun AodCanvasContent.blankTailEnhancements(): AodCanvasContent = copy(
+    romanized = "",
+    translated = "",
+    nextLine = "",
+    nextLineRomanized = "",
+    nextLineTranslated = "",
+    words = emptyList(),
+    translationWords = emptyList(),
+    ruby = emptyList(),
+    layoutGroups = emptyList(),
+    alignedRight = false,
+    lineLevelSync = false,
+    duetLine = null,
+    interludeDotsStartMs = 0L,
+    interludeDotsEndMs = 0L
+)
+
+/** 尾奏/无歌词 RESTORE_DEFAULT:再清空歌曲信息与封面,交还系统默认。 */
+private fun AodCanvasContent.blankAllTailContent(): AodCanvasContent = blankTailEnhancements().copy(
+    metadata = "",
+    metadataVisible = false,
+    original = "",
+    artworkJpeg = ByteArray(0),
+    artworkKey = "",
+    artworkVisible = false
+)
 
 /**
  * 词表级剥离行首标记(投影层 [LyricWord] 专用,语义与 producer 侧 `stripDuetMarkerWords` 一致:
@@ -289,3 +313,23 @@ private fun stripSurfaceDuetMarkerWords(words: List<LyricWord>): List<LyricWord>
     }
     return out
 }
+
+/**
+ * 无歌词内容(纯音乐标记行或真无歌词)且本面行为取「交还系统默认」时,控制器必须解除
+ * 系统内容抑制:否则系统内容被藏而本面又无内容可显示,留下空白屏。息屏与锁屏共用同一判据。
+ */
+internal fun shouldReleaseStockForNoContent(
+    pureMusic: Boolean,
+    noLyrics: Boolean,
+    noLyricsBehavior: String
+): Boolean = (pureMusic || noLyrics) && noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+
+/**
+ * 尾奏超时且本面行为取「交还系统默认」时,控制器同样必须解除系统内容抑制:否则最后一行
+ * 被清空、系统内容又被藏,留下空白屏。纯音乐/真无歌词由 [shouldReleaseStockForNoContent]
+ * 优先判定(调用方两者都查,任一命中即解除)。
+ */
+internal fun shouldReleaseStockForTailTimeout(
+    tailActive: Boolean,
+    tailTimeoutBehavior: String
+): Boolean = tailActive && tailTimeoutBehavior == TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT

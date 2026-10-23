@@ -113,6 +113,18 @@ internal data class LyricSnapshot(
      * 本面「无歌词/纯音乐歌词行为」在保持原标记/替换歌曲信息/交还系统默认间选择(per-surface)。
      */
     val pureMusic: Boolean = false,
+    /**
+     * 真无歌词曲目(producer `lyricKind == NONE`,整首没有任何歌词行):渲染面按本面
+     * 「无歌词/纯音乐歌词行为」在保持原占位/替换歌曲信息/交还系统默认间选择(per-surface)。
+     * 纯音乐标记行是 LINE,不会落进本标记,两者互斥。
+     */
+    val noLyrics: Boolean = false,
+    /**
+     * 尾奏上下文:最后一句歌词结束后 producer 已清行、投影层补回最后一行,或最后一行仍在
+     * 且没有下一行。**不表示延迟已到点**;渲染面按本面 `tailTimeoutDelaySeconds` 用
+     * `tailTimeoutActive` 计算后再解释三态。纯音乐/真无歌词由各自标记优先接管。
+     */
+    val tailEligible: Boolean = false,
     /** 分侧(元数据身份版);标记识别版见 [alignedRightMarkers]。 */
     val alignedRight: Boolean = false,
     /** 分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
@@ -175,6 +187,8 @@ internal data class LyricSnapshot(
         album,
         largeMetadata,
         pureMusic,
+        noLyrics,
+        tailEligible,
         alignedRight,
         alignedRightMarkers,
         lineLevelSync,
@@ -230,6 +244,16 @@ internal data class LyricRenderContent(
      * 单独出现/消失(整首快照到达)时,控制器也要重投内容。
      */
     val pureMusic: Boolean = false,
+    /**
+     * 真无歌词曲目(见 [LyricSnapshot.noLyrics])。纳入变更指纹:同曲目下无歌词标记
+     * 单独出现/消失时,控制器也要重投内容。
+     */
+    val noLyrics: Boolean = false,
+    /**
+     * 尾奏上下文(见 [LyricSnapshot.tailEligible])。纳入变更指纹:进入/离开尾奏时即使
+     * 行文本不变,控制器也要重投内容(延迟到点由渲染映射层按本面配置计算)。
+     */
+    val tailEligible: Boolean = false,
     val alignedRight: Boolean,
     /** 分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
     val alignedRightMarkers: Boolean = false,
@@ -612,6 +636,8 @@ internal fun AodStateWireMessage.toLyricProjectionMessage(): LyricProjectionMess
             album = value.album,
             largeMetadata = value.largeMetadata,
             pureMusic = value.pureMusic,
+            noLyrics = value.noLyrics,
+            tailEligible = value.tailEligible,
             alignedRight = value.alignedRight,
             alignedRightMarkers = value.alignedRightMarkers,
             lineLevelSync = value.lineLevelSync,

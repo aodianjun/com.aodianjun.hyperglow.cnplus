@@ -14,6 +14,7 @@ import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.plugin.PluginPipeline
+import com.eza.hyperglow.producer.LyricKind
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.SongArtworkRepository
@@ -153,6 +154,11 @@ object AodProjectionEngine {
     private val powerSessionPolicy = AodPowerSessionPolicy()
     private var screenReceiver: BroadcastReceiver? = null
     private val metadataIntroPolicy = SongMetadataIntroPolicy()
+    /**
+     * 尾奏保留策略(最后一行结束后的延迟窗口)。状态按会话保存,releaseNow 时清空;
+     * 只在投影层使用,不触碰 producer 的清行逻辑。
+     */
+    private val tailLineRetentionPolicy = TailLineRetentionPolicy()
 
     /**
      * The single ingress: [LyricProducers.arbiter].[LyricProducerArbiter.active]. Phase 3 engine
@@ -454,6 +460,7 @@ object AodProjectionEngine {
         AodStateBridge.invalidatePublications()
         stopStatusKeepAlive()
         stopScheduler()
+        tailLineRetentionPolicy.reset()
         if (!playbackActive) powerSessionPolicy.clear()
         AodStateBridge.publish(
             AodDisplayState(
@@ -484,9 +491,18 @@ object AodProjectionEngine {
         publishCustomizationIfDue(now)
         val prefs = appContext?.let(AodRenderPreferences::read) ?: AodRenderConfig()
         val compiled = appContext?.let(CustomizationRepository::loadCompiled)
+        // 尾奏保留:必须在 PluginPipeline.enrich 之前决定——插件富化以「当前行」为输入,
+        // 而 producer 清行后当前行已空;先补回最后一行,插件与投影才看到同一份内容。
+        // 纯音乐/真无歌词不参与尾奏(各自标记优先)。
+        val tailPureMusic = resolvePureMusicFor(state)
+        val tailNoLyrics = state.lyricKind == LyricKind.NONE
+        val tailRetention = tailLineRetentionPolicy.apply(
+            state = state,
+            allowTail = !tailPureMusic && !tailNoLyrics
+        )
         // 插件富化在投影前同步查表:无插件结果时原样返回同一实例(保持下方
         // isCurrentActive 的引用相等校验),有结果时仅覆盖内容字段。
-        val effectiveState = PluginPipeline.enrich(state)
+        val effectiveState = PluginPipeline.enrich(tailRetention.state)
         // 歌曲图片:任一曲面(锁屏/息屏)显示开关打开时按曲目拉取已校对封面帧
         // (包名/曲目校对不过=无封面)。取图为异步,本次投影先带已有帧,出帧后经
         // onFrameReady 补挂重播;各曲面是否展示由自己的 profile 决定。
@@ -513,7 +529,10 @@ object AodProjectionEngine {
             userId = currentProcessUserId(),
             artworkJpeg = artwork?.jpeg ?: ByteArray(0),
             artworkKey = artwork?.key ?: "",
-            pureMusic = resolvePureMusicFor(effectiveState)
+            pureMusic = resolvePureMusicFor(effectiveState),
+            // 真无歌词:整首没有任何歌词行(纯音乐标记行走 LINE,不会误判)。
+            noLyrics = effectiveState.lyricKind == LyricKind.NONE,
+            tailEligible = tailRetention.tailEligible
         )
         if (!publicationGuard.canPublish(
                 token = publicationToken,

@@ -183,6 +183,17 @@ data class SurfaceProfile(
      * 标记的语义解释放在渲染映射层(见 root.aod.LyricCanvasMapper),与「识别对唱标记」同式。
      */
     val noLyricsBehavior: String = NO_LYRICS_BEHAVIOR_KEEP,
+    /**
+     * 尾奏超时行为(参考 HyperLyric 7.9 `fdeb94f` 同名能力):最后一句歌词结束后,等待
+     * [tailTimeoutDelaySeconds] 秒再按本档处理该行——[TAIL_TIMEOUT_BEHAVIOR_KEEP] 保留最后
+     * 一行(默认,历史行为零变化)、[TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO] 换成歌曲信息、
+     * [TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT] 交还系统默认。per-surface 设置;投影层只标记
+     * 尾奏上下文([com.eza.hyperglow.root.projection.LyricSnapshot.tailEligible]),三态在渲染映射层
+     * 解释(见 root.aod.LyricCanvasMapper)。
+     */
+    val tailTimeoutBehavior: String = TAIL_TIMEOUT_BEHAVIOR_KEEP,
+    /** 尾奏超时延迟秒数(0-30,默认 3);与 [tailTimeoutBehavior] 配套,per-surface 设置。 */
+    val tailTimeoutDelaySeconds: Int = TAIL_TIMEOUT_DELAY_SECONDS_DEFAULT,
     val rubyVisible: Boolean = true,
     val weight: String = "Medium",
     val textSize: String = "normal",
@@ -380,6 +391,10 @@ data class CompiledSurfaceProfile(
     val interludeCountdown: Boolean = true,
     /** 无歌词/纯音乐歌词行为,见 [SurfaceProfile.noLyricsBehavior];每个 surface 独立生效。 */
     val noLyricsBehavior: String = NO_LYRICS_BEHAVIOR_KEEP,
+    /** 尾奏超时行为,见 [SurfaceProfile.tailTimeoutBehavior];每个 surface 独立生效。 */
+    val tailTimeoutBehavior: String = TAIL_TIMEOUT_BEHAVIOR_KEEP,
+    /** 尾奏超时延迟秒数,见 [SurfaceProfile.tailTimeoutDelaySeconds];编译时钳到 0-30。 */
+    val tailTimeoutDelaySeconds: Int = TAIL_TIMEOUT_DELAY_SECONDS_DEFAULT,
     /** 歌曲信息显示部分;由该 surface 的 [SurfaceProfile.metadataParts] 解析(空则继承文档级)编译而来。 */
     val metadataParts: String = METADATA_PARTS_DEFAULT,
     /** 歌曲信息逐槽分隔符序列;由该 surface 的 [SurfaceProfile.metadataSeparators] 解析编译而来。 */
@@ -434,6 +449,37 @@ val NO_LYRICS_BEHAVIORS = listOf(
 /** 无歌词/纯音乐歌词行为归一:词表外(旧配置/损坏值)一律回落 [NO_LYRICS_BEHAVIOR_KEEP]。 */
 internal fun normalizeNoLyricsBehavior(value: String): String =
     value.takeIf { it in NO_LYRICS_BEHAVIORS } ?: NO_LYRICS_BEHAVIOR_KEEP
+
+/**
+ * 尾奏超时行为词表(参考 HyperLyric 7.9 `fdeb94f`「尾奏超时行为」):
+ * - [TAIL_TIMEOUT_BEHAVIOR_KEEP]:保留最后一行(默认;历史行为——最后一句结束后不清行)。
+ * - [TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO]:超时后把最后一行替换为本面组装的歌曲信息。
+ * - [TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT]:超时后清空内容并解除系统内容抑制。
+ * 超时前一律保留最后一行;纯音乐/真无歌词曲目由各自的「无歌词/纯音乐歌词行为」优先接管。
+ */
+const val TAIL_TIMEOUT_BEHAVIOR_KEEP = "keep"
+const val TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO = "music_info"
+const val TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT = "restore_default"
+
+/** 尾奏超时行为可选集(顺序即设置页选项顺序)。 */
+val TAIL_TIMEOUT_BEHAVIORS = listOf(
+    TAIL_TIMEOUT_BEHAVIOR_KEEP,
+    TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO,
+    TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT
+)
+
+/** 尾奏超时行为归一:词表外(旧配置/损坏值)一律回落 [TAIL_TIMEOUT_BEHAVIOR_KEEP]。 */
+internal fun normalizeTailTimeoutBehavior(value: String): String =
+    value.takeIf { it in TAIL_TIMEOUT_BEHAVIORS } ?: TAIL_TIMEOUT_BEHAVIOR_KEEP
+
+/** 尾奏超时延迟下限/上限/默认值(秒)。 */
+const val TAIL_TIMEOUT_DELAY_SECONDS_MIN = 0
+const val TAIL_TIMEOUT_DELAY_SECONDS_MAX = 30
+const val TAIL_TIMEOUT_DELAY_SECONDS_DEFAULT = 3
+
+/** 尾奏超时延迟归一:越界值钳到 [TAIL_TIMEOUT_DELAY_SECONDS_MIN]..[TAIL_TIMEOUT_DELAY_SECONDS_MAX]。 */
+internal fun normalizeTailTimeoutDelaySeconds(value: Int): Int =
+    value.coerceIn(TAIL_TIMEOUT_DELAY_SECONDS_MIN, TAIL_TIMEOUT_DELAY_SECONDS_MAX)
 
 /** 辅助文字字号倍率下限(相对主行百分比)。 */
 const val SECONDARY_TEXT_SIZE_PERCENT_MIN = 50

@@ -108,6 +108,21 @@ class LyriconLyricProducerTest {
         )
     )
 
+    /**
+     * 对唱重叠:按 begin 排序的最后一行 B(5000..8000)先结束,前一行 A(0..10000)更晚结束。
+     * duration=20000 留出尾奏段,避免歌曲边界分支先清行。
+     */
+    private fun duetOverlapSong(): Song = Song(
+        id = "song-duet-overlap",
+        name = "Duet Overlap",
+        artist = "Test Artist",
+        duration = 20_000L,
+        lyrics = listOf(
+            line(0, 10_000, "lead", words = null),
+            line(5_000, 8_000, "duet", words = null)
+        )
+    )
+
     /** A 60s song for issue #11 old-timeline residual tests (residual within the new duration). */
     private fun sixtySecondSong(): Song = Song(
         id = "song-long",
@@ -1028,6 +1043,33 @@ class LyriconLyricProducerTest {
         producer.playerListener.onSongChanged(threeLineSong()) // duration=8000, last line end=7000
         producer.playerListener.onPlaybackStateChanged(true)
         producer.playerListener.onPositionChanged(7_500L) // > 7000 (last line end), < 8000 (duration)
+
+        val state = producer.state.value!!
+        assertEquals(-1, state.lineIndex)
+        assertEquals("", state.line)
+    }
+
+    @Test
+    fun overlappingDuet_lastLineEndsEarlier_doesNotClearUntilLatestEnd() {
+        // 对唱重叠:按 begin 排序的最后一行 B(5000..8000)先结束,A(0..10000)还在唱。
+        // 旧实现以最后一行 end(8000)为尾奏终点,position=9000 时提前清行。
+        producer.playerListener.onSongChanged(duetOverlapSong())
+        producer.playerListener.onPositionChanged(9_000L)
+
+        val state = producer.state.value!!
+        // 选行逻辑不变(B 仍是「最后一条 begin <= pos」的行),但活动行不得被清空。
+        assertEquals(1, state.lineIndex)
+        assertEquals("duet", state.line)
+    }
+
+    @Test
+    fun overlappingDuet_clearsPastLatestLineEnd() {
+        // 真正越过全歌最晚 end(A 的 10000)才清行,而不是 B 的 8000。
+        producer.playerListener.onSongChanged(duetOverlapSong())
+        producer.playerListener.onPositionChanged(9_000L)
+        assertEquals(1, producer.state.value!!.lineIndex)
+
+        producer.playerListener.onPositionChanged(10_001L) // > A.end(10000), < duration(20000)
 
         val state = producer.state.value!!
         assertEquals(-1, state.lineIndex)

@@ -81,7 +81,10 @@ internal object SystemUiCustomizationValidator {
                 // (开关只决定「本面画不画圆点」,不牵动快照内容)。
                 interludeCountdown = rawAod.interludeCountdown,
                 // 无歌词/纯音乐歌词行为:同为歌词呈现项,linkSurfaces 下继承息屏值。
-                noLyricsBehavior = rawAod.noLyricsBehavior
+                noLyricsBehavior = rawAod.noLyricsBehavior,
+                // 尾奏超时行为/延迟:同为歌词呈现项,linkSurfaces 下继承息屏值。
+                tailTimeoutBehavior = rawAod.tailTimeoutBehavior,
+                tailTimeoutDelaySeconds = rawAod.tailTimeoutDelaySeconds
             )
         } else {
             rawLockscreen
@@ -201,6 +204,14 @@ internal object SystemUiCustomizationValidator {
             noLyricsBehavior = com.eza.hyperglow.customization.normalizeNoLyricsBehavior(
                 profile.noLyricsBehavior
             ),
+            // 与 SceneCompiler.compileProfile 同源归一(非法行为回落 keep、延迟钳 0-30)。
+            tailTimeoutBehavior = com.eza.hyperglow.customization.normalizeTailTimeoutBehavior(
+                profile.tailTimeoutBehavior
+            ),
+            tailTimeoutDelaySeconds =
+                com.eza.hyperglow.customization.normalizeTailTimeoutDelaySeconds(
+                    profile.tailTimeoutDelaySeconds
+                ),
             backgroundStyle = if (!aod && profile.backgroundStyle == "card") "card" else "none",
             cardAlpha = normalizeCardAlpha(profile.cardAlpha),
             cardColor = normalizeCardColor(profile.cardColor),

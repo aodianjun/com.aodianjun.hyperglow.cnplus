@@ -1,6 +1,9 @@
 package com.eza.hyperglow.producer
 
+import android.content.ComponentName
 import android.content.Context
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.hchen.superlyricapi.ISuperLyricReceiver
@@ -19,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * [LyricProducer] backed by the SuperLyric Xposed module, consumed through its Binder API
@@ -72,6 +76,19 @@ class SuperLyricLyricProducer(
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var started = false
 
+    /**
+     * 后台循环开关（JVM/Robolectric 单测缝）。单测没有 SuperLyric 服务：availability 循环
+     * 会立刻把注入的歌词判成「服务消失」清掉，1s 活性循环也会与手动驱动的探测抢拍。
+     * 单测在 [start] 前置 false，只保留 receiver 注入与 [maybeProbeSessionLiveness] 直调。
+     */
+    internal var backgroundLoopsEnabled: Boolean = true
+
+    // start(context) 保存的应用上下文：MediaSession 查询需要它构造 ComponentName。
+    @Volatile
+    private var contextRef: Context? = null
+    private var mediaSessionManager: MediaSessionManager? = null
+    private var notificationListenerComponent: ComponentName? = null
+
     // Session/sequence for arbiter dedup (producerId:generation:sequence).
     private var generation: Int = 0
     private var sequence: Long = 0L
@@ -82,6 +99,15 @@ class SuperLyricLyricProducer(
     private var lastLyricElapsedMs: Long = 0L
     private var lastForceReRegisterElapsed: Long = 0L
 
+    /**
+     * 当前歌词流的所有者:SuperLyric 服务端把发布方包名作为 `publisher` 传入。
+     * null = 尚无 owner(冷启动,或旧服务端只推 `publisher=null`)。第三方 publisher
+     * (如 SuperLyric App 的测试发布端 `com.hchen.superlyric`)不得在 owner 仍在播时抢走
+     * 歌词流,也不得用空包/`onStop` 清掉 owner 的状态;见 [receiver] 的 onLyric/onStop。
+     */
+    @Volatile
+    private var activePublisher: String? = null
+
     // 冷启动主动拉取（getLatestLyric）的限流状态，见 [maybePullLatestLyric]。
     private var lastPullLatestElapsedMs: Long = 0L
     private var pulledLatestOnce = false
@@ -90,6 +116,32 @@ class SuperLyricLyricProducer(
     // 只进不出：后续不带 allLyrics 的增量包不清掉它；换歌时被新的全曲包覆盖。
     @Volatile
     private var latestFullData: SuperLyricData? = null
+
+    // --- 1s 级 MediaSession 活性探测状态（见 [maybeProbeSessionLiveness]） ---
+    /** 最近一次真正发起 MediaSession 查询的时刻（1s 节流）。 */
+    private var lastSessionProbeElapsedMs: Long = 0L
+
+    /**
+     * 暂停驻留起点（0 = 无）。探测确认 owner 只是暂停时设置；owner 恢复推送/停止/切源时清除。
+     * 暂停态 `playing=false`，仅靠 [lastLyricElapsedMs] 会让 owner 很快被判「不新鲜」，
+     * 第三方 publisher 的测试包就能抢走歌词流；见 [isActivePublisherLive]。
+     */
+    @Volatile
+    private var pausedResidencySinceMs: Long = 0L
+
+    /**
+     * MediaSession 播放态读取缝（Robolectric/JVM 单测）：包名 → [PlaybackState.state]。
+     * 默认实现走 [readSessionPlaybackState]；单测替换本缝以注入固定值，避免真实 MediaSession。
+     */
+    internal var mediaSessionPlaybackStateReader: (String) -> Int? =
+        { readSessionPlaybackState(it) }
+
+    /**
+     * MediaSession 位置读取缝（Robolectric/JVM 单测）：包名 → 当前播放位置（仅
+     * [PlaybackState.STATE_PLAYING] 时返回）。默认实现走 [readSessionPosition]。
+     */
+    internal var mediaSessionPositionReader: (String) -> Long? =
+        { readSessionPosition(it) }
 
     // [fullSongSnapshot] 结果缓存：按「allLyrics 数组身份 + 会话三元组 + 歌长」失效。数组引用
     // 来自 resolve 缓存合成（同一会话内 SuperLyricCache 持有同一实例），所以同会话重复调用
@@ -111,17 +163,103 @@ class SuperLyricLyricProducer(
                     "lyric=${data?.lyric?.text?.take(24)} allLyrics=${data?.allLyricsCount} " +
                     "index=${data?.currentLyricIndex}"
             )
-            lastLyricElapsedMs = clock()
+            // 空包(null / 无任何可用字段)直接忽略:探测包、第三方 publisher 的空推送
+            // 不得把正在播放的歌词清空或顶成空元数据。带 title 等元数据的合法空歌词包
+            // 不在此列(hasTitle 等命中 → 仍走 handleIncoming 的 metadata-only 路径)。
+            if (data == null || data.isContentlessPush()) {
+                AppLog.i(
+                    "SuperLyricLyricProducer",
+                    "onLyric: ignoring contentless push (publisher=$publisher)"
+                )
+                return
+            }
+            val now = clock()
+            val owner = activePublisher
+            when {
+                // 旧服务端/未知 publisher:兼容接受,不抢占也不改写 owner(null 时保持 null)。
+                publisher == null -> Unit
+                owner == null -> activePublisher = publisher
+                owner != publisher -> {
+                    if (isActivePublisherLive(now)) {
+                        // owner 仍在播且心跳新鲜:第三方 publisher 的整首/增量包一律丢弃,
+                        // 不刷新 lastLyricElapsedMs、不改 state —— 否则会顶掉 owner 的歌词,
+                        // 或用别人的推送掩盖真实源停更。
+                        AppLog.i(
+                            "SuperLyricLyricProducer",
+                            "onLyric: ignoring publisher=$publisher (owner=$owner still live)"
+                        )
+                        return
+                    }
+                    switchPublisher(publisher, now)
+                }
+                // owner == publisher:正常接受。
+            }
+            lastLyricElapsedMs = now
+            pausedResidencySinceMs = 0L
             mutableConnection.value = ProducerConnection.CONNECTED
             handleIncoming(data)
         }
 
         override fun onStop(publisher: String?, data: SuperLyricData?) {
             AppLog.i("SuperLyricLyricProducer", "onStop: publisher=$publisher")
+            val owner = activePublisher
+            if (publisher != null && owner != null && publisher != owner) {
+                // 第三方 publisher 的 stop 与 owner 无关:不动 state/心跳,避免误清歌词。
+                AppLog.i(
+                    "SuperLyricLyricProducer",
+                    "onStop: ignoring publisher=$publisher (owner=$owner)"
+                )
+                return
+            }
             // Playback paused/stopped: clear the active state so the arbiter can fall back / idle.
+            // owner 自己停止(或旧服务端 publisher=null / 尚无 owner)时释放所有权。
             lastLyricElapsedMs = 0L
+            pausedResidencySinceMs = 0L
             mutableState.value = null
+            activePublisher = null
         }
+    }
+
+    /** 无任何可用字段的探测/空包:不进入 handleIncoming,避免清空或顶掉当前歌词。 */
+    private fun SuperLyricData.isContentlessPush(): Boolean =
+        !hasLyric() && !hasAllLyrics() && !hasTitle() && !hasArtist() &&
+            !hasAlbum() && !hasLyricId() && !hasPosition()
+
+    /**
+     * owner 是否仍在播且心跳新鲜。只有这种情况下才拒绝其他 publisher 的推送;
+     * 无状态/暂停/超过 [PUBLISHER_SWITCH_GRACE_MS] 未推送时允许合法切源。
+     *
+     * 暂停驻留（[pausedResidencySinceMs]）单独处理：探测已确认 owner 只是暂停，此时
+     * `state.playing=false` 不代表 owner 不新鲜——在 [PAUSED_RESIDENCY_OWNER_HOLD_MS] 内
+     * 仍保留所有权，避免第三方 publisher 的测试包把暂停中的歌词顶掉；窗口过后允许其他
+     * 播放器接管。播放中的判定与原有宽限逐字节一致。
+     */
+    private fun isActivePublisherLive(now: Long): Boolean {
+        val current = mutableState.value ?: return false
+        val last = lastLyricElapsedMs
+        val freshPush = last > 0L && now - last < PUBLISHER_SWITCH_GRACE_MS
+        if (current.playing) return freshPush
+        if (freshPush) return true
+        val pausedSince = pausedResidencySinceMs
+        return pausedSince > 0L && now - pausedSince < PAUSED_RESIDENCY_OWNER_HOLD_MS
+    }
+
+    /**
+     * 合法切源:新 publisher 认领歌词流。generation 递增、sequence 归零,清掉上一 owner 的
+     * 全曲数据与快照缓存([clearFullSongData] 不碰 [activePublisher]),再接受本笔推送。
+     */
+    private fun switchPublisher(publisher: String, now: Long) {
+        val previous = activePublisher
+        AppLog.i(
+            "SuperLyricLyricProducer",
+            "publisher switch: $previous -> $publisher (previous source not live)"
+        )
+        generation++
+        sequence = 0L
+        activePublisher = publisher
+        clearFullSongData()
+        lastLyricElapsedMs = now
+        pausedResidencySinceMs = 0L
     }
 
     override fun start(context: Context) {
@@ -130,6 +268,16 @@ class SuperLyricLyricProducer(
             return
         }
         started = true
+        contextRef = context.applicationContext
+        // 跨应用 MediaSession 查询需要通知使用权（授权后 LyricInfoNotificationListener 才会被
+        // 绑定）。拿不到时 getActiveSessions 抛 SecurityException，由 reader 的 runCatching
+        // 吞掉并返回 null —— 探测静默 no-op，不影响歌词主链路。
+        mediaSessionManager = runCatching {
+            context.applicationContext.getSystemService(MediaSessionManager::class.java)
+        }.getOrNull()
+        notificationListenerComponent = runCatching {
+            ComponentName(context.applicationContext, LyricInfoNotificationListener::class.java)
+        }.getOrNull()
         AppLog.i("SuperLyricLyricProducer", "start: registering receiver")
         ensureReceiverRegistered()
         // 冷启动立即出词：注册后主动拉一次（旧服务端/无播放时静默忽略）。
@@ -144,7 +292,9 @@ class SuperLyricLyricProducer(
             )
         }
         // Poll the service availability so the arbiter can fall back when SuperLyric is absent.
-        scope.launch { availabilityLoop() }
+        if (backgroundLoopsEnabled) scope.launch { availabilityLoop() }
+        // 1s 级 MediaSession 活性探测：丢行推送时暂停驻留 / 本地重选行（见 maybeProbeSessionLiveness）。
+        if (backgroundLoopsEnabled) scope.launch { sessionLivenessLoop() }
     }
 
     override fun stop() {
@@ -158,6 +308,10 @@ class SuperLyricLyricProducer(
         scope.cancel()
         mutableConnection.value = ProducerConnection.DISCONNECTED
         mutableState.value = null
+        lastLyricElapsedMs = 0L
+        pausedResidencySinceMs = 0L
+        lastSessionProbeElapsedMs = 0L
+        activePublisher = null
         clearFullSongData()
         AppLog.i("SuperLyricLyricProducer", "stop: done")
     }
@@ -186,6 +340,46 @@ class SuperLyricLyricProducer(
                 AppLog.w("SuperLyricLyricProducer", "restart: re-register failed")
             }
         }
+    }
+
+    /**
+     * 跨源 seek 转发（[LyricProducer.onExternalSeek]）：Lyricon/LyricInfo 先观测到拖动进度条
+     * 时把权威位置递过来，SuperLyric 不再等自己的下一次行推送（模块只在跨行时广播，真机
+     * 实测拖动后歌词可滞后十余秒）。
+     *
+     * 只在持有全曲包（allLyrics）时生效：旧模块的逐行推送没有整首行表，无法按位置重选。
+     * 选行口径与 [handleIncoming] 的 currentLyricIndex 一致——最后一条 `start <= position`
+     * 的行；全量包的 `lyric` 是首行，不能拿它当当前行。
+     *
+     * 注意：seek 来自其他源，**不代表** SuperLyric 的推送通道还活着，所以这里只更新 state，
+     * 不刷新 [lastLyricElapsedMs]（否则一次 seek 会把 60s 停滞重挂/120s 强制拉取掩盖掉）。
+     */
+    override fun onExternalSeek(positionMs: Long) {
+        if (mutableState.value == null) return
+        val data = latestFullData ?: return
+        val lines = data.takeIf { it.hasAllLyrics() }?.allLyrics ?: return
+        if (lines.isEmpty()) return
+        val durationMs = durationOf(data, lines)
+        if (positionMs < 0L || positionMs > durationMs + EXTERNAL_SEEK_DURATION_TOLERANCE_MS) {
+            return
+        }
+        val index = lineIndexAt(lines, positionMs)
+        AppLog.i(
+            "SuperLyricLyricProducer",
+            "external seek: pos=${positionMs}ms line=$index/${lines.size} " +
+                "text=${lines[index].text.take(24)}"
+        )
+        pausedResidencySinceMs = 0L
+        emit(
+            line = lines[index],
+            data = data,
+            indexedRow = true,
+            activeIndexOverride = index,
+            positionMsOverride = positionMs,
+            playingOverride = true,
+            speedOverride = 1f,
+            sampledAtOverrideMs = clock()
+        )
     }
 
     /**
@@ -233,11 +427,210 @@ class SuperLyricLyricProducer(
                     AppLog.i("SuperLyricLyricProducer", "service gone -> DISCONNECTED")
                     mutableConnection.value = ProducerConnection.DISCONNECTED
                     mutableState.value = null
+                    // 服务消失:歌词流所有权一并释放,服务恢复后由首个 publisher 重新认领。
+                    lastLyricElapsedMs = 0L
+                    pausedResidencySinceMs = 0L
+                    lastSessionProbeElapsedMs = 0L
+                    activePublisher = null
                     clearFullSongData()
                 }
             }
             delay(AVAILABILITY_POLL_MS)
         }
+    }
+
+    /** 1s 周期驱动 [maybeProbeSessionLiveness]；内部自带节流与逾期判据，未逾期时只读内存。 */
+    private suspend fun sessionLivenessLoop() {
+        while (scope.isActive) {
+            delay(SESSION_LIVENESS_PROBE_MS)
+            runCatching { maybeProbeSessionLiveness(clock()) }
+                .onFailure {
+                    AppLog.w("SuperLyricLyricProducer", "session liveness probe failed", it)
+                }
+        }
+    }
+
+    /**
+     * 1s 级 MediaSession 活性探测（只在「推送逾期」时查 owner 的会话）。
+     *
+     * 背景：SuperLyric 只在跨行时推送。丢行推送后要等 60s 重挂 / 120s 强制拉取，期间
+     * AOD 会停在旧行（`playing = line != null` 恒 true），暂停也不会冻结。
+     *
+     * 判据（全部满足才查询）：
+     * - [started] 且 [activePublisher] 非空（只查当前 owner 的包名）；
+     * - 当前 state 在播、[latestFullData] 带全曲行表；
+     * - 距 owner 最后一笔推送已超过「当前行剩余时长 + 1s」（行 end 未知时 3s）；
+     * - 距上次查询 ≥ 1s（[SESSION_LIVENESS_PROBE_MS]）。
+     *
+     * 结果：
+     * - PAUSED/STOPPED/NONE → 暂停驻留态：保留当前行，`playing=false`、`speed=0`，
+     *   AOD 冻结而不是继续前进；不清行、不释放 publisher 所有权。
+     * - PLAYING 且位置越过当前行 end + 500ms，或与 state 位置差 > 2s（seek）→ 从全曲包
+     *   本地重选行并发射，`playing=true`。
+     * - 位置正常推进 → 不动作，等真实推送（真实推送到达后 [lastLyricElapsedMs] 更新，
+     *   逾期判据自然失效，探测让位）。
+     *
+     * 无通知使用权时 reader 返回 null，本方法静默 no-op（不会崩、不会误判）。
+     */
+    internal fun maybeProbeSessionLiveness(now: Long) {
+        if (!started) return
+        val pkg = activePublisher ?: return
+        val current = mutableState.value ?: return
+        if (!current.playing) return
+        val data = latestFullData?.takeIf { it.hasAllLyrics() } ?: return
+        val lines = data.allLyrics ?: return
+        if (lines.isEmpty()) return
+        if (lastLyricElapsedMs <= 0L) return
+        if (now - lastSessionProbeElapsedMs < SESSION_LIVENESS_PROBE_MS) return
+        if (now - lastLyricElapsedMs < probeOverdueAfterMs(current)) return
+
+        lastSessionProbeElapsedMs = now
+        val playbackState = mediaSessionPlaybackStateReader(pkg) ?: return
+        when (playbackState) {
+            PlaybackState.STATE_PAUSED,
+            PlaybackState.STATE_STOPPED,
+            PlaybackState.STATE_NONE -> emitPausedResidency(current, data, now)
+
+            PlaybackState.STATE_PLAYING -> {
+                val position = mediaSessionPositionReader(pkg) ?: return
+                val lineEnd = current.lineEndMs
+                val advancedPastLine = lineEnd > 0L &&
+                    position > lineEnd + SESSION_PROBE_LINE_END_MARGIN_MS
+                val jumped = abs(position - current.positionMs) > SESSION_PROBE_SEEK_JUMP_MS
+                if (!advancedPastLine && !jumped) return
+                val index = lineIndexAt(lines, position)
+                AppLog.i(
+                    "SuperLyricLyricProducer",
+                    "session probe: owner=$pkg pos=${position}ms line=$index/${lines.size} " +
+                        "(overdue=${now - lastLyricElapsedMs}ms)"
+                )
+                pausedResidencySinceMs = 0L
+                emit(
+                    line = lines[index],
+                    data = data,
+                    indexedRow = true,
+                    activeIndexOverride = index,
+                    positionMsOverride = position,
+                    playingOverride = true,
+                    speedOverride = 1f,
+                    sampledAtOverrideMs = now
+                )
+            }
+
+            else -> Unit
+        }
+    }
+
+    /**
+     * 推送逾期阈值：当前行剩余可唱时长（行 end - 当前点位）+ 1s 宽限。行 end 未知（0）时
+     * 退化为 3s。用「剩余时长」而不是行 end 的绝对时间戳——后者在歌曲后段会把阈值拉到
+     * 数分钟，丢行推送后迟迟不探测。
+     */
+    private fun probeOverdueAfterMs(state: LyricProducerState): Long {
+        val lineEnd = state.lineEndMs
+        if (lineEnd <= 0L) return SESSION_PROBE_UNKNOWN_LINE_MS
+        val remaining = (lineEnd - state.positionMs).coerceAtLeast(0L)
+        return remaining + SESSION_PROBE_OVERDUE_GRACE_MS
+    }
+
+    /** 暂停驻留：保留当前行，只把 playing/speed 改成冻结语义，并登记暂停起点供所有权判定。 */
+    private fun emitPausedResidency(
+        current: LyricProducerState,
+        data: SuperLyricData,
+        now: Long
+    ) {
+        val lines = data.allLyrics ?: return
+        val index = indexOfStateLine(lines, current)
+        if (index < 0) return
+        pausedResidencySinceMs = now
+        AppLog.i(
+            "SuperLyricLyricProducer",
+            "session probe: owner paused, holding line=$index text=${current.line.take(24)}"
+        )
+        emit(
+            line = lines[index],
+            data = data,
+            indexedRow = true,
+            activeIndexOverride = index,
+            positionMsOverride = current.positionMs,
+            playingOverride = false,
+            speedOverride = 0f,
+            sampledAtOverrideMs = now
+        )
+    }
+
+    /** 在当前全曲行表里定位 state 的活动行：下标可信时用下标，否则按行文本/起点兜底。 */
+    private fun indexOfStateLine(
+        lines: Array<SuperLyricLine>,
+        state: LyricProducerState
+    ): Int {
+        val index = state.lineIndex
+        if (index in lines.indices && lines[index].text == state.line) return index
+        val byStart = lines.indexOfFirst {
+            it.text == state.line && it.startTime == state.lineStartMs
+        }
+        if (byStart >= 0) return byStart
+        if (index in lines.indices) return index
+        return lines.indexOfFirst { it.text == state.line }
+    }
+
+    /**
+     * 按播放位置选行：最后一条 `startTime <= position` 的行（与 currentLyricIndex 语义一致）。
+     * 位置早于首行时回落首行；allLyrics 未按时间排序时仍取扫描中最后命中的一条。
+     */
+    private fun lineIndexAt(lines: Array<SuperLyricLine>, positionMs: Long): Int {
+        var index = -1
+        for (i in lines.indices) {
+            if (lines[i].startTime <= positionMs) index = i
+        }
+        return if (index >= 0) index else 0
+    }
+
+    /**
+     * Read the owner's MediaSession [PlaybackState.state]. Requires notification access so
+     * [MediaSessionManager.getActiveSessions] can see cross-app sessions; returns null when
+     * unavailable (no match / no permission / query error) so the probe safely no-ops.
+     */
+    private fun readSessionPlaybackState(packageName: String): Int? {
+        val manager = mediaSessionManagerOrNull() ?: return null
+        val component = mediaSessionComponent() ?: return null
+        return runCatching {
+            manager.getActiveSessions(component)
+                .firstOrNull { it.packageName == packageName }
+                ?.playbackState
+                ?.state
+        }.getOrNull()
+    }
+
+    /** Read the owner's MediaSession position; only meaningful while STATE_PLAYING. */
+    private fun readSessionPosition(packageName: String): Long? {
+        val manager = mediaSessionManagerOrNull() ?: return null
+        val component = mediaSessionComponent() ?: return null
+        return runCatching {
+            manager.getActiveSessions(component)
+                .firstOrNull { it.packageName == packageName }
+                ?.playbackState
+                ?.takeIf { it.state == PlaybackState.STATE_PLAYING }
+                ?.position
+        }.getOrNull()
+    }
+
+    /** 懒取 [MediaSessionManager]（start 已初始化；服务/上下文缺失时 null → 探测 no-op）。 */
+    private fun mediaSessionManagerOrNull(): MediaSessionManager? {
+        mediaSessionManager?.let { return it }
+        val context = contextRef ?: return null
+        return runCatching { context.getSystemService(MediaSessionManager::class.java) }
+            .getOrNull()
+            ?.also { mediaSessionManager = it }
+    }
+
+    /** 懒取通知监听组件（与 [LyricInfoNotificationListener] 同源，通知使用权授予后才可用）。 */
+    private fun mediaSessionComponent(): ComponentName? {
+        notificationListenerComponent?.let { return it }
+        val context = contextRef ?: return null
+        return runCatching { ComponentName(context, LyricInfoNotificationListener::class.java) }
+            .getOrNull()
+            ?.also { notificationListenerComponent = it }
     }
 
     /**
@@ -323,6 +716,8 @@ class SuperLyricLyricProducer(
                 "SuperLyricLyricProducer",
                 "cold-start pull: emitting latest lyric ($reason) title=${pulled.title}"
             )
+            // 拉回的数据没有 publisher:按当前 owner 的数据处理,不改 activePublisher;
+            // 当前无 owner 时也照常接受(旧服务端/冷启动路径不变)。
             handleIncoming(pulled)
         }
     }
@@ -431,7 +826,10 @@ class SuperLyricLyricProducer(
             ?.let { "superlyric:$it" }
             ?: "superlyric:${data?.title.orEmpty()}"
 
-    /** 会话结束后丢弃全曲数据与快照缓存(不跨会话保留整首行数组)。 */
+    /**
+     * 会话结束后丢弃全曲数据与快照缓存(不跨会话保留整首行数组)。
+     * 不触碰 [activePublisher]:换歌/切源时所有权由 onLyric/onStop 管理。
+     */
     private fun clearFullSongData() {
         latestFullData = null
         synchronized(snapshotLock) {
@@ -460,8 +858,23 @@ class SuperLyricLyricProducer(
      * the arbiter's uniform 3 s staleness misreads as a dead source, flapping the fallback chain
      * mid-song. A 12 s window tolerates line gaps while still falling back on a genuinely dead
      * publisher well inside a typical verse.
+     *
+     * @param activeIndexOverride 本地重选行（跨源 seek / MediaSession 探测）时强制使用的
+     *   allLyrics 下标；null = 沿用推送的 currentLyricIndex（[indexedRow] 为真时）。
+     * @param positionMsOverride 权威位置（seek/探测）；null = 沿用推送的 position / 行首。
+     * @param playingOverride / @param speedOverride / @param sampledAtOverrideMs
+     *   暂停驻留态需要把 playing 置 false、speed 置 0、采样时刻取探测时刻。
      */
-    private fun emit(line: SuperLyricLine?, data: SuperLyricData?, indexedRow: Boolean) {
+    private fun emit(
+        line: SuperLyricLine?,
+        data: SuperLyricData?,
+        indexedRow: Boolean,
+        activeIndexOverride: Int? = null,
+        positionMsOverride: Long? = null,
+        playingOverride: Boolean? = null,
+        speedOverride: Float? = null,
+        sampledAtOverrideMs: Long? = null
+    ) {
         val now = clock()
         if (line == null) {
             if (data == null) {
@@ -493,7 +906,11 @@ class SuperLyricLyricProducer(
 
         // ---- 3.7 全曲包通道:下标/整曲元数据可用时优先取用,旧路径逐字节保持 ----
         val allLyrics = data?.takeIf { it.hasAllLyrics() }?.allLyrics
-        val lyricIndex = if (indexedRow && data != null) data.currentLyricIndex else -1
+        val lyricIndex = when {
+            activeIndexOverride != null -> activeIndexOverride
+            indexedRow && data != null -> data.currentLyricIndex
+            else -> -1
+        }
         val nextAll = if (lyricIndex >= 0) allLyrics?.getOrNull(lyricIndex + 1) else null
         // 旧路径(无 allLyrics 或下标不可信):`secondary` 是下一行,保留旧启发式。
         val legacySecondary = data?.takeIf { it.hasSecondary() }?.secondary
@@ -519,8 +936,10 @@ class SuperLyricLyricProducer(
         val durationMs = data?.takeIf { it.hasDuration() }?.duration
             ?.coerceAtLeast(window?.endMs ?: 0L)
             ?: (line?.endTime ?: 0L)
-        val positionMs = data?.takeIf { it.hasPosition() }?.position
+        val positionMs = positionMsOverride
             ?.coerceIn(0L, durationMs)
+            ?: data?.takeIf { it.hasPosition() }?.position
+                ?.coerceIn(0L, durationMs)
             ?: (line?.startTime ?: 0L)
 
         sequence++
@@ -541,9 +960,9 @@ class SuperLyricLyricProducer(
             lineIndex = if (lyricIndex >= 0) lyricIndex else 0,
             positionMs = positionMs,
             durationMs = durationMs,
-            sampledAtElapsedMs = now,
-            speed = 1f,
-            playing = line != null,
+            sampledAtElapsedMs = sampledAtOverrideMs ?: now,
+            speed = speedOverride ?: 1f,
+            playing = playingOverride ?: (line != null),
             receivedAtElapsedMs = now,
             words = words,
             renderModes = defaultRenderModes(),
@@ -587,6 +1006,38 @@ class SuperLyricLyricProducer(
          * >3 s gap is a normal interlude, not a dead source. See [emit].
          */
         internal const val LINE_EVENT_STALE_AFTER_MS = 12_000L
+
+        /**
+         * 第三方 publisher 接管歌词流的心跳宽限:owner 的最后一笔推送在此时长内视为仍在播,
+         * 其他 publisher 的推送一律丢弃(不刷新心跳、不改 state)。SuperLyric 只在跨行时
+         * 推送,长间奏可能超过该窗口,此时允许合法切源(见 [isActivePublisherLive])。
+         */
+        internal const val PUBLISHER_SWITCH_GRACE_MS = 8_000L
+
+        /** 1s 级 MediaSession 活性探测周期（也是查询节流）。 */
+        internal const val SESSION_LIVENESS_PROBE_MS = 1_000L
+
+        /** 推送逾期宽限：当前行剩余时长之外再多等 1s，避免行尾正常切换被探测抢跑。 */
+        private const val SESSION_PROBE_OVERDUE_GRACE_MS = 1_000L
+
+        /** 当前行 end 未知（0）时的逾期阈值。 */
+        private const val SESSION_PROBE_UNKNOWN_LINE_MS = 3_000L
+
+        /** MediaSession 位置越过当前行 end 这么多才算行切换。 */
+        private const val SESSION_PROBE_LINE_END_MARGIN_MS = 500L
+
+        /** MediaSession 位置与 state 位置差超过此值视为 seek。 */
+        private const val SESSION_PROBE_SEEK_JUMP_MS = 2_000L
+
+        /** 跨源 seek 允许越过歌长的容差。 */
+        private const val EXTERNAL_SEEK_DURATION_TOLERANCE_MS = 2_000L
+
+        /**
+         * 暂停驻留期间保留 publisher 所有权的上限：探测确认 owner 暂停后，第三方 publisher
+         * 的推送在该窗口内仍被丢弃，避免测试包/其他发布端把暂停中的歌词顶掉；窗口过后
+         * 允许其他播放器接管。
+         */
+        internal const val PAUSED_RESIDENCY_OWNER_HOLD_MS = 30_000L
 
         /** No `onLyric` for this long while playing → the callback path is likely dropped. */
         private const val STALL_RECOVERY_MS = 60_000L

@@ -76,8 +76,11 @@ import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
 import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
 import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
+import com.eza.hyperglow.aod.tailTimeoutActive
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_MUSIC_INFO
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.resolveLineTransition
 import com.eza.hyperglow.effect.EffectColors
 import com.eza.hyperglow.effect.EffectFrameContext
@@ -392,63 +395,89 @@ private fun rememberLivePreviewPosition(live: LyricSnapshot?): Long? {
 
 /**
  * 纯音乐/无歌词三态在预览快照上的应用(与实机 [com.eza.hyperglow.root.aod.toAodCanvasContent]
- * 同源,per-surface,见 SurfaceProfile.noLyricsBehavior):非纯音乐曲目原样返回。
+ * 同源,per-surface,见 SurfaceProfile.noLyricsBehavior):非纯音乐且非真无歌词的曲目原样返回。
  * - KEEP:原样(历史行为零变化)。
- * - MUSIC_INFO:主行槽位改显示本面歌曲信息(快照的 metadata 即投影层按本面组装值),
- *   并清掉标记行的词级/辅助/并发行/间奏数据(标记不是歌词,不参与卡拉OK/逐字)。
+ * - MUSIC_INFO:主行槽位改显示本面歌曲信息(快照的 metadata 即投影层按本面组装值;为空时
+ *   回落原标记行),并清掉标记行的词级/辅助/并发行/间奏数据(标记不是歌词,不参与卡拉OK/逐字)。
  * - RESTORE_DEFAULT:清空歌词、歌曲信息与封面,交还系统默认(系统内容抑制由控制器解除)。
  */
 private fun LyricSnapshot.applyNoLyricsBehavior(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile
 ): LyricSnapshot {
-    if (!pureMusic) return this
-    return when (profile.noLyricsBehavior) {
-        NO_LYRICS_BEHAVIOR_MUSIC_INFO -> copy(
-            original = metadata,
-            romanized = "",
-            translated = "",
-            nextLine = "",
-            nextLineRomanized = "",
-            nextLineTranslated = "",
-            words = emptyList(),
-            translationWords = emptyList(),
-            ruby = emptyList(),
-            layoutGroups = emptyList(),
-            alignedRight = false,
-            alignedRightMarkers = false,
-            lineLevelSync = false,
-            duetLine = null,
-            interludeStartMs = 0L,
-            interludeEndMs = 0L
-        )
-        NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT -> copy(
-            metadata = "",
-            metadataVisible = false,
-            title = "",
-            artist = "",
-            album = "",
-            original = "",
-            romanized = "",
-            translated = "",
-            nextLine = "",
-            nextLineRomanized = "",
-            nextLineTranslated = "",
-            words = emptyList(),
-            translationWords = emptyList(),
-            ruby = emptyList(),
-            layoutGroups = emptyList(),
-            alignedRight = false,
-            alignedRightMarkers = false,
-            lineLevelSync = false,
-            duetLine = null,
-            interludeStartMs = 0L,
-            interludeEndMs = 0L,
-            artworkJpeg = ByteArray(0),
-            artworkKey = ""
-        )
+    if (pureMusic || noLyrics) {
+        return when (profile.noLyricsBehavior) {
+            NO_LYRICS_BEHAVIOR_MUSIC_INFO -> asMusicInfoContent()
+            NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT -> asRestoreDefaultContent()
+            else -> this
+        }
+    }
+    // 尾奏超时:快照只标记 tailEligible(进入尾奏上下文),按本面自己的延迟在这里
+    // 计算到点与否——预览与实机同一判据;未到点前最后一行原样保留(KEEP 默认行为)。
+    if (!tailEligible) return this
+    val tailActive = tailTimeoutActive(
+        tailEligible = true,
+        lineStartMs = lineStartMs,
+        lineEndMs = lineEndMs,
+        positionMs = positionMs,
+        sampledAtElapsedMs = sampledAtElapsedMs,
+        speed = speed,
+        nowElapsedMs = android.os.SystemClock.elapsedRealtime(),
+        delaySeconds = profile.tailTimeoutDelaySeconds
+    )
+    if (!tailActive) return this
+    return when (profile.tailTimeoutBehavior) {
+        TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO -> asMusicInfoContent()
+        TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT -> asRestoreDefaultContent()
         else -> this
     }
 }
+
+/** MUSIC_INFO:主行槽位改显示本面歌曲信息,清掉词级/辅助/并发行/间奏数据。 */
+private fun LyricSnapshot.asMusicInfoContent(): LyricSnapshot = copy(
+    original = metadata.ifBlank { original },
+    romanized = "",
+    translated = "",
+    nextLine = "",
+    nextLineRomanized = "",
+    nextLineTranslated = "",
+    words = emptyList(),
+    translationWords = emptyList(),
+    ruby = emptyList(),
+    layoutGroups = emptyList(),
+    alignedRight = false,
+    alignedRightMarkers = false,
+    lineLevelSync = false,
+    duetLine = null,
+    interludeStartMs = 0L,
+    interludeEndMs = 0L
+)
+
+/** RESTORE_DEFAULT:清空歌词、歌曲信息与封面,交还系统默认(系统内容抑制由控制器解除)。 */
+private fun LyricSnapshot.asRestoreDefaultContent(): LyricSnapshot = copy(
+    metadata = "",
+    metadataVisible = false,
+    title = "",
+    artist = "",
+    album = "",
+    original = "",
+    romanized = "",
+    translated = "",
+    nextLine = "",
+    nextLineRomanized = "",
+    nextLineTranslated = "",
+    words = emptyList(),
+    translationWords = emptyList(),
+    ruby = emptyList(),
+    layoutGroups = emptyList(),
+    alignedRight = false,
+    alignedRightMarkers = false,
+    lineLevelSync = false,
+    duetLine = null,
+    interludeStartMs = 0L,
+    interludeEndMs = 0L,
+    artworkJpeg = ByteArray(0),
+    artworkKey = ""
+)
 
 /**
  * 深色预览面板 + 歌词内容。高度自适应内容(上下限见 [PREVIEW_CARD_MIN_HEIGHT_DP] /

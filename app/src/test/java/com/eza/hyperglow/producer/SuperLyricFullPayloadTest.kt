@@ -35,6 +35,11 @@ class SuperLyricFullPayloadTest {
 
     private val producer = SuperLyricLyricProducer { 0L }
 
+    // publisher 所有权用例使用可变 clock:固定 0 会让心跳落在「0 = 从未收到」哨兵上,
+    // 无法区分「刚收到」与「从未收到」。每个用例的 nowMs 从 1000 起。
+    private var nowMs = 1_000L
+    private val publisherProducer = SuperLyricLyricProducer { nowMs }
+
     private fun line(
         text: String,
         startMs: Long,
@@ -50,10 +55,12 @@ class SuperLyricFullPayloadTest {
         lines: Array<SuperLyricLine>,
         currentIndex: Int = 0,
         durationMs: Long = 0L,
-        positionMs: Long = -1L
+        positionMs: Long = -1L,
+        title: String = FULL_TITLE,
+        artist: String = FULL_ARTIST
     ): SuperLyricData = SuperLyricData().apply {
-        setTitle(FULL_TITLE)
-        setArtist(FULL_ARTIST)
+        setTitle(title)
+        setArtist(artist)
         setLyricId(lyricId)
         setAllLyrics(lines)
         setCurrentLyricIndex(currentIndex)
@@ -335,11 +342,225 @@ class SuperLyricFullPayloadTest {
         producer.stop()
     }
 
+    // --- publisher 所有权 ---
+
+    @Test
+    fun foreignPublisherCannotReplaceLiveOwner() {
+        // 真实源 netease 正在播时,测试 publisher(SuperLyric App 的 com.hchen.superlyric)
+        // 推另一首全量包不得顶掉 owner 的歌词。
+        publisherProducer.receiver.onLyric(
+            OWNER_PUBLISHER,
+            fullPayload(
+                "owner-1",
+                arrayOf(line("owner line", 0L, 2_000L)),
+                title = "Owner One Song"
+            )
+        )
+        val ownerState = publisherProducer.state.value!!
+
+        publisherProducer.receiver.onLyric(
+            TEST_PUBLISHER,
+            fullPayload(
+                "intruder-1",
+                arrayOf(line("intruder line", 0L, 2_000L)),
+                title = "Intruder One Song"
+            )
+        )
+
+        val state = publisherProducer.state.value!!
+        assertEquals("owner line", state.line)
+        assertEquals("Owner One Song", state.title)
+        // 丢弃的推送不得推进 sequence/generation(否则仲裁器会把旧状态当新帧)。
+        assertEquals(ownerState.sequence, state.sequence)
+        assertEquals(ownerState.generation, state.generation)
+    }
+
+    @Test
+    fun foreignPublisherStopDoesNotClearLiveOwner() {
+        publisherProducer.receiver.onLyric(
+            OWNER_PUBLISHER,
+            fullPayload(
+                "owner-2",
+                arrayOf(line("owner stop line", 0L, 2_000L)),
+                title = "Owner Two Song"
+            )
+        )
+
+        publisherProducer.receiver.onStop(TEST_PUBLISHER, null)
+
+        val state = publisherProducer.state.value
+        assertNotNull(state)
+        assertEquals("owner stop line", state?.line)
+        assertEquals("Owner Two Song", state?.title)
+    }
+
+    @Test
+    fun foreignEmptyPayloadDoesNotClearLiveOwner() {
+        publisherProducer.receiver.onLyric(
+            OWNER_PUBLISHER,
+            fullPayload(
+                "owner-3",
+                arrayOf(line("owner empty line", 0L, 2_000L)),
+                title = "Owner Three Song"
+            )
+        )
+
+        publisherProducer.receiver.onLyric(TEST_PUBLISHER, SuperLyricData())
+
+        val state = publisherProducer.state.value
+        assertNotNull(state)
+        assertEquals("owner empty line", state?.line)
+        assertEquals("Owner Three Song", state?.title)
+    }
+
+    @Test
+    fun ownerStopClearsStateAndReleasesOwnership() {
+        publisherProducer.receiver.onLyric(
+            OWNER_PUBLISHER,
+            fullPayload(
+                "owner-4",
+                arrayOf(line("owner release line", 0L, 2_000L)),
+                title = "Owner Four Song"
+            )
+        )
+
+        publisherProducer.receiver.onStop(OWNER_PUBLISHER, null)
+        assertNull(publisherProducer.state.value)
+
+        // 所有权已释放:新 publisher 立即认领,不必等 grace。
+        publisherProducer.receiver.onLyric(
+            TEST_PUBLISHER,
+            fullPayload(
+                "new-owner-4",
+                arrayOf(line("new owner line", 0L, 2_000L)),
+                title = "New Owner Four Song"
+            )
+        )
+
+        val state = publisherProducer.state.value
+        assertEquals("new owner line", state?.line)
+        assertEquals("New Owner Four Song", state?.title)
+    }
+
+    @Test
+    fun staleOwnerAllowsPublisherSwitchAfterGrace() {
+        var now = 1_000L
+        val producer = SuperLyricLyricProducer { now }
+        producer.receiver.onLyric(
+            OWNER_PUBLISHER,
+            fullPayload(
+                "owner-5",
+                arrayOf(line("stale owner line", 0L, 2_000L)),
+                title = "Owner Five Song"
+            )
+        )
+
+        now += SuperLyricLyricProducer.PUBLISHER_SWITCH_GRACE_MS + 1L
+        producer.receiver.onLyric(
+            TEST_PUBLISHER,
+            fullPayload(
+                "switch-5",
+                arrayOf(line("switch line", 0L, 2_000L)),
+                title = "Switch Five Song"
+            )
+        )
+
+        val state = producer.state.value
+        assertEquals("switch line", state?.line)
+        assertEquals("Switch Five Song", state?.title)
+        // 合法切源:generation 递增,新会话 sequence 从 1 开始(归零后再 emit)。
+        assertEquals(1, state?.generation)
+        assertEquals(1L, state?.sequence)
+    }
+
+    @Test
+    fun droppedForeignPushDoesNotRefreshOwnerHeartbeat() {
+        var now = 1_000L
+        val producer = SuperLyricLyricProducer { now }
+        producer.receiver.onLyric(
+            OWNER_PUBLISHER,
+            fullPayload(
+                "owner-7",
+                arrayOf(line("owner seven line", 0L, 2_000L)),
+                title = "Owner Seven Song"
+            )
+        )
+
+        // 外源推送被丢弃:不得把 owner 心跳刷新到 5000。
+        now = 5_000L
+        producer.receiver.onLyric(
+            TEST_PUBLISHER,
+            fullPayload(
+                "intruder-7",
+                arrayOf(line("intruder seven line", 0L, 2_000L)),
+                title = "Intruder Seven Song"
+            )
+        )
+        assertEquals("Owner Seven Song", producer.state.value?.title)
+
+        // 从 owner 最后一笔(1000)起已过 grace;若外源推送错误刷新了心跳(5000),
+        // 此处仍会被判为 live 而拒绝,测试失败。
+        now = 1_000L + SuperLyricLyricProducer.PUBLISHER_SWITCH_GRACE_MS + 1L
+        producer.receiver.onLyric(
+            TEST_PUBLISHER,
+            fullPayload(
+                "switch-7",
+                arrayOf(line("switch seven line", 0L, 2_000L)),
+                title = "Switch Seven Song"
+            )
+        )
+        assertEquals("Switch Seven Song", producer.state.value?.title)
+    }
+
+    @Test
+    fun nullPublisherIsAcceptedButDoesNotTakeOwnership() {
+        var now = 1_000L
+        val producer = SuperLyricLyricProducer { now }
+        producer.receiver.onLyric(
+            OWNER_PUBLISHER,
+            fullPayload(
+                "owner-6",
+                arrayOf(line("owner six line", 0L, 2_000L)),
+                title = "Owner Six Song"
+            )
+        )
+
+        now += 1_000L
+        // 旧服务端/未知 publisher:兼容接受,但不抢占 owner。
+        producer.receiver.onLyric(
+            null,
+            fullPayload(
+                "null-6",
+                arrayOf(line("null publisher line", 0L, 2_000L)),
+                title = "Null Six Song"
+            )
+        )
+        assertEquals("Null Six Song", producer.state.value?.title)
+
+        // owner 仍是 netease 且仍 live:第三方推送继续被拒。
+        producer.receiver.onLyric(
+            TEST_PUBLISHER,
+            fullPayload(
+                "intruder-6",
+                arrayOf(line("intruder six line", 0L, 2_000L)),
+                title = "Intruder Six Song"
+            )
+        )
+        assertEquals("Null Six Song", producer.state.value?.title)
+        assertEquals("null publisher line", producer.state.value?.line)
+    }
+
     private companion object {
         // 与既有 SuperLyric 用例（title=Test Song / artist=Test Artist）刻意不同：
         // SuperLyricCache 的元数据兜底键是 title##artist，标题撞车会让旧用例的逐行包
         // 意外命中本文件写入的全曲缓存。
         const val FULL_TITLE = "Full Payload Song"
         const val FULL_ARTIST = "Full Payload Artist"
+
+        /** 真实播放器发布端(SuperLyric 服务端转发的 publisher)。 */
+        const val OWNER_PUBLISHER = "netease"
+
+        /** SuperLyric App 自带的测试发布端包名。 */
+        const val TEST_PUBLISHER = "com.hchen.superlyric"
     }
 }

@@ -193,7 +193,19 @@ internal data class AodStateWireSnapshot(
      * 「纯音乐请欣赏」标记。渲染面按本面 noLyricsBehavior 决定保持原标记/替换歌曲信息/
      * 交还系统默认;纯布尔,不进聚合文本预算。
      */
-    val pureMusic: Boolean = false
+    val pureMusic: Boolean = false,
+    /**
+     * 真无歌词曲目标记(v12,与 v11 的 pureMusic 同链路):producer `lyricKind == NONE`,
+     * 整首没有任何歌词行。渲染面按本面 noLyricsBehavior 决定保持原占位/替换歌曲信息/
+     * 交还系统默认;纯布尔,不进聚合文本预算。纯音乐标记行是 LINE,不会落进本标记。
+     */
+    val noLyrics: Boolean = false,
+    /**
+     * 尾奏上下文(v12,与 noLyrics 同链路):最后一句歌词结束后 producer 已清行、投影层
+     * 补回最后一行,或最后一行仍在且没有下一行。**不表示延迟已到点**;渲染面按本面
+     * tailTimeoutDelaySeconds 用 `tailTimeoutActive` 计算。纯布尔,不进聚合文本预算。
+     */
+    val tailEligible: Boolean = false
 )
 
 internal sealed interface AodStateWireMessage {
@@ -525,6 +537,10 @@ internal object AodStateWireCodec {
                 output.writeLong(snapshot.interludeEndMs)
                 // v11:纯音乐曲目标记(纯布尔,不进聚合文本预算)。
                 output.writeStrictBoolean(snapshot.pureMusic)
+                // v12:真无歌词曲目标记(纯布尔,不进聚合文本预算)。
+                output.writeStrictBoolean(snapshot.noLyrics)
+                // v12:尾奏上下文(纯布尔,不进聚合文本预算)。
+                output.writeStrictBoolean(snapshot.tailEligible)
             }
             bytes.toByteArray().takeIf {
                 it.isNotEmpty() && it.size <= AodStateWireLimits.MAX_ENCODED_BODY_BYTES
@@ -736,6 +752,10 @@ internal object AodStateWireCodec {
             val interludeEndMs = input.readLong()
             // v11:纯音乐曲目标记(纯布尔)。
             val pureMusic = input.readStrictBoolean() ?: return null
+            // v12:真无歌词曲目标记(纯布尔)。
+            val noLyrics = input.readStrictBoolean() ?: return null
+            // v12:尾奏上下文(纯布尔)。
+            val tailEligible = input.readStrictBoolean() ?: return null
             if (input.available() != 0) return null
             AodStateWireSnapshot(
                 trackGeneration = trackGeneration,
@@ -770,6 +790,8 @@ internal object AodStateWireCodec {
                 album = album,
                 largeMetadata = largeMetadata,
                 pureMusic = pureMusic,
+                noLyrics = noLyrics,
+                tailEligible = tailEligible,
                 alignedRight = alignedRight,
                 alignedRightMarkers = alignedRightMarkers,
                 lineLevelSync = lineLevelSync,
@@ -1105,9 +1127,11 @@ internal object AodStateWireCodec {
      *  让渲染面按本面「歌曲信息内容」/「识别对唱标记」独立组装与选侧(per-surface);
      *  v6:样式区追加 aodLandscapeFullscreenSafeMarginPercent(横屏全屏化安全边界);
      *  v11:整体尾部追加纯音乐曲目标记(pureMusic,纯布尔,不进聚合文本预算);
+     *  v12:pureMusic 之后追加真无歌词曲目标记(noLyrics,纯布尔,不进聚合文本预算),
+     *  并追加尾奏上下文(tailEligible,纯布尔,同链路);
      *  v5:行文本区追加 nextLineRomanized/nextLineTranslated(下一行辅助文字);
      *  v4:对照尾部追加对唱并发行(duetLine,存在性+载荷);v3 追加歌曲图片帧。 */
-    private const val BODY_VERSION = 11
+    private const val BODY_VERSION = 12
     private const val MAX_UTF8_BYTES_PER_UTF16_CHAR = 4
 }
 

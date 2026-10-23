@@ -459,7 +459,8 @@ class LockscreenSurfaceControllerTest {
         assertTrue(shouldShowLockscreen(allowed))
         assertFalse(shouldShowLockscreen(allowed.copy(featureEnabled = false)))
         assertFalse(shouldShowLockscreen(allowed.copy(supported = false)))
-        assertFalse(shouldShowLockscreen(allowed.copy(defaultTheme = false)))
+        // 自定义主题不再硬拦;只要 usableArea/keyguard/bouncer/freshSnapshot 都过就显示。
+        assertTrue(shouldShowLockscreen(allowed.copy(defaultTheme = false)))
         assertFalse(shouldShowLockscreen(allowed.copy(primaryDisplay = false)))
         assertFalse(shouldShowLockscreen(allowed.copy(keyguardShowing = false)))
         assertFalse(shouldShowLockscreen(allowed.copy(bouncerShowing = true)))
@@ -664,5 +665,75 @@ class LockscreenSurfaceControllerTest {
         assertFalse(shouldReuseLockscreenHost(host, Any(), true))
         assertFalse(shouldReuseLockscreenHost(host, host, false))
         assertEquals(0, LOCKSCREEN_INSERTION_INDEX)
+    }
+
+    @Test
+    fun hiddenNotificationStackDoesNotReserveScreenSpace() {
+        assertTrue(shouldUseLockscreenNotificationGeometry(hasNotification = true, stackShown = true))
+        assertFalse(shouldUseLockscreenNotificationGeometry(hasNotification = true, stackShown = false))
+        assertFalse(shouldUseLockscreenNotificationGeometry(hasNotification = false, stackShown = true))
+    }
+
+    @Test
+    fun missingThemeProbeDoesNotBlockLockscreen() {
+        assertTrue(resolveDefaultTheme(null))
+        assertTrue(resolveDefaultTheme(true))
+        assertFalse(resolveDefaultTheme(false))
+    }
+
+    @Test
+    fun liveProducerSnapshotAllowsLockscreenWithoutStockMediaHeader() {
+        assertTrue(
+            resolveLockscreenMediaPlayerPresent(
+                stockMediaPlayerVisible = false,
+                liveSnapshotVisible = true
+            )
+        )
+        assertTrue(
+            resolveLockscreenMediaPlayerPresent(
+                stockMediaPlayerVisible = true,
+                liveSnapshotVisible = false
+            )
+        )
+        assertFalse(
+            resolveLockscreenMediaPlayerPresent(
+                stockMediaPlayerVisible = false,
+                liveSnapshotVisible = false
+            )
+        )
+    }
+
+    @Test
+    fun tailRestoreDefaultReleasesLockscreenCardPerSurfaceDelay() {
+        // 同一快照(lineEnd=10_000、position=13_000):息屏 delay=3 已到点、锁屏 delay=10
+        // 未到点,因此只有息屏解除系统内容抑制;20_000 时锁屏也到点。
+        fun active(delaySeconds: Int, nowElapsedMs: Long) =
+            com.eza.hyperglow.aod.tailTimeoutActive(
+                tailEligible = true,
+                lineStartMs = 5_000L,
+                lineEndMs = 10_000L,
+                positionMs = 13_000L,
+                sampledAtElapsedMs = 13_000L,
+                speed = 1f,
+                nowElapsedMs = nowElapsedMs,
+                delaySeconds = delaySeconds
+            )
+
+        assertTrue(active(delaySeconds = 3, nowElapsedMs = 13_000L))
+        assertFalse(active(delaySeconds = 10, nowElapsedMs = 13_000L))
+        assertTrue(active(delaySeconds = 10, nowElapsedMs = 20_000L))
+
+        assertTrue(
+            com.eza.hyperglow.root.aod.shouldReleaseStockForTailTimeout(
+                tailActive = active(delaySeconds = 3, nowElapsedMs = 13_000L),
+                tailTimeoutBehavior = "restore_default"
+            )
+        )
+        assertFalse(
+            com.eza.hyperglow.root.aod.shouldReleaseStockForTailTimeout(
+                tailActive = active(delaySeconds = 10, nowElapsedMs = 13_000L),
+                tailTimeoutBehavior = "restore_default"
+            )
+        )
     }
 }

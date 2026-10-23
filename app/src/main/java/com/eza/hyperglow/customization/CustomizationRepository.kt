@@ -317,6 +317,8 @@ object CustomizationRepository {
         duetConcurrent = duetConcurrent,
         interludeCountdown = interludeCountdown,
         noLyricsBehavior = noLyricsBehavior,
+        tailTimeoutBehavior = tailTimeoutBehavior,
+        tailTimeoutDelaySeconds = tailTimeoutDelaySeconds,
         // per-surface 内容项:携带本面已解析值,canonicalize 往返不丢失按面独立性。
         metadataParts = metadataParts,
         metadataSeparators = metadataSeparators,
