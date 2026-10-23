@@ -26,7 +26,7 @@ release with the same name in the mirror repository**.
 | Version number source | `versionCode` / `versionName` in `app/build.gradle.kts` |
 | Mirror credentials | The workspace's classic PAT (`gh_token.txt` / `.gh_pat`) — it has admin on the mirror repo (verified 2026-10-07) |
 
-## Current Push Status (verified 2026-10-14)
+## Current Push Status (verified 2026-10-23)
 
 Repository files: synced to the source `main` on 2026-10-07 (mirror commit `7b9d4e69`,
 "Sync upstream main (v0.3.166 / versionCode 193)") — the first sync since `89-0.3.70`;
@@ -34,17 +34,23 @@ re-synced on 2026-10-11 (mirror commit `9c19ebed`, "Sync upstream main (v0.3.168
 versionCode 195)"; 34 added + 68 updated + 0 deleted, all blob SHAs verified, mirror-only
 files preserved); re-synced on 2026-10-14 (mirror commit `90e2e91c`, "Sync upstream main
 (v0.3.169 / versionCode 196)"; 19 added + 77 updated + 0 deleted, all blob SHAs verified,
-mirror-only files preserved).
+mirror-only files preserved); re-synced on 2026-10-23 (mirror commit `56c31d1`, "Sync upstream
+main (v0.3.170 / versionCode 197)"; 35 added + 90 updated + 0 deleted, 498 source files
+byte-verified via blob SHA, mirror-only files preserved; follow-up `1ecb5c9` restored the
+mirror-owned `README.md`, which had been overwritten by the source version and is not part of
+the sync set).
 
 Plugin release: the mirror's `plugins` pre-release was refreshed on 2026-10-14 with the
 self-contained (kotlin-stdlib bundled) plugin ZIPs and switched to `prerelease: true` so it
-no longer competes for `GET /releases/latest` (which must keep returning the app release
-`196-0.3.169`).
+no longer competes for `GET /releases/latest`. On 2026-10-23 the source `plugins` release was
+rebuilt for `v0.3.170`; all five ZIPs were downloaded and SHA-256-compared against the mirror
+copy — byte-identical, so the mirror `plugins` release was left unchanged.
 
 **Update this table** after every "push LSP" run; read it before the next push to see which versions are still missing.
 
 | Source repository release | Mirror status |
 |---|---|
+| `197-0.3.170` | ✅ Pushed (2026-10-23, provided classic PAT) — asset byte sizes match the source repo exactly; `make_latest` set to true, `created_at` is current |
 | `196-0.3.169` | ✅ Pushed (2026-10-14, workspace classic PAT) — asset byte sizes match the source repo exactly |
 | `195-0.3.168` | ✅ Pushed (2026-10-11, workspace classic PAT) — carries the non-lyric-line filter and its device-verified detection rewrite |
 | `194-0.3.167` | ✅ Pushed (2026-10-07, workspace classic PAT) |
@@ -183,23 +189,28 @@ LSPosed 模块仓库（modules.lsposed.org）**实际读取的是
 | 版本号来源 | `app/build.gradle.kts` 的 `versionCode` / `versionName` |
 | 镜像凭证 | 工作区的 classic PAT（`gh_token.txt` / `.gh_pat`）——实测对镜像仓有 admin（2026-10-07 核实） |
 
-## 当前推送状态（2026-10-14 核实）
+## 当前推送状态（2026-10-23 核实）
 
 仓库文件：已于 2026-10-07 同步到源仓库 `main`（镜像 commit `7b9d4e69`，
 "Sync upstream main (v0.3.166 / versionCode 193)"）——`89-0.3.70` 之后首次同步；
 2026-10-11 再次同步（镜像 commit `9c19ebed`，"Sync upstream main (v0.3.168 /
 versionCode 195)"；新增 34、更新 68、删除 0，逐 blob SHA 核验通过，镜像自有文件保留）；
 2026-10-14 再次同步（镜像 commit `90e2e91c`，"Sync upstream main (v0.3.169 /
-versionCode 196)"；新增 19、更新 77、删除 0，逐 blob SHA 核验通过，镜像自有文件保留）。
+versionCode 196)"；新增 19、更新 77、删除 0，逐 blob SHA 核验通过，镜像自有文件保留）；
+2026-10-23 再次同步（镜像 commit `56c31d1`，"Sync upstream main (v0.3.170 /
+versionCode 197)"；新增 35、更新 90、删除 0，498 个源文件逐 blob SHA 核验一致，
+镜像自有文件保留；随后 `1ecb5c9` 恢复了被源仓库版本误覆盖的镜像自有 `README.md`）。
 
 插件发行：镜像仓的 `plugins` 预发行已于 2026-10-14 刷新为自包含（kotlin-stdlib 已打包进 dex）
 的插件 ZIP，并改标为 `prerelease: true`，使其不再参与 `GET /releases/latest`
-的排序（该端点必须继续返回应用 release `196-0.3.169`）。
+的排序。2026-10-23 源仓库的 `plugins` 预发行已按 `v0.3.170` 重建；五个 ZIP 与镜像仓
+逐一 SHA-256 比对完全一致，故镜像侧 `plugins` 无需变更。
 
 每次执行"推送 LSP"后**更新本表**，下次推送前先读此表判断还缺哪些版本。
 
 | 源仓库 release | 镜像状态 |
 |---|---|
+| `197-0.3.170` | ✅ 已推送（2026-10-23，用户提供的 classic PAT）——资产字节数与源仓库完全一致；`make_latest: true`，`created_at` 为当前时间 |
 | `196-0.3.169` | ✅ 已推送（2026-10-14，工作区 classic PAT）——资产字节数与源仓库完全一致 |
 | `195-0.3.168` | ✅ 已推送（2026-10-11，工作区 classic PAT）——含「不显示非歌词内容」开关及其按真机实测重写的判定 |
 | `194-0.3.167` | ✅ 已推送（2026-10-07，工作区 classic PAT） |
