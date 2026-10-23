@@ -657,6 +657,7 @@ class LyriconLyricProducer(
             // 回调链彻底停发时（onPositionChanged 不再来），advanceExtrapolation 永远不会
             // 被调用——第二位置源必须由看门狗主动驱动，否则只剩外推/卡死。
             maybeRecoverPositionFromMediaSession()
+            maybeMarkPausedWhenStaleExtrapolating()
             maybeResubscribeOnPositionSilence()
             maybeResubscribeOnSongFeed()
         }
@@ -686,6 +687,31 @@ class LyriconLyricProducer(
             "LyriconLyricProducer",
             "position recovered via MediaSession (watchdog): pos=${recovered}ms"
         )
+    }
+
+    /**
+     * 陈旧播放态死循环的自愈（2026-10-23 真机 80 分钟实证）：写端停更后 SDK 仍以 60Hz
+     * 重发同一停更值，生产者每次都发新鲜状态，`playing=true` 永远不被推翻——无限期保活下
+     * AOD 常亮、位置钉死造成「卡在一个字内反复」。写入端死透（外推/歌尾保持中）且
+     * MediaSession 明确报告未播放时，把生产者标记为暂停，交给既有暂停驻留/停止检测链路。
+     */
+    private fun maybeMarkPausedWhenStaleExtrapolating() {
+        if (!isPlayingState) return
+        if (!extrapolating && !heldAtSongEndStale) return
+        if (sessionPlayingObserved != false) return
+        // 注意判据用「最后真实位置时刻」而不是「最后回调时刻」：写端停更后 SDK 仍以
+        // 60Hz 重发同一停更值，回调一直是新鲜的，只有真实位置时钟暴露停更。
+        val now = clock()
+        if (lastRealPositionClockMs < 0L ||
+            now - lastRealPositionClockMs < STALE_POSITION_THRESHOLD_MS
+        ) return
+        isPlayingState = false
+        AppLog.w(
+            "LyriconLyricProducer",
+            "MediaSession not playing while position stale; marking paused " +
+                "(pos=${currentPositionMs}ms staleForMs=${now - lastRealPositionClockMs})"
+        )
+        recomputeAndEmit()
     }
 
     /**
