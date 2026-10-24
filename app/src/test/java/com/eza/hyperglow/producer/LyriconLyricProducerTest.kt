@@ -2447,15 +2447,8 @@ class LyriconLyricProducerTest {
     @Test
     fun staleFlushSampleIsHeldThenIgnoredWhileRacingButHonoredOnSeekCadence() {
         // 2026-10-24 实测：写端沉默 ~20s 后送来落后 ~20s 的首值（91000 基准收到 72000），
-        // 随后 20ms 内按写入间隔大步冲完 → 旧行为倒回 20s 再快进重放。
-        // 未外推 / 值不落后 / 短沉默 → 一律采纳。
-        assertEquals(
-            StaleFlushAction.HONOR,
-            classifyStaleFlushSample(
-                extrapolating = false, realPosition = 72_000L, lastRealBaseMs = 91_000L,
-                sinceRealMs = 20_000L, pendingValueMs = Long.MIN_VALUE
-            )
-        )
+        // 随后 20ms 内按写入间隔大步冲完 → 旧行为把它当真实回跳，歌词倒回 20s 再快进重放。
+        // 值不落后于基准 / 落后幅度 <5s 且（未外推或短沉默）→ 采纳。
         assertEquals(
             StaleFlushAction.HONOR,
             classifyStaleFlushSample(
@@ -2470,6 +2463,13 @@ class LyriconLyricProducerTest {
                 sinceRealMs = 1_000L, pendingValueMs = Long.MIN_VALUE
             )
         )
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = false, realPosition = 88_000L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 100L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
         // 外推 + 沉默 ≥3s + 首个落后值 → 进入观察（忽略本拍）。
         assertEquals(
             StaleFlushAction.ARM,
@@ -2478,7 +2478,25 @@ class LyriconLyricProducerTest {
                 sinceRealMs = 20_000L, pendingValueMs = Long.MIN_VALUE
             )
         )
-        // 观察后一拍跨进 ≥1.5s → 冲刷追赶，继续忽略；直到追上基准才采纳。
+        // 场景 B（Lyricon 实测）：MediaSession 兜底刚把基准恢复到真实位置（如 181s），
+        // 写端醒来送来冻结残留（30s，落后 150s）——即使未外推、沉默仅几十 ms，
+        // 落后 ≥5s 也必须进入判定。
+        assertEquals(
+            StaleFlushAction.ARM,
+            classifyStaleFlushSample(
+                extrapolating = false, realPosition = 30_805L, lastRealBaseMs = 181_103L,
+                sinceRealMs = 50L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        // 与观察位完全相同的重复值：写端仍冻结，继续按住显示（不得当 seek 采纳）。
+        assertEquals(
+            StaleFlushAction.REJECT,
+            classifyStaleFlushSample(
+                extrapolating = false, realPosition = 30_805L, lastRealBaseMs = 181_103L,
+                sinceRealMs = 60L, pendingValueMs = 30_805L
+            )
+        )
+        // 观察后一拍跨进 ≥1.5s → 冲刷追赶，继续忽略；直到追上「基准 −5s」才采纳。
         assertEquals(
             StaleFlushAction.REJECT,
             classifyStaleFlushSample(

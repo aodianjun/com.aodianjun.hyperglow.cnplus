@@ -67,16 +67,24 @@ internal data class MediaSessionPosition(
 internal enum class StaleFlushAction { HONOR, ARM, REJECT }
 
 /**
- * 陈旧冲刷判定（纯函数，2026-10-24 实测：写端沉默 ~20s 后送来落后 ~20s 的首值，随后
- * 20ms 内把缓冲位置冲完回到当前——旧行为把它当真实回跳，歌词倒回 20s 再快进重放）。
+ * 陈旧冲刷判定（纯函数）。
+ *
+ * 场景 A（2026-10-24 实测）：外推中（写端沉默 ≥3s）送来落后 ~20s 的首值，随后 20ms 内
+ * 把缓冲位置冲完回到当前——旧行为把它当真实回跳，歌词倒回 20s 再快进重放。
+ *
+ * 场景 B（2026-10-24 Lyricon 实测）：MediaSession 兜底刚把基准恢复到真实位置（如 181s），
+ * 写端醒来送来冻结残留值（如 30s，落后 150s）——此刻 extrapolating=false 且沉默仅几十 ms，
+ * 场景 A 的前置条件不成立，残留值把正确基准立刻冲掉，歌词掉回开头反复。因此：
+ * 值落后最后真实基准 ≥[STALE_FLUSH_BEHIND_BASE_MS] 时无条件进入本判定。
  *
  * 判定链：
- * 1. 未在外推 / 值不落后于最后真实基准 / 沉默 < [STALE_FLUSH_MIN_SILENCE_MS] → 采纳
- *    （短暂停更由既有 monotonicResume 容差处理）。
- * 2. 首个落后值 → 进入观察（忽略本拍，记下观察位）。
- * 3. 后续值较观察位一拍跨进 ≥[STALE_FLUSH_RACE_STEP_MS] → 缓冲冲刷在追赶，继续忽略，
- *    直到值追上最后真实基准（回到第 1 条采纳）。
- * 4. 后续值较观察位只小幅前进（正常 60Hz 节奏）→ 真 seek 的新基准，采纳（仅延迟一拍）。
+ * 1. 值不落后于最后真实基准 → 采纳（前进交给既有 monotonicResume/采信路径）。
+ * 2. 落后幅度 < [STALE_FLUSH_BEHIND_BASE_MS] 且（未外推 或 沉默 <3s）→ 采纳
+ *    （短暂停更的小幅落后由既有 300ms 容差处理；大幅落后才需要观察）。
+ * 3. 首个进入判定的落后值 → 观察（忽略本拍，记下观察位）。
+ * 4. 后续值较观察位一拍跨进 ≥[STALE_FLUSH_RACE_STEP_MS] → 缓冲冲刷在追赶，继续忽略，
+ *    直到值追上「基准 − 容差」为止（期间基准可能被 MediaSession 兜底推进）。
+ * 5. 后续值较观察位只小幅前进（正常 60Hz 节奏）→ 真 seek 的新基准，采纳（仅延迟一拍）。
  */
 internal fun classifyStaleFlushSample(
     extrapolating: Boolean,
@@ -84,14 +92,27 @@ internal fun classifyStaleFlushSample(
     lastRealBaseMs: Long,
     sinceRealMs: Long,
     pendingValueMs: Long
-): StaleFlushAction = when {
-    !extrapolating -> StaleFlushAction.HONOR
-    realPosition >= lastRealBaseMs -> StaleFlushAction.HONOR
-    sinceRealMs < LyriconLyricProducer.STALE_FLUSH_MIN_SILENCE_MS -> StaleFlushAction.HONOR
-    pendingValueMs == Long.MIN_VALUE -> StaleFlushAction.ARM
-    realPosition - pendingValueMs >= LyriconLyricProducer.STALE_FLUSH_RACE_STEP_MS ->
-        StaleFlushAction.REJECT
-    else -> StaleFlushAction.HONOR
+): StaleFlushAction {
+    val farBehindBase = lastRealBaseMs - realPosition >=
+        LyriconLyricProducer.STALE_FLUSH_BEHIND_BASE_MS
+    val guardEngaged = extrapolating &&
+        sinceRealMs >= LyriconLyricProducer.STALE_FLUSH_MIN_SILENCE_MS
+    if (realPosition >= lastRealBaseMs) return StaleFlushAction.HONOR
+    if (!farBehindBase && !guardEngaged) return StaleFlushAction.HONOR
+    // 进入观察/冲刷判定后，追上「基准 − 容差」即视为写端恢复正常时间线。
+    if (pendingValueMs != Long.MIN_VALUE &&
+        realPosition >= lastRealBaseMs - LyriconLyricProducer.STALE_FLUSH_BEHIND_BASE_MS
+    ) return StaleFlushAction.HONOR
+    if (pendingValueMs == Long.MIN_VALUE) return StaleFlushAction.ARM
+    return when {
+        // 与观察位完全相同：写端仍冻结在该残留值上，继续按住显示。
+        realPosition == pendingValueMs -> StaleFlushAction.REJECT
+        // 一拍跨进 ≥1.5s：缓冲冲刷在追赶，继续忽略。
+        realPosition - pendingValueMs >=
+            LyriconLyricProducer.STALE_FLUSH_RACE_STEP_MS -> StaleFlushAction.REJECT
+        // 正常 60Hz 节奏的小幅前进：真 seek 的新基准，采纳。
+        else -> StaleFlushAction.HONOR
+    }
 }
 
 class LyriconLyricProducer(
@@ -1096,6 +1117,13 @@ class LyriconLyricProducer(
          * ~2-3s 压缩在毫秒级送达）视为冲刷在追赶；正常 60Hz 节奏一拍只前进 ~17ms。
          */
         internal const val STALE_FLUSH_RACE_STEP_MS = 1_500L
+
+        /**
+         * 值落后最后真实基准 ≥ 该幅度时无条件进入冲刷判定（不看外推状态/沉默时长）：
+         * MediaSession 兜底刚把基准恢复到真实位置时，写端送来的冻结残留值落后可达
+         * 分钟级，必须拒收（2026-10-24 Lyricon 实测落后 150s）。
+         */
+        internal const val STALE_FLUSH_BEHIND_BASE_MS = 5_000L
 
         /**
          * issue #64:位置通道活跃但歌曲数据长期缺席(半死)时,强制重建订阅前的缺席阈值。
