@@ -664,8 +664,25 @@ class SuperLyricLyricProducer(
             if (stalledFor >= HARD_STALL_RECOVERY_MS) {
                 // 长时间停更：回调重挂仍无词。模块只在跨行时广播，重挂后不会补发当前行，
                 // 主动拉一次当前全量数据；先清掉陈旧状态，避免「同曲同行」去重把拉回值挡掉。
-                mutableState.value = null
-                maybePullLatestLyric("stall-${stalledFor}ms", force = true)
+                //
+                // 但只有 owner 真在播放才拉：暂停/停止时「长时间无推送」是正常状态
+                // （2026-10-24 实测：暂停 27 分钟，每 ~15s 强拉一次旧行 → 仲裁器在
+                // superlyric/lyricon 间来回切，AOD 反复点亮旧行）。owner 未在播时
+                // 不清状态、不拉取，交给既有暂停驻留/停止检测链路。
+                val pkg = activePublisher
+                val ownerPlaying = pkg != null &&
+                    mediaSessionPlaybackStateReader(pkg) ==
+                        android.media.session.PlaybackState.STATE_PLAYING
+                if (ownerPlaying) {
+                    mutableState.value = null
+                    maybePullLatestLyric("stall-${stalledFor}ms", force = true)
+                } else {
+                    AppLog.i(
+                        "SuperLyricLyricProducer",
+                        "stall ${stalledFor}ms with owner not playing; skip pull " +
+                            "(pkg=${pkg ?: "unknown"})"
+                    )
+                }
             }
         } else {
             AppLog.w(
