@@ -926,10 +926,17 @@ class LyriconLyricProducerTest {
         assertEquals(6_000L + 100_000L, state.positionMs)
 
         // Real position eventually resumes (screen-on) → extrapolation stops, real value wins.
+        // 陈旧冲刷判定：沉默 ≥3s 后的首个落后值先观察一拍（保持外推显示），
+        // 下一拍按正常节奏小幅前进即确认为真 seek/回跳并采纳（仅延迟一拍）。
         clockValue = 10_000L + 100_500L
         producer.playerListener.onPositionChanged(3_000L) // line 1 [3500,5000]? no → 3000 is line 0 end/line1 gap
         state = producer.state.value!!
-        assertEquals(3_000L, state.positionMs)
+        assertEquals(106_000L, state.positionMs) // 观察拍：保持上一外推显示，不倒回也不推进
+
+        clockValue = 10_000L + 100_517L
+        producer.playerListener.onPositionChanged(3_017L) // 正常 60Hz 节奏 → 真 seek，采纳
+        state = producer.state.value!!
+        assertEquals(3_017L, state.positionMs)
     }
 
     @Test
@@ -2435,6 +2442,65 @@ class LyriconLyricProducerTest {
             MediaSessionPosition(positionMs = 8_000L, lastUpdateElapsedMs = 1_000L, speed = 1f)
         }
         assertEquals(13_000L, fallbackProducer.probeMediaSessionPosition(6_000L))
+    }
+
+    @Test
+    fun staleFlushSampleIsHeldThenIgnoredWhileRacingButHonoredOnSeekCadence() {
+        // 2026-10-24 实测：写端沉默 ~20s 后送来落后 ~20s 的首值（91000 基准收到 72000），
+        // 随后 20ms 内按写入间隔大步冲完 → 旧行为倒回 20s 再快进重放。
+        // 未外推 / 值不落后 / 短沉默 → 一律采纳。
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = false, realPosition = 72_000L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 92_000L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 90_900L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 1_000L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        // 外推 + 沉默 ≥3s + 首个落后值 → 进入观察（忽略本拍）。
+        assertEquals(
+            StaleFlushAction.ARM,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 72_000L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        // 观察后一拍跨进 ≥1.5s → 冲刷追赶，继续忽略；直到追上基准才采纳。
+        assertEquals(
+            StaleFlushAction.REJECT,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 74_610L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = 72_000L
+            )
+        )
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 91_200L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = 88_980L
+            )
+        )
+        // 观察后只按正常节奏小幅前进（~17ms）→ 真 seek 的新基准，采纳（仅延迟一拍）。
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 72_017L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = 72_000L
+            )
+        )
     }
 
     private fun markerDuetSong(): Song = Song(

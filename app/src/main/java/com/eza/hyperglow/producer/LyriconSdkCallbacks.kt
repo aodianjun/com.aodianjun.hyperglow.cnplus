@@ -188,6 +188,7 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 positionUnknown = false
                 heldAtSongEndStale = false
                 songEndCleared = false
+                staleFlushPendingValueMs = Long.MIN_VALUE
                 pauseStaleRejectMs = -1L
                 // Close the post-song-change plausibility gate (issue #11) for an in-session
                 // change (the song starts from 0): the next real position must be plausible for a
@@ -429,6 +430,37 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 } else {
                     position
                 }
+                // 陈旧冲刷判定（2026-10-24 实测：写端沉默 ~20s 后送来落后 ~20s 的首值，
+                // 随后 20ms 内把缓冲位置一口气冲完回到当前——表现为歌词倒回 20s 再快进
+                // 重放）。外推中收到落后于最后真实基准的值先静默观察一拍：下一拍大步
+                // 跨进（冲刷追赶特征）继续忽略直到追上基准；下一拍只按正常节奏小幅
+                // 前进（真 seek 的新基准特征）立即采纳。真 seek 仅延迟一拍（~17ms）。
+                val sinceRealForFlushMs = now - lastRealPositionClockMs
+                when (classifyStaleFlushSample(
+                    extrapolating = wasExtrapolating,
+                    realPosition = realPosition,
+                    lastRealBaseMs = lastRealPositionMs,
+                    sinceRealMs = sinceRealForFlushMs,
+                    pendingValueMs = staleFlushPendingValueMs
+                )) {
+                    StaleFlushAction.ARM -> {
+                        staleFlushPendingValueMs = realPosition
+                        AppLog.i(
+                            "LyriconLyricProducer",
+                            "stale flush suspected: pos=${realPosition}ms behind base=" +
+                                "${lastRealPositionMs}ms after ${sinceRealForFlushMs}ms silence; " +
+                                "holding extrapolated display"
+                        )
+                        recomputeAndEmit()
+                        return
+                    }
+                    StaleFlushAction.REJECT -> {
+                        staleFlushPendingValueMs = realPosition
+                        recomputeAndEmit()
+                        return
+                    }
+                    StaleFlushAction.HONOR -> staleFlushPendingValueMs = Long.MIN_VALUE
+                }
                 val realBehindMs = currentPositionMs - realPosition
                 val monotonicResume = wasExtrapolating &&
                     realBehindMs in 1..LyriconLyricProducer.EXTRAPOLATION_RESUME_TOLERANCE_MS
@@ -541,6 +573,8 @@ internal fun LyriconLyricProducer.applySeek(position: Long) {
     // A seek also invalidates any pre-pause stale rejection (issue #10): the seek
     // target is the new authoritative position.
     pauseStaleRejectMs = -1L
+    // Seek 是权威位置变更，陈旧冲刷观察位一并作废。
+    staleFlushPendingValueMs = Long.MIN_VALUE
     // A seek is a deliberate, authoritative position: open the post-song-change gate
     // (issue #11) — the seek target defines the timeline from here on.
     songStartGateOpen = true

@@ -63,6 +63,37 @@ internal data class MediaSessionPosition(
     val speed: Float
 )
 
+/** 陈旧冲刷样本的处置：采纳 / 进入观察 / 继续忽略（冲刷追赶中）。 */
+internal enum class StaleFlushAction { HONOR, ARM, REJECT }
+
+/**
+ * 陈旧冲刷判定（纯函数，2026-10-24 实测：写端沉默 ~20s 后送来落后 ~20s 的首值，随后
+ * 20ms 内把缓冲位置冲完回到当前——旧行为把它当真实回跳，歌词倒回 20s 再快进重放）。
+ *
+ * 判定链：
+ * 1. 未在外推 / 值不落后于最后真实基准 / 沉默 < [STALE_FLUSH_MIN_SILENCE_MS] → 采纳
+ *    （短暂停更由既有 monotonicResume 容差处理）。
+ * 2. 首个落后值 → 进入观察（忽略本拍，记下观察位）。
+ * 3. 后续值较观察位一拍跨进 ≥[STALE_FLUSH_RACE_STEP_MS] → 缓冲冲刷在追赶，继续忽略，
+ *    直到值追上最后真实基准（回到第 1 条采纳）。
+ * 4. 后续值较观察位只小幅前进（正常 60Hz 节奏）→ 真 seek 的新基准，采纳（仅延迟一拍）。
+ */
+internal fun classifyStaleFlushSample(
+    extrapolating: Boolean,
+    realPosition: Long,
+    lastRealBaseMs: Long,
+    sinceRealMs: Long,
+    pendingValueMs: Long
+): StaleFlushAction = when {
+    !extrapolating -> StaleFlushAction.HONOR
+    realPosition >= lastRealBaseMs -> StaleFlushAction.HONOR
+    sinceRealMs < LyriconLyricProducer.STALE_FLUSH_MIN_SILENCE_MS -> StaleFlushAction.HONOR
+    pendingValueMs == Long.MIN_VALUE -> StaleFlushAction.ARM
+    realPosition - pendingValueMs >= LyriconLyricProducer.STALE_FLUSH_RACE_STEP_MS ->
+        StaleFlushAction.REJECT
+    else -> StaleFlushAction.HONOR
+}
+
 class LyriconLyricProducer(
     internal val clock: () -> Long = SystemClock::elapsedRealtime
 ) : LyricProducer {
@@ -240,6 +271,12 @@ class LyriconLyricProducer(
 
     /** 已按「真实播完」清过行：后续停更不得把最后一行重新顶回来（避免占位↔歌词闪烁）。 */
     @Volatile internal var songEndCleared: Boolean = false
+
+    /**
+     * 陈旧冲刷判定的观察位：外推中收到落后于最后真实基准的首值时记下它，
+     * 用下一拍的跨进步长区分「缓冲冲刷追赶」（继续忽略）与「真 seek 新基准」（采纳）。
+     */
+    @Volatile internal var staleFlushPendingValueMs: Long = Long.MIN_VALUE
 
     /** 第二位置源（播放器 MediaSession）探测节流与健康度日志节流。 */
     @Volatile internal var lastMediaSessionProbeMs: Long = 0L
@@ -483,6 +520,7 @@ class LyriconLyricProducer(
         positionUnknown = false
         heldAtSongEndStale = false
         songEndCleared = false
+        staleFlushPendingValueMs = Long.MIN_VALUE
         previousSongLastPositionMs = -1L
         seekRejectPositionMs = -1L
         seekClockMs = 0L
@@ -691,6 +729,7 @@ class LyriconLyricProducer(
         positionUnknown = false
         heldAtSongEndStale = false
         songEndCleared = false
+        staleFlushPendingValueMs = Long.MIN_VALUE
         recomputeAndEmit()
         AppLog.i(
             "LyriconLyricProducer",
@@ -1045,6 +1084,18 @@ class LyriconLyricProducer(
 
         /** 整体重建 subscriber 实例的最小间隔。 */
         internal const val FULL_REBUILD_COOLDOWN_MS = 60_000L
+
+        /**
+         * 陈旧冲刷判定：写端沉默超过该时长后收到的落后值才进入观察（短暂停更交给
+         * 既有的 300ms monotonicResume 容差，不启用本判定）。
+         */
+        internal const val STALE_FLUSH_MIN_SILENCE_MS = 3_000L
+
+        /**
+         * 冲刷追赶的单拍跨进阈值：观察位之后的值一拍跨进 ≥1.5s（缓冲位置按写入间隔
+         * ~2-3s 压缩在毫秒级送达）视为冲刷在追赶；正常 60Hz 节奏一拍只前进 ~17ms。
+         */
+        internal const val STALE_FLUSH_RACE_STEP_MS = 1_500L
 
         /**
          * issue #64:位置通道活跃但歌曲数据长期缺席(半死)时,强制重建订阅前的缺席阈值。
