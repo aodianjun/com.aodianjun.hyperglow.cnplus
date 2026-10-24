@@ -598,8 +598,9 @@ class LyriconLyricProducer(
     }
 
     /**
-     * 共享内存位置停写后的第二位置源探测（1s 节流）：只接受「比最后真实位置更靠前且不越歌长」
-     * 的 MediaSession 值，避免把冻结的旧值当新位置把歌词拉回去。
+     * 共享内存位置停写后的第二位置源探测（1s 节流）：把 MediaSession 位置按倍速推算到
+     * 当前时刻后，只接受「比最后真实位置更靠前且不越歌长」的值——直接用原始
+     * `playbackState.position` 会按播放器的更新延迟把歌词回卷（息屏时间戳滞后的根因）。
      */
     internal fun probeMediaSessionPosition(now: Long): Long? {
         if (now - lastMediaSessionProbeMs < MEDIA_SESSION_POSITION_PROBE_MS) return null
@@ -607,10 +608,18 @@ class LyriconLyricProducer(
         val pkg = sessionQueryPackage(activePlayerPackage, activeProviderPackage) ?: return null
         val sample = mediaSessionPositionReader(pkg) ?: return null
         val duration = currentSong?.duration ?: 0L
-        if (sample.positionMs < 0L) return null
-        if (duration > 0L && sample.positionMs > duration + 2_000L) return null
-        if (sample.positionMs <= lastRealPositionMs) return null
-        return sample.positionMs
+        // playbackState.position 是 lastPositionUpdateTime 那一刻的值，播放器常隔几秒才
+        // 更新一次；按倍速推算到当前时刻再比较/重锚。
+        val projected = if (sample.lastUpdateElapsedMs in 0..now) {
+            sample.positionMs +
+                ((now - sample.lastUpdateElapsedMs) * sample.speed.coerceAtLeast(0f)).toLong()
+        } else {
+            sample.positionMs
+        }
+        if (projected < 0L) return null
+        if (duration > 0L && projected > duration + 2_000L) return null
+        if (projected <= lastRealPositionMs) return null
+        return projected
     }
 
     /**

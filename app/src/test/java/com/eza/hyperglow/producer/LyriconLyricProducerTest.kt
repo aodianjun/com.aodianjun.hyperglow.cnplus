@@ -2417,12 +2417,24 @@ class LyriconLyricProducerTest {
 
         assertEquals(10_000L, fallbackProducer.probeMediaSessionPosition(1_000L))
 
-        // 冻结/回退值不接受（否则会把歌词拉回去）。
+        // 冻结/回退值不接受（否则会把歌词拉回去）：
+        // 位置 4000 停在 3000ms 时刻、now=3000（无外推余量），仍 <= lastReal(5000)。
         fallbackProducer.lastMediaSessionProbeMs = 0L
         fallbackProducer.mediaSessionPositionReader = {
-            MediaSessionPosition(positionMs = 4_000L, lastUpdateElapsedMs = 1_000L, speed = 1f)
+            MediaSessionPosition(positionMs = 4_000L, lastUpdateElapsedMs = 3_000L, speed = 1f)
         }
         assertNull(fallbackProducer.probeMediaSessionPosition(3_000L))
+
+        // 播放器延迟更新 playbackState 时按倍速推算到当前时刻：
+        // 原始 8000ms 停在 1000ms 时刻，now=6000 → 8000+5000=13000ms。
+        // 不推算的话 8000 <= lastReal(10000) 会被拒，歌词按更新延迟回卷
+        //（息屏时间戳滞后的根因）。
+        fallbackProducer.lastMediaSessionProbeMs = 0L
+        fallbackProducer.lastRealPositionMs = 10_000L
+        fallbackProducer.mediaSessionPositionReader = {
+            MediaSessionPosition(positionMs = 8_000L, lastUpdateElapsedMs = 1_000L, speed = 1f)
+        }
+        assertEquals(13_000L, fallbackProducer.probeMediaSessionPosition(6_000L))
     }
 
     private fun markerDuetSong(): Song = Song(
