@@ -2374,6 +2374,110 @@ class LyriconLyricProducerTest {
         assertEquals(true, producer.sessionPlayingObserved)
     }
 
+    @Test
+    fun resolveSessionPlaying_truthTable() {
+        // 3.2 真值表逐行覆盖：state 非空时只看分类；state 空但会话在 → false；
+        // 会话查不到时有歌只认同名在播，无歌保持未知。
+        assertEquals(true, resolveSessionPlayingObserved(MediaPlayback.PLAYING, false, false, false))
+        assertEquals(false, resolveSessionPlayingObserved(MediaPlayback.STOPPED, true, true, true))
+        assertEquals(false, resolveSessionPlayingObserved(MediaPlayback.PAUSED, false, true, true))
+        assertEquals(false, resolveSessionPlayingObserved(null, true, true, true))
+        assertEquals(true, resolveSessionPlayingObserved(null, false, true, true))
+        assertEquals(false, resolveSessionPlayingObserved(null, false, true, false))
+        assertNull(resolveSessionPlayingObserved(null, false, false, false))
+        assertNull(resolveSessionPlayingObserved(null, false, false, true))
+    }
+
+    @Test
+    fun stopDetection_clearsWhenSessionExistsButStateNull() {
+        // 网易云停止态：会话仍 active、metadata 保留、playbackState 变 null。旧实现
+        // `?: return` 让 stoppedStreak 永远不累加；会话存在时应按 STOPPED 处理并在
+        // STOP_CONFIRMATIONS 次后清曲目。
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.activePlayerPlaybackStateReader = { null }
+        producer.sessionExistsReader = { true }
+
+        repeat(LyriconLyricProducer.STOP_CONFIRMATIONS) {
+            producer.maybeClearOnStoppedPlayer()
+        }
+
+        assertNull("session exists but state=null must clear the stale track", producer.state.value)
+        assertNull(producer.currentSong)
+    }
+
+    @Test
+    fun stopDetection_noClearWhenSessionMissingAndStateNull() {
+        // 读不到 ≠ 已停止：会话查不到时保持旧行为，不能误清曲目（小米 hide 不可逆）。
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.activePlayerPlaybackStateReader = { null }
+        producer.sessionExistsReader = { false }
+
+        repeat(LyriconLyricProducer.STOP_CONFIRMATIONS + 1) {
+            producer.maybeClearOnStoppedPlayer()
+        }
+
+        assertNotNull(producer.state.value)
+        assertNotNull(producer.currentSong)
+    }
+
+    @Test
+    fun sessionPlayingObservation_falseWhenSessionExistsButStateNull() {
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.activePlayerPlaybackStateReader = { null }
+        producer.sessionExistsReader = { true }
+
+        producer.refreshSessionPlaying()
+
+        assertEquals(false, producer.sessionPlayingObserved)
+    }
+
+    @Test
+    fun sessionPlayingObservation_ignoresUnrelatedPlayingSession() {
+        // 查询包名的会话不存在、存在无关残留会话（B 站 state=PLAYING）时，旧实现
+        // anySessionPlaying() 会把它当在播；收紧后只认同名在播 → false。
+        // JVM 没有真实 MediaSessionManager，anySessionActiveFor 返回 false，
+        // 正好覆盖「无关会话不参与」的判定。
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.activePlayerPlaybackStateReader = { null }
+        producer.sessionExistsReader = { false }
+
+        producer.refreshSessionPlaying()
+
+        assertEquals(false, producer.sessionPlayingObserved)
+    }
+
+    @Test
+    fun sessionPlayingObservation_skipsSessionExistenceWhenStateKnown() {
+        // 会话存在性查询只在 state 未知时发生，避免每轮多一次 binder 往返。
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        var sessionQueries = 0
+        producer.activePlayerPlaybackStateReader = { MediaPlayback.PLAYING }
+        producer.sessionExistsReader = {
+            sessionQueries++
+            false
+        }
+
+        producer.refreshSessionPlaying()
+
+        assertEquals(0, sessionQueries)
+        assertEquals(true, producer.sessionPlayingObserved)
+    }
+
     // --- 2.12 sequence/generation 原子性(并发入口上的编号) ---
 
     @Test
