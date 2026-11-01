@@ -209,6 +209,22 @@ class LyriconLyricProducer(
     internal var activePlayerPlaybackStateReader: (String) -> Int? = { readActivePlayerPlaybackState(it) }
 
     /**
+     * 查询 [packageName] 的 MediaSession 当前是否仍注册/存活。用于区分「会话在、播放态为空」
+     * （网易云停止态，按 STOPPED 处理）与「会话已消失」（读不到，不得误判为停止）。
+     * 看门狗协程内调用：无通知使用权时 getActiveSessions 会抛 SecurityException，必须吞掉。
+     */
+    private fun hasSessionFor(packageName: String): Boolean {
+        val manager = mediaSessionManager ?: return false
+        val component = notificationListenerComponent ?: return false
+        return runCatching {
+            manager.getActiveSessions(component).any { it.packageName == packageName }
+        }.getOrDefault(false)
+    }
+
+    /** JVM 单测用的缝，默认走真实 MediaSessionManager。 */
+    internal var sessionExistsReader: (String) -> Boolean = { hasSessionFor(it) }
+
+    /**
      * 第二位置源读取缝：播放器 MediaSession 的 position（共享内存停写时兜底）。
      * 单测可替换本缝，避免依赖真实 MediaSessionManager。
      */
@@ -587,7 +603,10 @@ class LyriconLyricProducer(
             stoppedStreak = 0
             return
         }
-        val state = activePlayerPlaybackStateReader(pkg) ?: return
+        // 会话存在但播放态为空（网易云停止后清空 state）按 STOPPED 处理；
+        // 完全查不到会话时保持旧行为，避免把「查不到」误判成「已停止」。
+        val state = activePlayerPlaybackStateReader(pkg)
+        if (state == null && !sessionExistsReader(pkg)) return
         if (classifyActivePlayerPlayback(state) == ActivePlayerPlayback.STOPPED) {
             if (++stoppedStreak >= STOP_CONFIRMATIONS) {
                 stopConverged = true
@@ -690,22 +709,18 @@ class LyriconLyricProducer(
     internal fun refreshSessionPlaying() {
         val pkg = sessionQueryPackage(activePlayerPackage, activeProviderPackage)
         val state = if (pkg != null) activePlayerPlaybackStateReader(pkg) else null
-        sessionPlayingObserved = when {
-            state != null -> classifyActivePlayerPlayback(state) == ActivePlayerPlayback.PLAYING
-            currentSong != null -> anySessionPlaying()
-            else -> null
-        }
-    }
-
-    /** True when any active MediaSession is playing (bounded fallback for [refreshSessionPlaying]). */
-    private fun anySessionPlaying(): Boolean {
-        val manager = mediaSessionManager ?: return false
-        val component = notificationListenerComponent ?: return false
-        return runCatching {
-            manager.getActiveSessions(component).any {
-                classifyActivePlayerPlayback(it.playbackState?.state) == ActivePlayerPlayback.PLAYING
-            }
-        }.getOrDefault(false)
+        // 会话存在性只在播放态未知时才查询，避免每次轮询多一次 binder 往返。
+        val queriedSessionExists = state == null && pkg != null && sessionExistsReader(pkg)
+        // 回落语义收紧：只有「与当前曲目同名」的在播会话才算在播，
+        // 不再让无关残留会话（如 B 站 state=PLAYING）影响结论。
+        val sameTitlePlaying = state == null && !queriedSessionExists && currentSong != null &&
+            anySessionActiveFor(currentSong?.name)
+        sessionPlayingObserved = resolveSessionPlayingObserved(
+            state = state,
+            queriedSessionExists = queriedSessionExists,
+            hasSong = currentSong != null,
+            sameTitlePlaying = sameTitlePlaying
+        )
     }
 
     /**
@@ -1207,4 +1222,19 @@ class LyriconLyricProducer(
             font = "spotify"
         )
     }
+}
+
+/**
+ * 纯函数：便于 JVM 单测覆盖真值表，不依赖 Android 运行时。
+ */
+internal fun resolveSessionPlayingObserved(
+    state: Int?,
+    queriedSessionExists: Boolean,
+    hasSong: Boolean,
+    sameTitlePlaying: Boolean
+): Boolean? = when {
+    state != null -> classifyActivePlayerPlayback(state) == ActivePlayerPlayback.PLAYING
+    queriedSessionExists -> false // 会话在、播放态空 = 该播放器没在播
+    hasSong -> sameTitlePlaying // 会话查不到：只认同名在播会话
+    else -> null // 无歌、无信息：保持未知，不误触发
 }
