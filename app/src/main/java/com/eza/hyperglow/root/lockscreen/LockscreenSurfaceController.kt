@@ -47,6 +47,7 @@ import com.eza.hyperglow.root.transition.resetLinkageView
 import com.eza.hyperglow.root.transition.transitionRectInWindow
 import com.eza.hyperglow.root.surface.PlacementEngine
 import com.eza.hyperglow.root.surface.PlacementEnvironment
+import com.eza.hyperglow.root.surface.PlacementRect
 import com.eza.hyperglow.root.surface.WidgetMeasurement
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
@@ -486,6 +487,10 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             HookLogger.i(TAG, "Reverse anchor stable mode=$anchorMode rect=$rect")
         }
         val visible = baseVisible && anchorReady
+        val stack = readField(controller, "notificationStackScrollLayout") as? ViewGroup
+        val header = stack?.let { findMediaHeader(it, requireVisible = true) }
+        val reservePx = if (visible) layoutResult?.notificationReservePx ?: 0 else 0
+        LyricReserveState.update(stack, header, reservePx)
         directSurface.keepScreenOn = shouldKeepLockscreenAwake(
             enabled = customization?.lockscreenKeepAwake == true,
             visible = visible,
@@ -599,14 +604,26 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             return null
         }
         val avoidsNotifications = profile.collisionPolicy == "avoid"
-        val freeRegion = if (avoidsNotifications) {
+        val bottomReserve = (BOTTOM_RESERVE_DP * density).roundToInt()
+        val mediaHeaderBottom = resolveVisibleMediaHeaderBottom(controller, host)
+        val pinnedBelowMediaHeader = mediaHeaderBottom != null
+        val mediaCardGap = (MEDIA_CARD_GAP_DP * density).roundToInt()
+        val freeRegion = if (mediaHeaderBottom != null) {
+            val top = (mediaHeaderBottom + mediaCardGap).coerceIn(0, host.height)
+            PlacementRect(
+                0f,
+                top.toFloat(),
+                host.width.toFloat(),
+                (host.height - bottomReserve).toFloat()
+            )
+        } else if (avoidsNotifications) {
             lockscreenCardRegionAfterNotifications(
                 host.width,
                 host.height,
                 clockBottom,
                 margin,
                 notificationGap,
-                (BOTTOM_RESERVE_DP * density).roundToInt(),
+                bottomReserve,
                 notificationBounds
             )
         } else {
@@ -615,7 +632,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 host.height,
                 clockBottom,
                 margin,
-                (BOTTOM_RESERVE_DP * density).roundToInt(),
+                bottomReserve,
                 notificationBounds
             )
         }
@@ -704,7 +721,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 else -> null
             }
         }
-        val placementProfile = if (avoidsNotifications) {
+        val placementProfile = if (avoidsNotifications || pinnedBelowMediaHeader) {
             profile.copy(
                 anchor = "below_stock_clock",
                 maxHeightFraction = 1f,
@@ -746,9 +763,15 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             layoutDiagnostic = "invalid-rect=$rect"
             return null
         }
+        val notificationReservePx = if (pinnedBelowMediaHeader) {
+            mediaCardGap + rect.height + notificationGap
+        } else {
+            0
+        }
         layoutDiagnostic =
-            "rect=$rect clock=$clockBottom notification=${notificationBounds ?: "none"} " +
-            "free=$freeRegion"
+            "rect=$rect clock=$clockBottom media=${mediaHeaderBottom ?: "none"} " +
+            "pin=$pinnedBelowMediaHeader reserve=$notificationReservePx " +
+            "notification=${notificationBounds ?: "none"} free=$freeRegion"
         val progressEnabled = "media_progress" in visibleTypes
         val progressHeight = if (progressEnabled) (PROGRESS_HEIGHT_DP * density).roundToInt() else 0
         val progressGap = if (progressEnabled) (PROGRESS_GAP_DP * density).roundToInt() else 0
@@ -772,7 +795,13 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
                 verticalInset + lyricHeight + progressGap
             )
         }
-        return LockscreenLayoutResult(rect, renderProfile, progressEnabled)
+        return LockscreenLayoutResult(
+            rect,
+            renderProfile,
+            progressEnabled,
+            mediaHeaderBottom,
+            notificationReservePx
+        )
     }
 
     private fun applyFrameLayoutGeometry(
@@ -1057,6 +1086,51 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val hostLocation = IntArray(2)
         host.getLocationInWindow(hostLocation)
         return (visible.bottom - hostLocation[1]).coerceIn(0, host.height)
+    }
+
+    private fun resolveVisibleMediaHeaderBottom(controller: Any?, host: ViewGroup): Int? {
+        val stack = readField(controller, "notificationStackScrollLayout") as? ViewGroup
+            ?: return null
+        val header = findMediaHeader(stack, requireVisible = true) ?: return null
+        val position = stableLayoutPositionInHost(host, header)
+        if (position != null && header.height > 0) {
+            val parentTranslation = (header.parent as? View)?.translationY ?: 0f
+            return (position.second + header.translationY + parentTranslation + header.height)
+                .roundToInt()
+                .coerceIn(0, host.height)
+                .takeIf { it > 0 }
+        }
+        return visibleBottomInHost(host, header).takeIf { it > 0 }
+    }
+
+    private fun findMediaHeader(stack: ViewGroup, requireVisible: Boolean): View? {
+        for (index in 0 until stack.childCount) {
+            val child = stack.getChildAt(index)
+            val className = notificationContentClassName(child)?.substringAfterLast('.')
+                ?: child.javaClass.name.substringAfterLast('.')
+            val isMediaHeader = className == "MiuiMediaHeaderView" ||
+                className.contains("MediaHeader", ignoreCase = true) ||
+                className.contains("MediaControl", ignoreCase = true)
+            if (!isMediaHeader) continue
+            if (!requireVisible ||
+                (child.visibility == View.VISIBLE && child.alpha > MIN_VISIBLE_ALPHA)
+            ) {
+                return child
+            }
+        }
+        for (index in 0 until stack.childCount) {
+            val child = stack.getChildAt(index)
+            if (notificationContentClassName(child)?.substringAfterLast('.') ==
+                "ExpandableNotificationRow"
+            ) continue
+            if (child.height > 0 &&
+                (!requireVisible ||
+                    (child.visibility == View.VISIBLE && child.alpha > MIN_VISIBLE_ALPHA))
+            ) {
+                return child
+            }
+        }
+        return null
     }
 
     private fun buildSurface(host: FrameLayout): FrameLayout {

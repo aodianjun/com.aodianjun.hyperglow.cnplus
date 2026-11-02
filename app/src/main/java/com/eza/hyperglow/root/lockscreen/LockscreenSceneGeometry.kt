@@ -20,6 +20,9 @@ internal const val TOP_MARGIN_DP = 16f
 
 internal const val NOTIFICATION_GAP_DP = 8f
 
+/** 音乐卡与歌词卡之间的固定间距。 */
+internal const val MEDIA_CARD_GAP_DP = 12f
+
 internal const val BOTTOM_RESERVE_DP = 120f
 
 internal const val MIN_WIDTH_DP = 160f
@@ -47,7 +50,9 @@ internal const val LOCKSCREEN_ENTRY_SLIDE_DP = 20f
 internal data class LockscreenLayoutResult(
     val rect: LockscreenSceneRect,
     val profile: CompiledSurfaceProfile,
-    val progressVisible: Boolean
+    val progressVisible: Boolean,
+    val mediaHeaderBottom: Int? = null,
+    val notificationReservePx: Int = 0
 )
 
 internal fun largestLockscreenFreeRegion(

@@ -21,6 +21,7 @@ internal object LockscreenSurfaceHook {
     )
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
+        LyricReserveState.bindModule(module)
         val sectionClass = SymbolResolver.resolveClass(
             classLoader, FEATURE_ID, SECTION_CLASS
         ) ?: return missingSeam(classLoader, SECTION_CLASS)
