@@ -292,6 +292,10 @@ internal fun HomeScreen(
     var aodDebugShowCanvasFrame by remember {
         mutableStateOf(initialConfig.aodDebugShowCanvasFrame)
     }
+    // 开发者选项:强制指定歌词提供器(关闭时保留「自动选更好的源」)。
+    var forceLyricProvider by remember {
+        mutableStateOf(initialConfig.forceLyricProvider)
+    }
     var persistentNotification by remember {
         mutableStateOf(initialConfig.persistentNotification)
     }
@@ -850,6 +854,24 @@ internal fun HomeScreen(
                                     }
                                 )
                             }
+                        }
+                    }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
+                                forceLyricProvider,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.FORCE_LYRIC_PROVIDER,
+                                        enabled
+                                    ).apply()
+                                    LyricProducers.arbiterOrNull()
+                                        ?.updateForcePreferredSource(enabled)
+                                    forceLyricProvider = enabled
+                                },
+                                stringResource(R.string.setting_force_lyric_provider),
+                                summary = stringResource(R.string.summary_force_lyric_provider)
+                            )
                         }
                     }
                     item {

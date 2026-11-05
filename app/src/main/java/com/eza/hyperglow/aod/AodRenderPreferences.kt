@@ -137,7 +137,13 @@ data class AodRenderConfig(
      * [com.eza.hyperglow.producer.LyricOpeningFilter] 的保守语义(作词/作曲不隐藏)
      * 互不冲突——本开关是新增能力,不是在既有开场清理里补一条词表的改动。
      */
-    val hideCreditLines: Boolean = false
+    val hideCreditLines: Boolean = false,
+    /**
+     * 开发者选项:强制指定歌词提供器。开启后仲裁器只使用设置里选中的歌词源,不再因为
+     * 另一个源带逐字时间而自动升级,也不会在选中源只是暂停冻结态时让位;选中源断连或
+     * 故障时仍回退(否则屏上无歌词)。默认关闭,保持「自动选更好的源」。
+     */
+    val forceLyricProvider: Boolean = false
 ) {
     companion object {
         /** 出厂默认配置;备份解码时用于逐字段回退缺失/类型错误的值。 */
@@ -378,6 +384,7 @@ object AodRenderPreferences {
     const val AOD_POWER_SAVER = "aod_power_saver"
     const val FILTER_NON_MUSIC_SOURCES = "filter_non_music_sources"
     const val HIDE_CREDIT_LINES = "hide_credit_lines"
+    const val FORCE_LYRIC_PROVIDER = "force_lyric_provider"
 
     // SharedPreferences throws ClassCastException when an older/imported value has the wrong
     // primitive type. Treat malformed entries as missing so a bad setting cannot crash startup.
@@ -483,7 +490,8 @@ object AodRenderPreferences {
             normalizeAodRefreshRateCap(prefs.safeInt(AOD_REFRESH_RATE_CAP, 0)),
             prefs.safeBoolean(FILTER_NON_MUSIC_SOURCES, true),
             prefs.safeBoolean(AOD_POWER_SAVER, true),
-            prefs.safeBoolean(HIDE_CREDIT_LINES, false)
+            prefs.safeBoolean(HIDE_CREDIT_LINES, false),
+            prefs.safeBoolean(FORCE_LYRIC_PROVIDER, false)
         ).also { cachedConfig = it }
     }
 

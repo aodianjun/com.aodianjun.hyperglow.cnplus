@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * Selects which [LyricProducer] feeds the projection pipeline, enforcing the single-active-
@@ -67,6 +68,32 @@ class LyricProducerArbiter(
     private val mutableActiveSource = MutableStateFlow<LyricSource?>(null)
     private val mutablePreference = MutableStateFlow(LyricSource.SPICY)
 
+    /**
+     * 第二位置源(播放器 MediaSession 的权威位置),用于判定选中源「时间戳对不上」。
+     * 由 [LyricProducers] 在启动时注入(读 LyricInfo 的状态——它是唯一直接跟随
+     * MediaSession 的源);单测不注入时时间戳判定整体关闭。
+     */
+    internal var referencePositionProvider: (() -> LyricReferencePosition?)? = null
+
+    /**
+     * 开发者选项「强制指定歌词提供器」:开启后仲裁器只认 [preference],关闭自动升级
+     * (无词级时间时切到逐字源)、冻结态让位与健康换源;选中源断连/故障仍回退。
+     */
+    @Volatile
+    internal var forcePreferredSource: Boolean = false
+
+    // 源健康判定状态(只跟踪当前选中的源):
+    // - healthPositionSinceMs:位置值最后一次变化的时间 → 播放中 10s 不动判卡死;
+    // - healthMismatchSinceMs:与权威位置偏差超阈值的起始时间 → 持续 5s 判时间戳不符。
+    private var healthSource: LyricSource? = null
+    private var healthPositionMs = Long.MIN_VALUE
+    private var healthPositionSinceMs = 0L
+    private var healthMismatchSinceMs = 0L
+    private var lastAutoSwitchAtMs = 0L
+
+    /** 判坏后暂时降级、不再选回的源(到期自动恢复竞争)。 */
+    private val demotedUntil = HashMap<LyricSource, Long>()
+
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var arbitrationJob: Job? = null
     private var staleSweepJob: Job? = null
@@ -89,6 +116,8 @@ class LyricProducerArbiter(
             AppLog.i("LyricProducerArbiter", "restored preference: $restored")
             mutablePreference.value = restored
         }
+        // 开发者选项「强制指定歌词提供器」也随进程启动恢复。
+        forcePreferredSource = AodRenderPreferences.read(context.applicationContext).forceLyricProvider
         producers.values.forEach { it.start(context) }
         arbitrationJob = scope.launch { arbitrateLoop(context) }
         staleSweepJob = scope.launch { staleSweepLoop() }
@@ -216,7 +245,7 @@ class LyricProducerArbiter(
         val pref = mutablePreference.value
         val preferred = producer(pref)
         val now = clock()
-        val result = if (preferred == null) {
+        val selected = if (preferred == null) {
             // Preference names a source with no producer registered: fall back.
             fallbackState(pref, fallbackDiagnosticEnabled(pref, "noProducer", now))
         } else {
@@ -231,19 +260,25 @@ class LyricProducerArbiter(
                 // 走 fallback,交给 LyriconLyricProducer 的 watchdog 重建订阅。
                 // (故障谓词与 staleSweepLoop 的清空条件同源,见 isFaulted。)
             if (preferredUsable) {
-                // 首选源可用。若它只带行级歌词（无词级时间戳），却存在另一个已连接、非 stale
-                // 且带词级时间戳的源（如 SuperLyric 的逐字卡拉OK），优先切到带词级数据的源，
-                // 避免"普通 LRC 无词级时间→单词动画缺失"的时有时无。有词级数据时仍用首选源。
-                val timed = timedState()
-                when {
-                    timed != null && !hasWordTiming(preferredState) -> timed
-                    // 冻结态让位:首选源只是「暂停不算故障」而保持可用时,若另一个源正在播放且
-                    // 带歌词内容,让位给它 —— 0.3.120 真机:Lyricon 回调链死亡后冻结态长期
-                    // 霸占首选位,SuperLyric 逐句收词却永远上不了屏(「当前歌词源暂无曲目」
-                    // 常驻)。只让位给「在播且有内容」的源:暂停时的冻结歌词保持显示,绝不
-                    // 让位给无歌词内容的源把 AOD 歌词清掉(暂停保留语义的初衷)。
-                    isStale(preferredState) -> fresherPlayingContentState(pref) ?: preferredState
-                    else -> preferredState
+                // 开发者选项「强制指定歌词提供器」:默认关闭。关闭时保留自动升级 —— 首选源
+                // 只带行级歌词(无词级时间戳)而另一个已连接、非 stale 的源带词级数据
+                // (如 SuperLyric 的逐字卡拉OK)时,优先用带词级数据的源,避免单词动画
+                // 时有时无。打开后只认用户选中的源,不再自动升级/让位;选中源断连或
+                // 故障时仍走下方回退(否则屏上会没有歌词)。
+                if (forcePreferredSource) {
+                    preferredState
+                } else {
+                    val timed = timedState()
+                    when {
+                        timed != null && !hasWordTiming(preferredState) -> timed
+                        // 冻结态让位:首选源只是「暂停不算故障」而保持可用时,若另一个源正在播放且
+                        // 带歌词内容,让位给它 —— 0.3.120 真机:Lyricon 回调链死亡后冻结态长期
+                        // 霸占首选位,SuperLyric 逐句收词却永远上不了屏(「当前歌词源暂无曲目」
+                        // 常驻)。只让位给「在播且有内容」的源:暂停时的冻结歌词保持显示,绝不
+                        // 让位给无歌词内容的源把 AOD 歌词清掉(暂停保留语义的初衷)。
+                        isStale(preferredState) -> fresherPlayingContentState(pref) ?: preferredState
+                        else -> preferredState
+                    }
                 }
             } else {
                 // Preferred disconnected/stale/no-state: fall back.
@@ -269,6 +304,9 @@ class LyricProducerArbiter(
                 fallbackState(pref, logDetail)
             }
         }
+        // 源健康兜底:选中源卡死(播放中位置长时间不动)或时间戳与播放器 MediaSession
+        // 权威位置持续不符时,直接换到另一个健康且带内容的源(见 maybeSwitchUnhealthySource)。
+        val result = maybeSwitchUnhealthySource(selected, now)
         // 无可用歌词源时,输出一次全源汇总,便于定位是哪一环断了(播放器未上报进度 /
         // 源 stale / 未连接)。按诊断签名去重,只在画面变化时记录,避免每 100ms 刷屏。
         if (result == null) logSourceSummaryOnce(pref, now)
@@ -301,6 +339,148 @@ class LyricProducerArbiter(
             if (isStale(st)) return@firstNotNullOfOrNull null
             st.takeIf(::hasWordTiming)
         }
+
+    /** 开发者选项切换:强制指定歌词提供器(只改内存,持久化由设置页负责)。 */
+    internal fun updateForcePreferredSource(enabled: Boolean) {
+        if (forcePreferredSource == enabled) return
+        forcePreferredSource = enabled
+        AppLog.i("LyricProducerArbiter", "force preferred source: $enabled")
+    }
+
+    private fun sourceOf(state: LyricProducerState): LyricSource? =
+        LyricSource.entries.firstOrNull { producer(it)?.state?.value === state }
+
+    private fun projectedPosition(
+        positionMs: Long,
+        sampledAtElapsedMs: Long,
+        speed: Float,
+        now: Long
+    ): Long = positionMs +
+        ((now - sampledAtElapsedMs).coerceAtLeast(0L) * speed.coerceAtLeast(0f)).toLong()
+
+    /**
+     * 源健康兜底(用户要求):选中源**卡死**或**时间戳对不上**时直接换到另一个健康源。
+     *
+     * - 卡死:播放中 `positionMs` 连续 [SOURCE_STUCK_MS] 不动。用位置值而不是 `receivedAt`
+     *   ——写端冻结后会按 60Hz 重发同一个值,收包时间永远是新鲜的,只有位置值暴露停更。
+     * - 时间戳不符:与 [referencePositionProvider](播放器 MediaSession)推算到当前时刻的
+     *   位置偏差 ≥[SOURCE_MISMATCH_TOLERANCE_MS],且持续 [SOURCE_MISMATCH_SUSTAIN_MS]。
+     *
+     * 只有存在另一个「已连接、非 stale、在播且带歌词内容」的源才换;换走后把原源降级
+     * [SOURCE_DEMOTION_MS],期间保持替代源(否则每个仲裁 tick 都会在偏好源与替代源之间
+     * 来回跳)。降级到期后偏好源重新参与竞争,仍坏则再次换走。
+     */
+    private fun maybeSwitchUnhealthySource(
+        selected: LyricProducerState?,
+        now: Long
+    ): LyricProducerState? {
+        if (selected == null || forcePreferredSource) return selected
+        val source = sourceOf(selected) ?: return selected
+        if ((demotedUntil[source] ?: 0L) > now) {
+            return pickAlternative(source, now) ?: selected
+        }
+        updateSourceHealth(source, selected, now)
+        // 只有「刚刚发过状态、值却不动」才算卡死:某些源(SuperLyric)只在线路切换时
+        // 发状态,长间奏里 state 会自然变旧,若把「久未更新」也当卡死会误换;久未更新
+        // 交给既有的 stale/fault 回退链处理。
+        val freshlyEmitted = now - selected.sampledAtElapsedMs in
+            0..SOURCE_STUCK_FRESH_MS
+        val stuck = selected.playing && freshlyEmitted &&
+            now - healthPositionSinceMs >= SOURCE_STUCK_MS
+        val mismatch = healthMismatchSinceMs > 0L &&
+            now - healthMismatchSinceMs >= SOURCE_MISMATCH_SUSTAIN_MS
+        if (!stuck && !mismatch) return selected
+        // 首次自动换源不受冷却限制(0 = 从未换过);之后两次换源至少间隔 30s。
+        if (lastAutoSwitchAtMs != 0L &&
+            now - lastAutoSwitchAtMs < SOURCE_AUTO_SWITCH_COOLDOWN_MS
+        ) return selected
+        val alternative = pickAlternative(source, now) ?: return selected
+        demotedUntil[source] = now + SOURCE_DEMOTION_MS
+        lastAutoSwitchAtMs = now
+        healthMismatchSinceMs = 0L
+        AppLog.w(
+            "LyricProducerArbiter",
+            "auto switch: $source " + (
+                if (stuck) {
+                    "position stuck for ${now - healthPositionSinceMs}ms"
+                } else {
+                    "timestamp mismatch vs MediaSession"
+                }
+                ) + " -> ${sourceOf(alternative) ?: "null"}"
+        )
+        return alternative
+    }
+
+    private fun updateSourceHealth(
+        source: LyricSource,
+        state: LyricProducerState,
+        now: Long
+    ) {
+        if (source != healthSource) {
+            healthSource = source
+            healthPositionMs = state.positionMs
+            healthPositionSinceMs = now
+            healthMismatchSinceMs = 0L
+            return
+        }
+        if (state.positionMs != healthPositionMs) {
+            healthPositionMs = state.positionMs
+            healthPositionSinceMs = now
+        }
+        // 参考位置只跟随播放器会话,而 LyricInfo 就是该会话本身:以它为选中源时不比对。
+        if (!state.playing || source == LyricSource.LYRICINFO) {
+            healthMismatchSinceMs = 0L
+            return
+        }
+        val reference = referencePositionProvider?.invoke()
+        if (reference == null || !reference.playing ||
+            now - reference.sampledAtElapsedMs !in 0..SOURCE_REFERENCE_MAX_AGE_MS
+        ) {
+            healthMismatchSinceMs = 0L
+            return
+        }
+        val activePosition = projectedPosition(
+            state.positionMs,
+            state.sampledAtElapsedMs,
+            state.speed,
+            now
+        )
+        val referencePosition = projectedPosition(
+            reference.positionMs,
+            reference.sampledAtElapsedMs,
+            reference.speed,
+            now
+        )
+        if (abs(activePosition - referencePosition) >= SOURCE_MISMATCH_TOLERANCE_MS) {
+            if (healthMismatchSinceMs == 0L) healthMismatchSinceMs = now
+        } else {
+            healthMismatchSinceMs = 0L
+        }
+    }
+
+    /**
+     * 健康替代源:已连接、非 stale、在播、带歌词内容(非空行或词级时间戳)。
+     * 优先带词级时间戳的源(与自动升级同一取向),其余按 enum 顺序。
+     */
+    private fun pickAlternative(excluded: LyricSource, now: Long): LyricProducerState? {
+        val candidates = LyricSource.entries.filter { source ->
+            source != excluded && (demotedUntil[source] ?: 0L) <= now
+        }
+        fun usable(source: LyricSource): LyricProducerState? {
+            val p = producer(source) ?: return null
+            val conn = p.connection.value
+            if (conn != ProducerConnection.CONNECTED &&
+                conn != ProducerConnection.RECONNECTED
+            ) return null
+            val st = p.state.value ?: return null
+            if (isStale(st) || !st.playing) return null
+            if (st.line.isBlank() && !hasWordTiming(st)) return null
+            return st
+        }
+        return candidates.firstNotNullOfOrNull { source ->
+            usable(source)?.takeIf(::hasWordTiming)
+        } ?: candidates.firstNotNullOfOrNull { source -> usable(source) }
+    }
 
     /**
      * 回退候选判定与既有故障谓词同源(见 [isFaulted]):`stale && playing` 才是故障,一律跳过;
@@ -533,8 +713,33 @@ class LyricProducerArbiter(
         private const val ARBITRATION_TICK_MS = 100L
         /** How often the stale-sweep checks the forwarded state. */
         private const val STALE_SWEEP_TICK_MS = 500L
+        /** 播放中位置值连续 10s 不动 → 判源卡死(即使回调仍在刷新 receivedAt)。 */
+        internal const val SOURCE_STUCK_MS = 10_000L
+        /** 状态样本年龄超过该值就不再按「卡死」判定(久未更新走 stale/fault 回退链)。 */
+        internal const val SOURCE_STUCK_FRESH_MS = 5_000L
+        /** 与 MediaSession 权威位置偏差达到 5s 视为时间戳不符。 */
+        internal const val SOURCE_MISMATCH_TOLERANCE_MS = 5_000L
+        /** 偏差需持续 5s 才判坏,避免切歌/AOD 起始阶段的短暂错位触发误换。 */
+        internal const val SOURCE_MISMATCH_SUSTAIN_MS = 5_000L
+        /** 参考位置样本的最大年龄:超过即视为不可用(播放器会话没在更新)。 */
+        internal const val SOURCE_REFERENCE_MAX_AGE_MS = 5_000L
+        /** 自动换源冷却:两次换源至少间隔 30s,防抖。 */
+        internal const val SOURCE_AUTO_SWITCH_COOLDOWN_MS = 30_000L
+        /** 判坏源的降级窗口:期间不再选回,到期重新参与竞争。 */
+        internal const val SOURCE_DEMOTION_MS = 60_000L
     }
 }
+
+/**
+ * 源健康判定用的权威位置样本(由 LyricInfo 从播放器 MediaSession 读取)。
+ * 与 [LyricProducerState] 同样带采样时刻与倍速,便于推算到当前时刻再比较。
+ */
+internal data class LyricReferencePosition(
+    val positionMs: Long,
+    val sampledAtElapsedMs: Long,
+    val speed: Float,
+    val playing: Boolean
+)
 
 /**
  * 仲裁发布判定:签名变化即发布;staleSweep 清空后(active 为 null)即使签名未变也必须

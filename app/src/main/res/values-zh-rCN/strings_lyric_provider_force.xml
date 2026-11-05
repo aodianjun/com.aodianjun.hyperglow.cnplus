@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setting_force_lyric_provider">强制指定歌词提供器</string>
+    <string name="summary_force_lyric_provider">只使用上方选中的歌词源。关闭“自动升级到带逐字时间的源”，以及当前源卡死或时间戳对不上时的自动换源；仅在该源断连或故障时回退。</string>
+</resources>
