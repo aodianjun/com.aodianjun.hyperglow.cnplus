@@ -451,11 +451,23 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                                 "${lastRealPositionMs}ms after ${sinceRealForFlushMs}ms silence; " +
                                 "holding extrapolated display"
                         )
+                        // 驳回的是写端值，不是展示时钟：写端冻结后会把同一个陈旧值按 60Hz
+                        // 反复回传，若观察拍只 “保持” 上一拍位置，AOD 会被永久钉死在这一句
+                        // （2026-11-05 真机 18:27:21–18:27:50：pos 停在 118747ms 达 30s，
+                        // 期间 sampledAt 每秒刷新，渲染侧无从外推）。继续按挂钟推进，
+                        // 写端恢复后由 HONOR/monotonicResume 立即对齐。
+                        advanceExtrapolation(
+                            now,
+                            "stale flush ${realPosition}ms behind base ${lastRealPositionMs}ms"
+                        )
                         recomputeAndEmit()
                         return
                     }
                     StaleFlushAction.REJECT -> {
                         staleFlushPendingValueMs = realPosition
+                        // 同上：写端重复陈值/冲刷追赶期间，展示位置必须继续按挂钟前进，
+                        // 否则 “观察” 会变成无限期冻结。
+                        advanceExtrapolation(now, "stale flush repeat ${realPosition}ms")
                         recomputeAndEmit()
                         return
                     }

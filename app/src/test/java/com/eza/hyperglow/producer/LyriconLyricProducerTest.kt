@@ -926,17 +926,48 @@ class LyriconLyricProducerTest {
         assertEquals(6_000L + 100_000L, state.positionMs)
 
         // Real position eventually resumes (screen-on) → extrapolation stops, real value wins.
-        // 陈旧冲刷判定：沉默 ≥3s 后的首个落后值先观察一拍（保持外推显示），
-        // 下一拍按正常节奏小幅前进即确认为真 seek/回跳并采纳（仅延迟一拍）。
+        // 陈旧冲刷判定：沉默 ≥3s 后的首个落后值先观察一拍（不采纳该值），但观察拍本身
+        // 仍按挂钟推进展示位置——不得把位置钉在上一拍（2026-11-05 真机：写端冻结 30s
+        // 期间 AOD 停在 118747ms，sampledAt 每秒刷新却永不前进）。
         clockValue = 10_000L + 100_500L
         producer.playerListener.onPositionChanged(3_000L) // line 1 [3500,5000]? no → 3000 is line 0 end/line1 gap
         state = producer.state.value!!
-        assertEquals(106_000L, state.positionMs) // 观察拍：保持上一外推显示，不倒回也不推进
+        assertEquals(106_500L, state.positionMs) // 观察拍：继续按挂钟推进，但不采纳 3_000
 
         clockValue = 10_000L + 100_517L
         producer.playerListener.onPositionChanged(3_017L) // 正常 60Hz 节奏 → 真 seek，采纳
         state = producer.state.value!!
         assertEquals(3_017L, state.positionMs)
+    }
+
+    @Test
+    fun staleFlushRepeatedWhileWriterFrozen_keepsExtrapolatingInsteadOfFreezing() {
+        // 2026-11-05 真机（18:27:21–18:27:50）：写端熄屏冻结后按 60Hz 反复回传同一个
+        // 落后 40s+ 的陈旧值。冲刷判定先 ARM 再持续 REJECT；若这两条分支只重发状态、
+        // 不推进外推，展示位置会被永久钉死（AOD 卡在同一句的一个字上），而每次状态
+        // 的 sampledAt 都被刷新成当前时刻，渲染侧的 projectedPosition() 也救不回来。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong().copy(duration = 180_000L))
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(60_000L) // real base
+
+        clockValue = 20_000L
+        producer.playerListener.onPositionChanged(60_000L) // stall → display 70_000
+        assertEquals(70_000L, producer.state.value!!.positionMs)
+
+        clockValue = 20_500L
+        producer.playerListener.onPositionChanged(20_000L) // stale first sample → ARM
+        assertEquals(70_500L, producer.state.value!!.positionMs)
+
+        clockValue = 21_000L
+        producer.playerListener.onPositionChanged(20_000L) // repeat → REJECT
+        assertEquals(71_000L, producer.state.value!!.positionMs)
+
+        clockValue = 23_000L
+        producer.playerListener.onPositionChanged(20_000L) // still stale → must keep moving
+        assertEquals(73_000L, producer.state.value!!.positionMs)
     }
 
     @Test
