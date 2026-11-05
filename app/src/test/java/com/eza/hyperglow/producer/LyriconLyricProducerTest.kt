@@ -2176,6 +2176,50 @@ class LyriconLyricProducerTest {
     }
 
     @Test
+    fun positionSilenceBlindSpotForcesResubscribeWhenPlaybackStateUnknown() {
+        // 0.3.120 老病根：播放态不可确认 + 有歌 + 回调全静默 ≥60s + 冷却外 → 兜底重建。
+        assertTrue(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = true, hasSong = true,
+                silenceMs = 61_000L, sinceLastAttemptMs = 61_000L
+            )
+        )
+        // 播放态已知为暂停 → 静默是预期，不重建。
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = false, hasSong = true,
+                silenceMs = 300_000L, sinceLastAttemptMs = 300_000L
+            )
+        )
+        // 无歌 → 不重建；静默不够长 → 不重建；冷却内 → 不重建。
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = true, hasSong = false,
+                silenceMs = 300_000L, sinceLastAttemptMs = 300_000L
+            )
+        )
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = true, hasSong = true,
+                silenceMs = 59_000L, sinceLastAttemptMs = 300_000L
+            )
+        )
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = true, hasSong = true,
+                silenceMs = 300_000L, sinceLastAttemptMs = 1_000L
+            )
+        )
+        // 在播时走原判定，不靠盲区兜底。
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = true, playingStateUnknown = true, hasSong = true,
+                silenceMs = 300_000L, sinceLastAttemptMs = 300_000L
+            )
+        )
+    }
+
+    @Test
     fun forceResubscribe_recordsSubscribeReturnValueAndRearmsVerdict() {
         // 旧实现丢弃 subscribeActivePlayer 返回值:SDK 拒绝订阅时同样重锚静默基线,
         // 现场看不到「这次重建根本没生效」。现在必须记录返回值并武装成败判据。

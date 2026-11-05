@@ -21,6 +21,25 @@ internal fun shouldForceResubscribePositionFeed(
     sinceLastAttemptMs > cooldownMs
 
 /**
+ * 播放态不可确认时的盲区兜底（0.3.120 老病根，2026-11-05 复核仍在）：
+ * 回调链死后 `isPlayingState` 冻结 false，且 MediaSession 读不到（unknown）时，
+ * 「连接还在 + 有歌 + 位置回调全静默」不会触发任何重建 —— 歌词永久断掉直到重启。
+ * 条件：playing 为 false 但播放态不可确认、有歌、静默达到更长的盲区阈值、冷却期外。
+ */
+internal fun shouldForceResubscribePositionBlindSpot(
+    playing: Boolean,
+    playingStateUnknown: Boolean,
+    hasSong: Boolean,
+    silenceMs: Long,
+    sinceLastAttemptMs: Long,
+    cooldownMs: Long = LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+): Boolean = !playing &&
+    playingStateUnknown &&
+    hasSong &&
+    silenceMs >= LyriconLyricProducer.POSITION_SILENCE_BLIND_RESUBSCRIBE_MS &&
+    sinceLastAttemptMs > cooldownMs
+
+/**
  * Decision rule for the song-feed watchdog (issue #64). Fires only when ALL hold:
  * - `playing`: during a real pause/stop the absence of new song data is expected, not a
  *   fault — same guard as the position-silence watchdog;

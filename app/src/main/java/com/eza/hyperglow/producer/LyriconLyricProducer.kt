@@ -845,19 +845,37 @@ class LyriconLyricProducer(
         if (last < 0L) return // never saw a position callback: nothing to compare yet
         val now = clock()
         val silenceMs = now - last
+        val playing = watchdogPlaying(isPlayingState, sessionPlayingObserved)
+        val cooldown = resubscribeCooldownMs(consecutiveResubscribeFailures)
+        val sinceLastAttempt = now - lastForcedResubscribeElapsedMs
+        val blindSpot = shouldForceResubscribePositionBlindSpot(
+            playing = playing,
+            playingStateUnknown = sessionPlayingObserved == null,
+            hasSong = currentSong != null,
+            silenceMs = silenceMs,
+            sinceLastAttemptMs = sinceLastAttempt,
+            cooldownMs = cooldown
+        )
         if (!shouldForceResubscribePositionFeed(
                 silenceMs = silenceMs,
-                playing = watchdogPlaying(isPlayingState, sessionPlayingObserved),
-                sinceLastAttemptMs = now - lastForcedResubscribeElapsedMs,
+                playing = playing,
+                sinceLastAttemptMs = sinceLastAttempt,
                 // 2.10:连续无效重建后退避(见 resubscribeCooldownMs)。
-                cooldownMs = resubscribeCooldownMs(consecutiveResubscribeFailures)
-            )
+                cooldownMs = cooldown
+            ) && !blindSpot
         ) {
             return
         }
         // Re-anchor the heartbeat so the same silence doesn't re-trigger before the next poll.
         lastPositionCallbackElapsedMs = now
-        forceResubscribeActivePlayer("position feed silent for ${silenceMs}ms while playing")
+        forceResubscribeActivePlayer(
+            if (blindSpot) {
+                "position feed silent for ${silenceMs}ms with playback state unknown; " +
+                    "blind-spot rebuild"
+            } else {
+                "position feed silent for ${silenceMs}ms while playing"
+            }
+        )
     }
 
     /**
@@ -1100,6 +1118,14 @@ class LyriconLyricProducer(
          * stalled value at ~60 Hz). See [shouldForceResubscribePositionFeed].
          */
         internal const val POSITION_SILENCE_RESUBSCRIBE_MS = 20_000L
+
+        /**
+         * 播放态不可确认时的盲区兜底阈值（0.3.120 老病根）：回调链死后 isPlayingState
+         * 冻结 false、MediaSession 也读不到（sessionPlayingObserved=null），此时「有歌 +
+         * 回调全静默」却因 playing=false 永不重建订阅 —— 歌词从此断到进程重启。
+         * 用更长阈值（60s）兜底，配合既有冷却防抖。
+         */
+        internal const val POSITION_SILENCE_BLIND_RESUBSCRIBE_MS = 60_000L
 
         /** Minimum gap between two forced resubscribes, so a persistent failure doesn't hammer IPC. */
         internal const val RESUBSCRIBE_COOLDOWN_MS = 30_000L
