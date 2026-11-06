@@ -67,6 +67,47 @@ internal fun LyriconLyricProducer.createConnectionListener(): ConnectionListener
         }
     }
 
+/**
+ * 回调异常隔离：SDK 在自己的线程上派发监听器，任何异常逃逸都可能让 SDK 停止派发
+ * （真机表现为「突然断联、位置不再更新」）。这里把每个回调包住，只记日志不抛出；
+ * 转发行为本身与直接注册监听器完全一致。
+ */
+internal class GuardedActivePlayerListener(
+    private val delegate: ActivePlayerListener
+) : ActivePlayerListener by delegate {
+    override fun onActiveProviderChanged(providerInfo: ProviderInfo?) =
+        guard("onActiveProviderChanged") { delegate.onActiveProviderChanged(providerInfo) }
+
+    override fun onSongChanged(song: Song?) =
+        guard("onSongChanged") { delegate.onSongChanged(song) }
+
+    override fun onReceiveText(text: String?) =
+        guard("onReceiveText") { delegate.onReceiveText(text) }
+
+    override fun onPlaybackStateChanged(isPlaying: Boolean) =
+        guard("onPlaybackStateChanged") { delegate.onPlaybackStateChanged(isPlaying) }
+
+    override fun onPositionChanged(position: Long) =
+        guard("onPositionChanged") { delegate.onPositionChanged(position) }
+
+    override fun onSeekTo(position: Long) =
+        guard("onSeekTo") { delegate.onSeekTo(position) }
+
+    override fun onDisplayTranslationChanged(isDisplayTranslation: Boolean) =
+        guard("onDisplayTranslationChanged") {
+            delegate.onDisplayTranslationChanged(isDisplayTranslation)
+        }
+
+    override fun onDisplayRomaChanged(isDisplayRoma: Boolean) =
+        guard("onDisplayRomaChanged") { delegate.onDisplayRomaChanged(isDisplayRoma) }
+
+    private inline fun guard(name: String, block: () -> Unit) {
+        runCatching(block).onFailure {
+            AppLog.w("LyriconLyricProducer", "player listener $name failed", it)
+        }
+    }
+}
+
 internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
     object : ActivePlayerListener {
         override fun onActiveProviderChanged(providerInfo: ProviderInfo?) {

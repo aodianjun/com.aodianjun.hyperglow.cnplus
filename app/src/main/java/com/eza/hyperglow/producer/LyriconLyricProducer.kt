@@ -169,6 +169,8 @@ class LyriconLyricProducer(
      */
     @Volatile internal var sessionPlayingObserved: Boolean? = null
     private val watchdogScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    /** 看门狗心跳节流(诊断用,默认 1 分钟一条)。 */
+    private var lastWatchdogHeartbeatAtMs = 0L
 
     // --- Song-feed watchdog (issue #64) ---
     // 位置通道活跃(回调持续、值在推进)但歌曲通道已丢(onSongChanged 不再到达,
@@ -410,7 +412,8 @@ class LyriconLyricProducer(
 
     internal val connectionListener = createConnectionListener()
 
-    internal val playerListener = createPlayerListener()
+    // 回调异常隔离：SDK 派发线程上的异常不得逃逸，否则可能整条回调链被静默掐断。
+    internal val playerListener = GuardedActivePlayerListener(createPlayerListener())
 
     override fun start(context: Context) {
         if (started) {
@@ -598,7 +601,10 @@ class LyriconLyricProducer(
     private suspend fun stopDetectionLoop() {
         while (watchdogScope.isActive) {
             delay(STOP_DETECT_INTERVAL_MS)
-            maybeClearOnStoppedPlayer()
+            // 同样的隔离:单次查询异常不得让停止检测永久退出。
+            runCatching { maybeClearOnStoppedPlayer() }.onFailure {
+                AppLog.w("LyriconLyricProducer", "stop detection iteration failed", it)
+            }
         }
     }
 
@@ -747,18 +753,47 @@ class LyriconLyricProducer(
             // 非音乐源(视频等)期间看门狗静默:此时「位置在推、歌曲缺失」是预期状态,
             // 重建订阅只会拿到同一首被忽略的「歌」,白耗 IPC。
             if (!activeSourceEligible()) continue
-            refreshSessionPlaying()
-            // 2.10:先结算上一次重建的成败(失败计数/升级告警),再决定是否发起新的重建。
-            verifyPendingResubscribe()
-            // 回调链彻底停发时（onPositionChanged 不再来），advanceExtrapolation 永远不会
-            // 被调用——第二位置源必须由看门狗主动驱动，否则只剩外推/卡死。
-            maybeRecoverPositionFromMediaSession()
-            maybeMarkPausedWhenStaleExtrapolating()
-            // 兜底推进:回调链静默/位置被过滤吞掉时,不让歌词行停在半句上。
-            maybeAdvanceStalledPosition()
-            maybeResubscribeOnPositionSilence()
-            maybeResubscribeOnSongFeed()
+            // 单次迭代异常不得让整个看门狗循环静默退出（否则断联后永远无人重建）。
+            runCatching {
+                refreshSessionPlaying()
+                // 2.10:先结算上一次重建的成败(失败计数/升级告警),再决定是否发起新的重建。
+                verifyPendingResubscribe()
+                // 回调链彻底停发时（onPositionChanged 不再来），advanceExtrapolation 永远不会
+                // 被调用——第二位置源必须由看门狗主动驱动，否则只剩外推/卡死。
+                maybeRecoverPositionFromMediaSession()
+                maybeMarkPausedWhenStaleExtrapolating()
+                // 兜底推进:回调链静默/位置被过滤吞掉时,不让歌词行停在半句上。
+                maybeAdvanceStalledPosition()
+                maybeResubscribeOnPositionSilence()
+                maybeResubscribeOnSongFeed()
+                logWatchdogHeartbeatIfDue()
+            }.onFailure {
+                AppLog.w("LyriconLyricProducer", "position watchdog iteration failed", it)
+            }
         }
+    }
+
+    /** 看门狗心跳（1 分钟一次）：下一份日志可直接判断看门狗是否还活着、链路状态如何。 */
+    private fun logWatchdogHeartbeatIfDue() {
+        val now = clock()
+        if (now - lastWatchdogHeartbeatAtMs < WATCHDOG_HEARTBEAT_MS) return
+        lastWatchdogHeartbeatAtMs = now
+        val callbackAgo = if (lastPositionCallbackElapsedMs < 0L) {
+            -1L
+        } else {
+            (now - lastPositionCallbackElapsedMs) / 1000
+        }
+        val realAgo = if (lastRealPositionClockMs < 0L) {
+            -1L
+        } else {
+            (now - lastRealPositionClockMs) / 1000
+        }
+        AppLog.i(
+            "LyriconLyricProducer",
+            "watchdog alive: playing=$isPlayingState anchored=$positionAnchored " +
+                "pos=$currentPositionMs extrapolating=$extrapolating " +
+                "callbackAgo=${callbackAgo}s realAgo=${realAgo}s"
+        )
     }
 
     /**
@@ -1145,6 +1180,8 @@ class LyriconLyricProducer(
 
         /** Poll interval for the position-silence watchdog. */
         private const val POSITION_WATCHDOG_POLL_MS = 5_000L
+        /** 看门狗心跳日志周期。 */
+        private const val WATCHDOG_HEARTBEAT_MS = 60_000L
 
         /**
          * issue #27: poll interval for the MediaSession stop detector. Multiple matched samples
