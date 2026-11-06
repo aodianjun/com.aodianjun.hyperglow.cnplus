@@ -605,7 +605,13 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         }
         val avoidsNotifications = profile.collisionPolicy == "avoid"
         val bottomReserve = (BOTTOM_RESERVE_DP * density).roundToInt()
-        val mediaHeaderBottom = resolveVisibleMediaHeaderBottom(controller, host)
+        // 默认关闭：只有用户在锁屏布局里开启「歌词固定在音乐卡下方」才启用。
+        val reserveEnabled = customization?.lockscreenReserveBelowMediaCard == true
+        val mediaHeaderBottom = if (reserveEnabled) {
+            resolveVisibleMediaHeaderBottom(controller, host)
+        } else {
+            null
+        }
         val pinnedBelowMediaHeader = mediaHeaderBottom != null
         val mediaCardGap = (MEDIA_CARD_GAP_DP * density).roundToInt()
         val freeRegion = if (mediaHeaderBottom != null) {

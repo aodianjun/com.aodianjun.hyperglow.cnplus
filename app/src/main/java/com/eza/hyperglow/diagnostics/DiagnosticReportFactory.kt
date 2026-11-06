@@ -223,6 +223,8 @@ internal object DiagnosticReportFactory {
                         renderPreferences.keepAwakeUnsynced.toString(),
                     "keepAodActiveDurationMs" to renderPreferences.keepAwakeDurationMs.toString(),
                     "lockscreenKeepAwake" to renderPreferences.lockscreenKeepAwake.toString(),
+                    "lockscreenReserveBelowMediaCard" to
+                        renderPreferences.lockscreenReserveBelowMediaCard.toString(),
                     "raiseToAod" to renderPreferences.raiseToAod.toString(),
                     "positionFollowing" to
                         renderPreferences.experimentalPositionFollowing.toString(),

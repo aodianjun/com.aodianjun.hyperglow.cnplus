@@ -282,6 +282,11 @@ data class CompiledCustomization(
     val lockscreenKeepAwake: Boolean = false,
     val raiseToAod: Boolean = false,
     val suppressLockscreenEditorLongPress: Boolean = false,
+    /**
+     * 「歌词固定在音乐卡下方」:媒体卡可见时歌词卡钉在卡下,通知栈下移;
+     * 默认关闭,关闭时走原有避让布局。
+     */
+    val lockscreenReserveBelowMediaCard: Boolean = false,
     /** AOD 亮度增强:App 端运行时开关,随配置下发给 AOD 进程的 AodBrightnessController。 */
     val aodBrightnessBoost: Boolean = true,
     /**

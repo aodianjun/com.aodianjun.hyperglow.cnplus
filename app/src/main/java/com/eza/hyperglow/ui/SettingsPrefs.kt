@@ -66,6 +66,18 @@ internal fun updateLockscreenKeepAwake(
     return true
 }
 
+internal fun updateLockscreenReserveBelowMediaCard(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 internal fun updateRaiseToAod(
     context: android.content.Context,
     enabled: Boolean

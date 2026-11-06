@@ -116,6 +116,9 @@ internal object ConfigBackupCodec {
         },
         BackupBooleanField(AodRenderPreferences.PAUSE_SHOW_CONTENT) { it.pauseShowContent },
         BackupBooleanField(AodRenderPreferences.LOCKSCREEN_KEEP_AWAKE) { it.lockscreenKeepAwake },
+        BackupBooleanField(AodRenderPreferences.LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD) {
+            it.lockscreenReserveBelowMediaCard
+        },
         BackupBooleanField(AodRenderPreferences.RAISE_TO_AOD) { it.raiseToAod },
         BackupBooleanField(AodRenderPreferences.SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS) {
             it.suppressLockscreenEditorLongPress
@@ -563,6 +566,11 @@ internal object ConfigBackupCodec {
                 AodRenderPreferences.LOCKSCREEN_KEEP_AWAKE,
                 base.lockscreenKeepAwake,
                 DEFAULTS.lockscreenKeepAwake
+            ),
+            lockscreenReserveBelowMediaCard = stored.resolveBoolean(
+                AodRenderPreferences.LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD,
+                base.lockscreenReserveBelowMediaCard,
+                DEFAULTS.lockscreenReserveBelowMediaCard
             ),
             raiseToAod = stored.resolveBoolean(
                 AodRenderPreferences.RAISE_TO_AOD, base.raiseToAod, DEFAULTS.raiseToAod

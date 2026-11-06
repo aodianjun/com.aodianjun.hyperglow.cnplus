@@ -265,6 +265,9 @@
     <string name="summary_aod_landscape_fullscreen_safe_margin" formatted="false">横屏歌词全屏铺满时,四周各保留屏幕短边一定百分比的空白(0–20%),避免内容贴近屏幕边缘(圆角/挖孔)。仅在全屏横屏歌词下生效。</string>
     <string name="setting_aod_debug_show_canvas_frame">显示 AOD 画布边框(调试)</string>
     <string name="summary_aod_debug_show_canvas_frame">在 AOD 上画出画布边界(红色)与内容裁剪区(绿色),用于布局调试。调试完成后请关闭。</string>
+    <string name="section_lockscreen_layout">锁屏布局</string>
+    <string name="setting_lockscreen_reserve_below_media_card">歌词固定在音乐卡下方</string>
+    <string name="summary_lockscreen_reserve_below_media_card">通知会为歌词让位，音乐卡保持不动；自定义主题下可能出现重叠。</string>
     <string name="section_lockscreen_wake">锁屏与唤醒</string>
     <string name="setting_keep_lockscreen_awake">保持锁屏唤醒</string>
     <string name="summary_keep_lockscreen_awake">会增加耗电。</string>

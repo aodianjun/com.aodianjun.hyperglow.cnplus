@@ -265,6 +265,9 @@ internal fun HomeScreen(
     var lockscreenKeepAwake by remember {
         mutableStateOf(initialConfig.lockscreenKeepAwake)
     }
+    var lockscreenReserveBelowMediaCard by remember {
+        mutableStateOf(initialConfig.lockscreenReserveBelowMediaCard)
+    }
     var raiseToAod by remember { mutableStateOf(initialConfig.raiseToAod) }
     var suppressLockscreenEditorLongPress by remember {
         mutableStateOf(initialConfig.suppressLockscreenEditorLongPress)
@@ -529,6 +532,28 @@ internal fun HomeScreen(
                                 }
                             } else {
                                 Column {
+                                    SmallTitle(text = stringResource(R.string.section_lockscreen_layout))
+                                    SettingsCard {
+                                        SwitchPreference(
+                                            lockscreenReserveBelowMediaCard,
+                                            { enabled ->
+                                                if (updateLockscreenReserveBelowMediaCard(
+                                                        context,
+                                                        enabled
+                                                    )
+                                                ) {
+                                                    lockscreenReserveBelowMediaCard = enabled
+                                                }
+                                            },
+                                            stringResource(
+                                                R.string.setting_lockscreen_reserve_below_media_card
+                                            ),
+                                            summary = stringResource(
+                                                R.string.summary_lockscreen_reserve_below_media_card
+                                            ),
+                                            enabled = lockscreenSupported && lockscreenEnabled
+                                        )
+                                    }
                                     SmallTitle(text = stringResource(R.string.section_lockscreen_wake))
                                     SettingsCard {
                                         SwitchPreference(

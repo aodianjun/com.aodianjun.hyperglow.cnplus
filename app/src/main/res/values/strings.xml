@@ -266,6 +266,9 @@
     <string name="setting_aod_debug_show_canvas_frame">Show AOD canvas frame (debug)</string>
     <string name="summary_aod_debug_show_canvas_frame">Draw the canvas boundary (red) and content area (green) on the AOD for layout debugging. Turn off after debugging.</string>
 
+    <string name="section_lockscreen_layout">Lock screen layout</string>
+    <string name="setting_lockscreen_reserve_below_media_card">Pin lyrics below the media card</string>
+    <string name="summary_lockscreen_reserve_below_media_card">Notifications move below the lyrics; the media card stays put. May overlap on custom themes.</string>
     <string name="section_lockscreen_wake">Lock screen &amp; wake</string>
     <string name="setting_keep_lockscreen_awake">Keep lock screen awake</string>
     <string name="summary_keep_lockscreen_awake">Uses more battery.</string>

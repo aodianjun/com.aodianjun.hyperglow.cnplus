@@ -236,6 +236,9 @@
     <string name="setting_aod_rotate_with_device">息屏畫布隨設備旋轉</string>
     <string name="summary_aod_rotate_with_device">設備側放時把歌詞畫布旋轉到橫屏。與「隱藏系統息屏內容」設置相互獨立。</string>
 
+    <string name="section_lockscreen_layout">鎖屏佈局</string>
+    <string name="setting_lockscreen_reserve_below_media_card">歌詞固定在音樂卡下方</string>
+    <string name="summary_lockscreen_reserve_below_media_card">通知會為歌詞讓位，音樂卡保持不動；自訂主題下可能出現重疊。</string>
     <string name="section_lockscreen_wake">鎖屏與喚醒</string>
     <string name="setting_keep_lockscreen_awake">保持鎖屏喚醒</string>
     <string name="summary_keep_lockscreen_awake">會增加耗電。</string>

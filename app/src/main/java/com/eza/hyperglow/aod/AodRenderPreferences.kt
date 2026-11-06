@@ -139,6 +139,11 @@ data class AodRenderConfig(
      */
     val hideCreditLines: Boolean = false,
     /**
+     * 「歌词固定在音乐卡下方」:锁屏音乐卡可见时把歌词卡钉在卡下,通知栈整体下移,
+     * 音乐卡反向补偿保持不动。默认关闭,关闭时保持原有避让布局。
+     */
+    val lockscreenReserveBelowMediaCard: Boolean = false,
+    /**
      * 开发者选项:强制指定歌词提供器。开启后仲裁器只使用设置里选中的歌词源,不再因为
      * 另一个源带逐字时间而自动升级,也不会在选中源只是暂停冻结态时让位;选中源断连或
      * 故障时仍回退(否则屏上无歌词)。默认关闭,保持「自动选更好的源」。
@@ -384,6 +389,7 @@ object AodRenderPreferences {
     const val AOD_POWER_SAVER = "aod_power_saver"
     const val FILTER_NON_MUSIC_SOURCES = "filter_non_music_sources"
     const val HIDE_CREDIT_LINES = "hide_credit_lines"
+    const val LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD = "lockscreen_reserve_below_media_card"
     const val FORCE_LYRIC_PROVIDER = "force_lyric_provider"
 
     // SharedPreferences throws ClassCastException when an older/imported value has the wrong
@@ -491,6 +497,7 @@ object AodRenderPreferences {
             prefs.safeBoolean(FILTER_NON_MUSIC_SOURCES, true),
             prefs.safeBoolean(AOD_POWER_SAVER, true),
             prefs.safeBoolean(HIDE_CREDIT_LINES, false),
+            prefs.safeBoolean(LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD, false),
             prefs.safeBoolean(FORCE_LYRIC_PROVIDER, false)
         ).also { cachedConfig = it }
     }

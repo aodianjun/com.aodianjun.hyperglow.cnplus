@@ -125,6 +125,7 @@ internal object RuntimeCustomization {
             lockscreenKeepAwake = preferences.lockscreenKeepAwake,
             raiseToAod = preferences.raiseToAod,
             suppressLockscreenEditorLongPress = preferences.suppressLockscreenEditorLongPress,
+            lockscreenReserveBelowMediaCard = preferences.lockscreenReserveBelowMediaCard,
             aodBrightnessBoost = preferences.aodBrightnessBoost,
             aodBrightnessOverride = preferences.aodBrightnessOverride,
             aodBrightnessLevel = preferences.aodBrightnessLevel,
@@ -162,6 +163,8 @@ internal object RuntimeCustomization {
         raiseToAod: Boolean = configuration.raiseToAod,
         suppressLockscreenEditorLongPress: Boolean =
             configuration.suppressLockscreenEditorLongPress,
+        lockscreenReserveBelowMediaCard: Boolean =
+            configuration.lockscreenReserveBelowMediaCard,
         aodBrightnessBoost: Boolean = configuration.aodBrightnessBoost,
         aodBrightnessOverride: Boolean = configuration.aodBrightnessOverride,
         aodBrightnessLevel: Int = configuration.aodBrightnessLevel,
@@ -182,6 +185,7 @@ internal object RuntimeCustomization {
                 lockscreenKeepAwake = lockscreenKeepAwake,
                 raiseToAod = raiseToAod,
                 suppressLockscreenEditorLongPress = suppressLockscreenEditorLongPress,
+                lockscreenReserveBelowMediaCard = lockscreenReserveBelowMediaCard,
                 aodBrightnessBoost = aodBrightnessBoost,
                 aodBrightnessOverride = aodBrightnessOverride,
                 aodBrightnessLevel = aodBrightnessLevel.coerceIn(
