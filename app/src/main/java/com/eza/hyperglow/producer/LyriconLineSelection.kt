@@ -75,6 +75,10 @@ internal fun LyriconLyricProducer.advanceExtrapolation(now: Long, reason: String
             )
         }
     }
+    // 切歌/起播窗口：还没有被本首歌的可信真实位置锚定时不做墙钟外推。此时写端可能
+    // 仍在回传旧歌残值，或新歌尚未真正起播——“位置重复”不是写端冻结；外推会让歌词
+    // 在开唱前自己往前走，等真实位置到达再整段回跳（2026-11-06 真机）。
+    if (!positionAnchored) return
     val duration = currentSong?.duration ?: 0L
     val projected = lastRealPositionMs + sinceRealMs
     // 歌尾稳定钳制(issue #9):外推一旦越过歌曲时长,位置直接钳到 duration 并保持,
@@ -345,7 +349,10 @@ internal fun LyriconLyricProducer.emit() {
         positionMs = displayPos,
         durationMs = song.duration,
         sampledAtElapsedMs = now,
-        speed = if (isPlayingState) 1f else 0f,
+        // 未锚定(切歌后还没收到本首歌的可信位置)时下发 speed=0:渲染侧按
+        // positionMs + elapsed×speed 外推，speed 必须同步归零，否则即使生产者不推进，
+        // AOD/预览仍会从 0 自己往前走。
+        speed = if (isPlayingState && positionAnchored) 1f else 0f,
         playing = isPlayingState,
         receivedAtElapsedMs = now,
         words = cachedWords?.shiftedByOffset(offset),

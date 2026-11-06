@@ -292,6 +292,18 @@ class LyriconLyricProducer(
     @Volatile internal var lastRealPositionClockMs: Long = -1L
     @Volatile internal var extrapolating: Boolean = false
 
+    /**
+     * 位置是否已被「本首歌的可信真实位置」锚定。切歌后归零为 false，直到第一个通过
+     * 合理性门控的真实位置到达才置 true；未锚定期间禁止墙钟外推（见
+     * [advanceExtrapolation]），下发状态的 speed 也保持 0。
+     *
+     * 为什么需要：切歌瞬间写端可能还在回传旧歌残值、或新歌尚未真正起播，此时位置
+     * 回调持续重复同一个值（常见为 0）。旧逻辑把「位置重复」一律当写端冻结去外推，
+     * 于是歌词在开唱前就从 0 自己往前跑（2026-11-06 真机：切新歌后前奏阶段歌词
+     * 已开始，真实位置回来后整段回跳）。未锚定时下发 speed=0，渲染侧也不会自行外推。
+     */
+    @Volatile internal var positionAnchored: Boolean = false
+
     // --- Extrapolation budget / unknown position ---
     // When the position source goes silent while playing, extrapolation advances the lyric for at
     // most MAX_EXTRAPOLATION_MS. Past that the writer is treated as dead (not merely screen-off
@@ -555,6 +567,7 @@ class LyriconLyricProducer(
         lastRealPositionUpdateMs = -1L
         extrapolating = false
         positionUnknown = false
+        positionAnchored = false
         heldAtSongEndStale = false
         songEndCleared = false
         staleFlushPendingValueMs = Long.MIN_VALUE
@@ -763,6 +776,8 @@ class LyriconLyricProducer(
         currentPositionMs = recovered
         extrapolating = false
         positionUnknown = false
+        // MediaSession 的权威位置已拿到:本歌时间线锚定,允许后续外推。
+        positionAnchored = true
         heldAtSongEndStale = false
         songEndCleared = false
         staleFlushPendingValueMs = Long.MIN_VALUE

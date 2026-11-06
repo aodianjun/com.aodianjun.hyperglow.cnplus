@@ -185,6 +185,9 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 lastRealPositionMs = 0L
                 lastRealPositionClockMs = clock()
                 extrapolating = false
+                // 新歌时间线尚未被可信位置锚定:禁止外推,渲染侧 speed 也保持 0,
+                // 直到第一个通过合理性门控的真实位置到达(见 onPositionChanged)。
+                positionAnchored = false
                 positionUnknown = false
                 heldAtSongEndStale = false
                 songEndCleared = false
@@ -219,6 +222,9 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 // 真·重同步的首个真实位置与残留值不同,立即放行,不受影响。
                 songStartGateOpen = true
                 gateFrozenRejectMs = -1L
+                // 重同步保留的位置若已在本歌时间线中(>0)则视为已锚定；仍为 0 时宁可等
+                // 首个真实位置,也不要在起播前外推。
+                positionAnchored = lastRealPositionMs > 0L
                 AppLog.i(
                     "LyriconLyricProducer",
                     "onSongChanged: (re)connect re-sync; keeping position ${lastRealPositionMs}ms, " +
@@ -493,6 +499,8 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                     lastRealPositionUpdateMs = now
                     currentPositionMs = realPosition
                 }
+                // 通过了合理性门控的真实位置 = 本歌时间线已锚定,从这里开始才允许墙钟外推。
+                positionAnchored = true
                 // A different value means the player has started writing the new song's progress.
                 // Disable residual filtering — subsequent positions are from the new song.
                 previousSongLastPositionMs = -1L
@@ -577,6 +585,8 @@ internal fun LyriconLyricProducer.applySeek(position: Long) {
     lastRealPositionUpdateMs = now
     currentPositionMs = position
     extrapolating = false
+    // Seek 是权威位置变更:目标位置即本歌时间线锚点。
+    positionAnchored = true
     // A seek is a deliberate position change — the position is known again.
     positionUnknown = false
     // A seek is a deliberate position change — clear residual filtering so the new
