@@ -754,6 +754,8 @@ class LyriconLyricProducer(
             // 被调用——第二位置源必须由看门狗主动驱动，否则只剩外推/卡死。
             maybeRecoverPositionFromMediaSession()
             maybeMarkPausedWhenStaleExtrapolating()
+            // 兜底推进:回调链静默/位置被过滤吞掉时,不让歌词行停在半句上。
+            maybeAdvanceStalledPosition()
             maybeResubscribeOnPositionSilence()
             maybeResubscribeOnSongFeed()
         }
@@ -811,6 +813,33 @@ class LyriconLyricProducer(
                 "(pos=${currentPositionMs}ms staleForMs=${now - lastRealPositionClockMs})"
         )
         recomputeAndEmit()
+    }
+
+    /**
+     * 播放中位置停更的兜底推进（安全网）：不依赖 onPositionChanged 是否还在来。
+     *
+     * 回调链静默、回调被残留/冲刷判定吞掉、或写端冻结时，唯一会推进位置的
+     * [advanceExtrapolation] 只在回调到达时执行；一旦回调本身停了，歌词行就会停在
+     * 半句上（真机「播放一半卡住」）。看门狗每 5s 检查：在播 + 已锚定 + 最后真实位置
+     * 已过期时，主动按挂钟推进并重发行。advanceExtrapolation 每次都从
+     * lastReal + sinceReal 重算，幂等，与回调路径重复执行不会多推。
+     */
+    private fun maybeAdvanceStalledPosition() {
+        val now = clock()
+        if (!shouldAdvanceStalledPosition(
+                playing = isPlayingState,
+                anchored = positionAnchored,
+                lastRealClockMs = lastRealPositionClockMs,
+                now = now
+            )
+        ) return
+        advanceExtrapolation(now, "watchdog stalled position")
+        recomputeAndEmit()
+        AppLog.w(
+            "LyriconLyricProducer",
+            "watchdog advanced stalled position to ${currentPositionMs}ms " +
+                "(stale=${(now - lastRealPositionClockMs) / 1000}s)"
+        )
     }
 
     /**
@@ -1279,3 +1308,20 @@ internal fun resolveSessionPlayingObserved(
     hasSong -> sameTitlePlaying // 会话查不到：只认同名在播会话
     else -> null // 无歌、无信息：保持未知，不误触发
 }
+
+/**
+ * 看门狗是否应主动推进停更的位置：在播、时间线已锚定、且最后真实位置已过期
+ * [WATCHDOG_STALLED_POSITION_MS]。暂停（playing=false）时位置本就该冻结；
+ * 切歌后尚未锚定时也必须等真实位置（见 positionAnchored）。
+ */
+internal fun shouldAdvanceStalledPosition(
+    playing: Boolean,
+    anchored: Boolean,
+    lastRealClockMs: Long,
+    now: Long,
+    minStaleMs: Long = WATCHDOG_STALLED_POSITION_MS
+): Boolean = playing && anchored && lastRealClockMs >= 0L &&
+    now - lastRealClockMs >= minStaleMs
+
+/** 看门狗兜底推进的停更阈值：正常回调每 ~17ms 一次，2s 不动即视为停更。 */
+internal const val WATCHDOG_STALLED_POSITION_MS = 2_000L

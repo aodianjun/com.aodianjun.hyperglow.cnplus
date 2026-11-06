@@ -1013,6 +1013,40 @@ class LyriconLyricProducerTest {
     }
 
     @Test
+    fun stalledPositionWatchdog_onlyFiresWhilePlayingAndAnchored() {
+        // 在播 + 已锚定 + 超过 2s 没有真实位置 → 看门狗兜底推进（防「播放一半卡住」）。
+        assertTrue(
+            shouldAdvanceStalledPosition(
+                playing = true, anchored = true, lastRealClockMs = 1_000L, now = 3_000L
+            )
+        )
+        // 未到阈值不推进。
+        assertFalse(
+            shouldAdvanceStalledPosition(
+                playing = true, anchored = true, lastRealClockMs = 1_000L, now = 2_500L
+            )
+        )
+        // 暂停时位置本就该冻结。
+        assertFalse(
+            shouldAdvanceStalledPosition(
+                playing = false, anchored = true, lastRealClockMs = 1_000L, now = 9_000L
+            )
+        )
+        // 切歌后尚未锚定：必须等真实位置，不能从 0 自己外推。
+        assertFalse(
+            shouldAdvanceStalledPosition(
+                playing = true, anchored = false, lastRealClockMs = 1_000L, now = 9_000L
+            )
+        )
+        // 从未有过真实位置。
+        assertFalse(
+            shouldAdvanceStalledPosition(
+                playing = true, anchored = true, lastRealClockMs = -1L, now = 9_000L
+            )
+        )
+    }
+
+    @Test
     fun positionExtrapolation_pastSongEnd_holdsLastRealLineWhileWriterStale() {
         // 外推越过歌尾且写入端停写：保持最后真实位置与当前行，后续 stalled 回调不得推进。
         var clockValue = 10_000L
