@@ -82,6 +82,9 @@ internal object SystemUiCustomizationValidator {
                 interludeCountdown = rawAod.interludeCountdown,
                 // 无歌词/纯音乐歌词行为:同为歌词呈现项,linkSurfaces 下继承息屏值。
                 noLyricsBehavior = rawAod.noLyricsBehavior,
+                // 纯音乐识别开关/显示文本:同为歌词呈现项,linkSurfaces 下继承息屏值。
+                pureMusicDisplay = rawAod.pureMusicDisplay,
+                pureMusicText = rawAod.pureMusicText,
                 // 尾奏超时行为/延迟:同为歌词呈现项,linkSurfaces 下继承息屏值。
                 tailTimeoutBehavior = rawAod.tailTimeoutBehavior,
                 tailTimeoutDelaySeconds = rawAod.tailTimeoutDelaySeconds
@@ -203,6 +206,12 @@ internal object SystemUiCustomizationValidator {
             // validate 改写字段、wire 的 hash 校验拒收整份配置。
             noLyricsBehavior = com.eza.hyperglow.customization.normalizeNoLyricsBehavior(
                 profile.noLyricsBehavior
+            ),
+            // 与 SceneCompiler.compileProfile 同源归一(去首尾空白、截断;空 = 默认文案,
+            // 渲染层回落 PURE_MUSIC_TEXT_DEFAULT)。开关为纯布尔透传。
+            pureMusicDisplay = profile.pureMusicDisplay,
+            pureMusicText = com.eza.hyperglow.customization.normalizePureMusicText(
+                profile.pureMusicText
             ),
             // 与 SceneCompiler.compileProfile 同源归一(非法行为回落 keep、延迟钳 0-30)。
             tailTimeoutBehavior = com.eza.hyperglow.customization.normalizeTailTimeoutBehavior(

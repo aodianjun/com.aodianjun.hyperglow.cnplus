@@ -184,6 +184,22 @@ data class SurfaceProfile(
      */
     val noLyricsBehavior: String = NO_LYRICS_BEHAVIOR_KEEP,
     /**
+     * 纯音乐识别(实测调研 2026-11:HyperGlow CN+ 纯音乐识别):
+     * 开启时投影层在「标记文本命中」之外补「整首无歌词行」兜底——整首快照存在但没有任何
+     * 歌词行,或 producer 歌级声明 lyricKind == NONE(Lyricon `lines=0` 的稳定信号,实测
+     * 4/4 纯音乐、无反例;它对空歌词不产出快照,只能走歌级声明)且曲目时长有效、播放越过
+     * 确认窗口(`producer.PURE_MUSIC_EMPTY_ROWS_CONFIRM_MS`)后按纯音乐处理;渲染面在歌词
+     * 位置改画 [pureMusicText](空回落默认「纯音乐，请欣赏」),并接管本面 noLyricsBehavior
+     * 三态(RESTORE_DEFAULT 不再交还系统默认——本面有内容可画)。关闭时历史行为零变化:
+     * 仅标记文本命中,呈现完全交回 noLyricsBehavior。per-surface 设置,锁屏与息屏各自独立。
+     */
+    val pureMusicDisplay: Boolean = false,
+    /**
+     * 纯音乐显示文本:纯音乐曲目在歌词位置显示的内容;空白回落 [PURE_MUSIC_TEXT_DEFAULT]
+     * (「纯音乐，请欣赏」)。与 [pureMusicDisplay] 配套;per-surface 设置。
+     */
+    val pureMusicText: String = "",
+    /**
      * 尾奏超时行为(参考 HyperLyric 7.9 `fdeb94f` 同名能力):最后一句歌词结束后,等待
      * [tailTimeoutDelaySeconds] 秒再按本档处理该行——[TAIL_TIMEOUT_BEHAVIOR_KEEP] 保留最后
      * 一行(默认,历史行为零变化)、[TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO] 换成歌曲信息、
@@ -396,6 +412,10 @@ data class CompiledSurfaceProfile(
     val interludeCountdown: Boolean = true,
     /** 无歌词/纯音乐歌词行为,见 [SurfaceProfile.noLyricsBehavior];每个 surface 独立生效。 */
     val noLyricsBehavior: String = NO_LYRICS_BEHAVIOR_KEEP,
+    /** 纯音乐识别开关,见 [SurfaceProfile.pureMusicDisplay];每个 surface 独立生效。 */
+    val pureMusicDisplay: Boolean = false,
+    /** 纯音乐显示文本,见 [SurfaceProfile.pureMusicText];编译时经 [normalizePureMusicText] 归一。 */
+    val pureMusicText: String = "",
     /** 尾奏超时行为,见 [SurfaceProfile.tailTimeoutBehavior];每个 surface 独立生效。 */
     val tailTimeoutBehavior: String = TAIL_TIMEOUT_BEHAVIOR_KEEP,
     /** 尾奏超时延迟秒数,见 [SurfaceProfile.tailTimeoutDelaySeconds];编译时钳到 0-30。 */
@@ -454,6 +474,22 @@ val NO_LYRICS_BEHAVIORS = listOf(
 /** 无歌词/纯音乐歌词行为归一:词表外(旧配置/损坏值)一律回落 [NO_LYRICS_BEHAVIOR_KEEP]。 */
 internal fun normalizeNoLyricsBehavior(value: String): String =
     value.takeIf { it in NO_LYRICS_BEHAVIORS } ?: NO_LYRICS_BEHAVIOR_KEEP
+
+/**
+ * 纯音乐显示文本默认值:纯音乐曲目在歌词位置的占位文案(参考网易云音乐
+ * 「纯音乐，请欣赏」)。自定义文本空白时渲染层回落本值,不画空行。
+ */
+const val PURE_MUSIC_TEXT_DEFAULT = "纯音乐，请欣赏"
+
+/** 纯音乐显示文本长度上限(字符数);息屏画布单行,超长截断避免布局被一条占位撑爆。 */
+const val PURE_MUSIC_TEXT_MAX_LENGTH = 60
+
+/**
+ * 纯音乐显示文本归一:去首尾空白、截断到 [PURE_MUSIC_TEXT_MAX_LENGTH]。
+ * 结果允许为空(空 = 用户要默认文案),渲染层以 [PURE_MUSIC_TEXT_DEFAULT] 兜底。
+ */
+internal fun normalizePureMusicText(value: String): String =
+    value.trim().take(PURE_MUSIC_TEXT_MAX_LENGTH)
 
 /**
  * 尾奏超时行为词表(参考 HyperLyric 7.9 `fdeb94f`「尾奏超时行为」):

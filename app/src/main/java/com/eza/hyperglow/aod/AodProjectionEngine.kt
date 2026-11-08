@@ -19,6 +19,7 @@ import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.SongArtworkRepository
 import com.eza.hyperglow.producer.resolvePureMusic
+import com.eza.hyperglow.producer.resolvePureMusicEnhanced
 import com.eza.hyperglow.root.projection.currentProcessUserId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -494,7 +495,10 @@ object AodProjectionEngine {
         // 尾奏保留:必须在 PluginPipeline.enrich 之前决定——插件富化以「当前行」为输入,
         // 而 producer 清行后当前行已空;先补回最后一行,插件与投影才看到同一份内容。
         // 纯音乐/真无歌词不参与尾奏(各自标记优先)。
-        val tailPureMusic = resolvePureMusicFor(state)
+        // 纯音乐识别开关:任一面(锁屏/息屏)开启即启用空行兜底判定;与歌曲图片取帧同一
+        // 「任一面开启即生效」口径——判定是曲目级结论,两面共享一份快照。
+        val pureMusicEnhanced = compiled?.profiles?.values?.any { it.pureMusicDisplay } == true
+        val tailPureMusic = resolvePureMusicFor(state, pureMusicEnhanced)
         val tailNoLyrics = state.lyricKind == LyricKind.NONE
         val tailRetention = tailLineRetentionPolicy.apply(
             state = state,
@@ -529,7 +533,7 @@ object AodProjectionEngine {
             userId = currentProcessUserId(),
             artworkJpeg = artwork?.jpeg ?: ByteArray(0),
             artworkKey = artwork?.key ?: "",
-            pureMusic = resolvePureMusicFor(effectiveState),
+            pureMusic = resolvePureMusicFor(effectiveState, pureMusicEnhanced),
             // 真无歌词:整首没有任何歌词行(纯音乐标记行走 LINE,不会误判)。
             noLyrics = effectiveState.lyricKind == LyricKind.NONE,
             tailEligible = tailRetention.tailEligible
@@ -565,14 +569,32 @@ object AodProjectionEngine {
      * 与当前状态一致时采用(过渡态丢弃,等同不存在);拿不到整首数据(Spicy 文档路径、
      * SuperLyric 旧模块)时回落当前行文本。快照实现按会话缓存,每拍调用不会重建,满足投影
      * 高频路径的廉价要求。
+     *
+     * [emptyRowsFallback] = 「纯音乐识别」开关(任一面开启):在标记文本命中之外补「整首无
+     * 歌词行」兜底——整首快照存在但没有任何行,或 producer 歌级声明 lyricKind == NONE
+     * (Lyricon `lines=0` 走这里:它对空歌词不产出快照,快照路拿不到信号)且时长有效、
+     * 播放越过确认窗口后按纯音乐处理(见 [resolvePureMusicEnhanced])。关闭时历史路径,
+     * 行为逐值不变。
      */
-    private fun resolvePureMusicFor(state: LyricProducerState): Boolean {
+    private fun resolvePureMusicFor(
+        state: LyricProducerState,
+        emptyRowsFallback: Boolean
+    ): Boolean {
         val source = LyricProducers.arbiter.activeSource.value
         val snapshot = source?.let { LyricProducers.arbiter.fullSongSnapshot(it) }
-        return resolvePureMusic(
-            fullSongRows = snapshot?.takeIf { it.matches(state) }?.rows,
-            currentLine = state.line
-        )
+        val fullSongRows = snapshot?.takeIf { it.matches(state) }?.rows
+        return if (emptyRowsFallback) {
+            resolvePureMusicEnhanced(
+                fullSongRows = fullSongRows,
+                currentLine = state.line,
+                durationMs = state.durationMs,
+                positionMs = state.positionMs,
+                playing = state.playing,
+                producerNoLyrics = state.lyricKind == LyricKind.NONE
+            )
+        } else {
+            resolvePureMusic(fullSongRows, state.line)
+        }
     }
 
     private fun publishCustomizationIfDue(now: Long) {

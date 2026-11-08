@@ -1104,7 +1104,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         if (shouldReleaseStockForNoContent(
                 pureMusic = snapshot.pureMusic,
                 noLyrics = snapshot.noLyrics,
-                noLyricsBehavior = profile.noLyricsBehavior
+                noLyricsBehavior = profile.noLyricsBehavior,
+                // 纯音乐识别接管:本面改画配置文本(有内容可画),不交还系统默认。
+                pureMusicTextOverride = snapshot.pureMusic && profile.pureMusicDisplay
             ) ||
             // 尾奏超时 RESTORE_DEFAULT:最后一行已被本面清空,同样交还系统默认。
             shouldReleaseStockForTailTimeout(

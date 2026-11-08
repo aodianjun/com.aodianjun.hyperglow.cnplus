@@ -353,6 +353,10 @@
     <string name="option_no_lyrics_behavior_keep">保持原標記</string>
     <string name="option_no_lyrics_behavior_music_info">替換為歌曲資訊</string>
     <string name="option_no_lyrics_behavior_restore_default">交還系統預設</string>
+    <string name="setting_pure_music_display">純音樂識別</string>
+    <string name="summary_pure_music_display">識別純音樂歌曲(含歌詞來源回報 0 行的曲目),在歌詞位置顯示佔位文本;下方顯示文本接管上面的行為選項,關閉時保持原有行為。鎖屏與熄屏各自獨立開關。</string>
+    <string name="setting_pure_music_text">純音樂顯示文本</string>
+    <string name="pure_music_text_hint">預設:純音樂，請欣賞</string>
     <string name="setting_tail_timeout_behavior">尾奏超時行為</string>
     <string name="option_tail_timeout_behavior_keep">保留最後一行</string>
     <string name="option_tail_timeout_behavior_music_info">替換為歌曲資訊</string>

@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,6 +26,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -39,7 +42,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,6 +53,7 @@ import com.eza.hyperglow.aod.AodRenderPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.CustomFontEntry
@@ -63,6 +69,9 @@ import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIORS
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
 import com.eza.hyperglow.customization.normalizeNoLyricsBehavior
+import com.eza.hyperglow.customization.PURE_MUSIC_TEXT_DEFAULT
+import com.eza.hyperglow.customization.PURE_MUSIC_TEXT_MAX_LENGTH
+import com.eza.hyperglow.customization.normalizePureMusicText
 import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIORS
 import com.eza.hyperglow.customization.TAIL_TIMEOUT_DELAY_SECONDS_MAX
 import com.eza.hyperglow.customization.TAIL_TIMEOUT_DELAY_SECONDS_MIN
@@ -119,6 +128,7 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
@@ -169,6 +179,8 @@ internal fun LyricAppearanceSection(
     var activeChoice by remember { mutableStateOf<AodChoice?>(null) }
     var activeColorPicker by remember { mutableStateOf<PaletteColor?>(null) }
     var activePartsEditor by remember { mutableStateOf(false) }
+    // 纯音乐识别显示文本编辑器(per-surface):与歌曲信息内容编辑器同式,WindowDialog + TextField。
+    var activePureMusicTextEditor by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -487,6 +499,26 @@ internal fun LyricAppearanceSection(
                             it.copy(noLyricsBehavior = normalizeNoLyricsBehavior(value))
                         }
                     }
+                }
+                // 纯音乐识别(per-surface 开关):开启后投影层在标记文本命中之外补空行兜底
+                // (Lyricon lines=0 等「整首无行」曲目按纯音乐处理),渲染面在歌词位置改画
+                // 本面配置文本(默认「纯音乐，请欣赏」,可自定义),并接管上面的行为三态;
+                // 关闭时历史行为零变化。息屏与锁屏各自独立。
+                SwitchPreference(
+                    selectedProfile.pureMusicDisplay,
+                    { enabled -> updateSelected { it.copy(pureMusicDisplay = enabled) } },
+                    stringResource(R.string.setting_pure_music_display),
+                    summary = stringResource(R.string.summary_pure_music_display)
+                )
+                if (selectedProfile.pureMusicDisplay) {
+                    // 纯音乐显示文本:摘要展示当前生效值(自定义文本非空取自定义,空回落默认,
+                    // 与渲染层 pureMusicDisplayText 同一口径)。
+                    ArrowPreference(
+                        title = stringResource(R.string.setting_pure_music_text),
+                        summary = normalizePureMusicText(selectedProfile.pureMusicText)
+                            .ifBlank { PURE_MUSIC_TEXT_DEFAULT },
+                        onClick = { activePureMusicTextEditor = true }
+                    )
                 }
                 // 尾奏超时行为(per-surface):最后一句歌词结束后延迟 N 秒,再决定保留最后一行
                 // / 替换为歌曲信息 / 交还系统默认。纯音乐/真无歌词由上一项优先接管。
@@ -1325,6 +1357,63 @@ internal fun LyricAppearanceSection(
                         ).show()
                     }
                 )
+            }
+        }
+    }
+
+    // 纯音乐显示文本编辑器(per-surface):打开时以本面当前值为初值,应用即写回并归一
+    // (去首尾空白、截断到上限);留空应用 = 使用默认文案(渲染层回落「纯音乐，请欣赏」)。
+    if (activePureMusicTextEditor) {
+        var text by remember(activePureMusicTextEditor) {
+            mutableStateOf(selectedProfile.pureMusicText)
+        }
+        WindowDialog(
+            title = stringResource(R.string.setting_pure_music_text),
+            show = true,
+            onDismissRequest = { activePureMusicTextEditor = false }
+        ) {
+            Column(Modifier.dialogScrollable()) {
+                TextField(
+                    value = text,
+                    onValueChange = { text = it.take(PURE_MUSIC_TEXT_MAX_LENGTH) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = stringResource(R.string.pure_music_text_hint),
+                    useLabelAsPlaceholder = true,
+                    textStyle = TextStyle(
+                        color = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+                        fontSize = 16.sp
+                    ),
+                    cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        updateSelected {
+                            it.copy(pureMusicText = normalizePureMusicText(text))
+                        }
+                        activePureMusicTextEditor = false
+                    })
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        text = stringResource(R.string.action_cancel),
+                        onClick = { activePureMusicTextEditor = false }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    TextButton(
+                        text = stringResource(R.string.action_apply),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                        onClick = {
+                            updateSelected {
+                                it.copy(pureMusicText = normalizePureMusicText(text))
+                            }
+                            activePureMusicTextEditor = false
+                        }
+                    )
+                }
             }
         }
     }

@@ -383,6 +383,10 @@
     <string name="option_no_lyrics_behavior_keep">Keep the marker</string>
     <string name="option_no_lyrics_behavior_music_info">Replace with song info</string>
     <string name="option_no_lyrics_behavior_restore_default">Use system default</string>
+    <string name="setting_pure_music_display">Pure music recognition</string>
+    <string name="summary_pure_music_display">Recognize instrumental tracks (including songs whose lyrics source reports zero lines) and show a placeholder at the lyrics position. The text below takes over the behavior above; turn off to keep the previous behavior. Lockscreen and always-on display switch independently.</string>
+    <string name="setting_pure_music_text">Pure music text</string>
+    <string name="pure_music_text_hint">Default: 纯音乐，请欣赏</string>
     <string name="setting_tail_timeout_behavior">Tail timeout behavior</string>
     <string name="option_tail_timeout_behavior_keep">Keep the last line</string>
     <string name="option_tail_timeout_behavior_music_info">Replace with song info</string>

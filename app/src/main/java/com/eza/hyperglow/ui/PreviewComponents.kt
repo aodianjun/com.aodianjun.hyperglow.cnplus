@@ -82,12 +82,15 @@ import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO
 import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.resolveLineTransition
+import com.eza.hyperglow.effect.EFFECT_OUTPUT_BOXES
 import com.eza.hyperglow.effect.EffectColors
 import com.eza.hyperglow.effect.EffectFrameContext
 import com.eza.hyperglow.effect.EffectLineSample
+import com.eza.hyperglow.effect.EffectTextMeasurer
 import com.eza.hyperglow.effect.EffectVm
 import com.eza.hyperglow.effect.EffectWordSample
 import com.eza.hyperglow.root.aod.AndroidEffectRenderSink
+import com.eza.hyperglow.root.aod.EffectBoxRenderer
 import com.eza.hyperglow.root.aod.AodCanvasRuby
 import com.eza.hyperglow.root.aod.AodCanvasWord
 import com.eza.hyperglow.root.aod.alignMissingWordOffsets
@@ -135,6 +138,7 @@ import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
+import com.eza.hyperglow.root.aod.pureMusicDisplayText
 import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.aod.resolvedLyricLayoutLineLimit
 import com.eza.hyperglow.root.aod.OriginalLinePath
@@ -396,6 +400,8 @@ private fun rememberLivePreviewPosition(live: LyricSnapshot?): Long? {
 /**
  * 纯音乐/无歌词三态在预览快照上的应用(与实机 [com.eza.hyperglow.root.aod.toAodCanvasContent]
  * 同源,per-surface,见 SurfaceProfile.noLyricsBehavior):非纯音乐且非真无歌词的曲目原样返回。
+ * - 纯音乐识别接管(优先):「纯音乐识别」开启且判定为纯音乐时,主行改画配置文本
+ *   (空回落默认「纯音乐，请欣赏」),盖过下面三态(与实机映射层同优先级)。
  * - KEEP:原样(历史行为零变化)。
  * - MUSIC_INFO:主行槽位改显示本面歌曲信息(快照的 metadata 即投影层按本面组装值;为空时
  *   回落原标记行),并清掉标记行的词级/辅助/并发行/间奏数据(标记不是歌词,不参与卡拉OK/逐字)。
@@ -405,6 +411,12 @@ private fun LyricSnapshot.applyNoLyricsBehavior(
     profile: com.eza.hyperglow.customization.CompiledSurfaceProfile
 ): LyricSnapshot {
     if (pureMusic || noLyrics) {
+        // 纯音乐识别接管(与实机映射层同源、同优先级):开启且判定为纯音乐时,主行槽位
+        // 改画配置文本(空回落默认),并清掉词级/辅助/并发行/间奏数据(占位不是歌词,
+        // 不参与卡拉OK/逐字);盖过 noLyricsBehavior 三态。
+        if (pureMusic && profile.pureMusicDisplay) {
+            return asPureMusicTextContent(pureMusicDisplayText(profile))
+        }
         return when (profile.noLyricsBehavior) {
             NO_LYRICS_BEHAVIOR_MUSIC_INFO -> asMusicInfoContent()
             NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT -> asRestoreDefaultContent()
@@ -431,6 +443,29 @@ private fun LyricSnapshot.applyNoLyricsBehavior(
         else -> this
     }
 }
+
+/**
+ * 纯音乐识别接管:主行槽位改画纯音乐占位文本(默认「纯音乐，请欣赏」/本面自定义),
+ * 清掉词级/辅助/并发行/间奏数据——与 [asMusicInfoContent] 同式(占位不是歌词)。
+ */
+private fun LyricSnapshot.asPureMusicTextContent(text: String): LyricSnapshot = copy(
+    original = text,
+    romanized = "",
+    translated = "",
+    nextLine = "",
+    nextLineRomanized = "",
+    nextLineTranslated = "",
+    words = emptyList(),
+    translationWords = emptyList(),
+    ruby = emptyList(),
+    layoutGroups = emptyList(),
+    alignedRight = false,
+    alignedRightMarkers = false,
+    lineLevelSync = false,
+    duetLine = null,
+    interludeStartMs = 0L,
+    interludeEndMs = 0L
+)
 
 /** MUSIC_INFO:主行槽位改显示本面歌曲信息,清掉词级/辅助/并发行/间奏数据。 */
 private fun LyricSnapshot.asMusicInfoContent(): LyricSnapshot = copy(
@@ -3246,6 +3281,23 @@ private fun drawPreviewKaraokeBlock(
         blockWidth = blockWidth,
         blockHeight = layout.blockHeight
     )
+    // 盒模型模式:与实机同一条收集+统一渲染路径,保证三端一致。
+    if (program.outputMode == EFFECT_OUTPUT_BOXES) {
+        val measureProbe = Paint(paint)
+        val measurer = EffectTextMeasurer { text, sizePx, _ ->
+            measureProbe.textSize = sizePx
+            measureProbe.measureText(text)
+        }
+        val boxes = runCatching {
+            EffectVm(program).collectBoxes(context, measurer)
+        }.getOrNull()
+        if (boxes != null) {
+            EffectBoxRenderer.draw(canvas, boxes, paint)
+        } else {
+            android.util.Log.w("PreviewComponents", "effect box program aborted")
+        }
+        return
+    }
     val sink = AndroidEffectRenderSink(canvas, paint, context.colors)
     val rendered = runCatching {
         EffectVm(program).render(context, sink)

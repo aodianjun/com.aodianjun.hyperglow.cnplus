@@ -9,6 +9,7 @@ import com.eza.hyperglow.customization.METADATA_SEPARATORS_DEFAULT
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_MUSIC_INFO
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+import com.eza.hyperglow.customization.PURE_MUSIC_TEXT_DEFAULT
 import com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT
 import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_KEEP
 import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO
@@ -69,6 +70,11 @@ internal fun LyricSnapshot.toAodCanvasContent(
     val noContent = pureMusic || noLyrics
     val noContentMusicInfo = noContent && noLyricsBehavior == NO_LYRICS_BEHAVIOR_MUSIC_INFO
     val noContentRestore = noContent && noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+    // 纯音乐识别(per-surface 开关,见 SurfaceProfile.pureMusicDisplay):开启且本拍判定为
+    // 纯音乐时,主行槽位改画配置文本(空回落默认「纯音乐，请欣赏」)。优先级最高——覆盖
+    // noLyricsBehavior 三态:KEEP 时标记行被换成配置文本,MUSIC_INFO 时盖过歌曲信息,
+    // RESTORE_DEFAULT 时本面有内容可画、不再交还系统默认(见 shouldReleaseStockForNoContent)。
+    val pureMusicTextOverride = pureMusic && profile?.pureMusicDisplay == true
     // 本面「尾奏超时行为」(per-surface,与「无歌词/纯音乐歌词行为」同式):快照只标记
     // tailEligible(处于尾奏上下文),延迟到点由本面自己的 tailTimeoutDelaySeconds 在此
     // 计算——息屏与锁屏延迟可以不同,互不等待。纯音乐/真无歌词优先,不叠加尾奏;
@@ -98,7 +104,9 @@ internal fun LyricSnapshot.toAodCanvasContent(
     // 大元数据引导:主行位置显示本面组装后的歌曲信息(快照下发的是占位符,这里替换)。
     // 无歌词内容 MUSIC_INFO 复用同一路径:标记行槽位改显示本面歌曲信息;元数据为空时回落
     // 原标记行(不能「隐藏了原内容却画不出任何东西」)。RESTORE_DEFAULT 直接置空。
+    // 纯音乐文本接管优先于全部三态:接管分支恒有文本(空白回落默认),不存在画不出内容。
     val surfaceOriginal = when {
+        pureMusicTextOverride -> pureMusicDisplayText(profile)
         noContentRestore || tailRestore -> ""
         largeMetadata || noContentMusicInfo || tailMusicInfo -> surfaceMetadata.ifBlank { original }
         duetMarkers -> stripDuetMarker(original)
@@ -260,7 +268,11 @@ internal fun LyricSnapshot.toAodCanvasContent(
     // 无歌词内容三态收尾(per-surface,纯音乐与真无歌词同门控):MUSIC_INFO 清掉标记行的
     // 词级/辅助/并发行/间奏数据(标记不是歌词,不参与卡拉OK/逐字);RESTORE_DEFAULT 再清空
     // 歌曲信息与封面,交还系统默认。
+    // 纯音乐文本接管优先于三态收尾:主行槽位已是配置文本(接管分支),按 MUSIC_INFO 同式
+    // 清词级/辅助数据即可(占位不是歌词);RESTORE_DEFAULT 不再走全清——本面有内容可画,
+    // 歌曲信息/封面保持本面选择(系统内容释放由 shouldReleaseStockForNoContent 同步联动)。
     return when {
+        pureMusicTextOverride -> content.blankTailEnhancements()
         noContentRestore || tailRestore -> content.blankAllTailContent()
         noContentMusicInfo || tailMusicInfo -> content.blankTailEnhancements()
         else -> content
@@ -315,14 +327,27 @@ private fun stripSurfaceDuetMarkerWords(words: List<LyricWord>): List<LyricWord>
 }
 
 /**
+ * 纯音乐显示文本(pureMusicDisplay 开关开启时主行槽位的内容):自定义文本非空取自定义,
+ * 空白回落默认「纯音乐，请欣赏」。与映射层接管分支同源,设置页摘要也用它展示当前生效值。
+ */
+internal fun pureMusicDisplayText(profile: CompiledSurfaceProfile?): String =
+    profile?.pureMusicText?.takeIf { it.isNotBlank() } ?: PURE_MUSIC_TEXT_DEFAULT
+
+/**
  * 无歌词内容(纯音乐标记行或真无歌词)且本面行为取「交还系统默认」时,控制器必须解除
  * 系统内容抑制:否则系统内容被藏而本面又无内容可显示,留下空白屏。息屏与锁屏共用同一判据。
+ *
+ * [pureMusicTextOverride]:「纯音乐识别」开启且曲目判定为纯音乐时为真——本面改画配置文本
+ * (见 [pureMusicDisplayText]),有内容可画,不再交还系统默认;与映射层的接管分支同序
+ * (接管优先于 RESTORE_DEFAULT),两处不一致会造成「卡片在画文本、系统内容也被放出来」。
  */
 internal fun shouldReleaseStockForNoContent(
     pureMusic: Boolean,
     noLyrics: Boolean,
-    noLyricsBehavior: String
-): Boolean = (pureMusic || noLyrics) && noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+    noLyricsBehavior: String,
+    pureMusicTextOverride: Boolean = false
+): Boolean = !(pureMusic && pureMusicTextOverride) &&
+    (pureMusic || noLyrics) && noLyricsBehavior == NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
 
 /**
  * 尾奏超时且本面行为取「交还系统默认」时,控制器同样必须解除系统内容抑制:否则最后一行

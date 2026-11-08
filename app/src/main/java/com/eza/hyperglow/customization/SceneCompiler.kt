@@ -220,6 +220,8 @@ object SceneCompiler {
             duetConcurrent = profile.duetConcurrent,
             interludeCountdown = profile.interludeCountdown,
             noLyricsBehavior = normalizeNoLyricsBehavior(profile.noLyricsBehavior),
+            pureMusicDisplay = profile.pureMusicDisplay,
+            pureMusicText = normalizePureMusicText(profile.pureMusicText),
             tailTimeoutBehavior = normalizeTailTimeoutBehavior(profile.tailTimeoutBehavior),
             tailTimeoutDelaySeconds = normalizeTailTimeoutDelaySeconds(
                 profile.tailTimeoutDelaySeconds

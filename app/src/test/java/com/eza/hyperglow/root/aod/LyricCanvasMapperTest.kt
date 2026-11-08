@@ -271,6 +271,92 @@ class LyricCanvasMapperTest {
         assertEquals("Song\nArtist", content.metadata)
     }
 
+    // --- 纯音乐识别(per-surface 开关 + 显示文本,见 SurfaceProfile.pureMusicDisplay/pureMusicText)---
+
+    private fun profileWithPureMusic(
+        behavior: String = "keep",
+        display: Boolean = true,
+        text: String = ""
+    ) = SceneCompiler.compile(
+        CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    noLyricsBehavior = behavior,
+                    pureMusicDisplay = display,
+                    pureMusicText = text
+                )
+            )
+        )
+    ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+
+    @Test
+    fun mapperOverridesPureMusicMarkerWithConfiguredText() {
+        // 开关开启:主行槽位改画配置文本;自定义文本优先,空回落默认「纯音乐，请欣赏」。
+        val custom = pureMusicSnapshot().toAodCanvasContent(
+            profileWithPureMusic(text = "请欣赏")
+        )
+        assertEquals("请欣赏", custom.original)
+
+        val defaultText = pureMusicSnapshot().toAodCanvasContent(
+            profileWithPureMusic(text = "  ")
+        )
+        assertEquals("纯音乐，请欣赏", defaultText.original)
+    }
+
+    @Test
+    fun mapperPureMusicTextOverridesBehaviorVariants() {
+        // 接管优先于行为三态:RESTORE_DEFAULT 也改画配置文本(本面有内容可画,不再交还
+        // 系统默认,系统内容抑制由 shouldReleaseStockForNoContent 同步联动)。
+        val restored = pureMusicSnapshot().toAodCanvasContent(
+            profileWithPureMusic(behavior = "restore_default")
+        )
+        assertEquals("纯音乐，请欣赏", restored.original)
+
+        val musicInfo = pureMusicSnapshot().toAodCanvasContent(
+            profileWithPureMusic(behavior = "music_info")
+        )
+        assertEquals("纯音乐，请欣赏", musicInfo.original)
+    }
+
+    @Test
+    fun mapperKeepsHistoricalBehaviorWhenPureMusicDisplayOff() {
+        // 开关关闭(默认):历史行为零变化——KEEP 原样显示标记行。
+        val content = pureMusicSnapshot().toAodCanvasContent(
+            profileWithPureMusic(display = false, behavior = "keep")
+        )
+        assertEquals("纯音乐请欣赏", content.original)
+    }
+
+    @Test
+    fun mapperPureMusicTextAppliesToNoLyricsSnapshotTakenOverByDetection() {
+        // 「纯音乐识别」空行兜底开启后,真无歌词曲目(lines=0)在投影层也判 pureMusic=true
+        // (快照 pureMusic/noLyrics 同拍为真),同样进入接管分支改画配置文本。
+        val detected = noLyricsSnapshot().copy(pureMusic = true)
+        val content = detected.toAodCanvasContent(profileWithPureMusic())
+        assertEquals("纯音乐，请欣赏", content.original)
+    }
+
+    @Test
+    fun releaseStockSkippedWhenPureMusicTextTakesOver() {
+        // 接管时本面有内容可画:RESTORE_DEFAULT 不再交还系统默认;关闭时历史判据不变。
+        assertFalse(
+            shouldReleaseStockForNoContent(
+                pureMusic = true,
+                noLyrics = false,
+                noLyricsBehavior = com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT,
+                pureMusicTextOverride = true
+            )
+        )
+        assertTrue(
+            shouldReleaseStockForNoContent(
+                pureMusic = true,
+                noLyrics = false,
+                noLyricsBehavior = com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT,
+                pureMusicTextOverride = false
+            )
+        )
+    }
+
     // --- 真无歌词(producer lyricKind == NONE,快照 noLyrics=true)三态 ---
 
     private fun noLyricsSnapshot(

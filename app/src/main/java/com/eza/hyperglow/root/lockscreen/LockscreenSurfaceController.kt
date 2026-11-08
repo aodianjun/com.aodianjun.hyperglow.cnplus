@@ -467,10 +467,13 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val baseVisible = eligibleSnapshot != null && shouldShowLockscreen(visibilityInputs)
             // 无歌词内容(纯音乐标记行或真无歌词) RESTORE_DEFAULT(per-surface):本面「交还
             // 系统默认」——不显示 CN+ 歌词卡片(含卡片背景/进度条),整块交还系统锁屏默认内容。
+            // 纯音乐识别接管例外:本面改画配置文本(有内容可画),不交还。
             && !(eligibleSnapshot != null && (shouldReleaseStockForNoContent(
                 pureMusic = eligibleSnapshot.pureMusic,
                 noLyrics = eligibleSnapshot.noLyrics,
-                noLyricsBehavior = lockscreenProfile.noLyricsBehavior
+                noLyricsBehavior = lockscreenProfile.noLyricsBehavior,
+                pureMusicTextOverride = eligibleSnapshot.pureMusic &&
+                    lockscreenProfile.pureMusicDisplay
             ) || shouldReleaseStockForTailTimeout(
                 tailActive = tailActive,
                 tailTimeoutBehavior = lockscreenProfile.tailTimeoutBehavior
