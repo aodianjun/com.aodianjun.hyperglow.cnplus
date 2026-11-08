@@ -1013,8 +1013,50 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun stalledPositionWatchdog_onlyFiresWhilePlayingAndAnchored() {
-        // 在播 + 已锚定 + 超过 2s 没有真实位置 → 看门狗兜底推进（防「播放一半卡住」）。
+    fun songChange_unanchoredFallsBackToMediaSessionAfterThreeSeconds() {
+        // 2026-11-07 真机：切到下一首歌词卡死，暂停后重新播放才恢复（重播逼写端写了
+        // 一次新位置）。写端整段回传旧歌时间线，合理性门控一直拒绝；回调本身没停，
+        // 「静默 15s 才兜底」永远不触发。超过 3s 仍锚不住时改用 MediaSession 锚定。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong().copy(duration = 180_000L))
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(20_000L) // 旧歌已锚定
+
+        clockValue = 11_000L
+        producer.playerListener.onSongChanged(
+            threeLineSong().copy(id = "song-2", name = "Next Song", duration = 180_000L)
+        )
+        assertEquals(0f, producer.state.value!!.speed)
+
+        // MediaSession 已经是新歌位置。
+        producer.mediaSessionPositionReader = {
+            MediaSessionPosition(
+                positionMs = 3_000L,
+                lastUpdateElapsedMs = clockValue,
+                speed = 1f
+            )
+        }
+
+        // 3s 后写端仍在回传旧歌的 20000（门控拒绝）→ 用 MediaSession 的 3000 锚定。
+        clockValue = 14_100L
+        producer.playerListener.onPositionChanged(20_000L)
+        val state = producer.state.value!!
+        assertTrue(
+            "expected MediaSession anchor, got ${state.positionMs}",
+            state.positionMs >= 3_000L
+        )
+        assertEquals(1f, state.speed)
+
+        // 锚定后写端恢复真实位置：正常采纳。
+        clockValue = 15_100L
+        producer.playerListener.onPositionChanged(3_050L)
+        assertEquals(3_050L, producer.state.value!!.positionMs)
+    }
+
+    @Test
+    fun stalledPositionWatchdog_onlyFiresWhilePlayingAndAnchored() {        // 在播 + 已锚定 + 超过 2s 没有真实位置 → 看门狗兜底推进（防「播放一半卡住」）。
         assertTrue(
             shouldAdvanceStalledPosition(
                 playing = true, anchored = true, lastRealClockMs = 1_000L, now = 3_000L

@@ -46,6 +46,10 @@ internal fun LyriconLyricProducer.advanceExtrapolation(now: Long, reason: String
     }
     if (lastRealPositionClockMs < 0L) return
     val sinceRealMs = now - lastRealPositionClockMs
+    // 切歌后锚不住（写端持续回传旧时间线、合理性门控一直拒绝）：超过 3s 就用
+    // MediaSession 的位置锚定，避免歌词整首停住（2026-11-07 真机：切下一首卡死，
+    // 暂停后重播才恢复——重播逼写端写了一次新位置）。
+    if (!positionAnchored && maybeAnchorUnanchoredPosition(now)) return
     // 熄屏后网易云停止写共享内存：先用播放器 MediaSession 的位置兜底（第二位置源），
     // 只接受前进且不越歌长的值；拿不到再走墙钟外推。
     if (sinceRealMs >= LyriconLyricProducer.STALE_POSITION_THRESHOLD_MS) {

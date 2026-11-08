@@ -306,6 +306,9 @@ class LyriconLyricProducer(
      */
     @Volatile internal var positionAnchored: Boolean = false
 
+    /** 切歌后「锚不住 → 试 MediaSession」的重试节流（避免 60Hz 回调里做 Binder 查询）。 */
+    @Volatile internal var lastUnanchoredAnchorAttemptMs: Long = 0L
+
     // --- Extrapolation budget / unknown position ---
     // When the position source goes silent while playing, extrapolation advances the lyric for at
     // most MAX_EXTRAPOLATION_MS. Past that the writer is treated as dead (not merely screen-off
@@ -797,6 +800,48 @@ class LyriconLyricProducer(
     }
 
     /**
+     * 切歌后长时间锚不住时的第二位置源（2026-11-07 真机：切到下一首歌词卡死，
+     * 暂停后重新播放才恢复）。
+     *
+     * 写端在新歌开始后仍可能整段回传旧歌时间线的值，合理性门控会持续拒绝；
+     * 回调本身一直没停，所以「回调静默 15s 才兜底」的
+     * [maybeRecoverPositionFromMediaSession] 永远不触发——时间线锚不住（未锚定不外推），
+     * 歌词就停住。这里在切歌后超过 [UNANCHORED_RECOVERY_MS] 仍锚不住时，直接拿
+     * 播放器 MediaSession 的位置锚定。要求当前曲目名下确有在播会话，避免把旧歌/
+     * 别的会话的位置锚到新歌上。
+     */
+    internal fun maybeAnchorUnanchoredPosition(now: Long): Boolean {
+        if (positionAnchored) return false
+        if (lastRealPositionClockMs < 0L) return false
+        if (now - lastRealPositionClockMs < UNANCHORED_RECOVERY_MS) return false
+        if (now - lastUnanchoredAnchorAttemptMs < UNANCHORED_ANCHOR_RETRY_MS) return false
+        lastUnanchoredAnchorAttemptMs = now
+        val title = currentSong?.name
+        // 管理器不可用（单测/无通知权限）时不做标题校验；可用时只认同名在播会话。
+        if (mediaSessionManager != null && !title.isNullOrBlank() &&
+            !anySessionActiveFor(title)
+        ) {
+            return false
+        }
+        val recovered = probeMediaSessionPosition(now) ?: return false
+        lastRealPositionMs = recovered
+        lastRealPositionClockMs = now
+        lastRealPositionUpdateMs = now
+        currentPositionMs = recovered
+        extrapolating = false
+        positionUnknown = false
+        positionAnchored = true
+        heldAtSongEndStale = false
+        songEndCleared = false
+        staleFlushPendingValueMs = Long.MIN_VALUE
+        AppLog.i(
+            "LyriconLyricProducer",
+            "position anchored via MediaSession after song change: pos=${recovered}ms"
+        )
+        return true
+    }
+
+    /**
      * 位置回调完全停发（回调链死）时的第二位置源续命：看门狗每 5s 主动探测 MediaSession，
      * 拿到前进位置就重锚并重新发射状态。放在看门狗里而不是 advanceExtrapolation 里，
      * 是因为后者只有 onPositionChanged 到达才会执行——回调彻底停发时它永远不跑。
@@ -1182,6 +1227,10 @@ class LyriconLyricProducer(
         private const val POSITION_WATCHDOG_POLL_MS = 5_000L
         /** 看门狗心跳日志周期。 */
         private const val WATCHDOG_HEARTBEAT_MS = 60_000L
+        /** 切歌后超过该时长仍锚不住 → 用 MediaSession 位置锚定。 */
+        internal const val UNANCHORED_RECOVERY_MS = 3_000L
+        /** 上述锚定尝试的节流（60Hz 回调里不做 Binder 查询）。 */
+        private const val UNANCHORED_ANCHOR_RETRY_MS = 1_000L
 
         /**
          * issue #27: poll interval for the MediaSession stop detector. Multiple matched samples
