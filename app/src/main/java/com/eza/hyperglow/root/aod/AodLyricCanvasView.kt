@@ -2190,7 +2190,7 @@ internal class AodLyricCanvasView(
             // (上游 84a0c9ce 项 #2/#3),歌名行回落整行 Paint。
             val paint = line.paint ?: metadata.row.paint
             paint.color = resolvedPalette.metadataText
-            paint.alpha = (255f * alpha.coerceIn(0f, 1f)).roundToInt()
+            paint.alpha = scaledAlpha(resolvedPalette.metadataText, alpha.coerceIn(0f, 1f))
             canvas.drawText(
                 line.text,
                 line.startX,
@@ -2239,7 +2239,6 @@ internal class AodLyricCanvasView(
                 currentRenderStyle.palette.metadataText,
                 value
             )
-            alpha = 255
             shader = null
             clearShadowLayer()
         }
@@ -4175,7 +4174,10 @@ internal class AodLyricCanvasView(
         bright: Boolean = true
     ) {
         rubyPaint.color = resolvedPalette.secondaryText
-        rubyPaint.alpha = (255f * steadyTextAlpha(if (bright) 1f else 0.35f)).toInt()
+        rubyPaint.alpha = scaledAlpha(
+            resolvedPalette.secondaryText,
+            steadyTextAlpha(if (bright) 1f else 0.35f)
+        )
         val gap = line.rubyHeight + rubyPaint.fontMetrics.ascent
         val baseline = baseBaseline + originalPaint.fontMetrics.ascent -
             gap - rubyPaint.fontMetrics.descent
@@ -4889,7 +4891,7 @@ internal class AodLyricCanvasView(
             if (row.kind == RowKind.METADATA) {
                 val paint = line.paint ?: row.paint
                 paint.color = resolvedPalette.metadataText
-                paint.alpha = 255
+                paint.alpha = scaledAlpha(resolvedPalette.metadataText, 1f)
                 canvas.drawText(line.text, line.startX, lineBaseline, paint)
             } else if (row.kind == RowKind.NEXT_LINE) {
                 drawNextLine(canvas, row.paint, line.text, line.startX, lineBaseline)
@@ -5060,7 +5062,7 @@ internal class AodLyricCanvasView(
         color: Int
     ) {
         paint.color = color
-        paint.alpha = (255f * (steadyTextAlpha(factor) * brightness).coerceIn(0f, 1f)).toInt()
+        paint.alpha = scaledAlpha(color, steadyTextAlpha(factor) * brightness)
     }
 
     private fun drawGlowHalo(
@@ -5085,7 +5087,7 @@ internal class AodLyricCanvasView(
         // 硬件加速下 shadow+shader 同置导致发光丢失的问题。
         paint.shader = null
         paint.color = glowColor
-        paint.alpha = (GLOW_HALO_ALPHA * intensity).roundToInt().coerceIn(0, 255)
+        paint.alpha = scaledAlpha(glowColor, GLOW_HALO_ALPHA / 255f * intensity)
         paint.setShadowLayer(
             paint.textSize * GLOW_HALO_RADIUS * intensity,
             0f,
@@ -5146,7 +5148,7 @@ internal class AodLyricCanvasView(
             setTextAlpha(paint, staticSecondaryTextFactor(content.secondaryTextBright), 1f, color)
         } else {
             paint.color = color
-            paint.alpha = (255f * staticNextLineTextFactor()).toInt()
+            paint.alpha = scaledAlpha(color, staticNextLineTextFactor())
         }
         paint.shader = null
         paint.clearShadowLayer()

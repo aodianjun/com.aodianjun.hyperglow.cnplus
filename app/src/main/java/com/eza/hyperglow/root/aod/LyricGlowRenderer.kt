@@ -6,6 +6,7 @@ import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
+import kotlin.math.roundToInt
 
 /**
  * 歌词扫光/发光的共享渲染核心 —— 预览(PreviewAnimatedLyric)与实机
@@ -65,9 +66,16 @@ internal object LyricGlowRenderer {
         val red = Color.red(sungColor)
         val green = Color.green(sungColor)
         val blue = Color.blue(sungColor)
+        // 渐变各档 alpha 跟随 sung 色自身 alpha,透明歌词的扫光/拖尾也一起变淡。
+        val baseAlpha = Color.alpha(sungColor)
         val transparent = Color.argb(0, red, green, blue)
-        val tail = Color.argb(SWEEP_TAIL_ALPHA, red, green, blue)
-        val peak = Color.argb(255, (red + 255 * 3) / 4, (green + 255 * 3) / 4, (blue + 255 * 3) / 4)
+        val tail = Color.argb((baseAlpha * SWEEP_TAIL_ALPHA / 255f).roundToInt(), red, green, blue)
+        val peak = Color.argb(
+            baseAlpha,
+            (red + 255 * 3) / 4,
+            (green + 255 * 3) / 4,
+            (blue + 255 * 3) / 4
+        )
         val shader = LinearGradient(
             0f, 0f, 1f, 0f,
             intArrayOf(sungColor, sungColor, peak, tail, transparent),
@@ -97,7 +105,7 @@ internal object LyricGlowRenderer {
         // 行首/行尾 easeInOut 减速:与预览演示的扫光节奏一致。
         val eased = easeInOutCubic(progress.coerceIn(0f, 1f))
         val dimColor = Color.argb(
-            DIM_BASE_ALPHA,
+            scaledAlpha(sungColor, DIM_BASE_ALPHA / 255f),
             Color.red(sungColor),
             Color.green(sungColor),
             Color.blue(sungColor)
@@ -109,7 +117,7 @@ internal object LyricGlowRenderer {
             paint.shader = null
             paint.setShadowLayer(0f, 0f, 0f, 0)
             paint.color = sungColor
-            paint.alpha = 255
+            paint.alpha = Color.alpha(sungColor)
             rows.forEach { it.drawText(canvas, paint) }
             return
         }
@@ -132,7 +140,7 @@ internal object LyricGlowRenderer {
                 val glowSave = canvas.save()
                 canvas.clipRect(clipLeft, blockTop, clipRight, edge)
                 paint.color = sungColor
-                paint.alpha = 255
+                paint.alpha = Color.alpha(sungColor)
                 paint.setShadowLayer(haloRadius, 0f, 0f, glowColor)
                 rows.forEach { it.drawText(canvas, paint) }
                 paint.setShadowLayer(0f, 0f, 0f, 0)
@@ -142,7 +150,7 @@ internal object LyricGlowRenderer {
             canvas.clipRect(clipLeft, blockTop, clipRight, edge)
             paint.shader = null
             paint.color = sungColor
-            paint.alpha = 255
+            paint.alpha = Color.alpha(sungColor)
             rows.forEach { it.drawText(canvas, paint) }
             canvas.restoreToCount(litSave)
             return
@@ -172,7 +180,7 @@ internal object LyricGlowRenderer {
                 )
                 paint.shader = null
                 paint.color = sungColor
-                paint.alpha = 255
+                paint.alpha = Color.alpha(sungColor)
                 paint.setShadowLayer(paint.textSize * HALO_RADIUS_FRACTION, 0f, 0f, glowColor)
                 row.drawText(canvas, paint)
                 paint.setShadowLayer(0f, 0f, 0f, 0)
@@ -193,7 +201,7 @@ internal object LyricGlowRenderer {
             shader.setLocalMatrix(sweepMatrix)
             paint.shader = shader
             paint.color = sungColor
-            paint.alpha = 255
+            paint.alpha = Color.alpha(sungColor)
             row.drawText(canvas, paint)
             paint.shader = null
         }

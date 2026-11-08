@@ -44,12 +44,17 @@ internal class InterludeDotsRenderer {
             val radius = textSize * INTERLUDE_DOT_RADIUS_TEXT_SIZE_FACTOR *
                 interludeDotScale(lighting)
             val centerX = cursorX + radius
-            backgroundPaint.alpha = (INTERLUDE_DOT_BACKGROUND_ALPHA * exitAlpha).toInt()
+            backgroundPaint.alpha = scaledAlpha(
+                backgroundColorArgb,
+                INTERLUDE_DOT_BACKGROUND_ALPHA / 255f * exitAlpha
+            )
             if (backgroundPaint.alpha > 0) {
                 canvas.drawCircle(centerX, centerY, radius, backgroundPaint)
             }
-            val highlightAlpha =
-                (MAX_PAINT_ALPHA * interludeDotSmoothStep(lighting) * exitAlpha).toInt()
+            val highlightAlpha = scaledAlpha(
+                highlightColorArgb,
+                interludeDotSmoothStep(lighting) * exitAlpha
+            )
             if (highlightAlpha > 0) {
                 highlightPaint.alpha = highlightAlpha
                 canvas.drawCircle(centerX, centerY, radius, highlightPaint)
@@ -58,7 +63,4 @@ internal class InterludeDotsRenderer {
         }
     }
 
-    private companion object {
-        const val MAX_PAINT_ALPHA = 255f
-    }
 }

@@ -33,7 +33,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
-import com.eza.hyperglow.root.aod.parseOpaqueColorOrNull
+import com.eza.hyperglow.root.aod.parseColorOrNull
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -44,20 +44,21 @@ private const val PRESET_COLORS_PER_ROW = 4
 
 /**
  * 解析用户输入的十六进制颜色代码:允许省略 `#`、大小写混写与首尾空白,
- * 其余语义与 [parseOpaqueColorOrNull] 一致(`#RGB`/`#RRGGBB`/`#AARRGGBB`,忽略透明度);
+ * 语义与 [parseColorOrNull] 一致(`#RGB`/`#RRGGBB`/`#AARRGGBB`,**保留 alpha**);
  * 非法输入返回 null(纯函数,可单测)。
  */
 internal fun parseHexColorInput(raw: String): Int? {
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return null
     val token = if (trimmed.startsWith("#")) trimmed else "#$trimmed"
-    return parseOpaqueColorOrNull(token)
+    return parseColorOrNull(token)
 }
 
 /**
- * 取色弹窗底部的「色块预览」组合:点按色块展开/收起预设颜色与代码输入行。
+ * 取色弹窗底部的「色块预览 + 预设 + 代码输入」组合:色块只作当前色预览,
+ * 预设颜色与代码输入常显,不需要再点按展开。
  * 预设色块([PRESET_COLORS])点按即写入 [onColorChange],当前项描边高亮;
- * 代码输入 `#66CCFF` 形式(可省略 `#`)后点「应用」或回车同样写入。
+ * 代码输入 `#66CCFF`/`#AARRGGBB` 形式(可省略 `#`)后点「应用」或回车同样写入。
  * 非法代码就地提示且不改动当前颜色。
  */
 @Composable
@@ -66,11 +67,9 @@ internal fun ColorSwatchHexInput(
     onColorChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showInput by remember { mutableStateOf(false) }
     var text by remember(argb) { mutableStateOf(argbToColorToken(argb)) }
     // 换色(滑杆/应用成功)即复位错误提示,避免对新颜色残留旧报错
     var showError by remember(argb) { mutableStateOf(false) }
-    val editDesc = stringResource(R.string.color_hex_edit_desc)
 
     fun applyTypedColor() {
         val parsed = parseHexColorInput(text)
@@ -92,72 +91,68 @@ internal fun ColorSwatchHexInput(
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(Color(argb))
-                .clickable { showInput = !showInput }
-                .semantics { contentDescription = editDesc }
         )
-        if (showInput) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                PRESET_COLORS.chunked(PRESET_COLORS_PER_ROW).forEach { rowTokens ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        rowTokens.forEach { (token, labelRes) ->
-                            val presetArgb = parseOpaqueColorOrNull(token) ?: return@forEach
-                            PresetColorSwatch(
-                                argb = presetArgb,
-                                label = stringResource(labelRes),
-                                selected = argbToColorToken(argb) == token,
-                                onClick = { onColorChange(presetArgb) }
-                            )
-                        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            PRESET_COLORS.chunked(PRESET_COLORS_PER_ROW).forEach { rowTokens ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    rowTokens.forEach { (token, labelRes) ->
+                        val presetArgb = parseColorOrNull(token) ?: return@forEach
+                        PresetColorSwatch(
+                            argb = presetArgb,
+                            label = stringResource(labelRes),
+                            selected = argbToColorToken(argb) == token,
+                            onClick = { onColorChange(presetArgb) }
+                        )
                     }
                 }
             }
-            Row(
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
+                value = text,
+                onValueChange = {
+                    text = it
+                    showError = false
+                },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                label = stringResource(R.string.color_hex_hint),
+                useLabelAsPlaceholder = true,
+                textStyle = TextStyle(
+                    color = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+                    fontSize = 16.sp
+                ),
+                cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { applyTypedColor() })
+            )
+            Spacer(Modifier.width(12.dp))
+            TextButton(
+                text = stringResource(R.string.action_apply),
+                onClick = { applyTypedColor() },
+                colors = ButtonDefaults.textButtonColorsPrimary()
+            )
+        }
+        if (showError) {
+            Text(
+                text = stringResource(R.string.color_hex_invalid),
+                color = MiuixTheme.colorScheme.error,
+                fontSize = 12.sp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextField(
-                    value = text,
-                    onValueChange = {
-                        text = it
-                        showError = false
-                    },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    label = stringResource(R.string.color_hex_hint),
-                    useLabelAsPlaceholder = true,
-                    textStyle = TextStyle(
-                        color = MiuixTheme.colorScheme.onSurfaceContainerHighest,
-                        fontSize = 16.sp
-                    ),
-                    cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { applyTypedColor() })
-                )
-                Spacer(Modifier.width(12.dp))
-                TextButton(
-                    text = stringResource(R.string.action_apply),
-                    onClick = { applyTypedColor() },
-                    colors = ButtonDefaults.textButtonColorsPrimary()
-                )
-            }
-            if (showError) {
-                Text(
-                    text = stringResource(R.string.color_hex_invalid),
-                    color = MiuixTheme.colorScheme.error,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp)
-                )
-            }
+                    .padding(top = 4.dp)
+            )
         }
     }
 }

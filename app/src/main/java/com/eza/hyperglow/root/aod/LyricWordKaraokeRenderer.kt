@@ -305,8 +305,9 @@ internal object LyricWordKaraokeRenderer {
             return
         }
         val textSize = paint.textSize
-        val sungAlpha = karaokeSungAlpha(alphaFactor)
-        val dimAlpha = karaokeUnsungAlpha(alphaFactor)
+        // 调色板颜色自带 alpha × 行亮度档:透明歌词不应被 255 覆盖回不透明。
+        val sungAlpha = scaledAlpha(sungColor, karaokeSungAlpha(alphaFactor) / 255f)
+        val dimAlpha = scaledAlpha(unsungColor, karaokeUnsungAlpha(alphaFactor) / 255f)
         var index = 0
         while (index < runs.size) {
             val run = runs[index]
@@ -390,8 +391,8 @@ internal object LyricWordKaraokeRenderer {
         effect: WordEffectSpec
     ) {
         val textSize = paint.textSize
-        val sungAlpha = karaokeSungAlpha(alphaFactor)
-        val dimAlpha = karaokeUnsungAlpha(alphaFactor, effect.unsungDim)
+        val sungFactor = karaokeSungAlpha(alphaFactor)
+        val dimFactor = karaokeUnsungAlpha(alphaFactor, effect.unsungDim)
         val wordCount = runs.count { it.text.isNotEmpty() }.coerceAtLeast(1)
         var index = 0
         var runIndex = 0
@@ -406,13 +407,16 @@ internal object LyricWordKaraokeRenderer {
             // 两者取或,否则 LRC/行级源的中文长块永远命不中 longOnly / glow=long。
             val longSyllable = run.longSyllable || run.durationMs >= effect.longSyllableMs
             val frame = evaluateWordEffect(effect, played, staggerIndex, longSyllable, wordCount)
-            val alpha = ((if (sung) sungAlpha else dimAlpha) * frame.alpha)
-                .roundToInt().coerceIn(0, 255)
-            // 扫光/辉光是「已唱」语义:用满亮度,不跟底字的未唱暗度走(内置路径同式)。
-            val sweepAlpha = (sungAlpha * frame.alpha).roundToInt().coerceIn(0, 255)
             // 底字用未唱色,扫光/辉光用已唱色(与内置路径同语义);颜色轨道覆盖两者。
             val baseColor = frame.colorArgb ?: if (sung) sungColor else unsungColor
             val sweepColor = frame.colorArgb ?: sungColor
+            val baseAlpha = scaledAlpha(
+                baseColor,
+                (if (sung) sungFactor else dimFactor) / 255f
+            )
+            // 扫光/辉光是「已唱」语义:用已唱色 alpha,不跟底字的未唱暗度走(内置路径同式)。
+            val sweepAlpha = scaledAlpha(sweepColor, sungFactor / 255f)
+            val alpha = (baseAlpha * frame.alpha).roundToInt().coerceIn(0, 255)
             val pivotX = run.x + run.width / 2f
             val save = canvas.save()
             if (frame.translateXEm != 0f || frame.translateYEm != 0f) {
@@ -499,8 +503,8 @@ internal object LyricWordKaraokeRenderer {
     /**
      * 自定义效果的词内扫光：颜色轨道每帧都会产生新色值，若按颜色建渐变缓存会每词每帧
      * 新建 native LinearGradient 并冲掉内置档的稳定缓存。这里固定用白色渐变 + 颜色滤镜
-     * 着色（SRC_IN 保留渐变 alpha、替换 RGB），缓存只保留一个实例；颜色 alpha 也被
-     * 滤镜强制为不透明，避免 #AARRGGBB 让光带变淡。
+     * 着色（SRC_IN 保留渐变 alpha、替换 RGB），缓存只保留一个实例；颜色自带 alpha 会
+     * 经 SRC_IN 乘进光带，透明歌词的扫光同步变淡。
      */
     private fun applyEffectSweepShader(
         paint: Paint,
@@ -518,10 +522,7 @@ internal object LyricWordKaraokeRenderer {
         sweepMatrix.postTranslate(start, 0f)
         shader.setLocalMatrix(sweepMatrix)
         paint.shader = shader
-        paint.colorFilter = PorterDuffColorFilter(
-            color or 0xFF000000.toInt(),
-            PorterDuff.Mode.SRC_IN
-        )
+        paint.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
     }
 
     /**
@@ -540,7 +541,12 @@ internal object LyricWordKaraokeRenderer {
         sweepShaderCache[color]?.let { return it }
         if (sweepShaderCache.size >= SWEEP_SHADER_CACHE_CAPACITY) sweepShaderCache.clear()
         val transparent = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
-        val middle = Color.argb(184, Color.red(color), Color.green(color), Color.blue(color))
+        val middle = Color.argb(
+            (Color.alpha(color) * 184 / 255f).roundToInt(),
+            Color.red(color),
+            Color.green(color),
+            Color.blue(color)
+        )
         val shader = LinearGradient(
             0f, 0f, 1f, 0f,
             intArrayOf(color, middle, transparent),

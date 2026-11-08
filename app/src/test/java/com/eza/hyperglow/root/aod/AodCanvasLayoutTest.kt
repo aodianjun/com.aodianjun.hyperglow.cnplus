@@ -115,13 +115,29 @@ class AodCanvasLayoutTest {
         val warm = resolveAodPalette(mapOf("sungText" to "#FFD9A0", "glow" to "#FFD9A0"))
         assertEquals(0xFFFFD9A0.toInt(), warm.sungText)
         assertEquals(0xFFFFD9A0.toInt(), warm.glow)
-        // "#AARRGGBB" 丢弃 alpha;短格式 "#RGB" 展开;非法 token 回退默认白
+        // 旧的不透明解析仍丢弃 alpha(供需要忽略透明度的调用方);短格式 "#RGB" 展开
         assertEquals(0xFF00AABB.toInt(), parseOpaqueColorOrNull("#CC00AABB"))
         assertEquals(0xFF112233.toInt(), parseOpaqueColorOrNull("#123"))
         assertNull(parseOpaqueColorOrNull("dimmed"))
         assertNull(parseOpaqueColorOrNull("#GGHHII"))
         assertNull(parseOpaqueColorOrNull("#12345"))
         assertEquals(android.graphics.Color.WHITE, resolveAodPalette(mapOf("sungText" to "#12345")).sungText)
+    }
+
+    @Test
+    fun paletteHexTokensPreserveAlphaAndScaleWithBrightness() {
+        // 调色板走保留 alpha 的解析:取色器的透明度必须活到渲染层。
+        val translucent = resolveAodPalette(mapOf("sungText" to "#80FFD9A0"))
+        assertEquals(0x80FFD9A0.toInt(), translucent.sungText)
+        assertEquals(0x80FFD9A0.toInt(), parseColorOrNull("#80FFD9A0"))
+        assertEquals(0xFFFFD9A0.toInt(), parseColorOrNull("#FFD9A0"))
+        assertEquals(0xFF112233.toInt(), parseColorOrNull("#123"))
+        assertNull(parseColorOrNull("dimmed"))
+        // 颜色自带 alpha × 亮度系数:半透明白在全亮时保持 128,压到 50% 时 64;钳到 0..255。
+        assertEquals(128, scaledAlpha(0x80FFFFFF.toInt(), 1f))
+        assertEquals(64, scaledAlpha(0x80FFFFFF.toInt(), 0.5f))
+        assertEquals(0, scaledAlpha(0x80FFFFFF.toInt(), -1f))
+        assertEquals(255, scaledAlpha(0xFFFFFFFF.toInt(), 2f))
     }
 
     @Test
