@@ -295,9 +295,9 @@ test('fixed-direction preset drops the alternate chain', () => {
   assert.ok(built.ok);
   const code = JSON.stringify(built.effect.program.code);
   // 固定滑向:mod 仅出现在手法分派(1 次);交替滑向会有第 2 次
-  // mod 出现位置:排版选择器(1)+ 手法派发(1);交替滑向会再加 1 次方向链
+  // mod 出现位置:装饰选择器(1)+ 排版选择器(1)+ 手法派发(1);交替滑向会再加 1
   const modCount = code.split('"mod"').length - 1;
-  assert.strictEqual(modCount, 2, 'typewriter should not alternate direction, mod x' + modCount);
+  assert.strictEqual(modCount, 3, 'typewriter should not alternate direction, mod x' + modCount);
 });
 
 test('styleFromSeed honors slideStagger / slideAlt overrides', () => {
@@ -337,14 +337,14 @@ test('choreo modes dispatch differently and stay in budget', () => {
     assert.ok(built.ok, mode + ': ' + (built.errors || []).join('; '));
     assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE, mode + ' instructions');
     const src = M.buildProgramSource(style);
-    // stringLength:cycle 只出现在排版选择器(1);fixed/songRandom 的派发再加 1 次
+    // stringLength:装饰选择器(1)+ 排版选择器(1)= 2;fixed/songRandom 的派发再加 1 次
     const lenCount = (src.match(/stringLength/g) || []).length;
-    if (mode === 'fixed') assert.strictEqual(lenCount, 2, 'fixed dispatch missing');
+    if (mode === 'fixed') assert.strictEqual(lenCount, 3, 'fixed dispatch missing');
     if (mode === 'songRandom') {
-      assert.strictEqual(lenCount, 2, 'songRandom missing stringLength');
+      assert.strictEqual(lenCount, 3, 'songRandom missing stringLength');
       assert.ok(style.choreoA > 0 && style.choreoB > 0, 'songRandom multipliers missing');
     }
-    if (mode === 'cycle') assert.strictEqual(lenCount, 1, 'cycle dispatch should not use length');
+    if (mode === 'cycle') assert.strictEqual(lenCount, 2, 'cycle dispatch should not use length');
     seen[mode] = M.buildEffectPack({ rows: [] }, style, { title: mode }).pack;
   }
   // 固定与每歌随机的派发片段不同
@@ -408,6 +408,52 @@ test('auto layout is content-derived and reproducible', () => {
 test('invalid layoutMode falls back to auto', () => {
   const style = M.styleFromSeed(1, 'lyric', { layoutMode: 'zigzag' });
   assert.strictEqual(style.layoutMode, 'auto');
+});
+
+test('graphic deco modes emit the right primitive types', () => {
+  const base = { waveAmp: 0.0, rotAmp: 0, bounceH: 0, slideD: 0, slideStagger: 0, pulse: 0, cycle: 1, flash: false, layoutMode: 'h' };
+  const frame = makeFrame('一二三四五六', 0.5);
+  const boxesFor = (graphicMode) => {
+    const style = M.styleFromSeed(5, 'lyric', Object.assign({}, base, { graphicMode }));
+    const built = M.buildEffectPack({ rows: [] }, style, {});
+    assert.ok(built.ok, graphicMode + ': ' + (built.errors || []).join('; '));
+    assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE, graphicMode + ' instr ' + built.stats.instructions);
+    const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+    assert.ok(E.runProgram(built.effect.program, frame, sink).ok, graphicMode + ' run failed');
+    return sink.boxes;
+  };
+
+  // 无装饰:只有文字盒
+  const none = boxesFor('none');
+  assert.ok(none.every((b) => b.type === 'text'), 'none should be text only');
+
+  // 下划线:一个 line 盒;框线:一个 rect 盒;印章:一个 circle 盒
+  const line = boxesFor('line');
+  assert.ok(line.some((b) => b.type === 'line'), 'line deco missing');
+  const framed = boxesFor('frame');
+  assert.ok(framed.some((b) => b.type === 'rect' && b.paint.style === 1), 'frame deco missing (stroke rect)');
+  const stamp = boxesFor('stamp');
+  assert.ok(stamp.some((b) => b.type === 'circle'), 'stamp deco missing');
+
+  // 装饰画在文字之前(盒序:装饰盒在前)
+  assert.strictEqual(line[0].type, 'line', 'deco should be emitted before text');
+  assert.strictEqual(framed[0].type, 'rect', 'frame should be emitted before text');
+  assert.strictEqual(stamp[0].type, 'circle', 'stamp should be emitted before text');
+});
+
+test('graphic auto mode is content-derived and reproducible', () => {
+  const style = M.styleFromSeed(3, 'lyric', { graphicMode: 'auto' });
+  assert.strictEqual(style.graphicMode, 'auto');
+  const built = M.buildEffectPack({ rows: [] }, style, {});
+  assert.ok(built.ok);
+  const src = M.buildProgramSource(style);
+  assert.ok(src.includes('push 4'), 'auto selector mod 4 missing');
+  assert.strictEqual(M.buildProgramSource(M.styleFromSeed(3, 'lyric', { graphicMode: 'auto' })), src);
+});
+
+test('invalid graphicMode falls back to auto', () => {
+  const style = M.styleFromSeed(1, 'lyric', { graphicMode: 'confetti' });
+  assert.strictEqual(style.graphicMode, 'auto');
 });
 
 console.log('\n' + passed + ' tests passed' + (process.exitCode ? ' — with failures' : ''));

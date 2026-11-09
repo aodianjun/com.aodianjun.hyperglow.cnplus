@@ -20,6 +20,7 @@ const state = {
   presetKey: 'ballad',
   choreoMode: 'cycle',
   layoutMode: 'auto',
+  graphicMode: 'auto',
   theme: 'lyric',
   overrides: {},
   palette: { sung: 0xFFFFFFFF, unsung: 0x88FFFFFF, glow: 0xFF66AAFF, accent: 0xFFFFAA33 },
@@ -76,6 +77,7 @@ function readControls() {
     cycle: Number($('cycle').value),
     choreoMode: $('choreo').value,
     layoutMode: $('layout').value,
+    graphicMode: $('graphic').value,
     flash: $('flash').checked
   };
   const sung = E.parseColor($('sungColor').value) || 0xFFFFFFFF;
@@ -400,6 +402,7 @@ function syncControlsFromStyle() {
   set('cycle', style.cycle);
   $('choreo').value = state.choreoMode;
   $('layout').value = state.layoutMode;
+  $('graphic').value = state.graphicMode;
   $('flash').checked = style.flash;
   $('preset').value = state.presetKey;
 }
@@ -415,7 +418,7 @@ function applyPreset(key) {
   refresh();
 }
 
-for (const id of ['bpm', 'startSec', 'lineDur', 'snap', 'choreo', 'layout']) {
+for (const id of ['bpm', 'startSec', 'lineDur', 'snap', 'choreo', 'layout', 'graphic']) {
   $(id).addEventListener('change', refresh);
 }
 for (const id of ['theme', 'cycle', 'seed', 'waveAmp', 'waveK', 'rotAmp', 'bounceH',

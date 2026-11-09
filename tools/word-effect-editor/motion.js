@@ -352,6 +352,16 @@ const CHOREO_MODES = { cycle: 1, fixed: 1, songRandom: 1 };
  */
 const LAYOUT_MODES = { auto: 1, h: 1, v: 1, stagger: 1, scatter: 1 };
 
+/**
+ * 图形装饰模式(每行画在文字之前的 accent 图形):
+ *   auto    按行内容轮换(字符数 + 词数*C mod 4):无 / 下划线 / 框线 / 印章圈
+ *   none    不画
+ *   line    下划线
+ *   frame   框线
+ *   stamp   行尾印章圈
+ */
+const GRAPHIC_MODES = { auto: 1, none: 1, line: 1, frame: 1, stamp: 1 };
+
 const round4 = (value) => Math.round(value * 10000) / 10000;
 const pickRange = (rng, range) => range[0] + (range[1] - range[0]) * rng();
 
@@ -386,6 +396,7 @@ function styleFromSeed(seed, themeKey, overrides) {
     slideAlt: over.slideAlt === undefined ? rng() < 0.5 : !!over.slideAlt,
     choreoMode: over.choreoMode in CHOREO_MODES ? over.choreoMode : 'cycle',
     layoutMode: over.layoutMode in LAYOUT_MODES ? over.layoutMode : 'auto',
+    graphicMode: over.graphicMode in GRAPHIC_MODES ? over.graphicMode : 'auto',
     pulse: jitter('pulse'),
     cycle,
     flash: over.flash === undefined ? rng() < 0.5 : !!over.flash,
@@ -398,6 +409,7 @@ function styleFromSeed(seed, themeKey, overrides) {
   style.choreoA = Math.round((1 + rng() * 3) * 100) / 100;
   // 排版自动轮换的混合系数(与手法系数分开,互不干扰)
   style.layoutSeedB = 1 + Math.round(rng() * 3);
+  style.graphicSeedC = 1 + Math.round(rng() * 3);
   style.choreoB = Math.round((1 + rng() * 3) * 100) / 100;
   return style;
 }
@@ -818,9 +830,157 @@ function buildProgramSource(style) {
       '  mod'
     ];
 
+  // ---- 图形装饰层:按行内容派发(画在文字之前,每行一次,不进词循环) ----
+  // 公共绘制状态:accent 色、描边、随行进度渐显
+  const decoCommon = [
+    'colorField accent',
+    'setColor',
+    'push 2',
+    'setStrokeWidth',
+    'setStroke',
+    'lineField progress',
+    'push 4',
+    'mul',
+    'push 1',
+    'min',
+    'push 0.9',
+    'mul',
+    'setAlpha'
+  ];
+
+  // 1 下划线:沿行底画一条 accent 线
+  const decoLine = [
+    'loadLocal 2',
+    'lineAtField x',
+    'loadLocal 2',
+    'lineAtField baseline',
+    'globalField textSize',
+    'push 0.42',
+    'mul',
+    'add',
+    'loadLocal 2',
+    'lineAtField x',
+    'loadLocal 2',
+    'lineAtField width',
+    'add',
+    'loadLocal 2',
+    'lineAtField baseline',
+    'globalField textSize',
+    'push 0.42',
+    'mul',
+    'add',
+    'drawLine'
+  ];
+
+  // 2 框线:行四周描边框(留 0.2em 边距)
+  const decoFrame = [
+    'loadLocal 2',
+    'lineAtField x',
+    'globalField textSize',
+    'push 0.2',
+    'mul',
+    'sub',
+    'loadLocal 2',
+    'lineAtField baseline',
+    'globalField textSize',
+    'push 1.15',
+    'mul',
+    'sub',
+    'loadLocal 2',
+    'lineAtField width',
+    'globalField textSize',
+    'push 0.4',
+    'mul',
+    'add',
+    'globalField textSize',
+    'push 1.55',
+    'mul',
+    'drawRect'
+  ];
+
+  // 3 印章圈:行尾一颗 accent 圆环
+  const decoStamp = [
+    'loadLocal 2',
+    'lineAtField x',
+    'loadLocal 2',
+    'lineAtField width',
+    'add',
+    'globalField textSize',
+    'push 0.45',
+    'mul',
+    'add',
+    'loadLocal 2',
+    'lineAtField baseline',
+    'globalField textSize',
+    'push 0.25',
+    'mul',
+    'sub',
+    'globalField textSize',
+    'push 0.32',
+    'mul',
+    'drawCircle'
+  ];
+
+  const fixedGraphic = { none: 0, line: 1, frame: 2, stamp: 3 }[style.graphicMode];
+  const decoSelector = Number.isInteger(fixedGraphic)
+    ? ['push ' + num(fixedGraphic), 'storeLocal 13']
+    : [
+        // auto:(行字符数 + 词数*C) mod 4 —— 装饰随行轮换,同曲稳定
+        'loadLocal 2',
+        'lineAtField text',
+        'stringLength',
+        'wordCount',
+        'push ' + num(style.graphicSeedC),
+        'mul',
+        'add',
+        'push 4',
+        'mod',
+        'storeLocal 13'
+      ];
+
+  const decoDispatch = [
+    'loadLocal 13',
+    'dup',
+    'push 0',
+    'eq',
+    'jz DG1',
+    'pop',
+    'jump DGDone',
+    'DG1:',
+    'dup',
+    'push 1',
+    'eq',
+    'jz DG2',
+    'pop',
+    ...indent(decoLine),
+    'jump DGDone',
+    'DG2:',
+    'dup',
+    'push 2',
+    'eq',
+    'jz DG3',
+    'pop',
+    ...indent(decoFrame),
+    'jump DGDone',
+    'DG3:',
+    'pop',
+    ...indent(decoStamp),
+    'DGDone:'
+  ];
+
+  const decoEmission = [
+    '  push 0',
+    '  line',
+    '  storeLocal 2',
+    ...indent(decoSelector),
+    ...indent(decoCommon),
+    ...indent(decoDispatch)
+  ];
+
   const lines = [
     '; HyperGlow Motion · 主题=' + style.themeName + ' · seed=' + style.seed +
-      ' · 排版=' + style.layoutMode,
+      ' · 排版=' + style.layoutMode + ' · 图形=' + style.graphicMode,
+    ...decoEmission,
     'wordCount',
     'storeLocal 1',
     'push 0',
@@ -1218,6 +1378,7 @@ function clampNumber(value, min, max, fallback) {
     PRESETS,
     CHOREO_MODES,
     LAYOUT_MODES,
+    GRAPHIC_MODES,
     styleFromSeed,
     buildProgramSource,
     buildEffectPack,
