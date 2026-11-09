@@ -19,6 +19,7 @@ const state = {
   seed: 1,
   presetKey: 'ballad',
   choreoMode: 'cycle',
+  layoutMode: 'auto',
   theme: 'lyric',
   overrides: {},
   palette: { sung: 0xFFFFFFFF, unsung: 0x88FFFFFF, glow: 0xFF66AAFF, accent: 0xFFFFAA33 },
@@ -74,6 +75,7 @@ function readControls() {
     unsungDim: Number($('unsungDim').value),
     cycle: Number($('cycle').value),
     choreoMode: $('choreo').value,
+    layoutMode: $('layout').value,
     flash: $('flash').checked
   };
   const sung = E.parseColor($('sungColor').value) || 0xFFFFFFFF;
@@ -397,6 +399,7 @@ function syncControlsFromStyle() {
   set('unsungDim', style.unsungDim);
   set('cycle', style.cycle);
   $('choreo').value = state.choreoMode;
+  $('layout').value = state.layoutMode;
   $('flash').checked = style.flash;
   $('preset').value = state.presetKey;
 }
@@ -412,7 +415,7 @@ function applyPreset(key) {
   refresh();
 }
 
-for (const id of ['bpm', 'startSec', 'lineDur', 'snap', 'choreo']) {
+for (const id of ['bpm', 'startSec', 'lineDur', 'snap', 'choreo', 'layout']) {
   $(id).addEventListener('change', refresh);
 }
 for (const id of ['theme', 'cycle', 'seed', 'waveAmp', 'waveK', 'rotAmp', 'bounceH',
@@ -658,5 +661,5 @@ requestAnimationFrame(tick);
   });
 
   // 单页对外接口
-  window.HGMotionUI = { setVisible, isActive: () => motionActive };
+  window.HGMotionUI = { setVisible, isActive: () => motionActive, seek: (sec) => seekTo(sec) };
 })();

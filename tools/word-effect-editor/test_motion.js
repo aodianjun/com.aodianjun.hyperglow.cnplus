@@ -295,8 +295,9 @@ test('fixed-direction preset drops the alternate chain', () => {
   assert.ok(built.ok);
   const code = JSON.stringify(built.effect.program.code);
   // 固定滑向:mod 仅出现在手法分派(1 次);交替滑向会有第 2 次
+  // mod 出现位置:排版选择器(1)+ 手法派发(1);交替滑向会再加 1 次方向链
   const modCount = code.split('"mod"').length - 1;
-  assert.strictEqual(modCount, 1, 'typewriter should not alternate direction, mod x' + modCount);
+  assert.strictEqual(modCount, 2, 'typewriter should not alternate direction, mod x' + modCount);
 });
 
 test('styleFromSeed honors slideStagger / slideAlt overrides', () => {
@@ -310,7 +311,7 @@ test('styleFromSeed honors slideStagger / slideAlt overrides', () => {
 
 test('wave boxes land on word.x / baseline (drawText push-order pin)', () => {
   // 回归钉:压序必须 text→x→y。waveAmp=0 时盒坐标应逐值等于词几何。
-  const style = M.styleFromSeed(9, 'lyric', { waveAmp: 0.0, rotAmp: 0, cycle: 1 });
+  const style = M.styleFromSeed(9, 'lyric', { waveAmp: 0.0, rotAmp: 0, cycle: 1, layoutMode: 'h' });
   const built = M.buildEffectPack({ rows: [] }, style, {});
   assert.ok(built.ok);
   const frame = makeFrame('你好世界', 0.5);
@@ -336,13 +337,14 @@ test('choreo modes dispatch differently and stay in budget', () => {
     assert.ok(built.ok, mode + ': ' + (built.errors || []).join('; '));
     assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE, mode + ' instructions');
     const src = M.buildProgramSource(style);
-    if (mode === 'fixed') assert.ok(src.includes('stringLength'), 'fixed dispatch missing');
+    // stringLength:cycle 只出现在排版选择器(1);fixed/songRandom 的派发再加 1 次
+    const lenCount = (src.match(/stringLength/g) || []).length;
+    if (mode === 'fixed') assert.strictEqual(lenCount, 2, 'fixed dispatch missing');
     if (mode === 'songRandom') {
-      assert.ok(src.includes('stringLength'), 'songRandom missing stringLength');
-      assert.ok(src.includes('wordCount'), 'songRandom missing wordCount');
+      assert.strictEqual(lenCount, 2, 'songRandom missing stringLength');
       assert.ok(style.choreoA > 0 && style.choreoB > 0, 'songRandom multipliers missing');
     }
-    if (mode === 'cycle') assert.ok(!src.includes('stringLength'), 'cycle should not use length');
+    if (mode === 'cycle') assert.strictEqual(lenCount, 1, 'cycle dispatch should not use length');
     seen[mode] = M.buildEffectPack({ rows: [] }, style, { title: mode }).pack;
   }
   // 固定与每歌随机的派发片段不同
@@ -352,6 +354,60 @@ test('choreo modes dispatch differently and stay in budget', () => {
 test('invalid choreoMode falls back to cycle', () => {
   const style = M.styleFromSeed(1, 'lyric', { choreoMode: 'particles' });
   assert.strictEqual(style.choreoMode, 'cycle');
+});
+
+test('layout modes produce distinct compositions', () => {
+  const base = { waveAmp: 0.0, rotAmp: 0, bounceH: 0, slideD: 0, slideStagger: 0, pulse: 0, cycle: 1, flash: false };
+  const frame = makeFrame('一二三四五六', 0.5);
+  const boxesFor = (layoutMode) => {
+    const style = M.styleFromSeed(5, 'lyric', Object.assign({}, base, { layoutMode }));
+    const built = M.buildEffectPack({ rows: [] }, style, {});
+    assert.ok(built.ok, layoutMode + ': ' + (built.errors || []).join('; '));
+    assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE, layoutMode + ' instructions ' + built.stats.instructions);
+    const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+    assert.ok(E.runProgram(built.effect.program, frame, sink).ok, layoutMode + ' run failed');
+    return sink.boxes;
+  };
+
+  // 横排:与词几何逐值一致
+  const h = boxesFor('h');
+  h.forEach((box, i) => {
+    assert.ok(Math.abs(box.x - frame.words[i].x) < 0.5, 'h mode x mismatch');
+    assert.ok(Math.abs(box.baseline - frame.words[i].baseline) < 0.5, 'h mode baseline mismatch');
+  });
+
+  // 竖排:同列(x 一致)、基线严格递增
+  const v = boxesFor('v');
+  const vx = v.map((b) => Math.round(b.x));
+  assert.ok(vx.every((x) => x === vx[0]), 'v mode should share one column x: ' + vx);
+  for (let i = 1; i < v.length; i++) {
+    assert.ok(v[i].baseline > v[i - 1].baseline + 1, 'v mode baselines must increase');
+  }
+
+  // 错落:出现两种字号(大小交替)
+  const stagger = boxesFor('stagger');
+  const sizes = new Set(stagger.map((b) => Math.round(b.paint.textSize)));
+  assert.ok(sizes.size >= 2, 'stagger should alternate sizes, got ' + [...sizes]);
+
+  // 散点:存在偏离原始 x 的盒子
+  const scatter = boxesFor('scatter');
+  const moved = scatter.filter((b, i) => Math.abs(b.x - frame.words[i].x) > 8);
+  assert.ok(moved.length >= 2, 'scatter should displace words, moved=' + moved.length);
+});
+
+test('auto layout is content-derived and reproducible', () => {
+  const style = M.styleFromSeed(7, 'lyric', { layoutMode: 'auto' });
+  assert.strictEqual(style.layoutMode, 'auto');
+  const built = M.buildEffectPack({ rows: [] }, style, {});
+  assert.ok(built.ok);
+  const src = M.buildProgramSource(style);
+  assert.ok(src.includes('stringLength'), 'auto selector should use line length');
+  assert.strictEqual(M.buildProgramSource(M.styleFromSeed(7, 'lyric', { layoutMode: 'auto' })), src);
+});
+
+test('invalid layoutMode falls back to auto', () => {
+  const style = M.styleFromSeed(1, 'lyric', { layoutMode: 'zigzag' });
+  assert.strictEqual(style.layoutMode, 'auto');
 });
 
 console.log('\n' + passed + ' tests passed' + (process.exitCode ? ' — with failures' : ''));

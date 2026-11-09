@@ -1345,6 +1345,14 @@ Every word a little light</textarea>
           <option value="fixed">固定顺序(按行长)</option>
           <option value="songRandom">每歌随机(按内容)</option>
         </select>
+        <label>排版</label>
+        <select id="m-layout" style="width:130px" title="每行构图;自动=按行内容轮换">
+          <option value="auto">自动轮换</option>
+          <option value="h">横排</option>
+          <option value="v">竖排</option>
+          <option value="stagger">错落</option>
+          <option value="scatter">散点</option>
+        </select>
         <label>主题</label>
         <select id="m-theme">
           <option value="lyric">抒情</option>
@@ -1405,8 +1413,8 @@ Every word a little light</textarea>
 
 </section>
 <script src="engine.js"></script>
-<script src="motion.js"></script>
-<script src="motion-ui.js"></script>
+<script src="motion.js?v=3"></script>
+<script src="motion-ui.js?v=3"></script>
 <script src="templates.js"></script>
 <script src="app.js"></script>
 </body>

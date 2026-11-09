@@ -342,6 +342,16 @@ const PRESETS = {
  */
 const CHOREO_MODES = { cycle: 1, fixed: 1, songRandom: 1 };
 
+/**
+ * 排版构图模式:
+ *   auto     按行内容轮换(字符数 + 词数*B mod 4):横排/竖排/错落/散点
+ *   h        横排(词原始位置)
+ *   v        竖排(整行收成一列,居中)
+ *   stagger  错落(大小间隔 + 基线上下错位)
+ *   scatter  散点(确定性漂移 + 大小抖动)
+ */
+const LAYOUT_MODES = { auto: 1, h: 1, v: 1, stagger: 1, scatter: 1 };
+
 const round4 = (value) => Math.round(value * 10000) / 10000;
 const pickRange = (rng, range) => range[0] + (range[1] - range[0]) * rng();
 
@@ -375,6 +385,7 @@ function styleFromSeed(seed, themeKey, overrides) {
       : round4(pickRange(rng, theme.slideStagger || [0.02, 0.08])),
     slideAlt: over.slideAlt === undefined ? rng() < 0.5 : !!over.slideAlt,
     choreoMode: over.choreoMode in CHOREO_MODES ? over.choreoMode : 'cycle',
+    layoutMode: over.layoutMode in LAYOUT_MODES ? over.layoutMode : 'auto',
     pulse: jitter('pulse'),
     cycle,
     flash: over.flash === undefined ? rng() < 0.5 : !!over.flash,
@@ -385,6 +396,8 @@ function styleFromSeed(seed, themeKey, overrides) {
   // 旋向随机翻转:仅对未显式覆盖的 waveAmp 生效(覆盖值按用户给的原样用)
   if (!Number.isFinite(over.waveAmp) && rng() < 0.5) style.waveAmp = -style.waveAmp;
   style.choreoA = Math.round((1 + rng() * 3) * 100) / 100;
+  // 排版自动轮换的混合系数(与手法系数分开,互不干扰)
+  style.layoutSeedB = 1 + Math.round(rng() * 3);
   style.choreoB = Math.round((1 + rng() * 3) * 100) / 100;
   return style;
 }
@@ -412,7 +425,8 @@ function buildProgramSource(style) {
     return String(rounded);
   };
   const flashT = style.flash ? 0.08 : 999999;
-  // 公共 prologue:词引用/行引用/行进度/颜色/闪光分量/词中心枢轴
+
+  // 公共 prologue:颜色 / 闪光分量(枢轴在排版层之后计算,依赖 xBase/yBase/scale)
   const prologue = [
     'colorField sung',
     'setColor',
@@ -424,24 +438,7 @@ function buildProgramSource(style) {
     'min',
     'push 0',
     'max',
-    'storeLocal 4',
-    // pivotX = word.x + width/2 → local 8
-    'loadLocal 6',
-    'wordField x',
-    'loadLocal 6',
-    'wordField width',
-    'push 2',
-    'div',
-    'add',
-    'storeLocal 8',
-    // pivotY = lineBaseline - ts*0.35 → local 9
-    'loadLocal 2',
-    'lineAtField baseline',
-    'globalField textSize',
-    'push 0.35',
-    'mul',
-    'sub',
-    'storeLocal 9'
+    'storeLocal 4'
   ];
 
   const wordAlpha = [
@@ -454,6 +451,202 @@ function buildProgramSource(style) {
     'loadLocal 4',
     'max',
     'setAlpha'
+  ];
+
+  // ---- 排版构图:逐词算 xBase(10)/yBase(11)/scale(12) ----
+  // 横排:词原始位置
+  const layoutHorizontal = [
+    'loadLocal 6',
+    'wordField x',
+    'storeLocal 10',
+    'loadLocal 6',
+    'wordField baseline',
+    'storeLocal 11',
+    'push 1',
+    'storeLocal 12'
+  ];
+
+  // 竖排:整行收成一列,列内按可用高度压缩步进,水平居中(measureText 求半宽)
+  const layoutVertical = [
+    'canvasField width',
+    'push 0.5',
+    'mul',
+    'loadLocal 6',
+    'wordField text',
+    'measureText',
+    'push 0.5',
+    'mul',
+    'sub',
+    'storeLocal 10',
+    // spacing = min(ts*1.15, canvasH*0.8/n) → local 13 复用为 spacing(mode 此后不再需要)
+    'globalField textSize',
+    'push 1.15',
+    'mul',
+    'canvasField height',
+    'push 0.8',
+    'mul',
+    'loadLocal 1',
+    'div',
+    'min',
+    'storeLocal 13',
+    // yBase = (canvasH - n*spacing)/2 + 0.8*ts + i*spacing
+    'canvasField height',
+    'loadLocal 1',
+    'loadLocal 13',
+    'mul',
+    'sub',
+    'push 2',
+    'div',
+    'globalField textSize',
+    'push 0.8',
+    'mul',
+    'add',
+    'loadLocal 0',
+    'loadLocal 13',
+    'mul',
+    'add',
+    'storeLocal 11',
+    'push 1',
+    'storeLocal 12'
+  ];
+
+  // 错落:大小间隔 + 基线上下错位(cos(iπ) = ±1,免分支)
+  const layoutStagger = [
+    'loadLocal 6',
+    'wordField x',
+    'storeLocal 10',
+    'loadLocal 6',
+    'wordField baseline',
+    'loadLocal 0',
+    'push 3.14159',
+    'mul',
+    'cos',
+    'push 0.22',
+    'mul',
+    'globalField textSize',
+    'mul',
+    'add',
+    'storeLocal 11',
+    'loadLocal 0',
+    'push 3.14159',
+    'mul',
+    'cos',
+    'push 0.24',
+    'mul',
+    'push 1.06',
+    'add',
+    'storeLocal 12'
+  ];
+
+  // 散点:词位置确定性漂移 + 轻微大小抖动
+  const layoutScatter = [
+    'loadLocal 6',
+    'wordField x',
+    'loadLocal 0',
+    'push 1.9',
+    'mul',
+    'sin',
+    'push 0.28',
+    'mul',
+    'canvasField width',
+    'mul',
+    'add',
+    'storeLocal 10',
+    'loadLocal 6',
+    'wordField baseline',
+    'loadLocal 0',
+    'push 2.3',
+    'mul',
+    'cos',
+    'push 0.9',
+    'mul',
+    'globalField textSize',
+    'mul',
+    'add',
+    'storeLocal 11',
+    'loadLocal 0',
+    'push 1.3',
+    'mul',
+    'sin',
+    'push 0.12',
+    'mul',
+    'push 1',
+    'add',
+    'storeLocal 12'
+  ];
+
+  const layoutModes = [layoutHorizontal, layoutVertical, layoutStagger, layoutScatter];
+  const fixedMode = { h: 0, v: 1, stagger: 2, scatter: 3 }[style.layoutMode];
+  const layoutSelector = Number.isInteger(fixedMode)
+    ? ['push ' + num(fixedMode), 'storeLocal 13']
+    : [
+        // auto:(行字符数 + 词数*B) mod 4 —— 每行构图随内容轮换,同一首歌稳定
+        'loadLocal 2',
+        'lineAtField text',
+        'stringLength',
+        'wordCount',
+        'push ' + num(style.layoutSeedB),
+        'mul',
+        'add',
+        'push 4',
+        'mod',
+        'storeLocal 13'
+      ];
+
+  const layoutDispatch = [
+    'loadLocal 13',
+    'dup',
+    'push 0',
+    'eq',
+    'jz LH1',
+    'pop',
+    ...indent(layoutModes[0]),
+    'jump LHDone',
+    'LH1:',
+    'dup',
+    'push 1',
+    'eq',
+    'jz LH2',
+    'pop',
+    ...indent(layoutModes[1]),
+    'jump LHDone',
+    'LH2:',
+    'dup',
+    'push 2',
+    'eq',
+    'jz LH3',
+    'pop',
+    ...indent(layoutModes[2]),
+    'jump LHDone',
+    'LH3:',
+    'pop',
+    ...indent(layoutModes[3]),
+    'LHDone:'
+  ];
+
+  // 排版完成后:按 scale 设字号;枢轴改用排好版的基准
+  const layoutApply = [
+    'loadLocal 12',
+    'globalField textSize',
+    'mul',
+    'setTextSize',
+    // pivotX = xBase + width/2
+    'loadLocal 10',
+    'loadLocal 6',
+    'wordField width',
+    'push 2',
+    'div',
+    'add',
+    'storeLocal 8',
+    // pivotY = yBase - ts*scale*0.35
+    'loadLocal 11',
+    'globalField textSize',
+    'loadLocal 12',
+    'mul',
+    'push 0.35',
+    'mul',
+    'sub',
+    'storeLocal 9'
   ];
 
   // 手法 0:wave —— pivot 旋转 + 纵向正弦
@@ -479,10 +672,8 @@ function buildProgramSource(style) {
     'translate',
     'loadLocal 6',
     'wordField text',
-    'loadLocal 6',
-    'wordField x',
-    'loadLocal 2',
-    'lineAtField baseline',
+    'loadLocal 10',
+    'loadLocal 11',
     'loadLocal 5',
     'push ' + num(Math.abs(style.waveK)),
     'mul',
@@ -501,10 +692,8 @@ function buildProgramSource(style) {
     ...wordAlpha,
     'loadLocal 6',
     'wordField text',
-    'loadLocal 6',
-    'wordField x',
-    'loadLocal 2',
-    'lineAtField baseline',
+    'loadLocal 10',
+    'loadLocal 11',
     'loadLocal 6',
     'wordField progress',
     'push 2',
@@ -527,7 +716,6 @@ function buildProgramSource(style) {
     ? ['loadLocal 0', 'push 2', 'mod', 'push 2', 'mul', 'push 1', 'sub']
     : ['push -1'];
   const slide = [
-    // appear = min((wp - i*stagger)*2, 1) → local 7(级联错峰)
     'loadLocal 6',
     'wordField progress',
     'loadLocal 0',
@@ -551,8 +739,7 @@ function buildProgramSource(style) {
     'setAlpha',
     'loadLocal 6',
     'wordField text',
-    'loadLocal 6',
-    'wordField x',
+    'loadLocal 10',
     ...slideDirCode,
     'push ' + num(style.slideD),
     'mul',
@@ -563,8 +750,7 @@ function buildProgramSource(style) {
     'sub',
     'mul',
     'add',
-    'loadLocal 2',
-    'lineAtField baseline',
+    'loadLocal 11',
     'drawText'
   ];
 
@@ -595,10 +781,8 @@ function buildProgramSource(style) {
     'translate',
     'loadLocal 6',
     'wordField text',
-    'loadLocal 6',
-    'wordField x',
-    'loadLocal 2',
-    'lineAtField baseline',
+    'loadLocal 10',
+    'loadLocal 11',
     'drawText',
     'restore'
   ];
@@ -610,7 +794,7 @@ function buildProgramSource(style) {
       '  lineAtField text',
       '  stringLength',
       '  push ' + num(style.cycle),
-      '  mod',
+      '  mod'
     ]
     : style.choreoMode === 'songRandom'
       ? [
@@ -624,17 +808,19 @@ function buildProgramSource(style) {
       '  mul',
       '  add',
       '  push ' + num(style.cycle),
-      '  mod',
+      '  mod'
     ]
       : [
       '  loadLocal 3',
       '  loadLocal 0',
       '  add',
       '  push ' + num(style.cycle),
-      '  mod',
+      '  mod'
     ];
+
   const lines = [
-    '; HyperGlow Motion · 主题=' + style.themeName + ' · seed=' + style.seed,
+    '; HyperGlow Motion · 主题=' + style.themeName + ' · seed=' + style.seed +
+      ' · 排版=' + style.layoutMode,
     'wordCount',
     'storeLocal 1',
     'push 0',
@@ -657,6 +843,9 @@ function buildProgramSource(style) {
     '  lineAtField progress',
     '  storeLocal 5',
     ...indent(prologue),
+    ...indent(layoutSelector),
+    ...indent(layoutDispatch),
+    ...indent(layoutApply),
     ...choreoDispatch,
     '  dup',
     '  push 0',
@@ -706,7 +895,7 @@ function buildProgramSource(style) {
  */
 function buildEffectPack(timeline, style, meta) {
   const source = buildProgramSource(style);
-  const assembled = E.assemble(source, { maxLocals: 10 });
+  const assembled = E.assemble(source, { maxLocals: 16 });
   if (!assembled.ok) {
     return { ok: false, errors: assembled.errors };
   }
@@ -1028,6 +1217,7 @@ function clampNumber(value, min, max, fallback) {
     THEMES,
     PRESETS,
     CHOREO_MODES,
+    LAYOUT_MODES,
     styleFromSeed,
     buildProgramSource,
     buildEffectPack,
