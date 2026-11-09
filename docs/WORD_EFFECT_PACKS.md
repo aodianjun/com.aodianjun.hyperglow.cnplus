@@ -418,6 +418,7 @@
 | `drawRoundRect` | `x y w h rx ry` → | 绘制圆角矩形；`rx` / `ry` 负数按 0 |
 | `drawOval` | `x y w h` → | 绘制椭圆 |
 | `drawArc` | `x y w h start sweep` → | 绘制圆弧；角度单位为度 |
+| `drawSprite` | `id x y w h` → | 绘制**内置装饰素材**：`id` 为固定注册表编号（0..63）；素材为白色透明 PNG，按当前颜色着色（SRC_IN）。越界编号静默丢弃，不整帧失败 |
 | `pathMove` | `x y` → | 路径移动到 |
 | `pathLine` | `x y` → | 路径连线到 |
 | `pathQuad` | `cx cy x y` → | 二次贝塞尔曲线到 `(x, y)`，控制点 `(cx, cy)` |
@@ -708,6 +709,7 @@ program = assemble(
 | `setColor` / `setAlpha` / `setTextSize` / `setTextAlign` / `setGradient` / `clearGradient` / `setShadow` / `clearShadow` / `setStrokeWidth` / `setFill` / `setStroke` | 更新「当前绘制状态」；emit 时快照进盒。 |
 | `save` / `restore` / `translate` / `rotate` / `scale` | 维护矩阵栈（深度上限 16，后乘语义与 Canvas 一致）；每次绘制 emit 时把**完整 6 元素矩阵**烘焙进盒。存完整矩阵而不是平移/旋转/缩放三元组：rotate→scale→rotate 一类序列会产生错切，分解会失真。 |
 | `drawText` / `drawRect` / `drawRoundRect` / `drawCircle` / `drawLine` / `drawOval` / `drawArc` | 生成对应类型盒（几何 + 状态快照 + 烘焙矩阵）。线段强制描边（与直绘一致）。 |
+| `drawSprite` | 生成贴图盒（素材编号 + 几何 + 状态快照 + 烘焙矩阵）；编号越界丢弃该盒。 |
 | `pathMove` / `pathLine` / `pathQuad` / `pathCubic` / `pathClose` / `drawPath` | 累积路径段；`drawPath` 时打包成路径盒并清空。 |
 | `clipRect` | no-op（盒可被自由摆放，逐盒裁剪语义与 MV 排版冲突；仍计入 draw 预算）。 |
 | `measureText` | 由宿主提供文本测量（计入 draw 预算），与对齐无关。 |
@@ -721,6 +723,7 @@ program = assemble(
 | --- | --- |
 | `text` | `text` / `x` / `baseline`（y 为基线，与直绘 `drawText` 同约定） |
 | `rect` / `roundRect` / `oval` / `arc` | 左上角 `x/y` + `width/height`（roundRect 另有 `rx/ry`，arc 另有 `startAngle/sweepAngle`） |
+| `sprite` | `spriteId`（内置素材编号 0..63）+ 左上角 `x/y` + `width/height` |
 | `circle` | 圆心 `cx/cy` + `radius` |
 | `line` | `x1/y1/x2/y2` |
 | `path` | 有序段列表：`kind`（0=move 1=line 2=quad 3=cubic 4=close）+ 段参数 |
@@ -766,3 +769,4 @@ program = assemble(
 Word Effect Studio 的程序编辑器提供「输出模式」选择（draw / boxes）；汇编器编译时把
 所选模式写入 `program.outputMode`，导入/导出/复制/模板均保留。盒模式下编辑器预览走
 收集器 + 盒渲染器，预算超限与实机同样整块不绘制并提示。
+- 贴图只能引用**内置素材编号**（`assets/deco/<id>.png`，0..63）；文档里不出现任何文件路径或 URL，素材随模块 APK 分发。

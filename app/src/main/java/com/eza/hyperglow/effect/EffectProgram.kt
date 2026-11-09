@@ -98,6 +98,7 @@ val EFFECT_OPS: Set<String> = setOf(
     "save", "restore", "translate", "rotate", "scale", "clipRect",
     // 绘制
     "drawText", "drawRect", "drawCircle", "drawLine", "drawRoundRect", "drawOval", "drawArc",
+    "drawSprite",
     "pathMove", "pathLine", "pathQuad", "pathCubic", "pathClose", "drawPath",
     "measureText", "end"
 )
@@ -122,6 +123,7 @@ val EFFECT_DRAW_OPS: Set<String> = setOf(
     "setStrokeWidth", "setFill", "setStroke",
     "save", "restore", "translate", "rotate", "scale", "clipRect",
     "drawText", "drawRect", "drawCircle", "drawLine", "drawRoundRect", "drawOval", "drawArc",
+    "drawSprite",
     "pathMove", "pathLine", "pathQuad", "pathCubic", "pathClose", "drawPath", "measureText"
 )
 

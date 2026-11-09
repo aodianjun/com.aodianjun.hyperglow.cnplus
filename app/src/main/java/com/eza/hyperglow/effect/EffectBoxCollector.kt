@@ -214,6 +214,14 @@ internal class EffectBoxCollector(
             paintSnapshot(), bakedTransform())
     }
 
+    override fun drawSprite(spriteId: Int, x: Float, y: Float, w: Float, h: Float) {
+        if (!canEmit()) return
+        // 编号超出注册表范围 → 静默丢弃(未知素材不整帧失败)
+        if (spriteId < 0 || spriteId > MAX_EFFECT_SPRITE_ID) return
+        boxes += EffectBox.SpriteBox(spriteId, x, y, w.coerceAtLeast(0f), h.coerceAtLeast(0f),
+            paintSnapshot(), bakedTransform())
+    }
+
     override fun pathMove(x: Float, y: Float) {
         if (pathSegments.size >= MAX_EFFECT_PATH_POINTS_PER_BOX) { failed = true; return }
         pathSegments += EffectPathSegment(EffectPathSegment.MOVE, x0 = x, y0 = y)

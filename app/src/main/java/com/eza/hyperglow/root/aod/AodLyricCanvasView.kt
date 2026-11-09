@@ -4098,7 +4098,7 @@ internal class AodLyricCanvasView(
                 EffectVm(program).collectBoxes(context, boxTextMeasurer())
             }.getOrNull()
             if (boxes != null) {
-                EffectBoxRenderer.draw(canvas, boxes, originalPaint)
+                EffectBoxRenderer.draw(canvas, boxes, originalPaint, decorSpriteProvider)
             } else {
                 HookLogger.iThrottled("effect-box-block", 2_000L, "AodLyricCanvasView") {
                     "effect box block aborted (${program.code.size} instructions, " +
@@ -4119,6 +4119,11 @@ internal class AodLyricCanvasView(
                     "lines=${lines.size} words=${allWords.size})"
             }
         }
+    }
+
+    /** 内置装饰素材 provider(SystemUI 侧经模块包上下文读 assets/deco)。 */
+    private val decorSpriteProvider by lazy {
+        builtInSpriteProvider(fontContext ?: context)
     }
 
     /** 盒模式文本测量探针:复用主 Paint 的字体/字距测量态,只改字号。 */

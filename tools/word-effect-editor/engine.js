@@ -95,6 +95,7 @@
   const MAX_EFFECT_TOTAL_PATH_POINTS = 4096;
   const MAX_EFFECT_BOX_TEXT_CHARS = 512;
   const MAX_EFFECT_BOX_SAVE_DEPTH = 16;
+  const MAX_EFFECT_SPRITE_ID = 255;
 
   const EFFECT_OPS = new Set([
     'const', 'loadLocal', 'storeLocal', 'pop', 'dup', 'swap',
@@ -112,6 +113,7 @@
     'setStrokeWidth', 'setFill', 'setStroke',
     'save', 'restore', 'translate', 'rotate', 'scale', 'clipRect',
     'drawText', 'drawRect', 'drawCircle', 'drawLine', 'drawRoundRect', 'drawOval', 'drawArc',
+    'drawSprite',
     'pathMove', 'pathLine', 'pathQuad', 'pathCubic', 'pathClose', 'drawPath',
     'measureText', 'end'
   ]);
@@ -144,6 +146,7 @@
     'setStrokeWidth', 'setFill', 'setStroke',
     'save', 'restore', 'translate', 'rotate', 'scale', 'clipRect',
     'drawText', 'drawRect', 'drawCircle', 'drawLine', 'drawRoundRect', 'drawOval', 'drawArc',
+    'drawSprite',
     'pathMove', 'pathLine', 'pathQuad', 'pathCubic', 'pathClose', 'drawPath', 'measureText'
   ]);
 
@@ -1812,6 +1815,15 @@
           sink.drawArc(x, y, w, h, start, sweep);
           break;
         }
+        case 'drawSprite': {
+          const h = popNumber();
+          const w = popNumber();
+          const y = popNumber();
+          const x = popNumber();
+          const id = toInt32Trunc(popNumber());
+          sink.drawSprite(id, x, y, w, h);
+          break;
+        }
         case 'pathMove': {
           const y = popNumber();
           const x = popNumber();
@@ -2030,6 +2042,15 @@
           type: 'arc', x, y,
           width: Math.max(0, w), height: Math.max(0, h),
           start, sweep,
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+      },
+      drawSprite(spriteId, x, y, w, h) {
+        if (!canEmit()) return;
+        if (spriteId < 0 || spriteId > MAX_EFFECT_SPRITE_ID) return;
+        boxes.push({
+          type: 'sprite', spriteId, x, y,
+          width: Math.max(0, w), height: Math.max(0, h),
           paint: paintSnapshot(), transform: transformSnapshot()
         });
       },
@@ -2326,6 +2347,7 @@
     MAX_EFFECT_TOTAL_PATH_POINTS,
     MAX_EFFECT_BOX_TEXT_CHARS,
     MAX_EFFECT_BOX_SAVE_DEPTH,
+    MAX_EFFECT_SPRITE_ID,
     tokenizeLine,
     wordWeight,
     parseLrc,

@@ -1829,7 +1829,7 @@
       const result = E.runProgram(effect.program, frameContext, boxSink);
       offContext.restore();
       if (result.ok && !boxSink.failed) {
-        drawBoxesOnContext(offContext, boxSink.boxes, fontStack());
+        drawBoxesOnContext(offContext, boxSink.boxes, fontStack(), decorSprites());
         context.drawImage(offscreen, 0, 0, cssWidth, cssHeight);
       } else {
         state.programError = '盒模式程序执行失败：' + (result.error || '预算超限或非法绘制') +
@@ -1853,7 +1853,17 @@
    * 每盒 save→应用烘焙矩阵→按盒样式绘制→restore。样式:color/alpha/对齐/渐变/阴影/
    * fill-stroke/描边宽;线段强制描边。ctx 需已处于 CSS 像素坐标(dpr 变换已应用)。
    */
-  function drawBoxesOnContext(ctx, boxes, fontFamily) {
+  const decorSpriteCache = {};
+  function decorSprites() {
+    return decorSpriteCache;
+  }
+  for (let decorIndex = 0; decorIndex < 16; decorIndex++) {
+    const image = new Image();
+    image.src = 'deco/' + decorIndex + '.png';
+    decorSpriteCache[decorIndex] = image;
+  }
+
+  function drawBoxesOnContext(ctx, boxes, fontFamily, spriteImages) {
     for (const box of boxes) {
       const t = box.transform;
       const transformed = !(t.m0 === 1 && t.m1 === 0 && t.m2 === 0 &&
@@ -1944,6 +1954,14 @@
             );
           }
           applyBoxFillStroke(ctx, paintColor, stroke, paint.strokeWidth);
+          break;
+        }
+        case 'sprite': {
+          const img = spriteImages && spriteImages[box.spriteId];
+          if (img && img.complete) {
+            ctx.globalAlpha = E.clamp(paint.alpha, 0, 1);
+            ctx.drawImage(img, box.x, box.y, Math.max(0, box.width), Math.max(0, box.height));
+          }
           break;
         }
         case 'path': {

@@ -50,6 +50,14 @@ function cssColor(argb, alphaMul) {
 const FONT_STACK = '"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif';
 const fontString = (size) => '600 ' + size + 'px ' + FONT_STACK;
 
+// 内置装饰素材(与 APK assets/deco 一致):预载供 sprite 盒绘制
+const spriteImages = {};
+for (let decorIndex = 0; decorIndex < 16; decorIndex++) {
+  const image = new Image();
+  image.src = 'deco/' + decorIndex + '.png';
+  spriteImages[decorIndex] = image;
+}
+
 const measureCanvas = document.createElement('canvas');
 const measureCtx = measureCanvas.getContext('2d');
 function measure(text, sizePx) {
@@ -274,7 +282,7 @@ function drawFrame(tSeconds) {
   const scale = canvas.width / frame.canvasWidth;
   ctx.save();
   ctx.scale(scale, scale);
-  M.renderBoxes(ctx, sink.boxes, fontString, cssRgb, cssColor);
+  M.renderBoxes(ctx, sink.boxes, fontString, cssRgb, cssColor, spriteImages);
   ctx.restore();
 }
 

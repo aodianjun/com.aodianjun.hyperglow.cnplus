@@ -2975,6 +2975,10 @@ private fun PreviewMainLayer(
     rubyColor: ComposeColor,
     modifier: Modifier = Modifier
 ) {
+    val previewContext = LocalContext.current
+    val spriteProvider = remember(previewContext) {
+        com.eza.hyperglow.root.aod.builtInSpriteProvider(previewContext.applicationContext)
+    }
     val glowArgb = glowColor.toArgb()
     val sungArgb = color.copy(alpha = 1f).toArgb()
     val rubyArgb = rubyColor.toArgb()
@@ -3032,7 +3036,8 @@ private fun PreviewMainLayer(
                         layout = layout,
                         virtualPosition = virtualPosition,
                         sungColorArgb = sungArgb,
-                        glowColorArgb = glowArgb
+                        glowColorArgb = glowArgb,
+                        sprites = spriteProvider
                     )
                 } else {
                     drawPreviewKaraokeRuns(
@@ -3208,7 +3213,8 @@ private fun drawPreviewKaraokeBlock(
     layout: PreviewMainLayout,
     virtualPosition: Long,
     sungColorArgb: Int,
-    glowColorArgb: Int
+    glowColorArgb: Int,
+    sprites: com.eza.hyperglow.root.aod.EffectSpriteProvider? = null
 ) {
     val effect = layout.wordEffect ?: return
     val program = effect.program ?: return
@@ -3292,7 +3298,7 @@ private fun drawPreviewKaraokeBlock(
             EffectVm(program).collectBoxes(context, measurer)
         }.getOrNull()
         if (boxes != null) {
-            EffectBoxRenderer.draw(canvas, boxes, paint)
+            EffectBoxRenderer.draw(canvas, boxes, paint, sprites)
         } else {
             android.util.Log.w("PreviewComponents", "effect box program aborted")
         }

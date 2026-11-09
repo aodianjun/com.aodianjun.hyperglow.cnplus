@@ -948,4 +948,31 @@ test('Kotlin parity: JS box collector reproduces EffectBoxModeTest goldens', () 
   assert.ok(Math.abs(t.m4 - 3 * c) < 1e-4, 'm4=' + t.m4);
 });
 
+test('drawSprite becomes a sprite box and drops unknown ids', () => {
+  const program = {
+    outputMode: 'boxes',
+    maxLocals: 0,
+    constants: [{ value: '7' }, { value: '10' }, { value: '20' }, { value: '40' }, { value: '40' }],
+    code: [
+      { op: 'const', arg: 0 }, { op: 'const', arg: 1 }, { op: 'const', arg: 2 },
+      { op: 'const', arg: 3 }, { op: 'const', arg: 4 }, { op: 'drawSprite' }, { op: 'end' }
+    ]
+  };
+  const { result, failed, boxes } = collectBoxes(program);
+  assert.ok(result.ok && !failed);
+  assert.strictEqual(boxes.length, 1);
+  assert.strictEqual(boxes[0].type, 'sprite');
+  assert.strictEqual(boxes[0].spriteId, 7);
+  assert.strictEqual(boxes[0].x, 10);
+  assert.strictEqual(boxes[0].width, 40);
+
+  // 越界编号:静默丢弃,帧不失败
+  const bad = Object.assign({}, program, {
+    constants: [{ value: '300' }, { value: '0' }, { value: '0' }, { value: '10' }, { value: '10' }]
+  });
+  const badResult = collectBoxes(bad);
+  assert.ok(badResult.result.ok && !badResult.failed);
+  assert.strictEqual(badResult.boxes.length, 0);
+});
+
 console.log('\n' + passed + ' tests passed' + (process.exitCode ? ' — with failures' : ''));

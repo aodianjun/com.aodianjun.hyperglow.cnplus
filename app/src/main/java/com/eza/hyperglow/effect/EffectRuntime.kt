@@ -114,6 +114,8 @@ interface EffectRenderSink {
     fun drawRoundRect(x: Float, y: Float, w: Float, h: Float, rx: Float, ry: Float) = Unit
     fun drawOval(x: Float, y: Float, w: Float, h: Float) = Unit
     fun drawArc(x: Float, y: Float, w: Float, h: Float, start: Float, sweep: Float) = Unit
+    /** 内置贴图:栈序 push id,x,y,w,h;弹 h,w,y,x,id。 */
+    fun drawSprite(spriteId: Int, x: Float, y: Float, w: Float, h: Float) = Unit
     fun pathQuad(cx: Float, cy: Float, x: Float, y: Float) = Unit
     fun pathCubic(c1x: Float, c1y: Float, c2x: Float, c2y: Float, x: Float, y: Float) = Unit
 }
@@ -422,6 +424,14 @@ class EffectVm(private val program: EffectProgram) {
                     val y = popNumber().toFloat()
                     val x = popNumber().toFloat()
                     sink.drawArc(x, y, w, h, start, sweep)
+                }
+                "drawSprite" -> {
+                    val h = popNumber().toFloat()
+                    val w = popNumber().toFloat()
+                    val y = popNumber().toFloat()
+                    val x = popNumber().toFloat()
+                    val id = popNumber().toInt()
+                    sink.drawSprite(id, x, y, w, h)
                 }
                 "pathMove" -> {
                     val y = popNumber().toFloat()

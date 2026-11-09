@@ -26,16 +26,46 @@ import com.eza.hyperglow.effect.EffectPathSegment
  *
  * 仅绘制线程使用。
  */
+/** 内置装饰素材提供者:按编号返回解码后的位图(未知/越界返回 null)。 */
+internal fun interface EffectSpriteProvider {
+    fun bitmap(spriteId: Int): android.graphics.Bitmap?
+}
+
+/**
+ * 内置素材 provider:从模块 APK 的 assets/deco/<id>.png 解码并缓存。
+ * 传入模块包上下文(SystemUI 侧用 createPackageContext,App 内预览用 app context)。
+ * 编号越界或解码失败返回 null(渲染器跳过该盒)。
+ */
+internal fun builtInSpriteProvider(context: android.content.Context): EffectSpriteProvider {
+    val cache = HashMap<Int, android.graphics.Bitmap>()
+    return EffectSpriteProvider { id ->
+        if (id < 0 || id >= com.eza.hyperglow.effect.BUILT_IN_DECOR_SPRITES) {
+            null
+        } else {
+            cache[id] ?: runCatching {
+                context.assets.open("deco/" + id + ".png").use { stream ->
+                    android.graphics.BitmapFactory.decodeStream(stream)
+                }
+            }.getOrNull()?.also { cache[id] = it }
+        }
+    }
+}
+
 internal object EffectBoxRenderer {
 
-    /** 把盒列表绘制到 [canvas]。[baseTextPaint] 提供字体等测量态基线。 */
-    fun draw(canvas: Canvas, boxes: List<EffectBox>, baseTextPaint: Paint) {
+    /** 把盒列表绘制到 [canvas]。[baseTextPaint] 提供字体等测量态基线;贴图盒需要 [sprites]。 */
+    fun draw(
+        canvas: Canvas,
+        boxes: List<EffectBox>,
+        baseTextPaint: Paint,
+        sprites: EffectSpriteProvider? = null
+    ) {
         if (boxes.isEmpty()) return
         val textPaint = Paint(baseTextPaint)
         val shapePaint = Paint(Paint.ANTI_ALIAS_FLAG)
         val matrix = Matrix()
         for (box in boxes) {
-            drawBox(canvas, box, textPaint, shapePaint, matrix)
+            drawBox(canvas, box, textPaint, shapePaint, matrix, sprites)
         }
     }
 
@@ -44,7 +74,8 @@ internal object EffectBoxRenderer {
         box: EffectBox,
         textPaint: Paint,
         shapePaint: Paint,
-        matrix: Matrix
+        matrix: Matrix,
+        sprites: EffectSpriteProvider?
     ) {
         val transform = box.transform
         val transformed = !transform.isIdentity
@@ -110,6 +141,18 @@ internal object EffectBoxRenderer {
                     box.startAngle, box.sweepAngle, false, shapePaint
                 )
             }
+            is EffectBox.SpriteBox -> {
+                val bitmap = sprites?.bitmap(box.spriteId)
+                if (bitmap != null) {
+                    applySpritePaint(shapePaint, box.paint)
+                    val dst = android.graphics.RectF(
+                        box.x, box.y,
+                        box.x + box.width.coerceAtLeast(0f),
+                        box.y + box.height.coerceAtLeast(0f)
+                    )
+                    canvas.drawBitmap(bitmap, null, dst, shapePaint)
+                }
+            }
             is EffectBox.PathBox -> {
                 applyShapePaint(shapePaint, box.paint)
                 val path = android.graphics.Path()
@@ -129,6 +172,30 @@ internal object EffectBoxRenderer {
             }
         }
         if (transformed) canvas.restore()
+    }
+
+    /** 贴图画笔:白色素材按盒颜色着色(SRC_IN),alpha/阴影同步。 */
+    private fun applySpritePaint(
+        paint: Paint,
+        state: com.eza.hyperglow.effect.EffectPaintState
+    ) {
+        paint.color = state.color
+        paint.alpha = ((state.alpha.coerceIn(0f, 1f)) * 255f).roundToInt().coerceIn(0, 255)
+        paint.style = Paint.Style.FILL
+        paint.shader = null
+        paint.colorFilter = android.graphics.PorterDuffColorFilter(
+            state.color, android.graphics.PorterDuff.Mode.SRC_IN
+        )
+        if (state.shadow.set) {
+            paint.setShadowLayer(
+                state.shadow.radius.coerceIn(0f, 256f),
+                state.shadow.dx.coerceIn(-256f, 256f),
+                state.shadow.dy.coerceIn(-256f, 256f),
+                state.shadow.color
+            )
+        } else {
+            paint.clearShadowLayer()
+        }
     }
 
     /** 把盒样式同步到文字画笔(仅覆盖程序可控状态,字体/字距保留调用方测量态)。 */

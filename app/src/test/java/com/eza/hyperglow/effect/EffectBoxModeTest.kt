@@ -464,6 +464,68 @@ class EffectBoxModeTest {
         assertTrue(boxes!!.isEmpty())
     }
 
+    // ---- 内置贴图(drawSprite) ----
+
+    @Test
+    fun drawSpriteEmitsSpriteBoxWithGeometryAndPaint() {
+        val program = EffectProgram(
+            constants = listOf(
+                EffectConstant(value = "7"),   // 0: spriteId
+                EffectConstant(value = "10"),  // 1: x
+                EffectConstant(value = "20"),  // 2: y
+                EffectConstant(value = "40"),  // 3: w
+                EffectConstant(value = "40")   // 4: h
+            ),
+            code = listOf(
+                instruction("const", 0),
+                instruction("const", 1),
+                instruction("const", 2),
+                instruction("const", 3),
+                instruction("const", 4),
+                instruction("drawSprite"),
+                instruction("end")
+            ),
+            maxLocals = 0,
+            outputMode = EFFECT_OUTPUT_BOXES
+        )
+        val boxes = collect(program)
+        assertNotNull(boxes)
+        val box = boxes!!.single() as EffectBox.SpriteBox
+        assertEquals(7, box.spriteId)
+        assertEquals(10f, box.x, 0f)
+        assertEquals(20f, box.y, 0f)
+        assertEquals(40f, box.width, 0f)
+        assertEquals(40f, box.height, 0f)
+        assertTrue(box.transform.isIdentity)
+    }
+
+    @Test
+    fun outOfRangeSpriteIdIsDroppedWithoutFailingFrame() {
+        val program = EffectProgram(
+            constants = listOf(
+                EffectConstant(value = "300"), // 越界 id
+                EffectConstant(value = "0"),
+                EffectConstant(value = "0"),
+                EffectConstant(value = "10"),
+                EffectConstant(value = "10")
+            ),
+            code = listOf(
+                instruction("const", 0),
+                instruction("const", 1),
+                instruction("const", 2),
+                instruction("const", 3),
+                instruction("const", 4),
+                instruction("drawSprite"),
+                instruction("end")
+            ),
+            maxLocals = 0,
+            outputMode = EFFECT_OUTPUT_BOXES
+        )
+        val boxes = collect(program)
+        assertNotNull(boxes)              // 未知素材不整帧失败
+        assertTrue(boxes!!.isEmpty())     // 该盒被静默丢弃
+    }
+
     // ---- 归一化与序列化 ----
 
     @Test

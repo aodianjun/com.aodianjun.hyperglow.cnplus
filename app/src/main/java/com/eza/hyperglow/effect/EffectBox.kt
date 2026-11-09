@@ -204,6 +204,22 @@ sealed class EffectBox {
         override val transform: EffectTransform = EffectTransform()
     ) : EffectBox()
 
+    /**
+     * 贴图盒:内置装饰素材(assets/deco/<id>.png)。id 是**固定注册表编号**,
+     * 文档里只出现数字,不出现任何路径/URL —— 信任边界不变。
+     * 素材为白色透明 PNG,渲染时按盒的 paint 颜色着色(colorFilter SRC_IN)。
+     */
+    @Serializable
+    data class SpriteBox(
+        val spriteId: Int = 0,
+        val x: Float = 0f,
+        val y: Float = 0f,
+        val width: Float = 0f,
+        val height: Float = 0f,
+        override val paint: EffectPaintState = EffectPaintState(),
+        override val transform: EffectTransform = EffectTransform()
+    ) : EffectBox()
+
     /** 路径:有序段列表 + 图元样式。 */
     @Serializable
     data class PathBox(
@@ -229,3 +245,9 @@ const val MAX_EFFECT_BOX_TEXT_CHARS = 512
 
 /** 矩阵栈最大嵌套深度(与 AndroidEffectRenderSink.MAX_SAVE_DEPTH 一致)。 */
 const val MAX_EFFECT_BOX_SAVE_DEPTH = 16
+
+/** 内置装饰素材的编号上限(0..63 为内置;64..255 预留用户导入)。超出范围的绘制被静默丢弃。 */
+const val MAX_EFFECT_SPRITE_ID = 255
+
+/** 当前内置素材数量(assets/deco/0.png .. 15.png)。 */
+const val BUILT_IN_DECOR_SPRITES = 16

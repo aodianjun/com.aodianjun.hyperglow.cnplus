@@ -1208,7 +1208,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
  * 盒 → Canvas2D(与实机 EffectBoxRenderer / 主编辑器 drawBoxesOnContext 同语义)。
  * ctx 须处于 CSS 像素坐标;drawTextFont(sizePx) 返回该字号下的 CSS font 字符串。
  */
-function renderBoxes(ctx, boxes, drawTextFont, cssRgb, cssColor) {
+function renderBoxes(ctx, boxes, drawTextFont, cssRgb, cssColor, spriteImages) {
   for (const box of boxes) {
     const t = box.transform;
     const transformed = !(t.m0 === 1 && t.m1 === 0 && t.m2 === 0 &&
@@ -1298,6 +1298,14 @@ function renderBoxes(ctx, boxes, drawTextFont, cssRgb, cssColor) {
           );
         }
         fillOrStroke(ctx, color, stroke, paint.strokeWidth);
+        break;
+      }
+      case 'sprite': {
+        const img = spriteImages && spriteImages[box.spriteId];
+        if (img && img.complete) {
+          ctx.globalAlpha = E.clamp(paint.alpha, 0, 1);
+          ctx.drawImage(img, box.x, box.y, Math.max(0, box.width), Math.max(0, box.height));
+        }
         break;
       }
       case 'path': {
