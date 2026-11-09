@@ -63,6 +63,7 @@ import com.eza.hyperglow.customization.WordEffectSpec
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.CustomizationEditorState
 import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.customization.DecorSpriteStore
 import com.eza.hyperglow.customization.LyricTimeOffset
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
@@ -343,6 +344,44 @@ internal fun LyricAppearanceSection(
             Toast.makeText(
                 context,
                 context.getString(R.string.toast_word_effect_invalid),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    // 自定义贴纸:导入即落盘(编号 64..255),发布配置时以 fd 通道下发给 SystemUI;
+    // 效果程序里用 drawSprite 引用编号。删除后立即重推,锁屏/AOD 同步消失。
+    var customSprites by remember { mutableStateOf(DecorSpriteStore.list(context)) }
+    val spriteImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: android.net.Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                input.readNBytes(DecorSpriteStore.MAX_SOURCE_BYTES + 1)
+            }
+        }.getOrNull()
+        val imported = bytes
+            ?.takeIf { it.size <= DecorSpriteStore.MAX_SOURCE_BYTES }
+            ?.let { DecorSpriteStore.import(context, it, queryDisplayName(context, uri) ?: "") }
+        customSprites = DecorSpriteStore.list(context)
+        if (imported != null) {
+            publishRuntimeConfiguration(context)
+            Toast.makeText(
+                context,
+                context.getString(R.string.toast_custom_sprite_imported, imported.id),
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            Toast.makeText(
+                context,
+                context.getString(
+                    if (customSprites.size >= DecorSpriteStore.MAX_ENTRIES) {
+                        R.string.toast_custom_sprite_limit
+                    } else {
+                        R.string.toast_custom_sprite_invalid
+                    }
+                ),
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -1085,6 +1124,37 @@ internal fun LyricAppearanceSection(
                             it.copy(transition = it.transition.copy(durationMs = value.toInt()))
                         }
                     }
+                }
+            }
+        }
+        item { SmallTitle(text = stringResource(R.string.section_custom_sprites)) }
+        item {
+            SettingsCard {
+                ArrowPreference(
+                    title = stringResource(R.string.action_import_custom_sprite),
+                    summary = stringResource(R.string.summary_import_custom_sprite),
+                    onClick = { spriteImportLauncher.launch(arrayOf("image/*")) }
+                )
+                customSprites.forEach { sprite ->
+                    ArrowPreference(
+                        title = sprite.name,
+                        summary = stringResource(R.string.summary_custom_sprite_row, sprite.id),
+                        onClick = {
+                            val deleted = DecorSpriteStore.delete(context, sprite.id)
+                            customSprites = DecorSpriteStore.list(context)
+                            if (deleted) {
+                                publishRuntimeConfiguration(context)
+                                Toast.makeText(
+                                    context,
+                                    context.getString(
+                                        R.string.toast_custom_sprite_deleted,
+                                        sprite.id
+                                    ),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    )
                 }
             }
         }

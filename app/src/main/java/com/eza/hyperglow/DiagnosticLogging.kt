@@ -74,7 +74,8 @@ internal fun setDiagnosticLogging(context: Context, enabled: Boolean): Boolean {
     AodStateBridge.publishConfiguration(
         RuntimeCustomization.loadCompiled(context),
         currentProcessUserId(),
-        experimentalMode = AodRenderPreferences.read(context).experimentalMode
+        experimentalMode = AodRenderPreferences.read(context).experimentalMode,
+        spriteAttachments = com.eza.hyperglow.customization.DecorSpriteStore.attachments(context)
     )
     return true
 }

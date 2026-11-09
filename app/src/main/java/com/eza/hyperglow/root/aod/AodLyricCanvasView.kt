@@ -4121,9 +4121,9 @@ internal class AodLyricCanvasView(
         }
     }
 
-    /** 内置装饰素材 provider(SystemUI 侧经模块包上下文读 assets/deco)。 */
+    /** 装饰素材 provider:用户导入贴图(配置回调注册表)优先,其次内置素材。 */
     private val decorSpriteProvider by lazy {
-        builtInSpriteProvider(fontContext ?: context)
+        hookSpriteProvider(fontContext ?: context)
     }
 
     /** 盒模式文本测量探针:复用主 Paint 的字体/字距测量态,只改字号。 */

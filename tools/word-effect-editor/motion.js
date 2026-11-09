@@ -1305,6 +1305,15 @@ function renderBoxes(ctx, boxes, drawTextFont, cssRgb, cssColor, spriteImages) {
         if (img && img.complete) {
           ctx.globalAlpha = E.clamp(paint.alpha, 0, 1);
           ctx.drawImage(img, box.x, box.y, Math.max(0, box.width), Math.max(0, box.height));
+        } else if (box.spriteId >= 64) {
+          // 64..255 为用户导入贴纸:字节只存在设备上,网页预览画虚线占位框;
+          // 导出后在 App「自定义贴纸」导入同编号图片即可在锁屏/AOD 显示。
+          ctx.save();
+          ctx.globalAlpha = E.clamp(paint.alpha, 0, 1) * 0.6;
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = color;
+          ctx.strokeRect(box.x, box.y, Math.max(0, box.width), Math.max(0, box.height));
+          ctx.restore();
         }
         break;
       }

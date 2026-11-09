@@ -426,6 +426,14 @@
     <string name="action_open_word_effect_studio">線上編輯單詞效果</string>
     <string name="summary_word_effect_studio">在瀏覽器裡編輯並匯出效果包，再回到這裡匯入。</string>
     <string name="toast_word_effect_studio_unavailable">沒有可用的瀏覽器</string>
+    <string name="section_custom_sprites">自訂貼圖</string>
+    <string name="action_import_custom_sprite">匯入貼圖圖片</string>
+    <string name="summary_import_custom_sprite">PNG/JPG，≥8 像素（匯入後縮到 1024 以內），≤4 MiB；效果程式裡用 drawSprite 引用編號 64–255。</string>
+    <string name="summary_custom_sprite_row">貼圖編號 %1$d · 點擊刪除</string>
+    <string name="toast_custom_sprite_imported">已匯入貼圖 #%1$d</string>
+    <string name="toast_custom_sprite_invalid">圖片無效（≥8 像素，≤4 MiB）</string>
+    <string name="toast_custom_sprite_limit">貼圖數量已達上限</string>
+    <string name="toast_custom_sprite_deleted">已刪除貼圖 #%1$d</string>
     <string name="action_export_appearance">導出外觀文件</string>
     <string name="action_reset_surfaces">重置兩個顯示區域</string>
     <string name="dialog_reset_title">重置息屏和鎖屏設置？</string>

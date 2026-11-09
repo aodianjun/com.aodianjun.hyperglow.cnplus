@@ -51,6 +51,37 @@ internal fun builtInSpriteProvider(context: android.content.Context): EffectSpri
     }
 }
 
+/**
+ * 实机(SystemUI)侧 provider:用户导入贴图(64..255,配置回调装进
+ * [CustomSpriteRegistry])优先,其余编号走内置素材(0..63)。
+ */
+internal fun hookSpriteProvider(context: android.content.Context): EffectSpriteProvider {
+    val builtIn = builtInSpriteProvider(context)
+    return EffectSpriteProvider { id ->
+        if (id >= com.eza.hyperglow.root.customization.SpriteWire.MIN_SPRITE_ID) {
+            CustomSpriteRegistry.bitmap(id)
+        } else {
+            builtIn.bitmap(id)
+        }
+    }
+}
+
+/**
+ * App 内预览 provider:用户导入贴图直接读 app 私有存储(不经过跨进程通道),
+ * 其余编号走内置素材。保证预览与锁屏/AOD 看到同一张图。
+ */
+internal fun appSpriteProvider(context: android.content.Context): EffectSpriteProvider {
+    val builtIn = builtInSpriteProvider(context)
+    val appContext = context.applicationContext ?: context
+    return EffectSpriteProvider { id ->
+        if (id >= com.eza.hyperglow.customization.DecorSpriteStore.MIN_ID) {
+            com.eza.hyperglow.customization.DecorSpriteStore.bitmap(appContext, id)
+        } else {
+            builtIn.bitmap(id)
+        }
+    }
+}
+
 internal object EffectBoxRenderer {
 
     /** 把盒列表绘制到 [canvas]。[baseTextPaint] 提供字体等测量态基线;贴图盒需要 [sprites]。 */

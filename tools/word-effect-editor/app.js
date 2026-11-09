@@ -1961,6 +1961,14 @@
           if (img && img.complete) {
             ctx.globalAlpha = E.clamp(paint.alpha, 0, 1);
             ctx.drawImage(img, box.x, box.y, Math.max(0, box.width), Math.max(0, box.height));
+          } else if (box.spriteId >= 64) {
+            // 64..255 为用户导入贴纸:字节只存在设备上,网页预览画虚线占位框。
+            ctx.save();
+            ctx.globalAlpha = E.clamp(paint.alpha, 0, 1) * 0.6;
+            ctx.setLineDash([6, 4]);
+            ctx.strokeStyle = paintColor;
+            ctx.strokeRect(box.x, box.y, Math.max(0, box.width), Math.max(0, box.height));
+            ctx.restore();
           }
           break;
         }

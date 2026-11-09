@@ -454,6 +454,14 @@
     <string name="action_open_word_effect_studio">在线编辑单词效果</string>
     <string name="summary_word_effect_studio">在浏览器里编辑并导出效果包，再回到这里导入。</string>
     <string name="toast_word_effect_studio_unavailable">没有可用的浏览器</string>
+    <string name="section_custom_sprites">自定义贴纸</string>
+    <string name="action_import_custom_sprite">导入贴纸图片</string>
+    <string name="summary_import_custom_sprite">PNG/JPG，≥8 像素（导入后缩到 1024 以内），≤4 MiB；效果程序里用 drawSprite 引用编号 64–255。</string>
+    <string name="summary_custom_sprite_row">贴图编号 %1$d · 点击删除</string>
+    <string name="toast_custom_sprite_imported">已导入贴纸 #%1$d</string>
+    <string name="toast_custom_sprite_invalid">图片无效（≥8 像素，≤4 MiB）</string>
+    <string name="toast_custom_sprite_limit">贴纸数量已达上限</string>
+    <string name="toast_custom_sprite_deleted">已删除贴纸 #%1$d</string>
     <string name="action_export_appearance">导出外观文件</string>
     <string name="action_reset_surfaces">重置两个显示区域</string>
     <string name="dialog_reset_title">重置息屏和锁屏设置？</string>

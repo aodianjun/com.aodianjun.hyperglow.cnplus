@@ -2977,7 +2977,7 @@ private fun PreviewMainLayer(
 ) {
     val previewContext = LocalContext.current
     val spriteProvider = remember(previewContext) {
-        com.eza.hyperglow.root.aod.builtInSpriteProvider(previewContext.applicationContext)
+        com.eza.hyperglow.root.aod.appSpriteProvider(previewContext.applicationContext)
     }
     val glowArgb = glowColor.toArgb()
     val sungArgb = color.copy(alpha = 1f).toArgb()

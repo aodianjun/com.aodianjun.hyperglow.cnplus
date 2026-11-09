@@ -10,6 +10,7 @@ import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
 import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.customization.DecorSpriteStore
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.plugin.PluginInstaller
 import com.eza.hyperglow.plugin.PluginRuntime
@@ -161,7 +162,8 @@ internal fun publishRuntimeConfiguration(context: android.content.Context) {
     AodStateBridge.publishConfiguration(
         RuntimeCustomization.loadCompiled(context),
         currentProcessUserId(),
-        experimentalMode = AodRenderPreferences.read(context).experimentalMode
+        experimentalMode = AodRenderPreferences.read(context).experimentalMode,
+        spriteAttachments = DecorSpriteStore.attachments(context)
     )
 }
 

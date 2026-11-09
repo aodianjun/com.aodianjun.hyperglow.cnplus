@@ -418,7 +418,7 @@
 | `drawRoundRect` | `x y w h rx ry` → | 绘制圆角矩形；`rx` / `ry` 负数按 0 |
 | `drawOval` | `x y w h` → | 绘制椭圆 |
 | `drawArc` | `x y w h start sweep` → | 绘制圆弧；角度单位为度 |
-| `drawSprite` | `id x y w h` → | 绘制**内置装饰素材**：`id` 为固定注册表编号（0..63）；素材为白色透明 PNG，按当前颜色着色（SRC_IN）。越界编号静默丢弃，不整帧失败 |
+| `drawSprite` | `id x y w h` → | 绘制**装饰素材**：`id` 0..63 为内置固定注册表，64..255 为用户导入贴纸；素材为透明 PNG，按当前颜色着色（SRC_IN）。越界编号静默丢弃，不整帧失败 |
 | `pathMove` | `x y` → | 路径移动到 |
 | `pathLine` | `x y` → | 路径连线到 |
 | `pathQuad` | `cx cy x y` → | 二次贝塞尔曲线到 `(x, y)`，控制点 `(cx, cy)` |
@@ -723,7 +723,7 @@ program = assemble(
 | --- | --- |
 | `text` | `text` / `x` / `baseline`（y 为基线，与直绘 `drawText` 同约定） |
 | `rect` / `roundRect` / `oval` / `arc` | 左上角 `x/y` + `width/height`（roundRect 另有 `rx/ry`，arc 另有 `startAngle/sweepAngle`） |
-| `sprite` | `spriteId`（内置素材编号 0..63）+ 左上角 `x/y` + `width/height` |
+| `sprite` | `spriteId`（素材编号：0..63 内置，64..255 用户导入）+ 左上角 `x/y` + `width/height` |
 | `circle` | 圆心 `cx/cy` + `radius` |
 | `line` | `x1/y1/x2/y2` |
 | `path` | 有序段列表：`kind`（0=move 1=line 2=quad 3=cubic 4=close）+ 段参数 |
@@ -769,4 +769,4 @@ program = assemble(
 Word Effect Studio 的程序编辑器提供「输出模式」选择（draw / boxes）；汇编器编译时把
 所选模式写入 `program.outputMode`，导入/导出/复制/模板均保留。盒模式下编辑器预览走
 收集器 + 盒渲染器，预算超限与实机同样整块不绘制并提示。
-- 贴图只能引用**内置素材编号**（`assets/deco/<id>.png`，0..63）；文档里不出现任何文件路径或 URL，素材随模块 APK 分发。
+- 贴图编号池：0..63 为**内置素材**（`assets/deco/<id>.png`，随模块 APK 分发）；64..255 为**用户导入贴纸**——用户在 App「外观 → 自定义贴纸」导入，导入时解码校验、等比缩到 ≤1024 像素并重编码 PNG（剥元数据）存入 app 私有目录。发布配置时字节经只读 `ParcelFileDescriptor` 随配置 Bundle 下发，SystemUI 按 sha256 与尺寸/像素预算校验后才解码；效果文档里只出现编号，**不出现任何文件路径或 URL**。

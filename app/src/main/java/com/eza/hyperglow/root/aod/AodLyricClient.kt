@@ -22,6 +22,7 @@ import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import com.eza.hyperglow.root.capability.missingProbeNames
 import com.eza.hyperglow.root.customization.CompiledCustomizationBundleCodec
 import com.eza.hyperglow.root.customization.CompiledCustomizationBundleCodec.WirePayload
+import com.eza.hyperglow.root.customization.SpriteWire
 import com.eza.hyperglow.root.projection.LyricProjectionClient
 
 private const val RETRY_DELAY_BASE_MS = 1_000L
@@ -223,10 +224,22 @@ internal class AodLyricClient(
                     return
                 }
             }
+            // 自定义贴图随配置走 fd 通道:必须在本回调内读满并关闭 fd(Bundle 不得外传);
+            // 哈希/尺寸校验在 [SpriteWire.read] 与注册表内完成,失败只丢贴图不影响配置。
+            val spriteBytes = try {
+                SpriteWire.read(configuration) { reason ->
+                    HookLogger.w(TAG, "Sprite payload rejected reason=$reason")
+                }
+            } catch (error: Exception) {
+                HookLogger.w(TAG, "Sprite payload read failed", error)
+                emptyList()
+            }
+            CustomSpriteRegistry.install(spriteBytes)
             HookLogger.w(
                 TAG,
                 "Configuration queued rev=${ownedPayload.revision} " +
-                    "hash=${ownedPayload.hash.take(8)} gen=$generation"
+                    "hash=${ownedPayload.hash.take(8)} gen=$generation " +
+                    "sprites=${spriteBytes.size}"
             )
             mainHandler.removeCallbacks(deliverConfiguration)
             mainHandler.post(deliverConfiguration)

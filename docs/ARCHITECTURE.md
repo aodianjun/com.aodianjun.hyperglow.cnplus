@@ -511,7 +511,9 @@ AOD 宿主容器以及锁屏控制器/宿主/几何接缝；未知 profile 仍�
 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表中选择，两个 surface 共用；或选择一段沙箱效果
 程序，其输出为受控绘制原语（缺省）或有界定位盒列表（`EffectProgram.outputMode == "boxes"`，
 由宿主固定渲染器绘制）。盒是纯数据，不能指定类、资源、方法、路径、URL、命令或任何可执行
-代码。
+代码。用户导入的装饰贴纸同样不越过这条边界：文档只携带 64..255 的编号；图片字节经配置
+Bundle 的只读 `ParcelFileDescriptor` 通道下发，SystemUI 侧按 sha256 与尺寸/像素预算校验后
+才解码进进程内注册表，读失败或哈希不符只丢弃该张，配置里始终不出现路径、URL 或可执行内容。
 
 锁屏 profile 还接受受限的 `backgroundStyle`：`auto`/`card` 解析为内置的非交互通知式遮罩；
 `none` 保持透明。AOD 始终将其规范化为 `none`。

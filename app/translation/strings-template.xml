@@ -429,6 +429,14 @@
     <string name="action_open_word_effect_studio">Online effect editor</string>
     <string name="summary_word_effect_studio">Edit and export a pack in your browser, then import it here.</string>
     <string name="toast_word_effect_studio_unavailable">No browser available</string>
+    <string name="section_custom_sprites">Custom stickers</string>
+    <string name="action_import_custom_sprite">Import sticker image</string>
+    <string name="summary_import_custom_sprite">PNG/JPG, ≥8 px (downscaled to 1024), ≤4 MiB. Reference it from effect programs with drawSprite ids 64–255.</string>
+    <string name="summary_custom_sprite_row">Sticker id %1$d · tap to delete</string>
+    <string name="toast_custom_sprite_imported">Imported sticker #%1$d</string>
+    <string name="toast_custom_sprite_invalid">Invalid image (≥8 px, ≤4 MiB)</string>
+    <string name="toast_custom_sprite_limit">Sticker limit reached</string>
+    <string name="toast_custom_sprite_deleted">Deleted sticker #%1$d</string>
     <string name="option_word_effect_none">Off</string>
     <string name="toast_word_effect_imported">Word effect pack imported: %1$d</string>
     <string name="toast_word_effect_invalid">Invalid word effect pack</string>
