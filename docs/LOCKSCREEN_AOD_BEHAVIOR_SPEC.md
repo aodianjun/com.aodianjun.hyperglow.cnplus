@@ -396,6 +396,18 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   mode or the `None` effect), the word-karaoke path, or the shared sweep block. The whole-block
   sweep therefore occurs only when that mode is explicitly selected, never as a fallback for
   word-timed sources.
+- Word effect programs are declarative sandboxed bytecode with one output mode: the default
+  `draw` mode issues controlled draw primitives through the host sink (existing behavior,
+  byte-for-byte unchanged), while `outputMode == "boxes"` emits a bounded list of positioned
+  boxes (text/rect/roundRect/circle/line/oval/arc/path with a paint-state snapshot and a full
+  baked affine matrix). Boxes are plain data — they can never name classes, resources, methods,
+  paths, URLs, commands, or executable code. Collection budgets are hard caps (512 boxes, 256
+  path segments per box, 4096 total path segments, 512 text characters per box, plus the shared
+  100k-step / 4096-draw-call frame budgets); any overrun or execution failure aborts the whole
+  frame and returns no partial boxes. The host renders boxes through one fixed renderer shared
+  by the device canvas and the in-app preview, with a conservative 2em vertical overdraw
+  allowance folded into placement and adaptive-height measurement; drawing remains clipped to
+  the logical canvas frame.
 - Word animation accepts a fixed `Minimal`/`Gradient`/`BetterLyrics` vocabulary per surface profile.
   `BetterLyrics` (modeled after jayfunc/BetterLyrics) renders sources through the shared word-karaoke
   renderer, used by both the device canvas and the in-app preview: word/syllable-timed sources use
@@ -996,6 +1008,7 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 未知组件会被丢弃。不存在有效歌词组件时，退回到内置安全 profile。
 - 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。行级同步标志在有活动行且不处于大元数据引导态时为真——逐字源与行级源一视同仁。主行的渲染路径（静态全亮＝`Minimal` 档或 `None` 效果、词级卡拉OK、共享扫光块）由同一个共享决策给出，实机画布（锁屏与息屏共用同一画布）与 App 内预览读同一份，输入为行级同步标志、源类型、行窗、逐字动画档与发光偏好。因此整块横扫只在显式选择该档时出现，绝不作为逐字源的回退。
+- 逐字效果程序是声明式沙箱字节码，只有一个输出模式：缺省 `draw` 模式经宿主 sink 发出受控绘制原语（既有行为逐字节不变）；`outputMode == "boxes"` 盒模式则输出有界定位盒列表（text/rect/roundRect/circle/line/oval/arc/path，附绘制状态快照与完整烘焙仿射矩阵）。盒是纯数据，不能指定类、资源、方法、路径、URL、命令或任何可执行代码。收集预算是硬上限（单帧 512 盒、单路径盒 256 段、全帧路径 4096 段、单文字盒 512 字符，加上共用的 100k 步 / 4096 次绘制调用帧预算）；超限或执行失败整帧中止、不提交部分盒。宿主经同一个固定渲染器绘制盒——实机画布与 App 内预览共用，放置与自适应测量并入 2em 保守垂直外扩余量；绘制期仍被逻辑画布帧裁剪兜底。
 - 逐字动画接受 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表（每个 surface 独立选择）。`BetterLyrics` 档（参考 jayfunc/BetterLyrics）把歌词源交给共享逐字卡拉OK渲染核心（实机画布与 App 内预览同源）：逐字/音节级时间源用真实词窗；行级（无逐字时间）源按字符合成时间窗——推进前缘与行级扫光几何完全一致，因此效果对两类源同样适用：**该档按口径 B 逐词块判定扫光**——长音节（≥700ms）「开始唱即整块按已唱色亮起」、不出现填充前缘（辉光仍只挂长音节词块），其余音节恢复历史词内扫光带（口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）→ 0.3.156 (183) 整档关闭 → 本次恢复短音节扫光（2026-10-05），当初逼出整档关闭的跳变成因已由同行形态稳定化 / 下一行文本稳定化 / 位置时钟过渡 / 摄取归一修掉）；未唱音节下沉约 10% 行高、唱到时在约 450ms 内上浮回基线；长音节（≥700ms；合成源按合成块时长判定——中文逐字块、西文按词块——短词块不放大不发光）演唱中放大到 1.15、唱完回落原大，长音节块内字符共享块级进度、整块同步放大/辉光；仅在发光偏好开启时，演唱中的长音节带 glow 色光晕（半径约为字号的 36%）。短音节保留既有放大运动（峰值 1.0505）；发光关闭时该运动不变、光晕消失（长音节整块亮起不变）。「行进度效果=None」仍解析为静态全亮；仅息屏的对唱并发行保留共享扫光管线；`BetterLyrics` 档绝不走共享行级扫光（带行窗的逐字源也不例外），恒走词级卡拉OK路径；profile 未知值仍规范化为 `Gradient`。
 - 帧调度遵循同一节拍契约:时序行播放期间画布按配置的帧间隔重绘(默认 16ms,或用户选择的渲染刷新率上限档)。息屏画布在此之上还有一档粗粒度降帧——电量低且未充电(≤15%)或设备热状态 ≥ MODERATE 时,逐字扫光降到 200ms(约 5fps)的粗粒度步进:扫光仍可读,而绘制功耗大幅下降。该降帧由用户开关(`aodPowerSaver`,默认开启)经编译配置门控:开关关闭时画布绝不降到帧上限以下。旧生产者不带该字段时按开启处理(保持历史行为),绝不静默换档。该降帧仅作用于息屏画布;锁屏画布恒按配置节拍渲染。
 - 同一行会被上游两阶段下发（逐行源推来的行里带不带词表取决于它那一笔），而折行引擎按「有无词表」走两条不同路径（词行布局 / 分组均衡折行），形态切换会重排整块并更换填充映射——真机录屏逐帧实测：换行瞬间下一行被顶下去一行高（80px）、填充前缘中途倒退重填。画布按行身份稳定增强数据：同一行只认第一次的折行形态，仅在行开始前的 300ms 宽限窗内接受「无词→带词」升级（此时尚未演唱、重排不可见）；「带词→无词」回退与演唱中的词表文本变化一律拒绝（见 `shouldAdoptLineEnhancements`）。下一行文本同样稳定化：与主行同文即视为「未就绪」（旧下一行刚被晋级、新下一行尚未推来，真机实测换行后 0.5s 内两者同文），沿用上一版文本，避免换行后行集合/行高随文本切换重排（见 `isNextLineStale`）。

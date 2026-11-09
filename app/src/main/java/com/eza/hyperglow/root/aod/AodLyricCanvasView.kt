@@ -20,9 +20,11 @@ import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
 import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
+import com.eza.hyperglow.effect.EFFECT_OUTPUT_BOXES
 import com.eza.hyperglow.effect.EffectColors
 import com.eza.hyperglow.effect.EffectFrameContext
 import com.eza.hyperglow.effect.EffectLineSample
+import com.eza.hyperglow.effect.EffectTextMeasurer
 import com.eza.hyperglow.effect.EffectVm
 import com.eza.hyperglow.effect.EffectWordSample
 import com.eza.hyperglow.producer.DuetLineWindow
@@ -2239,6 +2241,7 @@ internal class AodLyricCanvasView(
                 currentRenderStyle.palette.metadataText,
                 value
             )
+            // color 已含插值后的 alpha，不要再覆盖为不透明。
             shader = null
             clearShadowLayer()
         }
@@ -2874,11 +2877,20 @@ internal class AodLyricCanvasView(
             val referenceRow = rows.firstOrNull {
                 it.kind == RowKind.ORIGINAL || it.kind == RowKind.DUET_ORIGINAL
             } ?: topRow ?: rows.last()
-            com.eza.hyperglow.customization.wordEffectVerticalOverdrawPx(
+            val dslOverdraw = com.eza.hyperglow.customization.wordEffectVerticalOverdrawPx(
                 spec = spec,
                 textSizePx = referenceRow.paint.textSize,
                 lineHeightPx = referenceRow.lineHeight
             )
+            // 盒模型程序:输出盒可自由摆放/变换,上界无法从 DSL 轨道推出;取保守常量余量
+            // (2em),与 DSL 估算取大者。直绘程序维持现状(整帧裁剪兜底,见 frameClipBounds)。
+            val programOverdraw =
+                if (spec.program?.outputMode == EFFECT_OUTPUT_BOXES) {
+                    BOX_MODE_VERTICAL_OVERDRAW_EM * referenceRow.paint.textSize
+                } else {
+                    0f
+                }
+            maxOf(dslOverdraw, programOverdraw)
         } ?: 0f
         val topOverdraw = maxOf(
             rowEffectOverdrawPx(topRow, mainGlow, mainSink, auxGlow, betterLyrics),
@@ -4079,6 +4091,22 @@ internal class AodLyricCanvasView(
             blockWidth = blockWidth,
             blockHeight = originalLayout.stackedHeight
         )
+        // 盒模型模式:程序输出定位盒,由统一渲染器绘制(实机/预览同一条渲染路径);
+        // 失败不提交部分盒,也不回退内置路径(与直绘程序失败语义一致)。
+        if (program.outputMode == EFFECT_OUTPUT_BOXES) {
+            val boxes = runCatching {
+                EffectVm(program).collectBoxes(context, boxTextMeasurer())
+            }.getOrNull()
+            if (boxes != null) {
+                EffectBoxRenderer.draw(canvas, boxes, originalPaint)
+            } else {
+                HookLogger.iThrottled("effect-box-block", 2_000L, "AodLyricCanvasView") {
+                    "effect box block aborted (${program.code.size} instructions, " +
+                        "lines=${lines.size} words=${allWords.size})"
+                }
+            }
+            return
+        }
         val sink = AndroidEffectRenderSink(canvas, originalPaint, colors)
         val rendered = runCatching {
             EffectVm(program).render(context, sink)
@@ -4091,6 +4119,15 @@ internal class AodLyricCanvasView(
                     "lines=${lines.size} words=${allWords.size})"
             }
         }
+    }
+
+    /** 盒模式文本测量探针:复用主 Paint 的字体/字距测量态,只改字号。 */
+    private val boxMeasurePaint by lazy { Paint(originalPaint) }
+
+    /** 盒模式 `measureText` 的宿主测量实现(VM 侧计入 draw 预算;measureText 与对齐无关)。 */
+    private fun boxTextMeasurer() = EffectTextMeasurer { text, sizePx, _ ->
+        boxMeasurePaint.textSize = sizePx
+        boxMeasurePaint.measureText(text)
     }
 
     /**
@@ -5322,6 +5359,12 @@ internal class AodLyricCanvasView(
     )
 
     companion object {
+        /**
+         * 盒模型效果的垂直外扩余量(em):盒可在整块内自由摆放/变换,上界无法静态推出,
+         * 放置与自适应测量按此保守常量让位;绘制期仍有整帧裁剪兜底(frameClipBounds)。
+         */
+        private const val BOX_MODE_VERTICAL_OVERDRAW_EM = 2f
+
         /** 对唱并发行加入淡入时长(毫秒);期间静音态绘制,完成恢复共享发光管线。 */
         private const val DUET_JOIN_FADE_MS = 180L
 

@@ -2124,6 +2124,331 @@
           }
         ]
       }
+    },
+    {
+      "id": "box_char_wave",
+      "name": "Box Char Wave",
+      "longSyllableMs": 700,
+      "program": {
+        "version": 1,
+        "outputMode": "boxes",
+        "maxLocals": 8,
+        "constants": [
+          {
+            "type": "number",
+            "value": "0"
+          },
+          {
+            "type": "number",
+            "value": "1"
+          },
+          {
+            "type": "number",
+            "value": "0.6"
+          },
+          {
+            "type": "number",
+            "value": "30"
+          },
+          {
+            "type": "number",
+            "value": "0.25"
+          },
+          {
+            "type": "number",
+            "value": "2"
+          },
+          {
+            "type": "number",
+            "value": "-1"
+          },
+          {
+            "type": "number",
+            "value": "0.65"
+          },
+          {
+            "type": "number",
+            "value": "0.35"
+          }
+        ],
+        "code": [
+          {
+            "op": "wordCount"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 1
+          },
+          {
+            "op": "const",
+            "arg": 0
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "loadLocal",
+            "arg": 1
+          },
+          {
+            "op": "lt"
+          },
+          {
+            "op": "jz",
+            "arg": 76
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 2
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "wordField",
+            "text": "width"
+          },
+          {
+            "op": "const",
+            "arg": 5
+          },
+          {
+            "op": "div"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "wordField",
+            "text": "baseline"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 4
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "wordField",
+            "text": "progress"
+          },
+          {
+            "op": "const",
+            "arg": 7
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "const",
+            "arg": 8
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "setAlpha"
+          },
+          {
+            "op": "save"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "translate"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "const",
+            "arg": 3
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "rotate"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 3
+          },
+          {
+            "op": "const",
+            "arg": 6
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 4
+          },
+          {
+            "op": "const",
+            "arg": 6
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "translate"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "wordField",
+            "text": "text"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "wordField",
+            "text": "x"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 2
+          },
+          {
+            "op": "word"
+          },
+          {
+            "op": "wordField",
+            "text": "baseline"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 2
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "sin"
+          },
+          {
+            "op": "const",
+            "arg": 4
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "globalField",
+            "text": "textSize"
+          },
+          {
+            "op": "mul"
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "drawText"
+          },
+          {
+            "op": "restore"
+          },
+          {
+            "op": "loadLocal",
+            "arg": 0
+          },
+          {
+            "op": "const",
+            "arg": 1
+          },
+          {
+            "op": "add"
+          },
+          {
+            "op": "storeLocal",
+            "arg": 0
+          },
+          {
+            "op": "jump",
+            "arg": 4
+          },
+          {
+            "op": "end"
+          }
+        ]
+      }
     }
   ]
 }

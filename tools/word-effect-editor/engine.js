@@ -87,6 +87,15 @@
   const MAX_EFFECT_DRAW_OPS_PER_FRAME = 4096;
   const MAX_EFFECT_PROGRAM_ESTIMATED_BYTES = 12 * 1024;
 
+  // 盒模型输出模式(与 EffectProgram.kt / EffectBoxCollector.kt 逐值对齐)。
+  const EFFECT_OUTPUT_DRAW = 'draw';
+  const EFFECT_OUTPUT_BOXES = 'boxes';
+  const MAX_EFFECT_BOXES = 512;
+  const MAX_EFFECT_PATH_POINTS_PER_BOX = 256;
+  const MAX_EFFECT_TOTAL_PATH_POINTS = 4096;
+  const MAX_EFFECT_BOX_TEXT_CHARS = 512;
+  const MAX_EFFECT_BOX_SAVE_DEPTH = 16;
+
   const EFFECT_OPS = new Set([
     'const', 'loadLocal', 'storeLocal', 'pop', 'dup', 'swap',
     'globalField', 'lineField', 'lineCount', 'line', 'lineAtField',
@@ -636,24 +645,23 @@
     }
 
     if (errors.length) return { ok: false, program: null, errors };
-    return {
-      ok: true,
-      program: {
-        version: EFFECT_PROGRAM_VERSION,
-        constants: constants.map((constant) => ({
-          type: constant.type == null ? 'number' : constant.type,
-          value: constant.value
-        })),
-        code: code.map((instruction) => {
-          const out = { op: instruction.op };
-          if (instruction.arg !== undefined && instruction.arg !== null) out.arg = instruction.arg;
-          if (instruction.text !== undefined && instruction.text !== null) out.text = instruction.text;
-          return out;
-        }),
-        maxLocals
-      },
-      errors
+    const program = {
+      version: EFFECT_PROGRAM_VERSION,
+      constants: constants.map((constant) => ({
+        type: constant.type == null ? 'number' : constant.type,
+        value: constant.value
+      })),
+      code: code.map((instruction) => {
+        const out = { op: instruction.op };
+        if (instruction.arg !== undefined && instruction.arg !== null) out.arg = instruction.arg;
+        if (instruction.text !== undefined && instruction.text !== null) out.text = instruction.text;
+        return out;
+      }),
+      maxLocals
     };
+    // outputMode:仅 "boxes" 显式落盘;draw/未知值省略字段(与缺省值一致,旧导出逐字节不变)。
+    if (rawProgram.outputMode === EFFECT_OUTPUT_BOXES) program.outputMode = EFFECT_OUTPUT_BOXES;
+    return { ok: true, program, errors };
   }
 
   // ---------------------------------------------------------------------------
@@ -1846,6 +1854,210 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Box output mode (mirrors EffectBox.kt / EffectBoxCollector.kt)
+  // ---------------------------------------------------------------------------
+
+  function identityMatrix() { return [1, 0, 0, 0, 1, 0]; }
+  function translationMatrix(tx, ty) { return [1, 0, tx, 0, 1, ty]; }
+  function rotationMatrix(deg) {
+    const rad = (deg * Math.PI) / 180;
+    const c = Math.cos(rad);
+    const s = Math.sin(rad);
+    return [c, -s, 0, s, c, 0];
+  }
+  function scaleMatrix(sx, sy) { return [sx, 0, 0, 0, sy, 0]; }
+  /** 行主序 [m0 m1 m2; m3 m4 m5],a 右乘 b(post-concat,与 Canvas 后乘语义一致)。 */
+  function multiplyMatrix(a, b) {
+    return [
+      a[0] * b[0] + a[1] * b[3],
+      a[0] * b[1] + a[1] * b[4],
+      a[0] * b[2] + a[1] * b[5] + a[2],
+      a[3] * b[0] + a[4] * b[3],
+      a[3] * b[1] + a[4] * b[4],
+      a[3] * b[2] + a[4] * b[5] + a[5]
+    ];
+  }
+
+  /**
+   * 盒收集器 sink:把直绘指令翻译成盒数据(与 Kotlin EffectBoxCollector 逐值对齐)。
+   * 返回对象可直接传给 runProgram——解释器对 sink 泛型;绘制状态快照/矩阵烘焙/预算
+   * (盒数/路径段数/文本长)都在此处执行。failed 为 true 时 result() 返回 null。
+   */
+  function createBoxCollectorSink(measureText, initialColor, initialTextSize) {
+    const boxes = [];
+    const state = {
+      color: initialColor || 0,
+      alpha: 1,
+      textSize: clamp(initialTextSize || 0, 1, 512),
+      align: 0,
+      style: 0,
+      strokeWidth: 1,
+      gradient: null,
+      shadow: null,
+      failed: false
+    };
+    const matrixStack = [identityMatrix()];
+    const path = [];
+    let totalPathPoints = 0;
+    const top = () => matrixStack[matrixStack.length - 1];
+    const paintSnapshot = () => ({
+      color: state.color,
+      alpha: state.alpha,
+      textSize: state.textSize,
+      align: state.align,
+      style: state.style,
+      strokeWidth: state.strokeWidth,
+      gradient: state.gradient,
+      shadow: state.shadow
+    });
+    const transformSnapshot = () => {
+      const m = top();
+      return { m0: m[0], m1: m[1], m2: m[2], m3: m[3], m4: m[4], m5: m[5] };
+    };
+    const canEmit = () => {
+      if (state.failed) return false;
+      if (boxes.length >= MAX_EFFECT_BOXES) {
+        state.failed = true;
+        return false;
+      }
+      return true;
+    };
+    const pushSegment = (segment) => {
+      if (path.length >= MAX_EFFECT_PATH_POINTS_PER_BOX) {
+        state.failed = true;
+        return;
+      }
+      path.push(segment);
+    };
+    return {
+      get failed() { return state.failed; },
+      get boxes() { return boxes; },
+      result() { return state.failed ? null : boxes; },
+      setColor(argb) { state.color = argb | 0; },
+      setAlpha(alpha) { state.alpha = clamp(alpha, 0, 1); },
+      setTextSize(px) { state.textSize = clamp(px, 1, 512); },
+      setTextAlign(align) { state.align = align === 1 || align === 2 ? align : 0; },
+      setGradient(x0, y0, x1, y1, color0, color1) {
+        state.gradient = { x0, y0, x1, y1, color0, color1 };
+      },
+      clearGradient() { state.gradient = null; },
+      setShadow(radius, dx, dy, color) {
+        state.shadow = {
+          set: true,
+          radius: clamp(radius, 0, 256),
+          dx: clamp(dx, -256, 256),
+          dy: clamp(dy, -256, 256),
+          color
+        };
+      },
+      clearShadow() { state.shadow = null; },
+      setStrokeWidth(width) { state.strokeWidth = clamp(width, 0, 128); },
+      setFill() { state.style = 0; },
+      setStroke() { state.style = 1; },
+      save() { if (matrixStack.length < MAX_EFFECT_BOX_SAVE_DEPTH) matrixStack.push(top().slice()); },
+      restore() { if (matrixStack.length > 1) matrixStack.pop(); },
+      translate(x, y) {
+        matrixStack[matrixStack.length - 1] = multiplyMatrix(
+          top(),
+          translationMatrix(clamp(x, -10000, 10000), clamp(y, -10000, 10000))
+        );
+      },
+      rotate(deg) {
+        matrixStack[matrixStack.length - 1] = multiplyMatrix(top(), rotationMatrix(clamp(deg, -7200, 7200)));
+      },
+      scale(sx, sy) {
+        matrixStack[matrixStack.length - 1] = multiplyMatrix(
+          top(),
+          scaleMatrix(clamp(sx, 0.01, 100), clamp(sy, 0.01, 100))
+        );
+      },
+      clipRect() { /* 盒模式 no-op(与 EffectBoxCollector 一致) */ },
+      drawText(text, x, y) {
+        if (!canEmit()) return;
+        const value = String(text);
+        if (value.length > MAX_EFFECT_BOX_TEXT_CHARS) {
+          state.failed = true;
+          return;
+        }
+        boxes.push({
+          type: 'text', text: value, x, baseline: y,
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+      },
+      drawRect(x, y, w, h) {
+        if (!canEmit()) return;
+        boxes.push({
+          type: 'rect', x, y, width: Math.max(0, w), height: Math.max(0, h),
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+      },
+      drawRoundRect(x, y, w, h, rx, ry) {
+        if (!canEmit()) return;
+        boxes.push({
+          type: 'roundRect', x, y,
+          width: Math.max(0, w), height: Math.max(0, h),
+          rx: Math.max(0, rx), ry: Math.max(0, ry),
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+      },
+      drawCircle(cx, cy, r) {
+        if (!canEmit()) return;
+        boxes.push({
+          type: 'circle', cx, cy, radius: Math.max(0, r),
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+      },
+      drawLine(x1, y1, x2, y2) {
+        if (!canEmit()) return;
+        const saved = state.style;
+        state.style = 1; // 线段强制描边(与 Kotlin 收集器一致)
+        boxes.push({
+          type: 'line', x1, y1, x2, y2,
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+        state.style = saved;
+      },
+      drawOval(x, y, w, h) {
+        if (!canEmit()) return;
+        boxes.push({
+          type: 'oval', x, y, width: Math.max(0, w), height: Math.max(0, h),
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+      },
+      drawArc(x, y, w, h, start, sweep) {
+        if (!canEmit()) return;
+        boxes.push({
+          type: 'arc', x, y,
+          width: Math.max(0, w), height: Math.max(0, h),
+          start, sweep,
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+      },
+      pathMove(x, y) { pushSegment({ kind: 0, x0: x, y0: y }); },
+      pathLine(x, y) { pushSegment({ kind: 1, x0: x, y0: y }); },
+      pathQuad(cx, cy, x, y) { pushSegment({ kind: 2, x0: cx, y0: cy, x1: x, y1: y }); },
+      pathCubic(c1x, c1y, c2x, c2y, x, y) {
+        pushSegment({ kind: 3, x0: c1x, y0: c1y, x1: c2x, y1: c2y, x2: x, y2: y });
+      },
+      pathClose() { pushSegment({ kind: 4 }); },
+      drawPath() {
+        if (!canEmit()) return;
+        totalPathPoints += path.length;
+        if (totalPathPoints > MAX_EFFECT_TOTAL_PATH_POINTS) {
+          state.failed = true;
+          return;
+        }
+        boxes.push({
+          type: 'path', segments: path.slice(),
+          paint: paintSnapshot(), transform: transformSnapshot()
+        });
+        path.length = 0;
+      },
+      measureText(text) { return measureText(String(text), state.textSize, state.align); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Preview model: tokenization + timing (editor-only, not part of the pack)
   // ---------------------------------------------------------------------------
 
@@ -2106,6 +2318,14 @@
     assemble,
     disassemble,
     runProgram,
+    createBoxCollectorSink,
+    EFFECT_OUTPUT_DRAW,
+    EFFECT_OUTPUT_BOXES,
+    MAX_EFFECT_BOXES,
+    MAX_EFFECT_PATH_POINTS_PER_BOX,
+    MAX_EFFECT_TOTAL_PATH_POINTS,
+    MAX_EFFECT_BOX_TEXT_CHARS,
+    MAX_EFFECT_BOX_SAVE_DEPTH,
     tokenizeLine,
     wordWeight,
     parseLrc,

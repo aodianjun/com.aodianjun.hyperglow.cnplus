@@ -669,3 +669,100 @@ program = assemble(
 静态栈深检查会沿所有跳转路径验证栈平衡，能提前发现“少压一个参数”或“循环出口栈深不一致”
 这类错误。它还会校验 12 KiB 估算字节数，并打印每个程序的指令数、常量数、绘制指令数与
 整包字节数。
+
+## 11. 盒模型输出模式（Boxes Output Mode）
+
+第 1–10 节的**直绘模式**（`outputMode` 缺省 `"draw"`）让程序逐帧直接调用受控绘制原语。
+本节是第二种输出模式：程序不再触碰画布，而是**输出一组定位盒**，由宿主统一渲染。
+
+### 11.1 程序字段
+
+```json
+{
+  "version": 1,
+  "outputMode": "boxes",
+  "constants": [...],
+  "code": [...],
+  "maxLocals": 8
+}
+```
+
+| 取值 | 行为 |
+| --- | --- |
+| `"draw"`（缺省） | 直绘：经 `EffectRenderSink` 直接调用绘制原语（第 10 节语义，逐字节不变）。 |
+| `"boxes"` | 盒模型：绘制指令被翻译成盒数据；宿主在绘制线程按盒统一渲染。 |
+
+- 归一化时未知值回落 `"draw"`（幂等；App 编译与 SystemUI 校验两侧结果一致，
+  不触发 `validate_rewrote_fields`）。
+- 旧程序没有该字段，解码为缺省 `"draw"`，**零迁移**。
+- 直绘入口 `EffectVm.render()` 拒绝执行 `"boxes"` 程序；盒入口 `EffectVm.collectBoxes()`
+  拒绝执行 `"draw"` 程序——模式互斥由 VM 强制，误用视为失败而非静默换道。
+
+### 11.2 指令语义
+
+与直绘完全同一套指令集与预算（100k 步/帧、4096 次绘制/测量/状态调用/帧），差别只在
+绘制/状态指令的**去向**：
+
+| 指令 | 盒模式行为 |
+| --- | --- |
+| `setColor` / `setAlpha` / `setTextSize` / `setTextAlign` / `setGradient` / `clearGradient` / `setShadow` / `clearShadow` / `setStrokeWidth` / `setFill` / `setStroke` | 更新「当前绘制状态」；emit 时快照进盒。 |
+| `save` / `restore` / `translate` / `rotate` / `scale` | 维护矩阵栈（深度上限 16，后乘语义与 Canvas 一致）；每次绘制 emit 时把**完整 6 元素矩阵**烘焙进盒。存完整矩阵而不是平移/旋转/缩放三元组：rotate→scale→rotate 一类序列会产生错切，分解会失真。 |
+| `drawText` / `drawRect` / `drawRoundRect` / `drawCircle` / `drawLine` / `drawOval` / `drawArc` | 生成对应类型盒（几何 + 状态快照 + 烘焙矩阵）。线段强制描边（与直绘一致）。 |
+| `pathMove` / `pathLine` / `pathQuad` / `pathCubic` / `pathClose` / `drawPath` | 累积路径段；`drawPath` 时打包成路径盒并清空。 |
+| `clipRect` | no-op（盒可被自由摆放，逐盒裁剪语义与 MV 排版冲突；仍计入 draw 预算）。 |
+| `measureText` | 由宿主提供文本测量（计入 draw 预算），与对齐无关。 |
+
+### 11.3 盒类型与字段
+
+全部为纯数据（基础类型/字符串/数值），不含 Android `Paint`/`Path`/`Shader` 对象，
+不能指定类、资源、方法、路径、URL——与第 9 节信任边界一致：
+
+| 盒类型 | 字段 |
+| --- | --- |
+| `text` | `text` / `x` / `baseline`（y 为基线，与直绘 `drawText` 同约定） |
+| `rect` / `roundRect` / `oval` / `arc` | 左上角 `x/y` + `width/height`（roundRect 另有 `rx/ry`，arc 另有 `startAngle/sweepAngle`） |
+| `circle` | 圆心 `cx/cy` + `radius` |
+| `line` | `x1/y1/x2/y2` |
+| `path` | 有序段列表：`kind`（0=move 1=line 2=quad 3=cubic 4=close）+ 段参数 |
+
+每盒附带：
+
+- `paint`：`color` / `alpha` / `textSize` / `align` / `style`（0=fill 1=stroke）/
+  `strokeWidth` / `gradient`（六参数线性渐变，可空）/ `shadow`（radius/dx/dy/color，`set=false` 表示无）；
+- `transform`：`m0..m5` 完整仿射矩阵（行主序，列向量点变换
+  `x' = m0·x + m1·y + m2; y' = m3·x + m4·y + m5`）。
+
+坐标仍为程序坐标空间（逻辑画布像素）；变换由宿主渲染器在绘制期对每盒
+`save → concat 矩阵 → 绘制 → restore`，因此**与直绘的 Canvas 矩阵语义逐值一致**——
+同一段程序在两种模式下落点相同。
+
+### 11.4 盒预算与失败语义
+
+| 预算 | 上限 | 超限行为 |
+| --- | --- | --- |
+| 单帧盒数 | 512 | 收集失败 |
+| 单路径盒段数 | 256 | 收集失败 |
+| 单帧路径总段数 | 4096 | 收集失败 |
+| 单文字盒字符数 | 512 | 收集失败 |
+| 矩阵栈深度 | 16 | 超出部分静默忽略（与直绘 save 上限一致） |
+| 步数 / 绘制调用 / 程序字节 | 与直绘相同 | 执行失败 |
+
+失败语义优于直绘：**collectBoxes 返回 null，不提交部分盒**（直绘程序中止时可能留下
+已画的部分输出；盒模式要么整帧成功、要么整帧不画）。宿主对 null 只记节流日志，
+不回退内置路径（与直绘失败语义一致）。
+
+### 11.5 宿主渲染与三端一致
+
+- 实机与 App 预览共用 `EffectBoxRenderer`（App 侧统一渲染器），Studio 编辑器用
+  Canvas2D 版 `drawBoxesOnContext`——三端同一份求值（VM 逐值一致，有 golden 对拍）+
+  同一套盒→绘制映射。
+- 放置与自适应测量：盒模式的垂直外扩取保守常量 2em（`BOX_MODE_VERTICAL_OVERDRAW_EM`，
+  并入 `effectEdges`，与 DSL 估算取大者）；绘制期仍有整帧裁剪兜底。盒可超出歌词块，
+  但不会越出画布表面——与直绘程序同政策。
+- 字体/字距继承宿主主 Paint（盒模式暂无 `setTypeface` / `setLetterSpacing` 指令）。
+
+### 11.6 编辑器支持
+
+Word Effect Studio 的程序编辑器提供「输出模式」选择（draw / boxes）；汇编器编译时把
+所选模式写入 `program.outputMode`，导入/导出/复制/模板均保留。盒模式下编辑器预览走
+收集器 + 盒渲染器，预算超限与实机同样整块不绘制并提示。

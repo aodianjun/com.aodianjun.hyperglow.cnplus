@@ -133,8 +133,34 @@ class EffectVm(private val program: EffectProgram) {
     private var failed = false
 
     fun render(context: EffectFrameContext, sink: EffectRenderSink): Boolean {
+        // 直绘入口只服务 draw 模式;盒模式误调 render() 视为失败(不绘制),
+        // 防止盒程序被当成直绘执行而丢失输出。调用方应按 outputMode 分流到 collectBoxes。
+        if (program.outputMode == EFFECT_OUTPUT_BOXES) return false
         this.context = context
         this.sink = sink
+        execute(context)
+        return !failed
+    }
+
+    /**
+     * 盒模型入口:仅 outputMode=="boxes" 时有效。复用与 [render] 相同的取指/预算循环,
+     * 但 sink 换成 [EffectBoxCollector]——绘制指令被翻译成 [EffectBox] 数据而非调用 Canvas。
+     *
+     * 返回:null 表示执行失败/超预算(不提交部分盒);否则返回盒列表(可能为空,
+     * 表示程序本帧未输出任何盒)。[measurer] 由宿主提供文本测量(计入 draw 预算)。
+     */
+    fun collectBoxes(context: EffectFrameContext, measurer: EffectTextMeasurer): List<EffectBox>? {
+        if (program.outputMode != EFFECT_OUTPUT_BOXES) return null
+        val boxCollector = EffectBoxCollector(measurer, context.colors.unsung, context.textSize)
+        this.context = context
+        this.sink = boxCollector
+        execute(context)
+        return if (failed || boxCollector.isFailed()) null else boxCollector.result()
+    }
+
+    /** 取指主循环:[render] 与 [collectBoxes] 共用;结果经 [failed] 与 sink/collector 体现。 */
+    private fun execute(context: EffectFrameContext) {
+        val sink = this.sink ?: return
         stack.clear()
         locals.fill(null)
         steps = 0
@@ -143,13 +169,14 @@ class EffectVm(private val program: EffectProgram) {
         var pc = 0
         val code = program.code
         while (pc < code.size) {
-            if (failed) return false
-            if (++steps > MAX_EFFECT_STEPS_PER_FRAME) return false
+            if (failed) return
+            if (++steps > MAX_EFFECT_STEPS_PER_FRAME) { failed = true; return }
             val instruction = code[pc++]
             if (instruction.op in EFFECT_DRAW_OPS &&
                 ++drawOps > MAX_EFFECT_DRAW_OPS_PER_FRAME
             ) {
-                return false
+                failed = true
+                return
             }
             when (instruction.op) {
                 "const" -> push(constant(instruction.arg ?: 0))
@@ -425,11 +452,10 @@ class EffectVm(private val program: EffectProgram) {
                 "pathClose" -> sink.pathClose()
                 "drawPath" -> sink.drawPath()
                 "measureText" -> push(sink.measureText(popString()).toDouble())
-                "end" -> return !failed
-                else -> return false
+                "end" -> return
+                else -> failed = true
             }
         }
-        return !failed
     }
 
     private fun globalField(field: String): Any? = when (field) {

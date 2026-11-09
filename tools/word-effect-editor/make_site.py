@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stage the static Word Effect Studio site for GitHub Pages / a static host.
 
-The editor needs exactly four files; tests, README and build artifacts are not
+The editor needs exactly six files; tests, README and build artifacts are not
 part of the runtime. This script copies them into a clean directory that can be
 uploaded to a separate GitHub repository or served by any static host.
 
@@ -17,14 +17,14 @@ import shutil
 import sys
 from pathlib import Path
 
-SITE_FILES = ("index.html", "engine.js", "templates.js", "app.js")
+SITE_FILES = ("index.html", "engine.js", "templates.js", "app.js", "motion.js", "motion-ui.js")
 
 
 def main() -> int:
     here = Path(__file__).resolve().parent
     repo_root = here.parents[1]
     parser = argparse.ArgumentParser(
-        description="Stage the four static files of Word Effect Studio."
+        description="Stage the six static files of Word Effect Studio."
     )
     parser.add_argument(
         "--out",

@@ -25,7 +25,7 @@ python -m http.server 8799 --bind 127.0.0.1
 - **单独仓库**：把 `index.html` / `engine.js` / `templates.js` / `app.js` 放到仓库根目录，
   Settings → Pages → Deploy from a branch → `main` / `(root)`。
 - **现有仓库**：仓库已带 `.github/workflows/pages-word-effect-editor.yml`，Pages Source 选
-  **GitHub Actions** 后推 `main` 即可；工作流只发布四个站点文件。
+  **GitHub Actions** 后推 `main` 即可；工作流只发布六个站点文件。
 - 生成干净目录：`python tools/word-effect-editor/make_site.py --out build/word-effect-studio`。
 
 完整步骤和注意事项见 [DEPLOY_GITHUB_PAGES.md](DEPLOY_GITHUB_PAGES.md)。
@@ -86,9 +86,10 @@ add / mul / sin / clamp / drawText / save / restore / end
 汇编是自动的：输入后 320ms 汇编。汇编器会做与 `EffectProgram.kt` 相同的 op / 字段 /
 下标 / 常量预算校验，并沿所有跳转路径做静态栈深检查。汇编失败时保留上一次成功汇编的程序用于
 预览，并在状态栏列出错误行号；点「反汇编当前程序」可以把已有 JSON 程序还原成可编辑源码。
-模板下拉里有九个可运行的例子：最小示例、最小逐词循环、逐词弹跳、逐词旋转、整块波浪、
+模板下拉里有十个可运行的例子：最小示例、最小逐词循环、逐词弹跳、逐词旋转、整块波浪、
 整块渐变 + 扫光带、粒子、辉光文字（用 `setShadow` / `clearShadow` 画辉光）、逐字点亮
-（按字符细分：已唱字常亮，正在唱的那个字发光；英文逐字母、中文逐字）。
+（按字符细分：已唱字常亮，正在唱的那个字发光；英文逐字母、中文逐字）、邻字联动
+（当前唱字带动同一行左右邻字，按字符距离衰减辉光与缩放）。
 
 「调试当前帧」会以当前播放位置跑一帧并记录逐指令追踪：步数、绘制数、最大栈深、局部槽快照，
 以及前 120 条指令（pc、源行号、op、参数、执行前栈深）。追踪最多记录 500 条，超出的部分会
@@ -134,6 +135,10 @@ add / mul / sin / clamp / drawText / save / restore / end
 - **更细的「正在唱」**：DSL 的「仅正在唱」是整词级；要细到字符，用程序模板「逐字点亮」——
   它把每个词按 `stringLength` / `charAt` / `measureText` 拆成字符，已唱字常亮、未唱字暗，
   只有当前正在唱的那个字发光（英文逐字母、中文逐字）。
+- **左右邻字联动**：程序模板「邻字联动」在逐字基础上按全局字符序号找到当前唱字，同一行内
+  左右 1～2 个邻字按距离衰减辉光和缩放（1 / 0.67 / 0.33，3 个字外归零）；英文跨单词、
+  中文跨字都联动，跨行不联动。全程只用文档里的 `wordCount` / `word` / `wordField` /
+  `stringLength` / `charAt` / `measureText` / `setShadow` / `translate` / `scale` 等原语。
 - **表面辉光 / 辉光色**：预览开关和调色板颜色，与示例卡里的「表面辉光」「辉光」同步。
 - 词时间轴表新增「辉光」列，会亮的词显示一个小圆点；切换 `glow` 或阈值时实时更新。
 
@@ -175,6 +180,36 @@ add / mul / sin / clamp / drawText / save / restore / end
 - 「复制」复制规范化 JSON；`Ctrl+S` 直接导出。
 - 工作区自动存到 `localStorage`，刷新不丢。
 
+## Motion 编排(歌词动态排版)
+
+主编辑器内置工作区(顶栏 **Motion 编排** 按钮切换,与编辑器同页,不再单独开页),
+参考 [JIZURA](https://github.com/852wa/JIZURA)(MIT)的创作流,
+把「整首歌的动态排版」一次性编排成**一个 HyperGlow 盒模式效果**。
+
+流程:**写歌词(JIZURA 式轻量语法)→ 对时间(BPM 铺底 / 点击同步 / LRC 时间戳)→
+选主题摇一摇(seed 可复现)→ 导出效果包**。
+
+- **歌词语法**(与 JIZURA 对齐的子集):`/` 镜头切分、`*强调*`、行末 `!` 闪光、
+  `歌词|注音`、`[mm:ss.xx]` LRC 时间戳、`[间奏 8]`、`#` 注释、空行停顿。
+- **时间**:优先级为点击同步(Space 打点 / 退格撤销)> LRC 时间戳 > BPM 铺底;可选拍点
+  吸附;行列表可直接改行时间与跳转。
+- **编排**:四个参数化手法(绕词中心旋转的正弦波浪 / 弹跳 / 级联滑入 / 强调脉冲)按
+  「(行号+词序) mod 轮换周期」分配;**8 个调优预设**(抒情慢歌 / AMLL 大字卡点 / 逐词瀑布 /
+  打字机 / 和风摇曳 / 热血全开 / 星空闪烁 / 极简纯净)一键套用,同预设同观感;主题与 seed
+  决定随机编排的全部参数,相同 seed 逐字节复现;滑杆可覆盖任一参数(覆盖后预设回落「自定义」)。
+- **预览即实机**:预览直接跑与实机同一份 `EffectVm` 盒收集器,导出的程序与预览所见一致。
+- **通用显示**:导出的程序不绑定具体歌词——任何歌都按当前预设与「编排顺序」显示
+  (轮换 / 固定顺序按行长 / 每歌随机按内容派发手法);歌词只用于预览与 AI 切词。
+- **AI 切词**:歌词卡内置 AI 面板(OpenAI 兼容接口 + 模型 + 密钥,存在本浏览器),
+  一键把原始歌词按语义切行、标镜头/强调/闪光,回填时间轴;可手动微调。
+- **直接入包**:编排好点「加入当前效果包」,效果进左侧列表末尾,可继续微调后随整包导出;
+  也可以导出效果包 JSON / LRC / 可回灌的工程 JSON。
+- **预算护栏**:生成器保证落在 512 指令 / 12 KiB / 4096 绘制每帧内,状态栏实时显示用量。
+
+与 JIZURA 的差异(边界):不导出 MP4 / PNG 序列(HyperGlow 的目标是锁屏/AOD 实时渲染);
+不做音频节拍检测(v1 用 BPM + 吸附);特效库收敛到四个手法公式而不是数百种部件;字体与
+注音由 HyperGlow 宿主绘制。注音语法可解析,但只作为行备注记录。
+
 ## 文件
 
 | 文件 | 作用 |
@@ -182,9 +217,11 @@ add / mul / sin / clamp / drawText / save / restore / end
 | `index.html` | 页面结构与样式 |
 | `app.js` | UI、预览渲染、曲线编辑、导入导出 |
 | `engine.js` | 规范化、缓动、DSL 求值、汇编器、字节码 VM、预览分词（浏览器 + Node 共用） |
-| `templates.js` | 十个 DSL 模板 + 八个程序模板 |
-| `test_engine.js` | Node 回归测试（58 项） |
-| `make_site.py` | 把四个站点文件打包到 `build/word-effect-studio` |
+| `templates.js` | 十个 DSL 模板 + 十个程序模板 |
+| `motion.js` / `motion-ui.js` | Motion 编排核心 + 单页工作区 UI(顶栏「Motion 编排」切换) |
+| `test_engine.js` | Node 回归测试(编辑器 68 项) |
+| `test_motion.js` | Motion 编排核心回归测试(21 项) |
+| `make_site.py` | 把站点文件打包到 `build/word-effect-studio`(含 Motion) |
 | `DEPLOY_GITHUB_PAGES.md` | GitHub Pages 部署步骤与注意事项 |
 
 ## 回归测试
@@ -198,7 +235,9 @@ node tools/word-effect-editor/test_engine.js
 - `samples/word-effect-pack.json` 与 `samples/word-effect-program-pack.json` 全量规范化与幂等；
 - DSL 求值（bounce 在 p=0.35 的文档值、stagger 归一、longOnly、辉光窗口只点亮正在唱的词）；
 - 五个官方程序逐帧执行，以及「反汇编 → 汇编」后的**逐绘制调用比对**；
-- 九个内置程序模板的汇编、校验、执行与往返；VM 的逐指令 trace、栈深、局部槽快照与截断标记；
+- 十个内置程序模板的汇编、校验、执行与往返；邻字联动的同行距离衰减（当前字/邻字/两字外的
+  alpha、scale、辉光半径）；最小示例的行坐标与透明度下限、整块渐变的渐变端点与扫光带对齐；
+  VM 的逐指令 trace、栈深、局部槽快照与截断标记；
 - 文档里的边界：单帧展开、端点拉伸、同 at 覆盖、未知缓动、未知属性、重复轨道、id `none`、
   颜色规范化、名称回落、轨道/关键帧/颜色/效果数量上限、程序版本/不安全字符串/12 KiB 预算；
 - 汇编器诊断：缺参数、未知 op、栈下溢、缺标签、重复标签、局部槽越界、未知字段、死循环预算；

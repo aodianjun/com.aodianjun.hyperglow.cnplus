@@ -304,9 +304,13 @@
       effect._maxLocals = Number.isInteger(effect._maxLocals)
         ? effect._maxLocals
         : (Number.isInteger(effect.program.maxLocals) ? effect.program.maxLocals : 16);
+      effect._outputMode = effect.program.outputMode === E.EFFECT_OUTPUT_BOXES
+        ? E.EFFECT_OUTPUT_BOXES
+        : E.EFFECT_OUTPUT_DRAW;
     } else {
       effect._asm = typeof effect._asm === 'string' ? effect._asm : '';
       effect._maxLocals = 16;
+      effect._outputMode = E.EFFECT_OUTPUT_DRAW;
     }
     effect._debug = null;
     return effect;
@@ -740,6 +744,11 @@
       '<div class="inline-row" style="margin-bottom:8px;flex-wrap:wrap">' +
         '<label class="hint">maxLocals</label>' +
         '<input class="input mono" style="width:64px" type="number" min="0" max="24" step="1" id="asmLocals" value="' + (effect._maxLocals == null ? 16 : effect._maxLocals) + '" aria-label="maxLocals">' +
+        '<label class="hint">输出模式</label>' +
+        '<select class="input" style="width:150px" id="asmOutputMode" aria-label="输出模式">' +
+          '<option value="draw"' + (effect._outputMode !== 'boxes' ? ' selected' : '') + '>draw · 直绘</option>' +
+          '<option value="boxes"' + (effect._outputMode === 'boxes' ? ' selected' : '') + '>boxes · 盒模型</option>' +
+        '</select>' +
         '<button class="btn small" data-act="debug-frame">调试当前帧</button>' +
         '<button class="btn small" data-act="disasm">反汇编当前程序</button>' +
         '<button class="btn small danger" data-act="remove-program">移除程序</button>' +
@@ -1809,6 +1818,25 @@
     const palette = paletteArgb();
     const frameContext = buildProgramContext(layout, positionMs, cssWidth, cssHeight, palette, effect);
     offContext.save();
+    // 盒模型模式:收集盒数据后走统一盒渲染器(与实机 EffectBoxRenderer 同语义);
+    // 收集失败(预算/非法)整块不绘制,与实机 collectBoxes 的 null 语义一致。
+    if (effect.program && effect.program.outputMode === E.EFFECT_OUTPUT_BOXES) {
+      const measureText = (text, sizePx) => {
+        offContext.font = fontString(sizePx);
+        return offContext.measureText(text).width;
+      };
+      const boxSink = E.createBoxCollectorSink(measureText, palette.unsung, layout.textSize);
+      const result = E.runProgram(effect.program, frameContext, boxSink);
+      offContext.restore();
+      if (result.ok && !boxSink.failed) {
+        drawBoxesOnContext(offContext, boxSink.boxes, fontStack());
+        context.drawImage(offscreen, 0, 0, cssWidth, cssHeight);
+      } else {
+        state.programError = '盒模式程序执行失败：' + (result.error || '预算超限或非法绘制') +
+          '（实机会整块不绘制）';
+      }
+      return;
+    }
     const sink = new CanvasSink(offContext, palette, layout.textSize, fontStack());
     const result = E.runProgram(effect.program, frameContext, sink);
     sink.restoreAll();
@@ -1817,6 +1845,145 @@
       context.drawImage(offscreen, 0, 0, cssWidth, cssHeight);
     } else {
       state.programError = '程序执行失败：' + (result.error || '未知错误') + '（实机会整行不绘制）';
+    }
+  }
+
+  /**
+   * 盒渲染器(Canvas2D 版,与实机 EffectBoxRenderer 语义对齐):
+   * 每盒 save→应用烘焙矩阵→按盒样式绘制→restore。样式:color/alpha/对齐/渐变/阴影/
+   * fill-stroke/描边宽;线段强制描边。ctx 需已处于 CSS 像素坐标(dpr 变换已应用)。
+   */
+  function drawBoxesOnContext(ctx, boxes, fontFamily) {
+    for (const box of boxes) {
+      const t = box.transform;
+      const transformed = !(t.m0 === 1 && t.m1 === 0 && t.m2 === 0 &&
+        t.m3 === 0 && t.m4 === 1 && t.m5 === 0);
+      if (transformed) {
+        ctx.save();
+        // Canvas transform(a,b,c,d,e,f):x' = a·x + c·y + e; y' = b·x + d·y + f。
+        ctx.transform(t.m0, t.m3, t.m1, t.m4, t.m2, t.m5);
+      }
+      const paint = box.paint;
+      const paintColor = paint.gradient
+        ? gradientFor(ctx, paint.gradient)
+        : cssRgb(paint.color);
+      ctx.globalAlpha = E.clamp(paint.alpha, 0, 1);
+      if (paint.shadow && paint.shadow.set) {
+        ctx.shadowBlur = paint.shadow.radius;
+        ctx.shadowOffsetX = paint.shadow.dx;
+        ctx.shadowOffsetY = paint.shadow.dy;
+        ctx.shadowColor = cssColor(paint.shadow.color, 1);
+      } else {
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.shadowColor = 'transparent';
+      }
+      const stroke = paint.style === 1;
+      switch (box.type) {
+        case 'text': {
+          ctx.font = fontString(E.clamp(paint.textSize, 1, 512));
+          ctx.textAlign = paint.align === 1 ? 'center' : paint.align === 2 ? 'right' : 'left';
+          ctx.textBaseline = 'alphabetic';
+          ctx.fillStyle = paintColor;
+          ctx.fillText(box.text, box.x, box.baseline);
+          break;
+        }
+        case 'rect': {
+          ctx.beginPath();
+          ctx.rect(box.x, box.y, Math.max(0, box.width), Math.max(0, box.height));
+          applyBoxFillStroke(ctx, paintColor, stroke, paint.strokeWidth);
+          break;
+        }
+        case 'roundRect': {
+          ctx.beginPath();
+          if (typeof ctx.roundRect === 'function') {
+            ctx.roundRect(box.x, box.y, Math.max(0, box.width), Math.max(0, box.height),
+              [Math.max(0, box.rx), Math.max(0, box.ry)]);
+          } else {
+            ctx.rect(box.x, box.y, Math.max(0, box.width), Math.max(0, box.height));
+          }
+          applyBoxFillStroke(ctx, paintColor, stroke, paint.strokeWidth);
+          break;
+        }
+        case 'circle': {
+          ctx.beginPath();
+          ctx.arc(box.cx, box.cy, Math.max(0, box.radius), 0, Math.PI * 2);
+          applyBoxFillStroke(ctx, paintColor, stroke, paint.strokeWidth);
+          break;
+        }
+        case 'line': {
+          ctx.beginPath();
+          ctx.moveTo(box.x1, box.y1);
+          ctx.lineTo(box.x2, box.y2);
+          applyBoxFillStroke(ctx, paintColor, true, paint.strokeWidth);
+          ctx.stroke();
+          break;
+        }
+        case 'oval': {
+          ctx.beginPath();
+          ctx.ellipse(
+            box.x + Math.max(0, box.width) / 2,
+            box.y + Math.max(0, box.height) / 2,
+            Math.max(0, box.width) / 2,
+            Math.max(0, box.height) / 2,
+            0, 0, Math.PI * 2
+          );
+          applyBoxFillStroke(ctx, paintColor, stroke, paint.strokeWidth);
+          break;
+        }
+        case 'arc': {
+          ctx.beginPath();
+          const rx = Math.max(0, box.width) / 2;
+          const ry = Math.max(0, box.height) / 2;
+          if (rx > 0 && ry > 0) {
+            ctx.ellipse(
+              box.x + rx, box.y + ry, rx, ry, 0,
+              (box.start * Math.PI) / 180,
+              ((box.start + box.sweep) * Math.PI) / 180
+            );
+          }
+          applyBoxFillStroke(ctx, paintColor, stroke, paint.strokeWidth);
+          break;
+        }
+        case 'path': {
+          ctx.beginPath();
+          for (const segment of box.segments) {
+            switch (segment.kind) {
+              case 0: ctx.moveTo(segment.x0, segment.y0); break;
+              case 1: ctx.lineTo(segment.x0, segment.y0); break;
+              case 2: ctx.quadraticCurveTo(segment.x0, segment.y0, segment.x1, segment.y1); break;
+              case 3: ctx.bezierCurveTo(segment.x0, segment.y0, segment.x1, segment.y1, segment.x2, segment.y2); break;
+              case 4: ctx.closePath(); break;
+            }
+          }
+          applyBoxFillStroke(ctx, paintColor, stroke, paint.strokeWidth);
+          break;
+        }
+      }
+      if (transformed) ctx.restore();
+    }
+  }
+
+  function applyBoxFillStroke(ctx, paintColor, stroke, strokeWidth) {
+    ctx.lineWidth = Math.max(1, E.clamp(strokeWidth, 0, 128));
+    if (stroke) {
+      ctx.strokeStyle = paintColor;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = paintColor;
+      ctx.fill();
+    }
+  }
+
+  function gradientFor(ctx, spec) {
+    try {
+      const gradient = ctx.createLinearGradient(spec.x0, spec.y0, spec.x1, spec.y1);
+      gradient.addColorStop(0, cssColor(spec.color0, 1));
+      gradient.addColorStop(1, cssColor(spec.color1, 1));
+      return gradient;
+    } catch (error) {
+      return cssRgb(spec.color0);
     }
   }
 
@@ -2531,6 +2698,14 @@
       scheduleSave();
       return;
     }
+    if (target.id === 'asmOutputMode') {
+      effect._outputMode = target.value === E.EFFECT_OUTPUT_BOXES
+        ? E.EFFECT_OUTPUT_BOXES
+        : E.EFFECT_OUTPUT_DRAW;
+      assembleProgram(effect);
+      scheduleSave();
+      return;
+    }
     if (target.id === 'glowSurface') {
       state.preview.glowEnabled = target.checked;
       $('#glowEnabled').checked = target.checked;
@@ -2558,6 +2733,7 @@
       markDirty();
       if (key === 'id' || key === 'name') {
         updateInspectorTitles(effect);
+        updatePreviewHeader(effect);
         renderSidebar();
       }
       if (key === 'unsungDim') {
@@ -3034,6 +3210,13 @@
     effect._debug = null;
     if (result.ok) {
       effect.program = result.program;
+      // 输出模式:boxes 显式落盘,draw 省略字段(与 normalizeProgram 的省略规则一致,
+      // 旧导出逐字节不变)。
+      if (effect._outputMode === E.EFFECT_OUTPUT_BOXES) {
+        effect.program.outputMode = E.EFFECT_OUTPUT_BOXES;
+      } else {
+        delete effect.program.outputMode;
+      }
       effect._asmLineMap = result.stats.lineMap;
     } else {
       effect._asmLineMap = null;
@@ -3173,6 +3356,9 @@
     copy.name = ((source.name || source.id || '效果') + ' 副本').slice(0, 48);
     if (typeof source._asm === 'string' && source._asm) copy._asm = source._asm;
     copy._maxLocals = source._maxLocals == null ? 16 : source._maxLocals;
+    copy._outputMode = source._outputMode === E.EFFECT_OUTPUT_BOXES
+      ? E.EFFECT_OUTPUT_BOXES
+      : E.EFFECT_OUTPUT_DRAW;
     copy._asmStats = source._asmStats;
     copy._asmErrors = source._asmErrors || [];
     copy._asmWarnings = source._asmWarnings || [];
@@ -3809,4 +3995,28 @@
     state.programError = '首帧渲染异常：' + (error && error.message ? error.message : String(error));
   }
   requestAnimationFrame(tick);
+
+  /**
+   * Motion 编排器(单页工作区,见 motion-ui.js)的公开桥:把生成的效果加入当前包。
+   * 返回新效果 id;失败返回 null。走与「+ 程序」模板完全相同的落库/刷新路径。
+   */
+  window.WEStudio = {
+    addEffect(effect) {
+      try {
+        pushUndo();
+        const hydrated = hydrateEffect(effect);
+        hydrated.id = uniqueId(hydrated.id || 'motion');
+        state.pack.effects.push(hydrated);
+        state.selected = state.pack.effects.length - 1;
+        state.preview.positionMs = 0;
+        markDirty();
+        renderAll();
+        resetInspectorScroll();
+        scheduleSave();
+        return hydrated.id;
+      } catch (error) {
+        return null;
+      }
+    }
+  };
 })();

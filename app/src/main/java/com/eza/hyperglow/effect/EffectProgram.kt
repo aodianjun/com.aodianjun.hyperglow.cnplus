@@ -33,8 +33,19 @@ data class EffectProgram(
     /** 常量池；[EffectConstant.type] 为 null 时按 number 解释。 */
     val constants: List<EffectConstant> = emptyList(),
     val code: List<EffectInstruction> = emptyList(),
-    val maxLocals: Int = 16
+    val maxLocals: Int = 16,
+    /**
+     * 输出模式:[EFFECT_OUTPUT_DRAW](默认,旧行为,经 [EffectRenderSink] 直绘)或
+     * [EFFECT_OUTPUT_BOXES](程序输出定位盒,由宿主统一渲染)。未知值在归一化时回落 draw,
+     * 保证旧配置/旧包零迁移、App 编译与 SystemUI 校验两侧结果一致。
+     */
+    val outputMode: String = EFFECT_OUTPUT_DRAW
 )
+
+/** 直绘模式(默认):程序经 [EffectRenderSink] 直接调用受控绘制原语。 */
+const val EFFECT_OUTPUT_DRAW = "draw"
+/** 盒模型模式:程序输出 [EffectBox] 列表,由宿主统一渲染(见 [EffectVm.collectBoxes])。 */
+const val EFFECT_OUTPUT_BOXES = "boxes"
 
 @Serializable
 data class EffectConstant(
@@ -187,5 +198,12 @@ fun normalizeEffectProgram(program: EffectProgram?): EffectProgram? {
                 if (instruction.text !in EFFECT_WORD_FIELDS) return null
         }
     }
-    return program
+    // 输出模式归一化:未知值回落 draw(幂等;旧程序无此字段时解码为默认值 draw,原样保留)。
+    // 仅当确实需要改写时才 copy,避免对合法输入产生字段差异导致 validate_rewrote_fields。
+    val normalizedMode = when (program.outputMode) {
+        EFFECT_OUTPUT_BOXES -> EFFECT_OUTPUT_BOXES
+        else -> EFFECT_OUTPUT_DRAW
+    }
+    return if (normalizedMode == program.outputMode) program
+    else program.copy(outputMode = normalizedMode)
 }
