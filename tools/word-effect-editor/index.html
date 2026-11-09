@@ -896,9 +896,16 @@
 #motionWorkspace header .spacer { flex: 1; }
 #motionWorkspace a { color: var(--accent); text-decoration: none; }
 /* 布局 */
-#motionWorkspace .layout { display: flex; gap: 14px; padding: 14px; align-items: flex-start; }
-#motionWorkspace .col-left { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
-#motionWorkspace .col-right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+/* 三栏:左歌词 / 中预览 / 右编排+导出(窄屏逐级退化为两栏、单栏) */
+#motionWorkspace .layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(420px, 1fr) minmax(340px, 400px);
+  gap: 14px; padding: 14px; align-items: start;
+  max-width: 2400px; margin: 0 auto;
+}
+#motionWorkspace .col-left,
+#motionWorkspace .col-right,
+#motionWorkspace .col-controls { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 /* 卡片:4px 硬边 + 金色小标题方块 */
 #motionWorkspace .card {
   background: var(--panel); border: 1px solid var(--line);
@@ -966,7 +973,8 @@
 }
 /* 预览画布 */
 #motionWorkspace canvas#m-preview {
-  width: 100%; aspect-ratio: 16 / 9; display: block;
+  width: 100%; max-width: 1080px; aspect-ratio: 16 / 9; display: block;
+  margin: 0 auto;
   background: #000; border: 1px solid var(--line); border-radius: 4px;
 }
 #motionWorkspace .transport { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
@@ -1023,15 +1031,15 @@
 body.motion-mode #motionWorkspace { display: block; }
 body.motion-mode #app { display: none; }
 /* ---- 响应式:不同窗口尺寸适配 ---- */
-/* 中屏:左栏收窄,避免挤压预览 */
-@media (max-width: 1200px) {
-  #motionWorkspace .col-left { width: clamp(280px, 32vw, 400px); }
-  #motionWorkspace .layout { gap: 10px; padding: 10px; }
+/* 中屏(≤1399):两栏,编排+导出回落到预览下方 */
+@media (max-width: 1399px) {
+  #motionWorkspace .layout { grid-template-columns: minmax(280px, 400px) minmax(0, 1fr); gap: 10px; padding: 10px; }
+  #motionWorkspace .col-controls { grid-column: 2; }
 }
-/* 窄屏:单栏堆叠 + 顶栏换行 */
+/* 窄屏(≤980):单栏堆叠 + 顶栏换行 */
 @media (max-width: 980px) {
-  #motionWorkspace .layout { flex-direction: column; padding: 10px; }
-  #motionWorkspace .col-left, #motionWorkspace .col-right { width: 100%; }
+  #motionWorkspace .layout { grid-template-columns: 1fr; padding: 10px; }
+  #motionWorkspace .col-controls { grid-column: auto; }
   #motionWorkspace header { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
   #motionWorkspace header .sub { display: none; }
   #motionWorkspace header .spacer { flex: 1 1 0; }
@@ -1366,7 +1374,9 @@ Every word a little light</textarea>
         <span class="hint" id="m-frameStatus"></span>
       </div>
     </div>
+  </div>
 
+  <div class="col-controls">
     <div class="card">
       <h2>编排(每次随机整体更换;R 键重摇)</h2>
       <div class="row">
