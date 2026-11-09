@@ -1022,10 +1022,43 @@
 #motionWorkspace { display: none; }
 body.motion-mode #motionWorkspace { display: block; }
 body.motion-mode #app { display: none; }
-/* 窄屏:纵向堆叠 */
+/* ---- 响应式:不同窗口尺寸适配 ---- */
+/* 中屏:左栏收窄,避免挤压预览 */
+@media (max-width: 1200px) {
+  #motionWorkspace .col-left { width: clamp(280px, 32vw, 400px); }
+  #motionWorkspace .layout { gap: 10px; padding: 10px; }
+}
+/* 窄屏:单栏堆叠 + 顶栏换行 */
 @media (max-width: 980px) {
-  #motionWorkspace .layout { flex-direction: column; }
+  #motionWorkspace .layout { flex-direction: column; padding: 10px; }
   #motionWorkspace .col-left, #motionWorkspace .col-right { width: 100%; }
+  #motionWorkspace header { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  #motionWorkspace header .sub { display: none; }
+  #motionWorkspace header .spacer { flex: 1 1 0; }
+}
+/* 手机竖屏:控件收紧、按钮铺满、字号降档 */
+@media (max-width: 640px) {
+  #motionWorkspace { font-size: 12px; }
+  #motionWorkspace header h1 { font-size: 16px; }
+  #motionWorkspace .card { padding: 10px; }
+  #motionWorkspace .row { gap: 6px; }
+  #motionWorkspace .row label { font-size: 11px; }
+  #motionWorkspace .row select, #motionWorkspace .row input[type="number"] { max-width: 100%; }
+  #motionWorkspace input[type="range"] { width: 92px; }
+  #motionWorkspace .tapbar { flex-wrap: wrap; }
+  #motionWorkspace #tapButton { width: 100%; }
+  #motionWorkspace .transport { gap: 6px; }
+  #motionWorkspace .timecode { min-width: 0; width: 100%; }
+  #motionWorkspace .linelist { max-height: 200px; }
+  #motionWorkspace #m-aiEndpoint { flex: 1 1 100%; }
+  #motionWorkspace #m-aiModel, #motionWorkspace #m-aiKey { flex: 1 1 calc(50% - 4px); }
+  #motionWorkspace #m-addPack { margin: 2px 0; }
+}
+/* 超窄:滑块独占一行 */
+@media (max-width: 420px) {
+  #motionWorkspace .row { gap: 4px 8px; }
+  #motionWorkspace input[type="range"] { width: 100%; }
+  #motionWorkspace .row label { width: 100%; }
 }
 
 
@@ -1421,8 +1454,8 @@ Every word a little light</textarea>
 
 </section>
 <script src="engine.js"></script>
-<script src="motion.js?v=4"></script>
-<script src="motion-ui.js?v=4"></script>
+<script src="motion.js?v=5"></script>
+<script src="motion-ui.js?v=5"></script>
 <script src="templates.js"></script>
 <script src="app.js"></script>
 </body>

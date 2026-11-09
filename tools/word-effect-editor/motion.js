@@ -181,7 +181,7 @@ function buildTimeline(parsed, params) {
     if (line.interlude != null) {
       const start = cursor;
       const end = start + line.interlude;
-      rows.push({ ...line, index: rows.length, start, end, manual: false, interlude: true });
+      rows.push({ ...line, index: rows.length, start, end, manual: false, interlude: line.interlude });
       cursor = end;
       continue;
     }
