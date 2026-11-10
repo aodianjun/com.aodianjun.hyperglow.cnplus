@@ -21,6 +21,10 @@ const state = {
   choreoMode: 'cycle',
   layoutMode: 'auto',
   graphicMode: 'auto',
+  focusMode: 'none',
+  annotationMode: 'none',
+  particleMode: 'none',
+  lineartMode: 'none',
   theme: 'lyric',
   overrides: {},
   palette: { sung: 0xFFFFFFFF, unsung: 0x88FFFFFF, glow: 0xFF66AAFF, accent: 0xFFFFAA33 },
@@ -86,6 +90,10 @@ function readControls() {
     choreoMode: $('choreo').value,
     layoutMode: $('layout').value,
     graphicMode: $('graphic').value,
+    focusMode: $('focus').value,
+    annotationMode: $('annotate').value,
+    particleMode: $('particle').value,
+    lineartMode: $('lineart').value,
     flash: $('flash').checked
   };
   const sung = E.parseColor($('sungColor').value) || 0xFFFFFFFF;
@@ -408,9 +416,17 @@ function syncControlsFromStyle() {
   set('pulse', style.pulse);
   set('unsungDim', style.unsungDim);
   set('cycle', style.cycle);
-  $('choreo').value = state.choreoMode;
-  $('layout').value = state.layoutMode;
-  $('graphic').value = state.graphicMode;
+  // 预设可能改写排版/图形/顺序:先回填 state,再让 readControls 读到同一份值。
+  state.choreoMode = style.choreoMode;
+  state.layoutMode = style.layoutMode;
+  state.graphicMode = style.graphicMode;
+  $('choreo').value = style.choreoMode;
+  $('layout').value = style.layoutMode;
+  $('graphic').value = style.graphicMode;
+  $('focus').value = style.focusMode;
+  $('annotate').value = style.annotationMode;
+  $('particle').value = style.particleMode;
+  $('lineart').value = style.lineartMode;
   $('flash').checked = style.flash;
   $('preset').value = state.presetKey;
 }
@@ -422,11 +438,17 @@ function applyPreset(key) {
   state.presetKey = key;
   state.theme = preset.theme;
   state.overrides = Object.assign({}, preset.params);
+  // 预设自带调色(如金色星火的暖色辉光)一并回填到颜色输入框。
+  if (preset.palette) {
+    if (preset.palette.sung) $('sungColor').value = preset.palette.sung;
+    if (preset.palette.glow) $('glowColor').value = preset.palette.glow;
+  }
   syncControlsFromStyle();
   refresh();
 }
 
-for (const id of ['bpm', 'startSec', 'lineDur', 'snap', 'choreo', 'layout', 'graphic']) {
+for (const id of ['bpm', 'startSec', 'lineDur', 'snap', 'choreo', 'layout', 'graphic',
+  'focus', 'annotate', 'particle', 'lineart']) {
   $(id).addEventListener('change', refresh);
 }
 for (const id of ['theme', 'cycle', 'seed', 'waveAmp', 'waveK', 'rotAmp', 'bounceH',

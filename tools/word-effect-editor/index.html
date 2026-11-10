@@ -1395,6 +1395,8 @@ Every word a little light</textarea>
           <option value="v">竖排</option>
           <option value="stagger">错落</option>
           <option value="scatter">散点</option>
+          <option value="ink">线条留白(短句竖排/长句横排)</option>
+          <option value="poster">画报侧栏(左浮动+句内放大)</option>
         </select>
         <label>图形</label>
         <select id="m-graphic" style="width:110px" title="每行装饰图形;自动=按行内容轮换">
@@ -1403,6 +1405,8 @@ Every word a little light</textarea>
           <option value="line">下划线</option>
           <option value="frame">框线</option>
           <option value="stamp">印章圈</option>
+          <option value="glow">行底辉光</option>
+          <option value="panel">画报侧栏</option>
         </select>
         <label>主题</label>
         <select id="m-theme">
@@ -1435,6 +1439,30 @@ Every word a little light</textarea>
         <label class="sync-mode"><input type="checkbox" id="m-flash"> 闪光</label>
       </div>
       <div class="row">
+        <label>对焦</label>
+        <select id="m-focus" style="width:120px" title="失焦呼吸:词周围叠慢速重影,焦点沿线滑动">
+          <option value="none">关</option>
+          <option value="soft">失焦呼吸</option>
+        </select>
+        <label>圈注</label>
+        <select id="m-annotate" style="width:120px" title="当前演唱词的手绘圈,随词进度描出并淡出">
+          <option value="none">关</option>
+          <option value="circle">手绘圈</option>
+        </select>
+        <label>粒子</label>
+        <select id="m-particle" style="width:120px" title="金色余烬(暖色圆点+行底辉光)/ 星芒爆闪(四角星贴图)">
+          <option value="none">关</option>
+          <option value="ember">金色余火</option>
+          <option value="sparkle">星芒爆闪</option>
+        </select>
+        <label>线条</label>
+        <select id="m-lineart" style="width:120px" title="词周围的手绘弧线与短横线(简易线条动画)">
+          <option value="none">关</option>
+          <option value="ink">手绘线条</option>
+        </select>
+        <span class="hint">预设「对焦呼吸 / 手绘圈注 / 金色星火 / 星芒爆闪」已调好;新增效果层自动改用单一手法以守住 512 条指令预算。</span>
+      </div>
+      <div class="row">
         <label>已唱色</label><input type="color" id="m-sungColor" value="#ffffff">
         <label>辉光</label><input type="color" id="m-glowColor" value="#66aaff">
         <span class="hint">未唱色 = 已唱色 × 未唱暗度;实机上颜色还可以在「颜色」设置里覆盖。</span>
@@ -1463,10 +1491,10 @@ Every word a little light</textarea>
 </div>
 
 </section>
-<script src="engine.js?v=6"></script>
-<script src="motion.js?v=6"></script>
-<script src="motion-ui.js?v=6"></script>
-<script src="templates.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="engine.js?v=11"></script>
+<script src="motion.js?v=11"></script>
+<script src="motion-ui.js?v=11"></script>
+<script src="templates.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

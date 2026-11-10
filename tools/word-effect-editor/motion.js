@@ -331,6 +331,67 @@ const PRESETS = {
     name: '极简纯净',
     theme: 'typepv',
     params: { waveAmp: 0.02, waveK: 1.0, rotAmp: 0, bounceH: 0.04, slideD: 0.15, slideStagger: 0.02, slideAlt: false, pulse: 0.05, cycle: 1, flash: false, unsungDim: 0.30 }
+  },
+  focus: {
+    name: '对焦呼吸',
+    theme: 'lyric',
+    params: {
+      waveAmp: 0, waveK: 1.0, rotAmp: 0, bounceH: 0, slideD: 0,
+      slideStagger: 0, slideAlt: false, pulse: 0.02, cycle: 1, flash: false,
+      unsungDim: 0.55, choreoMode: 'fixed', layoutMode: 'h', graphicMode: 'none',
+      focusMode: 'soft', singleMove: 0
+    }
+  },
+  annotate: {
+    name: '手绘圈注',
+    theme: 'typepv',
+    params: {
+      waveAmp: 0.02, waveK: 1.0, rotAmp: 0, bounceH: 0.02, slideD: 0,
+      slideStagger: 0, slideAlt: false, pulse: 0.04, cycle: 1, flash: false,
+      unsungDim: 0.42, choreoMode: 'fixed', layoutMode: 'h', graphicMode: 'none',
+      annotationMode: 'circle', singleMove: 1
+    }
+  },
+  embers: {
+    name: '金色星火',
+    theme: 'lyric',
+    palette: { glow: '#ffc45e' },
+    params: {
+      waveAmp: 0.06, waveK: 1.8, rotAmp: 2, bounceH: 0.10, slideD: 0,
+      slideStagger: 0, slideAlt: false, pulse: 0.10, cycle: 1, flash: true,
+      unsungDim: 0.38, choreoMode: 'fixed', layoutMode: 'h', graphicMode: 'glow',
+      particleMode: 'ember', singleMove: 2
+    }
+  },
+  starlight: {
+    name: '星芒爆闪',
+    theme: 'typepv',
+    params: {
+      waveAmp: 0.05, waveK: 1.5, rotAmp: 0, bounceH: 0.12, slideD: 0,
+      slideStagger: 0, slideAlt: false, pulse: 0.12, cycle: 1, flash: true,
+      unsungDim: 0.30, choreoMode: 'fixed', layoutMode: 'h', graphicMode: 'none',
+      particleMode: 'sparkle', singleMove: 3
+    }
+  },
+  inkline: {
+    name: '线条留白',
+    theme: 'lyric',
+    params: {
+      waveAmp: 0.02, waveK: 1.0, rotAmp: 0, bounceH: 0.03, slideD: 0,
+      slideStagger: 0, slideAlt: false, pulse: 0.03, cycle: 1, flash: false,
+      unsungDim: 0.52, choreoMode: 'fixed', layoutMode: 'ink', graphicMode: 'none',
+      focusMode: 'soft', lineartMode: 'ink', singleMove: 0
+    }
+  },
+  poster: {
+    name: '画报侧栏',
+    theme: 'typepv',
+    params: {
+      waveAmp: 0.02, waveK: 1.2, rotAmp: 0, bounceH: 0.05, slideD: 0,
+      slideStagger: 0, slideAlt: false, pulse: 0.04, cycle: 1, flash: false,
+      unsungDim: 0.44, choreoMode: 'fixed', layoutMode: 'poster', graphicMode: 'panel',
+      singleMove: 1
+    }
   }
 };
 
@@ -349,8 +410,10 @@ const CHOREO_MODES = { cycle: 1, fixed: 1, songRandom: 1 };
  *   v        竖排(整行收成一列,居中)
  *   stagger  错落(大小间隔 + 基线上下错位)
  *   scatter  散点(确定性漂移 + 大小抖动)
+ *   ink      线条留白:短句(≤7 词)靠右竖排,长句左侧横排(视频「简易线条动画」)
+ *   poster   画报侧栏:左侧浮动横排,句子内按内容放大个别词(视频「地尽头」)
  */
-const LAYOUT_MODES = { auto: 1, h: 1, v: 1, stagger: 1, scatter: 1 };
+const LAYOUT_MODES = { auto: 1, h: 1, v: 1, stagger: 1, scatter: 1, ink: 1, poster: 1 };
 
 /**
  * 图形装饰模式(每行画在文字之前的 accent 图形):
@@ -359,8 +422,10 @@ const LAYOUT_MODES = { auto: 1, h: 1, v: 1, stagger: 1, scatter: 1 };
  *   line    下划线
  *   frame   框线
  *   stamp   行尾印章圈
+ *   glow    行底辉光条(auto 不会选中,仅显式选择,配合粒子预设)
+ *   panel   画报侧栏:右侧竖线/短粗线/三点 + 歌词下点状虚线(视频「地尽头」)
  */
-const GRAPHIC_MODES = { auto: 1, none: 1, line: 1, frame: 1, stamp: 1 };
+const GRAPHIC_MODES = { auto: 1, none: 1, line: 1, frame: 1, stamp: 1, glow: 1, panel: 1 };
 
 const round4 = (value) => Math.round(value * 10000) / 10000;
 const pickRange = (rng, range) => range[0] + (range[1] - range[0]) * rng();
@@ -397,6 +462,21 @@ function styleFromSeed(seed, themeKey, overrides) {
     choreoMode: over.choreoMode in CHOREO_MODES ? over.choreoMode : 'cycle',
     layoutMode: over.layoutMode in LAYOUT_MODES ? over.layoutMode : 'auto',
     graphicMode: over.graphicMode in GRAPHIC_MODES ? over.graphicMode : 'auto',
+    // 新增效果层(均为逐词/逐行程序内的确定性绘制,不新增 VM 指令):
+    //   focusMode      soft = 词周围叠两枚慢速重影,远处更虚(失焦/对焦呼吸)
+    //   annotationMode circle = 当前演唱词手绘圈注(随词进度描出并淡出)
+    //   particleMode   ember = 金色余烬圆点;sparkle = 内置星芒贴图爆闪
+    //   singleMove     只编译指定手法(0..3),给新增效果腾指令预算
+    focusMode: over.focusMode === 'soft' ? 'soft' : 'none',
+    annotationMode: over.annotationMode === 'circle' ? 'circle' : 'none',
+    particleMode: over.particleMode === 'ember' || over.particleMode === 'sparkle'
+      ? over.particleMode
+      : 'none',
+    // ink:当前词/整行周围的手绘弧线与短横线(视频「简易线条动画」的线条笔触)
+    lineartMode: over.lineartMode === 'ink' ? 'ink' : 'none',
+    singleMove: Number.isInteger(over.singleMove)
+      ? ((over.singleMove % 4) + 4) % 4
+      : null,
     pulse: jitter('pulse'),
     cycle,
     flash: over.flash === undefined ? rng() < 0.5 : !!over.flash,
@@ -404,6 +484,14 @@ function styleFromSeed(seed, themeKey, overrides) {
       ? over.unsungDim
       : round4(pickRange(rng, theme.unsungDim))
   };
+  // 新增效果层默认走单一手法:失焦重影/圈注/粒子都要额外指令,四手法派发会撞 512 上限;
+  // 显式 singleMove 优先,未指定时按 seed 确定性选一条手法(改滑杆离预设后依然可编译)。
+  if (style.singleMove === null &&
+      (style.focusMode !== 'none' || style.annotationMode !== 'none' ||
+        style.particleMode !== 'none' || style.lineartMode !== 'none' ||
+        style.layoutMode === 'ink' || style.layoutMode === 'poster')) {
+    style.singleMove = seed % 4;
+  }
   // 旋向随机翻转:仅对未显式覆盖的 waveAmp 生效(覆盖值按用户给的原样用)
   if (!Number.isFinite(over.waveAmp) && rng() < 0.5) style.waveAmp = -style.waveAmp;
   style.choreoA = Math.round((1 + rng() * 3) * 100) / 100;
@@ -437,6 +525,8 @@ function buildProgramSource(style) {
     return String(rounded);
   };
   const flashT = style.flash ? 0.08 : 999999;
+  // 只编译单一手法:新增效果层(失焦/圈注/粒子)靠它把 512 条指令预算让出来。
+  const singleMove = Number.isInteger(style.singleMove) ? style.singleMove : null;
 
   // 公共 prologue:颜色 / 闪光分量(枢轴在排版层之后计算,依赖 xBase/yBase/scale)
   const prologue = [
@@ -588,7 +678,155 @@ function buildProgramSource(style) {
   ];
 
   const layoutModes = [layoutHorizontal, layoutVertical, layoutStagger, layoutScatter];
-  const fixedMode = { h: 0, v: 1, stagger: 2, scatter: 3 }[style.layoutMode];
+
+  // ---- 画报/留白构图:画布锚点 + 逐词游标(按实际字宽推进,允许句内放大) ----
+  // locals:16=游标 X,17=上一视觉行号(跨词持久;循环前初始化为 -1)。
+  const packedHorizontal = (maxWidthFraction, scaleLines) => [
+    'loadLocal 6',
+    'wordField line',
+    'loadLocal 17',
+    'ne',
+    'jz LP1',
+    // 新视觉行:游标回到左侧锚点(按行字数做轻微水平错位)
+    'canvasField width',
+    'push 0.06',
+    'mul',
+    'loadLocal 2',
+    'lineAtField text',
+    'stringLength',
+    'push 3',
+    'mod',
+    'canvasField width',
+    'push 0.015',
+    'mul',
+    'mul',
+    'add',
+    'storeLocal 16',
+    'loadLocal 6',
+    'wordField line',
+    'storeLocal 17',
+    // 整行缩放系数:长句自动缩到可用宽度(画报左侧留出侧栏)
+    'canvasField width',
+    'push ' + num(maxWidthFraction),
+    'mul',
+    'loadLocal 2',
+    'lineAtField text',
+    'measureText',
+    'push 1',
+    'max',
+    'div',
+    'push 1',
+    'min',
+    'storeLocal 18',
+    'LP1:',
+    'loadLocal 16',
+    'storeLocal 10',
+    ...scaleLines,
+    // 游标推进 = 字宽*scale + 0.06em
+    'loadLocal 6',
+    'wordField text',
+    'measureText',
+    'loadLocal 12',
+    'mul',
+    'globalField textSize',
+    'push 0.06',
+    'mul',
+    'add',
+    'loadLocal 16',
+    'add',
+    'storeLocal 16',
+    // 基线 = 0.46H + (行字数 mod 3 - 1)*0.05H(每行浮在不同高度)
+    'canvasField height',
+    'push 0.46',
+    'mul',
+    'loadLocal 2',
+    'lineAtField text',
+    'stringLength',
+    'push 3',
+    'mod',
+    'push 1',
+    'sub',
+    'canvasField height',
+    'push 0.05',
+    'mul',
+    'mul',
+    'add',
+    'storeLocal 11'
+  ];
+
+  const posterScale = [
+    'loadLocal 18',
+    'loadLocal 0',
+    'loadLocal 2',
+    'lineAtField text',
+    'stringLength',
+    'add',
+    'push 6',
+    'mod',
+    'push 1',
+    'eq',
+    'push 0.55',
+    'mul',
+    'push 1',
+    'add',
+    'mul',
+    'storeLocal 12'
+  ];
+  const inkScale = ['loadLocal 18', 'storeLocal 12'];
+
+  // 留白·短句:靠右竖排一列(顶部起排,行内按可用高度压缩步进)
+  const layoutInkColumn = [
+    'canvasField width',
+    'push 0.82',
+    'mul',
+    'loadLocal 6',
+    'wordField text',
+    'measureText',
+    'push 0.5',
+    'mul',
+    'sub',
+    'storeLocal 10',
+    'globalField textSize',
+    'push 1.15',
+    'mul',
+    'canvasField height',
+    'push 0.6',
+    'mul',
+    'loadLocal 1',
+    'div',
+    'min',
+    'storeLocal 13',
+    'canvasField height',
+    'push 0.16',
+    'mul',
+    'loadLocal 0',
+    'loadLocal 13',
+    'mul',
+    'add',
+    'globalField textSize',
+    'push 0.8',
+    'mul',
+    'add',
+    'storeLocal 11',
+    'push 1',
+    'storeLocal 12'
+  ];
+
+  const layoutInk = [
+    'wordCount',
+    'push 7',
+    'le',
+    'jz InkH',
+    ...indent(layoutInkColumn),
+    'jump InkDone',
+    'InkH:',
+    ...indent(packedHorizontal(0.88, inkScale)),
+    'InkDone:'
+  ];
+
+  const layoutPoster = packedHorizontal(0.56, posterScale);
+  layoutModes.push(layoutInk, layoutPoster);
+  const fixedMode = { h: 0, v: 1, stagger: 2, scatter: 3, ink: 4, poster: 5 }[style.layoutMode];
   const layoutSelector = Number.isInteger(fixedMode)
     ? ['push ' + num(fixedMode), 'storeLocal 13']
     : [
@@ -660,6 +898,240 @@ function buildProgramSource(style) {
     'sub',
     'storeLocal 9'
   ];
+
+  // ---- 新增效果层:全部复用既有 VM 指令,不扩指令集 ----
+  // 1 对焦呼吸(soft focus):每词叠两枚对角慢速重影,离"焦点"越远越虚。
+  // 焦点 = 行进度在词序列上滑动;重影 alpha 与偏移都随距离增长。
+  const focusEmission = style.focusMode === 'soft'
+    ? [
+      // d = min(|i - lp*(n-1)| / max(n-1,1), 1)
+      'loadLocal 0',
+      'loadLocal 5',
+      'loadLocal 1',
+      'push 1',
+      'sub',
+      'mul',
+      'sub',
+      'abs',
+      'loadLocal 1',
+      'push 1',
+      'sub',
+      'push 1',
+      'max',
+      'div',
+      'push 1',
+      'min',
+      'storeLocal 14',
+      // o = ts*0.04*(0.5+0.8d)
+      'globalField textSize',
+      'push 0.04',
+      'mul',
+      'loadLocal 14',
+      'push 0.8',
+      'mul',
+      'push 0.5',
+      'add',
+      'mul',
+      'storeLocal 15',
+      // ghost alpha = 0.05 + 0.20d(四向淡重影,接近失焦柔化而不是双影)
+      'loadLocal 14',
+      'push 0.20',
+      'mul',
+      'push 0.05',
+      'add',
+      'setAlpha',
+      'loadLocal 6', 'wordField text',
+      'loadLocal 10', 'loadLocal 15', 'add',
+      'loadLocal 11',
+      'drawText',
+      'loadLocal 6', 'wordField text',
+      'loadLocal 10', 'loadLocal 15', 'sub',
+      'loadLocal 11',
+      'drawText',
+      'loadLocal 6', 'wordField text',
+      'loadLocal 10',
+      'loadLocal 11', 'loadLocal 15', 'add',
+      'drawText',
+      'loadLocal 6', 'wordField text',
+      'loadLocal 10',
+      'loadLocal 11', 'loadLocal 15', 'sub',
+      'drawText'
+    ]
+    : [];
+
+  // 2 手绘圈注(circle):当前演唱词外圈一道带缺口的弧,随词进度描出并淡出。
+  const ringEmission = style.annotationMode === 'circle'
+    ? [
+      'colorField sung',
+      'setColor',
+      'globalField textSize',
+      'push 0.045',
+      'mul',
+      'setStrokeWidth',
+      'setStroke',
+      'loadLocal 6', 'wordField progress', 'storeLocal 14',
+      // a = min(p*8,1) * (1 - clamp((p-0.75)/0.25,0,1)) * 0.9
+      'loadLocal 14', 'push 8', 'mul', 'push 1', 'min', 'storeLocal 15',
+      'loadLocal 14', 'push 0.75', 'sub', 'push 0.25', 'div',
+      'push 0', 'max', 'push 1', 'min',
+      'push 1', 'swap', 'sub',
+      'loadLocal 15', 'mul', 'push 0.9', 'mul',
+      'setAlpha',
+      'loadLocal 10', 'globalField textSize', 'push 0.10', 'mul', 'sub',
+      'loadLocal 11', 'globalField textSize', 'push 1.05', 'mul', 'sub',
+      'loadLocal 6', 'wordField text', 'measureText', 'globalField textSize', 'push 0.20', 'mul', 'add',
+      'globalField textSize', 'push 1.28', 'mul',
+      // start = -30 + sin(i*2.3)*8
+      'loadLocal 0', 'push 2.3', 'mul', 'sin', 'push 8', 'mul', 'push -30', 'add',
+      // sweep = 120 + 220*min(p*2.5,1) + cos(i*1.7)*12
+      'loadLocal 14', 'push 2.5', 'mul', 'push 1', 'min', 'push 220', 'mul', 'push 120', 'add',
+      'loadLocal 0', 'push 1.7', 'mul', 'cos', 'push 12', 'mul', 'add',
+      'drawArc',
+      'setFill'
+    ]
+    : [];
+
+  // 3 线条笔触(ink):每词一道随进度描出的弧 + 每 3 词一条短横线(视频「简易线条动画」)
+  const lineartEmission = style.lineartMode === 'ink'
+    ? [
+      'colorField sung',
+      'setColor',
+      'globalField textSize',
+      'push 0.03',
+      'mul',
+      'setStrokeWidth',
+      'setStroke',
+      // a = min(p*6,1) * (1 - clamp((p-0.85)/0.15,0,1)) * 0.85
+      'loadLocal 6', 'wordField progress', 'push 6', 'mul', 'push 1', 'min',
+      'loadLocal 6', 'wordField progress', 'push 0.85', 'sub', 'push 0.15', 'div',
+      'push 0', 'max', 'push 1', 'min',
+      'push 1', 'swap', 'sub',
+      'mul', 'push 0.85', 'mul',
+      'setAlpha',
+      // 弧:以实际排版锚点(local10/11)+ 实测字宽定位,竖排/画报模式也贴合
+      'loadLocal 10', 'globalField textSize', 'push 0.08', 'mul', 'sub',
+      'loadLocal 11', 'globalField textSize', 'push 1.05', 'mul', 'sub',
+      'loadLocal 6', 'wordField text', 'measureText', 'globalField textSize', 'push 0.16', 'mul', 'add',
+      'globalField textSize', 'push 1.22', 'mul',
+      // start = 210 + sin(i*1.9+0.7)*45
+      'loadLocal 0', 'push 1.9', 'mul', 'push 0.7', 'add', 'sin', 'push 45', 'mul', 'push 210', 'add',
+      // sweep = 70 + (i mod 3)*35 + sin(i*2.7)*12
+      'loadLocal 0', 'push 3', 'mod', 'push 35', 'mul', 'push 70', 'add',
+      'loadLocal 0', 'push 2.7', 'mul', 'sin', 'push 12', 'mul', 'add',
+      'drawArc',
+      'setFill',
+      // 每 3 词一条短横线:x2 = local10 + 0.32em*(i mod 3 == 0)
+      'loadLocal 10',
+      'loadLocal 11', 'globalField textSize', 'push 0.34', 'mul', 'add',
+      'loadLocal 10',
+      'globalField textSize', 'push 0.32', 'mul',
+      'loadLocal 0', 'push 3', 'mod', 'push 0', 'eq', 'mul',
+      'add',
+      'loadLocal 11', 'globalField textSize', 'push 0.34', 'mul', 'add',
+      'drawLine'
+    ]
+    : [];
+
+  // 画报点线:紧跟实际排版锚点(仅首个词发一次),避免与画布居中/左浮动布局脱节
+  const panelRuleEmission = style.graphicMode === 'panel'
+    ? [
+      'loadLocal 0', 'push 0', 'eq', 'jz PRD',
+      'colorField sung', 'setColor', 'setFill',
+      'loadLocal 2', 'lineAtField text', 'measureText', 'storeLocal 15',
+      'push 0', 'storeLocal 14',
+      'PR1:',
+      'loadLocal 14', 'push 7', 'lt', 'jz PRD',
+      'loadLocal 10',
+      'loadLocal 15', 'push 0.55', 'mul', 'loadLocal 14', 'mul', 'push 7', 'div', 'add',
+      'loadLocal 11', 'globalField textSize', 'push 0.55', 'mul', 'add',
+      'globalField textSize', 'push 0.008', 'mul',
+      'drawCircle',
+      'loadLocal 14', 'push 1', 'add', 'storeLocal 14',
+      'jump PR1',
+      'PRD:'
+    ]
+    : [];
+
+  // 3 金色星火(ember):每个词唱到时抛两粒余烬圆点,确定性地漂移/淡出。
+  const emberEmission = style.particleMode === 'ember'
+    ? [
+      'colorField glow',
+      'setColor',
+      'setFill',
+      'loadLocal 6', 'wordField progress', 'storeLocal 14',
+      // A
+      'push 1', 'loadLocal 14', 'sub', 'push 0', 'max', 'push 0.8', 'mul', 'push 0.05', 'add',
+      'setAlpha',
+      'loadLocal 10', 'loadLocal 6', 'wordField text', 'measureText', 'push 0.5', 'mul', 'add',
+      'loadLocal 0', 'push 2.3', 'mul', 'loadLocal 5', 'push 7', 'mul', 'add', 'sin',
+      'globalField textSize', 'push 0.45', 'mul', 'mul', 'add',
+      'loadLocal 11',
+      'loadLocal 0', 'push 0.37', 'mul', 'loadLocal 5', 'push 1.3', 'mul', 'add',
+      'push 1', 'mod', 'push 1.1', 'mul', 'push 0.15', 'add',
+      'globalField textSize', 'mul', 'sub',
+      'globalField textSize', 'push 0.035', 'mul',
+      'drawCircle',
+      // B
+      'push 1', 'loadLocal 14', 'sub', 'push 0', 'max', 'push 0.5', 'mul', 'push 0.04', 'add',
+      'setAlpha',
+      'loadLocal 10', 'loadLocal 6', 'wordField text', 'measureText', 'push 0.5', 'mul', 'add',
+      'loadLocal 0', 'push 3.1', 'mul', 'loadLocal 5', 'push 5', 'mul', 'add', 'cos',
+      'globalField textSize', 'push 0.55', 'mul', 'mul', 'add',
+      'loadLocal 11',
+      'loadLocal 0', 'push 0.61', 'mul', 'loadLocal 5', 'push 0.9', 'mul', 'add',
+      'push 1', 'mod', 'push 1.6', 'mul', 'push 0.2', 'add',
+      'globalField textSize', 'mul', 'sub',
+      'globalField textSize', 'push 0.022', 'mul',
+      'drawCircle'
+    ]
+    : [];
+
+  // 4 星芒爆闪(sparkle):行级 12 颗内置四角星(sparkle 贴图),开场爆闪后持续微闪。
+  const sparkleCount = 12;
+  const sparkleEmission = style.particleMode === 'sparkle'
+    ? [
+      'colorField sung',
+      'setColor',
+      'setFill',
+      'push 0',
+      'storeLocal 14',
+      'SPL1:',
+      'loadLocal 14',
+      'push ' + sparkleCount,
+      'lt',
+      'jz SPLDone',
+      // t = 0.5 + 0.5*sin(lp*16 + i*2.4)
+      'loadLocal 2', 'lineAtField progress', 'push 16', 'mul',
+      'loadLocal 14', 'push 2.4', 'mul', 'add', 'sin', 'push 0.5', 'mul', 'push 0.5', 'add',
+      'storeLocal 15',
+      // alpha = (0.25 + 0.75*(1-min(lp*1.6,1))) * (0.35+0.65t) * 0.95
+      'push 1', 'loadLocal 2', 'lineAtField progress', 'push 1.6', 'mul', 'min',
+      'neg', 'push 1', 'add',
+      'push 0.75', 'mul', 'push 0.25', 'add',
+      'loadLocal 15', 'push 0.65', 'mul', 'push 0.35', 'add',
+      'mul', 'push 0.95', 'mul',
+      'setAlpha',
+      'push 1',
+      // x = lx + lw * frac(i*0.618)
+      'loadLocal 2', 'lineAtField x',
+      'loadLocal 2', 'lineAtField width',
+      'loadLocal 14', 'push 0.618', 'mul', 'push 1', 'mod', 'mul', 'add',
+      // y = baseline - em*(0.9 + 1.2*frac(i*0.377))
+      'loadLocal 2', 'lineAtField baseline',
+      'globalField textSize',
+      'loadLocal 14', 'push 0.377', 'mul', 'push 1', 'mod',
+      'push 1.2', 'mul', 'push 0.9', 'add', 'mul', 'sub',
+      // w = h = em*(0.10 + 0.22t)
+      'globalField textSize',
+      'loadLocal 15', 'push 0.22', 'mul', 'push 0.10', 'add', 'mul',
+      'globalField textSize',
+      'loadLocal 15', 'push 0.22', 'mul', 'push 0.10', 'add', 'mul',
+      'drawSprite',
+      'loadLocal 14', 'push 1', 'add', 'storeLocal 14',
+      'jump SPL1',
+      'SPLDone:'
+    ]
+    : [];
 
   // 手法 0:wave —— pivot 旋转 + 纵向正弦
   const wave = [
@@ -921,7 +1393,85 @@ function buildProgramSource(style) {
     'drawCircle'
   ];
 
-  const fixedGraphic = { none: 0, line: 1, frame: 2, stamp: 3 }[style.graphicMode];
+  // 4 行底辉光条:暖色光带 + 阴影扩散(auto 不会选中,供粒子预设显式使用)
+  const decoGlow = [
+    'colorField glow',
+    'setColor',
+    'globalField textSize',
+    'push 0.5',
+    'mul',
+    'push 0',
+    'push 0',
+    'colorField glow',
+    'setShadow',
+    'globalField textSize',
+    'push 0.09',
+    'mul',
+    'setStrokeWidth',
+    'push 0.55',
+    'setAlpha',
+    'loadLocal 2',
+    'lineAtField x',
+    'loadLocal 2',
+    'lineAtField baseline',
+    'globalField textSize',
+    'push 0.32',
+    'mul',
+    'add',
+    'loadLocal 2',
+    'lineAtField x',
+    'loadLocal 2',
+    'lineAtField width',
+    'add',
+    'loadLocal 2',
+    'lineAtField baseline',
+    'globalField textSize',
+    'push 0.32',
+    'mul',
+    'add',
+    'drawLine',
+    'clearShadow'
+  ];
+
+  // 5 画报侧栏:右侧竖线 + 短粗线 + 三颗点 + 歌词下点状虚线(视频「地尽头」)
+  const decoPanel = [
+    'colorField sung',
+    'setColor',
+    'globalField textSize',
+    'push 0.035',
+    'mul',
+    'setStrokeWidth',
+    'canvasField width', 'push 0.70', 'mul',
+    'canvasField height', 'push 0.10', 'mul',
+    'canvasField width', 'push 0.70', 'mul',
+    'canvasField height', 'push 0.90', 'mul',
+    'drawLine',
+    'globalField textSize',
+    'push 0.075',
+    'mul',
+    'setStrokeWidth',
+    'canvasField width', 'push 0.715', 'mul',
+    'canvasField height', 'push 0.12', 'mul',
+    'canvasField width', 'push 0.715', 'mul',
+    'canvasField height', 'push 0.34', 'mul',
+    'drawLine',
+    'setFill',
+    // 三颗点:0.12H / 0.50H / 0.88H
+    'push 0',
+    'storeLocal 14',
+    'PN1:',
+    'loadLocal 14', 'push 3', 'lt', 'jz PNDone',
+    'canvasField width', 'push 0.706', 'mul',
+    'canvasField height', 'push 0.12', 'mul',
+    'loadLocal 14', 'push 0.38', 'mul', 'canvasField height', 'mul', 'add',
+    'canvasField width', 'push 0.006', 'mul',
+    'drawCircle',
+    'loadLocal 14', 'push 1', 'add', 'storeLocal 14',
+    'jump PN1',
+    'PNDone:'
+  ];
+
+  const fixedGraphic = { none: 0, line: 1, frame: 2, stamp: 3, glow: 4, panel: 5 }[style.graphicMode];
   const decoSelector = Number.isInteger(fixedGraphic)
     ? ['push ' + num(fixedGraphic), 'storeLocal 13']
     : [
@@ -963,9 +1513,41 @@ function buildProgramSource(style) {
     ...indent(decoFrame),
     'jump DGDone',
     'DG3:',
-    'pop',
-    ...indent(decoStamp),
-    'DGDone:'
+    ...(fixedGraphic === 4 || fixedGraphic === 5
+      ? [
+        'dup',
+        'push 3',
+        'eq',
+        'jz DG4',
+        'pop',
+        ...indent(decoStamp),
+        'jump DGDone',
+        'DG4:',
+        ...(fixedGraphic === 5
+          ? [
+            'dup',
+            'push 4',
+            'eq',
+            'jz DG5',
+            'pop',
+            ...indent(decoGlow),
+            'jump DGDone',
+            'DG5:',
+            'pop',
+            ...indent(decoPanel),
+            'DGDone:'
+          ]
+          : [
+            'pop',
+            ...indent(decoGlow),
+            'DGDone:'
+          ])
+      ]
+      : [
+        'pop',
+        ...indent(decoStamp),
+        'DGDone:'
+      ])
   ];
 
   const decoEmission = [
@@ -977,12 +1559,58 @@ function buildProgramSource(style) {
     ...indent(decoDispatch)
   ];
 
+  // 固定排版时只编译所选构图块;auto 保留选择器 + 四块派发(行为逐字节不变)。
+  const layoutSection = Number.isInteger(fixedMode)
+    ? indent(layoutModes[fixedMode])
+    : [...indent(layoutSelector), ...indent(layoutDispatch)];
+
+  // 单一手法时只编译该分支(为新增效果层腾预算);否则保留原四手法派发。
+  const moveBodies = [wave, bounce, slide, pulse];
+  const moveSection = singleMove !== null
+    ? indent(moveBodies[singleMove])
+    : [
+      ...choreoDispatch,
+      '  dup',
+      '  push 0',
+      '  eq',
+      '  jz L1',
+      '  pop',
+      ...indent(wave),
+      '  jump nextw',
+      'L1:',
+      '  dup',
+      '  push 1',
+      '  eq',
+      '  jz L2',
+      '  pop',
+      ...indent(bounce),
+      '  jump nextw',
+      'L2:',
+      '  dup',
+      '  push 2',
+      '  eq',
+      '  jz L3',
+      '  pop',
+      ...indent(slide),
+      '  jump nextw',
+      'L3:',
+      '  pop',
+      ...indent(pulse)
+    ];
+
+  // 游标布局(ink/poster)的跨词状态:16=游标 X,17=上一视觉行号。
+  const cursorInit = style.layoutMode === 'ink' || style.layoutMode === 'poster'
+    ? ['push -1', 'storeLocal 16', 'push -1', 'storeLocal 17']
+    : [];
+
   const lines = [
     '; HyperGlow Motion · 主题=' + style.themeName + ' · seed=' + style.seed +
       ' · 排版=' + style.layoutMode + ' · 图形=' + style.graphicMode,
     ...decoEmission,
+    ...sparkleEmission,
     'wordCount',
     'storeLocal 1',
+    ...cursorInit,
     'push 0',
     'storeLocal 0',
     'loop:',
@@ -1003,36 +1631,14 @@ function buildProgramSource(style) {
     '  lineAtField progress',
     '  storeLocal 5',
     ...indent(prologue),
-    ...indent(layoutSelector),
-    ...indent(layoutDispatch),
+    ...layoutSection,
     ...indent(layoutApply),
-    ...choreoDispatch,
-    '  dup',
-    '  push 0',
-    '  eq',
-    '  jz L1',
-    '  pop',
-    ...indent(wave),
-    '  jump nextw',
-    'L1:',
-    '  dup',
-    '  push 1',
-    '  eq',
-    '  jz L2',
-    '  pop',
-    ...indent(bounce),
-    '  jump nextw',
-    'L2:',
-    '  dup',
-    '  push 2',
-    '  eq',
-    '  jz L3',
-    '  pop',
-    ...indent(slide),
-    '  jump nextw',
-    'L3:',
-    '  pop',
-    ...indent(pulse),
+    ...indent(panelRuleEmission),
+    ...indent(ringEmission),
+    ...indent(lineartEmission),
+    ...indent(emberEmission),
+    ...indent(focusEmission),
+    ...moveSection,
     'nextw:',
     '  loadLocal 0',
     '  push 1',
@@ -1055,7 +1661,7 @@ function buildProgramSource(style) {
  */
 function buildEffectPack(timeline, style, meta) {
   const source = buildProgramSource(style);
-  const assembled = E.assemble(source, { maxLocals: 16 });
+  const assembled = E.assemble(source, { maxLocals: 20 });
   if (!assembled.ok) {
     return { ok: false, errors: assembled.errors };
   }

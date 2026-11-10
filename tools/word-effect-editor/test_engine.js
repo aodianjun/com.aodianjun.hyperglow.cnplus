@@ -588,6 +588,17 @@ test('stack underflow fails', () => {
   assert.ok(result.errors.some((error) => error.includes('需要 2 个栈值')), result.errors.join('; '));
 });
 
+test('drawSprite assembly accounts for five stack operands', () => {
+  const result = E.assemble(
+    'push 1\npush 10\npush 20\npush 30\npush 40\ndrawSprite\nend',
+    { maxLocals: 8 }
+  );
+  assert.strictEqual(result.ok, true, result.errors.join('; '));
+  assert.strictEqual(result.program.code.length, 7);
+  // 少推一个操作数必须在汇编期就报栈不足,而不是留到运行期。
+  assembleFails('push 1\npush 10\npush 20\npush 30\ndrawSprite\nend');
+});
+
 test('missing label fails', () => {
   assembleFails('jump nowhere\nend');
 });

@@ -886,7 +886,7 @@
     setStrokeWidth: -1, setFill: 0, setStroke: 0,
     save: 0, restore: 0, translate: -2, rotate: -1, scale: -2, clipRect: -4,
     drawText: -3, drawRect: -4, drawCircle: -3, drawLine: -4, drawRoundRect: -6,
-    drawOval: -4, drawArc: -6,
+    drawOval: -4, drawArc: -6, drawSprite: -5,
     pathMove: -2, pathLine: -2, pathQuad: -4, pathCubic: -6, pathClose: 0, drawPath: 0,
     measureText: 0, end: 0
   };
@@ -901,7 +901,7 @@
     setColor: 1, setAlpha: 1, setTextSize: 1, setTextAlign: 1, setGradient: 6, setShadow: 4,
     setStrokeWidth: 1, translate: 2, rotate: 1, scale: 2, clipRect: 4,
     drawText: 3, drawRect: 4, drawCircle: 3, drawLine: 4, drawRoundRect: 6,
-    drawOval: 4, drawArc: 6, pathMove: 2, pathLine: 2, pathQuad: 4, pathCubic: 6,
+    drawOval: 4, drawArc: 6, drawSprite: 5, pathMove: 2, pathLine: 2, pathQuad: 4, pathCubic: 6,
     measureText: 1
   };
 

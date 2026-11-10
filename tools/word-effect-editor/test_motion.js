@@ -456,4 +456,155 @@ test('invalid graphicMode falls back to auto', () => {
   assert.strictEqual(style.graphicMode, 'auto');
 });
 
+// ---------------------------------------------------------------------------
+// 10. 新增效果层:对焦重影 / 手绘圈注 / 金色星火 / 星芒爆闪
+// ---------------------------------------------------------------------------
+
+function boxesForPreset(key, frame) {
+  const preset = M.PRESETS[key];
+  const style = M.styleFromSeed(5, preset.theme, preset.params);
+  const built = M.buildEffectPack({ rows: [] }, style, { title: key });
+  assert.ok(built.ok, key + ': ' + (built.errors || []).join('; '));
+  assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE, key + ' instr ' + built.stats.instructions);
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  const result = E.runProgram(built.effect.program, frame, sink);
+  assert.ok(result.ok && !sink.failed, key + ' run failed');
+  return sink.boxes;
+}
+
+test('focus preset emits ghost text boxes with distance-scaled alpha', () => {
+  const frame = makeFrame('一二三四五六', 0.5);
+  const boxes = boxesForPreset('focus', frame);
+  const texts = boxes.filter((b) => b.type === 'text');
+  const words = frame.words.length;
+  assert.strictEqual(texts.length, words * 5, 'each word should draw 4 ghosts + main');
+  assert.ok(boxes.every((b) => b.type === 'text'), 'focus emits text only');
+  const alphas = texts.map((b) => b.paint.alpha);
+  assert.ok(alphas.every((a) => a >= 0 && a <= 1));
+  // 每词五个文字盒(上/下/左/右重影 + 正文):四枚重影更淡且围绕正文
+  for (let k = 0; k < words; k++) {
+    const ghosts = texts.slice(k * 5, k * 5 + 4);
+    const main = texts[k * 5 + 4];
+    for (const ghost of ghosts) {
+      assert.ok(ghost.paint.alpha <= 0.26, 'ghost too opaque: ' + ghost.paint.alpha);
+    }
+    assert.ok(ghosts.some((g) => g.x > main.x), 'right/down ghost missing at word ' + k);
+    assert.ok(ghosts.some((g) => g.x < main.x), 'left ghost missing at word ' + k);
+    assert.ok(ghosts.some((g) => g.baseline > main.baseline), 'down ghost missing at word ' + k);
+    assert.ok(ghosts.some((g) => g.baseline < main.baseline), 'up ghost missing at word ' + k);
+  }
+});
+
+test('annotate preset draws a stroke arc around the active word', () => {
+  const frame = makeFrame('一二三四五六', 0.5);
+  const boxes = boxesForPreset('annotate', frame);
+  const arcs = boxes.filter((b) => b.type === 'arc');
+  assert.strictEqual(arcs.length, frame.words.length, 'one ring per word slot');
+  assert.ok(arcs.every((b) => b.paint.style === 1), 'ring must be stroke');
+  const visible = arcs.filter((b) => b.paint.alpha > 0.01);
+  assert.ok(visible.length >= 1, 'at least the singing word should be ringed');
+  assert.ok(visible[0].sweep > 90, 'ring sweep should be a wide arc');
+  assert.ok(boxes.indexOf(arcs[0]) < boxes.findIndex((b) => b.type === 'text'), 'ring drawn before text');
+});
+
+test('embers preset adds glow bar and two spark dots per word', () => {
+  const frame = makeFrame('一二三四五六', 0.5);
+  const boxes = boxesForPreset('embers', frame);
+  assert.strictEqual(boxes.filter((b) => b.type === 'line').length, 1, 'glow bar missing');
+  const circles = boxes.filter((b) => b.type === 'circle');
+  assert.strictEqual(circles.length, frame.words.length * 2, 'two ember dots per word');
+  assert.ok(circles.every((b) => b.radius > 0 && b.paint.alpha >= 0 && b.paint.alpha <= 1));
+});
+
+test('starlight preset bursts built-in sparkle sprites', () => {
+  const frame = makeFrame('一二三四五六', 0.2);
+  const boxes = boxesForPreset('starlight', frame);
+  const sprites = boxes.filter((b) => b.type === 'sprite');
+  assert.strictEqual(sprites.length, 12, 'burst count');
+  assert.ok(sprites.every((b) => b.spriteId === 1), 'must use the built-in sparkle sprite');
+  assert.ok(sprites.every((b) => b.width > 0 && b.height > 0), 'sprite geometry missing');
+  assert.ok(sprites.every((b) => b.paint.alpha > 0 && b.paint.alpha <= 1));
+});
+
+test('new effect layers keep custom edits inside the instruction budget', () => {
+  // 不传 singleMove:效果层启用时 styleFromSeed 自动收敛到单一手法,四手法 + 粒子不会撞 512。
+  const style = M.styleFromSeed(9, 'dynamic', {
+    particleMode: 'ember',
+    graphicMode: 'glow',
+    waveAmp: 0.25,
+    rotAmp: 12,
+    cycle: 3
+  });
+  assert.ok(Number.isInteger(style.singleMove), 'auto single-move fallback expected');
+  const built = M.buildEffectPack({ rows: [] }, style, {});
+  assert.ok(built.ok, (built.errors || []).join('; '));
+  assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE);
+});
+
+test('invalid effect-layer values fall back to none', () => {
+  const style = M.styleFromSeed(1, 'lyric', {
+    focusMode: 'bokeh',
+    annotationMode: 'underline',
+    particleMode: 'fireworks'
+  });
+  assert.strictEqual(style.focusMode, 'none');
+  assert.strictEqual(style.annotationMode, 'none');
+  assert.strictEqual(style.particleMode, 'none');
+});
+
+// ---------------------------------------------------------------------------
+// 11. 视频参考排版:线条留白(ink) / 画报侧栏(poster)
+// ---------------------------------------------------------------------------
+
+function mainTextBoxes(boxes, stride) {
+  // stride=3:每词「重影+ / 重影− / 正文」;stride=1:每词只有正文。
+  return boxes.filter((b) => b.type === 'text').filter((b, index) => index % stride === stride - 1);
+}
+
+test('inkline preset puts short lines in a right-side vertical column', () => {
+  const frame = makeFrame('却难觅倩踪', 0.6); // 5 词 ≤ 7 → 竖排分支
+  const boxes = boxesForPreset('inkline', frame);
+  const mains = mainTextBoxes(boxes, 5);
+  assert.strictEqual(mains.length, 5);
+  const xs = mains.map((b) => b.x);
+  assert.ok(xs.every((x) => Math.abs(x - xs[0]) < 6), 'column x should be stable: ' + xs);
+  assert.ok(xs[0] > frame.canvasWidth * 0.72, 'column should sit right: ' + xs[0]);
+  const ys = mains.map((b) => b.baseline);
+  for (let i = 1; i < ys.length; i++) assert.ok(ys[i] > ys[i - 1], 'column should step down');
+  // 线条笔触:弧盒与短横线盒都要出现
+  assert.ok(boxes.some((b) => b.type === 'arc' && b.paint.style === 1), 'ink arc missing');
+  assert.ok(boxes.some((b) => b.type === 'line'), 'ink tick missing');
+});
+
+test('inkline preset packs long lines horizontally on the left', () => {
+  const frame = makeFrame('水从天上来落在窗台前', 1.2); // 10 词 → 横排分支
+  const boxes = boxesForPreset('inkline', frame);
+  const mains = mainTextBoxes(boxes, 5);
+  assert.ok(mains.length === 10);
+  assert.ok(mains[0].x < frame.canvasWidth * 0.12, 'left anchor expected: ' + mains[0].x);
+  for (let i = 1; i < mains.length; i++) {
+    assert.ok(mains[i].x > mains[i - 1].x, 'packed x should increase');
+  }
+  const baselines = new Set(mains.map((b) => Math.round(b.baseline)));
+  assert.strictEqual(baselines.size, 1, 'same visual line should share baseline');
+});
+
+test('poster preset anchors left, enlarges one word inline and draws the side panel', () => {
+  const frame = makeFrame('只要然后呢', 0.8);
+  const boxes = boxesForPreset('poster', frame);
+  const mains = mainTextBoxes(boxes, 1);
+  assert.strictEqual(mains.length, 5);
+  assert.ok(mains[0].x < frame.canvasWidth * 0.12, 'left anchor expected');
+  assert.ok(mains[mains.length - 1].x < frame.canvasWidth * 0.75, 'lyrics stay left of the panel');
+  const sizes = mains.map((b) => b.paint.textSize);
+  assert.ok(Math.max.apply(null, sizes) > frame.textSize * 1.4, 'inline emphasis missing: ' + sizes);
+  // 侧栏:竖线 + 三点 + 点状虚线
+  assert.ok(boxes.filter((b) => b.type === 'line').length >= 2, 'panel lines missing');
+  const circles = boxes.filter((b) => b.type === 'circle');
+  assert.ok(circles.length >= 10, 'panel dots / dotted rule missing: ' + circles.length);
+  // 装饰先于文字
+  assert.ok(boxes.indexOf(boxes.find((b) => b.type === 'line')) <
+    boxes.indexOf(mains[0]), 'panel must be drawn before text');
+});
+
 console.log('\n' + passed + ' tests passed' + (process.exitCode ? ' — with failures' : ''));
