@@ -298,10 +298,45 @@ object PluginSongBridge {
             HookLogger.iThrottled("duet-attach", 5_000L, "PluginSongBridge") {
                 val bg = rows.count(::isHarmonyRow)
                 val acc = accompanimentRowIndex(rows, rows.indexOf(active))
+                val primaryAt = voiceSlotRowIndexAt(
+                    rows, slots, VOICE_SLOT_PRIMARY, state.positionMs
+                )
+                val secondaryAt = voiceSlotRowIndexAt(
+                    rows, slots, VOICE_SLOT_SECONDARY, state.positionMs
+                )
+                val concurrentNow = hasSecondVoice && primaryAt >= 0 && secondaryAt >= 0
+                // 诊断:活动行与对面声部是否**本来就共享窗口**(真对唱)。concurrent 为 false
+                // 时,若 pairIdx 仍 >= 0,说明是「位置采样落在空隙」把并发判丢了;pairIdx=-1
+                // 才是真的没有并发段。
+                val activeIdx = rows.indexOf(active)
+                val activeRow = rows.getOrNull(activeIdx)
+                val activeSlot = slots.getOrNull(activeIdx)
+                val pairIdx = if (activeRow != null && activeSlot != null) {
+                    rows.indices.firstOrNull { index ->
+                        val slot = slots.getOrNull(index)
+                        index != activeIdx && slot != null && slot != activeSlot &&
+                            !rows[index].text.isNullOrBlank() &&
+                            minOf(activeRow.end, rows[index].end) -
+                            maxOf(activeRow.begin, rows[index].begin) >=
+                            MIN_CONCURRENT_OVERLAP_MS
+                    } ?: -1
+                } else {
+                    -1
+                }
+                val duetIdx = when {
+                    acc >= 0 -> acc
+                    concurrentNow -> secondaryAt
+                    else -> -1
+                }
                 val pick = if (acc >= 0) rows[acc].text?.take(20) else "(none)"
                 "Duet attach: rows=${rows.size} bg=$bg twoVoice=$hasSecondVoice " +
-                    "active=${active.text?.take(16)} primaryIdx=${rows.indexOf(active)} " +
-                    "accIdx=$acc pick=$pick"
+                    "pos=${state.positionMs} pAt=$primaryAt sAt=$secondaryAt " +
+                    "concurrent=$concurrentNow pairIdx=$pairIdx " +
+                    "aWin=${activeRow?.begin}..${activeRow?.end} " +
+                    "active=${active.text?.take(16)} primaryIdx=$activeIdx " +
+                    "accIdx=$acc pick=$pick duetIdx=$duetIdx " +
+                    "pairText=${rows.getOrNull(pairIdx)?.text?.take(16)} " +
+                    "duet=${rows.getOrNull(duetIdx)?.text?.take(16)}"
             }
             val accompanimentIndex = accompanimentRowIndex(rows, primaryIndex)
             val duetIndex = when {
