@@ -2460,6 +2460,7 @@
     $('#issueSummary').textContent = errorCount + ' 错误 · ' + result.warnings.length + ' 警告';
 
     const overLimit = result.bytesPretty > E.MAX_PACK_BYTES;
+    const compactOver = result.bytesCompact > E.MAX_PACK_BYTES;
     $('#jsonStatus').innerHTML =
       '<span class="badge ' + (result.ok ? 'ok' : 'err') + '">' + (result.ok ? '可导入' : '有问题') + '</span>' +
       '<span class="badge">' + result.pack.effects.length + ' / ' + state.pack.effects.length + ' 效果</span>' +
@@ -2468,14 +2469,17 @@
       (state.jsonEditing ? '<span class="badge warn">编辑中</span>' : '') +
       (overLimit ? '<span class="badge err">超过 64 KiB</span>' : '');
 
-    $('#packStats').textContent = state.pack.effects.length + ' 个效果 · ' +
-      (result.bytesPretty / 1024).toFixed(1) + ' KiB / 64 KiB';
+    // 导入上限按「紧凑导出」的实际文件大小判断;美化格式仅供人读
+    const compactKiB = (result.bytesCompact / 1024).toFixed(1);
+    const prettyKiB = (result.bytesPretty / 1024).toFixed(1);
+    $('#packStats').innerHTML = state.pack.effects.length + ' 个效果 · 美化 ' + prettyKiB +
+      ' KiB · 紧凑 <b>' + compactKiB + '</b> KiB / 64 KiB' +
+      (overLimit && !compactOver ? ' · <span class="hint">导出请用「紧凑导出」</span>' : '');
     const meter = $('#sizeMeter');
     meter.className = 'size-meter' +
-      (result.bytesPretty > E.MAX_PACK_BYTES ? ' bad' :
-        result.bytesPretty > E.MAX_PACK_BYTES * 0.8 ? ' warn' : '');
+      (compactOver ? ' bad' : result.bytesCompact > E.MAX_PACK_BYTES * 0.8 ? ' warn' : '');
     meter.querySelector('span').style.width =
-      Math.min(100, (result.bytesPretty / E.MAX_PACK_BYTES) * 100).toFixed(2) + '%';
+      Math.min(100, (result.bytesCompact / E.MAX_PACK_BYTES) * 100).toFixed(2) + '%';
   }
 
   function scheduleJson() {
@@ -2608,9 +2612,10 @@
       toast('存在结构错误，已打开校验面板；修复后可导出，或使用「紧凑导出」跳过非法条目', 'err');
       return;
     }
-    const text = opts.compact
-      ? JSON.stringify(result.pack)
-      : JSON.stringify(result.pack, null, 2);
+    // 美化格式超过 64 KiB 时自动改用紧凑格式,保证导出的包一定能导入
+    const prettyText = JSON.stringify(result.pack, null, 2);
+    const useCompact = opts.compact || E.bytesOf(prettyText) > E.MAX_PACK_BYTES;
+    const text = useCompact ? JSON.stringify(result.pack) : prettyText;
     const bytes = E.bytesOf(text);
     if (bytes > E.MAX_PACK_BYTES) {
       toast('导出文件 ' + bytes + ' 字节，超过 64 KiB 上限', 'err');
@@ -2621,6 +2626,7 @@
       Array.isArray(effect._asmErrors) && effect._asmErrors.length
     ).length;
     toast('已导出 ' + (bytes / 1024).toFixed(1) + ' KiB' +
+      (useCompact && !opts.compact ? '（紧凑格式）' : '') +
       (invalidEntries.length ? '（跳过 ' + invalidEntries.length + ' 个非法效果）' : '') +
       (brokenAsm ? '（' + brokenAsm + ' 个程序档使用上次成功汇编版本）' : ''));
   }
@@ -3697,6 +3703,7 @@
     $('#copyBtn').addEventListener('click', copyJson);
     $('#downloadJson').addEventListener('click', () => exportPack({ skipInvalid: true }));
     $('#downloadCompact').addEventListener('click', () => exportPack({ compact: true, skipInvalid: true }));
+    $('#packCompactBtn').addEventListener('click', () => exportPack({ compact: true, skipInvalid: true }));
     $('#jsonEditBtn').addEventListener('click', startJsonEdit);
     $('#jsonApply').addEventListener('click', applyJsonEdit);
     $('#jsonFormat').addEventListener('click', formatJsonEdit);

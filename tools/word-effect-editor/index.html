@@ -790,7 +790,7 @@
   }
 
   @media (max-width: 1180px) {
-    .pack-field input { width: 130px; }
+    .pack-field input { width: 150px; max-width: 100%; min-width: 0; }
   }
   @media (max-width: 980px) {
     body { overflow: auto; }
@@ -1145,6 +1145,7 @@ body.motion-mode #app { display: none; }
       <div class="side-foot">
         <div id="packStats">—</div>
         <div class="size-meter" id="sizeMeter"><span></span></div>
+        <button class="btn small" id="packCompactBtn" title="导出紧凑 JSON（文件更小，可导入）">紧凑导出</button>
         <div><span class="kbd">空格</span> 播放 · <span class="kbd">,</span><span class="kbd">.</span> 步进 · <span class="kbd">J</span><span class="kbd">K</span> 跳词 · <span class="kbd">Ctrl+S</span> 导出</div>
       </div>
     </aside>
@@ -1599,10 +1600,10 @@ Every word a little light</textarea>
 </div>
 
 </section>
-<script src="engine.js?v=24"></script>
-<script src="motion.js?v=24"></script>
-<script src="motion-ui.js?v=24"></script>
-<script src="templates.js?v=24"></script>
-<script src="app.js?v=24"></script>
+<script src="engine.js?v=27"></script>
+<script src="motion.js?v=27"></script>
+<script src="motion-ui.js?v=27"></script>
+<script src="templates.js?v=27"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>
