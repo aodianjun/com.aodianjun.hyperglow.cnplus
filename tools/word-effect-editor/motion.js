@@ -427,6 +427,63 @@ const LAYOUT_MODES = { auto: 1, h: 1, v: 1, stagger: 1, scatter: 1, ink: 1, post
  */
 const GRAPHIC_MODES = { auto: 1, none: 1, line: 1, frame: 1, stamp: 1, glow: 1, panel: 1 };
 
+/**
+ * 手动排版参数归一化:锚点(0..1 画布比例)、整体缩放/旋转、逐词覆盖表。
+ * 覆盖表按「行号+词号」查表,由 wordOverride 指令读取,不占程序指令预算。
+ */
+function normalizeManual(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const finite = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
+  const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+  const overrides = [];
+  if (Array.isArray(raw.overrides)) {
+    for (const item of raw.overrides.slice(0, 256)) {
+      if (!item || !Number.isInteger(item.line) || item.line < 0) continue;
+      if (!Number.isInteger(item.word) || item.word < 0) continue;
+      overrides.push({
+        line: item.line,
+        word: item.word,
+        lineText: typeof item.lineText === 'string'
+          ? item.lineText.split(String.fromCharCode(0)).join('').slice(0, 256)
+          : '',
+        dx: clamp(finite(item.dx, 0), -20, 20),
+        dy: clamp(finite(item.dy, 0), -20, 20),
+        scale: clamp(finite(item.scale, 1), 0.05, 8),
+        rotate: clamp(finite(item.rotate, 0), -720, 720),
+        alpha: clamp(finite(item.alpha, 1), 0, 1)
+      });
+    }
+  }
+  const sprites = [];
+  const animTypes = ['none', 'float', 'pulse', 'spin', 'fade', 'pop'];
+  if (Array.isArray(raw.sprites)) {
+    for (const item of raw.sprites.slice(0, 6)) {
+      if (!item || !Number.isInteger(item.id) || item.id < 0 || item.id > 255) continue;
+      sprites.push({
+        id: item.id,
+        x: clamp(finite(item.x, 0.35), 0, 1),
+        y: clamp(finite(item.y, 0.35), 0, 1),
+        w: clamp(finite(item.w, 0.12), 0.01, 1),
+        h: clamp(finite(item.h, 0.12), 0.01, 1),
+        rotate: clamp(finite(item.rotate, 0), -720, 720),
+        alpha: clamp(finite(item.alpha, 1), 0, 1),
+        anim: animTypes.indexOf(item.anim) >= 0 ? item.anim : 'none',
+        amp: clamp(finite(item.amp, 0.08), 0, 0.5),
+        speed: clamp(finite(item.speed, 1), 0.05, 360),
+        phase: clamp(finite(item.phase, 0), -100, 100)
+      });
+    }
+  }
+  return {
+    anchorX: clamp(finite(raw.anchorX, 0.5), 0, 1),
+    anchorY: clamp(finite(raw.anchorY, 0.5), 0, 1),
+    scale: clamp(finite(raw.scale, 1), 0.2, 3),
+    rotate: clamp(finite(raw.rotate, 0), -180, 180),
+    overrides,
+    sprites
+  };
+}
+
 const round4 = (value) => Math.round(value * 10000) / 10000;
 const pickRange = (rng, range) => range[0] + (range[1] - range[0]) * rng();
 
@@ -477,6 +534,8 @@ function styleFromSeed(seed, themeKey, overrides) {
     singleMove: Number.isInteger(over.singleMove)
       ? ((over.singleMove % 4) + 4) % 4
       : null,
+    // 手动排版:非空时忽略生成器的构图/手法/装饰,按锚点+逐词覆盖绘制
+    manual: normalizeManual(over.manual),
     pulse: jitter('pulse'),
     cycle,
     flash: over.flash === undefined ? rng() < 0.5 : !!over.flash,
@@ -506,6 +565,233 @@ function styleFromSeed(seed, themeKey, overrides) {
 // 4. 编排 → 盒模式程序(汇编源码)
 // ---------------------------------------------------------------------------
 
+/** 手动贴纸层:画在所有文字之前(背景层),支持漂浮/呼吸/旋转/淡入淡出/入场弹出。 */
+function manualSpriteCode(m) {
+  const code = [];
+  for (const sprite of m.sprites) {
+    const cxBase = sprite.x + sprite.w / 2;
+    const cyBase = sprite.y + sprite.h / 2;
+    const anim = sprite.anim;
+    const phase = sprite.phase;
+    // 中心(局部 16/17):旋转/缩放的回平移锚点
+    code.push(
+      'canvasField width', 'push ' + round4(cxBase), 'mul', 'storeLocal 16',
+      'canvasField height', 'push ' + round4(cyBase), 'mul', 'storeLocal 17'
+    );
+    // 旋转(局部 18)
+    if (anim === 'spin') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(sprite.rotate), 'add', 'storeLocal 18'
+      );
+    } else {
+      code.push('push ' + round4(sprite.rotate), 'storeLocal 18');
+    }
+    // 缩放(局部 19):呼吸/入场弹出
+    if (anim === 'pulse') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(phase), 'add', 'sin',
+        'push ' + round4(sprite.amp), 'mul', 'push 1', 'add', 'storeLocal 19'
+      );
+    } else if (anim === 'pop') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push 2', 'mul',
+        'push 1', 'min', 'storeLocal 19'
+      );
+    }
+    // 透明度
+    if (anim === 'fade') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(phase), 'add', 'sin',
+        'push 0.5', 'mul', 'push 0.5', 'add',
+        'push 0.6', 'mul', 'push 0.4', 'add',
+        'push ' + round4(sprite.alpha), 'mul', 'setAlpha'
+      );
+    } else if (anim === 'pop') {
+      code.push('loadLocal 19', 'push ' + round4(sprite.alpha), 'mul', 'setAlpha');
+    } else {
+      code.push('push ' + round4(sprite.alpha), 'setAlpha');
+    }
+    code.push(
+      'save',
+      'loadLocal 16', 'loadLocal 17', 'translate',
+      'loadLocal 18', 'rotate'
+    );
+    if (anim === 'pulse' || anim === 'pop') {
+      code.push('loadLocal 19', 'loadLocal 19', 'scale');
+    }
+    code.push(
+      'loadLocal 16', 'push -1', 'mul',
+      'loadLocal 17', 'push -1', 'mul',
+      'translate'
+    );
+    if (anim === 'float') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(phase), 'add', 'sin',
+        'push ' + round4(sprite.amp), 'mul', 'canvasField width', 'mul',
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(phase * 0.8), 'add', 'cos',
+        'push ' + round4(sprite.amp * 0.6), 'mul', 'canvasField height', 'mul',
+        'translate'
+      );
+    }
+    code.push(
+      'push ' + sprite.id,
+      'canvasField width', 'push ' + round4(sprite.x), 'mul',
+      'canvasField height', 'push ' + round4(sprite.y), 'mul',
+      'canvasField width', 'push ' + round4(sprite.w), 'mul',
+      'canvasField height', 'push ' + round4(sprite.h), 'mul',
+      'drawSprite',
+      'restore'
+    );
+  }
+  return code;
+}
+
+/**
+ * 手动排版程序:锚点平移 + 逐词覆盖(wordOverride) + 绕词中心旋转绘制。
+ * 不含生成器的构图/手法/装饰;所有自由度来自 program.wordOverrides 数据表。
+ */
+function buildManualSource(style, num) {
+  const m = style.manual;
+  const ax = m.anchorX - 0.5;
+  const ay = m.anchorY - 0.5;
+  return [
+    '; HyperGlow Manual · anchor=' + num(m.anchorX) + ',' + num(m.anchorY) +
+      ' · scale=' + num(m.scale) + ' · rotate=' + num(m.rotate),
+    'colorField sung',
+    'setColor',
+    ...manualSpriteCode(m),
+    'wordCount',
+    'storeLocal 1',
+    'push 0',
+    'storeLocal 0',
+    'loop:',
+    '  loadLocal 0',
+    '  loadLocal 1',
+    '  lt',
+    '  jz done',
+    '  loadLocal 0',
+    '  word',
+    '  storeLocal 6',
+    // 词所属视觉行(3)与行对象(2):逐词覆盖按整行文本匹配
+    '  loadLocal 6',
+    '  wordField line',
+    '  storeLocal 3',
+    '  loadLocal 3',
+    '  line',
+    '  storeLocal 2',
+    // 默认 alpha(词进度)与旋转 0
+    '  loadLocal 6',
+    '  wordField progress',
+    '  push 0.65',
+    '  mul',
+    '  push 0.35',
+    '  add',
+    '  storeLocal 14',
+    '  push 0',
+    '  storeLocal 19',
+    // 锚点平移后的位置
+    '  loadLocal 6',
+    '  wordField x',
+    '  canvasField width',
+    '  push ' + num(ax),
+    '  mul',
+    '  add',
+    '  storeLocal 10',
+    '  loadLocal 6',
+    '  wordField baseline',
+    '  canvasField height',
+    '  push ' + num(ay),
+    '  mul',
+    '  add',
+    '  storeLocal 11',
+    '  push ' + num(m.scale),
+    '  storeLocal 12',
+    // 逐词覆盖:压入 整行文本 + 视觉行号 + 词号,再取 dx,dy,scale,rotate,alpha
+    '  loadLocal 2',
+    '  lineAtField fullText',
+    '  loadLocal 3',
+    '  loadLocal 0',
+    '  wordOverride',
+    '  loadLocal 14',
+    '  mul',
+    '  storeLocal 14',
+    '  storeLocal 19',
+    '  loadLocal 12',
+    '  mul',
+    '  storeLocal 12',
+    '  globalField textSize',
+    '  mul',
+    '  loadLocal 11',
+    '  add',
+    '  storeLocal 11',
+    '  globalField textSize',
+    '  mul',
+    '  loadLocal 10',
+    '  add',
+    '  storeLocal 10',
+    // 整体旋转
+    '  loadLocal 19',
+    '  push ' + num(m.rotate),
+    '  add',
+    '  storeLocal 19',
+    // 字号 / 枢轴 / 透明度
+    '  loadLocal 12',
+    '  globalField textSize',
+    '  mul',
+    '  setTextSize',
+    '  loadLocal 10',
+    '  loadLocal 6',
+    '  wordField text',
+    '  measureText',
+    '  push 0.5',
+    '  mul',
+    '  add',
+    '  storeLocal 8',
+    '  loadLocal 11',
+    '  globalField textSize',
+    '  loadLocal 12',
+    '  mul',
+    '  push 0.35',
+    '  mul',
+    '  sub',
+    '  storeLocal 9',
+    '  loadLocal 14',
+    '  setAlpha',
+    '  save',
+    '  loadLocal 8',
+    '  loadLocal 9',
+    '  translate',
+    '  loadLocal 19',
+    '  rotate',
+    '  loadLocal 8',
+    '  push -1',
+    '  mul',
+    '  loadLocal 9',
+    '  push -1',
+    '  mul',
+    '  translate',
+    '  loadLocal 6',
+    '  wordField text',
+    '  loadLocal 10',
+    '  loadLocal 11',
+    '  drawText',
+    '  restore',
+    'nextw:',
+    '  loadLocal 0',
+    '  push 1',
+    '  add',
+    '  storeLocal 0',
+    '  jump loop',
+    'done:',
+    '  end'
+  ];
+}
+
 /**
  * 生成汇编源码。骨架 = 公共 prologue + 「(行号+词序) mod cycle」分派 + 四个参数化手法分支
  * (单行块内也能四手法轮换;多行折行时行号参与轮换):
@@ -524,6 +810,7 @@ function buildProgramSource(style) {
     const rounded = round4(Number(value) || 0);
     return String(rounded);
   };
+  if (style.manual) return buildManualSource(style, num).join(String.fromCharCode(10));
   const flashT = style.flash ? 0.08 : 999999;
   // 只编译单一手法:新增效果层(失焦/圈注/粒子)靠它把 512 条指令预算让出来。
   const singleMove = Number.isInteger(style.singleMove) ? style.singleMove : null;
@@ -1710,9 +1997,19 @@ function buildEffectPack(timeline, style, meta) {
     return { ok: false, errors: assembled.errors };
   }
   // 汇编产物没有 outputMode 概念,盒模式在此显式注入(归一化会原样保留)。
+  const manualRows = timeline && Array.isArray(timeline.rows)
+    ? timeline.rows.filter((row) => !row.interlude && row.text)
+    : [];
+  const manualOverrides = style.manual
+    ? style.manual.overrides.map((item) => Object.assign({}, item, {
+      // 显式 lineText 优先;否则按当前工程行号映射整行文本
+      lineText: item.lineText || (manualRows[item.line] && manualRows[item.line].text) || ''
+    }))
+    : undefined;
   const normalized = E.normalizeProgram({
     ...assembled.program,
-    outputMode: E.EFFECT_OUTPUT_BOXES
+    outputMode: E.EFFECT_OUTPUT_BOXES,
+    wordOverrides: manualOverrides
   });
   if (!normalized.ok) {
     return { ok: false, errors: normalized.errors };
@@ -1783,6 +2080,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
     // 播放头落在间奏/空隙:找下一个可渲染行,预览整块留空(与实机一致)
     return null;
   }
+  const activeIndex = rows.indexOf(active);
   const span = Math.max(1, (active.end - active.start) * 1000);
   const startMs = active.start * 1000;
   const positionMs = tSeconds * 1000;
@@ -1839,6 +2137,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
     lines: [
       {
         text: active.text,
+        fullText: active.text,
         index: 0,
         startMs,
         endMs: startMs + span,
@@ -2025,6 +2324,8 @@ function toProject(data) {
     seed: data.seed,
     theme: data.theme,
     overrides: data.overrides || {},
+    manual: data.manual || null,
+    manualImages: data.manualImages || {},
     palette: data.palette
   };
 }

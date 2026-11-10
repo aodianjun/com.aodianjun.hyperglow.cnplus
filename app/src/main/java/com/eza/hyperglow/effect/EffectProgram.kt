@@ -1,6 +1,7 @@
 package com.eza.hyperglow.effect
 
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 
 /**
  * 效果程序（沙箱字节码）。
@@ -39,7 +40,28 @@ data class EffectProgram(
      * [EFFECT_OUTPUT_BOXES](程序输出定位盒,由宿主统一渲染)。未知值在归一化时回落 draw,
      * 保证旧配置/旧包零迁移、App 编译与 SystemUI 校验两侧结果一致。
      */
-    val outputMode: String = EFFECT_OUTPUT_DRAW
+    val outputMode: String = EFFECT_OUTPUT_DRAW,
+    /**
+     * 逐词手动排版覆盖(按「行号+词号」查表,配合 `wordOverride` 指令读取)。
+     * 纯数值,不携带任何路径/资源/代码;数量与取值都有硬上限(见归一化)。
+     * 缺省空表 = 旧程序行为逐值不变。
+     */
+    val wordOverrides: List<EffectWordOverride> = emptyList()
+)
+
+/** 单个词的手动排版覆盖:位移以 em 为单位,旋转为度,alpha 0..1。 */
+@Serializable
+data class EffectWordOverride(
+    /** 视觉行号(0 起;与 lineAtField index 一致)。 */
+    val line: Int = 0,
+    val word: Int = 0,
+    /** 整首歌词行完整文本;非空时优先按文本匹配(跨换行稳定)。 */
+    val lineText: String = "",
+    val dx: Float = 0f,
+    val dy: Float = 0f,
+    val scale: Float = 1f,
+    val rotate: Float = 0f,
+    val alpha: Float = 1f
 )
 
 /** 直绘模式(默认):程序经 [EffectRenderSink] 直接调用受控绘制原语。 */
@@ -64,15 +86,21 @@ data class EffectInstruction(
 )
 
 const val EFFECT_PROGRAM_VERSION = 1
-const val MAX_EFFECT_CONSTANTS = 64
-const val MAX_EFFECT_CODE = 512
+const val MAX_EFFECT_CONSTANTS = 128
+const val MAX_EFFECT_CODE = 1024
 const val MAX_EFFECT_LOCALS = 24
 const val MAX_EFFECT_STACK = 64
 const val MAX_EFFECT_STEPS_PER_FRAME = 100_000
 /** 绘制/测量/状态原语的单帧上限：原生 Canvas/Path 调用比算术贵得多。 */
 const val MAX_EFFECT_DRAW_OPS_PER_FRAME = 4_096
 /** 程序 JSON 的保守字节预算：两个曲面各一份时仍要留在配置 64KiB 内。 */
-const val MAX_EFFECT_PROGRAM_ESTIMATED_BYTES = 12 * 1024
+const val MAX_EFFECT_PROGRAM_ESTIMATED_BYTES = 16 * 1024
+/** 逐词手动排版覆盖的条数上限(查表数据,不占指令预算)。 */
+const val MAX_EFFECT_WORD_OVERRIDES = 256
+const val MAX_EFFECT_OVERRIDE_OFFSET_EM = 20f
+const val MAX_EFFECT_OVERRIDE_SCALE = 8f
+const val MAX_EFFECT_OVERRIDE_ROTATE = 720f
+const val MAX_EFFECT_OVERRIDE_LINE_TEXT = 256
 
 /** 全部合法操作码；规范化与 VM 共用同一张表。 */
 val EFFECT_OPS: Set<String> = setOf(
@@ -82,6 +110,8 @@ val EFFECT_OPS: Set<String> = setOf(
     "globalField", "lineField", "lineCount", "line", "lineAtField",
     "canvasField", "colorField",
     "wordCount", "word", "wordField",
+    // 逐词手动排版覆盖(行号、词号 → dx,dy,scale,rotate,alpha)
+    "wordOverride",
     // 算术
     "add", "sub", "mul", "div", "mod", "neg",
     "sin", "cos", "abs", "min", "max", "clamp", "lerp", "pow", "sqrt", "floor", "round",
@@ -107,7 +137,7 @@ val EFFECT_GLOBAL_FIELDS: Set<String> = setOf(
     "time", "wall", "baseline", "textSize", "blockWidth", "blockHeight"
 )
 val EFFECT_LINE_FIELDS: Set<String> = setOf(
-    "text", "start", "end", "progress", "index", "x", "width", "baseline", "height"
+    "text", "fullText", "start", "end", "progress", "index", "x", "width", "baseline", "height"
 )
 val EFFECT_CANVAS_FIELDS: Set<String> = setOf("width", "height")
 val EFFECT_COLOR_FIELDS: Set<String> = setOf("sung", "unsung", "glow", "accent")
@@ -179,6 +209,24 @@ fun normalizeEffectProgram(program: EffectProgram?): EffectProgram? {
         }
     }
     if (estimatedBytes > MAX_EFFECT_PROGRAM_ESTIMATED_BYTES) return null
+    // 逐词覆盖:纯数值查表,计入同一份保守字节预算(48 字节/条)。
+    if (program.wordOverrides.size > MAX_EFFECT_WORD_OVERRIDES) return null
+    estimatedBytes += program.wordOverrides.sumOf { 48 + it.lineText.length }
+    if (estimatedBytes > MAX_EFFECT_PROGRAM_ESTIMATED_BYTES) return null
+    for (override in program.wordOverrides) {
+        if (override.line < 0 || override.word < 0) return null
+        if (override.lineText.length > MAX_EFFECT_OVERRIDE_LINE_TEXT) return null
+        if (override.lineText.indexOf(' ') >= 0) return null
+        if (!override.dx.isFinite() || abs(override.dx) > MAX_EFFECT_OVERRIDE_OFFSET_EM) return null
+        if (!override.dy.isFinite() || abs(override.dy) > MAX_EFFECT_OVERRIDE_OFFSET_EM) return null
+        if (!override.scale.isFinite() ||
+            override.scale !in 0.05f..MAX_EFFECT_OVERRIDE_SCALE
+        ) {
+            return null
+        }
+        if (!override.rotate.isFinite() || abs(override.rotate) > MAX_EFFECT_OVERRIDE_ROTATE) return null
+        if (!override.alpha.isFinite() || override.alpha !in 0f..1f) return null
+    }
     for (index in program.code.indices) {
         val instruction = program.code[index]
         if (instruction.op !in EFFECT_OPS) return null

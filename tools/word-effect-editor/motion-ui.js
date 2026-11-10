@@ -25,6 +25,7 @@ const state = {
   annotationMode: 'none',
   particleMode: 'none',
   lineartMode: 'none',
+  manual: { enabled: false, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, line: 0, word: 0, overrides: {}, sprites: [], sprite: 0, images: {} },
   theme: 'lyric',
   overrides: {},
   palette: { sung: 0xFFFFFFFF, unsung: 0x88FFFFFF, glow: 0xFF66AAFF, accent: 0xFFFFAA33 },
@@ -94,7 +95,8 @@ function readControls() {
     annotationMode: $('annotate').value,
     particleMode: $('particle').value,
     lineartMode: $('lineart').value,
-    flash: $('flash').checked
+    flash: $('flash').checked,
+    manual: manualPayload()
   };
   const sung = E.parseColor($('sungColor').value) || 0xFFFFFFFF;
   const glow = E.parseColor($('glowColor').value) || 0xFF66AAFF;
@@ -134,9 +136,9 @@ function refresh() {
   if (state.built.ok) {
     const stats = state.built.stats;
     $('programStats').innerHTML =
-      '程序 <b>' + stats.instructions + '</b> 条指令(上限 512) · 常量 <b>' + stats.constants +
-      '</b> · 逐帧绘制 <b>' + stats.drawOps + '</b>(上限 4096) · 估算 <b>' +
-      (stats.estimatedBytes / 1024).toFixed(1) + '</b> KiB(上限 12) — 全部在预算内即可导入';
+      '程序 <b>' + stats.instructions + '</b> 条指令(上限 ' + E.MAX_EFFECT_CODE + ') · 常量 <b>' + stats.constants +
+      '</b>(上限 ' + E.MAX_EFFECT_CONSTANTS + ') · 逐帧绘制 <b>' + stats.drawOps + '</b>(上限 4096) · 估算 <b>' +
+      (stats.estimatedBytes / 1024).toFixed(1) + '</b> KiB(上限 ' + (E.MAX_EFFECT_PROGRAM_ESTIMATED_BYTES / 1024) + ') — 全部在预算内即可导入';
     $('frameStatus').textContent = '';
   } else {
     $('programStats').innerHTML = '<span style="color:var(--bad)">程序生成失败:' +
@@ -144,6 +146,11 @@ function refresh() {
     state.built = null;
   }
   renderLineList();
+  renderManualPanel();
+  // 暂停时 refresh 也要重绘预览,否则改滑杆/拖词看不到变化
+  if (!state.playing) {
+    try { drawFrame(currentTimeSec()); } catch (error) { /* 预览尚未就绪 */ }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +260,25 @@ $('speed').addEventListener('change', () => {
 });
 $('loop').addEventListener('change', () => {});
 
+const previewImageCache = {};
+
+function previewImageFor(id) {
+  const data = state.manual && state.manual.images ? state.manual.images[id] : null;
+  if (!data) return null;
+  const key = String(id) + ':' + data.length;
+  const cached = previewImageCache[id];
+  if (cached && cached.key === key) return cached.image;
+  const image = new Image();
+  image.onload = () => {
+    if (!state.playing) {
+      try { drawFrame(currentTimeSec()); } catch (error) { /* ignore */ }
+    }
+  };
+  image.src = data;
+  previewImageCache[id] = { key, image };
+  return image;
+}
+
 function drawFrame(tSeconds) {
   const canvas = $('preview');
   const ctx = canvas.getContext('2d');
@@ -290,8 +316,30 @@ function drawFrame(tSeconds) {
   const scale = canvas.width / frame.canvasWidth;
   ctx.save();
   ctx.scale(scale, scale);
-  M.renderBoxes(ctx, sink.boxes, fontString, cssRgb, cssColor, spriteImages);
+  const previewSprites = Object.assign({}, spriteImages);
+  if (state.manual && state.manual.images) {
+    for (const id of Object.keys(state.manual.images)) {
+      const image = previewImageFor(Number(id));
+      if (image) previewSprites[id] = image;
+    }
+  }
+  M.renderBoxes(ctx, sink.boxes, fontString, cssRgb, cssColor, previewSprites);
   ctx.restore();
+  if (state.manual && state.manual.enabled && state.manual.sprites && state.manual.sprites.length) {
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 2;
+    state.manual.sprites.forEach((sprite, index) => {
+      ctx.strokeStyle = index === state.manual.sprite
+        ? 'rgba(245,165,12,0.95)'
+        : 'rgba(245,165,12,0.35)';
+      ctx.strokeRect(
+        sprite.x * canvas.width, sprite.y * canvas.height,
+        Math.max(8, sprite.w * canvas.width), Math.max(8, sprite.h * canvas.height)
+      );
+    });
+    ctx.restore();
+  }
 }
 
 function formatTime(seconds) {
@@ -393,6 +441,7 @@ function randomAll() {
   state.theme = theme;
   state.seed = Math.floor(Math.random() * 0xffffff) + 1;
   state.overrides = {}; // 清空手动覆盖,吃主题+seed 全随机
+  setManualEnabled(false);
   state.presetKey = 'custom';
   $('preset').value = 'custom';
   syncControlsFromStyle();
@@ -438,6 +487,7 @@ function applyPreset(key) {
   state.presetKey = key;
   state.theme = preset.theme;
   state.overrides = Object.assign({}, preset.params);
+  setManualEnabled(false);
   // 预设自带调色(如金色星火的暖色辉光)一并回填到颜色输入框。
   if (preset.palette) {
     if (preset.palette.sung) $('sungColor').value = preset.palette.sung;
@@ -478,6 +528,390 @@ $('dice').addEventListener('click', () => {
 $('randomAll').addEventListener('click', randomAll);
 
 // ---------------------------------------------------------------------------
+// 手动排版(逐词覆盖):锚点 + 每词位移/缩放/旋转/透明度
+// ---------------------------------------------------------------------------
+
+function manualPayload() {
+  const m = state.manual;
+  if (!m || !m.enabled) return null;
+  const overrides = Object.keys(m.overrides || {}).map((key) => m.overrides[key]);
+  return {
+    enabled: true,
+    anchorX: m.anchorX,
+    anchorY: m.anchorY,
+    scale: m.scale,
+    rotate: m.rotate,
+    overrides,
+    sprites: (m.sprites || []).map((sprite) => Object.assign({}, sprite))
+  };
+}
+
+function manualRows() {
+  return state.timeline.rows.filter((row) => !row.interlude && row.text);
+}
+
+function manualKey(line, word) {
+  return line + ':' + word;
+}
+
+function manualOverride() {
+  return state.manual.overrides[manualKey(state.manual.line, state.manual.word)] || null;
+}
+
+function manualIdentity(ov) {
+  return !ov || (ov.dx === 0 && ov.dy === 0 && ov.scale === 1 && ov.rotate === 0 && ov.alpha === 1);
+}
+
+function writeManualOverride(patch) {
+  const key = manualKey(state.manual.line, state.manual.word);
+  const base = state.manual.overrides[key] || {
+    line: state.manual.line, word: state.manual.word,
+    dx: 0, dy: 0, scale: 1, rotate: 0, alpha: 1
+  };
+  const next = Object.assign({}, base, patch, { line: state.manual.line, word: state.manual.word });
+  if (manualIdentity(next)) delete state.manual.overrides[key];
+  else state.manual.overrides[key] = next;
+}
+
+function setManualEnabled(enabled) {
+  state.manual.enabled = !!enabled;
+  if ($('manualOn')) $('manualOn').checked = state.manual.enabled;
+  if (state.manual.enabled) {
+    state.presetKey = 'custom';
+    if ($('preset')) $('preset').value = 'custom';
+  }
+}
+
+function seekManualLine() {
+  const rows = manualRows();
+  const row = rows[state.manual.line];
+  if (!row) return;
+  if (window.HGMotionUI && typeof window.HGMotionUI.seek === 'function') {
+    window.HGMotionUI.seek(row.start + Math.min(1, (row.end - row.start) * 0.3));
+  }
+}
+
+function renderManualPanel() {
+  if (!$('manualOn')) return;
+  const m = state.manual;
+  $('manualOn').checked = !!m.enabled;
+  $('manualAx').value = m.anchorX;
+  $('manualAy').value = m.anchorY;
+  $('manualScale').value = m.scale;
+  $('manualRotate').value = m.rotate;
+
+  const rows = manualRows();
+  if (m.line >= rows.length) m.line = Math.max(0, rows.length - 1);
+  const lineSelect = $('manualLine');
+  lineSelect.innerHTML = rows.map((row, index) =>
+    '<option value="' + index + '">' + (index + 1) + '. ' + String(row.text).slice(0, 24) + '</option>'
+  ).join('');
+  lineSelect.value = String(m.line);
+
+  const row = rows[m.line];
+  const tokens = row ? E.tokenizeLine(row.text) : [];
+  if (m.word >= tokens.length) m.word = Math.max(0, tokens.length - 1);
+  const wordsBox = $('manualWords');
+  wordsBox.innerHTML = tokens.map((token, index) => {
+    const ov = m.overrides[manualKey(m.line, index)];
+    const active = index === m.word ? 'background:var(--accent);color:#111;' : '';
+    return '<button class="small" data-word="' + index + '" style="margin:2px;' + active + '">' +
+      token.text + (ov ? ' •' : '') + '</button>';
+  }).join('');
+  wordsBox.querySelectorAll('button').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.manual.word = Number(button.getAttribute('data-word'));
+      renderManualPanel();
+    });
+  });
+
+  const ov = manualOverride();
+  $('wDx').value = ov ? ov.dx : 0;
+  $('wDy').value = ov ? ov.dy : 0;
+  $('wScale').value = ov ? ov.scale : 1;
+  $('wRotate').value = ov ? ov.rotate : 0;
+  $('wAlpha').value = ov ? ov.alpha : 1;
+  const count = Object.keys(m.overrides).length;
+  $('manualHint').textContent = m.enabled
+    ? '已覆盖 ' + count + ' 个词;点词选中后拖滑杆,预览实时更新'
+    : '开启后忽略生成器;当前只预览生成器效果';
+
+  const sprites = m.sprites || [];
+  if (m.sprite >= sprites.length) m.sprite = Math.max(0, sprites.length - 1);
+  const spriteList = $('spriteList');
+  spriteList.innerHTML = sprites.map((sprite, index) => {
+    const active = index === m.sprite ? 'background:var(--accent);color:#111;' : '';
+    return '<button class="small" data-sprite="' + index + '" style="margin:2px;' + active + '">贴纸 #' + sprite.id + '</button>';
+  }).join('');
+  spriteList.querySelectorAll('button').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.manual.sprite = Number(button.getAttribute('data-sprite'));
+      renderManualPanel();
+    });
+  });
+  const selectedSprite = sprites[m.sprite] || null;
+  $('sx').value = selectedSprite ? selectedSprite.x : 0.4;
+  $('sy').value = selectedSprite ? selectedSprite.y : 0.4;
+  $('sw').value = selectedSprite ? selectedSprite.w : 0.2;
+  $('sh').value = selectedSprite ? selectedSprite.h : 0.2;
+  $('srot').value = selectedSprite ? selectedSprite.rotate : 0;
+  $('salpha').value = selectedSprite ? selectedSprite.alpha : 1;
+  $('sanim').value = selectedSprite ? selectedSprite.anim : 'none';
+  $('samp').value = selectedSprite ? selectedSprite.amp : 0.08;
+  $('sspeed').value = selectedSprite ? selectedSprite.speed : 1;
+}
+
+$('manualOn').addEventListener('change', () => {
+  setManualEnabled($('manualOn').checked);
+  refresh();
+});
+for (const config of [
+  ['manualAx', 'anchorX'], ['manualAy', 'anchorY'],
+  ['manualScale', 'scale'], ['manualRotate', 'rotate']
+]) {
+  const id = config[0];
+  const key = config[1];
+  $(id).addEventListener('input', () => {
+    if (!state.manual.enabled) setManualEnabled(true);
+    state.manual[key] = Number($(id).value);
+    state.presetKey = 'custom';
+    $('preset').value = 'custom';
+    refresh();
+  });
+}
+$('manualLine').addEventListener('change', () => {
+  state.manual.line = Number($('manualLine').value);
+  state.manual.word = 0;
+  renderManualPanel();
+  seekManualLine();
+});
+for (const config of [
+  ['wDx', 'dx'], ['wDy', 'dy'], ['wScale', 'scale'], ['wRotate', 'rotate'], ['wAlpha', 'alpha']
+]) {
+  const id = config[0];
+  const key = config[1];
+  $(id).addEventListener('input', () => {
+    if (!state.manual.enabled) setManualEnabled(true);
+    writeManualOverride({ [key]: Number($(id).value) });
+    state.presetKey = 'custom';
+    $('preset').value = 'custom';
+    refresh();
+  });
+}
+$('wReset').addEventListener('click', () => {
+  delete state.manual.overrides[manualKey(state.manual.line, state.manual.word)];
+  refresh();
+});
+$('lineReset').addEventListener('click', () => {
+  const prefix = state.manual.line + ':';
+  for (const key of Object.keys(state.manual.overrides)) {
+    if (key.indexOf(prefix) === 0) delete state.manual.overrides[key];
+  }
+  refresh();
+});
+$('manualClear').addEventListener('click', () => {
+  state.manual.overrides = {};
+  refresh();
+});
+$('spritePreset').addEventListener('change', () => {
+  $('spriteId').value = $('spritePreset').value;
+});
+$('spriteAdd').addEventListener('click', () => {
+  if (!state.manual.enabled) setManualEnabled(true);
+  const id = Math.max(0, Math.min(255, Math.round(Number($('spriteId').value) || 0)));
+  state.manual.sprites.push({ id, x: 0.42, y: 0.42, w: 0.12, h: 0.12, rotate: 0, alpha: 1, anim: 'none', amp: 0.08, speed: 1, phase: state.manual.sprites.length * 1.3 });
+  state.manual.sprite = state.manual.sprites.length - 1;
+  state.presetKey = 'custom';
+  $('preset').value = 'custom';
+  refresh();
+});
+for (const config of [
+  ['sx', 'x'], ['sy', 'y'], ['sw', 'w'], ['sh', 'h'], ['srot', 'rotate'], ['salpha', 'alpha']
+]) {
+  const id = config[0];
+  const key = config[1];
+  $(id).addEventListener('input', () => {
+    if (!state.manual.enabled) setManualEnabled(true);
+    const sprite = state.manual.sprites[state.manual.sprite];
+    if (!sprite) return;
+    sprite[key] = Number($(id).value);
+    state.presetKey = 'custom';
+    $('preset').value = 'custom';
+    refresh();
+  });
+}
+$('spriteDelete').addEventListener('click', () => {
+  state.manual.sprites.splice(state.manual.sprite, 1);
+  if (state.manual.sprite >= state.manual.sprites.length) {
+    state.manual.sprite = Math.max(0, state.manual.sprites.length - 1);
+  }
+  refresh();
+});
+$('sanim').addEventListener('change', () => {
+  const sprite = state.manual.sprites[state.manual.sprite];
+  if (!sprite) return;
+  sprite.anim = $('sanim').value;
+  state.presetKey = 'custom';
+  $('preset').value = 'custom';
+  refresh();
+});
+for (const config of [['samp', 'amp'], ['sspeed', 'speed']]) {
+  const id = config[0];
+  const key = config[1];
+  $(id).addEventListener('input', () => {
+    const sprite = state.manual.sprites[state.manual.sprite];
+    if (!sprite) return;
+    sprite[key] = Number($(id).value);
+    state.presetKey = 'custom';
+    $('preset').value = 'custom';
+    refresh();
+  });
+}
+$('spriteImage').addEventListener('click', () => $('spriteFile').click());
+$('spriteFile').addEventListener('change', () => {
+  const file = $('spriteFile').files[0];
+  const sprite = state.manual.sprites[state.manual.sprite];
+  $('spriteFile').value = '';
+  if (!file || !sprite) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const image = new Image();
+    image.onload = () => {
+      const ratio = Math.min(1, 256 / Math.max(1, image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * ratio));
+      canvas.height = Math.max(1, Math.round(image.height * ratio));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      state.manual.images[sprite.id] = canvas.toDataURL('image/png');
+      refresh();
+    };
+    image.src = String(reader.result);
+  };
+  reader.readAsDataURL(file);
+});
+
+// ---- 画布直接拖动:命中选中的行内词 → 改位移;空白处拖动 → 改整体锚点 ----
+let manualDrag = null;
+let manualDragFrame = 0;
+
+function previewMetrics() {
+  const canvas = $('preview');
+  const W = canvas.width || 720;
+  const H = canvas.height || 320;
+  const rows = manualRows();
+  const row = rows[state.manual.line];
+  if (!row) return null;
+  const tokens = E.tokenizeLine(row.text);
+  const ts = 64;
+  const widths = tokens.map((token) => measure(token.text, ts) + (token.spaceBefore ? ts * 0.18 : 0));
+  const total = widths.reduce((sum, width) => sum + width, 0);
+  const startX = Math.max(8, (W - total) / 2);
+  const baseline = Math.max(ts, H * 0.42);
+  let cursor = startX;
+  const points = tokens.map((token, index) => {
+    const ov = state.manual.overrides[manualKey(state.manual.line, index)] || {};
+    const scale = (ov.scale || 1) * state.manual.scale;
+    const cx = cursor + widths[index] / 2 +
+      (state.manual.anchorX - 0.5) * W + (ov.dx || 0) * ts;
+    const cy = baseline + (state.manual.anchorY - 0.5) * H + (ov.dy || 0) * ts -
+      ts * scale * 0.35;
+    cursor += widths[index];
+    return { index, x: cx, y: cy, radius: Math.max(28, ts * scale * 0.55) };
+  });
+  const spriteRects = (state.manual.sprites || []).map((sprite, index) => ({
+    index,
+    x: sprite.x * W,
+    y: sprite.y * H,
+    w: Math.max(8, sprite.w * W),
+    h: Math.max(8, sprite.h * H)
+  }));
+  return { points, spriteRects, W, H };
+}
+
+function canvasEventPoint(event, metrics) {
+  const canvas = $('preview');
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * (metrics.W / Math.max(1, rect.width)),
+    y: (event.clientY - rect.top) * (metrics.H / Math.max(1, rect.height))
+  };
+}
+
+function scheduleManualRefresh() {
+  if (manualDragFrame) return;
+  manualDragFrame = requestAnimationFrame(() => {
+    manualDragFrame = 0;
+    refresh();
+  });
+}
+
+$('preview').addEventListener('pointerdown', (event) => {
+  if (!state.manual.enabled) return;
+  const metrics = previewMetrics();
+  if (!metrics) return;
+  const point = canvasEventPoint(event, metrics);
+  const spriteHit = (metrics.spriteRects || []).find((rect) =>
+    point.x >= rect.x && point.x <= rect.x + rect.w &&
+    point.y >= rect.y && point.y <= rect.y + rect.h);
+  if (spriteHit) {
+    state.manual.sprite = spriteHit.index;
+    renderManualPanel();
+    const sprite = state.manual.sprites[spriteHit.index];
+    manualDrag = {
+      mode: 'sprite', W: metrics.W, H: metrics.H,
+      startX: point.x, startY: point.y, sx: sprite.x, sy: sprite.y
+    };
+    event.preventDefault();
+    return;
+  }
+  const hit = metrics.points.find((item) =>
+    Math.hypot(item.x - point.x, item.y - point.y) <= item.radius);
+  if (hit) {
+    state.manual.word = hit.index;
+    renderManualPanel();
+    const ov = state.manual.overrides[manualKey(state.manual.line, hit.index)] || {};
+    manualDrag = {
+      mode: 'word', W: metrics.W, H: metrics.H,
+      startX: point.x, startY: point.y, dx: ov.dx || 0, dy: ov.dy || 0
+    };
+  } else {
+    manualDrag = {
+      mode: 'anchor', W: metrics.W, H: metrics.H,
+      startX: point.x, startY: point.y,
+      ax: state.manual.anchorX, ay: state.manual.anchorY
+    };
+  }
+  event.preventDefault();
+});
+
+window.addEventListener('pointermove', (event) => {
+  if (!manualDrag) return;
+  const point = canvasEventPoint(event, manualDrag);
+  if (manualDrag.mode === 'sprite') {
+    const sprite = state.manual.sprites[state.manual.sprite];
+    if (sprite) {
+      sprite.x = Math.min(1, Math.max(0, manualDrag.sx + (point.x - manualDrag.startX) / manualDrag.W));
+      sprite.y = Math.min(1, Math.max(0, manualDrag.sy + (point.y - manualDrag.startY) / manualDrag.H));
+    }
+  } else if (manualDrag.mode === 'word') {
+    writeManualOverride({
+      dx: manualDrag.dx + (point.x - manualDrag.startX) / 64,
+      dy: manualDrag.dy + (point.y - manualDrag.startY) / 64
+    });
+  } else {
+    state.manual.anchorX = Math.min(1, Math.max(0,
+      manualDrag.ax + (point.x - manualDrag.startX) / manualDrag.W));
+    state.manual.anchorY = Math.min(1, Math.max(0,
+      manualDrag.ay + (point.y - manualDrag.startY) / manualDrag.H));
+  }
+  scheduleManualRefresh();
+});
+
+window.addEventListener('pointerup', () => {
+  manualDrag = null;
+});
+
+// ---------------------------------------------------------------------------
 // 导出
 // ---------------------------------------------------------------------------
 
@@ -493,8 +927,9 @@ function download(filename, content, mime) {
 
 $('exportPack').addEventListener('click', () => {
   if (!state.built) return;
+  // 紧凑 JSON:1024 指令的程序缩进后会超过 64 KiB 包上限
   download('hyperglow-motion-' + state.theme + '-' + state.seed + '.json',
-    JSON.stringify(state.built.pack, null, 2));
+    JSON.stringify(state.built.pack));
 });
 $('exportLrc').addEventListener('click', () => {
   download('motion-' + state.seed + '.lrc', M.toLrc(state.timeline), 'text/plain');
@@ -510,6 +945,8 @@ $('saveProject').addEventListener('click', () => {
     seed: state.seed,
     theme: state.theme,
     overrides: state.overrides,
+    manual: manualPayload(),
+    manualImages: state.manual.images,
     palette: {
       sung: $('sungColor').value,
       glow: $('glowColor').value
@@ -535,6 +972,51 @@ $('projectFile').addEventListener('change', () => {
       state.theme = project.theme || 'lyric';
       state.seed = project.seed || 1;
       state.overrides = project.overrides || {};
+      const savedManual = project.manual;
+      state.manual = {
+        enabled: !!(savedManual && savedManual.enabled),
+        anchorX: savedManual && Number.isFinite(savedManual.anchorX) ? savedManual.anchorX : 0.5,
+        anchorY: savedManual && Number.isFinite(savedManual.anchorY) ? savedManual.anchorY : 0.5,
+        scale: savedManual && Number.isFinite(savedManual.scale) ? savedManual.scale : 1,
+        rotate: savedManual && Number.isFinite(savedManual.rotate) ? savedManual.rotate : 0,
+        line: 0,
+        word: 0,
+        overrides: {},
+        sprites: [],
+        sprite: 0,
+        images: {}
+      };
+      if (savedManual && Array.isArray(savedManual.overrides)) {
+        for (const ov of savedManual.overrides) {
+          if (!ov || !Number.isInteger(ov.line) || !Number.isInteger(ov.word)) continue;
+          state.manual.overrides[manualKey(ov.line, ov.word)] = {
+            line: ov.line,
+            word: ov.word,
+            dx: Number.isFinite(ov.dx) ? ov.dx : 0,
+            dy: Number.isFinite(ov.dy) ? ov.dy : 0,
+            scale: Number.isFinite(ov.scale) ? ov.scale : 1,
+            rotate: Number.isFinite(ov.rotate) ? ov.rotate : 0,
+            alpha: Number.isFinite(ov.alpha) ? ov.alpha : 1
+          };
+        }
+      }
+      if (project.manualImages && typeof project.manualImages === 'object') {
+        state.manual.images = project.manualImages;
+      }
+      if (savedManual && Array.isArray(savedManual.sprites)) {
+        for (const sprite of savedManual.sprites) {
+          if (!sprite || !Number.isInteger(sprite.id) || sprite.id < 0 || sprite.id > 255) continue;
+          state.manual.sprites.push({
+            id: sprite.id,
+            x: Number.isFinite(sprite.x) ? sprite.x : 0.38,
+            y: Number.isFinite(sprite.y) ? sprite.y : 0.38,
+            w: Number.isFinite(sprite.w) ? sprite.w : 0.22,
+            h: Number.isFinite(sprite.h) ? sprite.h : 0.22,
+            rotate: Number.isFinite(sprite.rotate) ? sprite.rotate : 0,
+            alpha: Number.isFinite(sprite.alpha) ? sprite.alpha : 1
+          });
+        }
+      }
       if (project.palette) {
         if (project.palette.sung) $('sungColor').value = project.palette.sung;
         if (project.palette.glow) $('glowColor').value = project.palette.glow;
@@ -576,6 +1058,18 @@ $('lyrics').value = [
 ].join('\n');
 state.seed = 20261109;
 $('seed').value = state.seed;
+// 顶栏快速跳转:卡片可能位于不同滚动列内,统一 scrollIntoView
+if ($('jumpbar')) {
+  $('jumpbar').querySelectorAll('button').forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = $(button.getAttribute('data-jump'));
+      if (target && target.scrollIntoView) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  });
+}
+
 applyPreset('ballad');
 requestAnimationFrame(tick);
 

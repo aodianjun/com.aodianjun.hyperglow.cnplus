@@ -4057,7 +4057,8 @@ internal class AodLyricCanvasView(
                 x = line.startX,
                 width = line.width,
                 baseline = lineBaseline,
-                height = originalLayout.lineHeight
+                height = originalLayout.lineHeight,
+                fullText = content.original
             )
             precedingWidth += line.width
             precedingRuby += line.rubyHeight
@@ -4076,7 +4077,7 @@ internal class AodLyricCanvasView(
             wallClockMs = SystemClock.elapsedRealtime(),
             deltaMs = 0L,
             frameIndex = 0L,
-            lineText = lines.firstOrNull()?.text ?: "",
+            lineText = content.original,
             lineStartMs = blockStartMs,
             lineEndMs = blockEndMs,
             lineProgress = timedWordProgress(position, blockStartMs, blockEndMs).coerceIn(0f, 1f),

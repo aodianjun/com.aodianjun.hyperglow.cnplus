@@ -175,7 +175,7 @@ function makeFrame(text, positionSec) {
     baseline,
     colors: { sung: 0xFFFFFFFF | 0, unsung: 0x88FFFFFF | 0, glow: 0xFF66AAFF | 0, accent: 0xFFFFAA33 | 0 },
     words,
-    lines: [{ text, index: 0, startMs, endMs, progress: lp, x: startX, width, baseline, height: textSize * 1.4 }],
+    lines: [{ text, fullText: text, index: 0, startMs, endMs, progress: lp, x: startX, width, baseline, height: textSize * 1.4 }],
     blockWidth: width,
     blockHeight: textSize * 1.4
   };
@@ -537,6 +537,139 @@ test('new effect layers keep custom edits inside the instruction budget', () => 
   const built = M.buildEffectPack({ rows: [] }, style, {});
   assert.ok(built.ok, (built.errors || []).join('; '));
   assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE);
+});
+
+test('manual layout compiles anchor + per-word overrides into the program table', () => {
+  const manual = {
+    enabled: true,
+    anchorX: 0.5,
+    anchorY: 0.5,
+    scale: 1,
+    rotate: 0,
+    overrides: [{ line: 0, word: 1, dx: 1, dy: -0.5, scale: 1.5, rotate: 12, alpha: 0.6 }]
+  };
+  const style = M.styleFromSeed(3, 'lyric', { manual });
+  const built = M.buildEffectPack({ rows: [] }, style, {});
+  assert.ok(built.ok, (built.errors || []).join('; '));
+  assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE);
+  const program = built.effect.program;
+  assert.strictEqual(program.wordOverrides.length, 1);
+  assert.strictEqual(program.wordOverrides[0].word, 1);
+
+  const frame = makeFrame('一二三四', 1.0);
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  const result = E.runProgram(program, frame, sink);
+  assert.ok(result.ok && !sink.failed);
+  const box = sink.boxes.find((item) => item.text === '二');
+  assert.ok(box, 'overridden word box missing');
+  const base = frame.words[1];
+  assert.ok(Math.abs(box.x - (base.x + 1 * frame.textSize)) < 0.5, 'dx not applied: ' + box.x);
+  assert.ok(Math.abs(box.baseline - (base.baseline - 0.5 * frame.textSize)) < 0.5, 'dy not applied');
+  assert.ok(Math.abs(box.paint.textSize - frame.textSize * 1.5) < 0.5, 'scale not applied');
+  assert.ok(Math.abs(box.paint.alpha - 0.35 * 0.6) < 0.02, 'alpha not applied: ' + box.paint.alpha);
+  const rotated = Math.abs(box.transform.m1) > 1e-4 || Math.abs(box.transform.m3) > 1e-4;
+  assert.ok(rotated, 'rotation not applied');
+});
+
+test('manual sprite layer draws built-in and custom images before text', () => {
+  const manual = {
+    enabled: true,
+    anchorX: 0.5,
+    anchorY: 0.5,
+    scale: 1,
+    rotate: 0,
+    overrides: [],
+    sprites: [
+      { id: 1, x: 0.1, y: 0.2, w: 0.3, h: 0.15, rotate: 10, alpha: 0.8 },
+      { id: 80, x: 0.6, y: 0.5, w: 0.2, h: 0.2, rotate: 0, alpha: 1 }
+    ]
+  };
+  const built = M.buildEffectPack({ rows: [] }, M.styleFromSeed(3, 'lyric', { manual }), {});
+  assert.ok(built.ok, (built.errors || []).join('; '));
+  assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE);
+  const frame = makeFrame('一二', 1.0);
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  const result = E.runProgram(built.effect.program, frame, sink);
+  assert.ok(result.ok && !sink.failed);
+  const sprites = sink.boxes.filter((box) => box.type === 'sprite');
+  assert.strictEqual(sprites.length, 2);
+  assert.strictEqual(sprites[0].spriteId, 1);
+  assert.strictEqual(sprites[1].spriteId, 80);
+  assert.ok(Math.abs(sprites[0].x - 0.1 * frame.canvasWidth) < 0.5);
+  assert.ok(Math.abs(sprites[0].y - 0.2 * frame.canvasHeight) < 0.5);
+  const firstText = sink.boxes.findIndex((box) => box.type === 'text');
+  assert.ok(sink.boxes.indexOf(sprites[0]) < firstText, 'sprites should render behind text');
+});
+
+test('manual sprite animations change geometry or alpha over time', () => {
+  function spriteBoxes(anim, posSec) {
+    const manual = {
+      enabled: true, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, overrides: [],
+      sprites: [{ id: 1, x: 0.3, y: 0.3, w: 0.12, h: 0.12, rotate: 0, alpha: 1,
+        anim, amp: 0.1, speed: 2, phase: 0 }]
+    };
+    const built = M.buildEffectPack({ rows: [] }, M.styleFromSeed(3, 'lyric', { manual }), {});
+    assert.ok(built.ok, anim + ': ' + (built.errors || []).join('; '));
+    assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE, anim + ' instr ' + built.stats.instructions);
+    const frame = makeFrame('一二', posSec);
+    const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+    const result = E.runProgram(built.effect.program, frame, sink);
+    assert.ok(result.ok && !sink.failed);
+    return sink.boxes.filter((box) => box.type === 'sprite');
+  }
+
+  const floatA = spriteBoxes('float', 0.5);
+  const floatB = spriteBoxes('float', 1.6);
+  assert.ok(floatA.length === 1 && floatB.length === 1);
+  assert.ok(Math.abs(floatA[0].transform.m2 - floatB[0].transform.m2) > 0.5, 'float should drift');
+
+  const spin = spriteBoxes('spin', 1.2)[0];
+  assert.ok(Math.abs(spin.transform.m1) > 1e-3 || Math.abs(spin.transform.m3) > 1e-3, 'spin should rotate');
+
+  const pulse = spriteBoxes('pulse', 0.9)[0];
+  assert.ok(Math.abs(pulse.transform.m0 - 1) > 1e-3, 'pulse should scale');
+
+  const fadeA = spriteBoxes('fade', 0.3)[0];
+  const fadeB = spriteBoxes('fade', 1.1)[0];
+  assert.ok(Math.abs(fadeA.paint.alpha - fadeB.paint.alpha) > 0.02, 'fade should change alpha');
+
+  const popEarly = spriteBoxes('pop', 0.1)[0];
+  const popLate = spriteBoxes('pop', 1.0)[0];
+  assert.ok(popEarly.paint.alpha < popLate.paint.alpha, 'pop should fade in');
+  assert.ok(Math.abs(popEarly.transform.m0) < Math.abs(popLate.transform.m0), 'pop should scale in');
+});
+
+test('wordOverrides match by full line text even when visual line index differs', () => {
+  const manual = {
+    enabled: true, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, sprites: [],
+    // line 故意填一个不存在的视觉行号,只靠 lineText 命中
+    overrides: [{ line: 99, word: 0, lineText: '甲乙', dx: 1, dy: 0, scale: 1, rotate: 0, alpha: 1 }]
+  };
+  const timeline = { rows: [{ text: '甲乙', start: 0, end: 2 }] };
+  const built = M.buildEffectPack(timeline, M.styleFromSeed(3, 'lyric', { manual }), {});
+  assert.ok(built.ok, (built.errors || []).join('; '));
+  assert.strictEqual(built.effect.program.wordOverrides[0].lineText, '甲乙');
+
+  const frame = makeFrame('甲乙', 1.0);
+  frame.lines[0].fullText = '甲乙';
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  const result = E.runProgram(built.effect.program, frame, sink);
+  assert.ok(result.ok && !sink.failed);
+  const box = sink.boxes.find((item) => item.text === '甲');
+  assert.ok(box);
+  assert.ok(Math.abs(box.x - (frame.words[0].x + frame.textSize)) < 0.5, 'text-key override not applied');
+});
+
+test('manual anchor shifts every word by canvas fraction', () => {
+  const manual = { enabled: true, anchorX: 0.6, anchorY: 0.4, scale: 1, rotate: 0, overrides: [] };
+  const built = M.buildEffectPack({ rows: [] }, M.styleFromSeed(3, 'lyric', { manual }), {});
+  assert.ok(built.ok);
+  const frame = makeFrame('一二', 1.0);
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  E.runProgram(built.effect.program, frame, sink);
+  const first = sink.boxes.find((item) => item.text === '一');
+  assert.ok(Math.abs(first.x - (frame.words[0].x + 0.1 * frame.canvasWidth)) < 0.5, 'anchorX not applied');
+  assert.ok(Math.abs(first.baseline - (frame.words[0].baseline - 0.1 * frame.canvasHeight)) < 0.5, 'anchorY not applied');
 });
 
 test('invalid effect-layer values fall back to none', () => {

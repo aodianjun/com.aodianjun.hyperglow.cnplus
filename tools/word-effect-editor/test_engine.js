@@ -575,6 +575,24 @@ function assembleFails(source) {
   return result;
 }
 
+test('normalizeProgram preserves and validates wordOverrides', () => {
+  const base = { version: 1, constants: [], code: [{ op: 'end' }], maxLocals: 0 };
+  const ok = E.normalizeProgram(Object.assign({}, base, {
+    wordOverrides: [{ line: 0, word: 1, dx: 1, dy: -1, scale: 1.5, rotate: 10, alpha: 0.5 }]
+  }));
+  assert.strictEqual(ok.ok, true, ok.errors.join('; '));
+  assert.strictEqual(ok.program.wordOverrides.length, 1);
+  assert.strictEqual(ok.program.wordOverrides[0].scale, 1.5);
+  const badScale = E.normalizeProgram(Object.assign({}, base, {
+    wordOverrides: [{ line: 0, word: 1, scale: 0 }]
+  }));
+  assert.strictEqual(badScale.ok, false);
+  const badLine = E.normalizeProgram(Object.assign({}, base, {
+    wordOverrides: [{ line: -1, word: 0 }]
+  }));
+  assert.strictEqual(badLine.ok, false);
+});
+
 test('missing push operand fails', () => {
   assembleFails('push\nend');
 });

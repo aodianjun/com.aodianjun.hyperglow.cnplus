@@ -254,9 +254,18 @@
 | 字段 | 类型 | 约束 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `version` | int | 必须为 `1` | `1` | 程序格式版本 |
-| `constants` | array | ≤64 项 | `[]` | 常量池 |
-| `code` | array | 1..512 条 | 必填 | 指令序列 |
+| `constants` | array | ≤128 项 | `[]` | 常量池 |
+| `code` | array | 1..1024 条 | 必填 | 指令序列 |
 | `maxLocals` | int | 0..24 | `16` | 局部变量槽数量 |
+| `wordOverrides` | array | ≤256 项 | `[]` | 逐词手动排版覆盖表（见下） |
+
+`wordOverrides` 的每一项是
+`{ "line": 0, "word": 0, "lineText": "", "dx": 0, "dy": 0, "scale": 1, "rotate": 0, "alpha": 1 }`：
+`lineText` 非空时按「整首歌词行文本 + 词号」匹配（跨折行稳定），否则按「视觉行号 + 词号」。
+供 `wordOverride` 指令读取（弹 `lineText, line, word`，压 `dx,dy,scale,rotate,alpha`）。
+`dx`/`dy` 以 em 为单位（绝对值 ≤20），`scale` 0.05..8，`rotate` 单位度（绝对值 ≤720），
+`alpha` 0..1，`lineText` ≤256 字符；非有限值或越界直接拒绝。表项按
+`48 + lineText 长度` 字节计入程序估算预算，不占指令数。
 
 常量项是 `{ "type": "number" | "string" | "bool", "value": "..." }`。`type` 省略时按
 `number` 解释；number 必须是有限数；string 最长 256 字符；bool 只接受 `"true"` / `"false"`。
@@ -436,6 +445,7 @@
 | op | 栈 | 语义 |
 | --- | --- | --- |
 | `measureText` | `text` → `width` | 测量文字宽度（像素） |
+| `wordOverride` | `lineText line word` → `dx dy scale rotate alpha` | 查逐词覆盖表（文本优先，行号兜底）；未命中压入恒等值 `0 0 1 0 1` |
 | `end` | → | 正常结束本帧，返回成功 |
 
 ### 10.4 最小示例
@@ -504,7 +514,7 @@ done:
 
 实际程序用槽 0–5 保存 `i`、`count`、`cx`、`cy`、`p`、`s`，用槽 7 保存 `word(i)` 的词引用
 （槽 6 未用），所以 `maxLocals = 8`。`program_bounce` 为 70 条指令、7 个常量；
-`program_spin` 为 57 条指令、5 个常量、`maxLocals = 5`。两者都远低于 512 条上限。
+`program_spin` 为 57 条指令、5 个常量、`maxLocals = 5`。两者都远低于 1024 条上限。
 这两个是早期逐词示例，按单行布局编写，使用首行基线（`globalField baseline`）；
 多行块应参考下面的整块示例。
 
@@ -591,9 +601,9 @@ for i in 0..27:
   渲染线程，但会持续烧预算，应避免。
 - **native 资源上限**：save 深度 ≤16，单条路径 ≤4096 点；`restore` 不会越过 VM 开始时的
   Canvas 深度，VM 结束后宿主会把未配对的 save 全部弹掉。
-- **程序规模**：`code` 1..512 条，`constants` ≤64 项，`maxLocals` 0..24，操作数栈 ≤64。
+- **程序规模**：`code` 1..1024 条，`constants` ≤128 项，`maxLocals` 0..24，操作数栈 ≤64。
   常量字符串 ≤256 字符且过不安全字符串扫描；number 必须有限；版本必须为 `1`。未知 op、
-  未知字段名、越界的常量下标/局部槽/跳转目标都会使该效果被拒绝。保守估算字节数 ≤12 KiB，
+  未知字段名、越界的常量下标/局部槽/跳转目标都会使该效果被拒绝。保守估算字节数 ≤16 KiB，
   保证锁屏 + AOD 各带一份时仍留在配置 64 KiB 内；`tools/assemble_effect_program.py`
   会在组装时提前拒绝超过该估算的程序。
 - **坐标与状态钳制**：`translate` 的 x/y 钳制到 ±10,000 像素；`rotate` 钳制到 ±7,200 度；
@@ -605,7 +615,7 @@ for i in 0..27:
 - **与 64 KiB 的关系**：效果包导入上限是 64 KiB（`WordEffectPackStore.MAX_PACK_BYTES`）；
   选中效果后整份规格会写进 `SurfaceProfile.wordEffect`，随配置文档下发，而
   `SceneCompiler.MAX_CONFIG_BYTES` 同样是 64 KiB。程序 JSON 是逐条指令的对象数组：
-  紧凑编码下 512 条指令约 17–20 KiB；如果包文件按缩进格式保存，同样规模约 36–41 KiB，
+  紧凑编码下 1024 条指令约 34–40 KiB（编辑器导出使用紧凑 JSON）；如果按缩进格式保存，同样规模约 72–80 KiB，会超过 64 KiB 包上限，
   两个满编效果就会逼近整包上限。因此要**共享常量、复用局部槽、避免长字符串常量**，
   否则程序会挤占同一份配置里其他外观字段或其它效果的空间。
   `tools/assemble_effect_program.py` 会打印生成包的实际字节数。
@@ -668,7 +678,7 @@ program = assemble(
 工具里的 op 白名单、字段白名单与数值上限均从 `EffectProgram.kt` 复制（含 `lineCount` /
 `line` / `lineAtField`、全部新绘制/状态原语与 `blockWidth` / `blockHeight` 等字段）；
 静态栈深检查会沿所有跳转路径验证栈平衡，能提前发现“少压一个参数”或“循环出口栈深不一致”
-这类错误。它还会校验 12 KiB 估算字节数，并打印每个程序的指令数、常量数、绘制指令数与
+这类错误。它还会校验 16 KiB 估算字节数，并打印每个程序的指令数、常量数、绘制指令数与
 整包字节数。
 
 ## 11. 盒模型输出模式（Boxes Output Mode）
@@ -770,3 +780,9 @@ Word Effect Studio 的程序编辑器提供「输出模式」选择（draw / box
 所选模式写入 `program.outputMode`，导入/导出/复制/模板均保留。盒模式下编辑器预览走
 收集器 + 盒渲染器，预算超限与实机同样整块不绘制并提示。
 - 贴图编号池：0..63 为**内置素材**（`assets/deco/<id>.png`，随模块 APK 分发）；64..255 为**用户导入贴纸**——用户在 App「外观 → 自定义贴纸」导入，导入时解码校验、等比缩到 ≤1024 像素并重编码 PNG（剥元数据）存入 app 私有目录。发布配置时字节经只读 `ParcelFileDescriptor` 随配置 Bundle 下发，SystemUI 按 sha256 与尺寸/像素预算校验后才解码；效果文档里只出现编号，**不出现任何文件路径或 URL**。
+- 手动排版：Word Effect Studio 的「手动排版」面板把锚点与逐词覆盖写入 `program.wordOverrides`
+  （数值 + 行文本，≤256 条）；程序用 `wordOverride` 指令按「行文本优先、视觉行号兜底」读取，未命中返回恒等值。
+  覆盖表不占指令数，但与指令共用 16 KiB 估算预算（48 字节/条）；旧版 App 不认识该指令，需同步升级。
+- 手动贴纸：贴纸层编译为 `drawSprite`（画在文字之前），支持漂浮/呼吸/旋转/明暗/入场弹出
+  （公式基于 `globalField time`，导出后实机同源）。网页端可为本机预览导入图片，图片只存进
+  工程 JSON、**不进效果包**；实机仍需在 App「自定义贴纸」导入同一张图并使用同编号。
