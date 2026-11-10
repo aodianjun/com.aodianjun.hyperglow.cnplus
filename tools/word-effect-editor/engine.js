@@ -126,7 +126,7 @@
     'time', 'wall', 'baseline', 'textSize', 'blockWidth', 'blockHeight'
   ]);
   const EFFECT_LINE_FIELDS = new Set([
-    'text', 'start', 'end', 'progress', 'index', 'x', 'width', 'baseline', 'height'
+    'text', 'fullText', 'start', 'end', 'progress', 'index', 'x', 'width', 'baseline', 'height'
   ]);
   const EFFECT_CANVAS_FIELDS = new Set(['width', 'height']);
   const EFFECT_COLOR_FIELDS = new Set(['sung', 'unsung', 'glow', 'accent']);
@@ -613,6 +613,12 @@
         if (Number.isFinite(ov.word) && (!Number.isInteger(ov.word) || ov.word < 0)) {
           errors.push('逐词覆盖 ' + i + ' 的 word 必须是非负整数');
         }
+        if (ov.lineText != null && typeof ov.lineText !== 'string') {
+          errors.push('逐词覆盖 ' + i + ' 的 lineText 必须是字符串');
+        } else if (typeof ov.lineText === 'string') {
+          if (ov.lineText.length > 256) errors.push('逐词覆盖 ' + i + ' 的 lineText 过长');
+          if (ov.lineText.indexOf(' ') >= 0) errors.push('逐词覆盖 ' + i + ' 的 lineText 含非法字符');
+        }
         if (Number.isFinite(ov.dx) && Math.abs(ov.dx) > MAX_EFFECT_OVERRIDE_OFFSET_EM) {
           errors.push('逐词覆盖 ' + i + ' 的 dx 越界');
         }
@@ -689,7 +695,8 @@
       }
     }
 
-    const estimatedBytes = estimateProgramBytes({ code, constants }) + wordOverrides.length * 48;
+    const estimatedBytes = estimateProgramBytes({ code, constants }) +
+      wordOverrides.reduce((sum, ov) => sum + 48 + (typeof ov.lineText === 'string' ? ov.lineText.length : 0), 0);
     if (estimatedBytes > MAX_EFFECT_PROGRAM_ESTIMATED_BYTES) {
       errors.push('程序估算字节 ' + estimatedBytes + ' 超过 12 KiB 预算');
     }
@@ -713,6 +720,7 @@
       program.wordOverrides = wordOverrides.map((ov) => ({
         line: ov.line == null ? 0 : ov.line,
         word: ov.word == null ? 0 : ov.word,
+        lineText: typeof ov.lineText === 'string' ? ov.lineText : '',
         dx: ov.dx == null ? 0 : ov.dx,
         dy: ov.dy == null ? 0 : ov.dy,
         scale: ov.scale == null ? 1 : ov.scale,
@@ -934,7 +942,7 @@
     const: 1, loadLocal: 1, storeLocal: -1, pop: -1, dup: 1, swap: 0,
     globalField: 1, lineField: 1, lineCount: 1, line: 0, lineAtField: 0,
     canvasField: 1, colorField: 1, wordCount: 1, word: 0, wordField: 0,
-    wordOverride: 3,
+    wordOverride: 2,
     add: -1, sub: -1, mul: -1, div: -1, mod: -1, neg: 0, sin: 0, cos: 0, abs: 0,
     min: -1, max: -1, clamp: -2, lerp: -2, pow: -1, sqrt: 0, floor: 0, round: 0,
     lt: -1, le: -1, gt: -1, ge: -1, eq: -1, ne: -1, and: -1, or: -1, not: 0,
@@ -952,7 +960,7 @@
 
   const STACK_NEED = {
     storeLocal: 1, pop: 1, dup: 1, swap: 2, line: 1, lineAtField: 1, word: 1, wordField: 1,
-    wordOverride: 2,
+    wordOverride: 3,
     add: 2, sub: 2, mul: 2, div: 2, mod: 2, min: 2, max: 2, pow: 2,
     lt: 2, le: 2, gt: 2, ge: 2, eq: 2, ne: 2, and: 2, or: 2,
     neg: 1, sin: 1, cos: 1, abs: 1, sqrt: 1, floor: 1, round: 1, not: 1, stringLength: 1,
@@ -1410,9 +1418,15 @@
     const constants = program.constants || [];
     const wordOverrides = Array.isArray(program.wordOverrides) ? program.wordOverrides : [];
     const overrideByKey = new Map();
+    const overrideByText = new Map();
     for (const ov of wordOverrides) {
-      if (!ov || !Number.isFinite(ov.line) || !Number.isFinite(ov.word)) continue;
-      overrideByKey.set((ov.line | 0) * 100000 + (ov.word | 0), ov);
+      if (!ov || !Number.isFinite(ov.word)) continue;
+      if (Number.isFinite(ov.line)) {
+        overrideByKey.set((ov.line | 0) * 100000 + (ov.word | 0), ov);
+      }
+      if (typeof ov.lineText === 'string' && ov.lineText.length) {
+        overrideByText.set(ov.lineText + ' ' + (ov.word | 0), ov);
+      }
     }
     const maxLocals = Math.max(0, Math.min(MAX_EFFECT_LOCALS, toInt32Trunc(program.maxLocals == null ? 16 : program.maxLocals)));
     const locals = new Array(maxLocals).fill(null);
@@ -1523,6 +1537,7 @@
       if (!line) return field === 'text' ? '' : 0;
       switch (field) {
         case 'text': return line.text == null ? '' : line.text;
+        case 'fullText': return line.fullText == null || line.fullText === '' ? (line.text || '') : line.fullText;
         case 'start': return line.startMs || 0;
         case 'end': return line.endMs || 0;
         case 'progress': return line.progress || 0;
@@ -1680,7 +1695,11 @@
         case 'wordOverride': {
           const wordIndex = popNumber() | 0;
           const lineIndex = popNumber() | 0;
-          const ov = overrideByKey.get(lineIndex * 100000 + wordIndex);
+          const lineText = pop();
+          const textOv = (typeof lineText === 'string' && lineText.length
+            ? overrideByText.get(lineText + ' ' + wordIndex)
+            : null);
+          const ov = textOv || overrideByKey.get(lineIndex * 100000 + wordIndex);
           push(ov && Number.isFinite(ov.dx) ? ov.dx : 0);
           push(ov && Number.isFinite(ov.dy) ? ov.dy : 0);
           push(ov && Number.isFinite(ov.scale) ? ov.scale : 1);

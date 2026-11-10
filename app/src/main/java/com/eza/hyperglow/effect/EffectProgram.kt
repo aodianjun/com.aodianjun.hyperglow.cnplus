@@ -52,8 +52,11 @@ data class EffectProgram(
 /** 单个词的手动排版覆盖:位移以 em 为单位,旋转为度,alpha 0..1。 */
 @Serializable
 data class EffectWordOverride(
+    /** 视觉行号(0 起;与 lineAtField index 一致)。 */
     val line: Int = 0,
     val word: Int = 0,
+    /** 整首歌词行完整文本;非空时优先按文本匹配(跨换行稳定)。 */
+    val lineText: String = "",
     val dx: Float = 0f,
     val dy: Float = 0f,
     val scale: Float = 1f,
@@ -97,6 +100,7 @@ const val MAX_EFFECT_WORD_OVERRIDES = 256
 const val MAX_EFFECT_OVERRIDE_OFFSET_EM = 20f
 const val MAX_EFFECT_OVERRIDE_SCALE = 8f
 const val MAX_EFFECT_OVERRIDE_ROTATE = 720f
+const val MAX_EFFECT_OVERRIDE_LINE_TEXT = 256
 
 /** 全部合法操作码；规范化与 VM 共用同一张表。 */
 val EFFECT_OPS: Set<String> = setOf(
@@ -133,7 +137,7 @@ val EFFECT_GLOBAL_FIELDS: Set<String> = setOf(
     "time", "wall", "baseline", "textSize", "blockWidth", "blockHeight"
 )
 val EFFECT_LINE_FIELDS: Set<String> = setOf(
-    "text", "start", "end", "progress", "index", "x", "width", "baseline", "height"
+    "text", "fullText", "start", "end", "progress", "index", "x", "width", "baseline", "height"
 )
 val EFFECT_CANVAS_FIELDS: Set<String> = setOf("width", "height")
 val EFFECT_COLOR_FIELDS: Set<String> = setOf("sung", "unsung", "glow", "accent")
@@ -207,10 +211,12 @@ fun normalizeEffectProgram(program: EffectProgram?): EffectProgram? {
     if (estimatedBytes > MAX_EFFECT_PROGRAM_ESTIMATED_BYTES) return null
     // 逐词覆盖:纯数值查表,计入同一份保守字节预算(48 字节/条)。
     if (program.wordOverrides.size > MAX_EFFECT_WORD_OVERRIDES) return null
-    estimatedBytes += program.wordOverrides.size * 48
+    estimatedBytes += program.wordOverrides.sumOf { 48 + it.lineText.length }
     if (estimatedBytes > MAX_EFFECT_PROGRAM_ESTIMATED_BYTES) return null
     for (override in program.wordOverrides) {
         if (override.line < 0 || override.word < 0) return null
+        if (override.lineText.length > MAX_EFFECT_OVERRIDE_LINE_TEXT) return null
+        if (override.lineText.indexOf(' ') >= 0) return null
         if (!override.dx.isFinite() || abs(override.dx) > MAX_EFFECT_OVERRIDE_OFFSET_EM) return null
         if (!override.dy.isFinite() || abs(override.dy) > MAX_EFFECT_OVERRIDE_OFFSET_EM) return null
         if (!override.scale.isFinite() ||

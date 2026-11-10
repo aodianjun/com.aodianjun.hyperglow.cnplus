@@ -231,6 +231,9 @@ add / mul / sin / clamp / drawText / save / restore / end
   也可以导出效果包 JSON / LRC / 可回灌的工程 JSON。
 - **预算护栏**:生成器保证落在 1024 指令 / 16 KiB 估算 / 4096 绘制每帧内,状态栏实时显示用量。
 
+完整接口（程序字段、指令栈语义、wordOverrides、贴纸/动画公式、工程格式、预算与兼容性）见
+`docs/WORD_EFFECT_PROGRAM_API.md`。
+
 与 JIZURA 的差异(边界):不导出 MP4 / PNG 序列(HyperGlow 的目标是锁屏/AOD 实时渲染);
 不做音频节拍检测(v1 用 BPM + 吸附);特效库收敛到四个手法公式而不是数百种部件;字体与
 注音由 HyperGlow 宿主绘制。注音语法可解析,但只作为行备注记录。

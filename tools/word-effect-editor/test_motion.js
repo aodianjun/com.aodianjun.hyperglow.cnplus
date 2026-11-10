@@ -175,7 +175,7 @@ function makeFrame(text, positionSec) {
     baseline,
     colors: { sung: 0xFFFFFFFF | 0, unsung: 0x88FFFFFF | 0, glow: 0xFF66AAFF | 0, accent: 0xFFFFAA33 | 0 },
     words,
-    lines: [{ text, index: 0, startMs, endMs, progress: lp, x: startX, width, baseline, height: textSize * 1.4 }],
+    lines: [{ text, fullText: text, index: 0, startMs, endMs, progress: lp, x: startX, width, baseline, height: textSize * 1.4 }],
     blockWidth: width,
     blockHeight: textSize * 1.4
   };
@@ -637,6 +637,27 @@ test('manual sprite animations change geometry or alpha over time', () => {
   const popLate = spriteBoxes('pop', 1.0)[0];
   assert.ok(popEarly.paint.alpha < popLate.paint.alpha, 'pop should fade in');
   assert.ok(Math.abs(popEarly.transform.m0) < Math.abs(popLate.transform.m0), 'pop should scale in');
+});
+
+test('wordOverrides match by full line text even when visual line index differs', () => {
+  const manual = {
+    enabled: true, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, sprites: [],
+    // line 故意填一个不存在的视觉行号,只靠 lineText 命中
+    overrides: [{ line: 99, word: 0, lineText: '甲乙', dx: 1, dy: 0, scale: 1, rotate: 0, alpha: 1 }]
+  };
+  const timeline = { rows: [{ text: '甲乙', start: 0, end: 2 }] };
+  const built = M.buildEffectPack(timeline, M.styleFromSeed(3, 'lyric', { manual }), {});
+  assert.ok(built.ok, (built.errors || []).join('; '));
+  assert.strictEqual(built.effect.program.wordOverrides[0].lineText, '甲乙');
+
+  const frame = makeFrame('甲乙', 1.0);
+  frame.lines[0].fullText = '甲乙';
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  const result = E.runProgram(built.effect.program, frame, sink);
+  assert.ok(result.ok && !sink.failed);
+  const box = sink.boxes.find((item) => item.text === '甲');
+  assert.ok(box);
+  assert.ok(Math.abs(box.x - (frame.words[0].x + frame.textSize)) < 0.5, 'text-key override not applied');
 });
 
 test('manual anchor shifts every word by canvas fraction', () => {

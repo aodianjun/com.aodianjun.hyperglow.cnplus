@@ -443,6 +443,9 @@ function normalizeManual(raw) {
       overrides.push({
         line: item.line,
         word: item.word,
+        lineText: typeof item.lineText === 'string'
+          ? item.lineText.split(String.fromCharCode(0)).join('').slice(0, 256)
+          : '',
         dx: clamp(finite(item.dx, 0), -20, 20),
         dy: clamp(finite(item.dy, 0), -20, 20),
         scale: clamp(finite(item.scale, 1), 0.05, 8),
@@ -674,6 +677,13 @@ function buildManualSource(style, num) {
     '  loadLocal 0',
     '  word',
     '  storeLocal 6',
+    // 词所属视觉行(3)与行对象(2):逐词覆盖按整行文本匹配
+    '  loadLocal 6',
+    '  wordField line',
+    '  storeLocal 3',
+    '  loadLocal 3',
+    '  line',
+    '  storeLocal 2',
     // 默认 alpha(词进度)与旋转 0
     '  loadLocal 6',
     '  wordField progress',
@@ -701,9 +711,10 @@ function buildManualSource(style, num) {
     '  storeLocal 11',
     '  push ' + num(m.scale),
     '  storeLocal 12',
-    // 逐词覆盖:压入 dx,dy,scale,rotate,alpha
-    '  loadLocal 6',
-    '  wordField line',
+    // 逐词覆盖:压入 整行文本 + 视觉行号 + 词号,再取 dx,dy,scale,rotate,alpha
+    '  loadLocal 2',
+    '  lineAtField fullText',
+    '  loadLocal 3',
     '  loadLocal 0',
     '  wordOverride',
     '  loadLocal 14',
@@ -1986,10 +1997,19 @@ function buildEffectPack(timeline, style, meta) {
     return { ok: false, errors: assembled.errors };
   }
   // 汇编产物没有 outputMode 概念,盒模式在此显式注入(归一化会原样保留)。
+  const manualRows = timeline && Array.isArray(timeline.rows)
+    ? timeline.rows.filter((row) => !row.interlude && row.text)
+    : [];
+  const manualOverrides = style.manual
+    ? style.manual.overrides.map((item) => Object.assign({}, item, {
+      // 显式 lineText 优先;否则按当前工程行号映射整行文本
+      lineText: item.lineText || (manualRows[item.line] && manualRows[item.line].text) || ''
+    }))
+    : undefined;
   const normalized = E.normalizeProgram({
     ...assembled.program,
     outputMode: E.EFFECT_OUTPUT_BOXES,
-    wordOverrides: style.manual ? style.manual.overrides : undefined
+    wordOverrides: manualOverrides
   });
   if (!normalized.ok) {
     return { ok: false, errors: normalized.errors };
@@ -2091,7 +2111,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
       progress: E.clamp((positionMs - unitStartMs) / Math.max(1, unitEndMs - unitStartMs), 0, 1),
       index,
       longSyllable: unitEndMs - unitStartMs >= 700,
-      lineIndex: activeIndex,
+      lineIndex: 0,
       baseline
     });
     cursorX += Math.max(0, widths[index]);
@@ -2107,7 +2127,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
     lineStartMs: startMs,
     lineEndMs: startMs + span,
     lineProgress,
-    lineIndex: activeIndex,
+    lineIndex: 0,
     canvasWidth: canvasW,
     canvasHeight: Number.isFinite(canvasHeight) ? canvasHeight : 320,
     textSize,
@@ -2117,7 +2137,8 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
     lines: [
       {
         text: active.text,
-        index: activeIndex,
+        fullText: active.text,
+        index: 0,
         startMs,
         endMs: startMs + span,
         progress: lineProgress,
