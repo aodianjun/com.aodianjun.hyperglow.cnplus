@@ -25,7 +25,7 @@ const state = {
   annotationMode: 'none',
   particleMode: 'none',
   lineartMode: 'none',
-  manual: { enabled: false, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, line: 0, word: 0, overrides: {} },
+  manual: { enabled: false, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, line: 0, word: 0, overrides: {}, sprites: [], sprite: 0 },
   theme: 'lyric',
   overrides: {},
   palette: { sung: 0xFFFFFFFF, unsung: 0x88FFFFFF, glow: 0xFF66AAFF, accent: 0xFFFFAA33 },
@@ -299,6 +299,21 @@ function drawFrame(tSeconds) {
   ctx.scale(scale, scale);
   M.renderBoxes(ctx, sink.boxes, fontString, cssRgb, cssColor, spriteImages);
   ctx.restore();
+  if (state.manual && state.manual.enabled && state.manual.sprites && state.manual.sprites.length) {
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 2;
+    state.manual.sprites.forEach((sprite, index) => {
+      ctx.strokeStyle = index === state.manual.sprite
+        ? 'rgba(245,165,12,0.95)'
+        : 'rgba(245,165,12,0.35)';
+      ctx.strokeRect(
+        sprite.x * canvas.width, sprite.y * canvas.height,
+        Math.max(8, sprite.w * canvas.width), Math.max(8, sprite.h * canvas.height)
+      );
+    });
+    ctx.restore();
+  }
 }
 
 function formatTime(seconds) {
@@ -500,7 +515,8 @@ function manualPayload() {
     anchorY: m.anchorY,
     scale: m.scale,
     rotate: m.rotate,
-    overrides
+    overrides,
+    sprites: (m.sprites || []).map((sprite) => Object.assign({}, sprite))
   };
 }
 
@@ -593,6 +609,27 @@ function renderManualPanel() {
   $('manualHint').textContent = m.enabled
     ? '已覆盖 ' + count + ' 个词;点词选中后拖滑杆,预览实时更新'
     : '开启后忽略生成器;当前只预览生成器效果';
+
+  const sprites = m.sprites || [];
+  if (m.sprite >= sprites.length) m.sprite = Math.max(0, sprites.length - 1);
+  const spriteList = $('spriteList');
+  spriteList.innerHTML = sprites.map((sprite, index) => {
+    const active = index === m.sprite ? 'background:var(--accent);color:#111;' : '';
+    return '<button class="small" data-sprite="' + index + '" style="margin:2px;' + active + '">贴纸 #' + sprite.id + '</button>';
+  }).join('');
+  spriteList.querySelectorAll('button').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.manual.sprite = Number(button.getAttribute('data-sprite'));
+      renderManualPanel();
+    });
+  });
+  const selectedSprite = sprites[m.sprite] || null;
+  $('sx').value = selectedSprite ? selectedSprite.x : 0.4;
+  $('sy').value = selectedSprite ? selectedSprite.y : 0.4;
+  $('sw').value = selectedSprite ? selectedSprite.w : 0.2;
+  $('sh').value = selectedSprite ? selectedSprite.h : 0.2;
+  $('srot').value = selectedSprite ? selectedSprite.rotate : 0;
+  $('salpha').value = selectedSprite ? selectedSprite.alpha : 1;
 }
 
 $('manualOn').addEventListener('change', () => {
@@ -647,6 +684,40 @@ $('manualClear').addEventListener('click', () => {
   state.manual.overrides = {};
   refresh();
 });
+$('spritePreset').addEventListener('change', () => {
+  $('spriteId').value = $('spritePreset').value;
+});
+$('spriteAdd').addEventListener('click', () => {
+  if (!state.manual.enabled) setManualEnabled(true);
+  const id = Math.max(0, Math.min(255, Math.round(Number($('spriteId').value) || 0)));
+  state.manual.sprites.push({ id, x: 0.42, y: 0.42, w: 0.12, h: 0.12, rotate: 0, alpha: 1 });
+  state.manual.sprite = state.manual.sprites.length - 1;
+  state.presetKey = 'custom';
+  $('preset').value = 'custom';
+  refresh();
+});
+for (const config of [
+  ['sx', 'x'], ['sy', 'y'], ['sw', 'w'], ['sh', 'h'], ['srot', 'rotate'], ['salpha', 'alpha']
+]) {
+  const id = config[0];
+  const key = config[1];
+  $(id).addEventListener('input', () => {
+    if (!state.manual.enabled) setManualEnabled(true);
+    const sprite = state.manual.sprites[state.manual.sprite];
+    if (!sprite) return;
+    sprite[key] = Number($(id).value);
+    state.presetKey = 'custom';
+    $('preset').value = 'custom';
+    refresh();
+  });
+}
+$('spriteDelete').addEventListener('click', () => {
+  state.manual.sprites.splice(state.manual.sprite, 1);
+  if (state.manual.sprite >= state.manual.sprites.length) {
+    state.manual.sprite = Math.max(0, state.manual.sprites.length - 1);
+  }
+  refresh();
+});
 
 // ---- 画布直接拖动:命中选中的行内词 → 改位移;空白处拖动 → 改整体锚点 ----
 let manualDrag = null;
@@ -676,7 +747,14 @@ function previewMetrics() {
     cursor += widths[index];
     return { index, x: cx, y: cy, radius: Math.max(28, ts * scale * 0.55) };
   });
-  return { points, W, H };
+  const spriteRects = (state.manual.sprites || []).map((sprite, index) => ({
+    index,
+    x: sprite.x * W,
+    y: sprite.y * H,
+    w: Math.max(8, sprite.w * W),
+    h: Math.max(8, sprite.h * H)
+  }));
+  return { points, spriteRects, W, H };
 }
 
 function canvasEventPoint(event, metrics) {
@@ -701,6 +779,20 @@ $('preview').addEventListener('pointerdown', (event) => {
   const metrics = previewMetrics();
   if (!metrics) return;
   const point = canvasEventPoint(event, metrics);
+  const spriteHit = (metrics.spriteRects || []).find((rect) =>
+    point.x >= rect.x && point.x <= rect.x + rect.w &&
+    point.y >= rect.y && point.y <= rect.y + rect.h);
+  if (spriteHit) {
+    state.manual.sprite = spriteHit.index;
+    renderManualPanel();
+    const sprite = state.manual.sprites[spriteHit.index];
+    manualDrag = {
+      mode: 'sprite', W: metrics.W, H: metrics.H,
+      startX: point.x, startY: point.y, sx: sprite.x, sy: sprite.y
+    };
+    event.preventDefault();
+    return;
+  }
   const hit = metrics.points.find((item) =>
     Math.hypot(item.x - point.x, item.y - point.y) <= item.radius);
   if (hit) {
@@ -724,7 +816,13 @@ $('preview').addEventListener('pointerdown', (event) => {
 window.addEventListener('pointermove', (event) => {
   if (!manualDrag) return;
   const point = canvasEventPoint(event, manualDrag);
-  if (manualDrag.mode === 'word') {
+  if (manualDrag.mode === 'sprite') {
+    const sprite = state.manual.sprites[state.manual.sprite];
+    if (sprite) {
+      sprite.x = Math.min(1, Math.max(0, manualDrag.sx + (point.x - manualDrag.startX) / manualDrag.W));
+      sprite.y = Math.min(1, Math.max(0, manualDrag.sy + (point.y - manualDrag.startY) / manualDrag.H));
+    }
+  } else if (manualDrag.mode === 'word') {
     writeManualOverride({
       dx: manualDrag.dx + (point.x - manualDrag.startX) / 64,
       dy: manualDrag.dy + (point.y - manualDrag.startY) / 64
@@ -810,7 +908,9 @@ $('projectFile').addEventListener('change', () => {
         rotate: savedManual && Number.isFinite(savedManual.rotate) ? savedManual.rotate : 0,
         line: 0,
         word: 0,
-        overrides: {}
+        overrides: {},
+        sprites: [],
+        sprite: 0
       };
       if (savedManual && Array.isArray(savedManual.overrides)) {
         for (const ov of savedManual.overrides) {
@@ -824,6 +924,20 @@ $('projectFile').addEventListener('change', () => {
             rotate: Number.isFinite(ov.rotate) ? ov.rotate : 0,
             alpha: Number.isFinite(ov.alpha) ? ov.alpha : 1
           };
+        }
+      }
+      if (savedManual && Array.isArray(savedManual.sprites)) {
+        for (const sprite of savedManual.sprites) {
+          if (!sprite || !Number.isInteger(sprite.id) || sprite.id < 0 || sprite.id > 255) continue;
+          state.manual.sprites.push({
+            id: sprite.id,
+            x: Number.isFinite(sprite.x) ? sprite.x : 0.38,
+            y: Number.isFinite(sprite.y) ? sprite.y : 0.38,
+            w: Number.isFinite(sprite.w) ? sprite.w : 0.22,
+            h: Number.isFinite(sprite.h) ? sprite.h : 0.22,
+            rotate: Number.isFinite(sprite.rotate) ? sprite.rotate : 0,
+            alpha: Number.isFinite(sprite.alpha) ? sprite.alpha : 1
+          });
         }
       }
       if (project.palette) {

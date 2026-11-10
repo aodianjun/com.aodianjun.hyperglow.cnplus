@@ -1498,6 +1498,40 @@ Every word a little light</textarea>
         <button class="small" id="m-lineReset">重置该行</button>
         <button class="small" id="m-manualClear">清空全部手动</button>
       </div>
+      <div class="row">
+        <label>贴纸</label>
+        <select id="m-spritePreset" style="min-width:120px">
+          <option value="0">0 · 星</option>
+          <option value="1" selected>1 · 四角星</option>
+          <option value="2">2 · 圆环</option>
+          <option value="3">3 · 三点</option>
+          <option value="4">4 · 胶带</option>
+          <option value="5">5 · 波浪</option>
+          <option value="6">6 · 箭头</option>
+          <option value="7">7 · 心</option>
+          <option value="8">8 · 音符</option>
+          <option value="9">9 · 月牙</option>
+          <option value="10">10 · 角框</option>
+          <option value="11">11 · 点阵</option>
+          <option value="12">12 · 半调</option>
+          <option value="13">13 · 下划线</option>
+          <option value="14">14 · 斜杠</option>
+          <option value="15">15 · 标签框</option>
+        </select>
+        <input type="number" id="m-spriteId" min="0" max="255" value="1" style="width:70px" title="内置 0-15;App 导入贴纸 64-255">
+        <button class="small" id="m-spriteAdd">添加贴纸</button>
+        <span class="hint">内置 0–15;App「自定义贴纸」导入的图片用 64–255(网页预览为虚线占位,实机显示真图)</span>
+      </div>
+      <div class="row" id="m-spriteList"></div>
+      <div class="row">
+        <label>X</label><input type="range" id="m-sx" min="0" max="1" step="0.005" value="0.4">
+        <label>Y</label><input type="range" id="m-sy" min="0" max="1" step="0.005" value="0.4">
+        <label>宽</label><input type="range" id="m-sw" min="0.01" max="1" step="0.005" value="0.2">
+        <label>高</label><input type="range" id="m-sh" min="0.01" max="1" step="0.005" value="0.2">
+        <label>旋转</label><input type="range" id="m-srot" min="-180" max="180" step="1" value="0">
+        <label>透明度</label><input type="range" id="m-salpha" min="0" max="1" step="0.01" value="1">
+        <button class="small" id="m-spriteDelete">删除贴纸</button>
+      </div>
     </div>
 
     <div class="card">
@@ -1521,10 +1555,10 @@ Every word a little light</textarea>
 </div>
 
 </section>
-<script src="engine.js?v=16"></script>
-<script src="motion.js?v=16"></script>
-<script src="motion-ui.js?v=16"></script>
-<script src="templates.js?v=16"></script>
-<script src="app.js?v=16"></script>
+<script src="engine.js?v=17"></script>
+<script src="motion.js?v=17"></script>
+<script src="motion-ui.js?v=17"></script>
+<script src="templates.js?v=17"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

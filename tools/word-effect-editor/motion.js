@@ -451,12 +451,28 @@ function normalizeManual(raw) {
       });
     }
   }
+  const sprites = [];
+  if (Array.isArray(raw.sprites)) {
+    for (const item of raw.sprites.slice(0, 8)) {
+      if (!item || !Number.isInteger(item.id) || item.id < 0 || item.id > 255) continue;
+      sprites.push({
+        id: item.id,
+        x: clamp(finite(item.x, 0.35), 0, 1),
+        y: clamp(finite(item.y, 0.35), 0, 1),
+        w: clamp(finite(item.w, 0.2), 0.01, 1),
+        h: clamp(finite(item.h, 0.2), 0.01, 1),
+        rotate: clamp(finite(item.rotate, 0), -720, 720),
+        alpha: clamp(finite(item.alpha, 1), 0, 1)
+      });
+    }
+  }
   return {
     anchorX: clamp(finite(raw.anchorX, 0.5), 0, 1),
     anchorY: clamp(finite(raw.anchorY, 0.5), 0, 1),
     scale: clamp(finite(raw.scale, 1), 0.2, 3),
     rotate: clamp(finite(raw.rotate, 0), -180, 180),
-    overrides
+    overrides,
+    sprites
   };
 }
 
@@ -541,6 +557,34 @@ function styleFromSeed(seed, themeKey, overrides) {
 // 4. 编排 → 盒模式程序(汇编源码)
 // ---------------------------------------------------------------------------
 
+/** 手动贴纸层:画在所有文字之前(背景层),绕自身中心旋转。 */
+function manualSpriteCode(m) {
+  const code = [];
+  for (const sprite of m.sprites) {
+    const cx = sprite.x + sprite.w / 2;
+    const cy = sprite.y + sprite.h / 2;
+    code.push(
+      'save',
+      'canvasField width', 'push ' + round4(cx), 'mul',
+      'canvasField height', 'push ' + round4(cy), 'mul',
+      'translate',
+      'push ' + round4(sprite.rotate), 'rotate',
+      'canvasField width', 'push ' + round4(-cx), 'mul',
+      'canvasField height', 'push ' + round4(-cy), 'mul',
+      'translate',
+      'push ' + round4(sprite.alpha), 'setAlpha',
+      'push ' + sprite.id,
+      'canvasField width', 'push ' + round4(sprite.x), 'mul',
+      'canvasField height', 'push ' + round4(sprite.y), 'mul',
+      'canvasField width', 'push ' + round4(sprite.w), 'mul',
+      'canvasField height', 'push ' + round4(sprite.h), 'mul',
+      'drawSprite',
+      'restore'
+    );
+  }
+  return code;
+}
+
 /**
  * 手动排版程序:锚点平移 + 逐词覆盖(wordOverride) + 绕词中心旋转绘制。
  * 不含生成器的构图/手法/装饰;所有自由度来自 program.wordOverrides 数据表。
@@ -554,6 +598,7 @@ function buildManualSource(style, num) {
       ' · scale=' + num(m.scale) + ' · rotate=' + num(m.rotate),
     'colorField sung',
     'setColor',
+    ...manualSpriteCode(m),
     'wordCount',
     'storeLocal 1',
     'push 0',

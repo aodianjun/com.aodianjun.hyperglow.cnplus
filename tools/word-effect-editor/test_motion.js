@@ -571,6 +571,36 @@ test('manual layout compiles anchor + per-word overrides into the program table'
   assert.ok(rotated, 'rotation not applied');
 });
 
+test('manual sprite layer draws built-in and custom images before text', () => {
+  const manual = {
+    enabled: true,
+    anchorX: 0.5,
+    anchorY: 0.5,
+    scale: 1,
+    rotate: 0,
+    overrides: [],
+    sprites: [
+      { id: 1, x: 0.1, y: 0.2, w: 0.3, h: 0.15, rotate: 10, alpha: 0.8 },
+      { id: 80, x: 0.6, y: 0.5, w: 0.2, h: 0.2, rotate: 0, alpha: 1 }
+    ]
+  };
+  const built = M.buildEffectPack({ rows: [] }, M.styleFromSeed(3, 'lyric', { manual }), {});
+  assert.ok(built.ok, (built.errors || []).join('; '));
+  assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE);
+  const frame = makeFrame('一二', 1.0);
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  const result = E.runProgram(built.effect.program, frame, sink);
+  assert.ok(result.ok && !sink.failed);
+  const sprites = sink.boxes.filter((box) => box.type === 'sprite');
+  assert.strictEqual(sprites.length, 2);
+  assert.strictEqual(sprites[0].spriteId, 1);
+  assert.strictEqual(sprites[1].spriteId, 80);
+  assert.ok(Math.abs(sprites[0].x - 0.1 * frame.canvasWidth) < 0.5);
+  assert.ok(Math.abs(sprites[0].y - 0.2 * frame.canvasHeight) < 0.5);
+  const firstText = sink.boxes.findIndex((box) => box.type === 'text');
+  assert.ok(sink.boxes.indexOf(sprites[0]) < firstText, 'sprites should render behind text');
+});
+
 test('manual anchor shifts every word by canvas fraction', () => {
   const manual = { enabled: true, anchorX: 0.6, anchorY: 0.4, scale: 1, rotate: 0, overrides: [] };
   const built = M.buildEffectPack({ rows: [] }, M.styleFromSeed(3, 'lyric', { manual }), {});
