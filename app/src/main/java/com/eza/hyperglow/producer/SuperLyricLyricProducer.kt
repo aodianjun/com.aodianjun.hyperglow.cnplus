@@ -1020,9 +1020,12 @@ class SuperLyricLyricProducer(
 
         /**
          * Staleness override for this channel: SuperLyric pushes only on line change, so a
-         * >3 s gap is a normal interlude, not a dead source. See [emit].
+         * >3 s gap is a normal interlude, not a dead source. 12 s 仍偏短——真机间奏常见
+         * 15–30 s，超窗后仲裁器每十来秒在首选源与回退源之间往返一次，每次换整张行表
+         * （62 行 ↔ 60 行）会跳掉正在过的句子。放宽到 30 s；真正的死链路由本插件的
+         * 60s 重注册兜底，不靠 stale 回退。See [emit].
          */
-        internal const val LINE_EVENT_STALE_AFTER_MS = 12_000L
+        internal const val LINE_EVENT_STALE_AFTER_MS = 30_000L
 
         /**
          * 第三方 publisher 接管歌词流的心跳宽限:owner 的最后一笔推送在此时长内视为仍在播,
