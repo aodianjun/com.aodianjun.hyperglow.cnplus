@@ -26,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
+import com.eza.hyperglow.plugin.PluginChainResultCache
 import com.eza.hyperglow.plugin.PluginRuntime
 import com.eza.hyperglow.plugin.PluginSettingData
 import com.eza.hyperglow.plugin.PluginSettingGroupData
@@ -565,6 +566,214 @@ private fun cacheEntrySummary(entry: PluginCacheEntry): String {
     return listOfNotNull(entry.summary?.takeIf { it.isNotBlank() }, meta.takeIf { it.isNotEmpty() })
         .joinToString("\n")
 }
+
+/**
+ * 歌词计算缓存管理页（[PluginChainResultCache] 的宿主 UI），与插件缓存管理页同形：
+ * 列出已缓存的歌曲（歌名/歌手/来源/行数/大小/时间），单条删除、一键全清。
+ * 删除单条 = 该曲下次播放由插件链重算；其余条目不受影响。
+ */
+@Composable
+internal fun PluginChainCacheScreen(
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var revision by remember { mutableStateOf(0) }
+    var entries by remember { mutableStateOf<List<PluginChainResultCache.ChainCacheEntry>?>(null) }
+    var detailEntry by remember { mutableStateOf<PluginChainResultCache.ChainCacheEntry?>(null) }
+    var showClearAll by remember { mutableStateOf(false) }
+
+    LaunchedEffect(revision) {
+        entries = null
+        entries = withContext(Dispatchers.IO) { PluginChainResultCache.listEntries(context) }
+    }
+
+    Scaffold(
+        containerColor = appSurfaceColor(),
+        topBar = {
+            AppTopBar(
+                title = stringResource(R.string.chain_cache_title),
+                onBack = onBack
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding() + 12.dp,
+                bottom = innerPadding.calculateBottomPadding() + 20.dp
+            )
+        ) {
+            item {
+                Text(
+                    stringResource(
+                        R.string.chain_cache_total,
+                        formatBytes(PluginChainResultCache.sizeBytes(context))
+                    ),
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                )
+            }
+
+            val current = entries
+            when {
+                current == null -> {
+                    item {
+                        Text(
+                            stringResource(R.string.about_content_loading),
+                            fontSize = 14.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
+                        )
+                    }
+                }
+                current.isEmpty() -> {
+                    item {
+                        SettingsCard {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                                Text(
+                                    stringResource(R.string.chain_cache_empty),
+                                    fontSize = 14.sp,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    item { SmallTitle(text = stringResource(R.string.plugin_cache_section_entries)) }
+                    items(current, key = { it.identity }) { entry ->
+                        SettingsCard {
+                            ArrowPreference(
+                                title = entry.displayTitle,
+                                summary = chainCacheEntrySummary(context, entry),
+                                onClick = { detailEntry = entry }
+                            )
+                        }
+                    }
+                    item {
+                        SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.plugin_cache_clear_all),
+                                summary = formatBytes(PluginChainResultCache.sizeBytes(context)),
+                                onClick = { showClearAll = true }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    detailEntry?.let { entry ->
+        WindowDialog(
+            title = entry.displayTitle,
+            summary = chainCacheEntrySummary(context, entry),
+            show = true,
+            onDismissRequest = { detailEntry = null }
+        ) {
+            Column(Modifier.dialogScrollable()) {
+                CacheDetailRow(
+                    stringResource(R.string.plugin_cache_field_size),
+                    formatBytes(entry.sizeBytes)
+                )
+                CacheDetailRow(
+                    stringResource(R.string.plugin_cache_field_updated),
+                    formatCacheTimestamp(entry.createdAtEpochMs)
+                        ?: stringResource(R.string.plugin_cache_unknown_time)
+                )
+                CacheDetailRow(
+                    stringResource(R.string.chain_cache_field_rows),
+                    entry.rows.toString()
+                )
+                if (entry.producerId.isNotBlank()) {
+                    CacheDetailRow(
+                        stringResource(R.string.chain_cache_field_source),
+                        entry.producerId
+                    )
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    TextButton(
+                        text = stringResource(R.string.action_cancel),
+                        modifier = Modifier.weight(1f),
+                        onClick = { detailEntry = null }
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    TextButton(
+                        text = stringResource(R.string.plugin_cache_delete_entry),
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                        onClick = {
+                            detailEntry = null
+                            scope.launch {
+                                val removed = withContext(Dispatchers.IO) {
+                                    PluginChainResultCache.clearEntry(context, entry.identity)
+                                }
+                                revision++
+                                Toast.makeText(
+                                    context,
+                                    context.getString(
+                                        if (removed) R.string.plugin_cache_toast_entry_deleted
+                                        else R.string.plugin_cache_toast_entry_missing
+                                    ),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showClearAll) {
+        WindowDialog(
+            title = stringResource(R.string.plugin_cache_clear_confirm_title),
+            summary = stringResource(R.string.chain_cache_clear_confirm_summary),
+            show = true,
+            onDismissRequest = { showClearAll = false }
+        ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = { showClearAll = false }
+                )
+                Spacer(Modifier.width(16.dp))
+                TextButton(
+                    text = stringResource(R.string.plugin_cache_clear_all),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = {
+                        showClearAll = false
+                        scope.launch {
+                            withContext(Dispatchers.IO) { PluginChainResultCache.clear(context) }
+                            revision++
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.plugin_toast_cache_cleared),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** 歌词计算缓存条目副行:歌手 · 来源 · 行数 · 大小 · 时间(缺失段自动跳过)。 */
+private fun chainCacheEntrySummary(
+    context: android.content.Context,
+    entry: PluginChainResultCache.ChainCacheEntry
+): String = buildList {
+    if (entry.artist.isNotBlank()) add(entry.artist)
+    if (entry.producerId.isNotBlank()) add(entry.producerId)
+    add(context.getString(R.string.chain_cache_rows, entry.rows))
+    add(formatBytes(entry.sizeBytes))
+    formatCacheTimestamp(entry.createdAtEpochMs)?.let { add(it) }
+}.joinToString(" · ")
 
 @Composable
 private fun CacheDetailRow(title: String, value: String) {

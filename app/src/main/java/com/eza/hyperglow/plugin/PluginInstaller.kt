@@ -22,6 +22,9 @@ object PluginInstaller {
     private const val MAX_UNCOMPRESSED_BYTES = 64L * 1024 * 1024
     private const val MAX_DEX_COUNT = 8
 
+    /** manifest.json 单独读取上限：manifest 是小 JSON，异常大的「manifest」判损坏。 */
+    private const val MAX_MANIFEST_BYTES = 256 * 1024
+
     /** 安装临时目录前缀：先写这里、成功后换名成正式目录；残留（崩溃）不被当成插件。 */
     private const val STAGING_PREFIX = ".staging-"
 
@@ -29,6 +32,29 @@ object PluginInstaller {
 
     fun pluginDir(context: Context, pluginId: String): File =
         File(pluginsRoot(context), pluginId)
+
+    /**
+     * 只解析 ZIP 里的 manifest.json（不落盘、不安装、不校验解压预算之外的条目）：
+     * 应用内自动更新用它在不安装的前提下比对远端版本。损坏/缺失/超限返回 null。
+     */
+    fun readManifest(zipBytes: ByteArray): PluginManifest? {
+        if (zipBytes.isEmpty() || zipBytes.size > MAX_ZIP_BYTES) return null
+        return runCatching {
+            ZipInputStream(zipBytes.inputStream()).use { stream ->
+                while (true) {
+                    val entry = stream.nextEntry ?: break
+                    if (entry.name.substringAfterLast('/') == MANIFEST_ENTRY) {
+                        val text = stream.readNBytes(MAX_MANIFEST_BYTES)
+                            .toString(Charsets.UTF_8)
+                        return@runCatching PluginManifestCodec.decode(text)
+                            ?.takeIf { it.validate() == null }
+                    }
+                    stream.closeEntry()
+                }
+                null
+            }
+        }.getOrNull()
+    }
 
     /**
      * 校验并安装 ZIP。成功返回解析出的 manifest；失败返回 null，[reason] 写入拒绝原因。

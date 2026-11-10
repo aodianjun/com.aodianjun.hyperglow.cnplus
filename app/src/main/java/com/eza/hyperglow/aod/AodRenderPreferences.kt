@@ -148,7 +148,18 @@ data class AodRenderConfig(
      * 另一个源带逐字时间而自动升级,也不会在选中源只是暂停冻结态时让位;选中源断连或
      * 故障时仍回退(否则屏上无歌词)。默认关闭,保持「自动选更好的源」。
      */
-    val forceLyricProvider: Boolean = false
+    val forceLyricProvider: Boolean = false,
+    /**
+     * 「歌词计算缓存」:插件链对一首歌的处理结果按歌曲身份落盘,回放同曲直接复用,
+     * 不再重跑链(链内可能是逐行 LLM 调用)。默认开启;关闭后每次播放都重跑链,
+     * 行为与无缓存版本一致。见 PluginChainResultCache。
+     */
+    val pluginResultCacheEnabled: Boolean = true,
+    /**
+     * 「插件自动更新」:后台自动从插件发行通道拉取最新插件清单,缺失的插件自动安装、
+     * 已装的旧版本自动升级,无需手动下载 ZIP。默认开启;关闭后只保留手动检查入口。
+     */
+    val pluginAutoUpdateEnabled: Boolean = true
 ) {
     companion object {
         /** 出厂默认配置;备份解码时用于逐字段回退缺失/类型错误的值。 */
@@ -391,6 +402,8 @@ object AodRenderPreferences {
     const val HIDE_CREDIT_LINES = "hide_credit_lines"
     const val LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD = "lockscreen_reserve_below_media_card"
     const val FORCE_LYRIC_PROVIDER = "force_lyric_provider"
+    const val PLUGIN_RESULT_CACHE_ENABLED = "plugin_result_cache_enabled"
+    const val PLUGIN_AUTO_UPDATE_ENABLED = "plugin_auto_update_enabled"
 
     // SharedPreferences throws ClassCastException when an older/imported value has the wrong
     // primitive type. Treat malformed entries as missing so a bad setting cannot crash startup.
@@ -498,7 +511,9 @@ object AodRenderPreferences {
             prefs.safeBoolean(AOD_POWER_SAVER, true),
             prefs.safeBoolean(HIDE_CREDIT_LINES, false),
             prefs.safeBoolean(LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD, false),
-            prefs.safeBoolean(FORCE_LYRIC_PROVIDER, false)
+            prefs.safeBoolean(FORCE_LYRIC_PROVIDER, false),
+            prefs.safeBoolean(PLUGIN_RESULT_CACHE_ENABLED, true),
+            prefs.safeBoolean(PLUGIN_AUTO_UPDATE_ENABLED, true)
         ).also { cachedConfig = it }
     }
 

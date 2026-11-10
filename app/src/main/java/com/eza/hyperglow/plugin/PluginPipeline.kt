@@ -98,6 +98,10 @@ object PluginPipeline {
     fun processingEnabled(): Boolean =
         appContext?.let { AodRenderPreferences.read(it).pluginProcessingEnabled } ?: false
 
+    /** 「歌词计算缓存」开关：开启时插件链结果按歌曲身份落盘，回放同曲直接复用。 */
+    fun resultCacheEnabled(): Boolean =
+        appContext?.let { AodRenderPreferences.read(it).pluginResultCacheEnabled } ?: false
+
     /**
      * 设置页把总开关从关到开时调用：立即处理当前歌曲（若有）。
      * maybeProcess 自带会话/文档去重，重复调用安全。
@@ -252,18 +256,57 @@ object PluginPipeline {
         AppLog.i(TAG, "chain scheduled: session=$sessionKey rows=$rowsCount")
         chainJob = scope.launch {
             val startedAtMs = SystemClock.elapsedRealtime()
-            val result = try {
+            val result: PatchedSong? = try {
                 val original = buildSong()
-                val processed = PluginRuntime.processChain(
-                    original,
-                    PluginSongBridge.mediaInfo(state)
-                )
-                if (processed === original || processed == original) {
-                    null
+                val cacheEnabled = resultCacheEnabled()
+                val identity = if (cacheEnabled) PluginChainResultCache.songIdentity(state) else null
+                val epoch = if (cacheEnabled && identity != null) {
+                    PluginChainResultCache.chainEpoch(appContext!!)
                 } else {
-                    val (songFields, lyricFields) = diff(original, processed)
-                    if (songFields.isEmpty() && lyricFields.isEmpty()) null
-                    else PatchedSong(sessionKey, processed, songFields, lyricFields)
+                    ""
+                }
+                val fingerprint = if (cacheEnabled && identity != null) {
+                    PluginChainResultCache.inputFingerprint(original, epoch)
+                } else {
+                    ""
+                }
+                // 缓存命中（同一首歌 + 同一插件/设置纪元 + 同一输入内容）：直接复用上次
+                // 链结果，不重跑链（链内可能是逐行 LLM 调用，回放同曲重复计算既慢又贵）。
+                val cached = if (cacheEnabled && identity != null) {
+                    PluginChainResultCache.load(appContext!!, identity, fingerprint, sessionKey)
+                } else {
+                    null
+                }
+                if (cached != null) {
+                    cached
+                } else {
+                    val processed = PluginRuntime.processChain(
+                        original,
+                        PluginSongBridge.mediaInfo(state)
+                    )
+                    val diffed = if (processed === original || processed == original) {
+                        null
+                    } else {
+                        val (songFields, lyricFields) = diff(original, processed)
+                        if (songFields.isEmpty() && lyricFields.isEmpty()) null
+                        else PatchedSong(sessionKey, processed, songFields, lyricFields)
+                    }
+                    // 未命中即回填（含 passthrough：空改动结果也落盘，回放同曲免跑链）。
+                    // 展示信息（歌名/歌手/来源）随条目落盘，供缓存管理页列出。
+                    if (cacheEnabled && identity != null) {
+                        PluginChainResultCache.store(
+                            appContext!!,
+                            identity,
+                            fingerprint,
+                            diffed ?: PatchedSong(
+                                sessionKey, processed, emptySet(), emptySet()
+                            ),
+                            title = state.title,
+                            artist = state.artist,
+                            producerId = state.producerId
+                        )
+                    }
+                    diffed
                 }
             } catch (cancelled: CancellationException) {
                 // 切歌取消旧链是正常控制流，不可与真正的处理失败混为一谈。

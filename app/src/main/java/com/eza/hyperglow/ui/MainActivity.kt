@@ -62,6 +62,8 @@ class MainActivity : ComponentActivity() {
         }.onFailure { error ->
             AppLog.w("MainActivity", "startForegroundService denied: ${error.message}")
         }
+        // 插件应用内自动下载/自动更新:启动后延迟检查 plugins 滚动发行(幂等,失败静默)。
+        PluginUpdateCenter.scheduleStartupCheck(applicationContext)
         setContent {
             var appAppearance by remember { mutableStateOf(loadAppUiAppearance(this@MainActivity)) }
             val controller = remember(appAppearance) { appThemeController(appAppearance) }
@@ -196,6 +198,9 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onOpenCache = { pluginId ->
                                                 backStack.pushRoute(AppRoute.PluginCache(pluginId))
+                                            },
+                                            onOpenChainCache = {
+                                                backStack.pushRoute(AppRoute.PluginChainCache)
                                             }
                                         )
                                     }
@@ -236,6 +241,11 @@ class MainActivity : ComponentActivity() {
                                     entry<AppRoute.PluginCache> { route ->
                                         PluginCacheScreen(
                                             pluginId = route.pluginId,
+                                            onBack = { backStack.popRoute() }
+                                        )
+                                    }
+                                    entry<AppRoute.PluginChainCache> {
+                                        PluginChainCacheScreen(
                                             onBack = { backStack.popRoute() }
                                         )
                                     }

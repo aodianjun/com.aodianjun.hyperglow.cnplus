@@ -155,7 +155,13 @@ internal object ConfigBackupCodec {
             it.filterNonMusicSources
         },
         BackupBooleanField(AodRenderPreferences.HIDE_CREDIT_LINES) { it.hideCreditLines },
-        BackupBooleanField(AodRenderPreferences.AOD_POWER_SAVER) { it.aodPowerSaver }
+        BackupBooleanField(AodRenderPreferences.AOD_POWER_SAVER) { it.aodPowerSaver },
+        BackupBooleanField(AodRenderPreferences.PLUGIN_RESULT_CACHE_ENABLED) {
+            it.pluginResultCacheEnabled
+        },
+        BackupBooleanField(AodRenderPreferences.PLUGIN_AUTO_UPDATE_ENABLED) {
+            it.pluginAutoUpdateEnabled
+        }
     )
 
     internal val intFields = listOf(
@@ -731,6 +737,16 @@ internal object ConfigBackupCodec {
                 AodRenderPreferences.AOD_POWER_SAVER,
                 base.aodPowerSaver,
                 DEFAULTS.aodPowerSaver
+            ),
+            pluginResultCacheEnabled = stored.resolveBoolean(
+                AodRenderPreferences.PLUGIN_RESULT_CACHE_ENABLED,
+                base.pluginResultCacheEnabled,
+                DEFAULTS.pluginResultCacheEnabled
+            ),
+            pluginAutoUpdateEnabled = stored.resolveBoolean(
+                AodRenderPreferences.PLUGIN_AUTO_UPDATE_ENABLED,
+                base.pluginAutoUpdateEnabled,
+                DEFAULTS.pluginAutoUpdateEnabled
             )
         )
 

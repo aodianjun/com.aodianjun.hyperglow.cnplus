@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.bridge.SpicyBridgeDocumentStore
+import com.eza.hyperglow.plugin.PluginChainResultCache
 import com.eza.hyperglow.plugin.PluginInstaller
 import com.eza.hyperglow.plugin.PluginPipeline
 import com.eza.hyperglow.plugin.PluginRuntime
@@ -80,7 +82,8 @@ import java.util.Locale
 internal fun PluginManagementScreen(
     onBack: () -> Unit,
     onOpenSettings: (String) -> Unit,
-    onOpenCache: (String) -> Unit
+    onOpenCache: (String) -> Unit,
+    onOpenChainCache: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -92,6 +95,9 @@ internal fun PluginManagementScreen(
         mutableStateOf(AodRenderPreferences.read(context).pluginProcessingEnabled)
     }
     var uninstallPluginId by remember { mutableStateOf<String?>(null) }
+    // 应用内检查/安装远端插件(自动更新中心):Idle 静默;Checking 出进度对话框;
+    // Done(CheckOutcome) 出结果对话框(逐插件状态 + 安装/更新操作)。
+    var updateUiState by remember { mutableStateOf<PluginUpdateUiState>(PluginUpdateUiState.Idle) }
     // 管线输入状态(与 PluginPipeline.maybeProcess 同源):Spicy 源按文档状态提示,
     // 逐行源(Lyricon/SuperLyric/LyricInfo)已接入插件链,固定显示接入提示。
     val activeProducerState by collectActiveState()
@@ -183,6 +189,35 @@ internal fun PluginManagementScreen(
                         stringResource(R.string.setting_plugin_processing_enabled),
                         summary = stringResource(R.string.summary_plugin_processing_enabled)
                     )
+                    var resultCacheEnabled by remember {
+                        mutableStateOf(
+                            AodRenderPreferences.read(context).pluginResultCacheEnabled
+                        )
+                    }
+                    SwitchPreference(
+                        resultCacheEnabled,
+                        { enabled ->
+                            val saved = context
+                                .getSharedPreferences(AodRenderPreferences.PREFS, 0)
+                                .edit()
+                                .putBoolean(
+                                    AodRenderPreferences.PLUGIN_RESULT_CACHE_ENABLED,
+                                    enabled
+                                )
+                                .commit()
+                            if (saved) resultCacheEnabled = enabled
+                        },
+                        stringResource(R.string.setting_plugin_result_cache),
+                        summary = stringResource(R.string.summary_plugin_result_cache)
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.chain_cache_manage),
+                        summary = stringResource(
+                            R.string.chain_cache_manage_summary,
+                            formatBytes(PluginChainResultCache.sizeBytes(context))
+                        ),
+                        onClick = onOpenChainCache
+                    )
                     ArrowPreference(
                         title = stringResource(R.string.plugin_action_install),
                         summary = stringResource(R.string.summary_plugin_action_install),
@@ -231,6 +266,58 @@ internal fun PluginManagementScreen(
                     }
                 }
             }
+            item { SmallTitle(text = stringResource(R.string.section_plugin_updates)) }
+            item {
+                var autoUpdateEnabled by remember {
+                    mutableStateOf(AodRenderPreferences.read(context).pluginAutoUpdateEnabled)
+                }
+                SettingsCard {
+                    SwitchPreference(
+                        autoUpdateEnabled,
+                        { enabled ->
+                            val saved = context
+                                .getSharedPreferences(AodRenderPreferences.PREFS, 0)
+                                .edit()
+                                .putBoolean(
+                                    AodRenderPreferences.PLUGIN_AUTO_UPDATE_ENABLED,
+                                    enabled
+                                )
+                                .commit()
+                            if (saved) autoUpdateEnabled = enabled
+                        },
+                        stringResource(R.string.setting_plugin_auto_update),
+                        summary = stringResource(R.string.summary_plugin_auto_update)
+                    )
+                    val lastCheck = remember { PluginUpdateCenter.lastAutoCheckMs(context) }
+                    val lastResult = remember { PluginUpdateCenter.lastResult(context) }
+                    if (lastResult != null) {
+                        Text(
+                            text = stringResource(
+                                R.string.plugin_auto_update_last_result,
+                                formatCheckTime(context, lastCheck),
+                                lastResult
+                            ),
+                            fontSize = 13.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+                            modifier = Modifier
+                                .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp)
+                        )
+                    }
+                    ArrowPreference(
+                        title = stringResource(R.string.plugin_action_check_updates),
+                        summary = stringResource(R.string.summary_plugin_action_check_updates),
+                        onClick = {
+                            if (updateUiState is PluginUpdateUiState.Idle) {
+                                updateUiState = PluginUpdateUiState.Checking
+                                scope.launch {
+                                    val outcome = PluginUpdateCenter.check(context)
+                                    updateUiState = PluginUpdateUiState.Done(outcome)
+                                }
+                            }
+                        }
+                    )
+                }
+            }
             if (plugins.isEmpty()) {
                 item {
                     SettingsCard {
@@ -251,6 +338,149 @@ internal fun PluginManagementScreen(
                         onOpenCache = { onOpenCache(plugin.manifest.id) },
                         onRequestUninstall = { uninstallPluginId = plugin.manifest.id }
                     )
+                }
+            }
+        }
+    }
+
+    // 插件检查/安装进度与结果对话框(挂 LazyColumn 外,与卸载对话框同一提升模式)。
+    when (val uiState = updateUiState) {
+        PluginUpdateUiState.Idle -> Unit
+        PluginUpdateUiState.Checking -> {
+            WindowDialog(
+                title = stringResource(R.string.plugin_update_checking_title),
+                summary = stringResource(R.string.plugin_update_checking_summary),
+                show = true,
+                onDismissRequest = { updateUiState = PluginUpdateUiState.Idle }
+            ) {}
+        }
+        is PluginUpdateUiState.Installing -> {
+            WindowDialog(
+                title = stringResource(R.string.plugin_update_installing_title),
+                summary = stringResource(
+                    R.string.plugin_update_installing_summary,
+                    uiState.status.displayId
+                ),
+                show = true,
+                onDismissRequest = {}
+            ) {}
+        }
+        is PluginUpdateUiState.Done -> {
+            when (val outcome = uiState.outcome) {
+                is PluginUpdateCenter.CheckOutcome.Failure -> {
+                    WindowDialog(
+                        title = stringResource(R.string.plugin_update_failed_title),
+                        summary = stringResource(
+                            R.string.plugin_update_failed_summary,
+                            outcome.reason
+                        ),
+                        show = true,
+                        onDismissRequest = { updateUiState = PluginUpdateUiState.Idle }
+                    ) {}
+                }
+                is PluginUpdateCenter.CheckOutcome.Success -> {
+                    WindowDialog(
+                        title = stringResource(R.string.plugin_update_result_title),
+                        summary = stringResource(R.string.plugin_update_result_summary),
+                        show = true,
+                        onDismissRequest = { updateUiState = PluginUpdateUiState.Idle }
+                    ) {
+                        Column(
+                            Modifier
+                                .heightIn(max = 440.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            outcome.statuses.forEach { status ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            text = status.remote?.let { manifest ->
+                                                manifest.localizedName(
+                                                    currentLanguageTag(context)
+                                                )
+                                            } ?: status.assetName,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = pluginUpdateStatusLine(context, status),
+                                            fontSize = 12.sp,
+                                            color =
+                                                MiuixTheme.colorScheme.onSurfaceContainerVariant
+                                        )
+                                    }
+                                    if (status.state == PluginUpdateCenter.State.UP_TO_DATE ||
+                                        status.state == PluginUpdateCenter.State.INVALID
+                                    ) {
+                                        Text(
+                                            text = stringResource(
+                                                if (status.state ==
+                                                    PluginUpdateCenter.State.UP_TO_DATE
+                                                ) {
+                                                    R.string.plugin_update_state_up_to_date
+                                                } else {
+                                                    R.string.plugin_update_state_invalid
+                                                }
+                                            ),
+                                            fontSize = 13.sp,
+                                            color =
+                                                MiuixTheme.colorScheme.onSurfaceContainerVariant
+                                        )
+                                    } else {
+                                        TextButton(
+                                            text = stringResource(
+                                                if (status.state ==
+                                                    PluginUpdateCenter.State.UPDATE
+                                                ) {
+                                                    R.string.plugin_update_action_update
+                                                } else {
+                                                    R.string.plugin_update_action_install
+                                                }
+                                            ),
+                                            colors = ButtonDefaults.textButtonColorsPrimary(),
+                                            onClick = {
+                                                updateUiState =
+                                                    PluginUpdateUiState.Installing(status)
+                                                scope.launch {
+                                                    val (manifest, reason) =
+                                                        PluginUpdateCenter.install(
+                                                            context, status.url
+                                                        )
+                                                    updateUiState = PluginUpdateUiState.Idle
+                                                    if (manifest != null) {
+                                                        PluginRuntime.reloadAllAndAwait()
+                                                        refresh()
+                                                        Toast.makeText(
+                                                            context,
+                                                            context.getString(
+                                                                R.string.plugin_toast_installed,
+                                                                manifest.name
+                                                            ),
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    } else {
+                                                        Toast.makeText(
+                                                            context,
+                                                            context.getString(
+                                                                R.string.plugin_toast_install_failed,
+                                                                reason
+                                                            ),
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -286,6 +516,8 @@ internal fun PluginManagementScreen(
                             onClick = {
                                 val removed = PluginInstaller.uninstall(context, pluginId)
                                 uninstallPluginId = null
+                                // 主动卸载 = 不要这个插件:加入自动忽略表,自动更新不再装回来。
+                                if (removed) PluginUpdateCenter.setIgnored(context, pluginId, true)
                                 Toast.makeText(
                                     context,
                                     context.getString(
@@ -699,6 +931,52 @@ internal fun PluginSettingEditDialog(
 /** App 当前语言标签（per-app locale 优先），匹配 manifest 的 *Locales 键。 */
 internal fun currentLanguageTag(context: Context): String =
     context.resources.configuration.locales[0].toLanguageTag()
+
+/** 插件更新结果行:远端版本 + 相对本机状态(安装/可升级/已最新/无效包)。 */
+internal fun pluginUpdateStatusLine(
+    context: Context,
+    status: PluginUpdateCenter.RemotePluginStatus
+): String {
+    val remote = status.remote
+    val versionText = remote?.version?.takeIf { it.isNotEmpty() }?.let { "v$it" }
+        ?: context.getString(R.string.plugin_update_state_invalid)
+    return when (status.state) {
+        PluginUpdateCenter.State.NEW_INSTALL -> context.getString(
+            R.string.plugin_update_state_new, versionText
+        )
+        PluginUpdateCenter.State.UPDATE -> context.getString(
+            R.string.plugin_update_state_update,
+            status.installed?.version ?: "?", versionText
+        )
+        PluginUpdateCenter.State.UP_TO_DATE -> context.getString(
+            R.string.plugin_update_state_up_to_date_with, versionText
+        )
+        PluginUpdateCenter.State.INVALID -> context.getString(R.string.plugin_update_state_invalid)
+    }
+}
+
+/** 上次检查时间的展示文案:今天显示时分,更早显示月-日。 */
+internal fun formatCheckTime(context: Context, timeMs: Long): String {
+    if (timeMs <= 0L) return context.getString(R.string.plugin_update_never_checked)
+    val calendar = java.util.Calendar.getInstance()
+    val now = java.util.Calendar.getInstance()
+    calendar.timeInMillis = timeMs
+    return if (calendar.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR) &&
+        calendar.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR)
+    ) {
+        String.format(
+            Locale.US, "%02d:%02d",
+            calendar.get(java.util.Calendar.HOUR_OF_DAY),
+            calendar.get(java.util.Calendar.MINUTE)
+        )
+    } else {
+        String.format(
+            Locale.US, "%02d-%02d",
+            calendar.get(java.util.Calendar.MONTH) + 1,
+            calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        )
+    }
+}
 
 internal fun formatBytes(bytes: Long): String = when {
     bytes >= 1024L * 1024L ->

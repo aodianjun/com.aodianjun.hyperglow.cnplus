@@ -181,3 +181,75 @@ private fun githubGetText(url: String): String? {
         connection?.disconnect()
     }
 }
+
+// --- 插件应用内下载(滚动 plugins 发行 → 自动安装/自动更新) ---
+
+/** plugins 滚动发行的资产:固定名 `hyperglow-<name>-plugin.zip`(版本在 manifest 里)。 */
+internal data class PluginReleaseAsset(
+    val name: String,
+    val url: String,
+    val sizeBytes: Long
+)
+
+/**
+ * 查询 plugins 滚动发行(PLUGIN_RELEASE_CONVENTIONS 定义的唯一插件发布通道)的资产表。
+ * 失败返回 null,由调用方呈现失败态;空列表 = 发布在但无资产(异常态,也按失败呈现)。
+ */
+internal fun queryPluginReleaseAssets(): List<PluginReleaseAsset>? {
+    val response = githubGetText(PLUGINS_RELEASE_API) ?: return null
+    return runCatching {
+        val release = Json.parseToJsonElement(response).jsonObject
+        release["assets"]?.jsonArray?.mapNotNull { element ->
+            val asset = element.jsonObject
+            val name = asset["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            val url = asset["browser_download_url"]?.jsonPrimitive?.content
+                ?: return@mapNotNull null
+            PluginReleaseAsset(
+                name = name,
+                url = url,
+                sizeBytes = asset["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
+            )
+        }
+    }.onFailure { error ->
+        AppLog.e("VersionCheck", "queryPluginReleaseAssets parse failed", error)
+    }.getOrNull()
+}
+
+/**
+ * 下载插件 ZIP(流式 + [maxBytes] 硬上限:读满还能读到数据即超限,判失败而非截断)。
+ * 失败返回 null;成功返回完整字节。
+ */
+internal fun downloadPluginZip(url: String, maxBytes: Long): ByteArray? {
+    var connection: HttpURLConnection? = null
+    return try {
+        connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = PLUGIN_DOWNLOAD_TIMEOUT_MS
+            readTimeout = PLUGIN_DOWNLOAD_TIMEOUT_MS
+            setRequestProperty("User-Agent", "HyperGlow-CNPlus")
+        }
+        if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+            AppLog.e("VersionCheck", "downloadPluginZip http ${connection.responseCode}: $url")
+            return null
+        }
+        connection.inputStream.use { input ->
+            // readNBytes 以 int 计数:上限本身就封顶在 ZIP 大小上限(32 MiB),安全收窄。
+            val cap = maxBytes.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+            val bytes = input.readNBytes(cap + 1)
+            if (bytes.size > cap) {
+                AppLog.e("VersionCheck", "downloadPluginZip exceeds ${cap}B: $url")
+                return null
+            }
+            bytes
+        }
+    } catch (e: Exception) {
+        AppLog.e("VersionCheck", "downloadPluginZip failed: $url", e)
+        null
+    } finally {
+        connection?.disconnect()
+    }
+}
+
+private const val PLUGINS_RELEASE_API =
+    "https://api.github.com/repos/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/tags/plugins"
+private const val PLUGIN_DOWNLOAD_TIMEOUT_MS = 20_000
