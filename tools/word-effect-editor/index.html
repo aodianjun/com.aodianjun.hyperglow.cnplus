@@ -894,6 +894,8 @@
 }
 #motionWorkspace header .sub { color: var(--muted); font-size: 11px; letter-spacing: .04em; }
 #motionWorkspace header .spacer { flex: 1; }
+#motionWorkspace .jumpbar { display: flex; gap: 4px; flex-wrap: wrap; }
+#motionWorkspace .jumpbar button { padding: 2px 8px; font-size: 11px; }
 #motionWorkspace a { color: var(--accent); text-decoration: none; }
 /* 布局 */
 /* 三栏:左歌词 / 中预览 / 右编排+导出(窄屏逐级退化为两栏、单栏) */
@@ -938,6 +940,8 @@
 }
 #motionWorkspace input[type="number"] { width: 72px; }
 #motionWorkspace input[type="range"] { width: 120px; accent-color: var(--accent); height: 18px; }
+#motionWorkspace .row input[type="range"] { flex: 1 1 110px; width: auto; min-width: 84px; max-width: 240px; }
+#motionWorkspace .row select { max-width: 100%; }
 #motionWorkspace input[type="color"] {
   width: 34px; height: 26px; padding: 0; border: 1px solid var(--line);
   border-radius: 4px; background: none; cursor: pointer;
@@ -1031,8 +1035,25 @@
 body.motion-mode #motionWorkspace { display: block; }
 body.motion-mode #app { display: none; }
 /* ---- 响应式:不同窗口尺寸适配 ---- */
-/* 中屏(≤1399):两栏,编排+导出回落到预览下方 */
-@media (max-width: 1399px) {
+/* 宽屏(≥1181):三栏各自滚动,页面不再被长控件撑高 */
+@media (min-width: 1181px) {
+  #motionWorkspace .col-left,
+  #motionWorkspace .col-right,
+  #motionWorkspace .col-controls {
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
+    padding-right: 4px;
+    scrollbar-width: thin;
+  }
+}
+/* 1280 级:收窄左右两栏,给预览多留宽度 */
+@media (min-width: 1181px) and (max-width: 1399px) {
+  #motionWorkspace .layout {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(320px, 360px);
+  }
+}
+/* 中屏(≤1180):两栏,编排+导出回落到预览下方 */
+@media (max-width: 1180px) {
   #motionWorkspace .layout { grid-template-columns: minmax(280px, 400px) minmax(0, 1fr); gap: 10px; padding: 10px; }
   #motionWorkspace .col-controls { grid-column: 2; }
 }
@@ -1285,6 +1306,13 @@ Every word a little light</textarea>
 <header>
   <h1>HyperGlow Motion</h1>
   <span class="sub">歌词动态排版编排器 · 参考创作流自 JIZURA (MIT) · 产出 HyperGlow 盒模式效果包</span>
+  <nav class="jumpbar" id="m-jumpbar">
+    <button data-jump="m-lyrics">歌词</button>
+    <button data-jump="m-preview">预览</button>
+    <button data-jump="m-manualOn">手动</button>
+    <button data-jump="m-preset">编排</button>
+    <button data-jump="m-exportPack">导出</button>
+  </nav>
   <span class="spacer"></span>
   <button class="back-btn" id="m-back">← 返回编辑器</button>
 </header>
@@ -1372,6 +1400,85 @@ Every word a little light</textarea>
         </label>
         <span class="timecode" id="m-timecode">00:00.00 / 00:00.00</span>
         <span class="hint" id="m-frameStatus"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>手动排版(逐词自由度)</h2>
+      <div class="row">
+        <label class="sync-mode"><input type="checkbox" id="m-manualOn"> 启用手动排版</label>
+        <span class="hint">开启后忽略预设/构图/装饰,只按锚点 + 逐词覆盖绘制;关闭即回到生成器。</span>
+      </div>
+      <div class="row">
+        <label>锚点 X</label><input type="range" id="m-manualAx" min="0" max="1" step="0.01" value="0.5">
+        <label>锚点 Y</label><input type="range" id="m-manualAy" min="0" max="1" step="0.01" value="0.5">
+        <label>整体缩放</label><input type="range" id="m-manualScale" min="0.4" max="2.5" step="0.01" value="1">
+        <label>整体旋转</label><input type="range" id="m-manualRotate" min="-45" max="45" step="1" value="0">
+      </div>
+      <div class="row">
+        <label>行</label>
+        <select id="m-manualLine" style="min-width:260px"></select>
+        <span class="hint" id="m-manualHint">选一行 → 点词 → 调位移/缩放/旋转/透明度</span>
+      </div>
+      <div class="row" id="m-manualWords"></div>
+      <div class="row">
+        <label>位移 X</label><input type="range" id="m-wDx" min="-3" max="3" step="0.01" value="0">
+        <label>位移 Y</label><input type="range" id="m-wDy" min="-3" max="3" step="0.01" value="0">
+        <label>缩放</label><input type="range" id="m-wScale" min="0.3" max="3" step="0.01" value="1">
+        <label>旋转</label><input type="range" id="m-wRotate" min="-180" max="180" step="1" value="0">
+        <label>透明度</label><input type="range" id="m-wAlpha" min="0" max="1" step="0.01" value="1">
+        <button class="small" id="m-wReset">重置该词</button>
+        <button class="small" id="m-lineReset">重置该行</button>
+        <button class="small" id="m-manualClear">清空全部手动</button>
+      </div>
+      <div class="row">
+        <label>贴纸</label>
+        <select id="m-spritePreset" style="min-width:120px">
+          <option value="0">0 · 星</option>
+          <option value="1" selected>1 · 四角星</option>
+          <option value="2">2 · 圆环</option>
+          <option value="3">3 · 三点</option>
+          <option value="4">4 · 胶带</option>
+          <option value="5">5 · 波浪</option>
+          <option value="6">6 · 箭头</option>
+          <option value="7">7 · 心</option>
+          <option value="8">8 · 音符</option>
+          <option value="9">9 · 月牙</option>
+          <option value="10">10 · 角框</option>
+          <option value="11">11 · 点阵</option>
+          <option value="12">12 · 半调</option>
+          <option value="13">13 · 下划线</option>
+          <option value="14">14 · 斜杠</option>
+          <option value="15">15 · 标签框</option>
+        </select>
+        <input type="number" id="m-spriteId" min="0" max="255" value="1" style="width:70px" title="内置 0-15;App 导入贴纸 64-255">
+        <button class="small" id="m-spriteAdd">添加贴纸</button>
+        <span class="hint">内置 0–15;App「自定义贴纸」导入的图片用 64–255(网页预览为虚线占位,实机显示真图)</span>
+      </div>
+      <div class="row" id="m-spriteList"></div>
+      <div class="row">
+        <label>X</label><input type="range" id="m-sx" min="0" max="1" step="0.005" value="0.4">
+        <label>Y</label><input type="range" id="m-sy" min="0" max="1" step="0.005" value="0.4">
+        <label>宽</label><input type="range" id="m-sw" min="0.01" max="1" step="0.005" value="0.2">
+        <label>高</label><input type="range" id="m-sh" min="0.01" max="1" step="0.005" value="0.2">
+        <label>旋转</label><input type="range" id="m-srot" min="-180" max="180" step="1" value="0">
+        <label>透明度</label><input type="range" id="m-salpha" min="0" max="1" step="0.01" value="1">
+        <button class="small" id="m-spriteDelete">删除贴纸</button>
+      </div>
+      <div class="row">
+        <label>动画</label>
+        <select id="m-sanim" style="width:110px">
+          <option value="none">静止</option>
+          <option value="float">漂浮</option>
+          <option value="pulse">呼吸</option>
+          <option value="spin">旋转</option>
+          <option value="fade">明暗</option>
+          <option value="pop">入场弹出</option>
+        </select>
+        <label>幅度</label><input type="range" id="m-samp" min="0" max="0.5" step="0.005" value="0.08">
+        <label>速度</label><input type="range" id="m-sspeed" min="0.1" max="180" step="0.1" value="1">
+        <button class="small" id="m-spriteImage">导入本机图片(仅预览)</button>
+        <input type="file" id="m-spriteFile" accept="image/*" style="display:none">
+        <span class="hint">图片只存在浏览器/工程文件，不进效果包；实机需在 App「自定义贴纸」导入同一张图</span>
       </div>
     </div>
   </div>
@@ -1470,85 +1577,6 @@ Every word a little light</textarea>
       <div class="stat" id="m-programStats"></div>
     </div>
 
-    <div class="card">
-      <h2>手动排版(逐词自由度)</h2>
-      <div class="row">
-        <label class="sync-mode"><input type="checkbox" id="m-manualOn"> 启用手动排版</label>
-        <span class="hint">开启后忽略预设/构图/装饰,只按锚点 + 逐词覆盖绘制;关闭即回到生成器。</span>
-      </div>
-      <div class="row">
-        <label>锚点 X</label><input type="range" id="m-manualAx" min="0" max="1" step="0.01" value="0.5">
-        <label>锚点 Y</label><input type="range" id="m-manualAy" min="0" max="1" step="0.01" value="0.5">
-        <label>整体缩放</label><input type="range" id="m-manualScale" min="0.4" max="2.5" step="0.01" value="1">
-        <label>整体旋转</label><input type="range" id="m-manualRotate" min="-45" max="45" step="1" value="0">
-      </div>
-      <div class="row">
-        <label>行</label>
-        <select id="m-manualLine" style="min-width:260px"></select>
-        <span class="hint" id="m-manualHint">选一行 → 点词 → 调位移/缩放/旋转/透明度</span>
-      </div>
-      <div class="row" id="m-manualWords"></div>
-      <div class="row">
-        <label>位移 X</label><input type="range" id="m-wDx" min="-3" max="3" step="0.01" value="0">
-        <label>位移 Y</label><input type="range" id="m-wDy" min="-3" max="3" step="0.01" value="0">
-        <label>缩放</label><input type="range" id="m-wScale" min="0.3" max="3" step="0.01" value="1">
-        <label>旋转</label><input type="range" id="m-wRotate" min="-180" max="180" step="1" value="0">
-        <label>透明度</label><input type="range" id="m-wAlpha" min="0" max="1" step="0.01" value="1">
-        <button class="small" id="m-wReset">重置该词</button>
-        <button class="small" id="m-lineReset">重置该行</button>
-        <button class="small" id="m-manualClear">清空全部手动</button>
-      </div>
-      <div class="row">
-        <label>贴纸</label>
-        <select id="m-spritePreset" style="min-width:120px">
-          <option value="0">0 · 星</option>
-          <option value="1" selected>1 · 四角星</option>
-          <option value="2">2 · 圆环</option>
-          <option value="3">3 · 三点</option>
-          <option value="4">4 · 胶带</option>
-          <option value="5">5 · 波浪</option>
-          <option value="6">6 · 箭头</option>
-          <option value="7">7 · 心</option>
-          <option value="8">8 · 音符</option>
-          <option value="9">9 · 月牙</option>
-          <option value="10">10 · 角框</option>
-          <option value="11">11 · 点阵</option>
-          <option value="12">12 · 半调</option>
-          <option value="13">13 · 下划线</option>
-          <option value="14">14 · 斜杠</option>
-          <option value="15">15 · 标签框</option>
-        </select>
-        <input type="number" id="m-spriteId" min="0" max="255" value="1" style="width:70px" title="内置 0-15;App 导入贴纸 64-255">
-        <button class="small" id="m-spriteAdd">添加贴纸</button>
-        <span class="hint">内置 0–15;App「自定义贴纸」导入的图片用 64–255(网页预览为虚线占位,实机显示真图)</span>
-      </div>
-      <div class="row" id="m-spriteList"></div>
-      <div class="row">
-        <label>X</label><input type="range" id="m-sx" min="0" max="1" step="0.005" value="0.4">
-        <label>Y</label><input type="range" id="m-sy" min="0" max="1" step="0.005" value="0.4">
-        <label>宽</label><input type="range" id="m-sw" min="0.01" max="1" step="0.005" value="0.2">
-        <label>高</label><input type="range" id="m-sh" min="0.01" max="1" step="0.005" value="0.2">
-        <label>旋转</label><input type="range" id="m-srot" min="-180" max="180" step="1" value="0">
-        <label>透明度</label><input type="range" id="m-salpha" min="0" max="1" step="0.01" value="1">
-        <button class="small" id="m-spriteDelete">删除贴纸</button>
-      </div>
-      <div class="row">
-        <label>动画</label>
-        <select id="m-sanim" style="width:110px">
-          <option value="none">静止</option>
-          <option value="float">漂浮</option>
-          <option value="pulse">呼吸</option>
-          <option value="spin">旋转</option>
-          <option value="fade">明暗</option>
-          <option value="pop">入场弹出</option>
-        </select>
-        <label>幅度</label><input type="range" id="m-samp" min="0" max="0.5" step="0.005" value="0.08">
-        <label>速度</label><input type="range" id="m-sspeed" min="0.1" max="180" step="0.1" value="1">
-        <button class="small" id="m-spriteImage">导入本机图片(仅预览)</button>
-        <input type="file" id="m-spriteFile" accept="image/*" style="display:none">
-        <span class="hint">图片只存在浏览器/工程文件，不进效果包；实机需在 App「自定义贴纸」导入同一张图</span>
-      </div>
-    </div>
 
     <div class="card">
       <h2>导出</h2>
@@ -1571,10 +1599,10 @@ Every word a little light</textarea>
 </div>
 
 </section>
-<script src="engine.js?v=18"></script>
-<script src="motion.js?v=18"></script>
-<script src="motion-ui.js?v=18"></script>
-<script src="templates.js?v=18"></script>
-<script src="app.js?v=18"></script>
+<script src="engine.js?v=20"></script>
+<script src="motion.js?v=20"></script>
+<script src="motion-ui.js?v=20"></script>
+<script src="templates.js?v=20"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

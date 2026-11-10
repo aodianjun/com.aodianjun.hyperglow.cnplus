@@ -1057,6 +1057,18 @@ $('lyrics').value = [
 ].join('\n');
 state.seed = 20261109;
 $('seed').value = state.seed;
+// 顶栏快速跳转:卡片可能位于不同滚动列内,统一 scrollIntoView
+if ($('jumpbar')) {
+  $('jumpbar').querySelectorAll('button').forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = $(button.getAttribute('data-jump'));
+      if (target && target.scrollIntoView) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  });
+}
+
 applyPreset('ballad');
 requestAnimationFrame(tick);
 
