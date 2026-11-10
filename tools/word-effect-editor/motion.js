@@ -427,6 +427,39 @@ const LAYOUT_MODES = { auto: 1, h: 1, v: 1, stagger: 1, scatter: 1, ink: 1, post
  */
 const GRAPHIC_MODES = { auto: 1, none: 1, line: 1, frame: 1, stamp: 1, glow: 1, panel: 1 };
 
+/**
+ * 手动排版参数归一化:锚点(0..1 画布比例)、整体缩放/旋转、逐词覆盖表。
+ * 覆盖表按「行号+词号」查表,由 wordOverride 指令读取,不占程序指令预算。
+ */
+function normalizeManual(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const finite = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
+  const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+  const overrides = [];
+  if (Array.isArray(raw.overrides)) {
+    for (const item of raw.overrides.slice(0, 256)) {
+      if (!item || !Number.isInteger(item.line) || item.line < 0) continue;
+      if (!Number.isInteger(item.word) || item.word < 0) continue;
+      overrides.push({
+        line: item.line,
+        word: item.word,
+        dx: clamp(finite(item.dx, 0), -20, 20),
+        dy: clamp(finite(item.dy, 0), -20, 20),
+        scale: clamp(finite(item.scale, 1), 0.05, 8),
+        rotate: clamp(finite(item.rotate, 0), -720, 720),
+        alpha: clamp(finite(item.alpha, 1), 0, 1)
+      });
+    }
+  }
+  return {
+    anchorX: clamp(finite(raw.anchorX, 0.5), 0, 1),
+    anchorY: clamp(finite(raw.anchorY, 0.5), 0, 1),
+    scale: clamp(finite(raw.scale, 1), 0.2, 3),
+    rotate: clamp(finite(raw.rotate, 0), -180, 180),
+    overrides
+  };
+}
+
 const round4 = (value) => Math.round(value * 10000) / 10000;
 const pickRange = (rng, range) => range[0] + (range[1] - range[0]) * rng();
 
@@ -477,6 +510,8 @@ function styleFromSeed(seed, themeKey, overrides) {
     singleMove: Number.isInteger(over.singleMove)
       ? ((over.singleMove % 4) + 4) % 4
       : null,
+    // 手动排版:非空时忽略生成器的构图/手法/装饰,按锚点+逐词覆盖绘制
+    manual: normalizeManual(over.manual),
     pulse: jitter('pulse'),
     cycle,
     flash: over.flash === undefined ? rng() < 0.5 : !!over.flash,
@@ -507,6 +542,138 @@ function styleFromSeed(seed, themeKey, overrides) {
 // ---------------------------------------------------------------------------
 
 /**
+ * 手动排版程序:锚点平移 + 逐词覆盖(wordOverride) + 绕词中心旋转绘制。
+ * 不含生成器的构图/手法/装饰;所有自由度来自 program.wordOverrides 数据表。
+ */
+function buildManualSource(style, num) {
+  const m = style.manual;
+  const ax = m.anchorX - 0.5;
+  const ay = m.anchorY - 0.5;
+  return [
+    '; HyperGlow Manual · anchor=' + num(m.anchorX) + ',' + num(m.anchorY) +
+      ' · scale=' + num(m.scale) + ' · rotate=' + num(m.rotate),
+    'colorField sung',
+    'setColor',
+    'wordCount',
+    'storeLocal 1',
+    'push 0',
+    'storeLocal 0',
+    'loop:',
+    '  loadLocal 0',
+    '  loadLocal 1',
+    '  lt',
+    '  jz done',
+    '  loadLocal 0',
+    '  word',
+    '  storeLocal 6',
+    // 默认 alpha(词进度)与旋转 0
+    '  loadLocal 6',
+    '  wordField progress',
+    '  push 0.65',
+    '  mul',
+    '  push 0.35',
+    '  add',
+    '  storeLocal 14',
+    '  push 0',
+    '  storeLocal 19',
+    // 锚点平移后的位置
+    '  loadLocal 6',
+    '  wordField x',
+    '  canvasField width',
+    '  push ' + num(ax),
+    '  mul',
+    '  add',
+    '  storeLocal 10',
+    '  loadLocal 6',
+    '  wordField baseline',
+    '  canvasField height',
+    '  push ' + num(ay),
+    '  mul',
+    '  add',
+    '  storeLocal 11',
+    '  push ' + num(m.scale),
+    '  storeLocal 12',
+    // 逐词覆盖:压入 dx,dy,scale,rotate,alpha
+    '  loadLocal 6',
+    '  wordField line',
+    '  loadLocal 0',
+    '  wordOverride',
+    '  loadLocal 14',
+    '  mul',
+    '  storeLocal 14',
+    '  storeLocal 19',
+    '  loadLocal 12',
+    '  mul',
+    '  storeLocal 12',
+    '  globalField textSize',
+    '  mul',
+    '  loadLocal 11',
+    '  add',
+    '  storeLocal 11',
+    '  globalField textSize',
+    '  mul',
+    '  loadLocal 10',
+    '  add',
+    '  storeLocal 10',
+    // 整体旋转
+    '  loadLocal 19',
+    '  push ' + num(m.rotate),
+    '  add',
+    '  storeLocal 19',
+    // 字号 / 枢轴 / 透明度
+    '  loadLocal 12',
+    '  globalField textSize',
+    '  mul',
+    '  setTextSize',
+    '  loadLocal 10',
+    '  loadLocal 6',
+    '  wordField text',
+    '  measureText',
+    '  push 0.5',
+    '  mul',
+    '  add',
+    '  storeLocal 8',
+    '  loadLocal 11',
+    '  globalField textSize',
+    '  loadLocal 12',
+    '  mul',
+    '  push 0.35',
+    '  mul',
+    '  sub',
+    '  storeLocal 9',
+    '  loadLocal 14',
+    '  setAlpha',
+    '  save',
+    '  loadLocal 8',
+    '  loadLocal 9',
+    '  translate',
+    '  loadLocal 19',
+    '  rotate',
+    '  loadLocal 8',
+    '  push -1',
+    '  mul',
+    '  loadLocal 9',
+    '  push -1',
+    '  mul',
+    '  translate',
+    '  loadLocal 6',
+    '  wordField text',
+    '  loadLocal 10',
+    '  loadLocal 11',
+    '  drawText',
+    '  restore',
+    'nextw:',
+    '  loadLocal 0',
+    '  push 1',
+    '  add',
+    '  storeLocal 0',
+    '  jump loop',
+    'done:',
+    '  end'
+  ];
+}
+
+/**
  * 生成汇编源码。骨架 = 公共 prologue + 「(行号+词序) mod cycle」分派 + 四个参数化手法分支
  * (单行块内也能四手法轮换;多行折行时行号参与轮换):
  *   0 = wave(绕词中心的旋转 + 正弦纵向浮动)
@@ -524,6 +691,7 @@ function buildProgramSource(style) {
     const rounded = round4(Number(value) || 0);
     return String(rounded);
   };
+  if (style.manual) return buildManualSource(style, num).join(String.fromCharCode(10));
   const flashT = style.flash ? 0.08 : 999999;
   // 只编译单一手法:新增效果层(失焦/圈注/粒子)靠它把 512 条指令预算让出来。
   const singleMove = Number.isInteger(style.singleMove) ? style.singleMove : null;
@@ -1712,7 +1880,8 @@ function buildEffectPack(timeline, style, meta) {
   // 汇编产物没有 outputMode 概念,盒模式在此显式注入(归一化会原样保留)。
   const normalized = E.normalizeProgram({
     ...assembled.program,
-    outputMode: E.EFFECT_OUTPUT_BOXES
+    outputMode: E.EFFECT_OUTPUT_BOXES,
+    wordOverrides: style.manual ? style.manual.overrides : undefined
   });
   if (!normalized.ok) {
     return { ok: false, errors: normalized.errors };
@@ -1783,6 +1952,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
     // 播放头落在间奏/空隙:找下一个可渲染行,预览整块留空(与实机一致)
     return null;
   }
+  const activeIndex = rows.indexOf(active);
   const span = Math.max(1, (active.end - active.start) * 1000);
   const startMs = active.start * 1000;
   const positionMs = tSeconds * 1000;
@@ -1813,7 +1983,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
       progress: E.clamp((positionMs - unitStartMs) / Math.max(1, unitEndMs - unitStartMs), 0, 1),
       index,
       longSyllable: unitEndMs - unitStartMs >= 700,
-      lineIndex: 0,
+      lineIndex: activeIndex,
       baseline
     });
     cursorX += Math.max(0, widths[index]);
@@ -1829,7 +1999,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
     lineStartMs: startMs,
     lineEndMs: startMs + span,
     lineProgress,
-    lineIndex: 0,
+    lineIndex: activeIndex,
     canvasWidth: canvasW,
     canvasHeight: Number.isFinite(canvasHeight) ? canvasHeight : 320,
     textSize,
@@ -1839,7 +2009,7 @@ function buildFrameContext(timeline, tSeconds, palette, measure, canvasWidth, ca
     lines: [
       {
         text: active.text,
-        index: 0,
+        index: activeIndex,
         startMs,
         endMs: startMs + span,
         progress: lineProgress,
@@ -2025,6 +2195,7 @@ function toProject(data) {
     seed: data.seed,
     theme: data.theme,
     overrides: data.overrides || {},
+    manual: data.manual || null,
     palette: data.palette
   };
 }

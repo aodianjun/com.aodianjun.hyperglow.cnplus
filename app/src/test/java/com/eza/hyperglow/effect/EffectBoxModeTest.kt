@@ -70,6 +70,87 @@ class EffectBoxModeTest {
     }
 
     @Test
+    fun wordOverridePushesPerWordTableValues() {
+        // 每个词: line=0、word=i → wordOverride 压入 dx,dy,scale,rotate,alpha;
+        // 取 dx/dy 画文本、取 alpha 设透明度,验证查表命中与缺省恒等值。
+        val program = EffectProgram(
+            outputMode = EFFECT_OUTPUT_BOXES,
+            maxLocals = 6,
+            constants = listOf(
+                EffectConstant(value = "0"),
+                EffectConstant(value = "1"),
+                EffectConstant(type = "string", value = "o")
+            ),
+            wordOverrides = listOf(
+                EffectWordOverride(
+                    line = 0, word = 1,
+                    dx = 2f, dy = -1f, scale = 1.5f, rotate = 10f, alpha = 0.5f
+                )
+            ),
+            code = listOf(
+                instruction("const", 0),
+                instruction("storeLocal", 0),
+                // loop:
+                instruction("loadLocal", 0),
+                instruction("wordCount"),
+                instruction("lt"),
+                instruction("jz", 29),
+                instruction("const", 0),
+                instruction("loadLocal", 0),
+                instruction("wordOverride"),
+                instruction("storeLocal", 1),
+                instruction("storeLocal", 2),
+                instruction("storeLocal", 3),
+                instruction("storeLocal", 4),
+                instruction("storeLocal", 5),
+                instruction("loadLocal", 1),
+                instruction("setAlpha"),
+                instruction("const", 2),
+                instruction("loadLocal", 5),
+                instruction("globalField", text = "textSize"),
+                instruction("mul"),
+                instruction("loadLocal", 4),
+                instruction("globalField", text = "textSize"),
+                instruction("mul"),
+                instruction("drawText"),
+                instruction("loadLocal", 0),
+                instruction("const", 1),
+                instruction("add"),
+                instruction("storeLocal", 0),
+                instruction("jump", 2),
+                instruction("end")
+            )
+        )
+        val boxes = collect(program)
+        assertNotNull(boxes)
+        val text = boxes!!.filterIsInstance<EffectBox.TextBox>()
+        assertEquals(2, text.size)
+        assertEquals(0f, text[0].x, 0.001f)
+        assertEquals(0f, text[0].baseline, 0.001f)
+        assertEquals(1f, text[0].paint.alpha, 0.001f)
+        assertEquals(2f * 64f, text[1].x, 0.001f)
+        assertEquals(-1f * 64f, text[1].baseline, 0.001f)
+        assertEquals(0.5f, text[1].paint.alpha, 0.001f)
+    }
+
+    @Test
+    fun normalizationKeepsValidWordOverridesAndRejectsOutOfRange() {
+        val base = EffectProgram(
+            outputMode = EFFECT_OUTPUT_BOXES,
+            code = listOf(instruction("end")),
+            maxLocals = 0
+        )
+        val valid = normalizeEffectProgram(
+            base.copy(wordOverrides = listOf(EffectWordOverride(line = 1, word = 2, dx = 1f)))
+        )
+        assertNotNull(valid)
+        assertEquals(1, valid!!.wordOverrides.size)
+        assertNull(normalizeEffectProgram(base.copy(wordOverrides = listOf(EffectWordOverride(scale = 0f)))))
+        assertNull(normalizeEffectProgram(base.copy(wordOverrides = listOf(EffectWordOverride(line = -1)))))
+        assertNull(normalizeEffectProgram(base.copy(wordOverrides = listOf(EffectWordOverride(alpha = 2f)))))
+    }
+
+    @Test
     fun drawModeProgramIsRejectedByCollectBoxes() {
         val program = EffectProgram(
             outputMode = EFFECT_OUTPUT_DRAW,

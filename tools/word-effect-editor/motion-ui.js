@@ -25,6 +25,7 @@ const state = {
   annotationMode: 'none',
   particleMode: 'none',
   lineartMode: 'none',
+  manual: { enabled: false, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, line: 0, word: 0, overrides: {} },
   theme: 'lyric',
   overrides: {},
   palette: { sung: 0xFFFFFFFF, unsung: 0x88FFFFFF, glow: 0xFF66AAFF, accent: 0xFFFFAA33 },
@@ -94,7 +95,8 @@ function readControls() {
     annotationMode: $('annotate').value,
     particleMode: $('particle').value,
     lineartMode: $('lineart').value,
-    flash: $('flash').checked
+    flash: $('flash').checked,
+    manual: manualPayload()
   };
   const sung = E.parseColor($('sungColor').value) || 0xFFFFFFFF;
   const glow = E.parseColor($('glowColor').value) || 0xFF66AAFF;
@@ -144,6 +146,11 @@ function refresh() {
     state.built = null;
   }
   renderLineList();
+  renderManualPanel();
+  // 暂停时 refresh 也要重绘预览,否则改滑杆/拖词看不到变化
+  if (!state.playing) {
+    try { drawFrame(currentTimeSec()); } catch (error) { /* 预览尚未就绪 */ }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +400,7 @@ function randomAll() {
   state.theme = theme;
   state.seed = Math.floor(Math.random() * 0xffffff) + 1;
   state.overrides = {}; // 清空手动覆盖,吃主题+seed 全随机
+  setManualEnabled(false);
   state.presetKey = 'custom';
   $('preset').value = 'custom';
   syncControlsFromStyle();
@@ -438,6 +446,7 @@ function applyPreset(key) {
   state.presetKey = key;
   state.theme = preset.theme;
   state.overrides = Object.assign({}, preset.params);
+  setManualEnabled(false);
   // 预设自带调色(如金色星火的暖色辉光)一并回填到颜色输入框。
   if (preset.palette) {
     if (preset.palette.sung) $('sungColor').value = preset.palette.sung;
@@ -478,6 +487,262 @@ $('dice').addEventListener('click', () => {
 $('randomAll').addEventListener('click', randomAll);
 
 // ---------------------------------------------------------------------------
+// 手动排版(逐词覆盖):锚点 + 每词位移/缩放/旋转/透明度
+// ---------------------------------------------------------------------------
+
+function manualPayload() {
+  const m = state.manual;
+  if (!m || !m.enabled) return null;
+  const overrides = Object.keys(m.overrides || {}).map((key) => m.overrides[key]);
+  return {
+    enabled: true,
+    anchorX: m.anchorX,
+    anchorY: m.anchorY,
+    scale: m.scale,
+    rotate: m.rotate,
+    overrides
+  };
+}
+
+function manualRows() {
+  return state.timeline.rows.filter((row) => !row.interlude && row.text);
+}
+
+function manualKey(line, word) {
+  return line + ':' + word;
+}
+
+function manualOverride() {
+  return state.manual.overrides[manualKey(state.manual.line, state.manual.word)] || null;
+}
+
+function manualIdentity(ov) {
+  return !ov || (ov.dx === 0 && ov.dy === 0 && ov.scale === 1 && ov.rotate === 0 && ov.alpha === 1);
+}
+
+function writeManualOverride(patch) {
+  const key = manualKey(state.manual.line, state.manual.word);
+  const base = state.manual.overrides[key] || {
+    line: state.manual.line, word: state.manual.word,
+    dx: 0, dy: 0, scale: 1, rotate: 0, alpha: 1
+  };
+  const next = Object.assign({}, base, patch, { line: state.manual.line, word: state.manual.word });
+  if (manualIdentity(next)) delete state.manual.overrides[key];
+  else state.manual.overrides[key] = next;
+}
+
+function setManualEnabled(enabled) {
+  state.manual.enabled = !!enabled;
+  if ($('manualOn')) $('manualOn').checked = state.manual.enabled;
+  if (state.manual.enabled) {
+    state.presetKey = 'custom';
+    if ($('preset')) $('preset').value = 'custom';
+  }
+}
+
+function seekManualLine() {
+  const rows = manualRows();
+  const row = rows[state.manual.line];
+  if (!row) return;
+  if (window.HGMotionUI && typeof window.HGMotionUI.seek === 'function') {
+    window.HGMotionUI.seek(row.start + Math.min(1, (row.end - row.start) * 0.3));
+  }
+}
+
+function renderManualPanel() {
+  if (!$('manualOn')) return;
+  const m = state.manual;
+  $('manualOn').checked = !!m.enabled;
+  $('manualAx').value = m.anchorX;
+  $('manualAy').value = m.anchorY;
+  $('manualScale').value = m.scale;
+  $('manualRotate').value = m.rotate;
+
+  const rows = manualRows();
+  if (m.line >= rows.length) m.line = Math.max(0, rows.length - 1);
+  const lineSelect = $('manualLine');
+  lineSelect.innerHTML = rows.map((row, index) =>
+    '<option value="' + index + '">' + (index + 1) + '. ' + String(row.text).slice(0, 24) + '</option>'
+  ).join('');
+  lineSelect.value = String(m.line);
+
+  const row = rows[m.line];
+  const tokens = row ? E.tokenizeLine(row.text) : [];
+  if (m.word >= tokens.length) m.word = Math.max(0, tokens.length - 1);
+  const wordsBox = $('manualWords');
+  wordsBox.innerHTML = tokens.map((token, index) => {
+    const ov = m.overrides[manualKey(m.line, index)];
+    const active = index === m.word ? 'background:var(--accent);color:#111;' : '';
+    return '<button class="small" data-word="' + index + '" style="margin:2px;' + active + '">' +
+      token.text + (ov ? ' •' : '') + '</button>';
+  }).join('');
+  wordsBox.querySelectorAll('button').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.manual.word = Number(button.getAttribute('data-word'));
+      renderManualPanel();
+    });
+  });
+
+  const ov = manualOverride();
+  $('wDx').value = ov ? ov.dx : 0;
+  $('wDy').value = ov ? ov.dy : 0;
+  $('wScale').value = ov ? ov.scale : 1;
+  $('wRotate').value = ov ? ov.rotate : 0;
+  $('wAlpha').value = ov ? ov.alpha : 1;
+  const count = Object.keys(m.overrides).length;
+  $('manualHint').textContent = m.enabled
+    ? '已覆盖 ' + count + ' 个词;点词选中后拖滑杆,预览实时更新'
+    : '开启后忽略生成器;当前只预览生成器效果';
+}
+
+$('manualOn').addEventListener('change', () => {
+  setManualEnabled($('manualOn').checked);
+  refresh();
+});
+for (const config of [
+  ['manualAx', 'anchorX'], ['manualAy', 'anchorY'],
+  ['manualScale', 'scale'], ['manualRotate', 'rotate']
+]) {
+  const id = config[0];
+  const key = config[1];
+  $(id).addEventListener('input', () => {
+    if (!state.manual.enabled) setManualEnabled(true);
+    state.manual[key] = Number($(id).value);
+    state.presetKey = 'custom';
+    $('preset').value = 'custom';
+    refresh();
+  });
+}
+$('manualLine').addEventListener('change', () => {
+  state.manual.line = Number($('manualLine').value);
+  state.manual.word = 0;
+  renderManualPanel();
+  seekManualLine();
+});
+for (const config of [
+  ['wDx', 'dx'], ['wDy', 'dy'], ['wScale', 'scale'], ['wRotate', 'rotate'], ['wAlpha', 'alpha']
+]) {
+  const id = config[0];
+  const key = config[1];
+  $(id).addEventListener('input', () => {
+    if (!state.manual.enabled) setManualEnabled(true);
+    writeManualOverride({ [key]: Number($(id).value) });
+    state.presetKey = 'custom';
+    $('preset').value = 'custom';
+    refresh();
+  });
+}
+$('wReset').addEventListener('click', () => {
+  delete state.manual.overrides[manualKey(state.manual.line, state.manual.word)];
+  refresh();
+});
+$('lineReset').addEventListener('click', () => {
+  const prefix = state.manual.line + ':';
+  for (const key of Object.keys(state.manual.overrides)) {
+    if (key.indexOf(prefix) === 0) delete state.manual.overrides[key];
+  }
+  refresh();
+});
+$('manualClear').addEventListener('click', () => {
+  state.manual.overrides = {};
+  refresh();
+});
+
+// ---- 画布直接拖动:命中选中的行内词 → 改位移;空白处拖动 → 改整体锚点 ----
+let manualDrag = null;
+let manualDragFrame = 0;
+
+function previewMetrics() {
+  const canvas = $('preview');
+  const W = canvas.width || 720;
+  const H = canvas.height || 320;
+  const rows = manualRows();
+  const row = rows[state.manual.line];
+  if (!row) return null;
+  const tokens = E.tokenizeLine(row.text);
+  const ts = 64;
+  const widths = tokens.map((token) => measure(token.text, ts) + (token.spaceBefore ? ts * 0.18 : 0));
+  const total = widths.reduce((sum, width) => sum + width, 0);
+  const startX = Math.max(8, (W - total) / 2);
+  const baseline = Math.max(ts, H * 0.42);
+  let cursor = startX;
+  const points = tokens.map((token, index) => {
+    const ov = state.manual.overrides[manualKey(state.manual.line, index)] || {};
+    const scale = (ov.scale || 1) * state.manual.scale;
+    const cx = cursor + widths[index] / 2 +
+      (state.manual.anchorX - 0.5) * W + (ov.dx || 0) * ts;
+    const cy = baseline + (state.manual.anchorY - 0.5) * H + (ov.dy || 0) * ts -
+      ts * scale * 0.35;
+    cursor += widths[index];
+    return { index, x: cx, y: cy, radius: Math.max(28, ts * scale * 0.55) };
+  });
+  return { points, W, H };
+}
+
+function canvasEventPoint(event, metrics) {
+  const canvas = $('preview');
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * (metrics.W / Math.max(1, rect.width)),
+    y: (event.clientY - rect.top) * (metrics.H / Math.max(1, rect.height))
+  };
+}
+
+function scheduleManualRefresh() {
+  if (manualDragFrame) return;
+  manualDragFrame = requestAnimationFrame(() => {
+    manualDragFrame = 0;
+    refresh();
+  });
+}
+
+$('preview').addEventListener('pointerdown', (event) => {
+  if (!state.manual.enabled) return;
+  const metrics = previewMetrics();
+  if (!metrics) return;
+  const point = canvasEventPoint(event, metrics);
+  const hit = metrics.points.find((item) =>
+    Math.hypot(item.x - point.x, item.y - point.y) <= item.radius);
+  if (hit) {
+    state.manual.word = hit.index;
+    renderManualPanel();
+    const ov = state.manual.overrides[manualKey(state.manual.line, hit.index)] || {};
+    manualDrag = {
+      mode: 'word', W: metrics.W, H: metrics.H,
+      startX: point.x, startY: point.y, dx: ov.dx || 0, dy: ov.dy || 0
+    };
+  } else {
+    manualDrag = {
+      mode: 'anchor', W: metrics.W, H: metrics.H,
+      startX: point.x, startY: point.y,
+      ax: state.manual.anchorX, ay: state.manual.anchorY
+    };
+  }
+  event.preventDefault();
+});
+
+window.addEventListener('pointermove', (event) => {
+  if (!manualDrag) return;
+  const point = canvasEventPoint(event, manualDrag);
+  if (manualDrag.mode === 'word') {
+    writeManualOverride({
+      dx: manualDrag.dx + (point.x - manualDrag.startX) / 64,
+      dy: manualDrag.dy + (point.y - manualDrag.startY) / 64
+    });
+  } else {
+    state.manual.anchorX = Math.min(1, Math.max(0,
+      manualDrag.ax + (point.x - manualDrag.startX) / manualDrag.W));
+    state.manual.anchorY = Math.min(1, Math.max(0,
+      manualDrag.ay + (point.y - manualDrag.startY) / manualDrag.H));
+  }
+  scheduleManualRefresh();
+});
+
+window.addEventListener('pointerup', () => {
+  manualDrag = null;
+});
+
+// ---------------------------------------------------------------------------
 // 导出
 // ---------------------------------------------------------------------------
 
@@ -510,6 +775,7 @@ $('saveProject').addEventListener('click', () => {
     seed: state.seed,
     theme: state.theme,
     overrides: state.overrides,
+    manual: manualPayload(),
     palette: {
       sung: $('sungColor').value,
       glow: $('glowColor').value
@@ -535,6 +801,31 @@ $('projectFile').addEventListener('change', () => {
       state.theme = project.theme || 'lyric';
       state.seed = project.seed || 1;
       state.overrides = project.overrides || {};
+      const savedManual = project.manual;
+      state.manual = {
+        enabled: !!(savedManual && savedManual.enabled),
+        anchorX: savedManual && Number.isFinite(savedManual.anchorX) ? savedManual.anchorX : 0.5,
+        anchorY: savedManual && Number.isFinite(savedManual.anchorY) ? savedManual.anchorY : 0.5,
+        scale: savedManual && Number.isFinite(savedManual.scale) ? savedManual.scale : 1,
+        rotate: savedManual && Number.isFinite(savedManual.rotate) ? savedManual.rotate : 0,
+        line: 0,
+        word: 0,
+        overrides: {}
+      };
+      if (savedManual && Array.isArray(savedManual.overrides)) {
+        for (const ov of savedManual.overrides) {
+          if (!ov || !Number.isInteger(ov.line) || !Number.isInteger(ov.word)) continue;
+          state.manual.overrides[manualKey(ov.line, ov.word)] = {
+            line: ov.line,
+            word: ov.word,
+            dx: Number.isFinite(ov.dx) ? ov.dx : 0,
+            dy: Number.isFinite(ov.dy) ? ov.dy : 0,
+            scale: Number.isFinite(ov.scale) ? ov.scale : 1,
+            rotate: Number.isFinite(ov.rotate) ? ov.rotate : 0,
+            alpha: Number.isFinite(ov.alpha) ? ov.alpha : 1
+          };
+        }
+      }
       if (project.palette) {
         if (project.palette.sung) $('sungColor').value = project.palette.sung;
         if (project.palette.glow) $('glowColor').value = project.palette.glow;

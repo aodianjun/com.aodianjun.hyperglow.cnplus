@@ -134,6 +134,14 @@ class EffectVm(private val program: EffectProgram) {
     private var drawOps = 0
     private var failed = false
 
+    /** 逐词覆盖查表(行号高 32 位 + 词号),空表时为空 Map。 */
+    private val overrideLookup: Map<Long, EffectWordOverride> by lazy {
+        program.wordOverrides.associateBy { overrideKey(it.line, it.word) }
+    }
+
+    private fun overrideKey(line: Int, word: Int): Long =
+        (line.toLong() shl 32) xor (word.toLong() and 0xffffffffL)
+
     fun render(context: EffectFrameContext, sink: EffectRenderSink): Boolean {
         // 直绘入口只服务 draw 模式;盒模式误调 render() 视为失败(不绘制),
         // 防止盒程序被当成直绘执行而丢失输出。调用方应按 outputMode 分流到 collectBoxes。
@@ -242,6 +250,17 @@ class EffectVm(private val program: EffectProgram) {
                     val ref = pop()
                     val word = (ref as? WordRef)?.let { context.words.getOrNull(it.index) }
                     push(wordField(word, instruction.text.orEmpty()))
+                }
+                // 逐词手动排版覆盖:压入 dx,dy,scale,rotate,alpha(缺省恒等值)。
+                "wordOverride" -> {
+                    val wordIndex = popNumber().toInt()
+                    val lineIndex = popNumber().toInt()
+                    val override = overrideLookup[overrideKey(lineIndex, wordIndex)]
+                    push((override?.dx ?: 0f).toDouble())
+                    push((override?.dy ?: 0f).toDouble())
+                    push((override?.scale ?: 1f).toDouble())
+                    push((override?.rotate ?: 0f).toDouble())
+                    push((override?.alpha ?: 1f).toDouble())
                 }
                 "add" -> binary { a, b -> a + b }
                 "sub" -> binary { a, b -> a - b }

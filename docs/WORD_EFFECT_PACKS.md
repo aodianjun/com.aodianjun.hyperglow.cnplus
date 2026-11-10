@@ -257,6 +257,12 @@
 | `constants` | array | ≤64 项 | `[]` | 常量池 |
 | `code` | array | 1..512 条 | 必填 | 指令序列 |
 | `maxLocals` | int | 0..24 | `16` | 局部变量槽数量 |
+| `wordOverrides` | array | ≤256 项 | `[]` | 逐词手动排版覆盖表（见下） |
+
+`wordOverrides` 的每一项是 `{ "line": 0, "word": 0, "dx": 0, "dy": 0, "scale": 1, "rotate": 0, "alpha": 1 }`：
+按「行号 + 词号」查表，供 `wordOverride` 指令读取。`dx`/`dy` 以 em 为单位（绝对值 ≤20），
+`scale` 0.05..8，`rotate` 单位度（绝对值 ≤720），`alpha` 0..1；非有限值或越界直接拒绝。
+表项按 48 字节/条计入程序估算预算，不占指令数。
 
 常量项是 `{ "type": "number" | "string" | "bool", "value": "..." }`。`type` 省略时按
 `number` 解释；number 必须是有限数；string 最长 256 字符；bool 只接受 `"true"` / `"false"`。
@@ -436,6 +442,7 @@
 | op | 栈 | 语义 |
 | --- | --- | --- |
 | `measureText` | `text` → `width` | 测量文字宽度（像素） |
+| `wordOverride` | `line word` → `dx dy scale rotate alpha` | 查逐词覆盖表；未命中压入恒等值 `0 0 1 0 1` |
 | `end` | → | 正常结束本帧，返回成功 |
 
 ### 10.4 最小示例
@@ -770,3 +777,6 @@ Word Effect Studio 的程序编辑器提供「输出模式」选择（draw / box
 所选模式写入 `program.outputMode`，导入/导出/复制/模板均保留。盒模式下编辑器预览走
 收集器 + 盒渲染器，预算超限与实机同样整块不绘制并提示。
 - 贴图编号池：0..63 为**内置素材**（`assets/deco/<id>.png`，随模块 APK 分发）；64..255 为**用户导入贴纸**——用户在 App「外观 → 自定义贴纸」导入，导入时解码校验、等比缩到 ≤1024 像素并重编码 PNG（剥元数据）存入 app 私有目录。发布配置时字节经只读 `ParcelFileDescriptor` 随配置 Bundle 下发，SystemUI 按 sha256 与尺寸/像素预算校验后才解码；效果文档里只出现编号，**不出现任何文件路径或 URL**。
+- 手动排版：Word Effect Studio 的「手动排版」面板把锚点与逐词覆盖写入 `program.wordOverrides`
+  （纯数值表，≤256 条）；程序用 `wordOverride` 指令按「行号+词号」读取，未命中返回恒等值。
+  覆盖表不占指令数，但与指令共用 12 KiB 估算预算（48 字节/条）；旧版 App 不认识该指令，需同步升级。

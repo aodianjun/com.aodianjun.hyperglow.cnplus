@@ -539,6 +539,50 @@ test('new effect layers keep custom edits inside the instruction budget', () => 
   assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE);
 });
 
+test('manual layout compiles anchor + per-word overrides into the program table', () => {
+  const manual = {
+    enabled: true,
+    anchorX: 0.5,
+    anchorY: 0.5,
+    scale: 1,
+    rotate: 0,
+    overrides: [{ line: 0, word: 1, dx: 1, dy: -0.5, scale: 1.5, rotate: 12, alpha: 0.6 }]
+  };
+  const style = M.styleFromSeed(3, 'lyric', { manual });
+  const built = M.buildEffectPack({ rows: [] }, style, {});
+  assert.ok(built.ok, (built.errors || []).join('; '));
+  assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE);
+  const program = built.effect.program;
+  assert.strictEqual(program.wordOverrides.length, 1);
+  assert.strictEqual(program.wordOverrides[0].word, 1);
+
+  const frame = makeFrame('一二三四', 1.0);
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  const result = E.runProgram(program, frame, sink);
+  assert.ok(result.ok && !sink.failed);
+  const box = sink.boxes.find((item) => item.text === '二');
+  assert.ok(box, 'overridden word box missing');
+  const base = frame.words[1];
+  assert.ok(Math.abs(box.x - (base.x + 1 * frame.textSize)) < 0.5, 'dx not applied: ' + box.x);
+  assert.ok(Math.abs(box.baseline - (base.baseline - 0.5 * frame.textSize)) < 0.5, 'dy not applied');
+  assert.ok(Math.abs(box.paint.textSize - frame.textSize * 1.5) < 0.5, 'scale not applied');
+  assert.ok(Math.abs(box.paint.alpha - 0.35 * 0.6) < 0.02, 'alpha not applied: ' + box.paint.alpha);
+  const rotated = Math.abs(box.transform.m1) > 1e-4 || Math.abs(box.transform.m3) > 1e-4;
+  assert.ok(rotated, 'rotation not applied');
+});
+
+test('manual anchor shifts every word by canvas fraction', () => {
+  const manual = { enabled: true, anchorX: 0.6, anchorY: 0.4, scale: 1, rotate: 0, overrides: [] };
+  const built = M.buildEffectPack({ rows: [] }, M.styleFromSeed(3, 'lyric', { manual }), {});
+  assert.ok(built.ok);
+  const frame = makeFrame('一二', 1.0);
+  const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+  E.runProgram(built.effect.program, frame, sink);
+  const first = sink.boxes.find((item) => item.text === '一');
+  assert.ok(Math.abs(first.x - (frame.words[0].x + 0.1 * frame.canvasWidth)) < 0.5, 'anchorX not applied');
+  assert.ok(Math.abs(first.baseline - (frame.words[0].baseline - 0.1 * frame.canvasHeight)) < 0.5, 'anchorY not applied');
+});
+
 test('invalid effect-layer values fall back to none', () => {
   const style = M.styleFromSeed(1, 'lyric', {
     focusMode: 'bokeh',

@@ -86,6 +86,10 @@
   const MAX_EFFECT_STEPS_PER_FRAME = 100000;
   const MAX_EFFECT_DRAW_OPS_PER_FRAME = 4096;
   const MAX_EFFECT_PROGRAM_ESTIMATED_BYTES = 12 * 1024;
+  const MAX_EFFECT_WORD_OVERRIDES = 256;
+  const MAX_EFFECT_OVERRIDE_OFFSET_EM = 20;
+  const MAX_EFFECT_OVERRIDE_SCALE = 8;
+  const MAX_EFFECT_OVERRIDE_ROTATE = 720;
 
   // 盒模型输出模式(与 EffectProgram.kt / EffectBoxCollector.kt 逐值对齐)。
   const EFFECT_OUTPUT_DRAW = 'draw';
@@ -101,7 +105,7 @@
     'const', 'loadLocal', 'storeLocal', 'pop', 'dup', 'swap',
     'globalField', 'lineField', 'lineCount', 'line', 'lineAtField',
     'canvasField', 'colorField',
-    'wordCount', 'word', 'wordField',
+    'wordCount', 'word', 'wordField', 'wordOverride',
     'add', 'sub', 'mul', 'div', 'mod', 'neg',
     'sin', 'cos', 'abs', 'min', 'max', 'clamp', 'lerp', 'pow', 'sqrt',
     'floor', 'round',
@@ -571,6 +575,7 @@
     const constants = rawProgram.constants == null ? [] : rawProgram.constants;
     const code = rawProgram.code;
     const maxLocals = rawProgram.maxLocals == null ? 16 : rawProgram.maxLocals;
+    const wordOverrides = rawProgram.wordOverrides == null ? [] : rawProgram.wordOverrides;
 
     if (!Array.isArray(constants)) errors.push('program.constants 必须是数组');
     if (!Array.isArray(code)) errors.push('program.code 必须是数组');
@@ -583,6 +588,48 @@
     }
     if (!Number.isInteger(maxLocals) || maxLocals < 0 || maxLocals > MAX_EFFECT_LOCALS) {
       errors.push('program.maxLocals 必须是 0..' + MAX_EFFECT_LOCALS + ' 的整数');
+    }
+    if (!Array.isArray(wordOverrides)) {
+      errors.push('program.wordOverrides 必须是数组');
+    } else {
+      if (wordOverrides.length > MAX_EFFECT_WORD_OVERRIDES) {
+        errors.push('逐词覆盖超过 ' + MAX_EFFECT_WORD_OVERRIDES + ' 条');
+      }
+      for (let i = 0; i < wordOverrides.length; i++) {
+        const ov = wordOverrides[i];
+        if (!ov || typeof ov !== 'object' || Array.isArray(ov)) {
+          errors.push('逐词覆盖 ' + i + ' 不是对象');
+          continue;
+        }
+        const fields = ['line', 'word', 'dx', 'dy', 'scale', 'rotate', 'alpha'];
+        for (const key of fields) {
+          if (ov[key] != null && !Number.isFinite(ov[key])) {
+            errors.push('逐词覆盖 ' + i + ' 的 ' + key + ' 非有限数值');
+          }
+        }
+        if (Number.isFinite(ov.line) && (!Number.isInteger(ov.line) || ov.line < 0)) {
+          errors.push('逐词覆盖 ' + i + ' 的 line 必须是非负整数');
+        }
+        if (Number.isFinite(ov.word) && (!Number.isInteger(ov.word) || ov.word < 0)) {
+          errors.push('逐词覆盖 ' + i + ' 的 word 必须是非负整数');
+        }
+        if (Number.isFinite(ov.dx) && Math.abs(ov.dx) > MAX_EFFECT_OVERRIDE_OFFSET_EM) {
+          errors.push('逐词覆盖 ' + i + ' 的 dx 越界');
+        }
+        if (Number.isFinite(ov.dy) && Math.abs(ov.dy) > MAX_EFFECT_OVERRIDE_OFFSET_EM) {
+          errors.push('逐词覆盖 ' + i + ' 的 dy 越界');
+        }
+        if (Number.isFinite(ov.scale) &&
+          (ov.scale < 0.05 || ov.scale > MAX_EFFECT_OVERRIDE_SCALE)) {
+          errors.push('逐词覆盖 ' + i + ' 的 scale 越界');
+        }
+        if (Number.isFinite(ov.rotate) && Math.abs(ov.rotate) > MAX_EFFECT_OVERRIDE_ROTATE) {
+          errors.push('逐词覆盖 ' + i + ' 的 rotate 越界');
+        }
+        if (Number.isFinite(ov.alpha) && (ov.alpha < 0 || ov.alpha > 1)) {
+          errors.push('逐词覆盖 ' + i + ' 的 alpha 越界');
+        }
+      }
     }
     if (errors.length) return { ok: false, program: null, errors };
 
@@ -642,7 +689,7 @@
       }
     }
 
-    const estimatedBytes = estimateProgramBytes({ code, constants });
+    const estimatedBytes = estimateProgramBytes({ code, constants }) + wordOverrides.length * 48;
     if (estimatedBytes > MAX_EFFECT_PROGRAM_ESTIMATED_BYTES) {
       errors.push('程序估算字节 ' + estimatedBytes + ' 超过 12 KiB 预算');
     }
@@ -662,6 +709,17 @@
       }),
       maxLocals
     };
+    if (Array.isArray(wordOverrides) && wordOverrides.length) {
+      program.wordOverrides = wordOverrides.map((ov) => ({
+        line: ov.line == null ? 0 : ov.line,
+        word: ov.word == null ? 0 : ov.word,
+        dx: ov.dx == null ? 0 : ov.dx,
+        dy: ov.dy == null ? 0 : ov.dy,
+        scale: ov.scale == null ? 1 : ov.scale,
+        rotate: ov.rotate == null ? 0 : ov.rotate,
+        alpha: ov.alpha == null ? 1 : ov.alpha
+      }));
+    }
     // outputMode:仅 "boxes" 显式落盘;draw/未知值省略字段(与缺省值一致,旧导出逐字节不变)。
     if (rawProgram.outputMode === EFFECT_OUTPUT_BOXES) program.outputMode = EFFECT_OUTPUT_BOXES;
     return { ok: true, program, errors };
@@ -876,6 +934,7 @@
     const: 1, loadLocal: 1, storeLocal: -1, pop: -1, dup: 1, swap: 0,
     globalField: 1, lineField: 1, lineCount: 1, line: 0, lineAtField: 0,
     canvasField: 1, colorField: 1, wordCount: 1, word: 0, wordField: 0,
+    wordOverride: 3,
     add: -1, sub: -1, mul: -1, div: -1, mod: -1, neg: 0, sin: 0, cos: 0, abs: 0,
     min: -1, max: -1, clamp: -2, lerp: -2, pow: -1, sqrt: 0, floor: 0, round: 0,
     lt: -1, le: -1, gt: -1, ge: -1, eq: -1, ne: -1, and: -1, or: -1, not: 0,
@@ -893,6 +952,7 @@
 
   const STACK_NEED = {
     storeLocal: 1, pop: 1, dup: 1, swap: 2, line: 1, lineAtField: 1, word: 1, wordField: 1,
+    wordOverride: 2,
     add: 2, sub: 2, mul: 2, div: 2, mod: 2, min: 2, max: 2, pow: 2,
     lt: 2, le: 2, gt: 2, ge: 2, eq: 2, ne: 2, and: 2, or: 2,
     neg: 1, sin: 1, cos: 1, abs: 1, sqrt: 1, floor: 1, round: 1, not: 1, stringLength: 1,
@@ -1348,6 +1408,12 @@
     }
     const code = program.code;
     const constants = program.constants || [];
+    const wordOverrides = Array.isArray(program.wordOverrides) ? program.wordOverrides : [];
+    const overrideByKey = new Map();
+    for (const ov of wordOverrides) {
+      if (!ov || !Number.isFinite(ov.line) || !Number.isFinite(ov.word)) continue;
+      overrideByKey.set((ov.line | 0) * 100000 + (ov.word | 0), ov);
+    }
     const maxLocals = Math.max(0, Math.min(MAX_EFFECT_LOCALS, toInt32Trunc(program.maxLocals == null ? 16 : program.maxLocals)));
     const locals = new Array(maxLocals).fill(null);
     const stack = [];
@@ -1609,6 +1675,17 @@
           const ref = pop();
           const word = ref && ref.kind === 'word' && ctx.words ? ctx.words[ref.index] : null;
           push(wordAtField(word, instruction.text));
+          break;
+        }
+        case 'wordOverride': {
+          const wordIndex = popNumber() | 0;
+          const lineIndex = popNumber() | 0;
+          const ov = overrideByKey.get(lineIndex * 100000 + wordIndex);
+          push(ov && Number.isFinite(ov.dx) ? ov.dx : 0);
+          push(ov && Number.isFinite(ov.dy) ? ov.dy : 0);
+          push(ov && Number.isFinite(ov.scale) ? ov.scale : 1);
+          push(ov && Number.isFinite(ov.rotate) ? ov.rotate : 0);
+          push(ov && Number.isFinite(ov.alpha) ? ov.alpha : 1);
           break;
         }
         case 'add': binary((a, b) => a + b); break;

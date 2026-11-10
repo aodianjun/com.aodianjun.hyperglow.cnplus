@@ -1471,6 +1471,36 @@ Every word a little light</textarea>
     </div>
 
     <div class="card">
+      <h2>手动排版(逐词自由度)</h2>
+      <div class="row">
+        <label class="sync-mode"><input type="checkbox" id="m-manualOn"> 启用手动排版</label>
+        <span class="hint">开启后忽略预设/构图/装饰,只按锚点 + 逐词覆盖绘制;关闭即回到生成器。</span>
+      </div>
+      <div class="row">
+        <label>锚点 X</label><input type="range" id="m-manualAx" min="0" max="1" step="0.01" value="0.5">
+        <label>锚点 Y</label><input type="range" id="m-manualAy" min="0" max="1" step="0.01" value="0.5">
+        <label>整体缩放</label><input type="range" id="m-manualScale" min="0.4" max="2.5" step="0.01" value="1">
+        <label>整体旋转</label><input type="range" id="m-manualRotate" min="-45" max="45" step="1" value="0">
+      </div>
+      <div class="row">
+        <label>行</label>
+        <select id="m-manualLine" style="min-width:260px"></select>
+        <span class="hint" id="m-manualHint">选一行 → 点词 → 调位移/缩放/旋转/透明度</span>
+      </div>
+      <div class="row" id="m-manualWords"></div>
+      <div class="row">
+        <label>位移 X</label><input type="range" id="m-wDx" min="-3" max="3" step="0.01" value="0">
+        <label>位移 Y</label><input type="range" id="m-wDy" min="-3" max="3" step="0.01" value="0">
+        <label>缩放</label><input type="range" id="m-wScale" min="0.3" max="3" step="0.01" value="1">
+        <label>旋转</label><input type="range" id="m-wRotate" min="-180" max="180" step="1" value="0">
+        <label>透明度</label><input type="range" id="m-wAlpha" min="0" max="1" step="0.01" value="1">
+        <button class="small" id="m-wReset">重置该词</button>
+        <button class="small" id="m-lineReset">重置该行</button>
+        <button class="small" id="m-manualClear">清空全部手动</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>导出</h2>
       <div class="row">
         <button class="primary" id="m-addPack">加入当前效果包</button>
@@ -1491,10 +1521,10 @@ Every word a little light</textarea>
 </div>
 
 </section>
-<script src="engine.js?v=13"></script>
-<script src="motion.js?v=13"></script>
-<script src="motion-ui.js?v=13"></script>
-<script src="templates.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="engine.js?v=16"></script>
+<script src="motion.js?v=16"></script>
+<script src="motion-ui.js?v=16"></script>
+<script src="templates.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
