@@ -25,7 +25,7 @@ const state = {
   annotationMode: 'none',
   particleMode: 'none',
   lineartMode: 'none',
-  manual: { enabled: false, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, line: 0, word: 0, overrides: {}, sprites: [], sprite: 0 },
+  manual: { enabled: false, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, line: 0, word: 0, overrides: {}, sprites: [], sprite: 0, images: {} },
   theme: 'lyric',
   overrides: {},
   palette: { sung: 0xFFFFFFFF, unsung: 0x88FFFFFF, glow: 0xFF66AAFF, accent: 0xFFFFAA33 },
@@ -260,6 +260,25 @@ $('speed').addEventListener('change', () => {
 });
 $('loop').addEventListener('change', () => {});
 
+const previewImageCache = {};
+
+function previewImageFor(id) {
+  const data = state.manual && state.manual.images ? state.manual.images[id] : null;
+  if (!data) return null;
+  const key = String(id) + ':' + data.length;
+  const cached = previewImageCache[id];
+  if (cached && cached.key === key) return cached.image;
+  const image = new Image();
+  image.onload = () => {
+    if (!state.playing) {
+      try { drawFrame(currentTimeSec()); } catch (error) { /* ignore */ }
+    }
+  };
+  image.src = data;
+  previewImageCache[id] = { key, image };
+  return image;
+}
+
 function drawFrame(tSeconds) {
   const canvas = $('preview');
   const ctx = canvas.getContext('2d');
@@ -297,7 +316,14 @@ function drawFrame(tSeconds) {
   const scale = canvas.width / frame.canvasWidth;
   ctx.save();
   ctx.scale(scale, scale);
-  M.renderBoxes(ctx, sink.boxes, fontString, cssRgb, cssColor, spriteImages);
+  const previewSprites = Object.assign({}, spriteImages);
+  if (state.manual && state.manual.images) {
+    for (const id of Object.keys(state.manual.images)) {
+      const image = previewImageFor(Number(id));
+      if (image) previewSprites[id] = image;
+    }
+  }
+  M.renderBoxes(ctx, sink.boxes, fontString, cssRgb, cssColor, previewSprites);
   ctx.restore();
   if (state.manual && state.manual.enabled && state.manual.sprites && state.manual.sprites.length) {
     ctx.save();
@@ -630,6 +656,9 @@ function renderManualPanel() {
   $('sh').value = selectedSprite ? selectedSprite.h : 0.2;
   $('srot').value = selectedSprite ? selectedSprite.rotate : 0;
   $('salpha').value = selectedSprite ? selectedSprite.alpha : 1;
+  $('sanim').value = selectedSprite ? selectedSprite.anim : 'none';
+  $('samp').value = selectedSprite ? selectedSprite.amp : 0.08;
+  $('sspeed').value = selectedSprite ? selectedSprite.speed : 1;
 }
 
 $('manualOn').addEventListener('change', () => {
@@ -690,7 +719,7 @@ $('spritePreset').addEventListener('change', () => {
 $('spriteAdd').addEventListener('click', () => {
   if (!state.manual.enabled) setManualEnabled(true);
   const id = Math.max(0, Math.min(255, Math.round(Number($('spriteId').value) || 0)));
-  state.manual.sprites.push({ id, x: 0.42, y: 0.42, w: 0.12, h: 0.12, rotate: 0, alpha: 1 });
+  state.manual.sprites.push({ id, x: 0.42, y: 0.42, w: 0.12, h: 0.12, rotate: 0, alpha: 1, anim: 'none', amp: 0.08, speed: 1, phase: state.manual.sprites.length * 1.3 });
   state.manual.sprite = state.manual.sprites.length - 1;
   state.presetKey = 'custom';
   $('preset').value = 'custom';
@@ -717,6 +746,48 @@ $('spriteDelete').addEventListener('click', () => {
     state.manual.sprite = Math.max(0, state.manual.sprites.length - 1);
   }
   refresh();
+});
+$('sanim').addEventListener('change', () => {
+  const sprite = state.manual.sprites[state.manual.sprite];
+  if (!sprite) return;
+  sprite.anim = $('sanim').value;
+  state.presetKey = 'custom';
+  $('preset').value = 'custom';
+  refresh();
+});
+for (const config of [['samp', 'amp'], ['sspeed', 'speed']]) {
+  const id = config[0];
+  const key = config[1];
+  $(id).addEventListener('input', () => {
+    const sprite = state.manual.sprites[state.manual.sprite];
+    if (!sprite) return;
+    sprite[key] = Number($(id).value);
+    state.presetKey = 'custom';
+    $('preset').value = 'custom';
+    refresh();
+  });
+}
+$('spriteImage').addEventListener('click', () => $('spriteFile').click());
+$('spriteFile').addEventListener('change', () => {
+  const file = $('spriteFile').files[0];
+  const sprite = state.manual.sprites[state.manual.sprite];
+  $('spriteFile').value = '';
+  if (!file || !sprite) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const image = new Image();
+    image.onload = () => {
+      const ratio = Math.min(1, 256 / Math.max(1, image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * ratio));
+      canvas.height = Math.max(1, Math.round(image.height * ratio));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      state.manual.images[sprite.id] = canvas.toDataURL('image/png');
+      refresh();
+    };
+    image.src = String(reader.result);
+  };
+  reader.readAsDataURL(file);
 });
 
 // ---- 画布直接拖动:命中选中的行内词 → 改位移;空白处拖动 → 改整体锚点 ----
@@ -874,6 +945,7 @@ $('saveProject').addEventListener('click', () => {
     theme: state.theme,
     overrides: state.overrides,
     manual: manualPayload(),
+    manualImages: state.manual.images,
     palette: {
       sung: $('sungColor').value,
       glow: $('glowColor').value
@@ -910,7 +982,8 @@ $('projectFile').addEventListener('change', () => {
         word: 0,
         overrides: {},
         sprites: [],
-        sprite: 0
+        sprite: 0,
+        images: {}
       };
       if (savedManual && Array.isArray(savedManual.overrides)) {
         for (const ov of savedManual.overrides) {
@@ -925,6 +998,9 @@ $('projectFile').addEventListener('change', () => {
             alpha: Number.isFinite(ov.alpha) ? ov.alpha : 1
           };
         }
+      }
+      if (project.manualImages && typeof project.manualImages === 'object') {
+        state.manual.images = project.manualImages;
       }
       if (savedManual && Array.isArray(savedManual.sprites)) {
         for (const sprite of savedManual.sprites) {

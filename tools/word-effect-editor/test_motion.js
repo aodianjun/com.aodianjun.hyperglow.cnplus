@@ -601,6 +601,44 @@ test('manual sprite layer draws built-in and custom images before text', () => {
   assert.ok(sink.boxes.indexOf(sprites[0]) < firstText, 'sprites should render behind text');
 });
 
+test('manual sprite animations change geometry or alpha over time', () => {
+  function spriteBoxes(anim, posSec) {
+    const manual = {
+      enabled: true, anchorX: 0.5, anchorY: 0.5, scale: 1, rotate: 0, overrides: [],
+      sprites: [{ id: 1, x: 0.3, y: 0.3, w: 0.12, h: 0.12, rotate: 0, alpha: 1,
+        anim, amp: 0.1, speed: 2, phase: 0 }]
+    };
+    const built = M.buildEffectPack({ rows: [] }, M.styleFromSeed(3, 'lyric', { manual }), {});
+    assert.ok(built.ok, anim + ': ' + (built.errors || []).join('; '));
+    assert.ok(built.stats.instructions <= E.MAX_EFFECT_CODE, anim + ' instr ' + built.stats.instructions);
+    const frame = makeFrame('一二', posSec);
+    const sink = E.createBoxCollectorSink((text) => text.length * 40, frame.colors.unsung, frame.textSize);
+    const result = E.runProgram(built.effect.program, frame, sink);
+    assert.ok(result.ok && !sink.failed);
+    return sink.boxes.filter((box) => box.type === 'sprite');
+  }
+
+  const floatA = spriteBoxes('float', 0.5);
+  const floatB = spriteBoxes('float', 1.6);
+  assert.ok(floatA.length === 1 && floatB.length === 1);
+  assert.ok(Math.abs(floatA[0].transform.m2 - floatB[0].transform.m2) > 0.5, 'float should drift');
+
+  const spin = spriteBoxes('spin', 1.2)[0];
+  assert.ok(Math.abs(spin.transform.m1) > 1e-3 || Math.abs(spin.transform.m3) > 1e-3, 'spin should rotate');
+
+  const pulse = spriteBoxes('pulse', 0.9)[0];
+  assert.ok(Math.abs(pulse.transform.m0 - 1) > 1e-3, 'pulse should scale');
+
+  const fadeA = spriteBoxes('fade', 0.3)[0];
+  const fadeB = spriteBoxes('fade', 1.1)[0];
+  assert.ok(Math.abs(fadeA.paint.alpha - fadeB.paint.alpha) > 0.02, 'fade should change alpha');
+
+  const popEarly = spriteBoxes('pop', 0.1)[0];
+  const popLate = spriteBoxes('pop', 1.0)[0];
+  assert.ok(popEarly.paint.alpha < popLate.paint.alpha, 'pop should fade in');
+  assert.ok(Math.abs(popEarly.transform.m0) < Math.abs(popLate.transform.m0), 'pop should scale in');
+});
+
 test('manual anchor shifts every word by canvas fraction', () => {
   const manual = { enabled: true, anchorX: 0.6, anchorY: 0.4, scale: 1, rotate: 0, overrides: [] };
   const built = M.buildEffectPack({ rows: [] }, M.styleFromSeed(3, 'lyric', { manual }), {});

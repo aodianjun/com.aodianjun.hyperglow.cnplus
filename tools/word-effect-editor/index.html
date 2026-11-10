@@ -1532,6 +1532,22 @@ Every word a little light</textarea>
         <label>透明度</label><input type="range" id="m-salpha" min="0" max="1" step="0.01" value="1">
         <button class="small" id="m-spriteDelete">删除贴纸</button>
       </div>
+      <div class="row">
+        <label>动画</label>
+        <select id="m-sanim" style="width:110px">
+          <option value="none">静止</option>
+          <option value="float">漂浮</option>
+          <option value="pulse">呼吸</option>
+          <option value="spin">旋转</option>
+          <option value="fade">明暗</option>
+          <option value="pop">入场弹出</option>
+        </select>
+        <label>幅度</label><input type="range" id="m-samp" min="0" max="0.5" step="0.005" value="0.08">
+        <label>速度</label><input type="range" id="m-sspeed" min="0.1" max="180" step="0.1" value="1">
+        <button class="small" id="m-spriteImage">导入本机图片(仅预览)</button>
+        <input type="file" id="m-spriteFile" accept="image/*" style="display:none">
+        <span class="hint">图片只存在浏览器/工程文件，不进效果包；实机需在 App「自定义贴纸」导入同一张图</span>
+      </div>
     </div>
 
     <div class="card">
@@ -1555,10 +1571,10 @@ Every word a little light</textarea>
 </div>
 
 </section>
-<script src="engine.js?v=17"></script>
-<script src="motion.js?v=17"></script>
-<script src="motion-ui.js?v=17"></script>
-<script src="templates.js?v=17"></script>
-<script src="app.js?v=17"></script>
+<script src="engine.js?v=18"></script>
+<script src="motion.js?v=18"></script>
+<script src="motion-ui.js?v=18"></script>
+<script src="templates.js?v=18"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

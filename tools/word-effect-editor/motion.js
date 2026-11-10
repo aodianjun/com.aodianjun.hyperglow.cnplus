@@ -452,17 +452,22 @@ function normalizeManual(raw) {
     }
   }
   const sprites = [];
+  const animTypes = ['none', 'float', 'pulse', 'spin', 'fade', 'pop'];
   if (Array.isArray(raw.sprites)) {
-    for (const item of raw.sprites.slice(0, 8)) {
+    for (const item of raw.sprites.slice(0, 6)) {
       if (!item || !Number.isInteger(item.id) || item.id < 0 || item.id > 255) continue;
       sprites.push({
         id: item.id,
         x: clamp(finite(item.x, 0.35), 0, 1),
         y: clamp(finite(item.y, 0.35), 0, 1),
-        w: clamp(finite(item.w, 0.2), 0.01, 1),
-        h: clamp(finite(item.h, 0.2), 0.01, 1),
+        w: clamp(finite(item.w, 0.12), 0.01, 1),
+        h: clamp(finite(item.h, 0.12), 0.01, 1),
         rotate: clamp(finite(item.rotate, 0), -720, 720),
-        alpha: clamp(finite(item.alpha, 1), 0, 1)
+        alpha: clamp(finite(item.alpha, 1), 0, 1),
+        anim: animTypes.indexOf(item.anim) >= 0 ? item.anim : 'none',
+        amp: clamp(finite(item.amp, 0.08), 0, 0.5),
+        speed: clamp(finite(item.speed, 1), 0.05, 360),
+        phase: clamp(finite(item.phase, 0), -100, 100)
       });
     }
   }
@@ -557,22 +562,80 @@ function styleFromSeed(seed, themeKey, overrides) {
 // 4. 编排 → 盒模式程序(汇编源码)
 // ---------------------------------------------------------------------------
 
-/** 手动贴纸层:画在所有文字之前(背景层),绕自身中心旋转。 */
+/** 手动贴纸层:画在所有文字之前(背景层),支持漂浮/呼吸/旋转/淡入淡出/入场弹出。 */
 function manualSpriteCode(m) {
   const code = [];
   for (const sprite of m.sprites) {
-    const cx = sprite.x + sprite.w / 2;
-    const cy = sprite.y + sprite.h / 2;
+    const cxBase = sprite.x + sprite.w / 2;
+    const cyBase = sprite.y + sprite.h / 2;
+    const anim = sprite.anim;
+    const phase = sprite.phase;
+    // 中心(局部 16/17):旋转/缩放的回平移锚点
+    code.push(
+      'canvasField width', 'push ' + round4(cxBase), 'mul', 'storeLocal 16',
+      'canvasField height', 'push ' + round4(cyBase), 'mul', 'storeLocal 17'
+    );
+    // 旋转(局部 18)
+    if (anim === 'spin') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(sprite.rotate), 'add', 'storeLocal 18'
+      );
+    } else {
+      code.push('push ' + round4(sprite.rotate), 'storeLocal 18');
+    }
+    // 缩放(局部 19):呼吸/入场弹出
+    if (anim === 'pulse') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(phase), 'add', 'sin',
+        'push ' + round4(sprite.amp), 'mul', 'push 1', 'add', 'storeLocal 19'
+      );
+    } else if (anim === 'pop') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push 2', 'mul',
+        'push 1', 'min', 'storeLocal 19'
+      );
+    }
+    // 透明度
+    if (anim === 'fade') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(phase), 'add', 'sin',
+        'push 0.5', 'mul', 'push 0.5', 'add',
+        'push 0.6', 'mul', 'push 0.4', 'add',
+        'push ' + round4(sprite.alpha), 'mul', 'setAlpha'
+      );
+    } else if (anim === 'pop') {
+      code.push('loadLocal 19', 'push ' + round4(sprite.alpha), 'mul', 'setAlpha');
+    } else {
+      code.push('push ' + round4(sprite.alpha), 'setAlpha');
+    }
     code.push(
       'save',
-      'canvasField width', 'push ' + round4(cx), 'mul',
-      'canvasField height', 'push ' + round4(cy), 'mul',
-      'translate',
-      'push ' + round4(sprite.rotate), 'rotate',
-      'canvasField width', 'push ' + round4(-cx), 'mul',
-      'canvasField height', 'push ' + round4(-cy), 'mul',
-      'translate',
-      'push ' + round4(sprite.alpha), 'setAlpha',
+      'loadLocal 16', 'loadLocal 17', 'translate',
+      'loadLocal 18', 'rotate'
+    );
+    if (anim === 'pulse' || anim === 'pop') {
+      code.push('loadLocal 19', 'loadLocal 19', 'scale');
+    }
+    code.push(
+      'loadLocal 16', 'push -1', 'mul',
+      'loadLocal 17', 'push -1', 'mul',
+      'translate'
+    );
+    if (anim === 'float') {
+      code.push(
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(phase), 'add', 'sin',
+        'push ' + round4(sprite.amp), 'mul', 'canvasField width', 'mul',
+        'globalField time', 'push 0.001', 'mul', 'push ' + round4(sprite.speed), 'mul',
+        'push ' + round4(phase * 0.8), 'add', 'cos',
+        'push ' + round4(sprite.amp * 0.6), 'mul', 'canvasField height', 'mul',
+        'translate'
+      );
+    }
+    code.push(
       'push ' + sprite.id,
       'canvasField width', 'push ' + round4(sprite.x), 'mul',
       'canvasField height', 'push ' + round4(sprite.y), 'mul',
@@ -2241,6 +2304,7 @@ function toProject(data) {
     theme: data.theme,
     overrides: data.overrides || {},
     manual: data.manual || null,
+    manualImages: data.manualImages || {},
     palette: data.palette
   };
 }
