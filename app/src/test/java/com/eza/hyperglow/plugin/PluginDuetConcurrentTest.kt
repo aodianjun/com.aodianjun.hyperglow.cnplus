@@ -265,6 +265,28 @@ class PluginDuetConcurrentTest {
         assertEquals("哈啊 金石击起辉光", nextOut.duetLine?.text)
     }
 
+    @Test
+    fun pinnedMainRow_takesPluginWindow_notProducerWindow() {
+        // 并发段主行被钉在另一声部的长行上;生产者下发的行窗属于它自己的当前句(另一声部)。
+        // 主行没有逐词窗口时按行窗扫光,继续用生产者窗口会让整段并发停在 0
+        // (真机「并发的时候可能卡住不动」)。
+        val rows = listOf(
+            row(147_444L, 154_300L, "乐鸣东方", "LEAD"),
+            row(148_651L, 151_783L, "哈啊 流水破开寒霜", "LEAD"),
+            row(152_223L, 155_802L, "哈啊 金石击起辉光", "LEAD")
+        )
+        val st = state(positionMs = 150_000L).copy(
+            line = "哈啊 金石击起辉光",
+            lineStartMs = 152_130L,
+            lineEndMs = 155_980L
+        )
+        val out = PluginSongBridge.enrichState(st, patched(rows, st))
+        assertEquals("乐鸣东方", out.line)
+        assertEquals(147_444L, out.lineStartMs)
+        assertEquals(154_300L, out.lineEndMs)
+        assertEquals("哈啊 流水破开寒霜", out.duetLine?.text)
+    }
+
     /**
      * **位置落在行间缝隙** + **只有第二声部在场** 的组合（owner 2026-10-09「退出并发的时候
      * 歌词排序有问题」的第二种形态）：缝隙里按位置取不到行，行身份就成了唯一的认行手段；

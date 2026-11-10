@@ -180,7 +180,17 @@ object PluginSongBridge {
 
         var enriched = state
         if (PluginLyricField.TEXT in patched.changedLyricFields) {
-            enriched = enriched.copy(line = keepUnlessBlank(active.text, enriched.line))
+            val pluginText = keepUnlessBlank(active.text, enriched.line)
+            // 行窗必须跟着**实际选中的插件行**走:并发段里主行被钉在另一声部的行上,
+            // 生产者下发的 lineStartMs/lineEndMs 却属于它自己的当前句(另一声部)。
+            // 无逐词窗口的行按行窗做扫光,继续沿用生产者的窗口会让主行在整段并发里
+            // 停在 0/1(真机「并发的时候卡住不动」)。
+            val windowFromPlugin = !active.text.isNullOrBlank() && pluginText == active.text
+            enriched = enriched.copy(
+                line = pluginText,
+                lineStartMs = if (windowFromPlugin) active.begin else enriched.lineStartMs,
+                lineEndMs = if (windowFromPlugin) active.end else enriched.lineEndMs
+            )
         }
         if (PluginLyricField.TRANSLATION in patched.changedLyricFields ||
             PluginLyricField.TRANSLATION_WORDS in patched.changedLyricFields
