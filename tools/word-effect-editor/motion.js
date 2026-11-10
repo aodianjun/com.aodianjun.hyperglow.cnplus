@@ -543,7 +543,7 @@ function buildProgramSource(style) {
     'storeLocal 4'
   ];
 
-  const wordAlpha = [
+  const wordAlphaCore = [
     'loadLocal 6',
     'wordField progress',
     'push 0.65',
@@ -551,9 +551,23 @@ function buildProgramSource(style) {
     'push 0.35',
     'add',
     'loadLocal 4',
-    'max',
-    'setAlpha'
+    'max'
   ];
+  // 失焦模式:远处词按 focus 距离再压暗(配合 shadowLayer 形成软边而不是双影)
+  const focusDim = style.focusMode === 'soft' ? 0.5 : 0;
+  const wordAlpha = focusDim > 0
+    ? [
+      ...wordAlphaCore,
+      'loadLocal 14',
+      'push ' + num(focusDim),
+      'mul',
+      'push 1',
+      'swap',
+      'sub',
+      'mul',
+      'setAlpha'
+    ]
+    : [...wordAlphaCore, 'setAlpha'];
 
   // ---- 排版构图:逐词算 xBase(10)/yBase(11)/scale(12) ----
   // 横排:词原始位置
@@ -820,7 +834,7 @@ function buildProgramSource(style) {
     ...indent(layoutInkColumn),
     'jump InkDone',
     'InkH:',
-    ...indent(packedHorizontal(0.88, inkScale)),
+    ...indent(packedHorizontal(0.66, inkScale)),
     'InkDone:'
   ];
 
@@ -922,22 +936,24 @@ function buildProgramSource(style) {
       'push 1',
       'min',
       'storeLocal 14',
-      // o = ts*0.04*(0.5+0.8d)
+      // 先清上一次的柔边,重影不带阴影
+      'clearShadow',
+      // o = ts*0.03*(0.6+0.8d)
       'globalField textSize',
-      'push 0.04',
+      'push 0.03',
       'mul',
       'loadLocal 14',
       'push 0.8',
       'mul',
-      'push 0.5',
+      'push 0.6',
       'add',
       'mul',
       'storeLocal 15',
-      // ghost alpha = 0.05 + 0.20d(四向淡重影,接近失焦柔化而不是双影)
+      // 两向淡重影(补足失焦方向感)
       'loadLocal 14',
-      'push 0.20',
+      'push 0.22',
       'mul',
-      'push 0.05',
+      'push 0.04',
       'add',
       'setAlpha',
       'loadLocal 6', 'wordField text',
@@ -948,14 +964,16 @@ function buildProgramSource(style) {
       'loadLocal 10', 'loadLocal 15', 'sub',
       'loadLocal 11',
       'drawText',
-      'loadLocal 6', 'wordField text',
-      'loadLocal 10',
-      'loadLocal 11', 'loadLocal 15', 'add',
-      'drawText',
-      'loadLocal 6', 'wordField text',
-      'loadLocal 10',
-      'loadLocal 11', 'loadLocal 15', 'sub',
-      'drawText'
+      // 正文由手法分支绘制:给它挂随距离加宽的 shadowLayer,形成硬件可用的软边
+      'globalField textSize',
+      'push 0.40',
+      'mul',
+      'loadLocal 14',
+      'mul',
+      'push 0',
+      'push 0',
+      'colorField sung',
+      'setShadow'
     ]
     : [];
 
@@ -1013,11 +1031,12 @@ function buildProgramSource(style) {
       'loadLocal 11', 'globalField textSize', 'push 1.05', 'mul', 'sub',
       'loadLocal 6', 'wordField text', 'measureText', 'globalField textSize', 'push 0.16', 'mul', 'add',
       'globalField textSize', 'push 1.22', 'mul',
-      // start = 210 + sin(i*1.9+0.7)*45
-      'loadLocal 0', 'push 1.9', 'mul', 'push 0.7', 'add', 'sin', 'push 45', 'mul', 'push 210', 'add',
-      // sweep = 70 + (i mod 3)*35 + sin(i*2.7)*12
-      'loadLocal 0', 'push 3', 'mod', 'push 35', 'mul', 'push 70', 'add',
-      'loadLocal 0', 'push 2.7', 'mul', 'sin', 'push 12', 'mul', 'add',
+      // start = 120 + (i mod 4)*55 + sin(i*1.9+0.7)*35(弧口绕词四向散开)
+      'loadLocal 0', 'push 4', 'mod', 'push 55', 'mul', 'push 120', 'add',
+      'loadLocal 0', 'push 1.9', 'mul', 'push 0.7', 'add', 'sin', 'push 35', 'mul', 'add',
+      // sweep = 55 + (i mod 3)*40 + cos(i*2.1)*18
+      'loadLocal 0', 'push 3', 'mod', 'push 40', 'mul', 'push 55', 'add',
+      'loadLocal 0', 'push 2.1', 'mul', 'cos', 'push 18', 'mul', 'add',
       'drawArc',
       'setFill',
       // 每 3 词一条短横线:x2 = local10 + 0.32em*(i mod 3 == 0)
@@ -1435,8 +1454,21 @@ function buildProgramSource(style) {
 
   // 5 画报侧栏:右侧竖线 + 短粗线 + 三颗点 + 歌词下点状虚线(视频「地尽头」)
   const decoPanel = [
+    // 面板块:右侧 0.70..0.96W 的半透明底(标题区)
+    'setFill',
+    'colorField unsung',
+    'setColor',
+    'push 0.18',
+    'setAlpha',
+    'canvasField width', 'push 0.70', 'mul',
+    'canvasField height', 'push 0.06', 'mul',
+    'canvasField width', 'push 0.26', 'mul',
+    'canvasField height', 'push 0.88', 'mul',
+    'drawRect',
     'colorField sung',
     'setColor',
+    'push 0.55',
+    'setAlpha',
     'globalField textSize',
     'push 0.035',
     'mul',
@@ -1468,7 +1500,19 @@ function buildProgramSource(style) {
     'drawCircle',
     'loadLocal 14', 'push 1', 'add', 'storeLocal 14',
     'jump PN1',
-    'PNDone:'
+    'PNDone:',
+    // 条码短横线:0.72..0.79W,三条
+    'push 0', 'storeLocal 14',
+    'BT1:',
+    'loadLocal 14', 'push 3', 'lt', 'jz BTDone',
+    'canvasField width', 'push 0.72', 'mul',
+    'canvasField height', 'push 0.74', 'mul', 'loadLocal 14', 'push 0.03', 'mul', 'canvasField height', 'mul', 'add',
+    'canvasField width', 'push 0.79', 'mul',
+    'canvasField height', 'push 0.74', 'mul', 'loadLocal 14', 'push 0.03', 'mul', 'canvasField height', 'mul', 'add',
+    'drawLine',
+    'loadLocal 14', 'push 1', 'add', 'storeLocal 14',
+    'jump BT1',
+    'BTDone:'
   ];
 
   const fixedGraphic = { none: 0, line: 1, frame: 2, stamp: 3, glow: 4, panel: 5 }[style.graphicMode];

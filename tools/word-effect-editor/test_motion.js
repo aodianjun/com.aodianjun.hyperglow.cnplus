@@ -477,21 +477,19 @@ test('focus preset emits ghost text boxes with distance-scaled alpha', () => {
   const boxes = boxesForPreset('focus', frame);
   const texts = boxes.filter((b) => b.type === 'text');
   const words = frame.words.length;
-  assert.strictEqual(texts.length, words * 5, 'each word should draw 4 ghosts + main');
+  assert.strictEqual(texts.length, words * 3, 'each word should draw main + 2 ghosts');
   assert.ok(boxes.every((b) => b.type === 'text'), 'focus emits text only');
   const alphas = texts.map((b) => b.paint.alpha);
   assert.ok(alphas.every((a) => a >= 0 && a <= 1));
-  // 每词五个文字盒(上/下/左/右重影 + 正文):四枚重影更淡且围绕正文
+  // 每词三个文字盒(左右重影 + 正文):重影更淡且分居两侧;正文带柔边阴影
   for (let k = 0; k < words; k++) {
-    const ghosts = texts.slice(k * 5, k * 5 + 4);
-    const main = texts[k * 5 + 4];
-    for (const ghost of ghosts) {
-      assert.ok(ghost.paint.alpha <= 0.26, 'ghost too opaque: ' + ghost.paint.alpha);
-    }
-    assert.ok(ghosts.some((g) => g.x > main.x), 'right/down ghost missing at word ' + k);
-    assert.ok(ghosts.some((g) => g.x < main.x), 'left ghost missing at word ' + k);
-    assert.ok(ghosts.some((g) => g.baseline > main.baseline), 'down ghost missing at word ' + k);
-    assert.ok(ghosts.some((g) => g.baseline < main.baseline), 'up ghost missing at word ' + k);
+    const ghostA = texts[k * 3];
+    const ghostB = texts[k * 3 + 1];
+    const main = texts[k * 3 + 2];
+    assert.ok(main.paint.shadow && main.paint.shadow.set, 'main text should carry a blur shadow');
+    assert.ok(main.paint.shadow.radius > 0, 'blur radius missing');
+    assert.ok(ghostA.paint.alpha <= 0.27 && ghostB.paint.alpha <= 0.27, 'ghost too opaque');
+    assert.ok(ghostA.x > main.x && ghostB.x < main.x, 'ghost offsets missing at word ' + k);
   }
 });
 
@@ -564,7 +562,7 @@ function mainTextBoxes(boxes, stride) {
 test('inkline preset puts short lines in a right-side vertical column', () => {
   const frame = makeFrame('却难觅倩踪', 0.6); // 5 词 ≤ 7 → 竖排分支
   const boxes = boxesForPreset('inkline', frame);
-  const mains = mainTextBoxes(boxes, 5);
+  const mains = mainTextBoxes(boxes, 3);
   assert.strictEqual(mains.length, 5);
   const xs = mains.map((b) => b.x);
   assert.ok(xs.every((x) => Math.abs(x - xs[0]) < 6), 'column x should be stable: ' + xs);
@@ -579,7 +577,7 @@ test('inkline preset puts short lines in a right-side vertical column', () => {
 test('inkline preset packs long lines horizontally on the left', () => {
   const frame = makeFrame('水从天上来落在窗台前', 1.2); // 10 词 → 横排分支
   const boxes = boxesForPreset('inkline', frame);
-  const mains = mainTextBoxes(boxes, 5);
+  const mains = mainTextBoxes(boxes, 3);
   assert.ok(mains.length === 10);
   assert.ok(mains[0].x < frame.canvasWidth * 0.12, 'left anchor expected: ' + mains[0].x);
   for (let i = 1; i < mains.length; i++) {
