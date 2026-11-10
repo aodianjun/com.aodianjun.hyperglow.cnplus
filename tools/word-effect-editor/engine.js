@@ -79,13 +79,13 @@
   // ---------------------------------------------------------------------------
 
   const EFFECT_PROGRAM_VERSION = 1;
-  const MAX_EFFECT_CONSTANTS = 64;
-  const MAX_EFFECT_CODE = 512;
+  const MAX_EFFECT_CONSTANTS = 128;
+  const MAX_EFFECT_CODE = 1024;
   const MAX_EFFECT_LOCALS = 24;
   const MAX_EFFECT_STACK = 64;
   const MAX_EFFECT_STEPS_PER_FRAME = 100000;
   const MAX_EFFECT_DRAW_OPS_PER_FRAME = 4096;
-  const MAX_EFFECT_PROGRAM_ESTIMATED_BYTES = 12 * 1024;
+  const MAX_EFFECT_PROGRAM_ESTIMATED_BYTES = 16 * 1024;
   const MAX_EFFECT_WORD_OVERRIDES = 256;
   const MAX_EFFECT_OVERRIDE_OFFSET_EM = 20;
   const MAX_EFFECT_OVERRIDE_SCALE = 8;

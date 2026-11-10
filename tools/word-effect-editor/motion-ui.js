@@ -136,9 +136,9 @@ function refresh() {
   if (state.built.ok) {
     const stats = state.built.stats;
     $('programStats').innerHTML =
-      '程序 <b>' + stats.instructions + '</b> 条指令(上限 512) · 常量 <b>' + stats.constants +
-      '</b> · 逐帧绘制 <b>' + stats.drawOps + '</b>(上限 4096) · 估算 <b>' +
-      (stats.estimatedBytes / 1024).toFixed(1) + '</b> KiB(上限 12) — 全部在预算内即可导入';
+      '程序 <b>' + stats.instructions + '</b> 条指令(上限 ' + E.MAX_EFFECT_CODE + ') · 常量 <b>' + stats.constants +
+      '</b>(上限 ' + E.MAX_EFFECT_CONSTANTS + ') · 逐帧绘制 <b>' + stats.drawOps + '</b>(上限 4096) · 估算 <b>' +
+      (stats.estimatedBytes / 1024).toFixed(1) + '</b> KiB(上限 ' + (E.MAX_EFFECT_PROGRAM_ESTIMATED_BYTES / 1024) + ') — 全部在预算内即可导入';
     $('frameStatus').textContent = '';
   } else {
     $('programStats').innerHTML = '<span style="color:var(--bad)">程序生成失败:' +
@@ -927,8 +927,9 @@ function download(filename, content, mime) {
 
 $('exportPack').addEventListener('click', () => {
   if (!state.built) return;
+  // 紧凑 JSON:1024 指令的程序缩进后会超过 64 KiB 包上限
   download('hyperglow-motion-' + state.theme + '-' + state.seed + '.json',
-    JSON.stringify(state.built.pack, null, 2));
+    JSON.stringify(state.built.pack));
 });
 $('exportLrc').addEventListener('click', () => {
   download('motion-' + state.seed + '.lrc', M.toLrc(state.timeline), 'text/plain');

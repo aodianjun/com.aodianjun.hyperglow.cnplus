@@ -83,15 +83,15 @@ data class EffectInstruction(
 )
 
 const val EFFECT_PROGRAM_VERSION = 1
-const val MAX_EFFECT_CONSTANTS = 64
-const val MAX_EFFECT_CODE = 512
+const val MAX_EFFECT_CONSTANTS = 128
+const val MAX_EFFECT_CODE = 1024
 const val MAX_EFFECT_LOCALS = 24
 const val MAX_EFFECT_STACK = 64
 const val MAX_EFFECT_STEPS_PER_FRAME = 100_000
 /** 绘制/测量/状态原语的单帧上限：原生 Canvas/Path 调用比算术贵得多。 */
 const val MAX_EFFECT_DRAW_OPS_PER_FRAME = 4_096
 /** 程序 JSON 的保守字节预算：两个曲面各一份时仍要留在配置 64KiB 内。 */
-const val MAX_EFFECT_PROGRAM_ESTIMATED_BYTES = 12 * 1024
+const val MAX_EFFECT_PROGRAM_ESTIMATED_BYTES = 16 * 1024
 /** 逐词手动排版覆盖的条数上限(查表数据,不占指令预算)。 */
 const val MAX_EFFECT_WORD_OVERRIDES = 256
 const val MAX_EFFECT_OVERRIDE_OFFSET_EM = 20f
