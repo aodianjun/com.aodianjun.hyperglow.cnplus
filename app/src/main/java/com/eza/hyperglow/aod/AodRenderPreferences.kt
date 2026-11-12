@@ -112,7 +112,7 @@ data class AodRenderConfig(
     val aodDebugShowCanvasFrame: Boolean = false,
     /**
      * 渲染刷新率上限档(issue #68 #12):0=跟随现有行为(16ms≈60fps);
-     * 60/90/120=用户可选上限,随配置下发到 SystemUI 侧帧调度。
+     * 30/60/90/120=用户可选上限,随配置下发到 SystemUI 侧帧调度。
      */
     val aodRefreshRateCap: Int = 0,
     /**
@@ -336,9 +336,9 @@ internal fun normalizePauseLingerMs(value: Long): Long = when (value) {
 internal fun normalizeAodClockYOffset(value: Int): Int =
     value.coerceIn(MIN_AOD_CLOCK_Y_OFFSET, MAX_AOD_CLOCK_Y_OFFSET)
 
-/** 渲染刷新率上限档:仅接受 0(跟随现有)/60/90/120,其余回落 0。 */
+/** 渲染刷新率上限档:仅接受 0(跟随现有)/30/60/90/120,其余回落 0。 */
 internal fun normalizeAodRefreshRateCap(value: Int): Int = when (value) {
-    60, 90, 120 -> value
+    30, 60, 90, 120 -> value
     else -> 0
 }
 

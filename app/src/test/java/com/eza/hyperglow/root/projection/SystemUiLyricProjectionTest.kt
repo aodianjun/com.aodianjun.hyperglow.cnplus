@@ -480,6 +480,16 @@ class SystemUiLyricProjectionTest {
             LyricSurfaceKind.AOD, true, true, true, false, false, playbackActive = true,
             keepAliveExpired = true
         ))
+        // 内容感知测试包：静态/纯行级没有连续动画时不启动周期续期；原厂时钟过渡
+        // (pendingStockMotion)仍需放行。
+        assertFalse(shouldRenewAodDraw(
+            LyricSurfaceKind.AOD, true, true, true, false, true,
+            continuousContentAnimation = false
+        ))
+        assertTrue(shouldRenewAodDraw(
+            LyricSurfaceKind.AOD, true, true, false, true, true,
+            continuousContentAnimation = false
+        ))
         assertFalse(shouldRequestAodWake(true, false, true))
         assertFalse(shouldRequestAodWake(true, true, false))
         assertTrue(shouldRequestAodWake(true, true, true))

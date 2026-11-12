@@ -67,6 +67,45 @@ internal data class MediaSessionPosition(
 internal enum class StaleFlushAction { HONOR, ARM, REJECT }
 
 /**
+ * 歌曲级时间轴缓存（随 `onSongChanged` 重建，position 热路径只读）。
+ *
+ * `emit()` 位于 SDK 的高频位置回调路径上：旧实现每次发射都会对整首行表做
+ * `hasTimedLyrics`/下一行起点/下一行文本的全表扫描。这里把与位置无关的结论预计算一次，
+ * 下一行由已排序的 [lineStarts] 二分得到。行表引用固定后不可变；`song` 身份用于防御
+ * 切歌与位置回调之间的竞态（缓存与当前歌不匹配时调用方回退扫描）。
+ */
+internal class LyriconSongTimingCache(
+    val song: Song,
+    val lines: List<RichLyricLine>,
+    val lineStarts: LongArray,
+    val hasTimedLyrics: Boolean,
+    val hasAnyWordTimings: Boolean
+) {
+    /** 第一条 `begin > positionMs` 的行下标；没有则 -1。行表按 begin 升序（SDK normalize）。 */
+    fun firstLineIndexAfter(positionMs: Long): Int {
+        var low = 0
+        var high = lineStarts.size
+        while (low < high) {
+            val mid = (low + high).ushr(1)
+            if (lineStarts[mid] <= positionMs) low = mid + 1 else high = mid
+        }
+        return if (low < lineStarts.size) low else -1
+    }
+}
+
+internal fun buildLyriconSongTimingCache(song: Song): LyriconSongTimingCache {
+    val lines = song.lyrics.orEmpty()
+    val starts = LongArray(lines.size) { lines[it].begin }
+    var hasTimedLyrics = false
+    var hasAnyWordTimings = false
+    for (line in lines) {
+        if (line.end > line.begin) hasTimedLyrics = true
+        if (!line.words.isNullOrEmpty()) hasAnyWordTimings = true
+    }
+    return LyriconSongTimingCache(song, lines, starts, hasTimedLyrics, hasAnyWordTimings)
+}
+
+/**
  * 陈旧冲刷判定（纯函数）。
  *
  * 场景 A（2026-10-24 实测）：外推中（写端沉默 ≥3s）送来落后 ~20s 的首值，随后 20ms 内
@@ -245,10 +284,26 @@ class LyriconLyricProducer(
      * 「最后一行 end」旧语义。
      */
     @Volatile internal var maxLineEndMs: Long = -1L
+    /** 当前歌曲的行开始时间/纯音乐/词级结论缓存；见 [buildLyriconSongTimingCache]。 */
+    @Volatile internal var songTimingCache: LyriconSongTimingCache? = null
     @Volatile internal var currentPositionMs: Long = 0L
     @Volatile internal var isPlayingState: Boolean = false
     @Volatile internal var currentLineIndex: Int = -1
+    @Volatile internal var currentLineHasWords: Boolean = false
     @Volatile internal var cachedWords: List<LyricWord>? = null
+
+    // --- 例行状态发射合流 ---
+    // SDK 位置回调约 60Hz，但下游仲裁/投影按 100ms 采样，渲染侧又用 sampledAt+speed 外推。
+    // 位置在同一行内的小步推进无需每次构造完整 LyricProducerState；事件型变化（换行/
+    // 播放态/speed/位置未知/切歌/seek）仍立即发射。同毫秒的两次回调不合并，保证注入时钟
+    // 的单测与真实回调语义一致。
+    @Volatile internal var lastEmitAtMs: Long = 0L
+    @Volatile internal var lastEmittedLineIndex: Int = Int.MIN_VALUE
+    @Volatile internal var lastEmittedPlaying: Boolean = false
+    @Volatile internal var lastEmittedSpeed: Float = -1f
+    @Volatile internal var lastEmittedPositionUnknown: Boolean = false
+    @Volatile internal var lastEmittedLineHasWords: Boolean = false
+    @Volatile internal var lastEmittedGeneration: Int = Int.MIN_VALUE
 
     /**
      * 当前活动行的翻译词表（SDK `RichLyricLine.translationWords` 映射，随行缓存、随行清空）：
@@ -424,6 +479,7 @@ class LyriconLyricProducer(
             return
         }
         started = true
+        resetEmitCoalescing()
         contextRef = context.applicationContext
         // issue #64:复位歌曲侧看门狗状态 —— 上一次运行遗留的缺席纪元/等歌宽限不应
         // 影响本次会话(新订阅建立后 SDK 会重新补发 onSongChanged,见 #56)。
@@ -490,6 +546,7 @@ class LyriconLyricProducer(
         subscriber = null
         mutableConnection.value = ProducerConnection.DISCONNECTED
         mutableState.value = null
+        resetEmitCoalescing()
         AppLog.i("LyriconLyricProducer", "stop: done")
     }
 
@@ -560,6 +617,9 @@ class LyriconLyricProducer(
         navigator = null
         maxLineEndMs = -1L
         currentLineIndex = -1
+        currentLineHasWords = false
+        songTimingCache = null
+        resetEmitCoalescing()
         cachedWords = null
         cachedTranslationWords = null
         duetResolvedAlignedRight = null
@@ -863,7 +923,7 @@ class LyriconLyricProducer(
         heldAtSongEndStale = false
         songEndCleared = false
         staleFlushPendingValueMs = Long.MIN_VALUE
-        recomputeAndEmit()
+        recomputeAndEmit(force = true)
         AppLog.i(
             "LyriconLyricProducer",
             "position recovered via MediaSession (watchdog): pos=${recovered}ms"
@@ -892,7 +952,7 @@ class LyriconLyricProducer(
             "MediaSession not playing while position stale; marking paused " +
                 "(pos=${currentPositionMs}ms staleForMs=${now - lastRealPositionClockMs})"
         )
-        recomputeAndEmit()
+        recomputeAndEmit(force = true)
     }
 
     /**
@@ -914,7 +974,7 @@ class LyriconLyricProducer(
             )
         ) return
         advanceExtrapolation(now, "watchdog stalled position")
-        recomputeAndEmit()
+        recomputeAndEmit(force = true)
         AppLog.w(
             "LyriconLyricProducer",
             "watchdog advanced stalled position to ${currentPositionMs}ms " +

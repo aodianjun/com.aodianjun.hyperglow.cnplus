@@ -162,19 +162,37 @@ internal fun HomeScreen(
         ActivityResultContracts.CreateDocument("text/plain")
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val written = runCatching {
-            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
-                it.write(readDiagnosticLogsForExport(context))
-            } ?: error("Log export unavailable")
-        }.isSuccess
-        Toast.makeText(
-            context,
-            context.getString(
-                if (written) R.string.toast_logs_exported
-                else R.string.toast_logs_export_failed
-            ),
-            Toast.LENGTH_LONG
-        ).show()
+        scope.launch {
+            // 导出内容：App 镜像 + 最近 10 分钟 SystemUI HyperGlow logcat(wakeProbe 在这里)。
+            // root 不可用时只导出 App 镜像，不阻断导出。
+            val payload = withContext(Dispatchers.IO) {
+                readDiagnosticLogsForExportWithSystemUi(context)
+            }
+            val written = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                        it.write(payload)
+                    } ?: error("Log export unavailable")
+                }.isSuccess
+            }
+            if (written) {
+                Toast.makeText(context, R.string.toast_logs_exported, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            // SAF 写入失败时落到 App 外部文件目录，至少日志不会丢。
+            val local = withContext(Dispatchers.IO) {
+                writeDiagnosticLogsToLocalFile(context, payload)
+            }
+            if (local != null) {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.toast_logs_saved_to, local.absolutePath),
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(context, R.string.toast_logs_export_failed, Toast.LENGTH_LONG).show()
+            }
+        }
     }
     // 导入串行化锁:导入搬 IO 通道后不再被主线程天然串行化,并发导入会互相交错写 prefs/文档。
     val importMutex = remember { Mutex() }

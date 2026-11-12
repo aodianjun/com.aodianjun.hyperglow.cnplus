@@ -125,13 +125,20 @@ internal fun shouldRenewAodDraw(
      * 有限时长保活到点：即使仍在播放也不得续期绘制唤醒。只放行系统 hide 不够——
      * 2.75s 一次的 mWakeLock 脉冲会让 AOD 表面一直亮到播放停止（0.3.169 实测）。
      */
-    keepAliveExpired: Boolean = false
+    keepAliveExpired: Boolean = false,
+    /**
+     * 当前内容是否需要逐帧连续合成（逐字/自定义效果/圆点/封面旋转/换场）。
+     * 默认 true 保持旧行为；内容感知测试包传 false 时，静态/纯行级只走内容变化短脉冲。
+     * [pendingStockMotion] 仍可单独放行，因为原厂时钟过渡需要连续帧。
+     */
+    continuousContentAnimation: Boolean = true
 ): Boolean = surfaceKind == LyricSurfaceKind.AOD &&
     attached &&
     sceneActive &&
     !keepAliveExpired &&
     (keepAlive || playbackActive) &&
-    (effectivelyVisible || pendingStockMotion)
+    (effectivelyVisible || pendingStockMotion) &&
+    (continuousContentAnimation || pendingStockMotion)
 
 internal fun shouldRequestAodWake(
     attached: Boolean,

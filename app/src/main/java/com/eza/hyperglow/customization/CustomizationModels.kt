@@ -318,7 +318,7 @@ data class CompiledCustomization(
      */
     val aodClockYOffset: Int = 0,
     /**
-     * 渲染刷新率上限档(issue #68 #12):0=跟随现有行为(16ms);60/90/120=用户可选
+     * 渲染刷新率上限档(issue #68 #12):0=跟随现有行为(16ms);30/60/90/120=用户可选
      * 上限。App 端运行时开关,随配置下发到 SystemUI 侧 AodLyricCanvasView 帧调度。
      */
     val aodRefreshRateCap: Int = 0,

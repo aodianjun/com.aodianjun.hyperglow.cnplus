@@ -66,10 +66,14 @@ class AodCanvasCadenceTest {
 
     @Test
     fun refreshRateCapRaisesActiveFrameRate() {
-        // issue #68 #12:0=跟随现有 16ms;60/90/120 档对应 16/11/8ms。
+        // issue #68 #12:0=跟随现有 16ms;30/60/90/120 档对应 33/16/11/8ms。
         assertEquals(
             16L,
             frameIntervalForTiming(contentVisible = true, timingActive = true, refreshRateCapHz = 0)
+        )
+        assertEquals(
+            33L,
+            frameIntervalForTiming(contentVisible = true, timingActive = true, refreshRateCapHz = 30)
         )
         assertEquals(
             16L,
@@ -91,7 +95,7 @@ class AodCanvasCadenceTest {
         assertEquals(16L, frameIntervalForRefreshRateCap(-1))
         assertEquals(
             16L,
-            frameIntervalForTiming(contentVisible = true, timingActive = true, refreshRateCapHz = 30)
+            frameIntervalForTiming(contentVisible = true, timingActive = true, refreshRateCapHz = 45)
         )
     }
 
@@ -141,11 +145,61 @@ class AodCanvasCadenceTest {
 
     @Test
     fun framePeriodNanosMatchesCapSteps() {
+        assertEquals(1_000_000_000L / 30L, framePeriodNanos(30))
         assertEquals(1_000_000_000L / 60L, framePeriodNanos(60))
         assertEquals(1_000_000_000L / 90L, framePeriodNanos(90))
         assertEquals(1_000_000_000L / 120L, framePeriodNanos(120))
         assertEquals(DEFAULT_FRAME_INTERVAL_MS * NANOS_PER_MS, framePeriodNanos(0))
-        assertEquals(DEFAULT_FRAME_INTERVAL_MS * NANOS_PER_MS, framePeriodNanos(30))
+        assertEquals(DEFAULT_FRAME_INTERVAL_MS * NANOS_PER_MS, framePeriodNanos(45))
+    }
+
+    @Test
+    fun lineSweepIsCappedTo24FpsButTransitionsAndWordContentAreNot() {
+        // 纯行级扫光:基础 16ms -> 约 24fps。
+        assertEquals(
+            LINE_SWEEP_FRAME_INTERVAL_MS,
+            lineSweepFrameIntervalMs(
+                baseIntervalMs = 16L,
+                lineSweepOnly = true,
+                transitionActive = false
+            )
+        )
+        // 换场不钳:保持基础帧率。
+        assertEquals(
+            16L,
+            lineSweepFrameIntervalMs(
+                baseIntervalMs = 16L,
+                lineSweepOnly = true,
+                transitionActive = true
+            )
+        )
+        // 逐字/其他连续效果不进入 lineSweepOnly,基础帧率不变。
+        assertEquals(
+            16L,
+            lineSweepFrameIntervalMs(
+                baseIntervalMs = 16L,
+                lineSweepOnly = false,
+                transitionActive = false
+            )
+        )
+        // 省电档 200ms 比 24fps 更慢:保留省电档。
+        assertEquals(
+            200L,
+            lineSweepFrameIntervalMs(
+                baseIntervalMs = 200L,
+                lineSweepOnly = true,
+                transitionActive = false
+            )
+        )
+        // 不续帧时保持 0。
+        assertEquals(
+            0L,
+            lineSweepFrameIntervalMs(
+                baseIntervalMs = 0L,
+                lineSweepOnly = true,
+                transitionActive = false
+            )
+        )
     }
 
     @Test

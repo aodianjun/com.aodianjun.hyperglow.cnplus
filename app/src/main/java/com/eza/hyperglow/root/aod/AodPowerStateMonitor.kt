@@ -11,18 +11,21 @@ import android.os.PowerManager
 import com.eza.hyperglow.root.HookLogger
 
 /**
- * 省电判定(纯谓词,可单测):未充电且电量 ≤ [AOD_POWER_SAVER_BATTERY_LEVEL_PCT]%,
- * 或设备热状态 ≥ [AOD_POWER_SAVER_THERMAL_STATUS]
- * (= PowerManager.THERMAL_STATUS_MODERATE)。两个条件任一命中即降帧;
- * 充电时电量低不算(插电功耗不是瓶颈)。
+ * 省电判定(纯谓词,可单测):系统省电模式开启、未充电且电量
+ * ≤ [AOD_POWER_SAVER_BATTERY_LEVEL_PCT]%、或设备热状态 ≥
+ * [AOD_POWER_SAVER_THERMAL_STATUS] (= PowerManager.THERMAL_STATUS_MODERATE)。
+ * 任一条件命中即降帧;充电时电量低不算(插电功耗不是瓶颈),但系统省电模式是用户
+ * 明确的省电意图,充电时也尊重。
  */
 internal fun isAodPowerSaverActive(
     batteryPercent: Int?,
     charging: Boolean?,
-    thermalStatus: Int?
+    thermalStatus: Int?,
+    systemPowerSaveMode: Boolean = false
 ): Boolean =
-    (batteryPercent != null && batteryPercent in 0..AOD_POWER_SAVER_BATTERY_LEVEL_PCT &&
-        charging == false) ||
+    systemPowerSaveMode ||
+        (batteryPercent != null && batteryPercent in 0..AOD_POWER_SAVER_BATTERY_LEVEL_PCT &&
+            charging == false) ||
         (thermalStatus != null && thermalStatus >= AOD_POWER_SAVER_THERMAL_STATUS)
 
 internal const val AOD_POWER_SAVER_BATTERY_LEVEL_PCT = 15
@@ -56,6 +59,7 @@ internal object AodPowerStateMonitor {
     @Volatile private var batteryPercent: Int? = null
     @Volatile private var charging: Boolean? = null
     @Volatile private var thermalStatus: Int? = null
+    @Volatile private var systemPowerSaveMode: Boolean = false
     private var attached = false
     private var appContext: Context? = null
     private var receiver: BroadcastReceiver? = null
@@ -88,19 +92,33 @@ internal object AodPowerStateMonitor {
             HookLogger.w(TAG, "PowerManager unavailable; thermal saver disabled")
         } else {
             thermalStatus = powerManager.currentThermalStatus
+            systemPowerSaveMode = powerManager.isPowerSaveMode
             mainHandler.postDelayed(thermalRecheck, THERMAL_RECHECK_MS)
         }
         val batteryReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                intent ?: return
-                batteryPercent = readBatteryPercent(intent)
-                charging = readCharging(intent)
+                when (intent?.action) {
+                    Intent.ACTION_BATTERY_CHANGED -> {
+                        batteryPercent = readBatteryPercent(intent)
+                        charging = readCharging(intent)
+                    }
+                    PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> {
+                        systemPowerSaveMode = powerManager?.isPowerSaveMode == true
+                    }
+                }
             }
         }
         receiver = batteryReceiver
-        // ACTION_BATTERY_CHANGED 是受保护的系统广播:Android 14 的 RECEIVER_EXPORTED/
-        // NOT_EXPORTED 强制只针对非系统广播,这里不需要指定导出标志。
-        app.registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        // ACTION_BATTERY_CHANGED / ACTION_POWER_SAVE_MODE_CHANGED 都是受保护的系统广播:
+        // Android 14 的 RECEIVER_EXPORTED/NOT_EXPORTED 强制只针对非系统广播,这里不需要
+        // 指定导出标志。系统省电模式是用户的明确省电意图,直接并入 AOD 降帧总闸。
+        app.registerReceiver(
+            batteryReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_BATTERY_CHANGED)
+                addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+            }
+        )
         appContext = app
         attached = true
         HookLogger.i(TAG, "Power state monitor attached saver=${isPowerSaverActive()}")
@@ -120,12 +138,13 @@ internal object AodPowerStateMonitor {
         batteryPercent = null
         charging = null
         thermalStatus = null
+        systemPowerSaveMode = false
         attached = false
         HookLogger.i(TAG, "Power state monitor detached")
     }
 
     fun isPowerSaverActive(): Boolean =
-        isAodPowerSaverActive(batteryPercent, charging, thermalStatus)
+        isAodPowerSaverActive(batteryPercent, charging, thermalStatus, systemPowerSaveMode)
 
     private fun readBatteryState(context: Context): Pair<Int?, Boolean?> {
         val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))

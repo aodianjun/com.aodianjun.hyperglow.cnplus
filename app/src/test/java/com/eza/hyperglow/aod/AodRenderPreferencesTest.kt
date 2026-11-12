@@ -80,10 +80,10 @@ class AodRenderPreferencesTest {
     @Test
     fun refreshRateCapAllowsOnlyOfferedSteps() {
         assertEquals(0, normalizeAodRefreshRateCap(0))
+        assertEquals(30, normalizeAodRefreshRateCap(30))
         assertEquals(60, normalizeAodRefreshRateCap(60))
         assertEquals(90, normalizeAodRefreshRateCap(90))
         assertEquals(120, normalizeAodRefreshRateCap(120))
-        assertEquals(0, normalizeAodRefreshRateCap(30))
         assertEquals(0, normalizeAodRefreshRateCap(144))
         assertEquals(0, normalizeAodRefreshRateCap(-1))
     }
