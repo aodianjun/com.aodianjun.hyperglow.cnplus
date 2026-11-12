@@ -10,18 +10,18 @@ package com.example.hyperglow.animation
  */
 internal class HashRng(seed: String) {
     // SplitMix64 混叠，把 hashCode 抖动均匀化，避免 0 种子的退化分支。
-    private var state: Long = seed.fold(0L) { acc, ch ->
+    private var state: ULong = seed.fold(0uL) { acc, ch ->
         acc * 1000003uL + ch.code.toULong()
     }.let { mix ->
-        mix xor (mix ushr 30) xor (mix ushr 27) xor (mix ushr 31)
-    }.let { if (it == 0L) -1L else it }
+        mix xor (mix shr 30) xor (mix shr 27) xor (mix shr 31)
+    }.let { if (it == 0uL) ULong.MAX_VALUE else it }
 
     private fun nextRaw(): Long {
-        state += 0x9E3779B97F4A7C15L
+        state += 0x9E3779B97F4A7C15uL
         var z = state
-        z = (z xor (z ushr 30)) * 0xBF58476D1CE4E5B9L
-        z = (z xor (z ushr 27)) * 0x94D049BB133111EBL
-        return z xor (z ushr 31)
+        z = (z xor (z shr 30)) * 0xBF58476D1CE4E5B9uL
+        z = (z xor (z shr 27)) * 0x94D049BB133111EBuL
+        return (z xor (z shr 31)).toLong()
     }
 
     fun nextInt(bound: Int): Int {
