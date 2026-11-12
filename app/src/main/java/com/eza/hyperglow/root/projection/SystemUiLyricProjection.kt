@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.os.UserHandle
 import com.eza.hyperglow.DiagnosticLoggingRuntime
 import com.eza.hyperglow.aod.AodStateWireMessage
+import com.eza.hyperglow.aod.SpectrumFrame
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.root.aod.AodLyricClient
 import com.eza.hyperglow.root.HookLogger
@@ -150,6 +151,8 @@ internal interface SystemUiLyricSubscriber {
 
     fun onLyricProjectionStale() = Unit
 
+    fun onSpectrum(frame: SpectrumFrame) = Unit
+
     fun onCustomization(configuration: CompiledCustomization) = Unit
 }
 
@@ -195,16 +198,22 @@ internal class SystemUiLyricProjection(
     private val setRaiseToAod: (Boolean) -> Unit = RaiseToAodController::setEnabled,
     private val setSuppressLockscreenEditorLongPress: (Boolean) -> Unit =
         LockscreenEditorGestureController::setEnabled,
-    clientFactory: ((WirePayload) -> Unit, (AodStateWireMessage) -> Unit, () -> Unit) ->
-        LyricProjectionClient = { onConfiguration, onState, onDisconnected ->
-            AodLyricClient(onConfiguration, onState, onDisconnected)
+    clientFactory: ((WirePayload) -> Unit, (AodStateWireMessage) -> Unit, () -> Unit, (SpectrumFrame) -> Unit) ->
+        LyricProjectionClient = { onConfiguration, onState, onDisconnected, onSpectrum ->
+            AodLyricClient(onConfiguration, onState, onDisconnected, onSpectrum)
         }
 ) {
     private val subscribers = IdentityHashMap<SystemUiLyricSubscriber, Unit>()
-    private val client = clientFactory(::handleConfiguration, ::handleState, ::handleDisconnected)
+    private val client = clientFactory(
+        ::handleConfiguration,
+        ::handleState,
+        ::handleDisconnected,
+        ::handleSpectrum
+    )
     private var latestSnapshot: LyricSnapshot? = null
     private var latestVisibleSnapshot: LyricSnapshot? = null
     private var latestConfiguration: CompiledCustomization? = null
+    private var latestSpectrum: SpectrumFrame? = null
     private var lastRevision = -1L
     private var lastUpdatedAt = -1L
     private var lastRejection = ""
@@ -231,6 +240,7 @@ internal class SystemUiLyricProjection(
         ensureBound()
         latestConfiguration?.let(subscriber::onCustomization)
         latestSnapshot?.let(subscriber::onLyricSnapshot)
+        latestSpectrum?.let(subscriber::onSpectrum)
     }
 
     @Synchronized
@@ -437,6 +447,13 @@ internal class SystemUiLyricProjection(
     }
 
     @Synchronized
+    private fun handleSpectrum(frame: SpectrumFrame) {
+        if (!isPlausibleWireTimestamp(frame.capturedAtElapsedMs, elapsedRealtime())) return
+        latestSpectrum = frame
+        subscribers.keys.toList().forEach { it.onSpectrum(frame) }
+    }
+
+    @Synchronized
     private fun handleDisconnected() {
         clearCachedState()
         subscribers.keys.toList().forEach(SystemUiLyricSubscriber::onLyricProjectionDisconnected)
@@ -451,6 +468,7 @@ internal class SystemUiLyricProjection(
         latestSnapshot = null
         latestVisibleSnapshot = null
         latestConfiguration = null
+        latestSpectrum = null
         lastRevision = -1L
         lastUpdatedAt = -1L
     }

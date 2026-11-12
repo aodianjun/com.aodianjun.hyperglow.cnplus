@@ -705,7 +705,7 @@ class SystemUiLyricProjectionTest {
             setDiagnosticLogging = diagnosticLoggingStates::add,
             setRaiseToAod = raiseToAodStates::add,
             setSuppressLockscreenEditorLongPress = editorGestureSuppressionStates::add
-        ) { _, onState, onDisconnected ->
+        ) { _, onState, onDisconnected, _ ->
             sendState = onState
             disconnect = onDisconnected
             FakeClient().also { client = it }

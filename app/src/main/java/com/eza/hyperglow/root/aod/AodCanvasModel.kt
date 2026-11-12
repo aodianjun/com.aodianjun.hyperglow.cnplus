@@ -27,6 +27,21 @@ internal data class MetadataLayoutBounds(
 
 internal enum class SpotlightWordState { SUNG, ACTIVE, UNSUNG }
 
+/** 画布底部频谱条的运行时配置（已由 SceneCompiler/SystemUiCustomizationValidator 归一化）。 */
+internal data class AodCanvasSpectrum(
+    val enabled: Boolean = false,
+    val style: String = "bars",
+    val barCount: Int = 24,
+    val heightPercent: Int = 100,
+    val sensitivity: Int = 100,
+    val color: String = "accent",
+    val source: String = "rhythm",
+    val background: Boolean = true,
+    val opacity: Int = 40,
+    val yOffsetPercent: Int = 0,
+    val customColor: String = ""
+)
+
 internal data class AodCanvasContent(
     val trackGeneration: Long,
     val metadata: String,
@@ -142,7 +157,11 @@ internal data class AodCanvasContent(
      * 歌词行槽位(原文 + 其辅助行)改画倒计时圆点,下一行/并发行车道不受影响。
      */
     val interludeDotsStartMs: Long = 0L,
-    val interludeDotsEndMs: Long = 0L
+    val interludeDotsEndMs: Long = 0L,
+    /** 歌词源是否正在播放：合成频谱只认“音乐播放”，暂停/加载边不跳动。 */
+    val playbackActive: Boolean = false,
+    /** 本面音乐频谱条配置；非 enabled 时不预留高度、不绘制。 */
+    val spectrum: AodCanvasSpectrum = AodCanvasSpectrum()
 )
 
 /**

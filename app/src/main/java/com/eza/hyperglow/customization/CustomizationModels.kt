@@ -1,5 +1,6 @@
 package com.eza.hyperglow.customization
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -255,7 +256,10 @@ data class SurfaceProfile(
      * 识别对唱标记(行首「（男）/（女）/（合）」演唱者标记),每个 surface 独立设置;
      * null = 继承文档级 [CustomizationDocument.duetMarkers]。
      */
-    val duetMarkers: Boolean? = null
+    val duetMarkers: Boolean? = null,
+    /** AOD/锁屏底部的音乐频谱条。默认值不落盘，保持旧版配置/旧 SystemUI 的哈希兼容。 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val spectrum: SpectrumSpec = SpectrumSpec()
 )
 
 @Serializable
@@ -427,7 +431,10 @@ data class CompiledSurfaceProfile(
     /** 专辑与歌名一致时隐藏专辑;由该 surface 的 [SurfaceProfile.hideAlbumWhenSameAsTitle] 解析编译而来。 */
     val hideAlbumWhenSameAsTitle: Boolean = false,
     /** 识别对唱标记;由该 surface 的 [SurfaceProfile.duetMarkers] 解析编译而来,每个 surface 独立生效。 */
-    val duetMarkers: Boolean = true
+    val duetMarkers: Boolean = true,
+    /** 音乐频谱条配置;由 [SurfaceProfile.spectrum] 经 [normalizeSpectrum] 编译而来。 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val spectrum: SpectrumSpec = SpectrumSpec()
 )
 
 const val CURRENT_CUSTOMIZATION_VERSION = 1

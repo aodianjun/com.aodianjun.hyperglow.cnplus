@@ -23,7 +23,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -139,6 +143,7 @@ import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.pureMusicDisplayText
+import com.eza.hyperglow.customization.SpectrumSpec
 import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.aod.resolvedLyricLayoutLineLimit
 import com.eza.hyperglow.root.aod.OriginalLinePath
@@ -194,6 +199,8 @@ import com.eza.hyperglow.root.aod.lineTransitionExitEasing
 import com.eza.hyperglow.root.lockscreen.cardColorRgb
 import com.eza.hyperglow.root.projection.LyricDuetLine
 import com.eza.hyperglow.root.projection.LyricSnapshot
+import kotlin.math.PI
+import kotlin.math.sin
 import com.eza.hyperglow.root.projection.LyricWord
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -1193,6 +1200,105 @@ private fun LyricPreviewSurface(
                             artistSizePercent = profile.metadataArtistSizePercent
                         )
                     }
+                    if (profile.spectrum.enabled && profile.widgets.any { it.type == "spectrum" }) {
+                        val spectrumStart = when (profile.spectrum.color) {
+                            "primary" -> lyricColor
+                            else -> ComposeColor(resolvedColors.accent)
+                        }
+                        val spectrumEnd = if (profile.spectrum.color == "gradient") {
+                            lyricColor
+                        } else {
+                            spectrumStart
+                        }
+                        PreviewSpectrum(profile.spectrum, spectrumStart, spectrumEnd)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 设置页预览用的频谱占位动画：真实数值来自回放捕获，预览只画一组确定性的演示柱。 */
+@Composable
+private fun PreviewSpectrum(
+    spectrum: SpectrumSpec,
+    startColor: ComposeColor,
+    endColor: ComposeColor
+) {
+    val phase = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            phase.snapTo(0f)
+            phase.animateTo(1f, animationSpec = tween(1_600, easing = LinearEasing))
+        }
+    }
+    val bars = spectrum.barCount.coerceIn(12, 32)
+    val height = (34f * spectrum.heightPercent.coerceIn(50, 200) / 100f).dp
+    val opacity = spectrum.opacity.coerceIn(10, 100) / 100f
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(height)
+    ) {
+        val gap = size.width * 0.35f / bars
+        val barWidth = ((size.width - gap * (bars - 1)) / bars).coerceAtLeast(1f)
+        val colors = listOf(
+            startColor.copy(alpha = opacity),
+            endColor.copy(alpha = opacity)
+        )
+        val envelopeAt: (Int) -> Float = { index ->
+            val wave = sin(index * 0.55f + phase.value * 2f * PI.toFloat()) * 0.5f + 0.5f
+            (0.30f + 0.70f * wave).coerceIn(0f, 1f)
+        }
+        when (spectrum.style) {
+            "mirror" -> {
+                val center = size.height / 2f
+                for (index in 0 until bars) {
+                    val half = (envelopeAt(index) * size.height * 0.45f)
+                        .coerceAtLeast(0.8f)
+                    val x = index * (barWidth + gap)
+                    drawRoundRect(
+                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = colors,
+                            startY = center - half,
+                            endY = center + half
+                        ),
+                        topLeft = Offset(x, center - half),
+                        size = Size(barWidth, half * 2f),
+                        cornerRadius = CornerRadius(barWidth / 2f)
+                    )
+                }
+            }
+
+            "line" -> {
+                val path = Path()
+                val step = if (bars <= 1) 0f else size.width / (bars - 1)
+                for (index in 0 until bars) {
+                    val x = index * step
+                    val y = size.height - envelopeAt(index) * size.height
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(
+                    path = path,
+                    color = endColor.copy(alpha = opacity),
+                    style = Stroke(width = 2f)
+                )
+            }
+
+            else -> {
+                for (index in 0 until bars) {
+                    val barHeight = (envelopeAt(index) * size.height).coerceAtLeast(1.5f)
+                    val x = index * (barWidth + gap)
+                    drawRoundRect(
+                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = colors,
+                            startY = size.height - barHeight,
+                            endY = size.height
+                        ),
+                        topLeft = Offset(x, size.height - barHeight),
+                        size = Size(barWidth, barHeight),
+                        cornerRadius = CornerRadius(barWidth / 2f)
+                    )
                 }
             }
         }

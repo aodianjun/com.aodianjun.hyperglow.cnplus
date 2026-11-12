@@ -41,6 +41,19 @@ class AodLyricBridgeService : Service() {
             if (callback != null && isSystemUiCaller()) AodStateBridge.unregister(callback)
         }
 
+        override fun registerSpectrumCallback(callback: IAodSpectrumCallback?) {
+            if (callback != null && isSystemUiCaller()) {
+                AodStateBridge.registerSpectrum(callback)
+                AppLog.bootstrap(TAG, "systemui_spectrum_callback_accepted")
+            }
+        }
+
+        override fun unregisterSpectrumCallback(callback: IAodSpectrumCallback?) {
+            if (callback != null && isSystemUiCaller()) {
+                AodStateBridge.unregisterSpectrum(callback)
+            }
+        }
+
         override fun reportCapabilities(report: Bundle?) {
             if (report != null && isSystemUiCaller()) {
                 XiaomiCapabilityStore.save(this@AodLyricBridgeService, report)

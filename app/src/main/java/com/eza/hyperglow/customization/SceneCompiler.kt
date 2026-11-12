@@ -150,6 +150,7 @@ object SceneCompiler {
         // per-surface 歌曲信息内容:未显式设置(null)时由 withDocumentDefaults 预填文档级默认值;
         // 这里再兜一层归一化,兼容 compileSafeDefault 直接传入未预填的默认 profile。
         val parts = normalizeMetadataParts(profile.metadataParts)
+        val spectrum = normalizeSpectrum(profile.spectrum)
         val supportedWidgets = profile.widgets.asSequence()
             .filter { it.visible }
             .filter { it.type in KNOWN_WIDGETS }
@@ -162,6 +163,18 @@ object SceneCompiler {
                 supportedWidgets.removeLast()
             }
             supportedWidgets.add(0, WidgetSpec("lyrics"))
+        }
+        // spectrum 开关是唯一事实来源：打开时补齐 widget（placement 用它测量/隐藏），
+        // 关闭时清掉遗留 widget，避免旧配置把频谱带回来。
+        if (spectrum.enabled) {
+            if (supportedWidgets.none { it.type == "spectrum" }) {
+                if (supportedWidgets.size >= if (aod) MAX_AOD_WIDGETS else MAX_WIDGETS) {
+                    supportedWidgets.removeLast()
+                }
+                supportedWidgets += WidgetSpec("spectrum", optional = true)
+            }
+        } else {
+            supportedWidgets.removeAll { it.type == "spectrum" }
         }
         val palette = profile.palette.asSequence()
             .filter { it.key in SEMANTIC_COLORS && isAllowedPaletteValue(it.value) }
@@ -258,7 +271,8 @@ object SceneCompiler {
             metadataParts = parts,
             metadataSeparators = normalizeMetadataSeparators(profile.metadataSeparators, parts),
             hideAlbumWhenSameAsTitle = profile.hideAlbumWhenSameAsTitle == true,
-            duetMarkers = profile.duetMarkers != false
+            duetMarkers = profile.duetMarkers != false,
+            spectrum = spectrum
         )
     }
 
@@ -315,8 +329,8 @@ object SceneCompiler {
     const val SURFACE_LOCKSCREEN = "lockscreen"
     const val SURFACE_AOD = "aod"
 
-    val KNOWN_WIDGETS = setOf("lyrics", "metadata", "media_progress")
-    private val AOD_WIDGETS = setOf("lyrics", "metadata")
+    val KNOWN_WIDGETS = setOf("lyrics", "metadata", "media_progress", "spectrum")
+    private val AOD_WIDGETS = setOf("lyrics", "metadata", "spectrum")
     private val ANCHORS = setOf(
         "below_stock_clock",
         "screen_center",

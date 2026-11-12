@@ -263,7 +263,27 @@ internal fun LyricSnapshot.toAodCanvasContent(
         }
     } else {
         null
-    }
+    },
+    spectrum = profile?.let { compiled ->
+        val spec = compiled.spectrum
+        AodCanvasSpectrum(
+            // 背景层不占高度，不能因为 placement 隐藏了 0 高度的 spectrum widget 就整层不画；
+            // 条带模式仍要求 widget 可见（否则没有预留高度）。
+            enabled = spec.enabled &&
+                (spec.background || compiled.widgets.any { it.type == "spectrum" }),
+            style = spec.style,
+            barCount = spec.barCount,
+            heightPercent = spec.heightPercent,
+            sensitivity = spec.sensitivity,
+            color = spec.color,
+            source = spec.source,
+            background = spec.background,
+            opacity = spec.opacity,
+            yOffsetPercent = spec.yOffsetPercent,
+            customColor = spec.customColor
+        )
+    } ?: AodCanvasSpectrum(),
+    playbackActive = playbackActive
     )
     // 无歌词内容三态收尾(per-surface,纯音乐与真无歌词同门控):MUSIC_INFO 清掉标记行的
     // 词级/辅助/并发行/间奏数据(标记不是歌词,不参与卡拉OK/逐字);RESTORE_DEFAULT 再清空

@@ -182,6 +182,9 @@ data class AodDisplayDuetLine(
 
 object AodStateBridge {
     private val callbacks = RemoteCallbackList<IAodLyricCallback>()
+    private val spectrumCallbacks = RemoteCallbackList<IAodSpectrumCallback>()
+    private var latestSpectrumFrame: SpectrumFrame? = null
+    private var lastSpectrumPublishAtMs = 0L
     private var currentRevision = 0L
     private var latestMessage: AodStateWireMessage = AodStateWireMessage.Hidden(
         revision = 0L,
@@ -251,6 +254,65 @@ object AodStateBridge {
 
     @Synchronized
     fun hasSystemUiCallback(): Boolean = callbacks.registeredCallbackCount > 0
+
+    /** SystemUI 侧注册低速率频谱回调；注册时回放最近一帧（过期则回放静默帧）。 */
+    @Synchronized
+    fun registerSpectrum(callback: IAodSpectrumCallback) {
+        spectrumCallbacks.register(callback)
+        val now = SystemClock.elapsedRealtime()
+        val latest = latestSpectrumFrame
+        val replay = if (latest != null &&
+            now - latest.capturedAtElapsedMs <= SpectrumContract.MAX_FRAME_AGE_MS
+        ) {
+            latest
+        } else {
+            SpectrumFrame.idle(
+                sequence = latest?.sequence ?: 0L,
+                nowElapsedMs = now
+            )
+        }
+        val envelope = SpectrumWireCodec.toBundle(replay) ?: return
+        try {
+            callback.onSpectrum(Bundle(envelope))
+        } catch (error: Exception) {
+            AppLog.w(TAG, "Initial spectrum delivery failed", error)
+        }
+    }
+
+    @Synchronized
+    fun unregisterSpectrum(callback: IAodSpectrumCallback) {
+        spectrumCallbacks.unregister(callback)
+    }
+
+    @Synchronized
+    fun hasSpectrumCallback(): Boolean = spectrumCallbacks.registeredCallbackCount > 0
+
+    /**
+     * 发布一帧频谱。默认按 [SpectrumContract.MIN_PUBLISH_INTERVAL_MS] 节流；
+     * force=true 用于停播/销毁时的静默帧，必须无条件送达。
+     */
+    @Synchronized
+    fun publishSpectrum(frame: SpectrumFrame, force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastSpectrumPublishAtMs < SpectrumContract.MIN_PUBLISH_INTERVAL_MS) {
+            return
+        }
+        val bundle = SpectrumWireCodec.toBundle(frame) ?: return
+        lastSpectrumPublishAtMs = now
+        latestSpectrumFrame = frame
+        val count = spectrumCallbacks.beginBroadcast()
+        try {
+            for (index in 0 until count) {
+                try {
+                    spectrumCallbacks.getBroadcastItem(index).onSpectrum(Bundle(bundle))
+                } catch (error: Exception) {
+                    AppLog.w(TAG, "Spectrum delivery failed", error)
+                }
+            }
+        } finally {
+            spectrumCallbacks.finishBroadcast()
+        }
+    }
 
     @Synchronized
     fun publish(state: AodDisplayState) {

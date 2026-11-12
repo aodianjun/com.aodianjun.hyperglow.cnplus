@@ -15,6 +15,8 @@ import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
+import com.eza.hyperglow.customization.spectrumWidgetHeightDp
+import com.eza.hyperglow.aod.SpectrumFrame
 import com.eza.hyperglow.root.aod.AodLyricCanvasView
 import com.eza.hyperglow.root.aod.AodCanvasVerticalAlignment
 import com.eza.hyperglow.root.aod.artworkSideDp
@@ -250,6 +252,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
 
     override fun onLyricSnapshot(snapshot: LyricSnapshot) {
         val resolvedSnapshot = LinkageTransitionCoordinator.resolveSnapshot(snapshot)
+        lyricCanvas?.setPlaybackActive(resolvedSnapshot.playbackActive)
         latestSnapshot = resolvedSnapshot
         if (resolvedSnapshot.visible) {
             lastVisibleSnapshot = resolvedSnapshot
@@ -284,6 +287,7 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
     }
 
     override fun onLyricKeepAlive(signal: LyricKeepAliveSignal) {
+        lyricCanvas?.setPlaybackActive(signal.playbackActive)
         latestSnapshot = latestSnapshot?.copy(
             updatedAtElapsedMs = signal.updatedAtElapsedMs,
             playbackActive = signal.playbackActive,
@@ -291,6 +295,10 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         )
         latestSnapshot?.let(::scheduleFreshnessExpiry)
         requestRefresh()
+    }
+
+    override fun onSpectrum(frame: SpectrumFrame) {
+        lyricCanvas?.setSpectrum(frame)
     }
 
     override fun onLyricProjectionDisconnected() {
@@ -303,6 +311,8 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         runtimeProfile = null
         lastRenderedProfile = null
         cancelFreshnessExpiry()
+        lyricCanvas?.setPlaybackActive(false)
+        lyricCanvas?.clearSpectrum()
         hideSurface()
     }
 
@@ -313,6 +323,8 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         retentionAnchor = null
         cancelPauseLingerExpiry()
         cancelFreshnessExpiry()
+        lyricCanvas?.setPlaybackActive(false)
+        lyricCanvas?.clearSpectrum()
         hideSurface()
     }
 
@@ -659,6 +671,14 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             0f
         }
         val fontScale = host.resources.displayMetrics.scaledDensity / density.coerceAtLeast(0.1f)
+        val spectrumHeight = if (profile.spectrum.enabled &&
+            !profile.spectrum.background &&
+            profile.widgets.any { it.type == "spectrum" }
+        ) {
+            spectrumWidgetHeightDp(profile.spectrum.heightPercent) * density
+        } else {
+            0f
+        }
         // 自适应卡片高度:宽度与高度无关,先按放置宽(卡片样式取通知宽)定内容宽,再实测内容
         // 自然堆叠高;「高度」设置仍是上限,设置估算只兜底无内容/未测量时。
         val placementWidth = freeRegion.width * placementWidthFraction
@@ -722,11 +742,12 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
             when (widget.type) {
                 "lyrics" -> WidgetMeasurement(
                     widget,
-                    (desiredHeight - metadataHeight - progressHeightWithGap)
+                    (desiredHeight - metadataHeight - progressHeightWithGap - spectrumHeight)
                         .coerceAtLeast(MIN_HEIGHT_DP * density)
                 )
                 "metadata" -> WidgetMeasurement(widget, metadataHeight)
                 "media_progress" -> WidgetMeasurement(widget, progressHeightWithGap)
+                "spectrum" -> WidgetMeasurement(widget, spectrumHeight)
                 else -> null
             }
         }

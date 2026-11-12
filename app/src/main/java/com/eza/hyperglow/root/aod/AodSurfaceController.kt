@@ -18,6 +18,8 @@ import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
+import com.eza.hyperglow.aod.SpectrumFrame
+import com.eza.hyperglow.customization.spectrumWidgetHeightDp
 import com.eza.hyperglow.aod.tailTimeoutActive
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
@@ -624,6 +626,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     override fun onLyricSnapshot(snapshot: LyricSnapshot) {
         val incomingSnapshot = LinkageTransitionCoordinator.resolveSnapshot(snapshot)
+        lyricCanvas?.setPlaybackActive(incomingSnapshot.playbackActive)
         if (incomingSnapshot.visible) lastVisibleSnapshot = incomingSnapshot
         else if (lastVisibleSnapshot == null) {
             lastVisibleSnapshot = SystemUiLyricProjectionRuntime.projection.cachedVisibleSnapshot()
@@ -741,6 +744,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     }
 
     override fun onLyricKeepAlive(signal: LyricKeepAliveSignal) {
+        lyricCanvas?.setPlaybackActive(signal.playbackActive)
         val retained = retainedMediaSnapshot?.let {
             expirePausedAodKeepAlive(it, SystemClock.elapsedRealtime())
         }
@@ -780,6 +784,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         requestWakeIfAllowed(root, directSurface, wakeRequired)
     }
 
+    override fun onSpectrum(frame: SpectrumFrame) {
+        lyricCanvas?.setSpectrum(frame)
+    }
+
     override fun onLyricProjectionDisconnected() {
         cancelPausedKeepAliveExpiry()
         cancelPauseLingerExpiry()
@@ -790,6 +798,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         customization = null
         runtimeProfile = null
         setStockWidgetControlActive(false)
+        lyricCanvas?.setPlaybackActive(false)
+        lyricCanvas?.clearSpectrum()
         hideSurfaceOnly(pulse = false)
     }
 
@@ -801,6 +811,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         retainedMediaSnapshot = null
         retentionAnchor = null
         setStockWidgetControlActive(false)
+        lyricCanvas?.setPlaybackActive(false)
+        lyricCanvas?.clearSpectrum()
         hideSurfaceOnly(pulse = false)
     }
 
@@ -1630,13 +1642,23 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             0f
         }
         val desiredHeight = root.height * layoutProfile.maxHeightFraction
+        val spectrumHeight = if (layoutProfile.spectrum.enabled &&
+            !layoutProfile.spectrum.background &&
+            layoutProfile.widgets.any { it.type == "spectrum" }
+        ) {
+            spectrumWidgetHeightDp(layoutProfile.spectrum.heightPercent) * density
+        } else {
+            0f
+        }
         val measurements = profile.widgets.mapNotNull { widget ->
             when (widget.type) {
                 "lyrics" -> WidgetMeasurement(
                     widget,
-                    (desiredHeight - metadataHeight).coerceAtLeast(MIN_LYRIC_HEIGHT_DP * density)
+                    (desiredHeight - metadataHeight - spectrumHeight)
+                        .coerceAtLeast(MIN_LYRIC_HEIGHT_DP * density)
                 )
                 "metadata" -> WidgetMeasurement(widget, metadataHeight)
+                "spectrum" -> WidgetMeasurement(widget, spectrumHeight)
                 else -> null
             }
         }

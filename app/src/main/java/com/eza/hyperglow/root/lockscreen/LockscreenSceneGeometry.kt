@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.lockscreen
 
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
+import com.eza.hyperglow.customization.spectrumWidgetHeightDp
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.aod.textSizeModeMultiplier
 import com.eza.hyperglow.root.surface.PlacementRect
@@ -133,6 +134,14 @@ internal fun estimatedLockscreenSceneHeight(
     } else {
         0f
     }
+    val spectrumHeight = if (profile.spectrum.enabled &&
+        !profile.spectrum.background &&
+        profile.widgets.any { it.type == "spectrum" }
+    ) {
+        spectrumWidgetHeightDp(profile.spectrum.heightPercent)
+    } else {
+        0f
+    }
     val cardPadding = if (profile.backgroundStyle == "card") 24f else 0f
     val primaryBlockHeight = if (profile.lyricLineLimit == 0) {
         Float.POSITIVE_INFINITY
@@ -141,7 +150,7 @@ internal fun estimatedLockscreenSceneHeight(
     }
     return (primaryBlockHeight * textScale +
         SECONDARY_BLOCK_HEIGHT_DP * secondaryRows * textScale.coerceAtMost(1.25f) +
-        metadataHeight + progressHeight + cardPadding) * density
+        metadataHeight + progressHeight + spectrumHeight + cardPadding) * density
 }
 
 /**
