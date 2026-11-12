@@ -183,6 +183,9 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
             noSongDropLogged = false
             generation.incrementAndGet()
             val lyrics = current.lyrics
+            // 曲目级时间轴缓存:hasTimedLyrics/是否有词级时间/行 begin 排序表一次算好,
+            // 高频位置回调不再每拍扫整首行表(见 LyriconSongTimingCache)。
+            songTimingCache = buildLyriconSongTimingCache(current)
             // 尾奏清行判据随行表一起预计算(60Hz 选行路径不扫全表):取所有合法 end
             // (end > begin)的最大值。对唱重叠时靠前的一行可能比最后一行结束得更晚,
             // 只看最后一行会提前清行(上游 HyperLyric 7.9 fdeb94f)。seek 不改变行表,
@@ -198,6 +201,7 @@ internal fun LyriconLyricProducer.createPlayerListener(): ActivePlayerListener =
                 null
             }
             currentLineIndex = -1
+            currentLineHasWords = false
             cachedWords = null
             cachedTranslationWords = null
             // 对唱左右分侧快照随歌重算(身份排序依赖整首出现顺序,不能按单行现算);
@@ -645,7 +649,8 @@ internal fun LyriconLyricProducer.applySeek(position: Long) {
     // Seek invalidates the navigator's sequential cache (playback jumped).
     navigator?.resetCache()
     currentLineIndex = -1
+    currentLineHasWords = false
     cachedWords = null
     cachedTranslationWords = null
-    recomputeAndEmit()
+    recomputeAndEmit(force = true)
 }

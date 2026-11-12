@@ -2820,6 +2820,73 @@ class LyriconLyricProducerTest {
         )
     }
 
+    // --- Song-level timing cache / routine emission coalescing ---
+
+    @Test
+    fun songTimingCachePrecomputesTimedAndWordFlagsWithSortedStarts() {
+        val cache = buildLyriconSongTimingCache(threeLineSong())
+
+        assertTrue(cache.hasTimedLyrics)
+        assertTrue(cache.hasAnyWordTimings)
+        assertEquals(0, cache.firstLineIndexAfter(500L))
+        // Strictly after: position == line 0 begin still returns the next line.
+        assertEquals(1, cache.firstLineIndexAfter(1_000L))
+        assertEquals(1, cache.firstLineIndexAfter(3_000L))
+        assertEquals(2, cache.firstLineIndexAfter(3_500L))
+        assertEquals(-1, cache.firstLineIndexAfter(7_000L))
+    }
+
+    @Test
+    fun routinePositionEmissionsAreCoalescedWithin50ms() {
+        var now = 1_000L
+        val producer = LyriconLyricProducer { now }
+        producer.playerListener.onSongChanged(threeLineSong())
+
+        now = 1_050L
+        producer.playerListener.onPositionChanged(2_000L)
+        val first = producer.state.value!!
+        assertEquals(0, first.lineIndex)
+        assertEquals(2_000L, first.positionMs)
+        val firstSequence = first.sequence
+
+        // Same line, 40 ms later: routine position-only update is held; the renderer
+        // extrapolates from sampledAtElapsedMs + speed until the next emitted sample.
+        now = 1_090L
+        producer.playerListener.onPositionChanged(2_090L)
+        val held = producer.state.value!!
+        assertEquals(firstSequence, held.sequence)
+        assertEquals(2_000L, held.positionMs)
+
+        // 100 ms after the last emission: due; publishes the newer position.
+        now = 1_150L
+        producer.playerListener.onPositionChanged(2_150L)
+        val resumed = producer.state.value!!
+        assertTrue(resumed.sequence > firstSequence)
+        assertEquals(2_150L, resumed.positionMs)
+    }
+
+    @Test
+    fun lineBoundaryBypassesCoalescingWindow() {
+        var now = 1_000L
+        val producer = LyriconLyricProducer { now }
+        producer.playerListener.onSongChanged(threeLineSong())
+
+        now = 1_050L
+        producer.playerListener.onPositionChanged(2_000L)
+        val first = producer.state.value!!
+        assertEquals(0, first.lineIndex)
+        val firstSequence = first.sequence
+
+        // Crossing into line 1 only 50 ms later must still emit immediately: the visual
+        // content changed even though the routine interval has not elapsed.
+        now = 1_100L
+        producer.playerListener.onPositionChanged(3_500L)
+        val next = producer.state.value!!
+        assertTrue(next.sequence > firstSequence)
+        assertEquals(1, next.lineIndex)
+        assertEquals(3_500L, next.positionMs)
+    }
+
     private fun markerDuetSong(): Song = Song(
         id = "song-duet",
         name = "Duet Song",

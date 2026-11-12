@@ -61,6 +61,7 @@
     <string name="summary_export_logs">将尚未删除的日志保存为 .txt 文件。</string>
     <string name="toast_logs_exported">日志已导出</string>
     <string name="toast_logs_export_failed">导出日志失败</string>
+    <string name="toast_logs_saved_to">日志已保存到 %1$s</string>
 
     <string name="action_send_compatibility_report">发送兼容性报告</string>
     <string name="action_report_problem">报告问题</string>

@@ -2,6 +2,7 @@ package com.eza.hyperglow.producer
 
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.customization.LyricTimeOffset
+import io.github.proify.lyricon.lyric.model.RichLyricLine
 
 /**
  * Advance [currentPositionMs] by wall-clock extrapolation from [lastRealPositionMs], unless the
@@ -180,8 +181,9 @@ internal fun LyriconLyricProducer.advanceExtrapolation(now: Long, reason: String
  * Called at ~60 Hz from [onPositionChanged]; the word-list allocation is amortized by
  * caching across position-only updates within the same line.
  */
-internal fun LyriconLyricProducer.recomputeAndEmit() {
-    val nav = navigator ?: return emit() // no lyrics yet; emit metadata-only state
+internal fun LyriconLyricProducer.recomputeAndEmit(force: Boolean = false) {
+    val previousLineIndex = currentLineIndex
+    val nav = navigator ?: return emit(force = force) // no lyrics yet; emit metadata-only state
     val song = currentSong ?: return
     val pos = currentPositionMs
     // 「歌词时间偏移」:选行查询走显示时间轴(播放位置 − 偏移);机制层(外推/门控/残留
@@ -194,10 +196,11 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
     if (positionUnknown) {
         if (currentLineIndex != -1) {
             currentLineIndex = -1
+            currentLineHasWords = false
             cachedWords = null
             cachedTranslationWords = null
         }
-        emit()
+        emit(force = force || currentLineIndex != previousLineIndex)
         return
     }
 
@@ -223,6 +226,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         extrapolating = false
         if (currentLineIndex != -1) {
             currentLineIndex = -1
+            currentLineHasWords = false
             cachedWords = null
             cachedTranslationWords = null
         }
@@ -233,7 +237,7 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
                     "(duration=${duration}ms); holding stable placeholder"
             )
         }
-        emit()
+        emit(force = force || currentLineIndex != previousLineIndex)
         return
     }
 
@@ -242,10 +246,11 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
         // Before the first line: no current line yet.
         if (currentLineIndex != -1) {
             currentLineIndex = -1
+            currentLineHasWords = false
             cachedWords = null
             cachedTranslationWords = null
         }
-        emit()
+        emit(force = force || currentLineIndex != previousLineIndex)
         return
     }
     // 最后一句歌词唱完后（position 越过全歌最晚结束点，歌曲进入尾奏/纯器乐段落），清空
@@ -264,15 +269,17 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
     if (tailEnded) {
         if (currentLineIndex != -1) {
             currentLineIndex = -1
+            currentLineHasWords = false
             cachedWords = null
             cachedTranslationWords = null
         }
-        emit()
+        emit(force = force || currentLineIndex != previousLineIndex)
         return
     }
     if (idx != currentLineIndex) {
         currentLineIndex = idx
         val line = nav.source[idx]
+        currentLineHasWords = !line.words.isNullOrEmpty()
         cachedWords = line.toLyricWords()
         cachedTranslationWords = line.toTranslationWords()
         AppLog.i(
@@ -280,54 +287,85 @@ internal fun LyriconLyricProducer.recomputeAndEmit() {
             "line changed: idx=$idx begin=${line.begin} end=${line.end} text=${line.text?.take(24)}"
         )
     }
-    emit()
+    emit(force = force || currentLineIndex != previousLineIndex)
 }
 
 /**
- * Build and emit a [LyricProducerState] from the current ingress fields. Cheap: reuses
- * [cachedWords] (only rebuilt on line change) and [renderModesSnapshot] (only rebuilt on
- * song change), plus [cachedTranslationWords] (same line-change lifecycle as [cachedWords]). Safe to call at 60 Hz.
+ * Build and emit a [LyricProducerState] from the current ingress fields.
+ *
+ * 位置回调 ~60Hz，但下游仲裁/投影按 100ms 采样，渲染侧又按 `sampledAtElapsedMs + speed`
+ * 外推；同一行内的例行位置推进按 [LYRICON_EMIT_INTERVAL_MS] 合流。事件型变化（[force]，
+ * 换行、播放态、speed、位置未知、切歌）仍立即发射。同毫秒回调不合并，保证注入固定时钟的
+ * 单测与真实回调语义一致。
+ *
+ * [cachedWords]/[cachedTranslationWords] 只随行变化重建，[renderModesSnapshot] 只随歌变化；
+ * 曲目级扫描读取 [songTimingCache]，不在每拍重扫整首行表。
  */
-internal fun LyriconLyricProducer.emit() {
+internal fun LyriconLyricProducer.emit(force: Boolean = true) {
     // 当前音频源不是音乐(视频应用等)时整体静默:位置回调仍在 ~60Hz 到达,这里统一兜底
     // (provider/song 回调的先后顺序不保证),不发射状态即让仲裁器回退或空闲。
     if (!activeSourceEligible()) {
         mutableState.value = null
+        resetEmitCoalescing()
         return
     }
-    val song = currentSong ?: run { mutableState.value = null; return }
+    val song = currentSong ?: run {
+        mutableState.value = null
+        resetEmitCoalescing()
+        return
+    }
     val now = clock()
+    val timing = songTimingCache?.takeIf { it.song === song }
+    val lines = timing?.lines ?: song.lyrics.orEmpty()
+    val line = currentLineIndex.let { idx ->
+        if (idx < 0) null else navigator?.source?.getOrNull(idx)
+    }
+    val lineHasWords = if (line != null) currentLineHasWords else false
+    // 未锚定(切歌后还没收到本首歌的可信位置)时下发 speed=0:渲染侧按
+    // positionMs + elapsed×speed 外推，speed 必须同步归零，否则即使生产者不推进，
+    // AOD/预览仍会从 0 自己往前走。
+    val speed = if (isPlayingState && positionAnchored) 1f else 0f
+    val stateChanged = force ||
+        currentLineIndex != lastEmittedLineIndex ||
+        isPlayingState != lastEmittedPlaying ||
+        speed != lastEmittedSpeed ||
+        positionUnknown != lastEmittedPositionUnknown ||
+        lineHasWords != lastEmittedLineHasWords ||
+        generation.get() != lastEmittedGeneration
+    if (!stateChanged && now > lastEmitAtMs &&
+        now - lastEmitAtMs < LYRICON_EMIT_INTERVAL_MS
+    ) return
+    lastEmitAtMs = now
+    lastEmittedLineIndex = currentLineIndex
+    lastEmittedPlaying = isPlayingState
+    lastEmittedSpeed = speed
+    lastEmittedPositionUnknown = positionUnknown
+    lastEmittedLineHasWords = lineHasWords
+    lastEmittedGeneration = generation.get()
     // 「歌词时间偏移」:发射坐标整体换算到显示时间轴(位置、行窗、词级、nextLine),
     // 机制层保持原始坐标;换行、扫光与逐字高亮随偏移一致平移。offset=0 恒等原值。
     val offset = lyricTimeOffsetMs
     val displayPos = LyricTimeOffset.displayPositionMs(currentPositionMs, offset)
-    val lyrics = song.lyrics
-    val line = currentLineIndex.let { idx ->
-        if (idx < 0) null else navigator?.source?.getOrNull(idx)
-    }
     // Active-row fields (spec clause 6: producer computes the active line before emitting).
     // lyricKind is per-active-line when a line is active; otherwise song-level, so the engine
     // can still tell "timed lyrics exist, between lines" (INTERLUDE) from "no lyrics" (NONE).
-    val hasTimedLyrics = !lyrics.isNullOrEmpty() &&
-        lyrics.any { it.end > it.begin }
+    val hasTimedLyrics = timing?.hasTimedLyrics ?: lines.any { it.end > it.begin }
     val lyricKind = when {
-        lyrics.isNullOrEmpty() -> LyricKind.NONE
-        line != null -> if (!line.words.isNullOrEmpty()) LyricKind.SYLLABLE else LyricKind.LINE
-        else -> if (lyrics.any { !it.words.isNullOrEmpty() }) LyricKind.SYLLABLE
-            else LyricKind.LINE
+        lines.isEmpty() -> LyricKind.NONE
+        line != null -> if (lineHasWords) LyricKind.SYLLABLE else LyricKind.LINE
+        else -> if (timing?.hasAnyWordTimings ?: lines.any { !it.words.isNullOrEmpty() }) {
+            LyricKind.SYLLABLE
+        } else {
+            LyricKind.LINE
+        }
     }
     // nextLine 的选取比较保持原始坐标(begin > 原始位置 ≡ 显示时间轴上 begin−offset >
-    // displayPos);仅发射值换算到显示时间轴。
-    val nextLineStartMs = lyrics
-        ?.asSequence()
-        ?.map { it.begin }
-        ?.filter { it > currentPositionMs }
-        ?.minOrNull()
-        ?.let { LyricTimeOffset.displayMs(it, offset) }
-    // 下一行歌词自身(供「显示第二行辅助文字」取其音标/翻译);无下一行时为 null。
-    val nextLyricLine = lyrics
-        ?.asSequence()
-        ?.firstOrNull { it.begin > currentPositionMs }
+    // displayPos);仅发射值换算到显示时间轴。行表按 begin 升序(SDK normalize),用缓存
+    // 的行起点二分,不再逐拍 min/firstOrNull 扫全表。
+    val nextLineIndex = timing?.firstLineIndexAfter(currentPositionMs)
+        ?: firstLyricLineIndexAfter(lines, currentPositionMs)
+    val nextLyricLine = lines.getOrNull(nextLineIndex)
+    val nextLineStartMs = nextLyricLine?.begin?.let { LyricTimeOffset.displayMs(it, offset) }
     val nextLineText = nextLyricLine?.text.orEmpty()
     val nextLineRomanizedText = nextLyricLine?.roma.orEmpty()
     // 翻译冗余对兜底:与主行同源走 effectiveTranslation(只带 translationWords 的源不丢译文)。
@@ -347,16 +385,13 @@ internal fun LyriconLyricProducer.emit() {
         imageId = "",
         line = line?.text.orEmpty(),
         romanizedLine = line?.roma.orEmpty(),
-        // 翻译冗余对兜底：只带 translationWords 的源不能丢译文（见 effectiveTranslation）。
+        // 翻译冗余对兜底：只带 translationWords 的源不能丢译文(见 effectiveTranslation)。
         translatedLine = line?.effectiveTranslation().orEmpty(),
         lineIndex = currentLineIndex,
         positionMs = displayPos,
         durationMs = song.duration,
         sampledAtElapsedMs = now,
-        // 未锚定(切歌后还没收到本首歌的可信位置)时下发 speed=0:渲染侧按
-        // positionMs + elapsed×speed 外推，speed 必须同步归零，否则即使生产者不推进，
-        // AOD/预览仍会从 0 自己往前走。
-        speed = if (isPlayingState && positionAnchored) 1f else 0f,
+        speed = speed,
         playing = isPlayingState,
         receivedAtElapsedMs = now,
         words = cachedWords?.shiftedByOffset(offset),
@@ -379,6 +414,34 @@ internal fun LyriconLyricProducer.emit() {
         nextLineTranslated = nextLineTranslatedText,
         duetLine = duetLine
     )
+}
+
+/**
+ * 例行位置状态的合流窗口（≈20Hz）。SDK 回调约 60Hz；下游仲裁/投影按 100ms 采样，
+ * 渲染侧再用 sampledAt+speed 外推。取 50ms 保留现有「40ms 重复值不发射、下一个真实值
+ * 立即发射」的语义，同时把例行状态构造压到约三分之一。
+ */
+internal const val LYRICON_EMIT_INTERVAL_MS = 50L
+
+internal fun LyriconLyricProducer.resetEmitCoalescing() {
+    lastEmitAtMs = 0L
+    lastEmittedLineIndex = Int.MIN_VALUE
+    lastEmittedPlaying = false
+    lastEmittedSpeed = -1f
+    lastEmittedPositionUnknown = false
+    lastEmittedLineHasWords = false
+    lastEmittedGeneration = Int.MIN_VALUE
+}
+
+/**
+ * 缓存缺失/切歌竞态时的回退：行表按 begin 升序，线性找到第一条 `begin > position`。
+ * 只在缓存尚未发布或身份不匹配时走，正常热路径仍用二分。
+ */
+internal fun firstLyricLineIndexAfter(lines: List<RichLyricLine>, positionMs: Long): Int {
+    for (index in lines.indices) {
+        if (lines[index].begin > positionMs) return index
+    }
+    return -1
 }
 
 /**

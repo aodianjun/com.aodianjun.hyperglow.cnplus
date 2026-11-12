@@ -62,6 +62,27 @@ class AodPowerStateMonitorTest {
         )
     }
 
+    @Test
+    fun systemPowerSaveModeActivatesSaverEvenWhenCharging() {
+        // 系统省电模式是用户的明确意图：不受电量/充电/温度门控。
+        assertTrue(
+            isAodPowerSaverActive(
+                batteryPercent = 90,
+                charging = true,
+                thermalStatus = 0,
+                systemPowerSaveMode = true
+            )
+        )
+        assertFalse(
+            isAodPowerSaverActive(
+                batteryPercent = 90,
+                charging = true,
+                thermalStatus = 0,
+                systemPowerSaveMode = false
+            )
+        )
+    }
+
     /**
      * 用户开关总闸:关闭时任何电量/温度状态都不降帧(画布恒按帧上限渲染);
      * 开关缺省(null,旧配置/旧生产者不带该字段)按开启处理,保持历史降帧行为。

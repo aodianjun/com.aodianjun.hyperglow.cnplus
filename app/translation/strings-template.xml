@@ -66,6 +66,7 @@
     <string name="summary_export_logs">Save the retained logs as a .txt file.</string>
     <string name="toast_logs_exported">Logs exported</string>
     <string name="toast_logs_export_failed">Failed to export logs</string>
+    <string name="toast_logs_saved_to">Logs saved to %1$s</string>
 
     <string name="action_send_compatibility_report">Send compatibility report</string>
     <string name="action_report_problem">Report a problem</string>

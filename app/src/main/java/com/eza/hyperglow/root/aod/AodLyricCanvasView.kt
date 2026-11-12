@@ -228,6 +228,8 @@ internal class AodLyricCanvasView(
     private var handoffActive = false
     private var suppressNextLineTransition = false
     private var timingEffectEnabled = false
+    /** [wakeContentProfile] 计算的纯行级扫光状态；帧回调据此限到约 24fps。 */
+    private var lineSweepOnlyCached = false
     private var lastDrawAtElapsedMs = 0L
     private var cadenceWindowStartedAt = 0L
     private var cadenceCallbackCount = 0
@@ -4691,10 +4693,11 @@ internal class AodLyricCanvasView(
     }
 
     private fun frameInterval(): Long {
-        if (!effectiveCadenceActive()) return 0L
+        val transitionActive = content.speed > 0f &&
+            (exitSnapshot != null || duetExitSnapshot != null)
         // 频谱单独出帧时不需要跟歌词逐字动画同帧率：AOD 10fps、锁屏 30fps。
-        // 系统省电/过热时再降一半；歌词逐字、换行过渡、封面旋转等仍走原 16ms 路径。
-        if (spectrumDrawingActive() && !nonSpectrumAnimationActive()) {
+        // 系统省电/过热时再降一半；其它驱动的 16ms/扫光/过渡节奏保持不变。
+        if (effectiveCadenceActive() && spectrumDrawingActive() && !nonSpectrumAnimationActive()) {
             val base = if (surfaceKind == LyricSurfaceKind.AOD) {
                 SPECTRUM_AOD_FRAME_INTERVAL_MS
             } else {
@@ -4702,11 +4705,21 @@ internal class AodLyricCanvasView(
             }
             return if (powerSaverProvider()) base * 2L else base
         }
-        return frameIntervalForTiming(
-            contentVisible = true,
+        val base = frameIntervalForTiming(
+            effectiveCadenceActive(),
             timingActive = true,
+            // 退场过渡很短:即使省电档也保持完整帧率，保证淡出不被粗步进截断。
+            // 主行与并发行退场都走 saveLayerAlpha，必须在同一例外内；暂停时过渡冻结
+            // (speed=0)不享受例外，避免暂停画面在省电档被拉回 60fps 空转。
+            exitTransitionActive = transitionActive,
             powerSaverActive = powerSaverProvider(),
             refreshRateCapHz = refreshRateCapProvider()
+        )
+        // 纯行级扫光限到约 24fps；逐字/圆点/旋转/换场不受此限，静态仍为 0 帧。
+        return lineSweepFrameIntervalMs(
+            baseIntervalMs = base,
+            lineSweepOnly = lineSweepOnlyCached,
+            transitionActive = transitionActive
         )
     }
 
@@ -4747,6 +4760,54 @@ internal class AodLyricCanvasView(
     )
 
     private fun timingEffectActive(): Boolean = timingEffectEnabled
+
+    /**
+     * 当前内容的唤醒需求画像：供 AOD surface 决定是否连续续期 mWakeLock。
+     *
+     * 只读已缓存的布局/内容，不触发重排版；行级扫光被归到 [AodWakeContentProfile.lineSweep]，
+     * 由测试包的“内容变化短脉冲”策略处理，不计入 [AodWakeContentProfile.continuousAnimation]。
+     */
+    fun wakeContentProfile(): AodWakeContentProfile {
+        val speed = content.speed
+        val timed = layout.original.timed || hasTimedWordWindows(content.words)
+        val plan = planOriginalLine(
+            animationMode = content.animationMode,
+            timed = timed,
+            lineLevelSync = content.lineLevelSync,
+            lineSyncFillMode = content.lineSyncFillMode,
+            lineStartMs = content.lineStartMs,
+            lineEndMs = content.lineEndMs,
+            hasWordEffect = content.wordEffect != null
+        )
+        val auxKaraoke = content.secondaryWordKaraoke && hasFirstLineAuxText(
+            content.secondaryMode,
+            content.romanized,
+            content.translated
+        )
+        val wordKaraoke = speed > 0f && plan.path == OriginalLinePath.WORD_KARAOKE
+        val lineSweep = speed > 0f && timingEffectEnabled &&
+            plan.path == OriginalLinePath.BLOCK_SWEEP && !wordKaraoke
+        val dots = interludeDotsAnimating(
+            window = interludeDotsWindowOf(
+                content.interludeDotsStartMs,
+                content.interludeDotsEndMs
+            ),
+            positionMs = projectedPosition(),
+            speed = speed
+        )
+        val profile = AodWakeContentProfile(
+            wordKaraoke = wordKaraoke,
+            lineSweep = lineSweep,
+            interludeDots = dots,
+            artworkSpin = artworkSpinActive(),
+            lineTransition = speed > 0f && (exitSnapshot != null || duetExitSnapshot != null),
+            wordEffect = content.wordEffect != null,
+            auxKaraoke = auxKaraoke,
+            paused = speed <= 0f
+        )
+        lineSweepOnlyCached = profile.lineSweepOnly
+        return profile
+    }
 
     /** 渲染停摆看门狗用:最后一次真实 onDraw 的 elapsedRealtime 时刻,0 表示尚未绘制过。 */
     fun lastDrawAtElapsedMs(): Long = lastDrawAtElapsedMs

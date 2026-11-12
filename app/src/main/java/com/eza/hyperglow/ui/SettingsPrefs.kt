@@ -1,11 +1,13 @@
 package com.eza.hyperglow.ui
 
 import androidx.compose.foundation.layout.offset
+import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.DiagnosticLoggingPreferences
 import com.eza.hyperglow.DiagnosticTraceFile
 import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.setDiagnosticLogging
 import com.eza.hyperglow.setDiagnosticLogLevel
+import com.eza.hyperglow.systemUiLogcatCommand
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
@@ -536,6 +538,57 @@ internal fun updateLogLevel(
 /** 「导出日志」:两个镜像文件里全部尚未清理的行,轮转文件在前。 */
 internal fun readDiagnosticLogsForExport(context: android.content.Context): String =
     DiagnosticTraceFile.readAll(context.applicationContext.filesDir)
+
+/**
+ * 导出用完整日志：App 镜像 + 最近一段 SystemUI 模块 logcat。
+ *
+ * wakeProbe 在 SystemUI 进程，只有 logcat 能拿到；常驻镜像依赖「详细」档和 root。
+ * 这里在用户点导出时主动拉一次，避免必须先开详细档、再等 20 秒轮询。root 不可用时
+ * 静默退回 App 镜像，不影响导出本身。
+ */
+internal fun readDiagnosticLogsForExportWithSystemUi(context: android.content.Context): String {
+    val appLogs = readDiagnosticLogsForExport(context)
+    val systemUiOutput = runCatching {
+        com.eza.hyperglow.diagnostics.DiagnosticRootProcessRunner.run(
+            systemUiLogcatCommand(
+                System.currentTimeMillis() - EXPORT_SYSTEM_UI_LOOKBACK_MS
+            ),
+            EXPORT_SYSTEM_UI_TIMEOUT_MS
+        ).output
+    }.getOrDefault("")
+    return buildString {
+        append("HyperGlow log export\n")
+        append("version=").append(BuildConfig.VERSION_NAME)
+        append('(').append(BuildConfig.VERSION_CODE).append(") ")
+        append("build=").append(BuildConfig.BUILD_TYPE).append('\n')
+        append("exportedAtMs=").append(System.currentTimeMillis()).append("\n\n")
+        append(appLogs)
+        if (appLogs.isNotBlank()) append('\n')
+        // 始终保留段落，便于判断 root/logcat 是否拿到了 SystemUI 侧内容。
+        append("--- SystemUI HyperGlow ---\n")
+        if (systemUiOutput.isBlank()) {
+            append("(empty: root unavailable or logcat returned no HyperGlow lines)\n")
+        } else {
+            append(systemUiOutput)
+        }
+    }
+}
+
+/** SAF 写入失败时的本地兜底：写到 App 外部文件目录，返回可展示的绝对路径。 */
+internal fun writeDiagnosticLogsToLocalFile(
+    context: android.content.Context,
+    payload: String
+): java.io.File? {
+    val dir = context.getExternalFilesDir(null) ?: context.applicationContext.filesDir
+    val file = java.io.File(dir, "hyperglow-logs.txt")
+    return runCatching {
+        file.writeText(payload)
+        file
+    }.getOrNull()
+}
+
+private const val EXPORT_SYSTEM_UI_LOOKBACK_MS = 10 * 60 * 1000L
+private const val EXPORT_SYSTEM_UI_TIMEOUT_MS = 4_000L
 
 internal fun clearDiagnosticLogs(context: android.content.Context): Boolean =
     DiagnosticTraceFile.clear(context.applicationContext.filesDir)

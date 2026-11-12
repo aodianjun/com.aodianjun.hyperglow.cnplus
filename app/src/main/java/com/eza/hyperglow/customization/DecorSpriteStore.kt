@@ -28,6 +28,14 @@ data class CustomSprite(
  */
 object DecorSpriteStore {
 
+    /**
+     * 配置发布链每秒调用 [attachments]；条目少时也会重新读偏好、解析 JSON 并逐文件 stat。
+     * 注册表只在 import/delete 中变化，进程内缓存到下一次变更即可，发布热路径不再碰磁盘。
+     */
+    private val attachmentsLock = Any()
+    private var cachedAttachmentsContext: Context? = null
+    private var cachedAttachments: List<SpriteWire.Attachment>? = null
+
     const val PREFS = "decor_sprites"
     const val KEY_ENTRIES = "entries"
 
@@ -115,22 +123,48 @@ object DecorSpriteStore {
             runCatching { target.delete() }
             return null
         }
+        invalidateAttachments()
         return entry
     }
 
     /** 当前全部可下发的贴图附件(编号+哈希+文件);配置发布时由 [SpriteWire] 挂到 Bundle。 */
-    internal fun attachments(context: Context): List<SpriteWire.Attachment> =
-        list(context).mapNotNull { entry ->
-            val file = file(context, entry.id) ?: return@mapNotNull null
-            SpriteWire.Attachment(entry.id, entry.hash, file)
+    internal fun attachments(context: Context): List<SpriteWire.Attachment> {
+        val app = context.applicationContext ?: context
+        cachedAttachments?.let {
+            if (cachedAttachmentsContext === app) return it
         }
+        return synchronized(attachmentsLock) {
+            val cached = cachedAttachments
+            if (cached != null && cachedAttachmentsContext === app) {
+                cached
+            } else {
+                val built = list(context).mapNotNull { entry ->
+                    val spriteFile = file(context, entry.id) ?: return@mapNotNull null
+                    SpriteWire.Attachment(entry.id, entry.hash, spriteFile)
+                }
+                cachedAttachments = built
+                cachedAttachmentsContext = app
+                built
+            }
+        }
+    }
+
+    /** import/delete 成功后调用；下一次配置发布重建附件表。 */
+    internal fun invalidateAttachments() {
+        synchronized(attachmentsLock) {
+            cachedAttachments = null
+            cachedAttachmentsContext = null
+        }
+    }
 
     fun delete(context: Context, id: Int): Boolean {
         val entries = list(context).toMutableList()
         val removed = entries.removeAll { it.id == id }
         if (!removed) return false
         runCatching { file(context, id)?.delete() }
-        return writeEntries(context, entries)
+        val saved = writeEntries(context, entries)
+        if (saved) invalidateAttachments()
+        return saved
     }
 
     /** 供预览/侧载使用的解码缓存(按编号;文件变更由 import/delete 触发重建)。 */
