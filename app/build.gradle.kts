@@ -200,7 +200,7 @@ dependencies {
     // DexKit — dynamic symbol resolution for Xiaomi symbols that get renamed across ROM
     // versions. Brought in by the 2885511 sync; used only under the optional DexKit arm of
     // SymbolResolver (bundled reflection stays the fast path).
-    implementation("org.luckypray:dexkit:2.2.0")
+    implementation("org.luckypray:dexkit:2.3.0")
     // lyricon subscriber SDK — consumes lyrics from lyricon's central service
     // (Xposed-injected into com.android.systemui). Transitively pulls in
     // io.github.proify.lyricon.lyric:model (the Song/RichLyricLine model).
