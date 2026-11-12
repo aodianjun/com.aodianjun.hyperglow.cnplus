@@ -1448,4 +1448,19 @@ class SceneCompilerTest {
             linked.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutDelaySeconds
         )
     }
+
+    @Test
+    fun emptyPaletteValueIsRejectedWithoutCrashing() {
+        assertFalse(SceneCompiler.isAllowedPaletteValue(""))
+
+        val document = SceneCompiler.safeDefaultDocument()
+        val tampered = document.copy(
+            profiles = document.profiles.mapValues { (_, profile) ->
+                profile.copy(palette = mapOf("accent" to ""))
+            }
+        )
+        val compiled = SceneCompiler.compile(tampered)
+        assertTrue(compiled.profiles.values.all { it.palette.isEmpty() })
+    }
+
 }
