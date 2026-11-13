@@ -1315,9 +1315,10 @@ private fun PreviewSpectrum(
         val areaHeight = if (background) size.height * 0.85f else size.height
         if (areaHeight <= 0f) return@Canvas
         val baseTop = if (background) (size.height - areaHeight) / 2f else 0f
-        val maxTop = (size.height - areaHeight).coerceAtLeast(0f)
         val yFraction = spectrum.yOffsetPercent.coerceIn(-50, 50) / 100f
-        val areaTop = (baseTop + areaHeight * yFraction).coerceIn(0f, maxTop)
+        // 与实机一样整体平移；不再把 areaTop 钳回 baseTop（否则背景层高度=歌词框时
+        // 上下都没有余量，滑块看起来完全无效）。
+        val areaTop = baseTop + size.height * yFraction
         val areaBottom = areaTop + areaHeight
         val amplitude = if (background) 0.85f else 1f
         val gap = (size.width * 0.35f / bars).coerceAtLeast(1f)

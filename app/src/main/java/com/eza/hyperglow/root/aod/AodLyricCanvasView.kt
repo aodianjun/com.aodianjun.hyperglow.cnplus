@@ -1889,13 +1889,10 @@ internal class AodLyricCanvasView(
         } else {
             baseBottom - strip
         }
-        val baseHeight = (baseBottom - baseTop).coerceAtLeast(1f)
-        val maxTop = ((oh - padBottom).toFloat() - baseHeight)
-            .coerceIn(padTop.toFloat(), baseBottom)
-        val shiftedTop = (baseTop + baseHeight * (spectrumSpec.yOffsetPercent / 100f))
-            .coerceIn(padTop.toFloat(), maxTop)
-        val areaTop = shiftedTop
-        val areaBottom = shiftedTop + baseHeight
+        // 背景层的高度本来就是整块歌词框，若再按 area 高度钳制，maxTop 会等于 baseTop，
+        // yOffset 永远被夹回 0。这里保留完整绘制区，改为绘制前整体平移 + 裁剪到歌词框。
+        val areaTop = baseTop
+        val areaBottom = baseBottom
         val areaHeight = (areaBottom - areaTop).coerceAtLeast(1f)
         val width = right - left
         val gap = (width * 0.35f / bars).coerceIn(1f * density, 3f * density)
@@ -1935,7 +1932,14 @@ internal class AodLyricCanvasView(
         spectrumPeakPaint.shader = spectrumShader
         spectrumPeakPaint.alpha = (alpha * 0.55f).roundToInt().coerceIn(0, 255)
         val amplitudeFactor = if (background) 0.85f else 1f
-
+        val frameTop = padTop.toFloat()
+        val frameBottom = (oh - padBottom).toFloat()
+        val frameHeight = (frameBottom - frameTop).coerceAtLeast(1f)
+        val yShift = frameHeight * (spectrumSpec.yOffsetPercent.coerceIn(-50, 50) / 100f)
+        canvas.save()
+        canvas.clipRect(0f, frameTop, ow.toFloat(), frameBottom)
+        canvas.translate(0f, yShift)
+        try {
         when (spectrumSpec.style) {
             "mirror" -> {
                 val center = (areaTop + areaBottom) / 2f
@@ -2000,6 +2004,9 @@ internal class AodLyricCanvasView(
                     }
                 }
             }
+        }
+        } finally {
+            canvas.restore()
         }
     }
 
