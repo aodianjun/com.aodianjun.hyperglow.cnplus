@@ -202,7 +202,6 @@ import com.eza.hyperglow.root.aod.lineTransitionExitEasing
 import com.eza.hyperglow.root.lockscreen.cardColorRgb
 import com.eza.hyperglow.root.projection.LyricDuetLine
 import com.eza.hyperglow.root.projection.LyricSnapshot
-import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.sin
 import com.eza.hyperglow.root.projection.LyricWord
