@@ -215,6 +215,8 @@
     <string name="action_hyperglow_github">在 GitHub 查看 HyperGlow</string>
     <string name="action_hyperglow_cnplus_github">在 Gitee 查看 HyperGlow CN+</string>
 <string name="action_hyperglow_qq_group">加入 QQ 交流群</string>
+    <string name="title_onboarding">使用引导</string>
+    <string name="summary_onboarding">重新查看安装与上手步骤</string>
     <string name="title_help">使用帮助</string>
     <string name="title_changelog">更新日志</string>
     <string name="title_contributors">贡献者</string>

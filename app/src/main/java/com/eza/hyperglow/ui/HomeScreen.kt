@@ -98,6 +98,7 @@ internal fun HomeScreen(
     onOpenPlugins: () -> Unit,
     onOpenAodBehavior: () -> Unit,
     onOpenAppAppearance: () -> Unit,
+    onOpenOnboarding: () -> Unit,
     onOpenHelp: () -> Unit,
     onOpenChangelog: () -> Unit,
     onOpenContributors: () -> Unit,
@@ -1008,6 +1009,11 @@ internal fun HomeScreen(
                     item { AboutAuthorCard() }
                     item {
                         SettingsCard {
+                            ArrowPreference(
+                                title = stringResource(R.string.title_onboarding),
+                                summary = stringResource(R.string.summary_onboarding),
+                                onClick = onOpenOnboarding
+                            )
                             ArrowPreference(
                                 title = stringResource(R.string.title_help),
                                 onClick = onOpenHelp

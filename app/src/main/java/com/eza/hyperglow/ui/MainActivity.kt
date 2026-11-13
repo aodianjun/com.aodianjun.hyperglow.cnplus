@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
                                             onOpenPlugins = { backStack.pushRoute(AppRoute.Plugins) },
                                             onOpenAodBehavior = { backStack.pushRoute(AppRoute.AodBehavior) },
                                             onOpenAppAppearance = { backStack.pushRoute(AppRoute.AppAppearance) },
+                                            onOpenOnboarding = { showOnboarding = true },
                                             onOpenHelp = { backStack.pushRoute(AppRoute.Help) },
                                             onOpenChangelog = { backStack.pushRoute(AppRoute.Changelog) },
                                             onOpenContributors = { backStack.pushRoute(AppRoute.Contributors) },
@@ -264,13 +265,24 @@ class MainActivity : ComponentActivity() {
                                         onCancel = {}
                                     )
                                 }
+                                if (showOnboarding) {
+                                    // 引导覆盖层在最上层:返回手势先关闭引导,不触发底下的页面返回。
+                                    PredictiveBackHandler(
+                                        enabled = true,
+                                        onProgress = { _ -> },
+                                        onCommit = { showOnboarding = false },
+                                        onCancel = {}
+                                    )
+                                }
                             }
                             if (showOnboarding) {
                                 OnboardingScreen(
                                     onFinish = {
                                         OnboardingPreferences.markCompleted(this@MainActivity)
                                         showOnboarding = false
-                                    }
+                                    },
+                                    // 从设置重新打开时可按返回退出,不改写首次启动标记。
+                                    onBack = { showOnboarding = false }
                                 )
                             }
                         }

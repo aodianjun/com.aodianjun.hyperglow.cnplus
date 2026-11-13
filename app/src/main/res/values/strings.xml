@@ -215,6 +215,8 @@
     <string name="action_hyperglow_github">HyperGlow on GitHub</string>
     <string name="action_hyperglow_cnplus_github">HyperGlow CN+ on Gitee</string>
 <string name="action_hyperglow_qq_group">HyperGlow CN+ QQ group</string>
+    <string name="title_onboarding">Getting started</string>
+    <string name="summary_onboarding">Review setup steps and permissions</string>
     <string name="title_help">Help</string>
     <string name="title_changelog">Changelog</string>
     <string name="title_contributors">Contributors</string>

@@ -122,9 +122,11 @@ private fun onboardingWarningColor(): Color =
 /**
  * 首次启动引导:欢迎、启用模块、选择歌词源、检查权限四页。
  * 作为 MainActivity 的全屏覆盖层显示在主页之上,完成或跳过后写入 [OnboardingPreferences]。
+ *
+ * [onBack] 非空时顶栏显示返回按钮(从设置里重新打开引导时使用);首次启动不传,只能完成或跳过。
  */
 @Composable
-internal fun OnboardingScreen(onFinish: () -> Unit) {
+internal fun OnboardingScreen(onFinish: () -> Unit, onBack: (() -> Unit)? = null) {
     val pagerState = rememberPagerState { ONBOARDING_PAGE_COUNT }
     val scope = rememberCoroutineScope()
     val isLastPage = pagerState.currentPage == ONBOARDING_PAGE_COUNT - 1
@@ -134,6 +136,7 @@ internal fun OnboardingScreen(onFinish: () -> Unit) {
         topBar = {
             AppTopBar(
                 title = stringResource(R.string.app_name),
+                onBack = onBack,
                 actions = {
                     if (!isLastPage) {
                         TextButton(
