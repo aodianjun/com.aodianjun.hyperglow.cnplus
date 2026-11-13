@@ -58,6 +58,17 @@ class HookEntry : XposedModule() {
             } catch (error: Exception) {
                 HookLogger.w(TAG, "AntiFreeze entry failed in system_server", error)
             }
+            // 与 AntiFreeze 同款兜底：部分 LSPosed/ROM 不回调 onSystemServerStarting，
+            // 若只在后者安装，AudioService 策略门不会生效，所有 UI 进程的 loopback 都会失败。
+            try {
+                FullRateCaptureHooks.install(
+                    this,
+                    ClassLoader.getSystemClassLoader(),
+                    systemServer = true
+                )
+            } catch (error: Exception) {
+                HookLogger.w(TAG, "spectrum loopback hooks unavailable at module load", error)
+            }
         }
         HookLogger.bootstrap(TAG, "module_loaded_complete")
     }

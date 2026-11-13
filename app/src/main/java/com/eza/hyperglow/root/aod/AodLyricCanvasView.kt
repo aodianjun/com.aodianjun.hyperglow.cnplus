@@ -248,6 +248,7 @@ internal class AodLyricCanvasView(
     private var spectrumDisplay = FloatArray(0)
     private var spectrumPeaks = FloatArray(0)
     private val loopbackDemandKey = "spectrum-canvas-${System.identityHashCode(this)}"
+    private var loopbackDemandActive = false
     private val spectrumPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
@@ -872,17 +873,29 @@ internal class AodLyricCanvasView(
      * 两面画布各自登记，SystemUiSpectrumCapture 合并成单会话。
      */
     private fun updateLoopbackDemand() {
+        // 息屏 doze 窗口的 onVisibilityAggregated 可能为 false（窗口已由宿主持有），
+        // 不能只靠它；画布已附着且自身可见时就允许采集。否则 AOD 上采集会话永远不启动。
+        val attachedAndVisible = isAttachedToWindow &&
+            (aggregatedVisible || visibility == View.VISIBLE)
         val want = spectrumSpec.enabled &&
             spectrumSpec.source == "loopback" &&
             playbackActive &&
-            isAttachedToWindow &&
-            aggregatedVisible
+            attachedAndVisible
         if (want) {
             SystemUiSpectrumCapture.setDemand(loopbackDemandKey, true, context) { frame ->
                 setSpectrum(frame)
             }
         } else {
             SystemUiSpectrumCapture.clear(loopbackDemandKey)
+        }
+        if (want != loopbackDemandActive) {
+            loopbackDemandActive = want
+            HookLogger.i(
+                "AodLyricCanvasView",
+                "loopback demand=$want surface=$surfaceKind attached=$isAttachedToWindow " +
+                    "visible=${visibility == View.VISIBLE} aggregated=$aggregatedVisible " +
+                    "playback=$playbackActive source=${spectrumSpec.source}"
+            )
         }
     }
 

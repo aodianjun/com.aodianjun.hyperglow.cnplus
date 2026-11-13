@@ -37,9 +37,23 @@ internal object FullRateCaptureHooks {
 
     fun install(module: XposedModule, classLoader: ClassLoader, systemServer: Boolean) {
         val completed = installGuard.runOnce {
-            var installed = installAudioMixHooks(module, classLoader)
-            if (systemServer) installed = installAudioServiceHook(module, classLoader) || installed
-            installed
+            val mixInstalled = runCatching {
+                installAudioMixHooks(module, classLoader)
+            }.getOrElse { error ->
+                HookLogger.w("LoopbackHooks", "AudioMix hooks failed", error)
+                false
+            }
+            val policyInstalled = if (systemServer) {
+                runCatching {
+                    installAudioServiceHook(module, classLoader)
+                }.getOrElse { error ->
+                    HookLogger.w("LoopbackHooks", "AudioService hook failed", error)
+                    false
+                }
+            } else {
+                false
+            }
+            mixInstalled || policyInstalled
         }
         if (completed) {
             HookLogger.bootstrap(
@@ -223,9 +237,23 @@ internal object FullRateCaptureHooks {
         return null
     }
 
-    private fun loadClass(name: String, classLoader: ClassLoader): Class<*>? =
-        runCatching { Class.forName(name, false, classLoader) }.getOrElse {
-            HookLogger.w("LoopbackHooks", "Class not found: $name", it)
-            null
+    private fun loadClass(name: String, classLoader: ClassLoader): Class<*>? {
+        val candidates = buildList {
+            add(classLoader)
+            runCatching { Thread.currentThread().contextClassLoader }.getOrNull()?.let(::add)
+            runCatching { javaClass.classLoader }.getOrNull()?.let(::add)
+            runCatching { ClassLoader.getSystemClassLoader() }.getOrNull()?.let(::add)
+            runCatching {
+                val at = Class.forName("android.app.ActivityThread", false, classLoader)
+                val inst = at.getMethod("currentActivityThread").invoke(null) ?: return@runCatching null
+                (at.getMethod("getSystemContext").invoke(inst) as? android.content.Context)
+                    ?.classLoader
+            }.getOrNull()?.let(::add)
+        }.filterNotNull().distinct()
+        for (loader in candidates) {
+            runCatching { Class.forName(name, false, loader) }.getOrNull()?.let { return it }
         }
+        HookLogger.w("LoopbackHooks", "Class not found: $name")
+        return null
+    }
 }

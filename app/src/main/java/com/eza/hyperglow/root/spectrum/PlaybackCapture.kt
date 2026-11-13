@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.spectrum
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -55,6 +56,13 @@ internal class PlaybackCapture(
     override fun run() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
         val manager = appContext.getSystemService(AudioManager::class.java)
+        HookLogger.bootstrap(
+            LoopbackCaptureContract.TAG,
+            "session process=${appContext.packageName} uid=${Process.myUid()} " +
+                "recordPermission=" +
+                (appContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED)
+        )
         try {
             runCaptureWithFallback(
                 isStopped = { !running.get() },
