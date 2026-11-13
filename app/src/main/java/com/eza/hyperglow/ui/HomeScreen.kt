@@ -4,11 +4,13 @@ import android.app.Activity
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,17 +19,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,10 +51,13 @@ import com.eza.hyperglow.DIAGNOSTIC_LOG_LEVELS
 import com.eza.hyperglow.LOG_RETENTION_DAYS
 import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import com.eza.hyperglow.aod.AodLyricBridgeService
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
@@ -73,6 +84,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.extended.Search
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -126,6 +138,15 @@ internal fun HomeScreen(
     // 设置页顶部分段:0=息屏设置 1=锁屏设置 2=其他设置。
     var settingsSectionIndex by rememberSaveable { mutableStateOf(0) }
     var showResetDefaultsDialog by rememberSaveable { mutableStateOf(false) }
+    // 全局搜索:入口出现在除关于页外的所有页;选中结果后切页并滚到对应分组。
+    var showGlobalSearch by rememberSaveable { mutableStateOf(false) }
+    val statusListState = rememberLazyListState()
+    val settingsListState = rememberLazyListState()
+    val appListState = rememberLazyListState()
+    val aboutListState = rememberLazyListState()
+    // anchor → LazyColumn item index,由各页 LazyColumn 组合时登记。
+    val searchAnchorIndices = remember { mutableStateMapOf<String, Int>() }
+    var pendingSearchScroll by remember { mutableStateOf<Pair<SettingsTab, String>?>(null) }
     val selectedTab = SettingsTab.entries.firstOrNull { it.name == selectedTabName }
         ?: SettingsTab.STATUS
     val selectedTabIndex = SettingsTab.entries.indexOf(selectedTab)
@@ -141,6 +162,21 @@ internal fun HomeScreen(
         }
     }
     val prefs = remember { context.getSharedPreferences(AodRenderPreferences.PREFS, 0) }
+    // 搜索结果:等目标页(或设置分段)的 LazyColumn 组合并登记锚点后再滚动。
+    LaunchedEffect(pendingSearchScroll) {
+        val (tab, anchor) = pendingSearchScroll ?: return@LaunchedEffect
+        val index = withTimeoutOrNull(3_000) {
+            snapshotFlow { searchAnchorIndices[anchor] }.filterNotNull().first()
+        }
+        val listState: LazyListState = when (tab) {
+            SettingsTab.STATUS -> statusListState
+            SettingsTab.SETTINGS -> settingsListState
+            SettingsTab.APP -> appListState
+            SettingsTab.ABOUT -> aboutListState
+        }
+        if (index != null) listState.scrollToItem(index)
+        pendingSearchScroll = null
+    }
     val exportConfigLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -355,12 +391,22 @@ internal fun HomeScreen(
         onSelectTab(SettingsTab.SETTINGS.name)
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = appSurfaceColor(),
         topBar = {
             AppTopBar(
                 title = stringResource(R.string.app_name),
                 actions = {
+                    if (SettingsTab.entries[pagerState.currentPage] != SettingsTab.ABOUT) {
+                        IconButton(onClick = { showGlobalSearch = true }) {
+                            Icon(
+                                imageVector = MiuixIcons.Regular.Search,
+                                contentDescription = stringResource(R.string.search_title),
+                                tint = appTopBarTitleColor()
+                            )
+                        }
+                    }
                     IconButton(onClick = { showRestartDialog = true }) {
                         Icon(
                             imageVector = MiuixIcons.Regular.Refresh,
@@ -599,16 +645,34 @@ internal fun HomeScreen(
                     )
                 } else {
                 LazyColumn(
+                    state = when (SettingsTab.entries[page]) {
+                        SettingsTab.STATUS -> statusListState
+                        SettingsTab.SETTINGS -> settingsListState
+                        SettingsTab.APP -> appListState
+                        SettingsTab.ABOUT -> aboutListState
+                    },
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(
                         top = if (isSettingsPage) 8.dp else innerPadding.calculateTopPadding() + 12.dp,
                         bottom = innerPadding.calculateBottomPadding() + 20.dp
                     )
                 ) {
+                // 为全局搜索登记每个 item 的序号:每次组合从 0 重算,索引与 LazyColumn 一致。
+                var searchItemIndex = 0
+                fun LazyListScope.tracked(
+                    anchor: String? = null,
+                    content: @Composable LazyItemScope.() -> Unit
+                ) {
+                    anchor?.let { searchAnchorIndices[it] = searchItemIndex }
+                    item { content() }
+                    searchItemIndex++
+                }
                 when (SettingsTab.entries[page]) {
                 SettingsTab.STATUS -> {
-                    item { SmallTitle(text = stringResource(R.string.section_home_status)) }
-                    item {
+                    tracked(GlobalSearchAnchor.STATUS_HOME) {
+                        SmallTitle(text = stringResource(R.string.section_home_status))
+                    }
+                    tracked {
                         HomeOverviewHero(
                             working = resolveModuleWorking(supportState),
                             supportLabel = supportStateLabel(
@@ -624,8 +688,10 @@ internal fun HomeScreen(
                             onOpenSurface = openAppearanceSection
                         )
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_live_status)) }
-                    item {
+                    tracked(GlobalSearchAnchor.STATUS_LIVE) {
+                        SmallTitle(text = stringResource(R.string.section_live_status))
+                    }
+                    tracked {
                         // 读取上面的 customizationDocument State:配置一变化该 item 即重绘,
                         // 保证预览始终跟随当前外观设置(在"外观"编辑器里改完即生效)。
                         // 两张预览卡合并为一张 + 锁屏/息屏切换,状态页不再被拉长。
@@ -669,9 +735,11 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_lyric_source)) }
-                    item { LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true }) }
-                    item {
+                    tracked(GlobalSearchAnchor.STATUS_SOURCE) {
+                        SmallTitle(text = stringResource(R.string.section_lyric_source))
+                    }
+                    tracked { LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true }) }
+                    tracked {
                         SettingsCard {
                             SwitchPreference(
                                 filterNonMusicSources,
@@ -699,8 +767,8 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SourceSetupHint() }
-                    item {
+                    tracked { SourceSetupHint() }
+                    tracked {
                         SettingsCard {
                             ArrowPreference(
                                 title = stringResource(R.string.plugin_management_title),
@@ -709,8 +777,10 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_runtime_status)) }
-                    item {
+                    tracked(GlobalSearchAnchor.STATUS_RUNTIME) {
+                        SmallTitle(text = stringResource(R.string.section_runtime_status))
+                    }
+                    tracked {
                         SettingsCard {
                             ArrowPreference(
                                 title = if (supportState == XiaomiRuntimeSupportState.NO_SYSTEM_UI_REPORT ||
@@ -727,8 +797,10 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_permission_status)) }
-                    item {
+                    tracked(GlobalSearchAnchor.STATUS_PERMISSION) {
+                        SmallTitle(text = stringResource(R.string.section_permission_status))
+                    }
+                    tracked {
                         SettingsCard {
                             PermissionStatusSection()
                         }
@@ -738,7 +810,7 @@ internal fun HomeScreen(
                 // 息屏设置/锁屏设置两个分段在上面的外观分段分支里渲染(即歌词外观设置本体),
                 // 走到这个 LazyColumn 的只可能是「其他设置」。
                 SettingsTab.SETTINGS -> {
-                        item {
+                        tracked(GlobalSearchAnchor.SETTINGS_ENHANCEMENT) {
                             SettingsCard {
                                 ArrowPreference(
                                     title = stringResource(R.string.title_lyric_enhancement),
@@ -747,8 +819,10 @@ internal fun HomeScreen(
                                 )
                             }
                         }
-                        item { SmallTitle(text = stringResource(R.string.section_playback_behavior)) }
-                        item {
+                        tracked(GlobalSearchAnchor.SETTINGS_PLAYBACK) {
+                            SmallTitle(text = stringResource(R.string.section_playback_behavior))
+                        }
+                        tracked {
                             SettingsCard {
                                 SwitchPreference(
                                     pauseShowContent,
@@ -776,8 +850,10 @@ internal fun HomeScreen(
                                 }
                             }
                         }
-                        item { SmallTitle(text = stringResource(R.string.section_config_backup)) }
-                        item {
+                        tracked(GlobalSearchAnchor.SETTINGS_BACKUP) {
+                            SmallTitle(text = stringResource(R.string.section_config_backup))
+                        }
+                        tracked {
                             SettingsCard {
                                 ArrowPreference(
                                     title = stringResource(R.string.setting_export_config),
@@ -803,8 +879,10 @@ internal fun HomeScreen(
                     }
 
                 SettingsTab.APP -> {
-                    item { SmallTitle(text = stringResource(R.string.section_language)) }
-                    item {
+                    tracked(GlobalSearchAnchor.APP_LANGUAGE) {
+                        SmallTitle(text = stringResource(R.string.section_language))
+                    }
+                    tracked {
                         SettingsCard {
                             ArrowPreference(
                                 title = englishInterfaceLanguageLabel(context),
@@ -816,8 +894,10 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_app_navigation)) }
-                    item {
+                    tracked(GlobalSearchAnchor.APP_NAVIGATION) {
+                        SmallTitle(text = stringResource(R.string.section_app_navigation))
+                    }
+                    tracked {
                         SettingsCard {
                             SwitchPreference(
                                 predictiveBackEnabled,
@@ -845,8 +925,10 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_app_appearance)) }
-                    item {
+                    tracked(GlobalSearchAnchor.APP_APPEARANCE) {
+                        SmallTitle(text = stringResource(R.string.section_app_appearance))
+                    }
+                    tracked {
                         SettingsCard {
                             ArrowPreference(
                                 title = stringResource(R.string.section_app_appearance),
@@ -854,9 +936,11 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_developer_options)) }
+                    tracked(GlobalSearchAnchor.APP_DEVELOPER) {
+                        SmallTitle(text = stringResource(R.string.section_developer_options))
+                    }
                     if (experimentalEligible) {
-                        item {
+                        tracked {
                             SettingsCard {
                                 SwitchPreference(
                                     experimentalMode,
@@ -875,7 +959,7 @@ internal fun HomeScreen(
                             }
                         }
                     }
-                    item {
+                    tracked {
                         SettingsCard {
                             SwitchPreference(
                                 forceLyricProvider,
@@ -893,7 +977,7 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item {
+                    tracked {
                         SettingsCard {
                             SwitchPreference(
                                 aodDebugShowCanvasFrame,
@@ -909,7 +993,7 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item {
+                    tracked {
                         SettingsCard {
                             SwitchPreference(
                                 diagnosticLogging,
@@ -947,8 +1031,10 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item { SmallTitle(text = stringResource(R.string.section_system_integration)) }
-                    item {
+                    tracked(GlobalSearchAnchor.APP_SYSTEM) {
+                        SmallTitle(text = stringResource(R.string.section_system_integration))
+                    }
+                    tracked {
                         SettingsCard {
                             SwitchPreference(
                                 persistentNotification,
@@ -1062,6 +1148,23 @@ internal fun HomeScreen(
                 }
                 }
             }
+        }
+    }
+    if (showGlobalSearch) {
+        // 返回手势/按键先关闭搜索覆盖层,不触发底下的页面返回。
+        BackHandler { showGlobalSearch = false }
+        GlobalSearchOverlay(
+            onDismiss = { showGlobalSearch = false },
+            onSelect = { entry ->
+                showGlobalSearch = false
+                if (entry.tab == SettingsTab.SETTINGS) {
+                    // 其他设置固定为 2;外观分段由条目指定。
+                    settingsSectionIndex = entry.appearanceSection ?: 2
+                }
+                entry.anchor?.let { pendingSearchScroll = entry.tab to it }
+                scope.launch { pagerState.animateScrollToPage(entry.tab.ordinal) }
+            }
+        )
         }
     }
 

@@ -857,4 +857,8 @@
     <string name="onboarding_permission_title">检查权限</string>
     <string name="onboarding_permission_summary">这些权限保证息屏时歌词持续更新，之后可在应用内调整。</string>
     <string name="onboarding_action_grant_root">授权</string>
+    <string name="search_title">搜索</string>
+    <string name="search_placeholder">搜索设置</string>
+    <string name="search_empty">没有找到相关设置</string>
+    <string name="search_scope">%1$s · %2$s</string>
 </resources>
