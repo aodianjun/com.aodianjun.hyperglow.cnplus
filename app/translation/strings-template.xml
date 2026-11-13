@@ -843,8 +843,11 @@
     <string name="onboarding_module_pending">Not detected yet</string>
     <string name="onboarding_module_restart_hint">If it stays undetected after enabling, restart SystemUI.</string>
     <string name="onboarding_action_open_lsposed">Open LSPosed</string>
+    <string name="onboarding_action_restart_systemui">Restart SystemUI</string>
+    <string name="onboarding_display_title">Turn on lyric display</string>
     <string name="onboarding_source_title">Choose a lyrics source</string>
-    <string name="onboarding_source_summary">Enable at least one source so HyperGlow has lyrics to display. You can switch sources later on the Status page.</string>
+    <string name="onboarding_source_summary">Choose the lyrics source to use. Tapping it applies immediately; you can switch later on the Status page.</string>
+    <string name="onboarding_source_permission_hint">Needed by LyricInfo / SuperLyric to read notifications.</string>
     <string name="onboarding_permission_title">Check permissions</string>
     <string name="onboarding_permission_summary">These keep lyrics updating while the screen is off. You can change them later in the app.</string>
     <string name="onboarding_action_grant_root">Grant</string>

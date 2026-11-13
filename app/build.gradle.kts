@@ -153,6 +153,13 @@ android {
         compose = true
     }
 
+    // Robolectric 需要真实资源才能断言搜索索引里的 stringResource 文案。
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)

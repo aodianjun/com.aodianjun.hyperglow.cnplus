@@ -852,8 +852,11 @@
     <string name="onboarding_module_pending">尚未检测到</string>
     <string name="onboarding_module_restart_hint">启用后仍未检测到，请重启系统界面。</string>
     <string name="onboarding_action_open_lsposed">打开 LSPosed</string>
+    <string name="onboarding_action_restart_systemui">重启系统界面</string>
+    <string name="onboarding_display_title">打开歌词显示</string>
     <string name="onboarding_source_title">选择歌词源</string>
-    <string name="onboarding_source_summary">至少启用一个歌词源，HyperGlow 才能读取歌词。之后可在状态页切换。</string>
+    <string name="onboarding_source_summary">选择要使用的歌词源，点选后立即生效；之后可在状态页切换。</string>
+    <string name="onboarding_source_permission_hint">LyricInfo / SuperLyric 读取通知需要此权限。</string>
     <string name="onboarding_permission_title">检查权限</string>
     <string name="onboarding_permission_summary">这些权限保证息屏时歌词持续更新，之后可在应用内调整。</string>
     <string name="onboarding_action_grant_root">授权</string>

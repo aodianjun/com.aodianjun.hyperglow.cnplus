@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
@@ -52,6 +53,12 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
+import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.producer.LyricProducers
+import com.eza.hyperglow.producer.LyricSource
+import com.eza.hyperglow.root.capability.XiaomiCapability
+import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -60,6 +67,9 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.RadioButtonPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -311,6 +321,7 @@ private fun RequirementRow(text: String) {
 @Composable
 private fun ModulePage() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var capabilityReport by remember { mutableStateOf(XiaomiCapabilityStore.read(context)) }
     DisposableEffect(context) {
         val prefs = context.getSharedPreferences(XiaomiCapabilityStore.PREFS, Context.MODE_PRIVATE)
@@ -322,6 +333,26 @@ private fun ModulePage() {
     }
     val detected = capabilityReport.hasReport
     val statusColor = if (detected) onboardingSuccessColor() else onboardingWarningColor()
+
+    // 真设置:这一页直接写歌词显示开关,而不是只告诉用户「有这两个功能」。
+    val document = remember(context) { CustomizationRepository.loadDocument(context) }
+    val config = remember(context) { AodRenderPreferences.read(context) }
+    var aodEnabled by remember {
+        mutableStateOf(
+            document.profiles[SceneCompiler.SURFACE_AOD]?.enabled ?: config.aodEnabled
+        )
+    }
+    var lockscreenEnabled by remember {
+        mutableStateOf(
+            document.profiles[SceneCompiler.SURFACE_LOCKSCREEN]?.enabled
+                ?: config.lockscreenEnabled
+        )
+    }
+    // 支持情况只用于说明文案;开关本身始终可操作,写入的配置在模块生效后自动应用。
+    val effectiveReport = capabilityReport.copy(experimentalModeEnabled = config.experimentalMode)
+    val aodSupported = effectiveReport.has(XiaomiCapability.AOD_SURFACE)
+    val lockscreenSupported = effectiveReport.has(XiaomiCapability.LOCKSCREEN_HOST) &&
+        effectiveReport.has(XiaomiCapability.LOCKSCREEN_GEOMETRY)
 
     OnboardingPageColumn {
         StepHero(2)
@@ -364,11 +395,73 @@ private fun ModulePage() {
                 )
             }
             Spacer(Modifier.height(12.dp))
+            Text(
+                text = stringResource(R.string.onboarding_display_title),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            SwitchPreference(
+                aodEnabled,
+                { enabled ->
+                    if (updateCustomizationSurfaceEnabled(
+                            context,
+                            SceneCompiler.SURFACE_AOD,
+                            enabled
+                        )
+                    ) {
+                        aodEnabled = enabled
+                    }
+                },
+                stringResource(R.string.setting_show_aod),
+                summary = if (aodSupported) null
+                else stringResource(R.string.summary_show_aod_unsupported)
+            )
+            SwitchPreference(
+                lockscreenEnabled,
+                { enabled ->
+                    if (updateCustomizationSurfaceEnabled(
+                            context,
+                            SceneCompiler.SURFACE_LOCKSCREEN,
+                            enabled
+                        )
+                    ) {
+                        lockscreenEnabled = enabled
+                    }
+                },
+                stringResource(R.string.setting_show_lockscreen),
+                summary = if (lockscreenSupported) null
+                else stringResource(R.string.summary_unavailable_systemui_version)
+            )
+            Spacer(Modifier.height(8.dp))
             TextButton(
                 text = stringResource(R.string.onboarding_action_open_lsposed),
                 onClick = { openLsposedManager(context) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.textButtonColorsPrimary()
+            )
+            TextButton(
+                text = stringResource(R.string.onboarding_action_restart_systemui),
+                onClick = {
+                    scope.launch {
+                        val restarted = runCatching {
+                            ShellUtils.restartHookedProcesses(
+                                systemUi = true,
+                                miuiAod = false,
+                                hyperglowApp = false
+                            )
+                        }.getOrDefault(false)
+                        Toast.makeText(
+                            context,
+                            context.getString(
+                                if (restarted) R.string.toast_systemui_restarted
+                                else R.string.toast_systemui_restart_failed
+                            ),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -376,18 +469,36 @@ private fun ModulePage() {
 
 @Composable
 private fun LyricSourcePage() {
-    val sources = listOf(
-        R.string.lyric_source_lyricon to R.string.summary_lyric_source_lyricon,
-        R.string.lyric_source_superlyric to R.string.summary_lyric_source_superlyric,
-        R.string.lyric_source_lyricinfo to R.string.summary_lyric_source_lyricinfo,
-        R.string.lyric_source_spicy to R.string.summary_lyric_source_spicy
-    )
+    val context = LocalContext.current
+    // 真设置:直接切换当前歌词源(写入偏好并通知运行时),不是只展示来源列表。
+    var selectedSource by remember {
+        mutableStateOf(AodRenderPreferences.readLyricSource(context))
+    }
+    fun applySource(source: LyricSource) {
+        val arbiter = LyricProducers.arbiterOrNull()
+        if (arbiter != null) {
+            arbiter.setPreference(source, context)
+        } else {
+            // 模块尚未生效时运行时还没启动,先落盘,等 SystemUI 侧起来后读取。
+            AodRenderPreferences.writeLyricSource(context, source)
+        }
+        selectedSource = source
+    }
+    val summaryRes: (LyricSource) -> Int = { source ->
+        when (source) {
+            LyricSource.LYRICON -> R.string.summary_lyric_source_lyricon
+            LyricSource.SUPERLYRIC -> R.string.summary_lyric_source_superlyric
+            LyricSource.LYRICINFO -> R.string.summary_lyric_source_lyricinfo
+            LyricSource.SPICY -> R.string.summary_lyric_source_spicy
+        }
+    }
+
     OnboardingPageColumn {
         StepHero(3)
         OnboardingTitle(stringResource(R.string.onboarding_source_title))
         OnboardingSummary(stringResource(R.string.onboarding_source_summary))
         OnboardingCard {
-            sources.forEachIndexed { index, (nameRes, summaryRes) ->
+            LyricSource.entries.forEachIndexed { index, source ->
                 if (index > 0) {
                     Box(
                         modifier = Modifier
@@ -399,19 +510,32 @@ private fun LyricSourcePage() {
                             )
                     )
                 }
-                Text(
-                    text = stringResource(nameRes),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
+                RadioButtonPreference(
+                    lyricSourceLabel(context, source),
+                    selectedSource == source,
+                    { applySource(source) }
                 )
                 Text(
-                    text = stringResource(summaryRes),
+                    text = stringResource(summaryRes(source)),
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 3.dp)
                 )
             }
+        }
+        OnboardingCard {
+            ArrowPreference(
+                title = stringResource(R.string.action_lyricinfo_notification_access),
+                summary = stringResource(R.string.onboarding_source_permission_hint),
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                        )
+                    }
+                }
+            )
         }
     }
 }

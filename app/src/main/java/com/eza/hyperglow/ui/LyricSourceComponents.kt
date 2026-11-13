@@ -264,7 +264,7 @@ internal fun LyricSourcePickerDialog(onDismiss: () -> Unit) {
     }
 }
 
-private fun lyricSourceLabel(context: android.content.Context, source: LyricSource): String =
+internal fun lyricSourceLabel(context: android.content.Context, source: LyricSource): String =
     context.getString(
         when (source) {
             LyricSource.SPICY -> R.string.lyric_source_spicy
