@@ -2,12 +2,12 @@
 
 # HyperGlow CN+
 
-Animated lock screen and always-on display lyrics for HyperOS 3, with support for Chinese music apps.
-HyperOS 3 的锁屏与息屏（AOD）歌词动画，支持国内音乐软件。
+Animated lock screen and always-on display lyrics for HyperOS 3 and 4, with support for Chinese music apps.
+HyperOS 3 / 4 的锁屏与息屏（AOD）歌词动画，支持国内音乐软件。
 
 <p>
   <a href="https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License GPL-3.0"/></a>
-  <a href="https://android.com"><img src="https://img.shields.io/badge/Android-13.0%20--%2016-3DDC84.svg" alt="Android Support"/></a>
+  <a href="https://android.com"><img src="https://img.shields.io/badge/Android-13.0%20--%2017-3DDC84.svg" alt="Android Support"/></a>
   <a href="https://github.com/compose-miuix-ui/miuix"><img src="https://img.shields.io/badge/UI--Framework-Miuix--Compose-0084FF.svg" alt="Miuix UI"/></a>
   <a href="https://github.com/libxposed/api"><img src="https://img.shields.io/badge/Hook--Framework-libxposed%20102-purple.svg" alt="libxposed"/></a>
   <a href="https://modules.lsposed.org/module/com.aodianjun.hyperglow.cnplus"><img src="https://img.shields.io/github/downloads/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/total?style=flat&color=orange" alt="Downloads"/></a>
@@ -115,7 +115,7 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 
 ## Requirements
 
-- Rooted HyperOS 3.
+- Rooted HyperOS 3 or 4.
 - [LSPosed](https://github.com/LSPosed/LSPosed).
 - At least one lyrics source:
   - Spotify with Spicy EX Lite or Full (**Publish lyrics to HyperGlow** enabled).
@@ -210,6 +210,12 @@ before opening a pull request:
   rise float rhythm of unplayed vs. sung syllables, per-word-block highlight timing) follow its
   LyricsAnimator / LyricsEffectSettings thresholds and feel; ideas and parameters only, no code
   from its GPL-3.0 C#/Win2D codebase is used.
+- [leset0ng/hyperwave](https://github.com/leset0ng/hyperwave) — the SystemUI privileged loopback
+  capture path used by the music spectrum (AudioPolicy / AudioMix registration and the
+  AudioRecord sink) is adapted from HyperWave, licensed under Apache-2.0. See [NOTICE](NOTICE).
+- [hyper-instrument/hyper-spectrum](https://github.com/hyper-instrument/hyper-spectrum) — the
+  spectrum contract follows its engineering principles (versioned contract, deterministic
+  pipeline, fail-closed boundaries); no audio capture or visualization code is used.
 - [LuckyPray/DexKit](https://github.com/LuckyPray/DexKit) — runtime Dex symbol resolution behind
   the capability probes.
 - [miuix](https://github.com/compose-miuix-ui/miuix) — the Compose UI library the entire settings
@@ -261,7 +267,7 @@ before opening a pull request:
 
 ## 环境要求
 
-- 已 root 的 HyperOS 3。
+- 已 root 的 HyperOS 3 或 4。
 - [LSPosed](https://github.com/LSPosed/LSPosed)。
 - 至少一个歌词源：
   - Spotify + Spicy EX Lite 或 Full（需开启 **将歌词发布到 HyperGlow**）。
@@ -328,6 +334,8 @@ JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 - [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —— 歌词摄取路径的多项加固（翻译 lane 对齐、词级时间轴修复、文本清洗、开头元数据清理）改编自其实现。
 - [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics) —— 歌词时间轴规整（词级对齐、重叠仲裁）借鉴了 AMLL 公开的思路与阈值；仅借鉴思路与阈值，未使用其（AGPL）代码。
 - [jayfunc/BetterLyrics](https://github.com/jayfunc/BetterLyrics) —— 「BetterLyrics」逐字动画档的播放效果（长音节放大与辉光、未唱音节下沉与唱到上浮的浮动节奏、词块级高亮节奏）参考了其 LyricsAnimator / LyricsEffectSettings 的阈值与观感；仅借鉴思路与参数，未使用其（GPL-3.0）代码。
+- [leset0ng/hyperwave](https://github.com/leset0ng/hyperwave) —— 音乐频谱使用的 SystemUI 特权回环采集路径（AudioPolicy / AudioMix 注册与 AudioRecord sink）改编自 HyperWave，采用 Apache-2.0 许可。参见 [NOTICE](NOTICE)。
+- [hyper-instrument/hyper-spectrum](https://github.com/hyper-instrument/hyper-spectrum) —— 频谱契约借鉴其工程原则（版本化契约、确定性管线、边界 fail-closed）；未使用其音频采集或可视化代码。
 - [LuckyPray/DexKit](https://github.com/LuckyPray/DexKit) —— 能力探测背后的运行期 Dex 符号解析。
 - [miuix](https://github.com/compose-miuix-ui/miuix) —— 整个设置界面所基于的 Compose UI 组件库。
 - 让这一切成为可能的歌词源：[Spicy EX](https://github.com/amarinne/spicy-ex)、
