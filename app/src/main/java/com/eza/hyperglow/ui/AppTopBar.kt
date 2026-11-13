@@ -36,17 +36,21 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 背景图片生效时对壁纸做「上强下弱」的渐进式纹理模糊(渐变模糊)并叠加纵向渐变遮罩,
  * 标题浮在玻璃上且与页面内容衔接自然;未启用背景时为 [appTopBarColor] 实色。
  * RuntimeShader 不支持时退化为仅渐变遮罩(fail-closed,不阻塞渲染)。
+ *
+ * [overlay] 用于盖在其它页面上的全屏覆盖层:不做壁纸模糊(否则下层页面内容会透出来),
+ * 底色改用不透明的 [appOverlaySurfaceColor]。
  */
 @Composable
 internal fun AppTopBar(
     title: String,
     onBack: (() -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {}
+    actions: @Composable RowScope.() -> Unit = {},
+    overlay: Boolean = false
 ) {
     val backdrop = LocalAppLayerBackdrop.current
     val scrimBase = LocalAppControlColor.current ?: MiuixTheme.colorScheme.surface
     Box(modifier = Modifier.fillMaxWidth()) {
-        if (LocalAppBackgroundActive.current && backdrop != null && isRuntimeShaderSupported()) {
+        if (!overlay && LocalAppBackgroundActive.current && backdrop != null && isRuntimeShaderSupported()) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -68,7 +72,11 @@ internal fun AppTopBar(
                     )
             )
         } else {
-            Box(modifier = Modifier.matchParentSize().background(appTopBarColor()))
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(if (overlay) appOverlaySurfaceColor() else appTopBarColor())
+            )
         }
         val titleColor = appTopBarTitleColor()
         Row(

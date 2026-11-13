@@ -186,6 +186,17 @@ internal fun appSurfaceColor(): Color =
         top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
     }
 
+/**
+ * 盖在其它页面之上的全屏覆盖层(首次引导/全局搜索)的底色。
+ *
+ * 这类页面不在 NavDisplay 里,下层是另一个页面的内容而不是壁纸,所以不能沿用
+ * [appSurfaceColor] 的「有背景图就透明」——那会让下面的文字/卡片透上来叠字。
+ * 这里恒回实色 surface,让覆盖层自成一屏,可读性优先。
+ */
+@Composable
+internal fun appOverlaySurfaceColor(): Color =
+    top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
+
 /** 从裸键值表解析外观状态;未知值一律回落默认(fail-closed)。 */
 internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearance {
     val themeMode = AppThemeMode.entries.firstOrNull { it.name == values[KEY_THEME_MODE] }

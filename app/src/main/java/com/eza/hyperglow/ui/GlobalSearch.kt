@@ -414,11 +414,12 @@ internal fun GlobalSearchOverlay(
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     Scaffold(
-        containerColor = appSurfaceColor(),
+        containerColor = appOverlaySurfaceColor(),
         topBar = {
             AppTopBar(
                 title = stringResource(R.string.search_title),
-                onBack = onDismiss
+                onBack = onDismiss,
+                overlay = true
             )
         }
     ) { innerPadding ->

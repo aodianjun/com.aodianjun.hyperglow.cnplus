@@ -132,11 +132,12 @@ internal fun OnboardingScreen(onFinish: () -> Unit, onBack: (() -> Unit)? = null
     val isLastPage = pagerState.currentPage == ONBOARDING_PAGE_COUNT - 1
 
     Scaffold(
-        containerColor = appSurfaceColor(),
+        containerColor = appOverlaySurfaceColor(),
         topBar = {
             AppTopBar(
                 title = stringResource(R.string.app_name),
                 onBack = onBack,
+                overlay = true,
                 actions = {
                     if (!isLastPage) {
                         TextButton(
