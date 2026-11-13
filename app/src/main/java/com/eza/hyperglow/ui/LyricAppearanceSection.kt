@@ -1268,13 +1268,13 @@ internal fun LyricAppearanceSection(
                     ) {
                         openChoice(
                             AodChoiceKind.SPECTRUM_SOURCE,
-                            listOf("rhythm", "capture"),
+                            listOf("rhythm", "loopback", "capture"),
                             selectedProfile.spectrum.source
                         ) { value ->
                             updateSelected {
                                 it.copy(spectrum = it.spectrum.copy(source = value))
                             }
-                            if (value == "rhythm") stopSpectrumCaptureIfUnused()
+                            if (value != "capture") stopSpectrumCaptureIfUnused()
                         }
                     }
                     AodChoiceRow(
@@ -1400,6 +1400,14 @@ internal fun LyricAppearanceSection(
                                     SpectrumCaptureService.stop(context)
                                 }
                             }
+                        )
+                    }
+                    if (selectedProfile.spectrum.source == "loopback") {
+                        Text(
+                            text = stringResource(R.string.summary_spectrum_loopback),
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -2722,10 +2730,10 @@ private fun choiceDisplayLabel(
         else -> R.string.option_spectrum_bars
     })
     AodChoiceKind.SPECTRUM_SOURCE -> context.getString(
-        if (value == "capture") {
-            R.string.option_spectrum_source_capture
-        } else {
-            R.string.option_spectrum_source_rhythm
+        when (value) {
+            "loopback" -> R.string.option_spectrum_source_loopback
+            "capture" -> R.string.option_spectrum_source_capture
+            else -> R.string.option_spectrum_source_rhythm
         }
     )
     AodChoiceKind.SPECTRUM_COLOR -> context.getString(when (value) {

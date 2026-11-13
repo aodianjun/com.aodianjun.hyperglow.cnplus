@@ -3,8 +3,8 @@ package com.eza.hyperglow.customization
 /** 频谱样式白名单；未知值编译期回退到 bars。 */
 val SPECTRUM_STYLES = setOf("bars", "mirror", "line")
 
-/** 频谱数据源：默认合成律动（不监听），可选系统回放捕获。 */
-val SPECTRUM_SOURCES = setOf("rhythm", "capture")
+/** 频谱数据源：默认合成律动（不监听）；loopback=SystemUI 特权回环；capture=App 侧 MediaProjection。 */
+val SPECTRUM_SOURCES = setOf("rhythm", "loopback", "capture")
 
 /** 频谱配色 token 白名单。 */
 val SPECTRUM_COLORS = setOf("accent", "primary", "gradient")
@@ -23,7 +23,7 @@ data class SpectrumSpec(
     val heightPercent: Int = 100,
     val sensitivity: Int = 100,
     val color: String = "accent",
-    /** rhythm=只看播放态的合成律动（默认，不监听）；capture=系统回放监听。 */
+    /** rhythm=只看播放态的合成律动（默认，不监听）；loopback=SystemUI AudioPolicy 回环；capture=App 侧 MediaProjection。 */
     val source: String = "rhythm",
     /** true=歌词框内透明背景层；false=歌词块下方独立条带。 */
     val background: Boolean = true,

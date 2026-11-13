@@ -152,6 +152,32 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun loopbackSpectrumSourceSurvivesCompile() {
+        val document = SceneCompiler.safeDefaultDocument()
+        val profiles = document.profiles.toMutableMap()
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(enabled = true, source = "loopback")
+        )
+        val compiled = SceneCompiler.compile(document.copy(profiles = profiles))
+        val profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("loopback", profile.spectrum.source)
+        val json = SceneCompiler.json.encodeToString(compiled)
+        assertTrue(json.contains("\"source\":\"loopback\""))
+    }
+
+    @Test
+    fun unknownSpectrumSourceFallsBackToRhythm() {
+        val document = SceneCompiler.safeDefaultDocument()
+        val profiles = document.profiles.toMutableMap()
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(enabled = true, source = "bogus")
+        )
+        val profile = SceneCompiler.compile(document.copy(profiles = profiles))
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("rhythm", profile.spectrum.source)
+    }
+
+    @Test
     fun legacyPreferencesMigrateWithoutEnablingLockscreen() {
         val document = CustomizationRepository.documentFromLegacy(
             AodRenderConfig(

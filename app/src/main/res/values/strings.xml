@@ -452,7 +452,9 @@
     <string name="setting_spectrum_y_offset">Spectrum Y position</string>
     <string name="choice_spectrum_source">Spectrum source</string>
     <string name="option_spectrum_source_rhythm">Music rhythm (no listening)</string>
+    <string name="option_spectrum_source_loopback">System loopback (LSPosed)</string>
     <string name="option_spectrum_source_capture">System playback (listening)</string>
+    <string name="summary_spectrum_loopback">SystemUI (or the AOD process) registers an AudioPolicy to read media playback directly, with no recording permission or projection dialog. Requires LSPosed scope for SystemUI, the AOD process if present, and the system framework. Falls back to the music rhythm when the ROM rejects it.</string>
     <string name="setting_spectrum_capture">Capture system playback</string>
     <string name="summary_spectrum_capture">Uses MediaProjection to analyze the system audio mix. DRM-protected audio cannot be captured.</string>
     <string name="setting_spectrum_height">Spectrum height</string>

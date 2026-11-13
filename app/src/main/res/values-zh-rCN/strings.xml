@@ -451,7 +451,9 @@
     <string name="setting_spectrum_y_offset">频谱 Y 轴位置</string>
     <string name="choice_spectrum_source">频谱数据源</string>
     <string name="option_spectrum_source_rhythm">音乐律动（不监听）</string>
+    <string name="option_spectrum_source_loopback">系统回环（LSPosed）</string>
     <string name="option_spectrum_source_capture">系统回放（监听）</string>
+    <string name="summary_spectrum_loopback">由 SystemUI/息屏进程注册 AudioPolicy 直接读取系统媒体回放，无需录音授权或投屏弹窗；需要 LSPosed 作用域包含 SystemUI、息屏进程（如有）与系统框架。ROM 不允许时自动回退音乐律动。</string>
     <string name="setting_spectrum_capture">捕获系统回放</string>
     <string name="summary_spectrum_capture">通过 MediaProjection 分析系统音频混音；DRM 保护的音频无法被捕获。</string>
     <string name="setting_spectrum_height">频谱高度</string>

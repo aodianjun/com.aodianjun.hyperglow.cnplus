@@ -4,7 +4,7 @@
 > 是 XAS/XANES 科学光谱运行时，不含音频捕获或可视化代码。本实现只借用其工程原则：
 > 版本化契约、确定性管线、边界 fail-closed。
 
-## 1. 两种数据源
+## 1. 三种数据源
 
 ### 1.1 音乐律动（默认，不监听）
 
@@ -15,13 +15,30 @@
 - 律动是确定性合成：单调时钟 + 约 109 BPM 脉冲包络 + 低频偏置 + 哈希噪声，
   暂停即衰减到零。
 
-### 1.2 系统回放（可选监听）
+### 1.2 SystemUI 特权回环（`loopback`，移植 HyperWave）
+
+- 设置页「频谱数据源」选 `loopback` 后自动生效，不需要录音授权或 MediaProjection 弹窗。
+- SystemUI 或独立的 `com.miui.aod` 息屏进程通过隐藏 `AudioMixingRule` / `AudioMix` /
+  `AudioPolicy` 注册一条 `USAGE_MEDIA`、48kHz、PCM_FLOAT、单声道、`routeFlags=3`
+  的 playback copy；
+  `createAudioRecordSink()` 拿到 `AudioRecord`，交给 Kotlin `SpectrumAnalyzer`。
+- system_server 侧 hook `AudioService.isPolicyRegisterAllowed`，只对 SystemUI / miui.aod UID
+  且格式命中的单个 mix 放行；SystemUI/miui.aod 侧 hook
+  `AudioMix.canBeUsedForPrivilegedMediaCapture` 与 `AudioMix$Builder.build`，
+  用线程局部 exact-format 作用域放行格式校验。原始音频输出不被重定向。
+- 采集只在「频谱开启 + `playbackActive` + 画布可见」时启动；AOD/锁屏两面合并
+  成一个会话，全部释放后停止。
+- ROM 不支持（hook 未装、AudioService 方法改名、native 拒绝）时 fail-closed，
+  画布回退到 1.1 的合成律动，不崩溃、不伪造音频。
+- 源项目：[`leset0ng/hyperwave`](https://github.com/leset0ng/hyperwave)（Apache-2.0）。
+
+### 1.3 App 侧系统回放（可选监听，`capture`）
 
 - 用户在设置页把「频谱数据源」切到 `capture`，再打开「捕获系统回放」才启用。
 - MediaProjection + `AudioPlaybackCaptureConfiguration` → `AudioRecord` → FFT。
 - 授权、前台服务、失败回退与 v1 相同；未选择时完全不启动。
 
-## 2. 帧契约（仅 capture 源）
+## 2. 帧契约（capture / loopback 源）
 
 `SpectrumFrame`：
 
@@ -58,7 +75,7 @@
 | 字段 | 默认 | 归一化 |
 | --- | --- | --- |
 | `enabled` | false | — |
-| `source` | `rhythm` | `rhythm/capture` |
+| `source` | `rhythm` | `rhythm/loopback/capture` |
 | `style` | `bars` | `bars/mirror/line` |
 | `barCount` | 24 | 12..32 |
 | `heightPercent` | 100 | 50..200（仅条带模式） |
@@ -76,6 +93,9 @@
 ## 5. 权限与失败模式
 
 - 默认律动：无任何音频权限。
+- loopback：不申请 `RECORD_AUDIO`/MediaProjection，依赖 LSPosed 作用域包含 SystemUI、
+  息屏进程（如有）与系统框架；注册策略需要 SystemUI/miui.aod UID 与匹配格式，
+  失败自动回退律动。
 - capture：`RECORD_AUDIO` + `FOREGROUND_SERVICE_MEDIA_PROJECTION`，用户显式授权。
 - 被采集 App 禁止回放捕获（DRM 等）时无帧/静音，频谱衰减，不伪造数据。
 - MediaProjection 授权不能跨进程持久化；App 进程被杀后需重新授权。
@@ -86,4 +106,4 @@
 - `SpectrumAnalyzerTest`：单音落点、低频、静音、NaN/Inf。
 - `SpectrumWireCodecTest`：Bundle 往返、协议/长度/NaN 拒绝、越界钳制。
 - `SceneCompilerTest`：频谱归一化、widget 同步、canonicalize 保留、关闭时字段省略、
-  开启时 app→JSON→SystemUI 校验 hash 一致。
+  开启时 app→JSON→SystemUI 校验 hash 一致、`loopback` 源保真与未知源回退。

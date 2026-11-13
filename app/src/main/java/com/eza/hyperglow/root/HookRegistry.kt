@@ -87,6 +87,11 @@ internal class HookInstallGuard {
 
     @Synchronized
     fun isInstalled(): Boolean = installed
+
+    @Synchronized
+    fun reset() {
+        installed = false
+    }
 }
 
 /**

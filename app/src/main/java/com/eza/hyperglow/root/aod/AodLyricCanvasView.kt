@@ -38,6 +38,7 @@ import com.eza.hyperglow.producer.shouldAdoptDuetLineCandidate
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.SurfaceEvidence
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
+import com.eza.hyperglow.root.spectrum.SystemUiSpectrumCapture
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -246,6 +247,7 @@ internal class AodLyricCanvasView(
     private var spectrumReceivedAt = 0L
     private var spectrumDisplay = FloatArray(0)
     private var spectrumPeaks = FloatArray(0)
+    private val loopbackDemandKey = "spectrum-canvas-${System.identityHashCode(this)}"
     private val spectrumPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
@@ -695,6 +697,7 @@ internal class AodLyricCanvasView(
         spectrumSpec = nextContent.spectrum
         playbackActive = nextContent.playbackActive
         ensureSpectrumBuffers()
+        updateLoopbackDemand()
         syncArtworkBitmap()
         // 渲染模式留痕(仅变化时记录):实机实际生效的逐字动画档/是否逐字时间源/发光开关/
         // 行进度效果——「预览有效果实机没有」类反馈靠这条日志即可区分是配置没下发到这侧、
@@ -857,9 +860,29 @@ internal class AodLyricCanvasView(
     fun setPlaybackActive(active: Boolean) {
         if (playbackActive == active) return
         playbackActive = active
+        updateLoopbackDemand()
         if (spectrumSpec.enabled) {
             syncCadence()
             invalidate()
+        }
+    }
+
+    /**
+     * loopback 源只在“频谱开启 + 正在播放 + 画布可见”时占用一次系统回环；
+     * 两面画布各自登记，SystemUiSpectrumCapture 合并成单会话。
+     */
+    private fun updateLoopbackDemand() {
+        val want = spectrumSpec.enabled &&
+            spectrumSpec.source == "loopback" &&
+            playbackActive &&
+            isAttachedToWindow &&
+            aggregatedVisible
+        if (want) {
+            SystemUiSpectrumCapture.setDemand(loopbackDemandKey, true, context) { frame ->
+                setSpectrum(frame)
+            }
+        } else {
+            SystemUiSpectrumCapture.clear(loopbackDemandKey)
         }
     }
 
@@ -1017,28 +1040,33 @@ internal class AodLyricCanvasView(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         aggregatedVisible = isShown
+        updateLoopbackDemand()
         syncCadence()
     }
 
     override fun onDetachedFromWindow() {
         stop()
+        SystemUiSpectrumCapture.clear(loopbackDemandKey)
         aggregatedVisible = false
         super.onDetachedFromWindow()
     }
 
     override fun onWindowVisibilityChanged(visibility: Int) {
         super.onWindowVisibilityChanged(visibility)
+        updateLoopbackDemand()
         syncCadence()
     }
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
+        updateLoopbackDemand()
         syncCadence()
     }
 
     override fun onVisibilityAggregated(isVisible: Boolean) {
         super.onVisibilityAggregated(isVisible)
         aggregatedVisible = isVisible
+        updateLoopbackDemand()
         syncCadence()
     }
 
@@ -1781,8 +1809,10 @@ internal class AodLyricCanvasView(
 
     /**
      * 频谱绘制：默认 rhythm 源只认歌词源的 playbackActive，用确定性合成律动；
-     * source=capture 时消费系统回放帧，帧过期则衰减。background=true 画在歌词框内
-     * 作为透明背景层（在文字之前绘制），false 画在歌词下方独立条带。
+     * source=capture 消费 App 的 MediaProjection 帧；source=loopback 消费 SystemUI
+     * 自己的 AudioPolicy 回环帧（采集失败时回退合成律动）。帧过期则衰减。
+     * background=true 画在歌词框内作为透明背景层（在文字之前绘制），false 画在
+     * 歌词下方独立条带。
      */
     private fun drawSpectrum(canvas: Canvas) {
         if (!spectrumSpec.enabled) return
@@ -1794,13 +1824,19 @@ internal class AodLyricCanvasView(
 
         val now = SystemClock.elapsedRealtime()
         val age = if (spectrumReceivedAt == 0L) Long.MAX_VALUE else now - spectrumReceivedAt
-        val freshCapture = spectrumSpec.source == "capture" &&
+        val captureSource = spectrumSpec.source == "capture" ||
+            spectrumSpec.source == "loopback"
+        val freshCapture = captureSource &&
             spectrumActive && spectrumBands.isNotEmpty() &&
             age <= SpectrumContract.MAX_FRAME_AGE_MS
+        // loopback 一帧都没收到（hook/ROM 不允许）时用律动兜底，避免整块空白。
+        val loopbackFallback = spectrumSpec.source == "loopback" &&
+            playbackActive && spectrumReceivedAt == 0L
         val target = when {
             spectrumSpec.source == "rhythm" ->
                 if (playbackActive) syntheticBands(bars) else null
             freshCapture -> resampleSpectrumBands(spectrumBands, bars)
+            loopbackFallback -> syntheticBands(bars)
             else -> null
         }
         val gain = spectrumSpec.sensitivity / 100f
@@ -1822,6 +1858,7 @@ internal class AodLyricCanvasView(
         val fade = when {
             spectrumSpec.source == "rhythm" -> 1f
             freshCapture -> 1f
+            loopbackFallback -> 1f
             age <= SpectrumContract.MAX_FRAME_AGE_MS -> 1f
             age <= SpectrumContract.MAX_FRAME_AGE_MS + SPECTRUM_FADE_MS.toLong() ->
                 ((SpectrumContract.MAX_FRAME_AGE_MS + SPECTRUM_FADE_MS - age) /
@@ -4822,7 +4859,9 @@ internal class AodLyricCanvasView(
     private fun spectrumDrawingActive(): Boolean {
         if (!spectrumSpec.enabled) return false
         val now = SystemClock.elapsedRealtime()
-        if (spectrumSpec.source == "rhythm") {
+        val rhythmFallback = spectrumSpec.source == "rhythm" ||
+            spectrumSpec.source == "loopback" && spectrumReceivedAt == 0L
+        if (rhythmFallback) {
             if (playbackActive) return true
         } else if (spectrumActive && spectrumReceivedAt > 0L &&
             now - spectrumReceivedAt <= SpectrumContract.MAX_FRAME_AGE_MS
