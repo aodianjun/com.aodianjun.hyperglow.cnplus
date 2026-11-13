@@ -39,8 +39,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -75,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
+import com.eza.hyperglow.customization.SPECTRUM_BASE_HEIGHT_DP
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
@@ -200,6 +203,7 @@ import com.eza.hyperglow.root.lockscreen.cardColorRgb
 import com.eza.hyperglow.root.projection.LyricDuetLine
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import kotlin.math.PI
+import kotlin.math.exp
 import kotlin.math.sin
 import com.eza.hyperglow.root.projection.LyricWord
 import kotlinx.coroutines.coroutineScope
@@ -937,7 +941,29 @@ private fun LyricPreviewSurface(
                         }
                     )
                 }
-                Column(Modifier.fillMaxWidth()) {
+                val spectrumStart = when (profile.spectrum.color) {
+                    "primary" -> lyricColor
+                    else -> ComposeColor(resolvedColors.accent)
+                }
+                val spectrumEnd = if (profile.spectrum.color == "gradient") {
+                    lyricColor
+                } else {
+                    spectrumStart
+                }
+                Box(Modifier.fillMaxWidth()) {
+                    // 实机默认把频谱画在歌词框内、文字之前；预览也放在同一块内容的
+                    // 背景层，而不是永远追加到歌词下方。
+                    if (profile.spectrum.enabled && profile.spectrum.background) {
+                        PreviewSpectrum(
+                            spectrum = profile.spectrum,
+                            startColor = spectrumStart,
+                            endColor = spectrumEnd,
+                            active = live?.playbackActive ?: true,
+                            background = true,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+                    Column(Modifier.fillMaxWidth()) {
                     if (showMetadata && profile.metadataAnchor == "top") {
                         PreviewMetaLine(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
@@ -1200,17 +1226,15 @@ private fun LyricPreviewSurface(
                             artistSizePercent = profile.metadataArtistSizePercent
                         )
                     }
-                    if (profile.spectrum.enabled && profile.widgets.any { it.type == "spectrum" }) {
-                        val spectrumStart = when (profile.spectrum.color) {
-                            "primary" -> lyricColor
-                            else -> ComposeColor(resolvedColors.accent)
-                        }
-                        val spectrumEnd = if (profile.spectrum.color == "gradient") {
-                            lyricColor
-                        } else {
-                            spectrumStart
-                        }
-                        PreviewSpectrum(profile.spectrum, spectrumStart, spectrumEnd)
+                    if (profile.spectrum.enabled && !profile.spectrum.background) {
+                        PreviewSpectrum(
+                            spectrum = profile.spectrum,
+                            startColor = spectrumStart,
+                            endColor = spectrumEnd,
+                            active = live?.playbackActive ?: true,
+                            background = false
+                        )
+                    }
                     }
                 }
             }
@@ -1218,51 +1242,118 @@ private fun LyricPreviewSurface(
     }
 }
 
-/** 设置页预览用的频谱占位动画：真实数值来自回放捕获，预览只画一组确定性的演示柱。 */
+/**
+ * 设置页预览用的实时频谱：与 AodLyricCanvasView.drawSpectrum 共用同一套合成律动、
+ * 快攻慢放包络、峰值、灵敏度、透明度、自定义色和背景层语义。有实时歌词时按
+ * playbackActive 门控（暂停即衰减），演示态持续循环；source=loopback/capture
+ * 在预览侧没有 SystemUI 帧，使用与实机失败回退相同的律动。
+ */
 @Composable
 private fun PreviewSpectrum(
     spectrum: SpectrumSpec,
     startColor: ComposeColor,
-    endColor: ComposeColor
+    endColor: ComposeColor,
+    active: Boolean,
+    background: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    val phase = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
+    val bars = spectrum.barCount.coerceIn(12, 32)
+    val sensitivity = spectrum.sensitivity.coerceIn(50, 200) / 100f
+    val display = remember(bars) { FloatArray(bars) }
+    val peaks = remember(bars) { FloatArray(bars) }
+    val activeState = rememberUpdatedState(active)
+    val sensitivityState = rememberUpdatedState(sensitivity)
+    var frameTick by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(bars) {
+        var lastNanos = 0L
         while (true) {
-            phase.snapTo(0f)
-            phase.animateTo(1f, animationSpec = tween(1_600, easing = LinearEasing))
+            withFrameNanos { now ->
+                val dt = if (lastNanos == 0L) {
+                    0.016f
+                } else {
+                    ((now - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.1f)
+                }
+                lastNanos = now
+                val time = android.os.SystemClock.elapsedRealtime() / 1000f
+                val target = if (activeState.value) {
+                    syntheticPreviewBands(bars, time)
+                } else {
+                    FloatArray(bars)
+                }
+                for (index in 0 until bars) {
+                    val value = (target[index] * sensitivityState.value).coerceIn(0f, 1f)
+                    val current = display[index]
+                    val rate = if (value > current) 14f else 4.5f
+                    val next = current + (value - current) * (1f - exp(-rate * dt))
+                    display[index] = next
+                    peaks[index] = maxOf(peaks[index] - dt * 0.55f, next)
+                }
+                frameTick = now
+            }
         }
     }
-    val bars = spectrum.barCount.coerceIn(12, 32)
-    val height = (34f * spectrum.heightPercent.coerceIn(50, 200) / 100f).dp
-    val opacity = spectrum.opacity.coerceIn(10, 100) / 100f
+
+    val customColor = parseHexColorInput(spectrum.customColor)?.let(::ComposeColor)
+    val baseStart = customColor ?: startColor
+    val baseEnd = customColor ?: endColor
+    val alpha = (spectrum.opacity.coerceIn(10, 100) / 100f) *
+        (customColor?.alpha ?: 1f)
+    val paintStart = baseStart.copy(alpha = alpha)
+    val paintEnd = baseEnd.copy(alpha = alpha)
+    val height = (SPECTRUM_BASE_HEIGHT_DP * spectrum.heightPercent.coerceIn(50, 200) / 100f).dp
+    val peakAlpha = alpha * 0.55f
+
     Canvas(
-        Modifier
-            .fillMaxWidth()
-            .height(height)
+        if (background) modifier else modifier.fillMaxWidth().height(height)
     ) {
-        val gap = size.width * 0.35f / bars
-        val barWidth = ((size.width - gap * (bars - 1)) / bars).coerceAtLeast(1f)
-        val colors = listOf(
-            startColor.copy(alpha = opacity),
-            endColor.copy(alpha = opacity)
+        // 读取 frameTick，让 Canvas 随每帧的数组更新重绘。
+        if (frameTick < 0L) return@Canvas
+        var maxValue = 0f
+        for (value in display) if (value > maxValue) maxValue = value
+        if (maxValue < 0.004f) return@Canvas
+
+        val areaHeight = if (background) size.height * 0.85f else size.height
+        if (areaHeight <= 0f) return@Canvas
+        val baseTop = if (background) (size.height - areaHeight) / 2f else 0f
+        val maxTop = (size.height - areaHeight).coerceAtLeast(0f)
+        val yFraction = spectrum.yOffsetPercent.coerceIn(-50, 50) / 100f
+        val areaTop = (baseTop + areaHeight * yFraction).coerceIn(0f, maxTop)
+        val areaBottom = areaTop + areaHeight
+        val amplitude = if (background) 0.85f else 1f
+        val gap = (size.width * 0.35f / bars).coerceAtLeast(1f)
+        val barWidth = ((size.width - gap * (bars - 1)) / bars)
+            .coerceAtLeast(1f)
+        val totalWidth = barWidth * bars + gap * (bars - 1)
+        val startX = (size.width - totalWidth) / 2f
+        val brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+            colors = listOf(paintStart, paintEnd),
+            startY = areaBottom,
+            endY = areaTop
         )
-        val envelopeAt: (Int) -> Float = { index ->
-            val wave = sin(index * 0.55f + phase.value * 2f * PI.toFloat()) * 0.5f + 0.5f
-            (0.30f + 0.70f * wave).coerceIn(0f, 1f)
-        }
+        val peakBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
+            colors = listOf(
+                paintStart.copy(alpha = peakAlpha),
+                paintEnd.copy(alpha = peakAlpha)
+            ),
+            startY = areaBottom,
+            endY = areaTop
+        )
         when (spectrum.style) {
             "mirror" -> {
-                val center = size.height / 2f
+                val center = (areaTop + areaBottom) / 2f
+                drawLine(
+                    color = baseStart.copy(alpha = alpha * 0.35f),
+                    start = Offset(0f, center),
+                    end = Offset(size.width, center),
+                    strokeWidth = 1.dp.toPx()
+                )
                 for (index in 0 until bars) {
-                    val half = (envelopeAt(index) * size.height * 0.45f)
-                        .coerceAtLeast(0.8f)
-                    val x = index * (barWidth + gap)
+                    val half = (display[index].coerceIn(0f, 1f) * areaHeight * 0.45f)
+                        .coerceAtLeast(0.8.dp.toPx())
+                    val x = startX + index * (barWidth + gap)
                     drawRoundRect(
-                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = colors,
-                            startY = center - half,
-                            endY = center + half
-                        ),
+                        brush = brush,
                         topLeft = Offset(x, center - half),
                         size = Size(barWidth, half * 2f),
                         cornerRadius = CornerRadius(barWidth / 2f)
@@ -1275,34 +1366,65 @@ private fun PreviewSpectrum(
                 val step = if (bars <= 1) 0f else size.width / (bars - 1)
                 for (index in 0 until bars) {
                     val x = index * step
-                    val y = size.height - envelopeAt(index) * size.height
+                    val y = areaBottom - display[index].coerceIn(0f, 1f) *
+                        areaHeight * amplitude
                     if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
                 drawPath(
                     path = path,
-                    color = endColor.copy(alpha = opacity),
-                    style = Stroke(width = 2f)
+                    color = paintEnd,
+                    style = Stroke(width = 2.dp.toPx())
                 )
             }
 
             else -> {
                 for (index in 0 until bars) {
-                    val barHeight = (envelopeAt(index) * size.height).coerceAtLeast(1.5f)
-                    val x = index * (barWidth + gap)
+                    val value = display[index].coerceIn(0f, 1f)
+                    val barHeight = (value * areaHeight * amplitude)
+                        .coerceAtLeast(1.2.dp.toPx())
+                    val x = startX + index * (barWidth + gap)
                     drawRoundRect(
-                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = colors,
-                            startY = size.height - barHeight,
-                            endY = size.height
-                        ),
-                        topLeft = Offset(x, size.height - barHeight),
+                        brush = brush,
+                        topLeft = Offset(x, areaBottom - barHeight),
                         size = Size(barWidth, barHeight),
                         cornerRadius = CornerRadius(barWidth / 2f)
                     )
+                    val peak = (peaks[index] * areaHeight * amplitude)
+                        .coerceIn(0f, areaHeight)
+                    if (peak > 0.01f) {
+                        drawRoundRect(
+                            brush = peakBrush,
+                            topLeft = Offset(x, areaBottom - peak - 1.dp.toPx()),
+                            size = Size(barWidth, 1.dp.toPx()),
+                            cornerRadius = CornerRadius(barWidth / 2f)
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+/** 与 AodLyricCanvasView.syntheticBands 同式，时间轴取单调时钟。 */
+private fun syntheticPreviewBands(bars: Int, time: Float): FloatArray {
+    val out = FloatArray(bars)
+    val beat = 0.55f
+    val pulse = exp(-((time % beat) / beat) * 5.5f)
+    for (index in 0 until bars) {
+        val phase = index * 0.55f
+        val wave = 0.5f + 0.5f * sin(time * (1.3f + index * 0.04f) + phase)
+        val lowBias = (1f - index.toFloat() / (bars * 1.4f)).coerceIn(0f, 1f)
+        val noise = previewHashNoise(index, (time * 4f).toInt())
+        out[index] = (0.08f + 0.50f * wave * lowBias + 0.32f * pulse +
+            0.09f * noise).coerceIn(0f, 1f)
+    }
+    return out
+}
+
+private fun previewHashNoise(index: Int, tick: Int): Float {
+    var value = index * 374761393 + tick * 668265263
+    value = (value xor (value shr 13)) * 1274126177
+    return ((value xor (value shr 16)) and 0xFFFF) / 65535f
 }
 
 /** 预览侧歌曲图片呈现参数:形状/旋转生效值 + 自适应开关/自定义边长 + 解码后的帧(或演示占位)。 */

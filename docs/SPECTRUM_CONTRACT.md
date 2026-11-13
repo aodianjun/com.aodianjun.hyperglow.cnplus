@@ -67,6 +67,10 @@
 - 帧率：歌词逐字/过渡 16ms；仅频谱时 AOD 100ms（10fps）、锁屏 33ms（30fps）；
   系统省电再减半；停播衰减到零即停帧。
 - 透明度只影响频谱，不改歌词颜色/发光。
+- 设置页预览按同一套布局/参数绘制：`background` 背景层在歌词内容之前、`bars` 带峰值帽、
+  `mirror` 带中轴线、`customColor`/`sensitivity`/`opacity`/`yOffsetPercent` 同源；
+  有实时歌词时按 `playbackActive` 门控，暂停即衰减，演示态持续循环。预览侧没有
+  SystemUI 回环帧，`loopback`/`capture` 源使用与实机失败回退相同的律动。
 
 ## 4. 配置
 
