@@ -74,7 +74,8 @@ internal fun setDiagnosticLogging(context: Context, enabled: Boolean): Boolean {
     AodStateBridge.publishConfiguration(
         RuntimeCustomization.loadCompiled(context),
         currentProcessUserId(),
-        experimentalMode = AodRenderPreferences.read(context).experimentalMode
+        experimentalMode = AodRenderPreferences.read(context).experimentalMode,
+        spriteAttachments = com.eza.hyperglow.customization.DecorSpriteStore.attachments(context)
     )
     return true
 }
@@ -125,6 +126,8 @@ internal object RuntimeCustomization {
             lockscreenKeepAwake = preferences.lockscreenKeepAwake,
             raiseToAod = preferences.raiseToAod,
             suppressLockscreenEditorLongPress = preferences.suppressLockscreenEditorLongPress,
+            lockscreenReserveBelowMediaCard = preferences.lockscreenReserveBelowMediaCard,
+            lockscreenCardPlacement = preferences.lockscreenCardPlacement,
             aodBrightnessBoost = preferences.aodBrightnessBoost,
             aodBrightnessOverride = preferences.aodBrightnessOverride,
             aodBrightnessLevel = preferences.aodBrightnessLevel,
@@ -162,6 +165,9 @@ internal object RuntimeCustomization {
         raiseToAod: Boolean = configuration.raiseToAod,
         suppressLockscreenEditorLongPress: Boolean =
             configuration.suppressLockscreenEditorLongPress,
+        lockscreenReserveBelowMediaCard: Boolean =
+            configuration.lockscreenReserveBelowMediaCard,
+        lockscreenCardPlacement: String = configuration.lockscreenCardPlacement,
         aodBrightnessBoost: Boolean = configuration.aodBrightnessBoost,
         aodBrightnessOverride: Boolean = configuration.aodBrightnessOverride,
         aodBrightnessLevel: Int = configuration.aodBrightnessLevel,
@@ -182,6 +188,9 @@ internal object RuntimeCustomization {
                 lockscreenKeepAwake = lockscreenKeepAwake,
                 raiseToAod = raiseToAod,
                 suppressLockscreenEditorLongPress = suppressLockscreenEditorLongPress,
+                lockscreenReserveBelowMediaCard = lockscreenReserveBelowMediaCard,
+                lockscreenCardPlacement =
+                    com.eza.hyperglow.aod.normalizeLockscreenCardPlacement(lockscreenCardPlacement),
                 aodBrightnessBoost = aodBrightnessBoost,
                 aodBrightnessOverride = aodBrightnessOverride,
                 aodBrightnessLevel = aodBrightnessLevel.coerceIn(

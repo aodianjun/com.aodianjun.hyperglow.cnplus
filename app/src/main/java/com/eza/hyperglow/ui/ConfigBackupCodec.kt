@@ -116,6 +116,9 @@ internal object ConfigBackupCodec {
         },
         BackupBooleanField(AodRenderPreferences.PAUSE_SHOW_CONTENT) { it.pauseShowContent },
         BackupBooleanField(AodRenderPreferences.LOCKSCREEN_KEEP_AWAKE) { it.lockscreenKeepAwake },
+        BackupBooleanField(AodRenderPreferences.LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD) {
+            it.lockscreenReserveBelowMediaCard
+        },
         BackupBooleanField(AodRenderPreferences.RAISE_TO_AOD) { it.raiseToAod },
         BackupBooleanField(AodRenderPreferences.SUPPRESS_LOCKSCREEN_EDITOR_LONG_PRESS) {
             it.suppressLockscreenEditorLongPress
@@ -151,7 +154,14 @@ internal object ConfigBackupCodec {
         BackupBooleanField(AodRenderPreferences.FILTER_NON_MUSIC_SOURCES) {
             it.filterNonMusicSources
         },
-        BackupBooleanField(AodRenderPreferences.AOD_POWER_SAVER) { it.aodPowerSaver }
+        BackupBooleanField(AodRenderPreferences.HIDE_CREDIT_LINES) { it.hideCreditLines },
+        BackupBooleanField(AodRenderPreferences.AOD_POWER_SAVER) { it.aodPowerSaver },
+        BackupBooleanField(AodRenderPreferences.PLUGIN_RESULT_CACHE_ENABLED) {
+            it.pluginResultCacheEnabled
+        },
+        BackupBooleanField(AodRenderPreferences.PLUGIN_AUTO_UPDATE_ENABLED) {
+            it.pluginAutoUpdateEnabled
+        }
     )
 
     internal val intFields = listOf(
@@ -205,7 +215,10 @@ internal object ConfigBackupCodec {
         BackupStringField(AodRenderPreferences.ANIMATION) { it.animation },
         BackupStringField(AodRenderPreferences.GLOW) { it.glow },
         BackupStringField(AodRenderPreferences.BURN_IN_PATTERN) { it.burnInPattern },
-        BackupStringField(AodRenderPreferences.AOD_ROTATION_MODE) { it.aodRotationMode }
+        BackupStringField(AodRenderPreferences.AOD_ROTATION_MODE) { it.aodRotationMode },
+        BackupStringField(AodRenderPreferences.LOCKSCREEN_CARD_PLACEMENT) {
+            it.lockscreenCardPlacement
+        }
     )
 
     fun encode(
@@ -334,7 +347,7 @@ internal object ConfigBackupCodec {
     /**
      * 解码载荷。[base] 是导入端的当前配置:载荷里缺省的键保持 [base] 值(旧备份没有的新键
      * 保持现状,不会被清成默认值),键在但形状不符才回落该键默认值。纯函数,不接触 Android;
-     * 调用方(见 [importAllConfig])传入当前生效配置,测试默认以出厂默认值为基底。
+     * 调用方(导入端 [decodeImportedConfig])传入当前生效配置,测试默认以出厂默认值为基底。
      */
     fun decode(
         payload: ByteArray,
@@ -364,7 +377,9 @@ internal object ConfigBackupCodec {
 
         val document = when (val rawCustomization = envelope[CUSTOMIZATION_KEY]) {
             null -> null
-            is JsonObject -> SceneCompiler.decodeDocument(rawCustomization.toString())
+            // 复用信封已解析出的 JsonElement(不再 toString→重新解析):安全检查
+            // (unsafe schema + 大小上限)在入口内保留,校验强度不变。
+            is JsonObject -> SceneCompiler.decodeDocumentElement(rawCustomization)
                 ?: return ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED)
             else -> return ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED)
         }
@@ -561,6 +576,11 @@ internal object ConfigBackupCodec {
                 base.lockscreenKeepAwake,
                 DEFAULTS.lockscreenKeepAwake
             ),
+            lockscreenReserveBelowMediaCard = stored.resolveBoolean(
+                AodRenderPreferences.LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD,
+                base.lockscreenReserveBelowMediaCard,
+                DEFAULTS.lockscreenReserveBelowMediaCard
+            ),
             raiseToAod = stored.resolveBoolean(
                 AodRenderPreferences.RAISE_TO_AOD, base.raiseToAod, DEFAULTS.raiseToAod
             ),
@@ -711,10 +731,32 @@ internal object ConfigBackupCodec {
                 base.filterNonMusicSources,
                 DEFAULTS.filterNonMusicSources
             ),
+            hideCreditLines = stored.resolveBoolean(
+                AodRenderPreferences.HIDE_CREDIT_LINES,
+                base.hideCreditLines,
+                DEFAULTS.hideCreditLines
+            ),
             aodPowerSaver = stored.resolveBoolean(
                 AodRenderPreferences.AOD_POWER_SAVER,
                 base.aodPowerSaver,
                 DEFAULTS.aodPowerSaver
+            ),
+            pluginResultCacheEnabled = stored.resolveBoolean(
+                AodRenderPreferences.PLUGIN_RESULT_CACHE_ENABLED,
+                base.pluginResultCacheEnabled,
+                DEFAULTS.pluginResultCacheEnabled
+            ),
+            pluginAutoUpdateEnabled = stored.resolveBoolean(
+                AodRenderPreferences.PLUGIN_AUTO_UPDATE_ENABLED,
+                base.pluginAutoUpdateEnabled,
+                DEFAULTS.pluginAutoUpdateEnabled
+            ),
+            lockscreenCardPlacement = com.eza.hyperglow.aod.normalizeLockscreenCardPlacement(
+                stored.resolveString(
+                    AodRenderPreferences.LOCKSCREEN_CARD_PLACEMENT,
+                    base.lockscreenCardPlacement,
+                    DEFAULTS.lockscreenCardPlacement
+                )
             )
         )
 

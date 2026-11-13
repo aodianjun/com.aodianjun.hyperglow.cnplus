@@ -40,17 +40,22 @@ class LyricFetchPluginTest {
     // ---- 夹具 -------------------------------------------------------------
 
     private class FakeProvider(
-        private val result: RawLyrics?,
-        private val fail: Boolean = false,
+        /** 非 null = 命中该结果；null = 成功搜索但确无匹配（[ProviderFetch.NoMatch]）。 */
+        private val result: RawLyrics? = null,
+        /** true = 返回 [ProviderFetch.Failure]（不抛异常的传输失败/预算耗尽）。 */
+        private val failure: Boolean = false,
+        /** true = 直接抛异常（provider 违约，处理器必须收敛为失败而不是崩溃）。 */
+        private val throwOnFetch: Boolean = false,
     ) : LyricProvider {
         override val id: String = "fake"
         override val displayName: String = "FakeSource"
         var calls: Int = 0
 
-        override fun fetch(query: TrackQuery, budgetMs: Int): RawLyrics? {
+        override fun fetch(query: TrackQuery, budgetMs: Int): ProviderFetch {
             calls++
-            if (fail) throw IllegalStateException("network down")
-            return result
+            if (throwOnFetch) throw IllegalStateException("network down")
+            if (failure) return ProviderFetch.Failure
+            return result?.let { ProviderFetch.Hit(it) } ?: ProviderFetch.NoMatch
         }
     }
 
@@ -72,6 +77,8 @@ class LyricFetchPluginTest {
         upgradeOnly: Boolean = true,
         translation: Boolean = true,
         mergeSyllables: Boolean = true,
+        /** 来源列表（默认只有 [provider]）；多来源场景直接传列表。 */
+        val providers: List<FakeProvider> = listOf(provider),
     ) {
         val lyricCache = LyricCache(hostCache, now)
         val processor = LyricFetchProcessor(
@@ -85,7 +92,7 @@ class LyricFetchPluginTest {
                 hostCache,
             ),
             lyricCache,
-        ) { listOf(provider) }
+        ) { providers }
         val extension = LyricCacheExtension(lyricCache)
     }
 
@@ -198,7 +205,7 @@ class LyricFetchPluginTest {
 
     @Test
     fun providerFailureIsSilent() {
-        val h = Harness(FakeProvider(null, fail = true))
+        val h = Harness(FakeProvider(throwOnFetch = true))
         assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
         assertEquals(1, h.provider.calls)
     }
@@ -323,6 +330,96 @@ class LyricFetchPluginTest {
         now += 8L * 24 * 60 * 60 * 1000 // 8 天后：超过 7 天 TTL
         assertNotNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
         assertEquals(2, h.provider.calls, "过期条目应被忽略并重新取词")
+    }
+
+    // ---- 传输失败 vs 确定无匹配（负缓存区分，2.8）---------------------------
+
+    @Test
+    fun transportFailureDoesNotWriteLongTermMiss() {
+        // 全部来源传输失败（一个返回 Failure、一个违约抛异常）：绝不能写 7 天负缓存，
+        // 短退避到期必须重新尝试来源。
+        var now = 1_000_000L
+        val a = FakeProvider(failure = true)
+        val b = FakeProvider(throwOnFetch = true)
+        val h = Harness(a, now = { now }, providers = listOf(a, b))
+
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(1, a.calls)
+        assertEquals(1, b.calls, "全部来源都要试过")
+        assertTrue(
+            h.extension.listEntries().single().title.endsWith("（取词失败）"),
+            "失败条目必须与「未命中」区分展示",
+        )
+
+        now += 61_000L // 越过 1 分钟短退避
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(2, a.calls, "短退避到期必须重新尝试来源，而不是吃 7 天 Miss")
+        assertEquals(2, b.calls)
+    }
+
+    @Test
+    fun failureBackoffSuppressesRetryWithinWindow() {
+        // 退避窗口内不重打网络：宿主逐行源每 15s 重跑链，短退避也要挡得住重试风暴。
+        var now = 1_000_000L
+        val h = Harness(FakeProvider(failure = true), now = { now })
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(1, h.provider.calls)
+
+        now += 30_000L // 仍在 1 分钟退避内
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(1, h.provider.calls, "短退避窗口内不得重试")
+    }
+
+    @Test
+    fun successfulNoMatchStillWritesLongTermMiss() {
+        // 成功搜索但确无匹配：有意行为，7 天内不再打网络；到期后重新取词。
+        var now = 1_000_000L
+        val h = Harness(FakeProvider(null), now = { now })
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertTrue(h.extension.listEntries().single().title.endsWith("（未命中）"))
+
+        now += 60_000L // 一分钟远未到 7 天
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(1, h.provider.calls, "确定无匹配在 7 天 TTL 内不得重试")
+
+        now += 8L * 24 * 60 * 60 * 1000 // 8 天后：超过 7 天 TTL
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(2, h.provider.calls, "7 天 TTL 到期后重新取词")
+    }
+
+    @Test
+    fun failureBackoffSurvivesPluginReload() {
+        // 短退避记录同样落宿主缓存：重启/重载后仍挡住退避窗口内的重试（新编码不升版本也读得回来）。
+        var now = 1_000_000L
+        val hostCache = FakePluginCache()
+        val first = Harness(FakeProvider(failure = true), hostCache, now = { now })
+        assertNull(first.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(1, first.provider.calls)
+
+        val second = Harness(FakeProvider(failure = true), hostCache, now = { now })
+        assertNull(second.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(0, second.provider.calls, "重启后短退避记录仍生效")
+
+        now += 61_000L
+        assertNull(second.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(1, second.provider.calls, "退避到期后重新尝试")
+    }
+
+    @Test
+    fun mixedNoMatchAndFailureKeepsShortBackoff() {
+        // 一个来源确定无匹配、另一个传输失败：整体结局仍未知 → 短退避，而不是 7 天负缓存。
+        var now = 1_000_000L
+        val noMatch = FakeProvider(null)
+        val broken = FakeProvider(failure = true)
+        val h = Harness(noMatch, now = { now }, providers = listOf(noMatch, broken))
+
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(1, noMatch.calls)
+        assertEquals(1, broken.calls)
+
+        now += 61_000L
+        assertNull(h.processor.processResult(song(listOf(lineLevelRow())), mediaInfo()))
+        assertEquals(2, broken.calls, "有来源失败过 → 只能短退避重试")
     }
 
     // ---- 宿主服务的假实现 -------------------------------------------------

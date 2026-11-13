@@ -1,0 +1,174 @@
+{
+  "format": "hyperglow-word-effect-pack",
+  "version": 1,
+  "name": "Starter Word Effects",
+  "author": "HyperGlow",
+  "effects": [
+    {
+      "id": "bounce",
+      "name": "Bounce",
+      "longSyllableMs": 700,
+      "stagger": 0.06,
+      "sweep": true,
+      "sweepBand": 0.28,
+      "unsungDim": 0.35,
+      "glow": "none",
+      "tracks": [
+        {
+          "property": "translateY",
+          "keyframes": [
+            { "at": 0.0, "value": 0.0, "easing": "easeOut" },
+            { "at": 0.35, "value": -0.28, "easing": "easeInOut" },
+            { "at": 0.7, "value": 0.0, "easing": "easeInOut" },
+            { "at": 1.0, "value": 0.0, "easing": "linear" }
+          ]
+        },
+        {
+          "property": "scale",
+          "keyframes": [
+            { "at": 0.0, "value": 1.0, "easing": "easeOut" },
+            { "at": 0.35, "value": 1.18, "easing": "easeInOut" },
+            { "at": 0.7, "value": 1.0, "easing": "easeInOut" },
+            { "at": 1.0, "value": 1.0, "easing": "linear" }
+          ]
+        }
+      ],
+      "colors": []
+    },
+    {
+      "id": "spin",
+      "name": "Spin",
+      "longSyllableMs": 700,
+      "stagger": 0.04,
+      "sweep": true,
+      "sweepBand": 0.28,
+      "unsungDim": 0.35,
+      "glow": "none",
+      "tracks": [
+        {
+          "property": "rotate",
+          "keyframes": [
+            { "at": 0.0, "value": 0.0, "easing": "easeInOut" },
+            { "at": 1.0, "value": 360.0, "easing": "linear" }
+          ]
+        },
+        {
+          "property": "alpha",
+          "keyframes": [
+            { "at": 0.0, "value": 0.2, "easing": "easeOut" },
+            { "at": 0.4, "value": 1.0, "easing": "linear" },
+            { "at": 1.0, "value": 1.0, "easing": "linear" }
+          ]
+        }
+      ],
+      "colors": []
+    },
+    {
+      "id": "wave",
+      "name": "Wave",
+      "longSyllableMs": 700,
+      "stagger": 0.15,
+      "sweep": true,
+      "sweepBand": 0.3,
+      "unsungDim": 0.4,
+      "glow": "none",
+      "tracks": [
+        {
+          "property": "translateY",
+          "keyframes": [
+            { "at": 0.0, "value": 0.0, "easing": "easeInOut" },
+            { "at": 0.25, "value": -0.3, "easing": "easeInOut" },
+            { "at": 0.5, "value": 0.0, "easing": "easeInOut" },
+            { "at": 0.75, "value": 0.3, "easing": "easeInOut" },
+            { "at": 1.0, "value": 0.0, "easing": "linear" }
+          ]
+        },
+        {
+          "property": "scale",
+          "keyframes": [
+            { "at": 0.0, "value": 1.0, "easing": "easeInOut" },
+            { "at": 0.25, "value": 1.08, "easing": "easeInOut" },
+            { "at": 0.5, "value": 1.0, "easing": "easeInOut" },
+            { "at": 0.75, "value": 1.08, "easing": "easeInOut" },
+            { "at": 1.0, "value": 1.0, "easing": "linear" }
+          ]
+        }
+      ],
+      "colors": []
+    },
+    {
+      "id": "rainbow",
+      "name": "Rainbow",
+      "longSyllableMs": 700,
+      "stagger": 0.1,
+      "sweep": true,
+      "sweepBand": 0.3,
+      "unsungDim": 0.35,
+      "glow": "none",
+      "tracks": [],
+      "colors": [
+        { "at": 0.0, "color": "#FF3B30", "easing": "linear" },
+        { "at": 0.25, "color": "#FFCC00", "easing": "linear" },
+        { "at": 0.5, "color": "#34C759", "easing": "linear" },
+        { "at": 0.75, "color": "#0A84FF", "easing": "linear" },
+        { "at": 1.0, "color": "#BF5AF2", "easing": "linear" }
+      ]
+    },
+    {
+      "id": "glow_pulse",
+      "name": "Glow Pulse",
+      "longSyllableMs": 700,
+      "stagger": 0.0,
+      "sweep": true,
+      "sweepBand": 0.28,
+      "unsungDim": 0.35,
+      "glow": "all",
+      "tracks": [
+        {
+          "property": "glowAlpha",
+          "keyframes": [
+            { "at": 0.0, "value": 0.0, "easing": "easeOut" },
+            { "at": 0.5, "value": 1.0, "easing": "easeIn" },
+            { "at": 1.0, "value": 0.0, "easing": "linear" }
+          ]
+        },
+        {
+          "property": "glowRadius",
+          "keyframes": [
+            { "at": 0.0, "value": 0.0, "easing": "easeOut" },
+            { "at": 0.5, "value": 0.6, "easing": "easeIn" },
+            { "at": 1.0, "value": 0.1, "easing": "linear" }
+          ]
+        }
+      ],
+      "colors": []
+    },
+    {
+      "id": "elastic",
+      "name": "Elastic",
+      "longSyllableMs": 700,
+      "stagger": 0.05,
+      "sweep": true,
+      "sweepBand": 0.28,
+      "unsungDim": 0.35,
+      "glow": "none",
+      "tracks": [
+        {
+          "property": "scale",
+          "keyframes": [
+            { "at": 0.0, "value": 0.4, "easing": "easeOutElastic" },
+            { "at": 1.0, "value": 1.0, "easing": "linear" }
+          ]
+        },
+        {
+          "property": "translateY",
+          "keyframes": [
+            { "at": 0.0, "value": 0.35, "easing": "easeOutElastic" },
+            { "at": 1.0, "value": 0.0, "easing": "linear" }
+          ]
+        }
+      ],
+      "colors": []
+    }
+  ]
+}

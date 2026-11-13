@@ -213,8 +213,14 @@ internal val PLUGIN_ID_PATTERN = Regex("[a-z0-9_]+(\\.[a-z0-9_]+)+")
 internal fun isValidPluginId(id: String): Boolean = id.matches(PLUGIN_ID_PATTERN)
 
 /**
- * 语言标签匹配规则：完整匹配（zh-CN）→ 主语言匹配（zh）→ 默认值。
+ * 语言标签匹配规则：完整匹配（zh-CN）→ 同主语言且文种相容的条目 → 默认值。
  * 与宿主 UI 现有三语（en/zh-CN/zh-TW）约定一致。
+ *
+ * **文种判据**（2026-10-07 修复「插件设置整片显示成繁体」）：插件清单的约定是「默认值 =
+ * 插件母语文案，*Locales 只列需要覆盖的语言」——仓库内插件因此只声明 zh-TW/en，简体中文
+ * 靠默认值。若主语言匹配直接取第一个 zh 条目，简体设备（zh-CN / zh-Hans*）会命中 zh-TW。
+ * 因此：显式声明了**相反文种**的条目不参与匹配（简体设备不认 zh-TW，繁体设备不认 zh-CN），
+ * 此时回落默认值；同文种的条目优先于无从判断文种的条目。
  */
 internal fun localizedValue(
     languageTag: String,
@@ -224,9 +230,38 @@ internal fun localizedValue(
     if (locales.isEmpty()) return fallback
     locales[languageTag]?.let { return it }
     val mainLanguage = languageTag.substringBefore('-')
-    locales.entries.firstOrNull { it.key.substringBefore('-') == mainLanguage }
-        ?.let { return it.value }
-    return fallback
+    val candidates = locales.entries.filter { it.key.substringBefore('-') == mainLanguage }
+    if (candidates.isEmpty()) return fallback
+    val deviceScript = chineseScriptOf(languageTag)
+    if (deviceScript != null) {
+        candidates.firstOrNull { chineseScriptOf(it.key) == deviceScript }?.let { return it.value }
+        // 文种中立的条目（如 "zh"）优于相反文种的条目。
+        candidates.firstOrNull { chineseScriptOf(it.key) == null }?.let { return it.value }
+        // 只剩显式相反文种 → 默认值（插件母语文案）比反向文种更贴近设备。
+        return fallback
+    }
+    return candidates.first().value
+}
+
+/**
+ * 中文文种（`Hans` / `Hant`）：显式 script 优先，否则按地区推断
+ * （CN/SG/MY → Hans，TW/HK/MO → Hant）；非中文或无从判断返回 null。纯函数，可单测。
+ */
+internal fun chineseScriptOf(languageTag: String): String? {
+    val parts = languageTag.split('-').filter { it.isNotEmpty() }
+    if (parts.firstOrNull()?.lowercase() != "zh") return null
+    for (part in parts.drop(1)) {
+        when (part.lowercase()) {
+            "hans" -> return "Hans"
+            "hant" -> return "Hant"
+        }
+    }
+    val region = parts.drop(1).lastOrNull { it.length == 2 && it.all(Char::isLetter) }?.uppercase()
+    return when (region) {
+        "CN", "SG", "MY" -> "Hans"
+        "TW", "HK", "MO" -> "Hant"
+        else -> null
+    }
 }
 
 /** manifest.json 解析与容错（宽松：未知字段忽略，类型不符按缺省处理）。 */

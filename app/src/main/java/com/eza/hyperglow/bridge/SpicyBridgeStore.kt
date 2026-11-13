@@ -56,9 +56,13 @@ internal fun normalizeSpicyBridgeRenderModes(
     weight = candidate.weight.takeIf { it in SPICY_WEIGHTS } ?: "Medium",
     textSize = candidate.textSize.takeIf { it in SPICY_TEXT_SIZES } ?: "normal",
     textSizeCustom = candidate.textSizeCustom.coerceIn(0, 500),
-    secondary = when (candidate.secondary) {
-        "Transliteration", "Translation", "Both" -> candidate.secondary
-        "Romanization", "Romanized" -> "Transliteration"
+    secondary = when {
+        candidate.secondary == "Romanization" || candidate.secondary == "Romanized" ->
+            "Transliteration"
+        // 历史四档与多选内容集合都按词表归一原样通过(同 animation 白名单语义:漏一处即
+        // 「设置页正常、实机不变」);词表外的值仍回落「仅主歌词」。
+        com.eza.hyperglow.customization.normalizeAuxMode(candidate.secondary) ==
+            candidate.secondary -> candidate.secondary
         else -> "Main only"
     },
     animation = when (candidate.animation) {
@@ -147,16 +151,10 @@ internal class SpicyBridgeStateReducer {
     var current: SpicyBridgeState? = null
         private set
 
-    private var tombstoneProducerId = ""
-    private var tombstoneGeneration = -1L
-
     fun accept(payload: SpicyBridgeStatePayload, now: Long): Boolean {
         if (payload.protocolVersion != SpicyBridgeStore.PROTOCOL_VERSION) return false
         if (payload.producerId.isBlank() || payload.producerId.length > 64 ||
             payload.generation < 0 || payload.sequence < 0L
-        ) return false
-        if (payload.producerId == tombstoneProducerId &&
-            payload.generation <= tombstoneGeneration
         ) return false
 
         current?.let { accepted ->
@@ -241,12 +239,14 @@ internal class SpicyBridgeStateReducer {
         return true
     }
 
+    /**
+     * 丢弃持有的 state。generation 不再退役:生产者总会在 clear 之后紧跟它的下一次更新,
+     * 而旧的墓碑会拒绝此后所有 ≤ 被清除 generation 的载荷,于是每当生产者因自身原因 clear
+     * 后又在同一 generation 上恢复,余下整首歌就会黑屏。[accept] 内仍对持有的 state 做
+     * 顺序判定,因此更旧的 generation 或更低的 sequence 无法替换当前值。
+     */
     fun clear(producerId: String, generation: Long) {
         if (producerId.isBlank()) return
-        if (producerId != tombstoneProducerId || generation > tombstoneGeneration) {
-            tombstoneProducerId = producerId
-            tombstoneGeneration = generation
-        }
         current?.let { accepted ->
             if (producerId == accepted.producerId && generation >= accepted.generation) current = null
         }

@@ -513,7 +513,119 @@ class LyricProducerArbiterTest {
         assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
     }
 
-    /**
+    // --- 开发者选项「强制指定歌词提供器」+ 源健康兜底(卡死/时间戳不符自动换) ---
+
+    @Test
+    fun forcePreferredSource_ignoresTimedUpgrade() {
+        // 默认会自动升级到带逐字时间的源;打开强制指定后只认用户选中的源。
+        val now = 1_000L
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED, state("lyricon", now)
+        )
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED, timedState("superlyric", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricon, superLyric)) { now }
+        arbiter.setPreference(LyricSource.LYRICON)
+        arbiter.updateForcePreferredSource(true)
+
+        assertEquals("lyricon", arbiter.computeActiveOnce()?.producerId)
+        assertEquals(LyricSource.LYRICON, arbiter.activeSource.value)
+    }
+
+    @Test
+    fun stuckPreferredSource_switchesToHealthyAlternative() {
+        // 写端冻结但回调仍按 60Hz 重发同一个位置值:收包时间新鲜、位置值 10s 不动 → 卡死换源。
+        var now = 1_000L
+        val frozen = { state("lyricon", now).copy(positionMs = 60_000L) }
+        val lyricon = FakeProducer(LyricSource.LYRICON, ProducerConnection.CONNECTED, frozen())
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED, state("superlyric", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricon, superLyric)) { now }
+        arbiter.setPreference(LyricSource.LYRICON)
+
+        assertEquals("lyricon", arbiter.computeActiveOnce()?.producerId)
+
+        now = 11_500L
+        lyricon.emit(frozen())
+        superLyric.emit(state("superlyric", now))
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+        assertEquals(LyricSource.SUPERLYRIC, arbiter.activeSource.value)
+
+        // 降级窗口内保持替代源,不因偏好仍是 LYRICON 而每个 tick 跳回去。
+        now = 12_000L
+        lyricon.emit(frozen())
+        superLyric.emit(state("superlyric", now))
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    @Test
+    fun timestampMismatch_switchesToHealthyAlternative() {
+        // 选中源位置与播放器 MediaSession 权威位置持续差 20s → 时间戳不符换源。
+        var now = 1_000L
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", now).copy(positionMs = 10_000L)
+        )
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED, state("superlyric", now)
+        )
+        val lyricInfo = FakeProducer(
+            LyricSource.LYRICINFO, ProducerConnection.CONNECTED,
+            state("lyricinfo", now).copy(positionMs = 30_000L)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricon, superLyric, lyricInfo)) { now }
+        arbiter.setPreference(LyricSource.LYRICON)
+        arbiter.referencePositionProvider = {
+            lyricInfo.state.value?.let { st ->
+                LyricReferencePosition(
+                    positionMs = st.positionMs,
+                    sampledAtElapsedMs = st.sampledAtElapsedMs,
+                    speed = st.speed,
+                    playing = st.playing
+                )
+            }
+        }
+
+        assertEquals("lyricon", arbiter.computeActiveOnce()?.producerId)
+
+        // 第一拍判出偏差,尚未满足 5s 持续窗。
+        now = 7_000L
+        lyricon.emit(state("lyricon", now).copy(positionMs = 10_000L))
+        superLyric.emit(state("superlyric", now))
+        lyricInfo.emit(state("lyricinfo", now).copy(positionMs = 30_000L))
+        assertEquals("lyricon", arbiter.computeActiveOnce()?.producerId)
+
+        // 偏差持续 6s → 换到健康源。
+        now = 13_000L
+        lyricon.emit(state("lyricon", now).copy(positionMs = 12_000L))
+        superLyric.emit(state("superlyric", now))
+        lyricInfo.emit(state("lyricinfo", now).copy(positionMs = 32_000L))
+        assertEquals("superlyric", arbiter.computeActiveOnce()?.producerId)
+    }
+
+    @Test
+    fun forcePreferredSource_doesNotAutoSwitch() {
+        var now = 1_000L
+        val lyricon = FakeProducer(
+            LyricSource.LYRICON, ProducerConnection.CONNECTED,
+            state("lyricon", now).copy(positionMs = 60_000L)
+        )
+        val superLyric = FakeProducer(
+            LyricSource.SUPERLYRIC, ProducerConnection.CONNECTED, state("superlyric", now)
+        )
+        val arbiter = LyricProducerArbiter(arbiterMap(lyricon, superLyric)) { now }
+        arbiter.setPreference(LyricSource.LYRICON)
+        arbiter.updateForcePreferredSource(true)
+
+        assertEquals("lyricon", arbiter.computeActiveOnce()?.producerId)
+        now = 30_000L
+        lyricon.emit(state("lyricon", now).copy(positionMs = 60_000L))
+        superLyric.emit(state("superlyric", now))
+        assertEquals("lyricon", arbiter.computeActiveOnce()?.producerId)
+    }
+
     /**
      * Regression: a paused producer stops receiving position callbacks by design, so its state
      * goes stale after STALE_AFTER_MS even though the frozen lyric line is still valid. The
@@ -523,7 +635,6 @@ class LyricProducerArbiterTest {
      *
      * 0.3.120 起让位规则收窄为「只让位给在播且带歌词内容的源」:无内容回退源仍被本例
      * 拦截;在播且有内容的更新鲜源接管见 pausedStalePreferred_yieldsToFresherPlayingSourceWithContent。
-     */
      */
     @Test
     fun pausedStalePreferred_keepsFrozenState_insteadOfContentlessFallback() {

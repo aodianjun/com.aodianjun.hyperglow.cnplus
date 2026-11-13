@@ -5,7 +5,10 @@ import android.os.RemoteCallbackList
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.customization.CompiledCustomization
+import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.customization.CompiledCustomizationBundleCodec
+import com.eza.hyperglow.root.customization.SpriteWire
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
 data class AodDisplayState(
@@ -17,6 +20,11 @@ data class AodDisplayState(
     val aodEnabled: Boolean = true,
     val lockscreenEnabled: Boolean = false,
     val keepAlive: Boolean = false,
+    /**
+     * 有限时长保活已到点（见 [AodPowerSessionDecision.keepAliveExpired]）。渲染面据此停掉
+     * 绘制唤醒与 AOD 重唤醒；与 [keepAlive]=false 的普通「本拍无请求」区分。
+     */
+    val keepAliveExpired: Boolean = false,
     val positionFollowingEnabled: Boolean = false,
     val burnInPattern: String = "static_bottom",
     val burnInIntervalMs: Long = 60_000L,
@@ -53,6 +61,24 @@ data class AodDisplayState(
      * 由渲染面替换 [original] 的占位符(见 root/aod/LyricCanvasMapper)。
      */
     val largeMetadata: Boolean = false,
+    /**
+     * 纯音乐曲目(整首歌词只有「纯音乐请欣赏」标记,见 producer.PureMusicLyrics):渲染面
+     * 按本面「无歌词/纯音乐歌词行为」在保持原标记/替换为歌曲信息/交还系统默认间选择。
+     */
+    val pureMusic: Boolean = false,
+    /**
+     * 真无歌词曲目(producer `lyricKind == NONE`,整首没有任何歌词行):渲染面按本面
+     * 「无歌词/纯音乐歌词行为」在保持原占位/替换为歌曲信息/交还系统默认间选择。
+     * 纯音乐标记行是 LINE,不会落进本标记。
+     */
+    val noLyrics: Boolean = false,
+    /**
+     * 尾奏上下文:最后一句歌词结束后 producer 已清行、投影层补回最后一行,或最后一行仍在
+     * 且没有下一行。**不表示延迟已到点**——渲染面按本面
+     * [com.eza.hyperglow.customization.SurfaceProfile.tailTimeoutDelaySeconds] 计算
+     * `tailTimeoutActive` 后再解释 keep/music_info/restore_default 三态。
+     */
+    val tailEligible: Boolean = false,
     /** 对唱分侧(元数据身份版);标记识别版见 [alignedRightMarkers],由渲染面按本面开关选用。 */
     val alignedRight: Boolean = false,
     /** 对唱分侧(标记识别版);「识别对唱标记」开启的面取本值,否则取 [alignedRight]。 */
@@ -65,10 +91,21 @@ data class AodDisplayState(
     val sampledAtElapsedMs: Long = 0L,
     val speed: Float = 1f,
     val words: List<AodDisplayWord> = emptyList(),
+    /**
+     * 插件提供的逐字翻译词表(词级译文 + 时间窗,见 `PluginLyricField.TRANSLATION_WORDS`):
+     * 翻译辅助行按真实词窗点亮;空表 = 无词级数据,渲染侧回落行窗口合成。
+     */
+    val translationWords: List<AodDisplayWord> = emptyList(),
     val ruby: List<AodDisplayRuby> = emptyList(),
     val layoutGroups: List<AodDisplayLayoutGroup> = emptyList(),
     /** 对唱并发行(仅息屏消费);null = 无并发行或「显示并发歌词(对唱)」已关。 */
     val duetLine: AodDisplayDuetLine? = null,
+    /**
+     * 长间奏窗口(v10,参考 HyperLyric 倒计时圆点):上一行 end .. 下一行 start 的原始空隙
+     * (投影层判定 ≥4s 才携带);0/0 = 无。渲染面按本面开关与「显示下一行」映射解析。
+     */
+    val interludeStartMs: Long = 0L,
+    val interludeEndMs: Long = 0L,
     val weight: String = "Medium",
     val textSizeMode: String = "normal",
     val textSizeCustom: Int = 100,
@@ -136,6 +173,8 @@ data class AodDisplayDuetLine(
     val alignedRight: Boolean = false,
     /** 对唱分侧(标记识别版);由渲染面按本面「识别对唱标记」开关选用。 */
     val alignedRightMarkers: Boolean = false,
+    /** 和声行(插件行 role=BG 的 x-bg 回声):渲染面走辅助行车道,不与对唱同款。 */
+    val harmony: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<AodDisplayWord> = emptyList()
@@ -143,6 +182,9 @@ data class AodDisplayDuetLine(
 
 object AodStateBridge {
     private val callbacks = RemoteCallbackList<IAodLyricCallback>()
+    private val spectrumCallbacks = RemoteCallbackList<IAodSpectrumCallback>()
+    private var latestSpectrumFrame: SpectrumFrame? = null
+    private var lastSpectrumPublishAtMs = 0L
     private var currentRevision = 0L
     private var latestMessage: AodStateWireMessage = AodStateWireMessage.Hidden(
         revision = 0L,
@@ -155,9 +197,21 @@ object AodStateBridge {
         requireNotNull(AodStateWireCodec.encode(latestMessage))
     )
     private var latestConfiguration: Bundle? = null
+    private var latestSpriteAttachments: List<SpriteWire.Attachment> = emptyList()
     private var lastConfigurationHash = ""
+    private var lastSpriteSignature = ""
     private var lastPublished: AodDisplayState? = null
     private var lastFullPublishAtElapsedMs = Long.MIN_VALUE
+
+    /**
+     * 发布代次：释放路径递增（[invalidatePublications]），在途可见快照的提交在 bridge 锁内
+     * 比对（[publishIfCurrent]）。投影侧的最终验证（ProjectionPublicationGuard.canPublish）
+     * 与提交（[publish]）分属两把锁，暂停确认/延迟释放可在两者之间插入 release（invalidate
+     * + 发布 Hidden），旧可见快照仍会提交成功、AOD 继续显示过期歌词直到新鲜度窗口过期。
+     * 代次是原子量、只做无锁读：比对不取 guard 锁，不新增 bridge → guard 的嵌套
+     * （既有嵌套只有 engine → bridge 与 engine → guard）。
+     */
+    private val publicationEpoch = AtomicLong(0L)
 
     @Synchronized
     fun register(callback: IAodLyricCallback) {
@@ -171,10 +225,18 @@ object AodStateBridge {
                 (if (cached != null) "replayed" else "absent")
         )
         cached?.let { configuration ->
+            // 补推时重新打开贴图 fd:缓存的 payload bundle 不持有 fd,避免长期占着
+            // 文件描述符;每次投递临时打开、投递后立即关闭(接收侧由 Binder dup)。
+            val replay = Bundle(configuration)
+            val spriteFds = runCatching {
+                SpriteWire.attach(replay, latestSpriteAttachments)
+            }.getOrDefault(emptyList())
             try {
-                callback.onConfiguration(Bundle(configuration))
+                callback.onConfiguration(replay)
             } catch (error: Exception) {
                 AppLog.w(TAG, "Initial configuration delivery failed", error)
+            } finally {
+                spriteFds.forEach { descriptor -> runCatching { descriptor.close() } }
             }
         }
         val replayEnvelope = AodStateWireCodec.encode(latestMessage) ?: return
@@ -193,6 +255,65 @@ object AodStateBridge {
     @Synchronized
     fun hasSystemUiCallback(): Boolean = callbacks.registeredCallbackCount > 0
 
+    /** SystemUI 侧注册低速率频谱回调；注册时回放最近一帧（过期则回放静默帧）。 */
+    @Synchronized
+    fun registerSpectrum(callback: IAodSpectrumCallback) {
+        spectrumCallbacks.register(callback)
+        val now = SystemClock.elapsedRealtime()
+        val latest = latestSpectrumFrame
+        val replay = if (latest != null &&
+            now - latest.capturedAtElapsedMs <= SpectrumContract.MAX_FRAME_AGE_MS
+        ) {
+            latest
+        } else {
+            SpectrumFrame.idle(
+                sequence = latest?.sequence ?: 0L,
+                nowElapsedMs = now
+            )
+        }
+        val envelope = SpectrumWireCodec.toBundle(replay) ?: return
+        try {
+            callback.onSpectrum(Bundle(envelope))
+        } catch (error: Exception) {
+            AppLog.w(TAG, "Initial spectrum delivery failed", error)
+        }
+    }
+
+    @Synchronized
+    fun unregisterSpectrum(callback: IAodSpectrumCallback) {
+        spectrumCallbacks.unregister(callback)
+    }
+
+    @Synchronized
+    fun hasSpectrumCallback(): Boolean = spectrumCallbacks.registeredCallbackCount > 0
+
+    /**
+     * 发布一帧频谱。默认按 [SpectrumContract.MIN_PUBLISH_INTERVAL_MS] 节流；
+     * force=true 用于停播/销毁时的静默帧，必须无条件送达。
+     */
+    @Synchronized
+    fun publishSpectrum(frame: SpectrumFrame, force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastSpectrumPublishAtMs < SpectrumContract.MIN_PUBLISH_INTERVAL_MS) {
+            return
+        }
+        val bundle = SpectrumWireCodec.toBundle(frame) ?: return
+        lastSpectrumPublishAtMs = now
+        latestSpectrumFrame = frame
+        val count = spectrumCallbacks.beginBroadcast()
+        try {
+            for (index in 0 until count) {
+                try {
+                    spectrumCallbacks.getBroadcastItem(index).onSpectrum(Bundle(bundle))
+                } catch (error: Exception) {
+                    AppLog.w(TAG, "Spectrum delivery failed", error)
+                }
+            }
+        } finally {
+            spectrumCallbacks.finishBroadcast()
+        }
+    }
+
     @Synchronized
     fun publish(state: AodDisplayState) {
         val publishedState = normalizeAodDisplayState(state)
@@ -210,35 +331,71 @@ object AodStateBridge {
         broadcast(latest)
     }
 
+    /**
+     * 采样当前发布代次。必须在最终验证（canPublish）**之前**采样：采样之后发生的任何
+     * release 都会让 [publishIfCurrent] 拒绝这次提交；采样之前发生的 release 已让
+     * canPublish 失败——两条合起来关掉「验证 → 提交」之间的窗口。
+     */
+    fun currentPublicationEpoch(): Long = publicationEpoch.get()
+
+    /** 释放路径调用（见 AodProjectionEngine.releaseNow）：作废所有在途的旧代次提交。 */
+    fun invalidatePublications(): Long = publicationEpoch.incrementAndGet()
+
+    /**
+     * 提交在途快照：代次比对与 [publish] 同持 bridge 锁。释放路径先递增代次、再发布
+     * Hidden（同一 monitor），因此旧代次提交要么先于 Hidden 落盘、要么被这里拒绝，
+     * 不会再出现「release 之后旧快照覆盖 Hidden」。
+     */
     @Synchronized
-    fun publishConfiguration(
+    fun publishIfCurrent(epoch: Long, state: AodDisplayState) {
+        if (epoch != publicationEpoch.get()) return
+        publish(state)
+    }
+
+    @Synchronized
+    internal fun publishConfiguration(
         configuration: CompiledCustomization,
         userId: Int,
-        experimentalMode: Boolean = false
+        experimentalMode: Boolean = false,
+        spriteAttachments: List<SpriteWire.Attachment> = emptyList()
     ) {
-        if (configuration.hash == lastConfigurationHash) return
+        val spriteSignature = SpriteWire.signature(spriteAttachments)
+        // 配置哈希不变但贴图集合变了(导入/删除自定义贴图)也必须重推,否则 SystemUI
+        // 侧注册表停留在旧图。
+        if (configuration.hash == lastConfigurationHash && spriteSignature == lastSpriteSignature) {
+            return
+        }
         val animationSummary = configuration.profiles.entries.joinToString(",") { (surface, profile) ->
             "$surface=${profile.animation}"
         }
         val bundle = CompiledCustomizationBundleCodec.toBundle(configuration, userId, experimentalMode)
         lastConfigurationHash = configuration.hash
+        lastSpriteSignature = spriteSignature
         latestConfiguration = bundle
+        latestSpriteAttachments = spriteAttachments.filter { it.isValid }
+        // payload 与贴图分开:缓存只留 payload,投递用的副本临时挂 fd。
+        val delivery = Bundle(bundle)
+        val spriteFds = SpriteWire.attach(delivery, latestSpriteAttachments) { reason ->
+            AppLog.w(TAG, "Sprite attach rejected reason=$reason")
+        }
         val count = callbacks.beginBroadcast()
         AppLog.w(
             TAG,
             "Configuration publish hash=${configuration.hash.take(8)} userId=$userId " +
-                "callbacks=$count anim=[$animationSummary]"
+                "callbacks=$count sprites=${latestSpriteAttachments.size} anim=[$animationSummary]"
         )
         try {
             for (index in 0 until count) {
                 try {
-                    callbacks.getBroadcastItem(index).onConfiguration(Bundle(bundle))
+                    callbacks.getBroadcastItem(index).onConfiguration(delivery)
                 } catch (error: Exception) {
                     AppLog.w(TAG, "Configuration delivery failed", error)
                 }
             }
         } finally {
             callbacks.finishBroadcast()
+            // Binder 在事务发送时已把 fd dup 到接收进程,这里关的是发送侧副本。
+            spriteFds.forEach { descriptor -> runCatching { descriptor.close() } }
         }
     }
 
@@ -254,6 +411,7 @@ object AodStateBridge {
             userId = current.userId,
             updatedAtElapsedMs = updatedAt,
             keepAlive = current.keepAlive,
+            keepAliveExpired = current.keepAliveExpired,
             wakeSignal = current.wakeSignal,
             playbackActive = current.playbackActive,
             pauseRetentionEligible = current.pauseRetentionEligible
@@ -362,6 +520,7 @@ internal fun encodeNormalizedAodStatePublication(
             userId = state.userId,
             updatedAtElapsedMs = updatedAtElapsedMs,
             keepAlive = false,
+            keepAliveExpired = state.keepAliveExpired,
             wakeSignal = state.wakeSignal,
             playbackActive = state.playbackActive,
             pauseRetentionEligible = state.pauseRetentionEligible
@@ -438,6 +597,29 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             )
         }
         .toList()
+    // 插件逐字翻译词表:与 words 同一道钳制(条数上限/时间钳到歌长/文本净化);片段不指向
+    // 原文,source 范围恒 -1(与并发行词表同口径);空文本片段整条丢弃(不贡献译文文本)。
+    val translationWords = state.translationWords.asSequence()
+        .take(AodStateWireLimits.MAX_WORDS)
+        .mapNotNull { word ->
+            val text = word.text.sanitizeUtf16().takeUtf16Prefix(AodStateWireLimits.MAX_LYRIC_CHARS)
+            if (text.isEmpty()) return@mapNotNull null
+            val startMs = word.startMs.coerceAtLeast(0L).let {
+                if (duration > 0L) it.coerceAtMost(duration) else it
+            }
+            word.copy(
+                text = text,
+                romanized = "",
+                startMs = startMs,
+                endMs = word.endMs.coerceAtLeast(startMs).let {
+                    if (duration > 0L) it.coerceAtMost(duration) else it
+                },
+                boundaryAfter = true,
+                sourceStart = -1,
+                sourceEnd = -1
+            )
+        }
+        .toList()
     val ruby = state.ruby.asSequence()
         .take(AodStateWireLimits.MAX_RUBY)
         .mapNotNull { item ->
@@ -468,7 +650,13 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
 .toList()
     // 对唱并发行:文本钳制、时间窗/词级时间钳到歌长、词级 source 范围弃用(画布并发行
     // 不走逐字扫光路径);ruby/layoutGroups v1 不携带。条数超限/文本为空整条丢弃
-    // (并发行是可选增强,不应连累主行发布)。
+    // (并发行是可选增强,不应连累主行发布);与主行的联合条数/联合聚合预算见
+    // fitAodEnhancementBudget——装不下时同样整条丢弃,不牺牲主文本。
+    HookLogger.iThrottled("duet-bridge", 5_000L, "AodStateBridge") {
+        val d = state.duetLine
+        "Duet bridge: in=${d?.text?.take(16)} inWin=${d?.lineStartMs}..${d?.lineEndMs} " +
+            "duration=$duration out=${d != null && d.text.isNotBlank()}"
+    }
     val duetLine = state.duetLine?.let { line ->
         val duetText = line.text.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS)
         if (duetText.isEmpty()) {
@@ -480,6 +668,7 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
                 translated = line.translated.normalizeAodWireText(AodStateWireLimits.MAX_LYRIC_CHARS),
                 alignedRight = line.alignedRight,
                 alignedRightMarkers = line.alignedRightMarkers,
+                harmony = line.harmony,
                 lineStartMs = line.lineStartMs.coerceAtLeast(0L).let {
                     if (duration > 0L) it.coerceAtMost(duration) else it
                 },
@@ -505,7 +694,16 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
             )
         }
     }
-    val (budgetWords, budgetRuby, budgetGroups) = fitAodEnhancementBudget(
+    // 长间奏窗口:两端钳到歌长,半截/退化窗口整体清零(fail-closed:宁可不显示圆点,
+    // 不携带越界或半截窗口让渲染面画出错位的倒计时)。
+    val interludeStartMs = state.interludeStartMs.coerceAtLeast(0L).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
+    val interludeEndMs = state.interludeEndMs.coerceAtLeast(0L).let {
+        if (duration > 0L) it.coerceAtMost(duration) else it
+    }
+    val interludeValid = interludeStartMs > 0L && interludeEndMs > interludeStartMs
+    val fitted = fitAodEnhancementBudget(
         baseTexts = listOf(
             original,
             romanized,
@@ -520,8 +718,10 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         ),
         styleTexts = styleTokens(state),
         words = words,
+        translationWords = translationWords,
         ruby = ruby,
-        groups = layoutGroups
+        groups = layoutGroups,
+        duetLine = duetLine
     )
     // 歌曲图片:超限/半截帧整帧丢弃(fail-closed:宁可不显示,不显示超界或残缺帧)。
     val artworkJpeg = state.artworkJpeg.takeIf {
@@ -579,10 +779,11 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         speed = state.speed.takeIf {
             it.isFinite() && it in 0f..AodStateWireLimits.MAX_PLAYBACK_SPEED
         } ?: 1f,
-        words = budgetWords,
-        ruby = budgetRuby,
-        layoutGroups = budgetGroups,
-        duetLine = duetLine,
+        words = fitted.words,
+        translationWords = fitted.translationWords,
+        ruby = fitted.ruby,
+        layoutGroups = fitted.groups,
+        duetLine = fitted.duetLine,
         weight = normalizeAodWeight(state.weight),
         textSizeMode = normalizeAodTextSize(state.textSizeMode),
         textSizeCustom = state.textSizeCustom.coerceIn(0, 500),
@@ -597,7 +798,9 @@ internal fun normalizeAodDisplayState(state: AodDisplayState): AodDisplayState {
         alignmentMode = normalizeAodAlignment(state.alignmentMode),
         metadataAnchor = normalizeAodMetadataAnchor(state.metadataAnchor),
         artworkJpeg = artworkJpeg,
-        artworkKey = artworkKey
+        artworkKey = artworkKey,
+        interludeStartMs = if (interludeValid) interludeStartMs else 0L,
+        interludeEndMs = if (interludeValid) interludeEndMs else 0L
     )
 }
 
@@ -610,6 +813,7 @@ private fun AodDisplayState.toWireMessage(
         userId = userId,
         updatedAtElapsedMs = updatedAtElapsedMs,
         keepAlive = keepAlive,
+        keepAliveExpired = keepAliveExpired,
         wakeSignal = wakeSignal,
         playbackActive = playbackActive,
         pauseRetentionEligible = pauseRetentionEligible
@@ -620,6 +824,7 @@ private fun AodDisplayState.toWireMessage(
         userId = userId,
         updatedAtElapsedMs = updatedAtElapsedMs,
         keepAlive = keepAlive,
+        keepAliveExpired = keepAliveExpired,
         wakeSignal = wakeSignal,
         playbackActive = playbackActive,
         pauseRetentionEligible = pauseRetentionEligible,
@@ -655,6 +860,9 @@ private fun AodDisplayState.toWireMessage(
             artist = artist,
             album = album,
             largeMetadata = largeMetadata,
+            pureMusic = pureMusic,
+            noLyrics = noLyrics,
+            tailEligible = tailEligible,
             alignedRight = alignedRight,
             alignedRightMarkers = alignedRightMarkers,
             lineLevelSync = lineLevelSync,
@@ -665,6 +873,17 @@ private fun AodDisplayState.toWireMessage(
             sampledAtElapsedMs = sampledAtElapsedMs,
             speed = speed,
             words = words.map { word ->
+                AodStateWireWord(
+                    text = word.text,
+                    romanized = word.romanized,
+                    startMs = word.startMs,
+                    endMs = word.endMs,
+                    boundaryAfter = word.boundaryAfter,
+                    sourceStart = word.sourceStart,
+                    sourceEnd = word.sourceEnd
+                )
+            },
+            translationWords = translationWords.map { word ->
                 AodStateWireWord(
                     text = word.text,
                     romanized = word.romanized,
@@ -704,6 +923,8 @@ private fun AodDisplayState.toWireMessage(
             adaptiveSectioning = adaptiveSectioning,
             artworkJpeg = ArtworkJpeg(artworkJpeg),
             artworkKey = artworkKey,
+            interludeStartMs = interludeStartMs,
+            interludeEndMs = interludeEndMs,
             duetLine = duetLine?.let { line ->
                 AodStateWireDuetLine(
                     text = line.text,
@@ -711,6 +932,7 @@ private fun AodDisplayState.toWireMessage(
                     translated = line.translated,
                     alignedRight = line.alignedRight,
                     alignedRightMarkers = line.alignedRightMarkers,
+                    harmony = line.harmony,
                     lineStartMs = line.lineStartMs,
                     lineEndMs = line.lineEndMs,
                     words = line.words.map { word ->
@@ -744,9 +966,15 @@ internal fun trimAodSourceRange(
     return if (trimmedStart < trimmedEnd) trimmedStart to trimmedEnd else -1 to -1
 }
 
-/** 快照携带的样式 token（与 [toWireMessage]/[AodStateWireCodec] 校验侧同一顺序与归一）。 */
+/**
+ * 快照携带的样式 token（与 [toWireMessage]/[AodStateWireCodec] 校验侧同一顺序与归一）。
+ * 顺序按编码体的读取序（burnInPattern → aodRotationMode → 其余样式）：解码侧对这两项都走
+ * 同一个聚合 UTF-8 预算，本层漏计任一就会低估 4~9 字节，把刚好压线的包交给校验侧拒收
+ * （整包降级 Hidden）。
+ */
 private fun styleTokens(state: AodDisplayState): List<String> = listOf(
     normalizeAodBurnInPattern(state.burnInPattern),
+    normalizeAodRotationMode(state.aodRotationMode),
     normalizeAodWeight(state.weight),
     normalizeAodTextSize(state.textSizeMode),
     normalizeAodSecondary(state.secondaryMode),
@@ -762,33 +990,74 @@ private fun styleTokens(state: AodDisplayState): List<String> = listOf(
 )
 
 /**
- * 增强数据（词/注音/布局组）的聚合文本预算裁剪。
+ * 增强数据（词/逐字翻译词表/注音/布局组/对唱并发行）的聚合文本预算裁剪。
  *
  * [AodStateWireCodec] 的 isValidSnapshot 按 UTF-8 字节总额把关
  * （[AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES]），超限直接拒收整包、静默降级为
- * Hidden——整句歌词会因为词级数据超长而整体消失。词/注音/布局组是可选增强（STYLE_GUIDE:
- * 可选内容按序降级），这里按校验侧同一计数顺序（行文本 → 样式 → 词 → 注音 → 布局组）
- * 只装下最长前缀，行文本永远保留；口径与顺序必须与 isValidSnapshot 的 Utf8Budget 一致。
+ * Hidden——整句歌词会因为词级数据超长而整体消失。这些字段都是可选增强（STYLE_GUIDE:
+ * 可选内容按序降级），这里按校验侧同一计数顺序（行文本 → 样式 → 词 → 逐字翻译词 →
+ * 注音 → 布局组 → 对唱并发行）只装下最长前缀，行文本永远保留；口径与顺序必须与
+ * isValidSnapshot 的 Utf8Budget 一致。
+ *
+ * 对唱并发行排在阶梯末位（可选增强里最先被牺牲的一档），且按**整条**取舍：联合条数
+ * （词表与主行共享 [AodStateWireLimits.MAX_WORDS]）或联合聚合预算任一装不下就整条丢弃
+ * ——主文本一个字都不少，也不留半条（词表截半会让词级卡拉OK在行尾前停住）。
+ * 纯布尔字段（alignedRight/alignedRightMarkers/harmony）不占预算，无需新口径。
  */
+private data class FittedAodEnhancements(
+    val words: List<AodDisplayWord>,
+    val translationWords: List<AodDisplayWord>,
+    val ruby: List<AodDisplayRuby>,
+    val groups: List<AodDisplayLayoutGroup>,
+    val duetLine: AodDisplayDuetLine?
+)
+
 private fun fitAodEnhancementBudget(
     baseTexts: List<String>,
     styleTexts: List<String>,
     words: List<AodDisplayWord>,
+    translationWords: List<AodDisplayWord>,
     ruby: List<AodDisplayRuby>,
-    groups: List<AodDisplayLayoutGroup>
-): Triple<List<AodDisplayWord>, List<AodDisplayRuby>, List<AodDisplayLayoutGroup>> {
+    groups: List<AodDisplayLayoutGroup>,
+    duetLine: AodDisplayDuetLine?
+): FittedAodEnhancements {
     var used = 0
-    fun accept(vararg values: String): Boolean {
+    fun fits(values: List<String>): Boolean {
         var extra = 0
         for (value in values) extra += aodUtf8Bytes(value)
-        if (used + extra > AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES) return false
-        used += extra
+        return used + extra <= AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES
+    }
+    fun accept(vararg values: String): Boolean {
+        if (!fits(values.asList())) return false
+        for (value in values) used += aodUtf8Bytes(value)
         return true
     }
     // 行文本与样式是内容本身，必装（normalizeAodWireText 已压进各自字符上限）。
     for (text in baseTexts + styleTexts) accept(text)
     val keptWords = words.takeWhile { accept(it.text, it.romanized) }
+    val keptTranslationWords = translationWords.takeWhile { accept(it.text, it.romanized) }
     val keptRuby = ruby.takeWhile { accept(it.reading) }
     val keptGroups = groups.takeWhile { accept(it.kind) }
-    return Triple(keptWords, keptRuby, keptGroups)
+    // 对唱并发行：整条装下才保留。条数用裁剪后的主行词数（wire 校验的是最终快照的
+    // words.size + duet.words.size），字节口径与 isValidSnapshot 并发行段同序
+    // （文本 → 罗马音 → 译文 → 词表逐条的文本/罗马音）。
+    val keptDuetLine = duetLine?.takeIf { line ->
+        val duetTexts = buildList {
+            add(line.text)
+            add(line.romanized)
+            add(line.translated)
+            for (word in line.words) {
+                add(word.text)
+                add(word.romanized)
+            }
+        }
+        keptWords.size + line.words.size <= AodStateWireLimits.MAX_WORDS && fits(duetTexts)
+    }
+    return FittedAodEnhancements(
+        words = keptWords,
+        translationWords = keptTranslationWords,
+        ruby = keptRuby,
+        groups = keptGroups,
+        duetLine = keptDuetLine
+    )
 }

@@ -6,7 +6,7 @@
         "zh-TW": "HyperGlow 歌詞字形轉換"
     },
     "author": "HyperGlow CN+",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "apiVersion": 1,
     "entry": "com.example.hyperglow.scriptconvert.ScriptConvertPlugin",
     "activationSettingKey": "scriptconvert_enabled",

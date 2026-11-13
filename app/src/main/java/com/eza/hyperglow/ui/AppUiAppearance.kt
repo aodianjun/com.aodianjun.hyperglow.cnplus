@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -418,6 +417,9 @@ internal fun appTextColorScheme(base: Colors, custom: Color): Colors = base.copy
  * 字体令牌 → Compose 字族:内置字族取常量,已导入字体从应用私有目录直接加载
  * (与 SystemUI 不同,应用进程读自己的 filesDir 无需跨进程 Provider);
  * 文件缺失/损坏回落 null,由调用方走默认样式(跟随系统)。
+ * 解析(Typeface.createFromFile,字体上限 30MB,本地估算 10–50ms/次,真机未测)
+ * 搬 IO 通道(见 [rememberAppAsyncResource]):加载完成前回落 null(跟随系统),
+ * 失败同样回落 null;以路径 + lastModified 为代次键,切字体时 latest wins。
  */
 @Composable
 internal fun appTextFontFamily(token: String): FontFamily? {
@@ -425,7 +427,7 @@ internal fun appTextFontFamily(token: String): FontFamily? {
     val id = CustomFontContract.fontIdOf(token) ?: return null
     val context = LocalContext.current
     val file = CustomFontContract.fontFile(context.filesDir, id)
-    return remember(file.absolutePath, file.lastModified()) {
+    return rememberAppAsyncResource<FontFamily>(file.absolutePath, file.lastModified()) {
         runCatching { FontFamily(Typeface.createFromFile(file)) }.getOrNull()
     }
 }
@@ -500,6 +502,7 @@ internal fun removeAppBackgroundImage(context: android.content.Context): Boolean
     return !file.exists() || file.delete()
 }
 
+/** 读取背景图并解码;解码耗时(本地估算 50–300ms/次,真机未测)不适合主线程,调用方须经 [rememberAppAsyncResource] 在 IO 通道执行。 */
 internal fun loadAppBackgroundBitmap(context: android.content.Context): Bitmap? {
     val file = appBackgroundImageFile(context)
     if (!file.isFile) return null

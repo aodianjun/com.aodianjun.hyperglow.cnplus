@@ -236,10 +236,7 @@ internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                     onClick = {
                         updateDialogVersion = null
-                        openExternalUrl(
-                            context,
-                            "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest"
-                        )
+                        openExternalUrl(context, LSP_MODULE_URL + "/releases/latest")
                     }
                 )
             }

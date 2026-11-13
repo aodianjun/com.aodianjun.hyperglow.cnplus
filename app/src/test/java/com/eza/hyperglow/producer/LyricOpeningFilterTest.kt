@@ -127,4 +127,187 @@ class LyricOpeningFilterTest {
     fun emptyInputReturnsEmpty() {
         assertEquals(0, LyricOpeningFilter.filterOpeningMetadata(emptyList()).size)
     }
+
+    // --- 制作名单行识别(「不显示非歌词内容」开关的判定核心)---
+
+    @Test
+    fun creditLinesAreDetected_cnEnAndBracketForms() {
+        assertTrue(LyricCreditLineFilter.isCreditLine("作词：张三"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("作曲：李四"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("编曲：王五"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("词曲：赵六"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("作词 : 张三"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("Composer: John"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("lyricist: Bob"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("Arranger / Alice"))
+        // 括号标签型(含无名字的裸标签)
+        assertTrue(LyricCreditLineFilter.isCreditLine("【作词】 张三"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("(作曲) 李四"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("【作词】"))
+        // 空格隔开的英文分工写明
+        assertTrue(LyricCreditLineFilter.isCreditLine("Lyrics by Bob"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("Composed by John"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("Music by Someone"))
+        // 繁体与全角同样归一后命中(zh-Hant 歌词源常见)
+        assertTrue(LyricCreditLineFilter.isCreditLine("作詞：山田"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("編曲：山田"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("填詞：李四"))
+        assertTrue(LyricCreditLineFilter.isCreditLine("ＬＹＲＩＣＩＳＴ：John"))
+        // 「标签: 内容」形态本身即名单,内容长短不影响判定
+        assertTrue(LyricCreditLineFilter.isCreditLine("词曲：这是一句够长的歌词正文内容"))
+    }
+
+    @Test
+    fun ordinaryLyricsAreNeverTreatedAsCreditLines() {
+        // 保守原则的核心:宁可漏判(照常显示),不可错判(吞掉真歌词)。
+        assertFalse(LyricCreditLineFilter.isCreditLine("真正的第一句歌词"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("我作曲给你听")) // 句中出现,非行首分工
+        // 行首是角色词前缀但不成标签的真歌词:没有分隔符/右括号,绝不吞。
+        assertFalse(LyricCreditLineFilter.isCreditLine("作曲家的梦想"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("作词人的自白"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("I was composed and calm"))
+        assertFalse(LyricCreditLineFilter.isCreditLine(""))
+        assertFalse(LyricCreditLineFilter.isCreditLine("   "))
+        // 词边界:recomposed 内部的 composed 不能命中(左侧须非字母数字)。
+        assertFalse(LyricCreditLineFilter.isCreditLine("recomposed the melody"))
+        // 只有角色词、没有分隔/收尾时不算名单。
+        assertFalse(LyricCreditLineFilter.isCreditLine("作词"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("作曲"))
+    }
+
+    @Test
+    fun classifyCreditLinesRespectsTheSwitch() {
+        // 开关关闭:一律不判为名单(保持历史行为)。
+        val off = classifyCreditLines("作词：张三", "作曲：李四", hideCredits = false)
+        assertFalse(off.lineIsCredit)
+        assertFalse(off.nextLineIsCredit)
+
+        // 开关打开:分别归类主行与下一行。
+        val on = classifyCreditLines("作词：张三", "真正的歌词", hideCredits = true)
+        assertTrue(on.lineIsCredit)
+        assertFalse(on.nextLineIsCredit)
+
+        val both = classifyCreditLines("作词：张三", "作曲：李四", hideCredits = true)
+        assertTrue(both.lineIsCredit)
+        assertTrue(both.nextLineIsCredit)
+
+        // 空白行不参与归类。
+        val blank = classifyCreditLines("", "", hideCredits = true)
+        assertFalse(blank.lineIsCredit)
+        assertFalse(blank.nextLineIsCredit)
+    }
+
+    // --- 真机实测回归(2026-10-10,网易云《乐鸣东方》开场名单)---
+    // 用户反馈「开关无效」的根因:初版只认 作词/作曲/编曲 等六个词,而真机名单里
+    // 复合标签(弦乐监制/音乐总监/民族伴唱监制)与乐器长尾(二胡/古琴/天琴/骨笛/南音洞箫…)
+    // 占绝大多数,全部漏判。以下用例逐行取自设备 diagnostic-trace.log 原文,勿删。
+
+    @Test
+    fun deviceCreditLinesAreAllDetected() {
+        val deviceCredits = listOf(
+            "二胡：皓原",
+            "作曲：李建衡",
+            "作词：元和令/付茂华",
+            "南音拍板：王彩娥@泉州南音乐团",
+            "南音洞箫：王锦超@泉州南音乐团",
+            "南音琵琶：陈洋@泉州南音乐团",
+            "古琴 ：成子",
+            "古筝：哔哔啵啵璇",
+            "吉他：李萌@乐人无数",
+            "和音：周弦 张想想",
+            "唢呐：川子",
+            "天琴 ：韦晴晴",
+            "弦乐监制：李朋",
+            "弦乐：国际首席爱乐乐团",
+            "录音：张凯博@99studio",
+            "民族伴唱监制：陈一磊",
+            "民族伴唱：梁文珍 蔡京原 马美荣 黄珍婷 邓颍榕",
+            "混音/母带：罗文Rown",
+            "琵琶：章益@敦煌古乐团、杨柳音子@音若子兮",
+            "编曲：1AN孙毅然 李建衡",
+            "调校：Creuzer",
+            "音乐总监：李建衡@乐人无数",
+            "音频编辑：王飞@乐人无数",
+            "骨笛/竹笛：罗萌",
+        )
+        for (line in deviceCredits) {
+            assertTrue("未识别为名单: <" + line + ">", LyricCreditLineFilter.isCreditLine(line))
+        }
+    }
+
+    @Test
+    fun deviceLyricLinesAreNeverHidden() {
+        val deviceLyrics = listOf(
+            "一弦一调唤知己 山海风流鸣笙簧",
+            "万物皆有声 随风作乐章",
+            "万物皆有声 随风作乐章",
+            "万物皆有声 随风作乐章",
+            "万物皆有声 随风作乐章",
+            "万物皆有声 随风作乐章",
+            "万物皆有声 随风作乐章（万籁添情长 痴醉一生何妨",
+            "万籁添情长 痴醉一生何妨",
+            "万籁添情长 痴醉一生何妨",
+            "乐鸣东方",
+            "人海举目可望",
+            "人间百相 总让我神往",
+            "人间百相 总让我神往",
+            "人间百相 总让我神往",
+            "吹拂时间枝桠",
+            "咚咚",
+            "咚咚 传遍此间他乡",
+            "咚咚 传遍此间他乡",
+            "咚咚 传遍此间他乡",
+            "咚咚 大地踏梦起歌",
+            "咚咚 大地踏梦起歌",
+            "咚咚 大地踏梦起歌",
+            "咚咚 流水破开寒霜",
+            "咚咚 流水破开寒霜",
+            "咚咚 流水破开寒霜",
+            "咚咚 流水破开寒霜",
+            "咚咚 金石击起辉光",
+            "咚咚 金石击起辉光",
+            "咚咚 金石击起辉光",
+            "咚咚 金石击起辉光",
+            "唤炽心无双 千秋同所向",
+            "唤花肆意生长",
+            "唤长风 燃云苍",
+            "唤长风万象 浩气燃云苍",
+            "天地为引 归巢为依",
+            "天地为引 归巢为依",
+            "天地为引 归巢为依",
+            "天地为引 归巢为依",
+            "天地为引 归巢为依",
+            "寻到心底那声回响",
+            "少年狂",
+            "岁月来偿少年狂",
+            "愿风不再斑驳脸庞",
+            "我踏梦飞天而上",
+            "我随雨唤醒庙堂",
+            "旌鼓声声唤红装 唤岁月来偿",
+            "时光磨红的手掌 终将奏一场",
+            "琵琶拨醒千窟遐想",
+            "看过沙海如浪",
+            "蔓草共舞霓裳",
+            "触摸不朽胡杨",
+            "闻弦何愁知音",
+            "雨啊 共诉琴声悠长",
+            "风啊 何时来自云上",
+            "飞鸟越过沧海渔唱",
+            "龚世旺 王立军 陈荣杰 杨   逍 苏佳浇@广西",
+        )
+        for (line in deviceLyrics) {
+            assertFalse("真歌词被误吞: <" + line + ">", LyricCreditLineFilter.isCreditLine(line))
+        }
+    }
+
+    @Test
+    fun colonBearingLyricsAreNotCreditLabels() {
+        // 带冒号的真歌词必须安全:单字角色词只做整标签匹配(歌词/插曲),
+        // 英文按词边界匹配(sp 不能命中 space)。
+        assertFalse(LyricCreditLineFilter.isCreditLine("歌词：一句歌词"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("插曲：某个插曲"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("老师说：安静"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("space: the final frontier"))
+        assertFalse(LyricCreditLineFilter.isCreditLine("他说：我爱你"))
+    }
 }

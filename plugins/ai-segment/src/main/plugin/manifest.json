@@ -1,0 +1,118 @@
+{
+    "id": "com.example.hyperglow.aisegment",
+    "name": "HyperGlow AI Segment Plugin",
+    "nameLocales": {
+        "zh-CN": "HyperGlow AI 切词",
+        "zh-TW": "HyperGlow AI 切詞",
+        "en": "HyperGlow AI Segmentation"
+    },
+    "summary": "Send lyric lines to any OpenAI-compatible chat API and re-segment them into balanced karaoke lines (split/merge), for every song at playback time. Results are cached per song.",
+    "summaryLocales": {
+        "zh-CN": "把歌词行送给任意 OpenAI 兼容接口,按语义切分成均衡的卡拉OK行(可拆可并),播放时对所有歌生效,结果按曲目缓存。",
+        "zh-TW": "把歌詞行送給任意 OpenAI 相容介面,依語義切分成均衡的卡拉OK行(可拆可併),播放時對所有歌生效,結果依曲目快取。"
+    },
+    "author": "HyperGlow CN+",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "entry": "com.example.hyperglow.aisegment.AiSegmentPlugin",
+    "activationSettingKey": "enabled",
+    "settingGroups": [
+        {
+            "id": "default",
+            "title": "基础设置",
+            "titleLocales": {
+                "zh-CN": "基础设置",
+                "zh-TW": "基礎設定",
+                "en": "Basic Settings"
+            }
+        }
+    ],
+    "cacheScopes": [
+        {
+            "id": "ai_segment_rows",
+            "title": "Segmentation cache",
+            "titleLocales": {
+                "zh-CN": "切词缓存",
+                "zh-TW": "切詞快取",
+                "en": "Segmentation cache"
+            },
+            "summary": "Per-song AI segmentation results kept to avoid re-requesting. Delete an entry to re-segment that song.",
+            "summaryLocales": {
+                "zh-CN": "按曲目保留的 AI 切词结果,用于避免重复请求。删除条目即可重新切词。",
+                "zh-TW": "依曲目保留的 AI 切詞結果,用於避免重複請求。"
+            }
+        }
+    ],
+    "settings": [
+        {
+            "type": "switch",
+            "key": "enabled",
+            "title": "AI 切词",
+            "titleLocales": {
+                "zh-CN": "AI 切词",
+                "zh-TW": "AI 切詞",
+                "en": "AI segmentation"
+            },
+            "summary": "播放时把过长的歌词行按语义切分成均衡的子行。",
+            "summaryLocales": {
+                "zh-CN": "播放时把过长的歌词行按语义切分成均衡的子行。",
+                "zh-TW": "播放時把過長的歌詞行依語義切分成均衡的子行。"
+            }
+        },
+        {
+            "type": "text",
+            "key": "base_url",
+            "inputType": "uri",
+            "title": "接口地址",
+            "titleLocales": {
+                "zh-CN": "接口地址",
+                "zh-TW": "介面網址",
+                "en": "Base URL"
+            },
+            "summary": "OpenAI 兼容接口的 base URL(如 https://example.com/v1)。",
+            "summaryLocales": {
+                "zh-CN": "OpenAI 兼容接口的 base URL(如 https://example.com/v1)。",
+                "zh-TW": "OpenAI 相容介面的 base URL。"
+            }
+        },
+        {
+            "type": "text",
+            "key": "model",
+            "title": "模型",
+            "titleLocales": {
+                "zh-CN": "模型",
+                "zh-TW": "模型",
+                "en": "Model"
+            }
+        },
+        {
+            "type": "password",
+            "key": "api_key",
+            "backup": false,
+            "title": "API 密钥",
+            "titleLocales": {
+                "zh-CN": "API 密钥",
+                "zh-TW": "API 金鑰",
+                "en": "API key"
+            }
+        },
+        {
+            "type": "number",
+            "key": "max_line_chars",
+            "title": "每行最大字数",
+            "titleLocales": {
+                "zh-CN": "每行最大字数",
+                "zh-TW": "每行最大字數",
+                "en": "Max chars per line"
+            },
+            "summary": "超过该字数的行才会交给 AI 切分(其余保持原样)。",
+            "summaryLocales": {
+                "zh-CN": "超过该字数的行才会交给 AI 切分(其余保持原样)。"
+            },
+            "minValue": 6,
+            "maxValue": 20,
+            "stepValue": 1,
+            "defaultValue": 12
+        }
+    ]
+}

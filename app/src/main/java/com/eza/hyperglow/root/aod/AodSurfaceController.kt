@@ -12,11 +12,16 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.root.HookLogger
+import com.eza.hyperglow.root.SurfaceEvidence
 import com.eza.hyperglow.root.readHierarchyField
 import com.eza.hyperglow.aod.AOD_ROTATION_MODE_PORTRAIT
 import com.eza.hyperglow.aod.DEFAULT_CANVAS_PADDING_PERCENT
 import com.eza.hyperglow.aod.DEFAULT_FULLSCREEN_SAFE_MARGIN_PERCENT
+import com.eza.hyperglow.aod.SpectrumFrame
+import com.eza.hyperglow.customization.spectrumWidgetHeightDp
+import com.eza.hyperglow.aod.tailTimeoutActive
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.metadataExpectedExtraLines
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
@@ -25,6 +30,7 @@ import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import com.eza.hyperglow.root.projection.LyricKeepAliveSignal
 import com.eza.hyperglow.root.projection.LyricRenderContent
+import com.eza.hyperglow.root.utils.PlatformVersion
 import com.eza.hyperglow.root.projection.LyricRetentionAnchor
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
@@ -66,6 +72,9 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var lyricCanvas: AodLyricCanvasView? = null
     private var spicyAnimationView: AodSpicyAnimationView? = null
     private var latestSnapshot: LyricSnapshot? = null
+
+    /** 保活时长定时器已到点：歌词面已关闭，等新会话（expired 复位）再重新打开。 */
+    private var lyricsWindowEnded = false
     private var lastVisibleSnapshot: LyricSnapshot? = null
     private var retainedMediaSnapshot: LyricSnapshot? = null
     private var retentionAnchor: LyricRetentionAnchor? = null
@@ -73,6 +82,13 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     private var customization: CompiledCustomization? = null
     private var runtimeProfile: CompiledSurfaceProfile? = null
     private var lastRenderContent: LyricRenderContent? = null
+    /** 视觉内容签名（去掉位置/采样时刻/speed）：用于判断是否需要内容变化短脉冲。 */
+    private var lastVisualContentKey: LyricRenderContent? = null
+    /**
+     * 内容感知续期测试包开关：Debug 包启用静态/行级“只按内容变化打短脉冲”，
+     * Release 保持原连续续期。所有决策都会写 wakeProbe 日志。
+     */
+    private val contentAwareWakeRenewalEnabled = BuildConfig.DEBUG
     private var lastWakeSignal = Long.MIN_VALUE
     private var sceneRole = LinkageSceneRole.INACTIVE
     private var handoffActive = false
@@ -290,13 +306,22 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     }
     private val drawWakeRenewal = object : Runnable {
         override fun run() {
-            if (!drawWakeRenewalActive) return
+            if (!drawWakeRenewalActive) {
+                wakeProbe("renewal-tick skipped active=false")
+                return
+            }
             val root = rootRef.get()
             if (root == null || !isSceneActive()) {
+                wakeProbe("renewal-tick stop root=${root != null} scene=${isSceneActive()}")
                 setDrawWakeRenewalActive(false)
                 return
             }
-            pulseDrawWakeLock(root)
+            val profile = currentWakeContentProfile()
+            wakeProbe(
+                "renewal-tick interval=${DRAW_WAKE_RENEW_INTERVAL_MS} " +
+                    "content=[${profile.summary()}]"
+            )
+            pulseDrawWakeLock(root, DRAW_WAKE_LOCK_MS, "renewal-tick")
             mainHandler.postDelayed(this, DRAW_WAKE_RENEW_INTERVAL_MS)
         }
     }
@@ -384,12 +409,16 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     override val linkageSurfaceKind = LyricSurfaceKind.AOD
 
     fun attach(root: ViewGroup) {
+        wakeProbe("attach-request root=${root.javaClass.name} ${root.width}x${root.height}")
         mainHandler.post {
             runCatching {
                 HookLogger.i(
                     TAG,
                     "attach requested root=${root.javaClass.name} ${root.width}x${root.height}"
                 )
+                // AOD root 已经加载,用它所在的 loader 刷新 AOD 探针,避免能力上报端
+                // 因为没看到 classloader 事件而继续把 AOD 符号当成 pending。
+                XiaomiCapabilityResolver.observeAodLoader(root.javaClass.classLoader)
                 XiaomiCapabilityResolver.observeContext(root.context)
                 SystemUiLyricProjectionRuntime.projection.reportCapabilities()
                 if (!XiaomiCapabilityResolver.hasCapability(XiaomiCapability.AOD_SURFACE)) {
@@ -402,6 +431,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                             "aodHostContainer=${report.symbols.aodHostContainer} " +
                             "profile=${report.profileState.wireValue}"
                     )
+                    SurfaceEvidence.once("aod_surface_disabled_capability")
                     return@runCatching
                 }
 
@@ -414,6 +444,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                         TAG,
                         "mTableModeContainer unavailable; surface disabled. Fields: $fields"
                     )
+                    SurfaceEvidence.once("aod_surface_disabled_container")
                     return@runCatching
                 }
                 HookLogger.i(TAG, "Burn-in container resolved; building surface")
@@ -470,11 +501,23 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 startRenderStallWatchdog()
                 startStockSettleWatchdog()
                 LinkageTransitionCoordinator.onAodSurfaceMode(AodPositionHook.isLinkageMode())
-                applySuppressionAndRotation(latestSnapshot)
+                val windowEnded = lyricsWindowEnded ||
+                    latestSnapshot?.keepAliveExpired == true ||
+                    AodPowerCoordinator.isKeepAliveExpired()
+                if (windowEnded) {
+                    // 到点后重新 attach：不再压制原厂内容/钉时钟，保持歌词面隐藏。
+                    releaseStockClock()
+                } else {
+                    applySuppressionAndRotation(latestSnapshot)
+                }
                 val generation = attachmentGeneration
                 root.post {
                     if (generation == attachmentGeneration && rootRef.get() === root) {
                         root.display?.state?.let(LinkageTransitionCoordinator::onAodDisplayState)
+                        if (windowEnded) {
+                            hideSurfaceOnly(pulse = true)
+                            return@post
+                        }
                         val laidOut = layoutSurface(root, burnInContainer, directSurface)
                         HookLogger.i(
                             TAG,
@@ -485,14 +528,17 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 }
                 SystemUiLyricProjectionRuntime.projection.attach(this, root.context)
                 HookLogger.i(TAG, "Surface attached")
+                SurfaceEvidence.once("aod_surface_attached")
             }.onFailure {
                 runCatching { detachCurrent() }
+                SurfaceEvidence.once("aod_surface_attach_failed")
                 HookLogger.e(TAG, "Attach failed", it)
             }
         }
     }
 
     fun detach(root: ViewGroup) {
+        wakeProbe("detach-request sameRoot=${rootRef.get() === root}")
         mainHandler.post {
             if (rootRef.get() !== root) return@post
             runCatching { detachCurrent() }
@@ -600,6 +646,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
 
     override fun onLyricSnapshot(snapshot: LyricSnapshot) {
         val incomingSnapshot = LinkageTransitionCoordinator.resolveSnapshot(snapshot)
+        lyricCanvas?.setPlaybackActive(incomingSnapshot.playbackActive)
         if (incomingSnapshot.visible) lastVisibleSnapshot = incomingSnapshot
         else if (lastVisibleSnapshot == null) {
             lastVisibleSnapshot = SystemUiLyricProjectionRuntime.projection.cachedVisibleSnapshot()
@@ -625,6 +672,14 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         val wasFollowingPosition = latestSnapshot?.positionFollowingEnabled == true
         latestSnapshot = resolvedSnapshot
+        // 「无限期保活 + 时长定时器」：到点只做一件事——关闭歌词面并释放时钟，不再靠
+        // smartHide 间接熄灭；到点后不再渲染新内容，等新会话（expired 复位）再打开。
+        if (resolvedSnapshot.keepAliveExpired) {
+            wakeProbe("snapshot-path=keepalive-expired rev=${resolvedSnapshot.revision}")
+            endLyricsWindow()
+            return
+        }
+        lyricsWindowEnded = false
         if (!incomingSnapshot.visible && retainedMediaSnapshot == null &&
             !incomingSnapshot.playbackActive
         ) {
@@ -679,22 +734,57 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             )
         }
         if (!canRenderAod(resolvedSnapshot)) {
+            wakeProbe(
+                "snapshot-path=not-renderable rev=${resolvedSnapshot.revision} " +
+                    "visible=${resolvedSnapshot.visible} keepAlive=${resolvedSnapshot.keepAlive}"
+            )
             hideSurfaceOnly()
             return
         }
         val demo = resolvedSnapshot.metadata.startsWith("AOD DEMO")
         val renderContent = resolvedSnapshot.renderContent()
-        val directSurface = surface ?: return
-        val root = rootRef.get() ?: return
-        val burnInContainer = burnInContainerRef.get() ?: return
-        val wakeRequired = isNewAodWakeSignal(lastWakeSignal, resolvedSnapshot.wakeSignal)
-        lastWakeSignal = resolvedSnapshot.wakeSignal
-        if (renderContent == lastRenderContent && directSurface.visibility == View.VISIBLE) {
-            updateLifetimeGuard()
-            requestWakeIfAllowed(root, directSurface, wakeRequired)
+        // 位置/采样时刻每拍都在变，不能拿完整 renderContent 判“内容变化”。这里只比较
+        // 视觉输入：位置、采样时刻、speed 归零后相等的快照不触发内容短脉冲。
+        val visualContentKey = renderContent.copy(
+            positionMs = 0L,
+            sampledAtElapsedMs = 0L,
+            speed = 0f
+        )
+        val contentChanged = visualContentKey != lastVisualContentKey
+        val directSurface = surface ?: run {
+            wakeProbe("snapshot-skip reason=no-surface")
             return
         }
-        if (!layoutSurface(root, burnInContainer, directSurface)) return
+        val root = rootRef.get() ?: run {
+            wakeProbe("snapshot-skip reason=no-root")
+            return
+        }
+        val burnInContainer = burnInContainerRef.get() ?: run {
+            wakeProbe("snapshot-skip reason=no-burn-in-container")
+            return
+        }
+        val wakeRequired = isNewAodWakeSignal(lastWakeSignal, resolvedSnapshot.wakeSignal)
+        lastWakeSignal = resolvedSnapshot.wakeSignal
+        val profile = currentWakeContentProfile()
+        wakeProbe(
+            "snapshot-apply rev=${resolvedSnapshot.revision} visible=${resolvedSnapshot.visible} " +
+                "lineLevel=${resolvedSnapshot.lineLevelSync} keepAlive=${resolvedSnapshot.keepAlive} " +
+                "playback=${resolvedSnapshot.playbackActive} wakeRequired=$wakeRequired " +
+                "contentChanged=$contentChanged renderChanged=${renderContent != lastRenderContent} " +
+                "experiment=$contentAwareWakeRenewalEnabled content=[${profile.summary()}]"
+        )
+        if (renderContent == lastRenderContent && directSurface.visibility == View.VISIBLE) {
+            wakeProbe("snapshot-path=content-equal rev=${resolvedSnapshot.revision}")
+            updateLifetimeGuard()
+            requestWakeIfAllowed(root, directSurface, wakeRequired, contentChanged)
+            return
+        }
+        if (!layoutSurface(root, burnInContainer, directSurface)) {
+            wakeProbe("snapshot-path=layout-failed rev=${resolvedSnapshot.revision}")
+            return
+        }
+        // 布局成功后才消费视觉签名；布局失败时保留旧值，下一次同内容重试仍算变化。
+        if (contentChanged) lastVisualContentKey = visualContentKey
         logRenderProfileProbe("main", resolvedSnapshot, effectiveAodProfile())
         lyricCanvas?.setContent(
                     resolvedSnapshot.toAodCanvasContent(effectiveAodProfile(), duet = true)
@@ -706,10 +796,16 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         directSurface.visibility = View.VISIBLE
         updateLifetimeGuard()
         LinkageTransitionCoordinator.onSurfaceReady(LyricSurfaceKind.AOD)
-        requestWakeIfAllowed(root, directSurface, wakeRequired)
+        val appliedProfile = currentWakeContentProfile()
+        wakeProbe(
+            "snapshot-path=content-applied rev=${resolvedSnapshot.revision} " +
+                "demo=$demo content=[${appliedProfile.summary()}]"
+        )
+        requestWakeIfAllowed(root, directSurface, wakeRequired, contentChanged)
     }
 
     override fun onLyricKeepAlive(signal: LyricKeepAliveSignal) {
+        lyricCanvas?.setPlaybackActive(signal.playbackActive)
         val retained = retainedMediaSnapshot?.let {
             expirePausedAodKeepAlive(it, SystemClock.elapsedRealtime())
         }
@@ -718,14 +814,24 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // 心跳 keepAlive=false 不具租约过期权威(issue #22):播放中宽限为续期,与下方
         // playback-active 脉搏注释同源;全量快照的 keepAlive=false 不受影响。
         val effectiveKeepAlive = retained?.keepAlive
-            ?: heartbeatKeepAliveWithGrace(signal.keepAlive, signal.playbackActive)
+            ?: heartbeatKeepAliveWithGrace(
+                signal.keepAlive,
+                signal.playbackActive,
+                signal.keepAliveExpired
+            )
         latestSnapshot = latestSnapshot?.copy(
             updatedAtElapsedMs = signal.updatedAtElapsedMs,
             keepAlive = effectiveKeepAlive,
+            keepAliveExpired = signal.keepAliveExpired,
             wakeSignal = signal.wakeSignal,
             playbackActive = signal.playbackActive,
             pauseRetentionEligible = signal.pauseRetentionEligible
         )
+        if (signal.keepAliveExpired) {
+            endLyricsWindow()
+            return
+        }
+        lyricsWindowEnded = false
         updateLifetimeGuard()
         val wakeRequired = isNewAodWakeSignal(lastWakeSignal, signal.wakeSignal)
         lastWakeSignal = signal.wakeSignal
@@ -733,13 +839,33 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // is false: some producers report playbackActive without keepAlive, and the immediate
         // pulse on each ~4 s keepalive complements the 2.75 s periodic renewal to keep the doze
         // surface compositing a fresh frame while the screen is off.
-        if (!effectiveKeepAlive && !wakeRequired && !signal.playbackActive) return
+        // 内容感知测试包：静态/纯行级不再在每次心跳上续 mWakeLock；只有 wakeRequired
+        // 或画布报告的连续动画才放行（requestWakeIfAllowed 内统一判定并打日志）。
+        if (!effectiveKeepAlive && !wakeRequired && !signal.playbackActive) {
+            wakeProbe(
+                "keepalive-skip reason=no-keepalive-no-wake-no-playback " +
+                    "keepAlive=${signal.keepAlive} expired=${signal.keepAliveExpired}"
+            )
+            return
+        }
         val directSurface = surface ?: return
         val root = rootRef.get() ?: return
-        requestWakeIfAllowed(root, directSurface, wakeRequired)
+        val profile = currentWakeContentProfile()
+        wakeProbe(
+            "keepalive-request keepAlive=$effectiveKeepAlive rawKeepAlive=${signal.keepAlive} " +
+                "playback=${signal.playbackActive} wakeRequired=$wakeRequired " +
+                "expired=${signal.keepAliveExpired} experiment=$contentAwareWakeRenewalEnabled " +
+                "content=[${profile.summary()}]"
+        )
+        requestWakeIfAllowed(root, directSurface, wakeRequired, contentChanged = false)
+    }
+
+    override fun onSpectrum(frame: SpectrumFrame) {
+        lyricCanvas?.setSpectrum(frame)
     }
 
     override fun onLyricProjectionDisconnected() {
+        wakeProbe("projection-disconnected renewalActive=$drawWakeRenewalActive")
         cancelPausedKeepAliveExpiry()
         cancelPauseLingerExpiry()
         latestSnapshot = null
@@ -749,10 +875,13 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         customization = null
         runtimeProfile = null
         setStockWidgetControlActive(false)
+        lyricCanvas?.setPlaybackActive(false)
+        lyricCanvas?.clearSpectrum()
         hideSurfaceOnly(pulse = false)
     }
 
     override fun onLyricProjectionStale() {
+        wakeProbe("projection-stale renewalActive=$drawWakeRenewalActive")
         cancelPausedKeepAliveExpiry()
         cancelPauseLingerExpiry()
         latestSnapshot = null
@@ -760,6 +889,8 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         retainedMediaSnapshot = null
         retentionAnchor = null
         setStockWidgetControlActive(false)
+        lyricCanvas?.setPlaybackActive(false)
+        lyricCanvas?.clearSpectrum()
         hideSurfaceOnly(pulse = false)
     }
 
@@ -798,6 +929,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         }
         runtimeProfile = null
         lastRenderContent = null
+        lastVisualContentKey = null
         latestSnapshot?.let(::onLyricSnapshot)
         if (retained != null) {
             retainedMediaSnapshot = retained
@@ -857,11 +989,56 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         spicyAnimationView?.stop()
         spicyAnimationView?.visibility = View.GONE
         lastRenderContent = null
+        lastVisualContentKey = null
+        val profile = currentWakeContentProfile()
+        wakeProbe(
+            "surface-hide pulse=$pulse wasVisible=$wasVisible scene=${isSceneActive()} " +
+                "content=[${profile.summary()}]"
+        )
         updateLifetimeGuard()
-        if (pulse && wasVisible && isSceneActive()) rootRef.get()?.let(::pulseDrawWakeLock)
+        if (pulse && wasVisible && isSceneActive()) {
+            rootRef.get()?.let {
+                pulseDrawWakeLock(it, CONTENT_PULSE_WAKE_LOCK_MS, "surface-hide")
+            }
+        }
+    }
+
+    /**
+     * 保活时长到点：直接关闭歌词面并释放系统时钟控制（回到原厂时钟），
+     * 不再只依赖 smartHide 的 hide 回放。幂等；新会话（expired 复位）会重新打开歌词。
+     */
+    private fun endLyricsWindow() {
+        val first = !lyricsWindowEnded
+        lyricsWindowEnded = true
+        wakeProbe("lyrics-window-expired first=$first renewalActive=$drawWakeRenewalActive")
+        if (first) {
+            HookLogger.i(TAG, "Lyrics window expired; hiding lyrics and releasing stock clock")
+            releaseStockClock()
+        }
+        // 歌词面可能晚于到点才 attach（或被杀后重建）：不能只隐藏一次就早退，
+        // 只要仍可见就继续隐藏，直到新会话把 expired 复位。
+        if (surface?.visibility == View.VISIBLE || lyricCanvas?.visibility == View.VISIBLE) {
+            hideSurfaceOnly(pulse = true)
+        }
+    }
+
+    /** 释放系统时钟控制：停止托管位移/钉住/内容压制，并复位锚点与偏移。 */
+    private fun releaseStockClock() {
+        setStockWidgetControlActive(false)
+        AodPositionHook.setSuppressActive(false)
+        AodPositionHook.setHoldStockPosition(false)
+        AodPositionHook.setIntegralClockPin(false)
+        AodPositionHook.setClockYOffset(0)
+        AodPositionHook.resetStockAnchor("lyrics window expired")
+        // 清掉本控制器侧的时钟锚/记忆几何：下一次会话重新测量播种，避免抬起恢复时
+        // 仍按旧锚把原厂时钟钉在偏移位置。
+        clockAnchor = null
+        rememberedPhysicalClockBounds = null
+        rememberedPhysicalClockBoundsSinceElapsedMs = Long.MIN_VALUE
     }
 
     private fun detachCurrent() {
+        wakeProbe("detach-current renewalActive=$drawWakeRenewalActive generation=$attachmentGeneration")
         attachmentGeneration++
         stopRenderStallWatchdog()
         stopStockSettleWatchdog()
@@ -926,6 +1103,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         customization = null
         runtimeProfile = null
         lastRenderContent = null
+        lastVisualContentKey = null
         lastWakeSignal = Long.MIN_VALUE
         sceneRole = LinkageSceneRole.INACTIVE
         handoffActive = false
@@ -1013,6 +1191,35 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
     /** 是否应抑制系统息屏内容:全局开关 或 (横屏 && 随设备旋转 && 横屏隐藏开关)。 */
     private fun shouldSuppressStock(snapshot: LyricSnapshot?, renderable: Boolean): Boolean {
         if (!renderable || snapshot == null) return false
+        val profile = effectiveAodProfile()
+        // 无歌词内容(纯音乐标记行或真无歌词) RESTORE_DEFAULT(per-surface):本面「交还系统
+        // 默认」,必须解除抑制——否则系统内容被藏而本面又无内容可显示(空白屏)。
+        // 尾奏同理:按本面自己的延迟算到点与否,息屏与锁屏各等各的。
+        val tailActive = tailTimeoutActive(
+            tailEligible = snapshot.tailEligible,
+            lineStartMs = snapshot.lineStartMs,
+            lineEndMs = snapshot.lineEndMs,
+            positionMs = snapshot.positionMs,
+            sampledAtElapsedMs = snapshot.sampledAtElapsedMs,
+            speed = snapshot.speed,
+            nowElapsedMs = SystemClock.elapsedRealtime(),
+            delaySeconds = profile.tailTimeoutDelaySeconds
+        )
+        if (shouldReleaseStockForNoContent(
+                pureMusic = snapshot.pureMusic,
+                noLyrics = snapshot.noLyrics,
+                noLyricsBehavior = profile.noLyricsBehavior,
+                // 纯音乐识别接管:本面改画配置文本(有内容可画),不交还系统默认。
+                pureMusicTextOverride = snapshot.pureMusic && profile.pureMusicDisplay
+            ) ||
+            // 尾奏超时 RESTORE_DEFAULT:最后一行已被本面清空,同样交还系统默认。
+            shouldReleaseStockForTailTimeout(
+                tailActive = tailActive,
+                tailTimeoutBehavior = profile.tailTimeoutBehavior
+            )
+        ) {
+            return false
+        }
         return shouldHideStockAodContent(
             suppressBase = snapshot.suppressStockAodContent,
             landscapeStep = currentRotationStep != AodOrientationStep.PORTRAIT,
@@ -1043,7 +1250,11 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // 关闭「实时跟随系统时钟」(锚定模式)且模块在渲染 AOD 时,钉住系统时钟位置
         // (不随防烧屏沉降下移),但保留时钟显示 —— 与「隐藏系统时钟」解耦(issue #26)。
         // 暂停/没有播放(!playbackActive)时不钉住,让时钟回到系统位置、随防烧屏正常移动。
-        val pinClock = renderable && playbackActive && !currentAodProfile().aodClockFollow
+        // OS4 现场反馈「刚进入 AOD 不锚定、过一会才锚定」:表面 attach 到首个可渲染快照之间
+        // 有一段空窗。OS4 只要场景已激活且有播放就提前接管,不再等 renderable;OS3 原条件不动。
+        val pinClock = (renderable ||
+            (PlatformVersion.isHyperOs4OrNewer && isSceneActive())) &&
+            playbackActive && !currentAodProfile().aodClockFollow
         // 自定义时钟 Y 偏移仅作用于「钉住」状态:把 App 端滑块值推到 AodPositionHook,
         // 叠加到被钉住的系统时钟 Y 上;未钉住时清零,确保不施加偏移。
         AodPositionHook.setClockYOffset(if (pinClock) (customization?.aodClockYOffset ?: 0) else 0)
@@ -1122,22 +1333,62 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // 播放态额外取 Lyricon 中心服务的真值:切歌 BUFFERING/位置未知窗口里 app 侧快照会
         // 短暂报 playbackActive=false(issue #6),若只信快照,续期会在缓冲窗口被关掉且
         // 没有事件再拉起,直到下次锁屏 attach 才恢复。
+        val attached = rootRef.get() != null
+        val sceneActive = isSceneActive()
+        val visible = isSurfaceRenderActive() && snapshot != null && canRenderAod(snapshot)
+        val pendingStockMotion = pendingStockMotionUpdate != null
+        val keepAlive = snapshot?.keepAlive == true
+        val keepAliveExpired = snapshot?.keepAliveExpired == true ||
+            AodPowerCoordinator.isKeepAliveExpired()
+        val playbackActive = snapshot?.playbackActive == true ||
+            AodWakeBroker.isLyriconPlaybackActive()
+        val profile = currentWakeContentProfile()
+        val continuous = !contentAwareWakeRenewalEnabled || profile.continuousAnimation
         val active = shouldRenewAodDraw(
             surfaceKind = surfaceKind,
-            attached = rootRef.get() != null,
-            sceneActive = isSceneActive(),
-            effectivelyVisible = isSurfaceRenderActive() &&
-                snapshot != null && canRenderAod(snapshot),
-            pendingStockMotion = pendingStockMotionUpdate != null,
-            keepAlive = snapshot?.keepAlive == true,
-            playbackActive = snapshot?.playbackActive == true ||
-                AodWakeBroker.isLyriconPlaybackActive()
+            attached = attached,
+            sceneActive = sceneActive,
+            effectivelyVisible = visible,
+            pendingStockMotion = pendingStockMotion,
+            keepAlive = keepAlive,
+            keepAliveExpired = keepAliveExpired,
+            playbackActive = playbackActive,
+            continuousContentAnimation = continuous
+        )
+        wakeProbe(
+            "guard-eval kind=$surfaceKind attached=$attached scene=$sceneActive visible=$visible " +
+                "pendingStock=$pendingStockMotion keepAlive=$keepAlive expired=$keepAliveExpired " +
+                "playback=$playbackActive experiment=$contentAwareWakeRenewalEnabled " +
+                "content=[${profile.summary()}] continuous=$continuous -> renewal=$active"
         )
         setDrawWakeRenewalActive(active)
     }
 
+    private fun currentWakeContentProfile(): AodWakeContentProfile {
+        val canvasProfile = lyricCanvas?.wakeContentProfile() ?: AodWakeContentProfile.STATIC
+        return if (spicyAnimationView?.visibility == View.VISIBLE) {
+            canvasProfile.copy(demoAnimation = true)
+        } else {
+            canvasProfile
+        }
+    }
+
+    /** 测试包统一探针：始终进 logcat（tag=HyperGlow），不受诊断日志总闸影响。 */
+    private fun wakeProbe(message: String) {
+        // rev 用于区分测试包版本：versionName/versionCode 相同，只有安装的 APK 不同。
+        HookLogger.w(
+            TAG,
+            "wakeProbe rev=$WAKE_PROBE_REVISION build=${BuildConfig.BUILD_TYPE} " +
+                "v=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE}) " +
+                "t=${SystemClock.elapsedRealtime()} $message"
+        )
+    }
+
     private fun setDrawWakeRenewalActive(active: Boolean) {
-        if (drawWakeRenewalActive == active) return
+        if (drawWakeRenewalActive == active) {
+            wakeProbe("renewal-state unchanged active=$active")
+            return
+        }
         drawWakeRenewalActive = active
         mainHandler.removeCallbacks(drawWakeRenewal)
         // 续期被关时带上 alpha 链现场:0.3.83 的祖先 alpha 门控回归靠这行定位。
@@ -1148,9 +1399,20 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         } else {
             ""
         }
+        val profile = currentWakeContentProfile()
         HookLogger.i(TAG, "Draw wake renewal active=$active$offContext")
+        wakeProbe(
+            "renewal-state active=$active experiment=$contentAwareWakeRenewalEnabled " +
+                "content=[${profile.summary()}]$offContext"
+        )
         if (!active) return
-        rootRef.get()?.let(::pulseDrawWakeLock)
+        rootRef.get()?.let {
+            pulseDrawWakeLock(
+                it,
+                DRAW_WAKE_LOCK_MS,
+                "renewal-start"
+            )
+        }
         mainHandler.postDelayed(drawWakeRenewal, DRAW_WAKE_RENEW_INTERVAL_MS)
     }
 
@@ -1226,10 +1488,19 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // 亮屏时 AOD 本来就不呈现,不做任何恢复。
         if (root.display?.state == android.view.Display.STATE_ON) return
         val snapshot = latestSnapshot ?: return
+        if (snapshot.keepAliveExpired || AodPowerCoordinator.isKeepAliveExpired()) return
         if (!canRenderAod(snapshot)) return
         val playbackLive = snapshot.playbackActive || snapshot.keepAlive ||
             AodWakeBroker.isLyriconPlaybackActive()
         if (!playbackLive) return
+        val profile = currentWakeContentProfile()
+        if (contentAwareWakeRenewalEnabled && !profile.continuousAnimation) {
+            wakeProbe(
+                "stall-skip reason=static-or-line-level content=[${profile.summary()}] " +
+                    "renewalActive=$drawWakeRenewalActive"
+            )
+            return
+        }
         val now = SystemClock.elapsedRealtime()
         // 恢复 1:续期掉线。过渡/缓冲窗口把 renewal 关掉后,若期间没有新的快照/心跳
         // 事件到达,updateLifetimeGuard 不会再被调用——看门狗直接补一次评估和脉冲。
@@ -1238,8 +1509,11 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                 TAG,
                 "Render stall watchdog: draw renewal inactive while playing; re-arming rev=${snapshot.revision}"
             )
+            wakeProbe("stall-rearm renewal rev=${snapshot.revision} content=[${profile.summary()}]")
             updateLifetimeGuard()
-            if (!drawWakeRenewalActive) pulseDrawWakeLock(root)
+            if (!drawWakeRenewalActive) {
+                pulseDrawWakeLock(root, DRAW_WAKE_LOCK_MS, "stall-rearm")
+            }
         }
         // 恢复 2:行级时间轴内容在播放中本应持续重绘,但画布长时间没有 onDraw——
         // 强制重放当前快照,走完整 setContent/syncCadence 路径重启画布节律。
@@ -1253,8 +1527,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     "replaying snapshot rev=${snapshot.revision}"
             )
             lastRenderContent = null
+            lastVisualContentKey = null
+            wakeProbe("stall-replay snapshot rev=${snapshot.revision}")
             onLyricSnapshot(snapshot)
-            rootRef.get()?.let(::pulseDrawWakeLock)
+            rootRef.get()?.let { pulseDrawWakeLock(it, DRAW_WAKE_LOCK_MS, "stall-replay") }
             return
         }
         // 恢复 3:投影缓存里已有更新的可见快照却没被本 surface 应用(应用链路在过渡窗口
@@ -1269,8 +1545,10 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
                     "rev=${cachedVisible.revision}>${snapshot.revision}; replaying"
             )
             lastRenderContent = null
+            lastVisualContentKey = null
+            wakeProbe("stall-replay cachedVisible rev=${cachedVisible.revision}")
             onLyricSnapshot(cachedVisible)
-            rootRef.get()?.let(::pulseDrawWakeLock)
+            rootRef.get()?.let { pulseDrawWakeLock(it, DRAW_WAKE_LOCK_MS, "stall-replay-cached") }
         }
     }
 
@@ -1524,13 +1802,23 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             0f
         }
         val desiredHeight = root.height * layoutProfile.maxHeightFraction
+        val spectrumHeight = if (layoutProfile.spectrum.enabled &&
+            !layoutProfile.spectrum.background &&
+            layoutProfile.widgets.any { it.type == "spectrum" }
+        ) {
+            spectrumWidgetHeightDp(layoutProfile.spectrum.heightPercent) * density
+        } else {
+            0f
+        }
         val measurements = profile.widgets.mapNotNull { widget ->
             when (widget.type) {
                 "lyrics" -> WidgetMeasurement(
                     widget,
-                    (desiredHeight - metadataHeight).coerceAtLeast(MIN_LYRIC_HEIGHT_DP * density)
+                    (desiredHeight - metadataHeight - spectrumHeight)
+                        .coerceAtLeast(MIN_LYRIC_HEIGHT_DP * density)
                 )
                 "metadata" -> WidgetMeasurement(widget, metadataHeight)
+                "spectrum" -> WidgetMeasurement(widget, spectrumHeight)
                 else -> null
             }
         }
@@ -1582,6 +1870,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             if (runtimeProfile != nextRuntimeProfile) {
                 runtimeProfile = nextRuntimeProfile
                 lastRenderContent = null
+        lastVisualContentKey = null
                 latestSnapshot?.takeIf {
                     !it.metadata.startsWith("AOD DEMO")
                 }?.let {
@@ -1668,7 +1957,12 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             directSurface.alpha = 1f
         }
         val snapshot = latestSnapshot
-        val visible = snapshot != null && canRenderAod(snapshot)
+        // 到点后任何路径都不得再显示歌词面（attach/几何刷新/自定义更新都会重走这里）：
+        // 统一在唯一显示点收口，避免「消失后又被 layout 重放顶回来」的闪烁。
+        val windowEnded = lyricsWindowEnded ||
+            snapshot?.keepAliveExpired == true ||
+            AodPowerCoordinator.isKeepAliveExpired()
+        val visible = !windowEnded && snapshot != null && canRenderAod(snapshot)
         directSurface.visibility = if (visible) View.VISIBLE else View.GONE
         if (visible && !snapshot.metadata.startsWith("AOD DEMO") &&
             lyricCanvas?.visibility != View.VISIBLE
@@ -1794,6 +2088,7 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         spicyAnimationView?.stop()
         spicyAnimationView?.visibility = View.GONE
         lastRenderContent = null
+        lastVisualContentKey = null
         updateLifetimeGuard()
     }
 
@@ -2105,19 +2400,75 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         return parts.joinToString(">")
     }
 
-    private fun requestWakeIfAllowed(root: ViewGroup, directSurface: View, wakeRequired: Boolean) {
+    private fun requestWakeIfAllowed(
+        root: ViewGroup,
+        directSurface: View,
+        wakeRequired: Boolean,
+        contentChanged: Boolean = false
+    ) {
+        val profile = currentWakeContentProfile()
+        val continuous = !contentAwareWakeRenewalEnabled || profile.continuousAnimation
+        val eligible = wakeRequired || contentChanged || continuous
+        wakeProbe(
+            "wake-request wakeRequired=$wakeRequired contentChanged=$contentChanged " +
+                "continuous=$continuous eligible=$eligible " +
+                "experiment=$contentAwareWakeRenewalEnabled content=[${profile.summary()}]"
+        )
+        if (!eligible) {
+            wakeProbe("wake-skip reason=static-or-line-level-no-new-content")
+            return
+        }
+        // 有限时长保活到点后，内容脉冲与重唤醒都必须停：继续 acquire AOD root 的
+        // mWakeLock 会把表面一直点亮到播放停止（只放行 smartHide 不够）。
+        if (latestSnapshot?.keepAliveExpired == true ||
+            AodPowerCoordinator.isKeepAliveExpired()
+        ) {
+            wakeProbe("wake-skip reason=keepalive-expired")
+            return
+        }
         if (!shouldRequestAodWake(
                 attached = rootRef.get() === root,
                 sceneActive = isSceneActive(),
                 effectivelyVisible = isSurfaceRenderActive()
             )
-        ) return
-        if (wakeRequired) wakeAodSurface(root, directSurface) else pulseDrawWakeLock(root)
+        ) {
+            wakeProbe(
+                "wake-skip reason=not-authorized attached=${rootRef.get() === root} " +
+                    "scene=${isSceneActive()} visible=${isSurfaceRenderActive()}"
+            )
+            return
+        }
+        val holdMs = when {
+            wakeRequired -> DRAW_WAKE_LOCK_MS
+            contentChanged && !continuous -> CONTENT_PULSE_WAKE_LOCK_MS
+            else -> DRAW_WAKE_LOCK_MS
+        }
+        val reason = when {
+            wakeRequired -> "wake-required"
+            contentChanged && !continuous -> "content-change-pulse"
+            contentChanged -> "content-change-continuous"
+            else -> "continuous-animation"
+        }
+        if (wakeRequired) {
+            wakeAodSurface(root, directSurface, holdMs, reason)
+        } else {
+            pulseDrawWakeLock(root, holdMs, reason)
+        }
     }
 
-    private fun pulseDrawWakeLock(root: ViewGroup) {
+    private fun pulseDrawWakeLock(
+        root: ViewGroup,
+        holdMs: Long = DRAW_WAKE_LOCK_MS,
+        reason: String = "unspecified"
+    ) {
+        val profile = currentWakeContentProfile()
+        wakeProbe(
+            "pulse-begin reason=$reason holdMs=$holdMs experiment=$contentAwareWakeRenewalEnabled " +
+                "content=[${profile.summary()}]"
+        )
         val wakeLock = readHierarchyField(root, "mWakeLock")
         if (wakeLock == null) {
+            wakeProbe("pulse-result reason=$reason result=missing_wake_lock")
             reportDrawWakePulse(AodDrawWakePulseResult.MISSING_WAKE_LOCK, "")
             return
         }
@@ -2129,14 +2480,22 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
             wakeLock.javaClass.getMethod("acquire", String::class.java)
         }.getOrNull()
         if (setMaximum == null || acquire == null) {
+            wakeProbe("pulse-result reason=$reason result=missing_method class=$runtimeClass")
             reportDrawWakePulse(AodDrawWakePulseResult.MISSING_METHOD, runtimeClass)
             return
         }
         try {
-            setMaximum.invoke(wakeLock, DRAW_WAKE_LOCK_MS)
+            setMaximum.invoke(wakeLock, holdMs)
             acquire.invoke(wakeLock, "HyperGlowUpdate")
+            wakeProbe(
+                "pulse-result reason=$reason result=success class=$runtimeClass holdMs=$holdMs"
+            )
             reportDrawWakePulse(AodDrawWakePulseResult.SUCCESS, runtimeClass)
         } catch (error: Exception) {
+            wakeProbe(
+                "pulse-result reason=$reason result=invocation_failed class=$runtimeClass " +
+                    "error=${error.javaClass.simpleName}:${error.message}"
+            )
             reportDrawWakePulse(AodDrawWakePulseResult.INVOCATION_FAILED, runtimeClass, error)
         }
     }
@@ -2201,18 +2560,41 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         )
     }
 
-    private fun wakeAodSurface(root: ViewGroup, directSurface: View) {
-        if (!isSceneActive() || surface !== directSurface) return
+    private fun wakeAodSurface(
+        root: ViewGroup,
+        directSurface: View,
+        holdMs: Long = DRAW_WAKE_LOCK_MS,
+        reason: String = "wake"
+    ) {
+        if (!isSceneActive() || surface !== directSurface) {
+            wakeProbe("wake-surface-skip reason=$reason scene=${isSceneActive()} sameSurface=${surface === directSurface}")
+            return
+        }
+        if (lyricsWindowEnded || latestSnapshot?.keepAliveExpired == true ||
+            AodPowerCoordinator.isKeepAliveExpired()
+        ) {
+            wakeProbe("wake-surface-skip reason=$reason lyricsWindowEnded=$lyricsWindowEnded expired=true")
+            return
+        }
         directSurface.visibility = View.VISIBLE
         if (!handoffActive && !initialRevealActive) directSurface.alpha = 1f
         directSurface.invalidate()
         root.invalidate()
-        pulseDrawWakeLock(root)
+        wakeProbe("wake-surface-apply reason=$reason holdMs=$holdMs")
+        pulseDrawWakeLock(root, holdMs, reason)
         HookLogger.i(TAG, "AOD wake signal applied")
     }
 
+    /** wakeProbe 日志的测试包修订号：每次重打探针包递增，便于确认设备上跑的是哪一版。 */
+    private const val WAKE_PROBE_REVISION = 6
+
     private const val DRAW_WAKE_LOCK_MS = 5_500L
     private const val DRAW_WAKE_RENEW_INTERVAL_MS = DRAW_WAKE_LOCK_MS / 2L
+    /**
+     * 静态/纯行级内容单次“内容变化脉冲”的持锁时长。明显短于 5.5s，允许两次内容变化
+     * 之间出现无锁间隙；测试包用它验证小米 doze surface 是否在间隙里冻结。
+     */
+    private const val CONTENT_PULSE_WAKE_LOCK_MS = 900L
     /** 渲染停摆看门狗自检周期:足够频繁以在 stale 窗口内恢复,又不会喧宾夺主。 */
     private const val RENDER_STALL_WATCHDOG_INTERVAL_MS = 5_000L
     private const val POST_HANDOFF_EARLY_MS = 1_000L

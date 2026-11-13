@@ -5,9 +5,10 @@ Usage (from the plugin module root):
     python tools/gen_opencc_tables.py
 
 Source data: BYVoid/OpenCC (Apache-2.0), pinned to commit
-3ac34aa439a9908dd49fa92b5174b46314787ac2. Dictionary files are read from
-tools/ when present; otherwise they are downloaded from raw.githubusercontent
-and their sha256 is verified against the pinned digests below.
+3ac34aa439a9908dd49fa92b5174b46314787ac2. The four dictionary files must be
+placed next to this script (tools/); their sha256 is verified against the
+pinned digests below before anything is generated. This tool performs no
+network access — fetch the pinned files yourself (BASE_URL below) if missing.
 
 Reduction applied (keeps the generated Kotlin small without losing behaviour):
   - char tables: keep the first candidate only, drop identity entries;
@@ -20,7 +21,7 @@ Reduction applied (keeps the generated Kotlin small without losing behaviour):
 import hashlib
 import os
 import sys
-import urllib.request
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODULE = os.path.dirname(HERE)
@@ -43,13 +44,15 @@ CHUNK = 16000  # max chars per Kotlin string literal (class-file UTF-8 limit is 
 
 
 def load_dictionary(name):
+    """读取与脚本同目录的固定版本词典并校验 sha256;缺失/不符直接退出(不做网络访问)。"""
     local = os.path.join(HERE, name)
-    if os.path.isfile(local):
-        data = open(local, "rb").read()
-    else:
-        print("downloading", name)
-        with urllib.request.urlopen(BASE_URL + name, timeout=60) as response:
-            data = response.read()
+    if not os.path.isfile(local):
+        sys.exit(
+            "missing %s: place the pinned OpenCC file next to this script "
+            "(source: %s%s; sha256 pinned in FILES)" % (name, BASE_URL, name)
+        )
+    with open(local, "rb") as f:
+        data = f.read()
     digest = hashlib.sha256(data).hexdigest()
     if digest != FILES[name]:
         sys.exit("sha256 mismatch for %s: %s" % (name, digest))
@@ -154,8 +157,20 @@ def emit(mappings):
         )
         parts.append("")
     parts.append("}")
-    with open(OUT, "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(parts) + "\n")
+    write_generated("\n".join(parts) + "\n")
+
+
+def write_generated(text):
+    """把生成内容写到本插件模块内的固定目标文件。
+
+    目标路径解析后必须仍落在模块目录内(输出位置由脚本自身位置推导,不接受外部输入);
+    越界即拒绝,避免任何形式的路径穿越写入。
+    """
+    target = Path(OUT).resolve()
+    module_root = Path(MODULE).resolve()
+    if module_root != target.parent and module_root not in target.parents:
+        sys.exit("refusing to write outside the plugin module: %s" % target)
+    target.write_text(text, encoding="utf-8", newline="\n")
 
 
 def main():

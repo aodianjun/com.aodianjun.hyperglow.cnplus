@@ -42,7 +42,11 @@ import com.eza.hyperglow.DiagnosticLoggingPreferences
 import com.eza.hyperglow.DIAGNOSTIC_LOG_LEVELS
 import com.eza.hyperglow.LOG_RETENTION_DAYS
 import com.eza.hyperglow.root.utils.ShellUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import com.eza.hyperglow.aod.AodLyricBridgeService
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
@@ -158,45 +162,77 @@ internal fun HomeScreen(
         ActivityResultContracts.CreateDocument("text/plain")
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val written = runCatching {
-            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
-                it.write(readDiagnosticLogsForExport(context))
-            } ?: error("Log export unavailable")
-        }.isSuccess
-        Toast.makeText(
-            context,
-            context.getString(
-                if (written) R.string.toast_logs_exported
-                else R.string.toast_logs_export_failed
-            ),
-            Toast.LENGTH_LONG
-        ).show()
+        scope.launch {
+            // 导出内容：App 镜像 + 最近 10 分钟 SystemUI HyperGlow logcat(wakeProbe 在这里)。
+            // root 不可用时只导出 App 镜像，不阻断导出。
+            val payload = withContext(Dispatchers.IO) {
+                readDiagnosticLogsForExportWithSystemUi(context)
+            }
+            val written = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                        it.write(payload)
+                    } ?: error("Log export unavailable")
+                }.isSuccess
+            }
+            if (written) {
+                Toast.makeText(context, R.string.toast_logs_exported, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            // SAF 写入失败时落到 App 外部文件目录，至少日志不会丢。
+            val local = withContext(Dispatchers.IO) {
+                writeDiagnosticLogsToLocalFile(context, payload)
+            }
+            if (local != null) {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.toast_logs_saved_to, local.absolutePath),
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(context, R.string.toast_logs_export_failed, Toast.LENGTH_LONG).show()
+            }
+        }
     }
+    // 导入串行化锁:导入搬 IO 通道后不再被主线程天然串行化,并发导入会互相交错写 prefs/文档。
+    val importMutex = remember { Mutex() }
     val importConfigLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val raw = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val bytes = input.readNBytes(MAX_CONFIG_FILE_BYTES + 1)
-                if (bytes.size > MAX_CONFIG_FILE_BYTES) error("Config file too large")
-                bytes.toString(Charsets.UTF_8)
-            } ?: error("Config file unavailable")
-        }.getOrNull()
-        val imported = raw != null && importAllConfig(context, raw)
-        if (imported) {
-            // 写入 SharedPreferences 会自动触发 AodRenderPreferences 缓存失效,
-            // 这里同步把运行时配置推给 SystemUI 生效。
-            publishRuntimeConfiguration(context)
+        scope.launch {
+            val imported = importMutex.withLock {
+                // 读 ≤2MiB + UTF-8 解码 + 信封/子文档 JSON 解析搬 IO 通道(SAF I/O 与
+                // JSON/文档解码不得在主线程,STYLE_GUIDE §4;本地估算 50–200ms/次,真机未测)。
+                val decoded = withContext(Dispatchers.IO) {
+                    val raw = runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            val bytes = input.readNBytes(MAX_CONFIG_FILE_BYTES + 1)
+                            if (bytes.size > MAX_CONFIG_FILE_BYTES) error("Config file too large")
+                            bytes.toString(Charsets.UTF_8)
+                        } ?: error("Config file unavailable")
+                    }.getOrNull()
+                    raw?.let { decodeImportedConfig(context, it) }
+                }
+                // 落盘与侧设置应用留在原线程:插件 onConfigChanged / 生产者 onCustomizationChanged
+                // 的调用线程与搬线程前一致(设置页同样在主线程触发)。
+                val ok = decoded != null && applyImportedConfig(context, decoded)
+                if (ok) {
+                    // 写入 SharedPreferences 会自动触发 AodRenderPreferences 缓存失效,
+                    // 这里同步把运行时配置推给 SystemUI 生效。
+                    publishRuntimeConfiguration(context)
+                }
+                ok
+            }
+            Toast.makeText(
+                context,
+                context.getString(
+                    if (imported) R.string.toast_config_imported
+                    else R.string.toast_config_import_invalid
+                ),
+                Toast.LENGTH_LONG
+            ).show()
         }
-        Toast.makeText(
-            context,
-            context.getString(
-                if (imported) R.string.toast_config_imported
-                else R.string.toast_config_import_invalid
-            ),
-            Toast.LENGTH_LONG
-        ).show()
     }
     var capabilityReport by remember { mutableStateOf(XiaomiCapabilityStore.read(context)) }
     DisposableEffect(context) {
@@ -226,8 +262,12 @@ internal fun HomeScreen(
     val lockscreenEditorGestureSupported = effectiveReport.has(
         XiaomiCapability.LOCKSCREEN_EDITOR_GESTURE
     )
+    // supportState() 对 UNSUPPORTED_PROFILE + 实验模式已有解锁分支;界面门控若只认
+    // EXPERIMENTAL_ELIGIBLE,该分支永远没有入口。两种状态都显示开关,是否真的解锁
+    // 仍由 rawProbes 推导决定。
     val experimentalEligible = effectiveReport.profileState ==
-        XiaomiProfileState.EXPERIMENTAL_ELIGIBLE
+        XiaomiProfileState.EXPERIMENTAL_ELIGIBLE ||
+        effectiveReport.profileState == XiaomiProfileState.UNSUPPORTED_PROFILE
     var aodEnabled by remember {
         mutableStateOf(
             initialDocument.profiles[SceneCompiler.SURFACE_AOD]?.enabled
@@ -253,6 +293,10 @@ internal fun HomeScreen(
     var filterNonMusicSources by remember {
         mutableStateOf(initialConfig.filterNonMusicSources)
     }
+    // 「不显示非歌词内容(作词/作曲等)」:歌词里的制作名单行整行隐藏。
+    var hideCreditLines by remember {
+        mutableStateOf(initialConfig.hideCreditLines)
+    }
     var diagnosticLogging by remember {
         mutableStateOf(DiagnosticLoggingPreferences.read(context))
     }
@@ -265,6 +309,10 @@ internal fun HomeScreen(
     // 画布边框调试开关(自 AodBehaviorScreen 迁入「开发者选项」组)。
     var aodDebugShowCanvasFrame by remember {
         mutableStateOf(initialConfig.aodDebugShowCanvasFrame)
+    }
+    // 开发者选项:强制指定歌词提供器(关闭时保留「自动选更好的源」)。
+    var forceLyricProvider by remember {
+        mutableStateOf(initialConfig.forceLyricProvider)
     }
     var persistentNotification by remember {
         mutableStateOf(initialConfig.persistentNotification)
@@ -587,17 +635,21 @@ internal fun HomeScreen(
                         val aodProfile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
                         // 每面各自组装歌曲信息、按本面「识别对唱标记」隐去标记:切换面时
                         // 使用该面自己的快照,改一面的内容项不影响另一面。
+                        // 「不显示非歌词内容」是应用级偏好(非按面),两面预览同值传入,
+                        // 保证预览与实机投影层用同一分类函数(预览即实机)。
                         val lockscreenLive = collectLiveSnapshot(
                             lockscreenProfile.metadataParts,
                             lockscreenProfile.metadataSeparators,
                             lockscreenProfile.duetMarkers,
-                            lockscreenProfile.hideAlbumWhenSameAsTitle
+                            lockscreenProfile.hideAlbumWhenSameAsTitle,
+                            hideCreditLines
                         )
                         val aodLive = collectLiveSnapshot(
                             aodProfile.metadataParts,
                             aodProfile.metadataSeparators,
                             aodProfile.duetMarkers,
-                            aodProfile.hideAlbumWhenSameAsTitle
+                            aodProfile.hideAlbumWhenSameAsTitle,
+                            hideCreditLines
                         )
                         var previewAod by rememberSaveable { mutableStateOf(false) }
                         Column(
@@ -630,6 +682,18 @@ internal fun HomeScreen(
                                 stringResource(R.string.setting_filter_non_music_sources),
                                 summary = stringResource(
                                     R.string.summary_filter_non_music_sources
+                                )
+                            )
+                            SwitchPreference(
+                                hideCreditLines,
+                                { enabled ->
+                                    if (updateHideCreditLines(context, enabled)) {
+                                        hideCreditLines = enabled
+                                    }
+                                },
+                                stringResource(R.string.setting_hide_credit_lines),
+                                summary = stringResource(
+                                    R.string.summary_hide_credit_lines
                                 )
                             )
                         }
@@ -813,6 +877,24 @@ internal fun HomeScreen(
                     item {
                         SettingsCard {
                             SwitchPreference(
+                                forceLyricProvider,
+                                { enabled ->
+                                    prefs.edit().putBoolean(
+                                        AodRenderPreferences.FORCE_LYRIC_PROVIDER,
+                                        enabled
+                                    ).apply()
+                                    LyricProducers.arbiterOrNull()
+                                        ?.updateForcePreferredSource(enabled)
+                                    forceLyricProvider = enabled
+                                },
+                                stringResource(R.string.setting_force_lyric_provider),
+                                summary = stringResource(R.string.summary_force_lyric_provider)
+                            )
+                        }
+                    }
+                    item {
+                        SettingsCard {
+                            SwitchPreference(
                                 aodDebugShowCanvasFrame,
                                 { enabled ->
                                     prefs.edit().putBoolean(
@@ -945,15 +1027,7 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                    item {
-                        SettingsCard {
-                            ArrowPreference(
-                                title = stringResource(R.string.about_support),
-                                summary = stringResource(R.string.summary_about_support),
-                                onClick = { openExternalUrl(context, PROJECT_SITE_URL) }
-                            )
-                        }
-                    }
+                    // 「支持」入口按需求暂时隐藏（保留字符串与 PROJECT_SITE_URL 以便恢复）。
                     item {
                         SettingsCard {
                             ArrowPreference(
@@ -965,7 +1039,7 @@ internal fun HomeScreen(
                             ArrowPreference(
                                 title = stringResource(R.string.action_hyperglow_cnplus_github),
                                 onClick = {
-                                    openExternalUrl(context, GITHUB_CNPLUS_URL)
+                                    openExternalUrl(context, GITEE_CNPLUS_URL)
                                 }
                             )
                             ArrowPreference(

@@ -1,15 +1,18 @@
 package com.eza.hyperglow.ui
 
 import androidx.compose.foundation.layout.offset
+import com.eza.hyperglow.BuildConfig
 import com.eza.hyperglow.DiagnosticLoggingPreferences
 import com.eza.hyperglow.DiagnosticTraceFile
 import com.eza.hyperglow.RuntimeCustomization
 import com.eza.hyperglow.setDiagnosticLogging
 import com.eza.hyperglow.setDiagnosticLogLevel
+import com.eza.hyperglow.systemUiLogcatCommand
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.AodStateBridge
 import com.eza.hyperglow.customization.CustomizationRepository
+import com.eza.hyperglow.customization.DecorSpriteStore
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.plugin.PluginInstaller
 import com.eza.hyperglow.plugin.PluginRuntime
@@ -60,6 +63,37 @@ internal fun updateLockscreenKeepAwake(
 ): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putBoolean(AodRenderPreferences.LOCKSCREEN_KEEP_AWAKE, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+internal fun updateLockscreenReserveBelowMediaCard(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+/** 锁屏歌词卡相对媒体卡的位置:clock / above_media / below_media。 */
+internal fun updateLockscreenCardPlacement(
+    context: android.content.Context,
+    placement: String
+): Boolean {
+    val normalized = com.eza.hyperglow.aod.normalizeLockscreenCardPlacement(placement)
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putString(AodRenderPreferences.LOCKSCREEN_CARD_PLACEMENT, normalized)
+        // 旧布尔值继续与 below_media 同步,供旧版布局与诊断字段读取。
+        .putBoolean(
+            AodRenderPreferences.LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD,
+            normalized == "below_media"
+        )
         .commit()
     if (!saved) return false
     publishRuntimeConfiguration(context)
@@ -149,7 +183,8 @@ internal fun publishRuntimeConfiguration(context: android.content.Context) {
     AodStateBridge.publishConfiguration(
         RuntimeCustomization.loadCompiled(context),
         currentProcessUserId(),
-        experimentalMode = AodRenderPreferences.read(context).experimentalMode
+        experimentalMode = AodRenderPreferences.read(context).experimentalMode,
+        spriteAttachments = DecorSpriteStore.attachments(context)
     )
 }
 
@@ -163,9 +198,25 @@ internal fun exportAllConfig(context: android.content.Context): String =
         collectSideSettings(context)
     )
 
-internal fun importAllConfig(context: android.content.Context, raw: String): Boolean {
-    // 以当前生效配置为基底:载荷缺省的键保持现状(旧备份没有的新键不被清成默认值)。
-    val result = ConfigBackupCodec.decode(raw.toByteArray(), AodRenderPreferences.read(context))
+/**
+ * 解析备份载荷:纯解码,无副作用。JSON/文档解码不得在主线程运行(STYLE_GUIDE §4),
+ * 导入端在 IO 通道调用本函数,再把结果交回原线程 [applyImportedConfig] 落盘+通知。
+ * 以当前生效配置为基底:载荷缺省的键保持现状(旧备份没有的新键不被清成默认值)。
+ */
+internal fun decodeImportedConfig(
+    context: android.content.Context,
+    raw: String
+): ConfigBackupDecodeResult =
+    ConfigBackupCodec.decode(raw.toByteArray(), AodRenderPreferences.read(context))
+
+/**
+ * 落盘并应用已解析的导入结果。含插件 onConfigChanged / 生产者 onCustomizationChanged
+ * 等通知,调用线程与搬线程前一致(设置页/导入端都在主线程触发)。
+ */
+internal fun applyImportedConfig(
+    context: android.content.Context,
+    result: ConfigBackupDecodeResult
+): Boolean {
     if (result !is ConfigBackupDecodeResult.Success) return false
     if (!configBackupWritePreferences(context, result.preferences)) return false
     val document = result.customizationDocument
@@ -308,6 +359,23 @@ internal fun updateFilterNonMusicSources(
 ): Boolean {
     val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
         .putBoolean(AodRenderPreferences.FILTER_NON_MUSIC_SOURCES, enabled)
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
+/**
+ * 「不显示非歌词内容(作词/作曲等)」开关(应用级偏好):歌词里的制作名单行在投影层整行
+ * 隐藏(见 producer/LyricCreditLineFilter)。投影层每帧懒读该偏好,切换立即生效;
+ * 下发运行时配置保持与其余设置一致的广播行为。
+ */
+internal fun updateHideCreditLines(
+    context: android.content.Context,
+    enabled: Boolean
+): Boolean {
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putBoolean(AodRenderPreferences.HIDE_CREDIT_LINES, enabled)
         .commit()
     if (!saved) return false
     publishRuntimeConfiguration(context)
@@ -489,6 +557,67 @@ internal fun updateLogLevel(
 /** 「导出日志」:两个镜像文件里全部尚未清理的行,轮转文件在前。 */
 internal fun readDiagnosticLogsForExport(context: android.content.Context): String =
     DiagnosticTraceFile.readAll(context.applicationContext.filesDir)
+
+/**
+ * 导出用完整日志：App 镜像 + 最近一段 SystemUI 模块 logcat。
+ *
+ * wakeProbe 在 SystemUI 进程，只有 logcat 能拿到；常驻镜像依赖「详细」档和 root。
+ * 这里在用户点导出时主动拉一次，避免必须先开详细档、再等 20 秒轮询。root 不可用时
+ * 静默退回 App 镜像，不影响导出本身。
+ */
+internal fun readDiagnosticLogsForExportWithSystemUi(context: android.content.Context): String {
+    val appLogs = readDiagnosticLogsForExport(context)
+    val systemUiOutput = runCatching {
+        com.eza.hyperglow.diagnostics.DiagnosticRootProcessRunner.run(
+            systemUiLogcatCommand(
+                System.currentTimeMillis() - EXPORT_SYSTEM_UI_LOOKBACK_MS
+            ),
+            EXPORT_SYSTEM_UI_TIMEOUT_MS
+        ).output
+    }.getOrDefault("")
+    return buildString {
+        append("HyperGlow log export\n")
+        append("version=").append(BuildConfig.VERSION_NAME)
+        append('(').append(BuildConfig.VERSION_CODE).append(") ")
+        append("build=").append(BuildConfig.BUILD_TYPE).append('\n')
+        // 现场排查用:OS 代际判定依赖的原始值。App 进程读属性失败时留空,不影响导出。
+        append("sdk=").append(android.os.Build.VERSION.SDK_INT).append('\n')
+        append("osName=").append(readHyperOsVersionName()).append('\n')
+        append("exportedAtMs=").append(System.currentTimeMillis()).append("\n\n")
+        append(appLogs)
+        if (appLogs.isNotBlank()) append('\n')
+        // 始终保留段落，便于判断 root/logcat 是否拿到了 SystemUI 侧内容。
+        append("--- SystemUI HyperGlow ---\n")
+        if (systemUiOutput.isBlank()) {
+            append("(empty: root unavailable or logcat returned no HyperGlow lines)\n")
+        } else {
+            append(systemUiOutput)
+        }
+    }
+}
+
+/** `ro.mi.os.version.name`（如 `OS4.0.2.0...`）。App 进程被 hidden API 挡住时返回空。 */
+private fun readHyperOsVersionName(): String = runCatching {
+    (Class.forName("android.os.SystemProperties")
+        .getDeclaredMethod("get", String::class.java)
+        .invoke(null, "ro.mi.os.version.name") as? String)?.trim().orEmpty()
+}.getOrDefault("")
+
+/** SAF 写入失败时的本地兜底：写到 App 外部文件目录，返回可展示的绝对路径。 */
+internal fun writeDiagnosticLogsToLocalFile(
+    context: android.content.Context,
+    payload: String
+): java.io.File? {
+    val dir = context.getExternalFilesDir(null) ?: context.applicationContext.filesDir
+    val file = java.io.File(dir, "hyperglow-logs.txt")
+    return runCatching {
+        file.writeText(payload)
+        file
+    }.getOrNull()
+}
+
+private const val EXPORT_SYSTEM_UI_LOOKBACK_MS = 10 * 60 * 1000L
+private const val EXPORT_SYSTEM_UI_TIMEOUT_MS = 4_000L
 
 internal fun clearDiagnosticLogs(context: android.content.Context): Boolean =
     DiagnosticTraceFile.clear(context.applicationContext.filesDir)

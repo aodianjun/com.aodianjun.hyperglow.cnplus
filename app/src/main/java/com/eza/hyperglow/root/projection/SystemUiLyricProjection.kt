@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.os.UserHandle
 import com.eza.hyperglow.DiagnosticLoggingRuntime
 import com.eza.hyperglow.aod.AodStateWireMessage
+import com.eza.hyperglow.aod.SpectrumFrame
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.root.aod.AodLyricClient
 import com.eza.hyperglow.root.HookLogger
@@ -93,6 +94,7 @@ internal fun droppedSnapshotKeepAliveSignal(
     held: LyricSnapshot
 ): LyricKeepAliveSignal? {
     val changed = dropped.keepAlive != held.keepAlive ||
+        dropped.keepAliveExpired != held.keepAliveExpired ||
         dropped.wakeSignal != held.wakeSignal ||
         dropped.playbackActive != held.playbackActive ||
         dropped.pauseRetentionEligible != held.pauseRetentionEligible
@@ -101,6 +103,7 @@ internal fun droppedSnapshotKeepAliveSignal(
         revision = dropped.revision,
         updatedAtElapsedMs = dropped.updatedAtElapsedMs,
         keepAlive = dropped.keepAlive,
+        keepAliveExpired = dropped.keepAliveExpired,
         wakeSignal = dropped.wakeSignal,
         playbackActive = dropped.playbackActive,
         pauseRetentionEligible = dropped.pauseRetentionEligible,
@@ -118,12 +121,25 @@ internal fun shouldRenewAodDraw(
     effectivelyVisible: Boolean,
     pendingStockMotion: Boolean,
     keepAlive: Boolean,
-    playbackActive: Boolean = false
+    playbackActive: Boolean = false,
+    /**
+     * 有限时长保活到点：即使仍在播放也不得续期绘制唤醒。只放行系统 hide 不够——
+     * 2.75s 一次的 mWakeLock 脉冲会让 AOD 表面一直亮到播放停止（0.3.169 实测）。
+     */
+    keepAliveExpired: Boolean = false,
+    /**
+     * 当前内容是否需要逐帧连续合成（逐字/自定义效果/圆点/封面旋转/换场）。
+     * 默认 true 保持旧行为；内容感知测试包传 false 时，静态/纯行级只走内容变化短脉冲。
+     * [pendingStockMotion] 仍可单独放行，因为原厂时钟过渡需要连续帧。
+     */
+    continuousContentAnimation: Boolean = true
 ): Boolean = surfaceKind == LyricSurfaceKind.AOD &&
     attached &&
     sceneActive &&
+    !keepAliveExpired &&
     (keepAlive || playbackActive) &&
-    (effectivelyVisible || pendingStockMotion)
+    (effectivelyVisible || pendingStockMotion) &&
+    (continuousContentAnimation || pendingStockMotion)
 
 internal fun shouldRequestAodWake(
     attached: Boolean,
@@ -141,6 +157,8 @@ internal interface SystemUiLyricSubscriber {
     fun onLyricProjectionDisconnected() = Unit
 
     fun onLyricProjectionStale() = Unit
+
+    fun onSpectrum(frame: SpectrumFrame) = Unit
 
     fun onCustomization(configuration: CompiledCustomization) = Unit
 }
@@ -187,16 +205,22 @@ internal class SystemUiLyricProjection(
     private val setRaiseToAod: (Boolean) -> Unit = RaiseToAodController::setEnabled,
     private val setSuppressLockscreenEditorLongPress: (Boolean) -> Unit =
         LockscreenEditorGestureController::setEnabled,
-    clientFactory: ((WirePayload) -> Unit, (AodStateWireMessage) -> Unit, () -> Unit) ->
-        LyricProjectionClient = { onConfiguration, onState, onDisconnected ->
-            AodLyricClient(onConfiguration, onState, onDisconnected)
+    clientFactory: ((WirePayload) -> Unit, (AodStateWireMessage) -> Unit, () -> Unit, (SpectrumFrame) -> Unit) ->
+        LyricProjectionClient = { onConfiguration, onState, onDisconnected, onSpectrum ->
+            AodLyricClient(onConfiguration, onState, onDisconnected, onSpectrum)
         }
 ) {
     private val subscribers = IdentityHashMap<SystemUiLyricSubscriber, Unit>()
-    private val client = clientFactory(::handleConfiguration, ::handleState, ::handleDisconnected)
+    private val client = clientFactory(
+        ::handleConfiguration,
+        ::handleState,
+        ::handleDisconnected,
+        ::handleSpectrum
+    )
     private var latestSnapshot: LyricSnapshot? = null
     private var latestVisibleSnapshot: LyricSnapshot? = null
     private var latestConfiguration: CompiledCustomization? = null
+    private var latestSpectrum: SpectrumFrame? = null
     private var lastRevision = -1L
     private var lastUpdatedAt = -1L
     private var lastRejection = ""
@@ -223,6 +247,7 @@ internal class SystemUiLyricProjection(
         ensureBound()
         latestConfiguration?.let(subscriber::onCustomization)
         latestSnapshot?.let(subscriber::onLyricSnapshot)
+        latestSpectrum?.let(subscriber::onSpectrum)
     }
 
     @Synchronized
@@ -429,6 +454,13 @@ internal class SystemUiLyricProjection(
     }
 
     @Synchronized
+    private fun handleSpectrum(frame: SpectrumFrame) {
+        if (!isPlausibleWireTimestamp(frame.capturedAtElapsedMs, elapsedRealtime())) return
+        latestSpectrum = frame
+        subscribers.keys.toList().forEach { it.onSpectrum(frame) }
+    }
+
+    @Synchronized
     private fun handleDisconnected() {
         clearCachedState()
         subscribers.keys.toList().forEach(SystemUiLyricSubscriber::onLyricProjectionDisconnected)
@@ -443,6 +475,7 @@ internal class SystemUiLyricProjection(
         latestSnapshot = null
         latestVisibleSnapshot = null
         latestConfiguration = null
+        latestSpectrum = null
         lastRevision = -1L
         lastUpdatedAt = -1L
     }

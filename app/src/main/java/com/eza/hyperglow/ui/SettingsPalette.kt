@@ -3,7 +3,7 @@ package com.eza.hyperglow.ui
 import android.content.Context
 import androidx.annotation.StringRes
 import com.eza.hyperglow.R
-import com.eza.hyperglow.root.aod.parseOpaqueColorOrNull
+import com.eza.hyperglow.root.aod.parseColorOrNull
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -59,7 +59,7 @@ internal fun paletteValue(palette: Map<String, String>, key: PaletteColor): Stri
 
 /**
  * 写入/清除某语义色键:值为 [PALETTE_DEFAULT] 时删除该键恢复默认,
- * 否则写入任意 token(预设名或 `#RRGGBB` hex)。
+ * 否则写入任意 token(预设名或 `#RRGGBB`/`#AARRGGBB` hex)。
  */
 internal fun applyPaletteColor(
     palette: Map<String, String>,
@@ -68,11 +68,11 @@ internal fun applyPaletteColor(
 ): Map<String, String> =
     if (value == PALETTE_DEFAULT) palette - key.token else palette + (key.token to value)
 
-/** 某键当前生效的不透明 ARGB,供设置页色块预览;dimmed 按 72% 亮度折算。 */
+/** 某键当前生效的 ARGB(保留 alpha),供设置页色块预览;dimmed 按 72% 亮度折算。 */
 internal fun paletteEffectiveArgb(palette: Map<String, String>, key: PaletteColor): Int {
     val token = palette[key.token]
     if (token == PALETTE_DIMMED) return scaleRgb(key.defaultArgb, DIMMED_FACTOR)
-    return parseOpaqueColorOrNull(token) ?: key.defaultArgb
+    return parseColorOrNull(token) ?: key.defaultArgb
 }
 
 private fun scaleRgb(argb: Int, factor: Float): Int {
@@ -85,9 +85,16 @@ private fun scaleRgb(argb: Int, factor: Float): Int {
         blue.coerceIn(0, 255)
 }
 
-/** 把不透明 ARGB 转成 `#RRGGBB` token,作为 palette 存储值。 */
+/**
+ * 把 ARGB 转成 palette 存储 token:不透明时保持 `#RRGGBB`(旧配置/预设可读性不变),
+ * 带透明度时写 `#AARRGGBB`,让取色器的 alpha 真正进入渲染链。
+ */
 internal fun argbToColorToken(argb: Int): String =
-    String.format(Locale.US, "#%06X", argb and 0xFFFFFF)
+    if ((argb ushr 24) and 0xFF == 255) {
+        String.format(Locale.US, "#%06X", argb and 0xFFFFFF)
+    } else {
+        String.format(Locale.US, "#%08X", argb)
+    }
 
 /**
  * 取色弹窗的预设颜色(token→展示名):顺序即展示顺序,

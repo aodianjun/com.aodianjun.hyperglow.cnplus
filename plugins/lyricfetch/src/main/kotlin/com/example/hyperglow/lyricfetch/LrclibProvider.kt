@@ -20,15 +20,18 @@ internal object LrclibProvider : LyricProvider {
     /** 搜索命中：候选信息与歌词一体返回（LRCLIB 的 search 就带 syncedLyrics）。 */
     internal data class Hit(val candidate: TrackMatch.Candidate, val syncedLyrics: String)
 
-    override fun fetch(query: TrackQuery, budgetMs: Int): RawLyrics? {
+    override fun fetch(query: TrackQuery, budgetMs: Int): ProviderFetch {
         val startedAt = System.currentTimeMillis()
-        directGet(query, budgetMs)?.let { return it }
+        val direct = directGet(query, budgetMs)
+        if (direct is ProviderFetch.Hit) return direct
         val remaining = budgetMs - (System.currentTimeMillis() - startedAt).toInt()
-        if (remaining < 1_000) return null
+        // 精确取词没成功且预算不够跑搜索：结局未知，交给短退避重试。
+        if (remaining < 1_000) return ProviderFetch.Failure
+        // 搜索是权威判定：请求成功而无可接受候选 = 确定无匹配；请求失败 = 结局未知。
         return searchThenPick(query, remaining)
     }
 
-    private fun directGet(query: TrackQuery, budgetMs: Int): RawLyrics? {
+    private fun directGet(query: TrackQuery, budgetMs: Int): ProviderFetch {
         val artist = query.artists.firstOrNull().orEmpty()
         val url = buildString {
             append(BASE).append("/get?track_name=").append(Http.encode(query.title))
@@ -36,36 +39,49 @@ internal object LrclibProvider : LyricProvider {
             query.album?.takeIf { it.isNotBlank() }?.let { append("&album_name=").append(Http.encode(it)) }
             query.durationMs?.takeIf { it > 0 }?.let { append("&duration=").append(it / 1000.0) }
         }
-        val body = Http.get(url, budgetMs = budgetMs) ?: return null
-        val parsed = parseGet(body) ?: return null
-        return RawLyrics(
-            providerId = id,
-            content = parsed.content,
-            matchedTitle = parsed.matchedTitle,
-            matchedArtists = parsed.matchedArtists,
-            matchedDurationMs = parsed.matchedDurationMs,
+        val body = Http.get(url, budgetMs = budgetMs) ?: return ProviderFetch.Failure
+        val parsed = parseGet(body)
+            ?: return if (isJsonObject(body)) ProviderFetch.NoMatch else ProviderFetch.Failure
+        return ProviderFetch.Hit(
+            RawLyrics(
+                providerId = id,
+                content = parsed.content,
+                matchedTitle = parsed.matchedTitle,
+                matchedArtists = parsed.matchedArtists,
+                matchedDurationMs = parsed.matchedDurationMs,
+            )
         )
     }
 
-    private fun searchThenPick(query: TrackQuery, budgetMs: Int): RawLyrics? {
+    private fun searchThenPick(query: TrackQuery, budgetMs: Int): ProviderFetch {
         val url = buildString {
             append(BASE).append("/search?track_name=").append(Http.encode(query.title))
             query.artists.firstOrNull()?.takeIf { it.isNotBlank() }
                 ?.let { append("&artist_name=").append(Http.encode(it)) }
         }
-        val body = Http.get(url, budgetMs = budgetMs) ?: return null
+        val body = Http.get(url, budgetMs = budgetMs) ?: return ProviderFetch.Failure
         val hits = parseSearch(body)
-        if (hits.isEmpty()) return null
-        val best = pickBest(query, hits.map { it.candidate }) ?: return null
+        if (hits.isEmpty()) {
+            // /api/search 正常返回 JSON 数组；非数组（错误页/代理注入）按失败处理，别写负缓存。
+            return if (isJsonArray(body)) ProviderFetch.NoMatch else ProviderFetch.Failure
+        }
+        val best = pickBest(query, hits.map { it.candidate }) ?: return ProviderFetch.NoMatch
         val hit = hits.first { it.candidate.id == best.id }
-        return RawLyrics(
-            providerId = id,
-            content = hit.syncedLyrics,
-            matchedTitle = hit.candidate.title,
-            matchedArtists = hit.candidate.artists.joinToString("/"),
-            matchedDurationMs = hit.candidate.durationMs,
+        return ProviderFetch.Hit(
+            RawLyrics(
+                providerId = id,
+                content = hit.syncedLyrics,
+                matchedTitle = hit.candidate.title,
+                matchedArtists = hit.candidate.artists.joinToString("/"),
+                matchedDurationMs = hit.candidate.durationMs,
+            )
         )
     }
+
+    /** 响应体是否为合法 JSON 对象/数组：区分「服务返回非预期内容」（失败）与「确无内容」（无匹配）。 */
+    private fun isJsonObject(body: String): Boolean = runCatching { JSONObject(body) }.isSuccess
+
+    private fun isJsonArray(body: String): Boolean = runCatching { JSONArray(body) }.isSuccess
 
     internal data class GetResult(
         val content: String,

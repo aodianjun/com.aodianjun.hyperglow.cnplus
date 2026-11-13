@@ -98,6 +98,8 @@ internal object AodWakeBroker {
     private var unavailableReason: AodWakeAvailability? = null
     private var installRetryCount = 0
     private var installRetryAttempted = false
+    // 重试预算按 loader 计:坏 loader 耗尽 3 次后,后续能看到 AOD dex 的 loader 仍应重新获得机会。
+    private var installRetryLoader: ClassLoader? = null
     private const val FEATURE_ID = "aod-wake"
     private var lyriconWatchdogScheduled = false
     private var lyriconWakeLogged = false
@@ -115,6 +117,10 @@ internal object AodWakeBroker {
     private var lyriconPlayingCachedAtElapsedMs = Long.MIN_VALUE
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
+        if (classLoader !== installRetryLoader) {
+            installRetryCount = 0
+            installRetryAttempted = false
+        }
         resolveLyriconState(classLoader)
         val dozeHostClass = runCatching { classLoader.loadClass(DOZE_HOST_CLASS) }.getOrNull()
         // The MIUI AOD doze-trigger class has been relocated across ROM versions (e.g. from the
@@ -132,8 +138,10 @@ internal object AodWakeBroker {
             }
         }
         if (triggersClass == null) {
-            noteInstallSkip("triggers_class")
-            HookLogger.w(TAG, "DozeTriggers class not found; will retry on next classloader")
+            // 每个 classloader 都会走到这里;只在首次记录,避免一次启动刷出几百行同样的日志。
+            if (noteInstallSkip("triggers_class")) {
+                HookLogger.w(TAG, "DozeTriggers class not found; will retry on next classloader")
+            }
             return
         }
         // Try primary and fallback field names for MIUI version compatibility.
@@ -218,6 +226,7 @@ internal object AodWakeBroker {
             HookLogger.e(TAG, "Max install retries ($MAX_INSTALL_RETRIES) reached; giving up")
             return
         }
+        installRetryLoader = classLoader
         installRetryCount++
         installRetryAttempted = true
         val delayMs = INSTALL_RETRY_BASE_DELAY_MS * installRetryCount
@@ -231,10 +240,12 @@ internal object AodWakeBroker {
      * 是假警报。这份记录只在「真的因无宿主被拒」时读取,那才是答案有用的时刻,并随拒绝
      * 原因一并上报(上游 99ba119)。
      */
-    private fun noteInstallSkip(reason: String) {
-        if (recordedInstallSkips.add(reason)) {
+    private fun noteInstallSkip(reason: String): Boolean {
+        val first = recordedInstallSkips.add(reason)
+        if (first) {
             HookLogger.i(TAG, "AOD wake broker install skipped reason=$reason")
         }
+        return first
     }
 
     @Synchronized
@@ -415,6 +426,13 @@ internal object AodWakeBroker {
             mainHandler.postDelayed(this, LYRICON_POLL_INTERVAL_MS)
             val activePower = powerManager ?: return
             if (activePower.isInteractive) return
+            // 有限时长保活到点后不得再强制唤醒：否则每 10s 重新点亮 AOD，到点熄灭永不生效。
+            // 只有「coordinator 明确判定本次会话到点」时才静默；投影断线/陈旧导致的
+            // clear 不会置位，issue #5 的兜底语义保持不变。
+            if (AodPowerCoordinator.isKeepAliveExpired()) {
+                lyriconWakeLogged = false
+                return
+            }
             if (!isLyriconPlaybackActive()) {
                 lyriconWakeLogged = false
                 return

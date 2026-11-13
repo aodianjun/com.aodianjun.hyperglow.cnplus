@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setting_force_lyric_provider">Force selected lyric provider</string>
+    <string name="summary_force_lyric_provider">Use only the provider selected above. Disables automatic upgrades to a source with word-level timing and automatic switching when the current source stalls or its timestamps drift.</string>
+</resources>

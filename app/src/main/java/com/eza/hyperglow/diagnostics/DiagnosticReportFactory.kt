@@ -132,7 +132,10 @@ internal object DiagnosticReportFactory {
                 systemUiPackagePresent = commonMetadata.packageVersions["systemui"]?.present == true,
                 xiaomiAodPackagePresent =
                     commonMetadata.packageVersions["xiaomi_aod"]?.present == true,
-                spotifyPackagePresent = commonMetadata.packageVersions["spotify"]?.present == true
+                spotifyPackagePresent = commonMetadata.packageVersions["spotify"]?.present == true,
+                spicyExPackagePresent =
+                    commonMetadata.packageVersions["spicy_ex"]?.present == true,
+                spicySetup = captured.spicySetup
             )
         )
         return DiagnosticReportEnvelope(
@@ -220,6 +223,9 @@ internal object DiagnosticReportFactory {
                         renderPreferences.keepAwakeUnsynced.toString(),
                     "keepAodActiveDurationMs" to renderPreferences.keepAwakeDurationMs.toString(),
                     "lockscreenKeepAwake" to renderPreferences.lockscreenKeepAwake.toString(),
+                    "lockscreenReserveBelowMediaCard" to
+                        renderPreferences.lockscreenReserveBelowMediaCard.toString(),
+                    "lockscreenCardPlacement" to renderPreferences.lockscreenCardPlacement,
                     "raiseToAod" to renderPreferences.raiseToAod.toString(),
                     "positionFollowing" to
                         renderPreferences.experimentalPositionFollowing.toString(),
@@ -250,8 +256,7 @@ internal object DiagnosticReportFactory {
             androidDisplay = Build.DISPLAY.orEmpty().utf8Prefix(256),
             androidIncremental = Build.VERSION.INCREMENTAL.orEmpty().utf8Prefix(256),
             buildFingerprint = Build.FINGERPRINT.orEmpty().utf8Prefix(1_024),
-            xiaomiOsProperties = XIAOMI_PROPERTY_KEYS.associateWith(::readProperty)
-                .filterValues { it.isNotBlank() },
+            xiaomiOsProperties = readProperties(XIAOMI_PROPERTY_KEYS),
             locales = context.resources.configuration.locales.toLanguageTags()
                 .split(',')
                 .filter(String::isNotBlank)
@@ -261,7 +266,8 @@ internal object DiagnosticReportFactory {
                 "hyperglow" to packageVersion(context, context.packageName),
                 "systemui" to packageVersion(context, "com.android.systemui"),
                 "xiaomi_aod" to packageVersion(context, "com.miui.aod"),
-                "spotify" to packageVersion(context, "com.spotify.music")
+                "spotify" to packageVersion(context, "com.spotify.music"),
+                "spicy_ex" to packageVersion(context, SPICY_EX_PACKAGE)
             )
         )
 
@@ -280,16 +286,50 @@ internal object DiagnosticReportFactory {
             DiagnosticPackageVersion(false, "unavailable", 0L)
         }
 
-    private fun readProperty(key: String): String = try {
-        val process = ProcessBuilder("/system/bin/getprop", key).redirectErrorStream(true).start()
+    /** Reads all system properties once, then keeps the requested keys. */
+    private fun readProperties(keys: List<String>): Map<String, String> = try {
+        val process = ProcessBuilder("/system/bin/getprop").redirectErrorStream(true).start()
         if (!process.waitFor(PROPERTY_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
             process.destroyForcibly()
-            ""
+            emptyMap()
         } else {
-            process.inputStream.bufferedReader().use { it.readLine().orEmpty() }.utf8Prefix(256)
+            val lines = process.inputStream.bufferedReader().use { reader ->
+                generateSequence { reader.readLine() }.toList()
+            }
+            selectProperties(lines, keys)
         }
     } catch (_: Exception) {
-        ""
+        emptyMap()
+    }
+
+    /** Parses `[key]: [value]` (getprop with no args) or `key=value` output. */
+    internal fun selectProperties(
+        lines: List<String>,
+        keys: List<String>
+    ): Map<String, String> {
+        val values = buildMap {
+            for (line in lines) {
+                val property = parsePropertyLine(line.trim()) ?: continue
+                put(property.first, property.second)
+            }
+        }
+        return keys.mapNotNull { key ->
+            values[key]?.utf8Prefix(256)?.takeIf { it.isNotBlank() }?.let { key to it }
+        }.toMap()
+    }
+
+    private fun parsePropertyLine(line: String): Pair<String, String>? {
+        if (line.startsWith("[") && line.contains("]: [")) {
+            val keyEnd = line.indexOf("]: ")
+            if (keyEnd <= 1) return null
+            val valueStart = keyEnd + 4
+            val valueEnd = line.lastIndexOf(']')
+            if (valueEnd < valueStart) return null
+            return line.substring(1, keyEnd) to line.substring(valueStart, valueEnd)
+        }
+        val separator = line.indexOf('=')
+        if (separator <= 0) return null
+        return line.substring(0, separator) to line.substring(separator + 1)
     }
 
     private val XIAOMI_PROPERTY_KEYS = listOf(
@@ -301,6 +341,7 @@ internal object DiagnosticReportFactory {
         "ro.miui.build.region"
     )
     private const val PROPERTY_TIMEOUT_MS = 500L
+    private const val SPICY_EX_PACKAGE = "com.eza.spicyex"
 
     private fun emptyMediaEvidence() = DiagnosticMediaEvidence(
         present = false,

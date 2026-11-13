@@ -20,7 +20,9 @@ import com.eza.hyperglow.root.lockscreen.LockscreenEditorGestureHook
 import com.eza.hyperglow.root.lockscreen.RaiseToAodHook
 import com.eza.hyperglow.root.projection.SystemUiLyricProjectionRuntime
 import com.eza.hyperglow.root.symbols.SymbolResolver
+import com.eza.hyperglow.root.utils.PlatformVersion
 import com.eza.hyperglow.root.symbols.SymbolSourceLog
+import com.eza.hyperglow.root.spectrum.FullRateCaptureHooks
 import com.eza.hyperglow.root.transition.LinkageTransitionHook
 import com.eza.hyperglow.root.transition.SystemUiClockMorphHook
 import io.github.libxposed.api.XposedInterface.Chain
@@ -56,6 +58,17 @@ class HookEntry : XposedModule() {
             } catch (error: Exception) {
                 HookLogger.w(TAG, "AntiFreeze entry failed in system_server", error)
             }
+            // 与 AntiFreeze 同款兜底：部分 LSPosed/ROM 不回调 onSystemServerStarting，
+            // 若只在后者安装，AudioService 策略门不会生效，所有 UI 进程的 loopback 都会失败。
+            try {
+                FullRateCaptureHooks.install(
+                    this,
+                    ClassLoader.getSystemClassLoader(),
+                    systemServer = true
+                )
+            } catch (error: Exception) {
+                HookLogger.w(TAG, "spectrum loopback hooks unavailable at module load", error)
+            }
         }
         HookLogger.bootstrap(TAG, "module_loaded_complete")
     }
@@ -66,6 +79,11 @@ class HookEntry : XposedModule() {
             HookLogger.bootstrap(TAG, "antifreeze_installed_in_system_server")
         } catch (error: Exception) {
             HookLogger.w(TAG, "AntiFreeze install failed", error)
+        }
+        try {
+            FullRateCaptureHooks.install(this, param.classLoader, systemServer = true)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "spectrum loopback hooks unavailable in system_server", error)
         }
     }
 
@@ -83,7 +101,14 @@ class HookEntry : XposedModule() {
         }
         if (param.packageName != SYSTEM_UI_PACKAGE) return
         val processName = runCatching { Application.getProcessName() }.getOrDefault("")
-        HookLogger.bootstrap(TAG, "systemui_package_loaded process=${processClass(processName)}")
+        PlatformVersion.confirmFromSystemUiClassLoader(param.defaultClassLoader)
+        HookLogger.bootstrap(
+            TAG,
+            "systemui_package_loaded build=$BUILD_TAG os4=${PlatformVersion.isHyperOs4OrNewer} " +
+                "sdk=${android.os.Build.VERSION.SDK_INT} " +
+                "osName=${PlatformVersion.rawVersionName ?: "-"} " +
+                "process=${processClass(processName)}"
+        )
         if (processName.contains(':')) {
             HookLogger.bootstrap(TAG, "systemui_secondary_process_skipped")
             return
@@ -96,6 +121,11 @@ class HookEntry : XposedModule() {
         installDefaultLoaderHooks(this, param.defaultClassLoader)
         installAodHooks(this, param.defaultClassLoader)
         installClassLoaderHook(this)
+        try {
+            FullRateCaptureHooks.install(this, param.defaultClassLoader, systemServer = false)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "spectrum loopback hooks unavailable in SystemUI", error)
+        }
         HookLogger.bootstrap(
             TAG,
             "symbol_resolution ${SymbolResolver.statsLine()} ${SymbolSourceLog.summary()}"
@@ -145,6 +175,7 @@ class HookEntry : XposedModule() {
             return
         }
         val classLoader = application.classLoader
+        FullRateCaptureHooks.resetForReload()
         SymbolResolver.install(this)
         SymbolResolver.observeContext(application)
         XiaomiCapabilityResolver.observeDefaultLoader(classLoader)
@@ -153,6 +184,11 @@ class HookEntry : XposedModule() {
         installDefaultLoaderHooks(this, classLoader)
         installAodHooks(this, classLoader)
         installClassLoaderHook(this)
+        try {
+            FullRateCaptureHooks.install(this, classLoader, systemServer = false)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "spectrum loopback hooks unavailable after hot reload", error)
+        }
         SystemUiLifecycleHook.bootstrap(application)
         HookLogger.bootstrap(
             TAG,
@@ -273,10 +309,20 @@ class HookEntry : XposedModule() {
     }
 
     private fun installMiuiAodHooks(param: PackageLoadedParam) {
-        HookLogger.bootstrap(TAG, "miui_aod_package_loaded")
+        HookLogger.bootstrap(
+            TAG,
+            "miui_aod_package_loaded os4=${PlatformVersion.isHyperOs4OrNewer} " +
+                "sdk=${android.os.Build.VERSION.SDK_INT} " +
+                "osName=${PlatformVersion.rawVersionName ?: "-"}"
+        )
         val loader = param.defaultClassLoader
         XiaomiCapabilityResolver.observeAodLoader(loader)
         installAodHooks(this, loader)
+        try {
+            FullRateCaptureHooks.install(this, loader, systemServer = false)
+        } catch (error: Exception) {
+            HookLogger.w(TAG, "spectrum loopback hooks unavailable in miui.aod", error)
+        }
     }
 
     private inner class ClassLoaderHooker(private val module: XposedModule) : Hooker {
@@ -298,6 +344,8 @@ class HookEntry : XposedModule() {
 
     companion object {
         private const val TAG = "HookEntry"
+        /** 本构建标记:现场日志靠它区分是否已加载新包(SystemUI 进程需重启才会换代码)。 */
+        private const val BUILD_TAG = "v0.4.0"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
         private const val SYSTEM_SERVER_PACKAGE = "android"
         private const val MIUI_AOD_PACKAGE = "com.miui.aod"

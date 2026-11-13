@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setting_force_lyric_provider">強制指定歌詞提供器</string>
+    <string name="summary_force_lyric_provider">只使用上方選中的歌詞源。關閉「自動升級到帶逐字時間的源」，以及目前來源卡死或時間戳對不上時的自動換源；僅在該源斷連或故障時回退。</string>
+</resources>

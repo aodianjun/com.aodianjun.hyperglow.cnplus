@@ -45,6 +45,18 @@ object LyricProducers {
         arbiter.start(context.applicationContext)
         instance = arbiter
         lyricInfoProducer = lyricInfo
+        // 源健康兜底:LyricInfo 直接跟随播放器 MediaSession,用它的位置作为权威参考,
+        // 判定当前选中源是否卡死或时间戳不符(见 LyricProducerArbiter.maybeSwitchUnhealthySource)。
+        arbiter.referencePositionProvider = {
+            lyricInfo.state.value?.let { state ->
+                LyricReferencePosition(
+                    positionMs = state.positionMs,
+                    sampledAtElapsedMs = state.sampledAtElapsedMs,
+                    speed = state.speed,
+                    playing = state.playing
+                )
+            }
+        }
         registeredProducers = producers
         // 启动即装载文档级派生配置(歌词时间偏移/对唱标记/渲染模式),不等首次文档变更。
         registeredProducers.forEach { it.onCustomizationChanged() }

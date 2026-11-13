@@ -1,6 +1,7 @@
 package com.eza.hyperglow.root.lockscreen
 
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
+import com.eza.hyperglow.customization.spectrumWidgetHeightDp
 import com.eza.hyperglow.root.aod.metadataWidgetHeightDp
 import com.eza.hyperglow.root.aod.textSizeModeMultiplier
 import com.eza.hyperglow.root.surface.PlacementRect
@@ -19,6 +20,9 @@ internal data class LockscreenSceneRect(
 internal const val TOP_MARGIN_DP = 16f
 
 internal const val NOTIFICATION_GAP_DP = 8f
+
+/** 音乐卡与歌词卡之间的固定间距。 */
+internal const val MEDIA_CARD_GAP_DP = 12f
 
 internal const val BOTTOM_RESERVE_DP = 120f
 
@@ -47,7 +51,12 @@ internal const val LOCKSCREEN_ENTRY_SLIDE_DP = 20f
 internal data class LockscreenLayoutResult(
     val rect: LockscreenSceneRect,
     val profile: CompiledSurfaceProfile,
-    val progressVisible: Boolean
+    val progressVisible: Boolean,
+    val mediaHeaderBottom: Int? = null,
+    /** 媒体卡本身的位移(负=上移);下方模式用它把媒体卡顶上去给歌词让位。 */
+    val mediaHeaderOffsetPx: Int = 0,
+    /** 媒体卡之后的通知位移;下方模式按歌词实际高度单独下移。 */
+    val notificationOffsetPx: Int = 0
 )
 
 internal fun largestLockscreenFreeRegion(
@@ -128,6 +137,14 @@ internal fun estimatedLockscreenSceneHeight(
     } else {
         0f
     }
+    val spectrumHeight = if (profile.spectrum.enabled &&
+        !profile.spectrum.background &&
+        profile.widgets.any { it.type == "spectrum" }
+    ) {
+        spectrumWidgetHeightDp(profile.spectrum.heightPercent)
+    } else {
+        0f
+    }
     val cardPadding = if (profile.backgroundStyle == "card") 24f else 0f
     val primaryBlockHeight = if (profile.lyricLineLimit == 0) {
         Float.POSITIVE_INFINITY
@@ -136,7 +153,7 @@ internal fun estimatedLockscreenSceneHeight(
     }
     return (primaryBlockHeight * textScale +
         SECONDARY_BLOCK_HEIGHT_DP * secondaryRows * textScale.coerceAtMost(1.25f) +
-        metadataHeight + progressHeight + cardPadding) * density
+        metadataHeight + progressHeight + spectrumHeight + cardPadding) * density
 }
 
 /**
@@ -170,6 +187,38 @@ internal fun preferredLockscreenClockBottom(
     fallbacks: List<Int>
 ): Int = preferred.takeIf { it > 0 }?.coerceIn(0, hostHeight)
     ?: maximumLockscreenClockBottom(hostHeight, fallbacks)
+
+/**
+ * 锁屏时钟锚点：`getClockBottom()` 可能落在字形下方的动画/布局内边距上（OS4 实测 573，
+ * 可见时钟底边约 444）。可见底边与解析值偏差超过 [mismatchTolerancePx] 时以可见值为准；
+ * 偏差在容差内（OS3 已验证路径）保留原解析值。OS4 传 0，即任何偏差都取可见值。
+ */
+internal fun adaptiveLockscreenClockBottom(
+    resolved: Int,
+    visibleCandidates: List<Int>,
+    mismatchTolerancePx: Int
+): Int {
+    val visible = visibleCandidates.filter { it > 0 }.maxOrNull() ?: return resolved
+    return if (kotlin.math.abs(visible - resolved) > mismatchTolerancePx) visible else resolved
+}
+
+/**
+ * 媒体卡锚点：布局算式把 translationY 与父容器偏移叠加后得到 1719，而 getGlobalVisibleRect
+ * 测到的真实底边是 1494（同一帧）。偏差超过容差时取可见值，否则保留布局算式（OS3 路径）。
+ */
+internal fun adaptiveMediaHeaderBottom(
+    layoutBottom: Int?,
+    visibleBottom: Int,
+    mismatchTolerancePx: Int
+): Int? {
+    if (visibleBottom <= 0) return layoutBottom?.takeIf { it > 0 }
+    if (layoutBottom == null || layoutBottom <= 0) return visibleBottom
+    return if (kotlin.math.abs(layoutBottom - visibleBottom) > mismatchTolerancePx) {
+        visibleBottom
+    } else {
+        layoutBottom
+    }
+}
 
 internal fun frameLayoutGeometryChanged(
     currentWidth: Int,

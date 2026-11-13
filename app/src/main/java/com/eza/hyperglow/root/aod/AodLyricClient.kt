@@ -16,12 +16,16 @@ import com.eza.hyperglow.aod.AodStateWireCodec
 import com.eza.hyperglow.aod.AodStateWireMessage
 import com.eza.hyperglow.aod.IAodLyricBridge
 import com.eza.hyperglow.aod.IAodLyricCallback
+import com.eza.hyperglow.aod.IAodSpectrumCallback
+import com.eza.hyperglow.aod.SpectrumFrame
+import com.eza.hyperglow.aod.SpectrumWireCodec
 import com.eza.hyperglow.aod.XiaomiCapabilityBundleCodec
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import com.eza.hyperglow.root.capability.missingProbeNames
 import com.eza.hyperglow.root.customization.CompiledCustomizationBundleCodec
 import com.eza.hyperglow.root.customization.CompiledCustomizationBundleCodec.WirePayload
+import com.eza.hyperglow.root.customization.SpriteWire
 import com.eza.hyperglow.root.projection.LyricProjectionClient
 
 private const val RETRY_DELAY_BASE_MS = 1_000L
@@ -46,9 +50,15 @@ internal fun shouldReplacePendingState(
  * 心跳 keepAlive 的播放宽限(issue #22):心跳的 keepAlive=false 不具备租约过期权威——
  * 切歌 BUFFERING 窗口里它会与 playbackActive=true 同时到达,直接采信会提前关闭 draw-wake
  * 续期。playbackActive=true 时宽限视为续期;租约过期权威仍只属于全量快照。
+ *
+ * 有限时长保活到点（[keepAliveExpired]）压过宽限：到点后播放仍在也不能再续期，
+ * 否则心跳会把刚释放的会话重新拉活。
  */
-internal fun heartbeatKeepAliveWithGrace(keepAlive: Boolean, playbackActive: Boolean): Boolean =
-    keepAlive || playbackActive
+internal fun heartbeatKeepAliveWithGrace(
+    keepAlive: Boolean,
+    playbackActive: Boolean,
+    keepAliveExpired: Boolean = false
+): Boolean = !keepAliveExpired && (keepAlive || playbackActive)
 
 /**
  * Preserve a pending state while applying a newer same-revision heartbeat to its scalar fields. A
@@ -67,14 +77,24 @@ internal fun mergePendingKeepAlive(
     return when (pending) {
         is AodStateWireMessage.Snapshot -> pending.copy(
             updatedAtElapsedMs = incoming.updatedAtElapsedMs,
-            keepAlive = heartbeatKeepAliveWithGrace(incoming.keepAlive, incoming.playbackActive),
+            keepAlive = heartbeatKeepAliveWithGrace(
+                incoming.keepAlive,
+                incoming.playbackActive,
+                incoming.keepAliveExpired
+            ),
+            keepAliveExpired = incoming.keepAliveExpired,
             wakeSignal = incoming.wakeSignal,
             playbackActive = incoming.playbackActive,
             pauseRetentionEligible = incoming.pauseRetentionEligible
         )
         is AodStateWireMessage.Hidden -> pending.copy(
             updatedAtElapsedMs = incoming.updatedAtElapsedMs,
-            keepAlive = heartbeatKeepAliveWithGrace(incoming.keepAlive, incoming.playbackActive),
+            keepAlive = heartbeatKeepAliveWithGrace(
+                incoming.keepAlive,
+                incoming.playbackActive,
+                incoming.keepAliveExpired
+            ),
+            keepAliveExpired = incoming.keepAliveExpired,
             wakeSignal = incoming.wakeSignal,
             playbackActive = incoming.playbackActive,
             pauseRetentionEligible = incoming.pauseRetentionEligible
@@ -111,7 +131,8 @@ internal class GenerationBoundLatest<T> {
 internal class AodLyricClient(
     private val onConfiguration: (WirePayload) -> Unit,
     private val onState: (AodStateWireMessage) -> Unit,
-    private val onDisconnected: () -> Unit
+    private val onDisconnected: () -> Unit,
+    private val onSpectrum: (SpectrumFrame) -> Unit = {}
 ) : LyricProjectionClient {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var context: Context? = null
@@ -119,6 +140,8 @@ internal class AodLyricClient(
     private var bridge: IAodLyricBridge? = null
     private var connection: ServiceConnection? = null
     private var callback: IAodLyricCallback? = null
+    private var spectrumCallback: IAodSpectrumCallback? = null
+    private var pendingSpectrum: SpectrumFrame? = null
     private var bound = false
     private var stopped = true
     private var bindingGeneration = 0L
@@ -127,6 +150,10 @@ internal class AodLyricClient(
     private var retryAttempt = 0
     private var bindUserId = -1
     private var lastNoBridgeReportElapsedMs = -1L
+    private var firstReportRequestElapsedMs = Long.MIN_VALUE
+    private var deferredReportLogged = false
+    private var lastReportedSummary: String? = null
+    private var lastReportElapsedMs = Long.MIN_VALUE
     private val connectWatchdog = Runnable { onConnectWatchdog() }
     private val pendingConfiguration = GenerationBoundLatest<WirePayload>()
     private val pendingState = GenerationBoundLatest<AodStateWireMessage>()
@@ -203,10 +230,22 @@ internal class AodLyricClient(
                     return
                 }
             }
+            // 自定义贴图随配置走 fd 通道:必须在本回调内读满并关闭 fd(Bundle 不得外传);
+            // 哈希/尺寸校验在 [SpriteWire.read] 与注册表内完成,失败只丢贴图不影响配置。
+            val spriteBytes = try {
+                SpriteWire.read(configuration) { reason ->
+                    HookLogger.w(TAG, "Sprite payload rejected reason=$reason")
+                }
+            } catch (error: Exception) {
+                HookLogger.w(TAG, "Sprite payload read failed", error)
+                emptyList()
+            }
+            CustomSpriteRegistry.install(spriteBytes)
             HookLogger.w(
                 TAG,
                 "Configuration queued rev=${ownedPayload.revision} " +
-                    "hash=${ownedPayload.hash.take(8)} gen=$generation"
+                    "hash=${ownedPayload.hash.take(8)} gen=$generation " +
+                    "sprites=${spriteBytes.size}"
             )
             mainHandler.removeCallbacks(deliverConfiguration)
             mainHandler.post(deliverConfiguration)
@@ -268,8 +307,52 @@ internal class AodLyricClient(
             mainHandler.post(deliverState)
         }
     }
+    private val deliverSpectrum = Runnable {
+        val frame = synchronized(this) {
+            if (stopped) {
+                pendingSpectrum = null
+                null
+            } else {
+                pendingSpectrum.also { pendingSpectrum = null }
+            }
+        } ?: return@Runnable
+        try {
+            onSpectrum(frame)
+        } catch (error: Exception) {
+            HookLogger.e(TAG, "Spectrum apply failed", error)
+        }
+    }
 
-    private fun createConnection(generation: Long, registeredCallback: IAodLyricCallback) =
+    private fun createSpectrumCallback(generation: Long) = object : IAodSpectrumCallback.Stub() {
+        override fun onSpectrum(frame: Bundle?) {
+            if (frame == null) return
+            synchronized(this@AodLyricClient) {
+                if (stopped || generation != bindingGeneration) return
+            }
+            val decoded = try {
+                SpectrumWireCodec.fromBundle(frame)
+            } catch (error: Exception) {
+                HookLogger.w(TAG, "Rejected malformed spectrum payload", error)
+                return
+            }
+            if (decoded == null) {
+                HookLogger.w(TAG, "Rejected invalid spectrum payload")
+                return
+            }
+            synchronized(this@AodLyricClient) {
+                if (stopped || generation != bindingGeneration) return
+                pendingSpectrum = decoded
+            }
+            mainHandler.removeCallbacks(deliverSpectrum)
+            mainHandler.post(deliverSpectrum)
+        }
+    }
+
+    private fun createConnection(
+        generation: Long,
+        registeredCallback: IAodLyricCallback,
+        registeredSpectrumCallback: IAodSpectrumCallback
+    ) =
         object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                 if (stopped || generation != bindingGeneration || connection !== this) return
@@ -287,6 +370,12 @@ internal class AodLyricClient(
                     HookLogger.i(TAG, "Bridge connected")
                     retryAttempt = 0
                     reportCapabilities()
+                    try {
+                        remote.registerSpectrumCallback(registeredSpectrumCallback)
+                        HookLogger.bootstrap(TAG, "bridge_spectrum_callback_registered")
+                    } catch (error: Exception) {
+                        HookLogger.w(TAG, "Spectrum callback registration failed", error)
+                    }
                 } catch (error: Exception) {
                     HookLogger.bootstrap(TAG, "bridge_callback_registration_failed")
                     HookLogger.w(TAG, "Bridge callback registration failed", error)
@@ -336,8 +425,14 @@ internal class AodLyricClient(
         bindAttemptCount++
         retryAttempt++
         val registeredCallback = createCallback(generation)
-        val serviceConnection = createConnection(generation, registeredCallback)
+        val registeredSpectrumCallback = createSpectrumCallback(generation)
+        val serviceConnection = createConnection(
+            generation,
+            registeredCallback,
+            registeredSpectrumCallback
+        )
         callback = registeredCallback
+        spectrumCallback = registeredSpectrumCallback
         connection = serviceConnection
         bound = try {
             appContext.bindServiceAsUser(
@@ -387,12 +482,15 @@ internal class AodLyricClient(
             mainHandler.removeCallbacks(connectWatchdog)
             mainHandler.removeCallbacks(deliverConfiguration)
             mainHandler.removeCallbacks(deliverState)
+            mainHandler.removeCallbacks(deliverSpectrum)
             synchronized(this) {
                 pendingConfiguration.clear()
                 pendingState.clear()
+                pendingSpectrum = null
             }
             bridge = null
             callback = null
+            spectrumCallback = null
             connection = null
             lastNoBridgeReportElapsedMs = -1L
             if (bound) context?.let {
@@ -423,14 +521,22 @@ internal class AodLyricClient(
         mainHandler.removeCallbacks(retry)
         mainHandler.removeCallbacks(deliverConfiguration)
         mainHandler.removeCallbacks(deliverState)
+        mainHandler.removeCallbacks(deliverSpectrum)
         synchronized(this) {
             pendingConfiguration.clear()
             pendingState.clear()
+            pendingSpectrum = null
         }
         try {
             callback?.let {
                 try {
                     bridge?.unregisterCallback(it)
+                } catch (_: Exception) {
+                }
+            }
+            spectrumCallback?.let {
+                try {
+                    bridge?.unregisterSpectrumCallback(it)
                 } catch (_: Exception) {
                 }
             }
@@ -448,11 +554,16 @@ internal class AodLyricClient(
             } finally {
                 bridge = null
                 callback = null
+                spectrumCallback = null
                 connection = null
                 retryAttempt = 0
                 bindAttemptCount = 0
                 lastCapabilityReportGeneration = -1L
                 lastNoBridgeReportElapsedMs = -1L
+                firstReportRequestElapsedMs = Long.MIN_VALUE
+                deferredReportLogged = false
+                lastReportedSummary = null
+                lastReportElapsedMs = Long.MIN_VALUE
                 context = null
                 bindingUser = null
                 bound = false
@@ -472,8 +583,32 @@ internal class AodLyricClient(
             }
             return
         }
+        val now = SystemClock.elapsedRealtime()
+        if (firstReportRequestElapsedMs == Long.MIN_VALUE) firstReportRequestElapsedMs = now
+        // SystemUI 默认 loader 在 AOD dex 加载前只有 4 个探针;此时发 4/16 会把 App 端
+        // 上一次可用的报告覆盖成 unsupported_profile。等 AOD loader 或宽限期到再发。
+        if (XiaomiCapabilityResolver.shouldDeferCapabilityReport() &&
+            now - firstReportRequestElapsedMs < CAPABILITY_REPORT_AOD_GRACE_MS
+        ) {
+            if (!deferredReportLogged) {
+                deferredReportLogged = true
+                HookLogger.bootstrap(TAG, "capability_report_deferred_aod_pending")
+            }
+            return
+        }
         try {
             val snapshot = XiaomiCapabilityResolver.snapshot()
+            // classloader 事件会高频触发本方法;同一份探针结果在短时间内重复上报只会
+            // 反复写 SharedPreferences,按内容去重并保留 30s 的年龄上限。
+            val reportKey = snapshot.summary() + "#" + snapshot.rawProbes.hashCode()
+            if (reportKey == lastReportedSummary &&
+                lastReportElapsedMs != Long.MIN_VALUE &&
+                now - lastReportElapsedMs < CAPABILITY_REPORT_MIN_INTERVAL_MS
+            ) {
+                return
+            }
+            lastReportedSummary = reportKey
+            lastReportElapsedMs = now
             remote.reportCapabilities(XiaomiCapabilityBundleCodec.toBundle(snapshot))
             if (lastCapabilityReportGeneration != bindingGeneration) {
                 lastCapabilityReportGeneration = bindingGeneration
@@ -501,6 +636,10 @@ internal class AodLyricClient(
         private const val PER_USER_RANGE = 100_000L
         private const val NO_BRIDGE_REPORT_MARKER_INTERVAL_MS = 5_000L
         private const val CONNECT_WATCHDOG_MS = 5_000L
+        /** AOD dex 晚于默认 loader 加载;这段时间内不把默认 loader 的 4/16 快照当结算结果。 */
+        private const val CAPABILITY_REPORT_AOD_GRACE_MS = 90_000L
+        /** 同一份探针结果的重复上报间隔。 */
+        private const val CAPABILITY_REPORT_MIN_INTERVAL_MS = 30_000L
     }
 }
 

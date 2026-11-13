@@ -459,7 +459,8 @@ class LockscreenSurfaceControllerTest {
         assertTrue(shouldShowLockscreen(allowed))
         assertFalse(shouldShowLockscreen(allowed.copy(featureEnabled = false)))
         assertFalse(shouldShowLockscreen(allowed.copy(supported = false)))
-        assertFalse(shouldShowLockscreen(allowed.copy(defaultTheme = false)))
+        // 自定义主题不再硬拦;只要 usableArea/keyguard/bouncer/freshSnapshot 都过就显示。
+        assertTrue(shouldShowLockscreen(allowed.copy(defaultTheme = false)))
         assertFalse(shouldShowLockscreen(allowed.copy(primaryDisplay = false)))
         assertFalse(shouldShowLockscreen(allowed.copy(keyguardShowing = false)))
         assertFalse(shouldShowLockscreen(allowed.copy(bouncerShowing = true)))
@@ -664,5 +665,100 @@ class LockscreenSurfaceControllerTest {
         assertFalse(shouldReuseLockscreenHost(host, Any(), true))
         assertFalse(shouldReuseLockscreenHost(host, host, false))
         assertEquals(0, LOCKSCREEN_INSERTION_INDEX)
+    }
+
+    @Test
+    fun hiddenNotificationStackDoesNotReserveScreenSpace() {
+        assertTrue(shouldUseLockscreenNotificationGeometry(hasNotification = true, stackShown = true))
+        assertFalse(shouldUseLockscreenNotificationGeometry(hasNotification = true, stackShown = false))
+        assertFalse(shouldUseLockscreenNotificationGeometry(hasNotification = false, stackShown = true))
+    }
+
+    @Test
+    fun missingThemeProbeDoesNotBlockLockscreen() {
+        assertTrue(resolveDefaultTheme(null))
+        assertTrue(resolveDefaultTheme(true))
+        assertFalse(resolveDefaultTheme(false))
+    }
+
+    @Test
+    fun liveProducerSnapshotAllowsLockscreenWithoutStockMediaHeader() {
+        assertTrue(
+            resolveLockscreenMediaPlayerPresent(
+                stockMediaPlayerVisible = false,
+                liveSnapshotVisible = true
+            )
+        )
+        assertTrue(
+            resolveLockscreenMediaPlayerPresent(
+                stockMediaPlayerVisible = true,
+                liveSnapshotVisible = false
+            )
+        )
+        assertFalse(
+            resolveLockscreenMediaPlayerPresent(
+                stockMediaPlayerVisible = false,
+                liveSnapshotVisible = false
+            )
+        )
+    }
+
+    @Test
+    fun tailRestoreDefaultReleasesLockscreenCardPerSurfaceDelay() {
+        // 同一快照(lineEnd=10_000、position=13_000):息屏 delay=3 已到点、锁屏 delay=10
+        // 未到点,因此只有息屏解除系统内容抑制;20_000 时锁屏也到点。
+        fun active(delaySeconds: Int, nowElapsedMs: Long) =
+            com.eza.hyperglow.aod.tailTimeoutActive(
+                tailEligible = true,
+                lineStartMs = 5_000L,
+                lineEndMs = 10_000L,
+                positionMs = 13_000L,
+                sampledAtElapsedMs = 13_000L,
+                speed = 1f,
+                nowElapsedMs = nowElapsedMs,
+                delaySeconds = delaySeconds
+            )
+
+        assertTrue(active(delaySeconds = 3, nowElapsedMs = 13_000L))
+        assertFalse(active(delaySeconds = 10, nowElapsedMs = 13_000L))
+        assertTrue(active(delaySeconds = 10, nowElapsedMs = 20_000L))
+
+        assertTrue(
+            com.eza.hyperglow.root.aod.shouldReleaseStockForTailTimeout(
+                tailActive = active(delaySeconds = 3, nowElapsedMs = 13_000L),
+                tailTimeoutBehavior = "restore_default"
+            )
+        )
+        assertFalse(
+            com.eza.hyperglow.root.aod.shouldReleaseStockForTailTimeout(
+                tailActive = active(delaySeconds = 10, nowElapsedMs = 13_000L),
+                tailTimeoutBehavior = "restore_default"
+            )
+        )
+    }
+
+    @Test
+    fun adaptiveClockAnchorUsesVisibleBottomOnlyWhenMismatchExceedsTolerance() {
+        // OS4(tolerance=0): getClockBottom()=573,可见时钟底边=444 → 取 444,卡片不再被压低。
+        assertEquals(444, adaptiveLockscreenClockBottom(573, listOf(0, 444, 444), 0))
+        // 时钟未 attach/被裁掉时可见候选全 0,保留原解析值。
+        assertEquals(573, adaptiveLockscreenClockBottom(573, listOf(0, 0, 0), 0))
+        // 多个可见容器同时有效时取最深的一个,避免与容器内更低元素重叠。
+        assertEquals(500, adaptiveLockscreenClockBottom(573, listOf(444, 500), 0))
+        // 非 OS4:64dp(≈此测试的像素口径)以内保留原解析值;超过才补偿。
+        assertEquals(573, adaptiveLockscreenClockBottom(573, listOf(540), 64))
+        assertEquals(500, adaptiveLockscreenClockBottom(573, listOf(500), 64))
+    }
+
+    @Test
+    fun adaptiveMediaHeaderAnchorPrefersVisibleBottomOnlyWhenMismatchExceedsTolerance() {
+        // OS4(tolerance=0): 同一帧布局算式=1719,可见底边=1494;取 1494 后卡片落 1528。
+        assertEquals(1494, adaptiveMediaHeaderBottom(1719, 1494, 0)!!)
+        // 可见底边缺失时回退布局算式;两者都没有则不放置。
+        assertEquals(1719, adaptiveMediaHeaderBottom(1719, 0, 0)!!)
+        assertNull(adaptiveMediaHeaderBottom(null, 0, 0))
+        // 非 OS4:容差内保留布局算式,超过才取可见底边。
+        assertEquals(1719, adaptiveMediaHeaderBottom(1719, 1690, 32))
+        assertEquals(1494, adaptiveMediaHeaderBottom(1719, 1494, 32))
     }
 }

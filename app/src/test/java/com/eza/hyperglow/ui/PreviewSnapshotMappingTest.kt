@@ -113,4 +113,76 @@ class PreviewSnapshotMappingTest {
         // 逐行推流源(SuperLyric)以有无当前行派生 playing,行文本为空的元数据态不接管。
         assertTrue(presentsLivePreview(state(playing = true, status = "ready", line = "")))
     }
+
+    // --- 「不显示非歌词内容」预览侧(预览即实机)---
+
+    private fun creditState(
+        line: String = "作词：张三",
+        nextLine: String = "真正的第一句歌词",
+        lineIndex: Int = 0
+    ) = state(line = line, nextLine = nextLine)
+
+    @Test
+    fun creditLinePreviewMatchesDeviceProjectionWhenHidden() {
+        // 与实机 projectToDisplay 同口径:名单行不当主行,由下一行真实歌词顶替。
+        val snapshot = creditState().toPreviewSnapshot(
+            metadataParts = "title",
+            metadataSeparators = "",
+            duetMarkers = false,
+            hideAlbumWhenSameAsTitle = false,
+            artworkFrame = null,
+            hideCreditLines = true
+        )
+        assertEquals("真正的第一句歌词", snapshot.original)
+        assertEquals("", snapshot.nextLine)
+        assertFalse(snapshot.lineLevelSync)
+        assertTrue(snapshot.words.isEmpty())
+    }
+
+    @Test
+    fun creditLinePreviewShowsPlaceholderWhenNextLineIsAlsoCredit() {
+        val snapshot = creditState(nextLine = "作曲：李四").toPreviewSnapshot(
+            metadataParts = "title",
+            metadataSeparators = "",
+            duetMarkers = false,
+            hideAlbumWhenSameAsTitle = false,
+            artworkFrame = null,
+            hideCreditLines = true
+        )
+        assertEquals("🎶", snapshot.original)
+        assertEquals("", snapshot.nextLine)
+    }
+
+    @Test
+    fun creditLinePreviewIsUnchangedWhenSwitchOff() {
+        // 开关关闭时逐字段回到历史行为(名单照常显示)。
+        val snapshot = creditState().toPreviewSnapshot(
+            metadataParts = "title",
+            metadataSeparators = "",
+            duetMarkers = false,
+            hideAlbumWhenSameAsTitle = false,
+            artworkFrame = null,
+            hideCreditLines = false
+        )
+        assertEquals("作词：张三", snapshot.original)
+        assertEquals("真正的第一句歌词", snapshot.nextLine)
+    }
+
+    @Test
+    fun creditNextLineIsDroppedFromPreviewNextLineSlot() {
+        val snapshot = creditState(
+            line = "真正的歌词",
+            nextLine = "作曲：李四",
+            lineIndex = 0
+        ).toPreviewSnapshot(
+            metadataParts = "title",
+            metadataSeparators = "",
+            duetMarkers = false,
+            hideAlbumWhenSameAsTitle = false,
+            artworkFrame = null,
+            hideCreditLines = true
+        )
+        assertEquals("真正的歌词", snapshot.original)
+        assertEquals("", snapshot.nextLine)
+    }
 }

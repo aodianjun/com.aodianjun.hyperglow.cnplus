@@ -19,6 +19,12 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     private var aodDisplayOff = false
     private var aodEnabled = false
     private var keepAliveRequested = false
+    /**
+     * 有限时长保活已到点（app 侧 AodPowerSessionPolicy 的判定，随快照/心跳下发）。
+     * 到点后本协调器不再受理 keepAlive 心跳、不再派发 AOD 唤醒；表面控制器同步停掉
+     * 绘制续期与内容脉冲，让 AOD 真正熄灭。
+     */
+    @Volatile private var keepAliveExpired = false
     private var graceEligible = false
     private var graceActive = false
     private var lastWakeSignal = Long.MIN_VALUE
@@ -63,6 +69,9 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
         guardCause = "surface-detached"
         updateLifetimeGuard()
     }
+
+    /** 表面控制器据此停掉绘制唤醒/内容脉冲（见 shouldRenewAodDraw）。 */
+    fun isKeepAliveExpired(): Boolean = keepAliveExpired
 
     /**
      * A hide already in flight when keepalive intent arrives cannot be suppressed, so a presenting
@@ -117,11 +126,13 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
 
     override fun onLyricSnapshot(snapshot: LyricSnapshot) {
         projectionVisible = snapshot.visible
+        keepAliveExpired = snapshot.keepAliveExpired
         guardCause = "snapshot visible=${snapshot.visible} playing=${snapshot.playbackActive} " +
-            "keepAlive=${snapshot.keepAlive} grace=$graceActive"
+            "keepAlive=${snapshot.keepAlive} expired=${snapshot.keepAliveExpired} grace=$graceActive"
         if (snapshot.visible) {
             aodEnabled = snapshot.aodEnabled
-            keepAliveRequested = snapshot.aodEnabled && snapshot.playbackActive && snapshot.keepAlive
+            keepAliveRequested = snapshot.aodEnabled && snapshot.playbackActive &&
+                snapshot.keepAlive && !snapshot.keepAliveExpired
             graceEligible = hasPersistentAodPowerIntent(snapshot)
             cancelGrace()
         } else if (shouldStartAodPowerGrace(
@@ -156,8 +167,9 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     }
 
     override fun onLyricKeepAlive(signal: LyricKeepAliveSignal) {
+        keepAliveExpired = signal.keepAliveExpired
         guardCause = "keepalive playing=${signal.playbackActive} keepAlive=${signal.keepAlive} " +
-            "grace=$graceActive"
+            "expired=${signal.keepAliveExpired} grace=$graceActive"
         if (!signal.playbackActive &&
             !shouldHoldGraceAcrossPauseRetention(
                 graceActive = graceActive,
@@ -170,6 +182,7 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
             graceEligible = false
         } else if (
             signal.keepAlive &&
+            !signal.keepAliveExpired &&
             shouldAcceptKeepAliveHeartbeat(
                 projectionVisible = projectionVisible,
                 graceActive = graceActive
@@ -217,6 +230,7 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
     private fun clear(cause: String) {
         cancelGrace()
         keepAliveRequested = false
+        keepAliveExpired = false
         graceEligible = false
         aodEnabled = false
         aodDisplayOff = false
@@ -242,12 +256,15 @@ internal object AodPowerCoordinator : SystemUiLyricSubscriber {
             hideRaceRecoveryPending = active && !aodDisplayOff
         }
         AodLifetimeController.noteGuardCause(guardCause)
-        AodLifetimeController.setLyricActive(active)
+        AodLifetimeController.setLyricActive(
+            active,
+            forceHideOnRelease = !active && keepAliveExpired
+        )
     }
 
     private fun dispatchWake(signal: Long, allowed: Boolean, forceRetry: Boolean = false) {
         val newSignal = isNewAodWakeSignal(lastWakeSignal, signal)
-        if (!allowed || (!newSignal && !forceRetry)) return
+        if (!allowed || keepAliveExpired || (!newSignal && !forceRetry)) return
         // Consume a content wake identity before calling the broker. A rejected request usually
         // means Xiaomi has torn down the AOD host; leaving the identity unrecorded turns every
         // heartbeat into another normal request and creates an attach/wake loop. The bounded

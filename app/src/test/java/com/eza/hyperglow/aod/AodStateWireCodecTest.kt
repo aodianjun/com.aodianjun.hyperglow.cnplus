@@ -52,6 +52,29 @@ class AodStateWireCodecTest {
     }
 
     @Test
+    fun keepAliveExpiredSurvivesEnvelopeRoundTrip() {
+        val snapshot = snapshotMessage().copy(keepAliveExpired = true)
+        assertEquals(
+            snapshot,
+            AodStateWireCodec.encode(snapshot)?.let(AodStateWireCodec::decode)
+        )
+
+        val keepAlive = AodStateWireMessage.KeepAlive(
+            revision = 9L,
+            userId = 10,
+            updatedAtElapsedMs = 902L,
+            keepAlive = false,
+            wakeSignal = 44L,
+            playbackActive = true,
+            keepAliveExpired = true
+        )
+        assertEquals(
+            keepAlive,
+            AodStateWireCodec.encode(keepAlive)?.let(AodStateWireCodec::decode)
+        )
+    }
+
+    @Test
     fun exactCollectionLimitsRoundTripAndOverLimitsFailClosedBeforeMapping() {
         val exact = snapshotMessage(
             value = snapshotValue(
@@ -122,6 +145,49 @@ class AodStateWireCodecTest {
 
         assertNull(AodStateWireCodec.encode(asciiOverflow))
         assertNull(AodStateWireCodec.encode(multibyteOverflow))
+    }
+
+    /**
+     * 聚合预算两端同口径:aodRotationMode 在编码体里按样式串写入、解码侧计入同一个
+     * 聚合预算,校验侧漏计会让「编码通过、解码拒收」(差值 4~9 字节)的包在消费端静默
+     * 丢失。这里钉住「解码侧口径正好 48KiB 通过、多 1 字节在编码侧就被拒」。
+     */
+    @Test
+    fun rotationModeCountsTowardTheSameAggregateBudgetAsTheDecoder() {
+        val cap = AodStateWireLimits.MAX_AGGREGATE_TEXT_UTF8_BYTES
+        // snapshotValue 的固定文本:original/nextLine/metadata + 13 项样式。
+        val fixedBytes = listOf(
+            "line", "nextline", "track",
+            "static_bottom", "Medium", "normal", "Main only", "Gradient", "Off", "Fluid",
+            "Top to bottom", "Wrap", "Fade up", "noto", "auto", "top"
+        ).sumOf(::aodUtf8Bytes)
+        val rotationBytes = aodUtf8Bytes("landscape")
+
+        val atCap = snapshotMessage(
+            value = snapshotValue(words = fillWords(cap - fixedBytes - rotationBytes))
+        )
+        val envelope = requireNotNull(AodStateWireCodec.encode(atCap))
+
+        assertEquals(atCap, AodStateWireCodec.decode(envelope))
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue(words = fillWords(cap - fixedBytes - rotationBytes + 1))
+                )
+            )
+        )
+    }
+
+    /** 以 500 字节词填满 [bytes]:整词 + 一个精确补齐词(单字段上限内)。 */
+    private fun fillWords(bytes: Int): List<AodStateWireWord> {
+        val full = bytes / AodStateWireLimits.MAX_LYRIC_CHARS
+        val rest = bytes % AodStateWireLimits.MAX_LYRIC_CHARS
+        return List(full) { AodStateWireWord("x".repeat(500), "", 0L, 1L, false, -1, -1) } +
+            if (rest > 0) {
+                listOf(AodStateWireWord("x".repeat(rest), "", 0L, 1L, false, -1, -1))
+            } else {
+                emptyList()
+            }
     }
 
     @Test
@@ -280,6 +346,35 @@ class AodStateWireCodecTest {
     }
 
     @Test
+    fun translationWordsRoundTripAndOverLimitFailsClosed() {
+        // 插件逐字翻译词表(v8)随快照过桥:片段文本 + 时间窗必须原样回环——渲染侧按它驱动
+        // 翻译辅助行的逐字点亮,任一侧丢字段都会让实机静默回落到行内几何合成。
+        val message = snapshotMessage(
+            value = snapshotValue(
+                translated = "我爱你",
+                translationWords = listOf(
+                    AodStateWireWord("我", "", 0L, 300L, true, -1, -1),
+                    AodStateWireWord(" 爱", "", 300L, 700L, true, -1, -1),
+                    AodStateWireWord(" 你", "", 700L, 1_000L, true, -1, -1)
+                )
+            )
+        )
+        assertEquals(message, AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode))
+        // 条数与主行词表共享上限:超限整包拒收(fail-closed,不静默截断)。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue(
+                        translationWords = List(AodStateWireLimits.MAX_WORDS + 1) {
+                            AodStateWireWord("x", "", 0L, 1L, true, -1, -1)
+                        }
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
     fun artworkFrameRoundTripsWithContentEquality() {
         val jpegBytes = ByteArray(64) { it.toByte() }
         val message = snapshotMessage(
@@ -381,6 +476,7 @@ class AodStateWireCodecTest {
         metadata: String = "track",
         speed: Float = 1f,
         words: List<AodStateWireWord> = emptyList(),
+        translationWords: List<AodStateWireWord> = emptyList(),
         ruby: List<AodStateWireRuby> = emptyList(),
         layoutGroups: List<AodStateWireLayoutGroup> = emptyList(),
         weight: String = "Medium",
@@ -421,6 +517,7 @@ class AodStateWireCodecTest {
         sampledAtElapsedMs = 700L,
         speed = speed,
         words = words,
+        translationWords = translationWords,
         ruby = ruby,
         layoutGroups = layoutGroups,
         weight = weight,
@@ -444,6 +541,7 @@ class AodStateWireCodecTest {
 
     @Test
     fun duetLineRoundTripsThroughWireBody() {
+        // harmony(v9)为纯布尔,随并发行区往返:和声身份必须活过 wire,渲染侧才走辅助行车道。
         val message = snapshotMessage(
             value = snapshotValue().copy(
                 duetLine = AodStateWireDuetLine(
@@ -451,6 +549,7 @@ class AodStateWireCodecTest {
                     romanized = "roma",
                     translated = "trans",
                     alignedRight = true,
+                    harmony = true,
                     lineStartMs = 40L,
                     lineEndMs = 900L,
                     words = listOf(AodStateWireWord("sec", "", 40L, 900L, true, -1, -1))
@@ -458,6 +557,140 @@ class AodStateWireCodecTest {
             )
         )
         assertEquals(message, AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode))
+    }
+
+    @Test
+    fun interludeWindowRoundTripsThroughWireBody() {
+        // v10 间奏区:上一行 end .. 下一行 start 的原始空隙两端,0/0 = 无。
+        val message = snapshotMessage(
+            value = snapshotValue().copy(
+                durationMs = 60_000L,
+                interludeStartMs = 12_000L,
+                interludeEndMs = 24_000L
+            )
+        )
+        val decoded = AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode)
+        assertEquals(message, decoded)
+        assertEquals(12_000L, (decoded as AodStateWireMessage.Snapshot).value.interludeStartMs)
+        assertEquals(24_000L, decoded.value.interludeEndMs)
+
+        // 无长间奏:0/0 往返后仍是 0/0(渲染面据此判定"不画圆点")。
+        val none = snapshotMessage(value = snapshotValue())
+        val decodedNone = AodStateWireCodec.encode(none)?.let(AodStateWireCodec::decode)
+        assertEquals(none, decodedNone)
+        assertEquals(0L, (decodedNone as AodStateWireMessage.Snapshot).value.interludeStartMs)
+        assertEquals(0L, decodedNone.value.interludeEndMs)
+    }
+
+    @Test
+    fun noLyricsFlagRoundTripsThroughWireBody() {
+        // v12:pureMusic 之后追加真无歌词标记;布尔值往返保持,旧字段一字不动。
+        val message = snapshotMessage(value = snapshotValue().copy(noLyrics = true))
+        val decoded = AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode)
+        assertEquals(message, decoded)
+        val value = (decoded as AodStateWireMessage.Snapshot).value
+        assertTrue(value.noLyrics)
+        assertFalse(value.pureMusic)
+        assertEquals("line", value.original)
+        assertEquals(12L, value.trackGeneration)
+
+        // false 同样往返(旧端默认值;新增布尔不改变旧字段的线格式)。
+        val none = snapshotMessage(value = snapshotValue().copy(noLyrics = false))
+        val decodedNone = AodStateWireCodec.encode(none)?.let(AodStateWireCodec::decode)
+        assertEquals(none, decodedNone)
+        assertFalse((decodedNone as AodStateWireMessage.Snapshot).value.noLyrics)
+
+        // 与 pureMusic 相邻:两者各自独立往返,不互相覆盖。
+        val both = snapshotMessage(
+            value = snapshotValue().copy(pureMusic = true, noLyrics = true)
+        )
+        val decodedBoth = AodStateWireCodec.encode(both)?.let(AodStateWireCodec::decode)
+        assertEquals(both, decodedBoth)
+        assertTrue((decodedBoth as AodStateWireMessage.Snapshot).value.pureMusic)
+        assertTrue(decodedBoth.value.noLyrics)
+    }
+
+    @Test
+    fun tailEligibleFlagRoundTripsThroughWireBody() {
+        // v12 尾部:noLyrics 之后追加 tailEligible(纯布尔);true/false 都保持往返。
+        val message = snapshotMessage(value = snapshotValue().copy(tailEligible = true))
+        val decoded = AodStateWireCodec.encode(message)?.let(AodStateWireCodec::decode)
+        assertEquals(message, decoded)
+        val value = (decoded as AodStateWireMessage.Snapshot).value
+        assertTrue(value.tailEligible)
+        assertFalse(value.noLyrics)
+        assertEquals("line", value.original)
+
+        val none = snapshotMessage(value = snapshotValue().copy(tailEligible = false))
+        val decodedNone = AodStateWireCodec.encode(none)?.let(AodStateWireCodec::decode)
+        assertEquals(none, decodedNone)
+        assertFalse((decodedNone as AodStateWireMessage.Snapshot).value.tailEligible)
+
+        // 与 noLyrics/pureMusic 相邻但互不覆盖。
+        val both = snapshotMessage(
+            value = snapshotValue().copy(
+                pureMusic = true,
+                noLyrics = true,
+                tailEligible = true
+            )
+        )
+        val decodedBoth = AodStateWireCodec.encode(both)?.let(AodStateWireCodec::decode)
+        assertEquals(both, decodedBoth)
+        assertTrue((decodedBoth as AodStateWireMessage.Snapshot).value.tailEligible)
+        assertTrue(decodedBoth.value.noLyrics)
+        assertTrue(decodedBoth.value.pureMusic)
+    }
+
+    @Test
+    fun interludeWindowFailsClosedOnDegenerateOrOutOfRangeWindow() {
+        // 半截窗口(起点为 0 却有终点):不透明传递策略原语,半截一律整包拒收。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        durationMs = 60_000L,
+                        interludeStartMs = 0L,
+                        interludeEndMs = 24_000L
+                    )
+                )
+            )
+        )
+        // 终点早于起点。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        durationMs = 60_000L,
+                        interludeStartMs = 24_000L,
+                        interludeEndMs = 12_000L
+                    )
+                )
+            )
+        )
+        // 终点越过歌长(与 lineEndMs 同口径)。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        durationMs = 60_000L,
+                        interludeStartMs = 12_000L,
+                        interludeEndMs = 90_000L
+                    )
+                )
+            )
+        )
+        // 负起点。
+        assertNull(
+            AodStateWireCodec.encode(
+                snapshotMessage(
+                    value = snapshotValue().copy(
+                        durationMs = 60_000L,
+                        interludeStartMs = -1L,
+                        interludeEndMs = 24_000L
+                    )
+                )
+            )
+        )
     }
 
     @Test

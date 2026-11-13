@@ -1,5 +1,7 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
+
 internal data class AodCanvasLayoutGroup(
     val start: Int,
     val end: Int,
@@ -25,6 +27,21 @@ internal data class MetadataLayoutBounds(
 
 internal enum class SpotlightWordState { SUNG, ACTIVE, UNSUNG }
 
+/** 画布底部频谱条的运行时配置（已由 SceneCompiler/SystemUiCustomizationValidator 归一化）。 */
+internal data class AodCanvasSpectrum(
+    val enabled: Boolean = false,
+    val style: String = "bars",
+    val barCount: Int = 24,
+    val heightPercent: Int = 100,
+    val sensitivity: Int = 100,
+    val color: String = "accent",
+    val source: String = "rhythm",
+    val background: Boolean = true,
+    val opacity: Int = 40,
+    val yOffsetPercent: Int = 0,
+    val customColor: String = ""
+)
+
 internal data class AodCanvasContent(
     val trackGeneration: Long,
     val metadata: String,
@@ -49,6 +66,12 @@ internal data class AodCanvasContent(
     val updatedAtElapsedMs: Long = 0L,
     val speed: Float,
     val words: List<AodCanvasWord>,
+    /**
+     * 插件提供的逐字翻译词表(词级译文 + 时间窗,见 `PluginLyricField.TRANSLATION_WORDS`):
+     * 「辅助文字逐字效果」开启时翻译辅助行按这些真实词窗点亮,片段文本直接相连构成整行译文
+     * (分隔符由插件写在片段内)。空表 = 回落行窗口 + 行内几何合成(历史行为)。
+     */
+    val translationWords: List<AodCanvasWord> = emptyList(),
     val ruby: List<AodCanvasRuby>,
     val layoutGroups: List<AodCanvasLayoutGroup>,
     val weight: String,
@@ -56,6 +79,11 @@ internal data class AodCanvasContent(
     val textSizeCustom: Int,
     val secondaryMode: String,
     val animationMode: String,
+    /**
+     * 自定义单词效果(声明式 DSL);非 null 时覆盖 [animationMode] 的内置三档,
+     * 由共享解释器逐词求值。来自 per-surface 编译档,随配置通道下发。
+     */
+    val wordEffect: com.eza.hyperglow.customization.WordEffectSpec? = null,
     val glowMode: String,
     val motionMode: String,
     val lineSyncFillMode: String,
@@ -68,11 +96,30 @@ internal data class AodCanvasContent(
     val metadataVisible: Boolean,
     val metadataAnchor: String,
     val metadataSizePercent: Int = 100,
+    /**
+     * 歌曲信息布局(`stacked` / `single`;上游 amarinne/hyperglow 99ba119 项 #1):
+     * `single` 把所有切片用行内中点分隔符并成一行(整行按歌名字号),`stacked` 按本面
+     * 分隔符组装(含换行槽位时歌名在上、歌手/专辑各占一行)。未知值按 stacked 处理。
+     * 两种布局下过宽的切片都换行到后续行,而不是把整块缩小。
+     */
+    val metadataLayout: String = METADATA_LAYOUT_STACKED,
+    /**
+     * 堆叠式歌曲信息的歌手行字号百分比(40..100,默认 80;上游 amarinne/hyperglow
+     * 84a0c9ce 项 #2):按本面有效 parts/separators 组装出多行堆叠时,第 0 行(歌名)之后的
+     * 各行按该字号渲染;行内分隔符并成一行(或 [metadataLayout] 为 single)时整行按歌名
+     * 字号,本值不参与。
+     */
+    val metadataArtistSizePercent: Int =
+        com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
     val adaptiveSectioning: Boolean,
     val palette: Map<String, String>,
     val secondaryTextBright: Boolean = true,
     /** 辅助文字逐字效果:见 SurfaceProfile.secondaryWordKaraoke。 */
     val secondaryWordKaraoke: Boolean = false,
+    /** 辅助文字字号倍率(相对主行百分比),见 SurfaceProfile.secondaryTextSizePercent。 */
+    val secondaryTextSizePercent: Int = com.eza.hyperglow.customization.SECONDARY_TEXT_SIZE_PERCENT_DEFAULT,
+    /** 辅助文字自适应大小(装不下时缩到可读性下限),见 SurfaceProfile.secondaryAutoSize。 */
+    val secondaryAutoSize: Boolean = true,
     val lyricLineLimit: Int = 3,
     val showNextLine: Boolean = false,
     /** 辅助文字显示第二行歌词:见 SurfaceProfile.secondaryNextLine。 */
@@ -102,18 +149,34 @@ internal data class AodCanvasContent(
     /** 当前快照是否为暂停驻留的冻结帧(pauseRetentionEligible):为真时旋转默认停。 */
     val playbackPaused: Boolean = false,
     /** 对唱并发行(仅息屏);null = 无并发行或「显示并发歌词(对唱)」已关。 */
-    val duetLine: AodCanvasDuetLine? = null
+    val duetLine: AodCanvasDuetLine? = null,
+    /**
+     * 本面生效的长间奏倒计时圆点窗口(已按本面「长间奏倒计时圆点」开关与「显示下一行」
+     * 延迟映射;0/0 = 无,见 [interludeDotsWindow])。渲染期按前向投影位置判定生效
+     * ([interludeDotsActive]):窗口起点之前保持原有上一行滞留/下一行预览呈现,窗口内
+     * 歌词行槽位(原文 + 其辅助行)改画倒计时圆点,下一行/并发行车道不受影响。
+     */
+    val interludeDotsStartMs: Long = 0L,
+    val interludeDotsEndMs: Long = 0L,
+    /** 歌词源是否正在播放：合成频谱只认“音乐播放”，暂停/加载边不跳动。 */
+    val playbackActive: Boolean = false,
+    /** 本面音乐频谱条配置；非 enabled 时不预留高度、不绘制。 */
+    val spectrum: AodCanvasSpectrum = AodCanvasSpectrum()
 )
 
 /**
  * 对唱并发行(画布模型,仅息屏消费):与主行播放窗口重叠的另一唱词行,在主行下方
  * 同尺寸堆叠渲染,各画各的词级扫光。v1 不携带 ruby/layoutGroups。
+ * [harmony] 为真时是插件行 role=BG 的 x-bg 回声,改走辅助行车道(小字号辅助行),
+ * 不再同尺寸堆叠——两条一样的大字行是错观感(真机 2026-10-07 反馈)。
  */
 internal data class AodCanvasDuetLine(
     val text: String,
     val romanized: String = "",
     val translated: String = "",
     val alignedRight: Boolean = false,
+    /** 和声行标记;渲染侧据此选辅助行车道,见 [AodCanvasContent.duetLine]。 */
+    val harmony: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<AodCanvasWord> = emptyList()
@@ -143,8 +206,8 @@ internal fun hasFirstLineAuxText(
     romanized: String,
     translated: String
 ): Boolean {
-    val showReading = secondaryMode == "Transliteration" || secondaryMode == "Both"
-    val showTranslation = secondaryMode == "Translation" || secondaryMode == "Both"
+    val showReading = com.eza.hyperglow.customization.auxShowsReading(secondaryMode)
+    val showTranslation = com.eza.hyperglow.customization.auxShowsTranslation(secondaryMode)
     return (showReading && romanized.isNotBlank()) || (showTranslation && translated.isNotBlank())
 }
 
@@ -221,12 +284,12 @@ internal fun secondLineAuxRows(
 ): List<SecondLineAuxRow> {
     if (!nextLineAux) return emptyList()
     val rows = ArrayList<SecondLineAuxRow>(2)
-    if ((secondaryMode == "Transliteration" || secondaryMode == "Both") &&
+    if (com.eza.hyperglow.customization.auxShowsReading(secondaryMode) &&
         nextLineRomanized.isNotBlank()
     ) {
         rows += SecondLineAuxRow.ROMANIZED
     }
-    if ((secondaryMode == "Translation" || secondaryMode == "Both") &&
+    if (com.eza.hyperglow.customization.auxShowsTranslation(secondaryMode) &&
         nextLineTranslated.isNotBlank()
     ) {
         rows += SecondLineAuxRow.TRANSLATED
@@ -272,6 +335,23 @@ internal data class AodCanvasLineIdentity(
     val original: String
 )
 
+/**
+ * 并发行是否进入本面画布内容(实机 LyricCanvasMapper 与预览 previewDuetVisible 同源):
+ * 同尺寸并发行只认本面「显示并发歌词(对唱)」开关;和声行两段门控——①候选携带:对唱开关
+ * 开启或勾了「和声」内容档(见 auxHarmonyAsAux,与投影层同判据);②和声显示:多选里取消
+ * 勾选「和声」即隐藏(见 auxHarmonyShown)。两段缺一都会让预览与实机不一致。
+ */
+internal fun duetLineCarried(
+    duetConcurrent: Boolean,
+    harmony: Boolean,
+    secondaryMode: String
+): Boolean = if (harmony) {
+    (duetConcurrent || com.eza.hyperglow.customization.auxHarmonyAsAux(secondaryMode)) &&
+        com.eza.hyperglow.customization.auxHarmonyShown(secondaryMode)
+} else {
+    duetConcurrent
+}
+
 internal fun aodCanvasLineIdentity(content: AodCanvasContent): AodCanvasLineIdentity =
     AodCanvasLineIdentity(
         content.trackGeneration,
@@ -286,10 +366,34 @@ internal fun aodCanvasLineIdentity(content: AodCanvasContent): AodCanvasLineIden
  * [lineStartMs, lineEndMs])。屏上文本未变的更新不是换行,不应触发换行动画,否则同一句
  * 会播两次入场动画(空档开始一次、开唱一次);文本相同但曲目不同(trackGeneration 变化)
  * 不算,换歌/重播仍照常播换行动画。见 [AodLyricCanvasView.setContent] 的行变更判定。
+ *
+ * **窗口必须还是同一个实例**:判据加上「旧窗退化(预览占位)或新窗起点仍落在旧窗内」。
+ * 同文的**下一次出现**(副歌重复)窗口整体后移,是新的实例——真机《乐鸣东方》3:40 处
+ * 主行 `乐鸣东方`→`乐鸣东方` 只有窗口从 219.12–224.35 换成 224.35–231.04,曾被判成
+ * 「没换行」而静默不播;同一刻并发行文本真的变了照常播,屏上就成了「第二行动、第一行
+ * 不动」(owner 2026-10-09 真机反馈)。窗口细化的判据用「起点仍在旧窗内」而不是等值比较:
+ * 生产者中途修正行窗(起点微调、终点延长)仍属同一实例,不该补播一次入场。
  */
 internal fun isSameLineTextUpdate(
     previous: AodCanvasLineIdentity,
     next: AodCanvasLineIdentity
 ): Boolean = previous.trackGeneration == next.trackGeneration &&
     previous.original.isNotBlank() &&
-    previous.original == next.original
+    previous.original == next.original &&
+    (previous.lineEndMs <= previous.lineStartMs || next.lineStartMs < previous.lineEndMs)
+
+/**
+ * 画布与 App 内预览共用的播放位置外推(实机 `AodLyricCanvasView.projectedPosition`
+ * 同一公式):快照位置 + 采样以来的挂钟时间 × 播放速率。预览实时态的扫光/逐字据此
+ * 对齐真实播放时间;两处各写一套公式就是「预览与实机不同拍」那类漂移的来源。
+ * 采样时刻晚于当前(时钟回拨/快照迟到)时按 0 计,不倒推。
+ */
+internal fun projectedPositionMs(
+    positionMs: Long,
+    sampledAtElapsedMs: Long,
+    speed: Float,
+    nowElapsedMs: Long
+): Long {
+    val elapsed = (nowElapsedMs - sampledAtElapsedMs).coerceAtLeast(0L)
+    return positionMs + (elapsed * speed).toLong()
+}

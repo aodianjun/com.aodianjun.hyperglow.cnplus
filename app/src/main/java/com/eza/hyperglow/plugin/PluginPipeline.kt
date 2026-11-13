@@ -31,9 +31,10 @@ import kotlinx.coroutines.launch
  *
  * 数据边界（v2）：三条输入路径汇入同一条插件链——
  * - Spicy 整首文档（SpicyBridgeDocumentStore，v1 起有，语义不变）；
- * - 内存持有整首行数组的生产者（Lyricon/LyricInfo）经 fullSongSnapshot 直读，每会话一次；
- * - 纯逐行源（SuperLyric）经 [LineStreamAggregator] 边播边聚合，首行立即跑链、
- *   之后按 [STREAM_CHAIN_MIN_INTERVAL_MS] 节流补跑（控制增量 LLM 调用频率）。
+ * - 内存持有整首行数组的生产者（Lyricon/LyricInfo，以及 SuperLyric 3.7+ 模块带 allLyrics
+ *   时）经 fullSongSnapshot 直读，每会话一次；
+ * - 无整首数据的逐行源（SuperLyric 旧模块）经 [LineStreamAggregator] 边播边聚合，
+ *   首行立即跑链、之后按 [STREAM_CHAIN_MIN_INTERVAL_MS] 节流补跑（控制增量 LLM 调用频率）。
  * 三条路径的产物统一走 [PluginSongBridge.enrichState] 富化，行内容字段覆盖、
  * 时间轴字段保留生产者权威值。
  */
@@ -96,6 +97,10 @@ object PluginPipeline {
 
     fun processingEnabled(): Boolean =
         appContext?.let { AodRenderPreferences.read(it).pluginProcessingEnabled } ?: false
+
+    /** 「歌词计算缓存」开关：开启时插件链结果按歌曲身份落盘，回放同曲直接复用。 */
+    fun resultCacheEnabled(): Boolean =
+        appContext?.let { AodRenderPreferences.read(it).pluginResultCacheEnabled } ?: false
 
     /**
      * 设置页把总开关从关到开时调用：立即处理当前歌曲（若有）。
@@ -168,9 +173,9 @@ object PluginPipeline {
 
     /**
      * 逐行源（Lyricon/LyricInfo/SuperLyric）的插件链入口：
-     * - 内存里有整首行数组的生产者（Lyricon/LyricInfo）：fullSongSnapshot 直读，
-     *   每会话一次（内容指纹去重）；
-     * - 纯逐行源（SuperLyric）：聚合器累积，本会话首行立即跑链，之后按
+     * - 内存里有整首行数组的生产者（Lyricon/LyricInfo；SuperLyric 3.7+ 模块带 allLyrics
+     *   时同样直读快照）：fullSongSnapshot 直读，每会话一次（内容指纹去重）；
+     * - 无整首数据的逐行源（SuperLyric 旧模块）：聚合器累积，本会话首行立即跑链，之后按
      *   [STREAM_CHAIN_MIN_INTERVAL_MS] 节流补跑——链运行中不重排（半截 LLM 调用
      *   是浪费），期间到来的新行记 dirty，链完成后按剩余窗口补评。
      */
@@ -251,18 +256,57 @@ object PluginPipeline {
         AppLog.i(TAG, "chain scheduled: session=$sessionKey rows=$rowsCount")
         chainJob = scope.launch {
             val startedAtMs = SystemClock.elapsedRealtime()
-            val result = try {
+            val result: PatchedSong? = try {
                 val original = buildSong()
-                val processed = PluginRuntime.processChain(
-                    original,
-                    PluginSongBridge.mediaInfo(state)
-                )
-                if (processed === original || processed == original) {
-                    null
+                val cacheEnabled = resultCacheEnabled()
+                val identity = if (cacheEnabled) PluginChainResultCache.songIdentity(state) else null
+                val epoch = if (cacheEnabled && identity != null) {
+                    PluginChainResultCache.chainEpoch(appContext!!)
                 } else {
-                    val (songFields, lyricFields) = diff(original, processed)
-                    if (songFields.isEmpty() && lyricFields.isEmpty()) null
-                    else PatchedSong(sessionKey, processed, songFields, lyricFields)
+                    ""
+                }
+                val fingerprint = if (cacheEnabled && identity != null) {
+                    PluginChainResultCache.inputFingerprint(original, epoch)
+                } else {
+                    ""
+                }
+                // 缓存命中（同一首歌 + 同一插件/设置纪元 + 同一输入内容）：直接复用上次
+                // 链结果，不重跑链（链内可能是逐行 LLM 调用，回放同曲重复计算既慢又贵）。
+                val cached = if (cacheEnabled && identity != null) {
+                    PluginChainResultCache.load(appContext!!, identity, fingerprint, sessionKey)
+                } else {
+                    null
+                }
+                if (cached != null) {
+                    cached
+                } else {
+                    val processed = PluginRuntime.processChain(
+                        original,
+                        PluginSongBridge.mediaInfo(state)
+                    )
+                    val diffed = if (processed === original || processed == original) {
+                        null
+                    } else {
+                        val (songFields, lyricFields) = diff(original, processed)
+                        if (songFields.isEmpty() && lyricFields.isEmpty()) null
+                        else PatchedSong(sessionKey, processed, songFields, lyricFields)
+                    }
+                    // 未命中即回填（含 passthrough：空改动结果也落盘，回放同曲免跑链）。
+                    // 展示信息（歌名/歌手/来源）随条目落盘，供缓存管理页列出。
+                    if (cacheEnabled && identity != null) {
+                        PluginChainResultCache.store(
+                            appContext!!,
+                            identity,
+                            fingerprint,
+                            diffed ?: PatchedSong(
+                                sessionKey, processed, emptySet(), emptySet()
+                            ),
+                            title = state.title,
+                            artist = state.artist,
+                            producerId = state.producerId
+                        )
+                    }
+                    diffed
                 }
             } catch (cancelled: CancellationException) {
                 // 切歌取消旧链是正常控制流，不可与真正的处理失败混为一谈。

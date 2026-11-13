@@ -386,11 +386,11 @@ class SpicyLyricProducerTest {
     }
 
     @Test
-    fun documentFromDifferentSession_isIgnoredAndFallsBackToNoDocumentBehavior() {
-        // Document that does not match the state's session (different generation) MUST be ignored.
+    fun documentFromDifferentTrack_isIgnoredAndFallsBackToNoDocumentBehavior() {
+        // 文档身份按曲目 URI + 时长判定(不再看 producer/generation):曲目不同的文档必须被忽略。
         val staleDoc = document(
             type = "Line",
-            generation = 99, // mismatch
+            trackUri = "spotify:track:other",
             rows = listOf(row(startMs = 1_000, endMs = 3_000, text = "first"))
         )
         val spicy = spicyState(positionMs = 2_000L, line = "ingress-fallback")
@@ -401,6 +401,24 @@ class SpicyLyricProducerTest {
         assertEquals(-1, mapped.lineIndex)
         // No matched document → ingress `line` preserved for the fallback-line branch.
         assertEquals("ingress-fallback", mapped.line)
+    }
+
+    @Test
+    fun documentFromSameTrackWithDifferentGeneration_stillMatches() {
+        // 生产者在上份文档在途时推进 generation,但同一曲目的文档仍属当前曲目,必须被接受
+        // (上游 5ecb5df 项 #1:严格 producer/generation 匹配会永久丢弃一份无人重请求的文档)。
+        val doc = document(
+            type = "Line",
+            generation = 99, // 会话记账漂移,曲目一致
+            rows = listOf(row(startMs = 1_000, endMs = 3_000, text = "first"))
+        )
+        val spicy = spicyState(positionMs = 2_000L)
+
+        val mapped = producer.toProducerState(spicy, doc)
+
+        assertEquals(LyricKind.LINE, mapped.lyricKind)
+        assertEquals(0, mapped.lineIndex)
+        assertEquals("first", mapped.line)
     }
 
     @Test
@@ -469,12 +487,27 @@ class SpicyLyricProducerTest {
             listOf(
                 row(role = "LEAD", startMs = 10_000L, endMs = 30_000L, text = "main"),
                 row(role = "INTERLUDE", startMs = 12_000L, endMs = 28_000L, text = "break"),
-                row(role = "BACKGROUND", startMs = 29_500L, endMs = 40_000L, text = "tail")
+                // 非伴唱行(lead 行偶然重叠):共享窗口仅 500ms → 无候选(既不覆盖也不预加入)。
+                row(role = "LEAD", startMs = 29_500L, endMs = 40_000L, text = "tail")
             )
         )
-        // 间奏行不参与;尾行与主行重叠仅 500ms → 无候选(既不覆盖也不预加入)。
         val out = producer.toProducerState(spicyState(positionMs = 15_000L), doc)
         assertNull(out.duetLine)
+    }
+
+    @Test
+    fun duetConcurrentAdoptsShortAuthoredBackingVocal() {
+        // 同一时间形态(重叠 500ms),但尾行是**显式伴唱行**(role=BACKGROUND):正重叠即加入,
+        // 作者编排的短应答不再被一秒门整段吞掉(上游 fefe5c54)。
+        val doc = document(
+            "Syllable",
+            listOf(
+                row(role = "LEAD", startMs = 10_000L, endMs = 30_000L, text = "main"),
+                row(role = "BACKGROUND", startMs = 29_500L, endMs = 40_000L, text = "backing")
+            )
+        )
+        val out = producer.toProducerState(spicyState(positionMs = 15_000L), doc)
+        assertEquals("backing", out.duetLine?.text)
     }
 
     @Test

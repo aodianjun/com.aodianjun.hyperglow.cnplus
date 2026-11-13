@@ -23,6 +23,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -34,9 +39,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,9 +77,27 @@ import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
+import com.eza.hyperglow.customization.SPECTRUM_BASE_HEIGHT_DP
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
+import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
+import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
+import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
+import com.eza.hyperglow.aod.tailTimeoutActive
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_MUSIC_INFO
+import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO
+import com.eza.hyperglow.customization.TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT
 import com.eza.hyperglow.customization.resolveLineTransition
+import com.eza.hyperglow.effect.EFFECT_OUTPUT_BOXES
+import com.eza.hyperglow.effect.EffectColors
+import com.eza.hyperglow.effect.EffectFrameContext
+import com.eza.hyperglow.effect.EffectLineSample
+import com.eza.hyperglow.effect.EffectTextMeasurer
+import com.eza.hyperglow.effect.EffectVm
+import com.eza.hyperglow.effect.EffectWordSample
+import com.eza.hyperglow.root.aod.AndroidEffectRenderSink
+import com.eza.hyperglow.root.aod.EffectBoxRenderer
 import com.eza.hyperglow.root.aod.AodCanvasRuby
 import com.eza.hyperglow.root.aod.AodCanvasWord
 import com.eza.hyperglow.root.aod.alignMissingWordOffsets
@@ -86,6 +112,7 @@ import com.eza.hyperglow.root.aod.LyricTypefaceResolver
 import com.eza.hyperglow.root.aod.LYRIC_LINE_EXTRA_HEIGHT_DP
 import com.eza.hyperglow.root.aod.LYRIC_LINE_GAP_DP
 import com.eza.hyperglow.root.aod.LYRIC_WORD_GAP_DP
+import com.eza.hyperglow.root.aod.MAX_SECONDARY_LAYOUT_LINES
 import com.eza.hyperglow.root.aod.METADATA_LYRIC_GAP_DP
 import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_NEXT_LINE_DP
 import com.eza.hyperglow.root.aod.ROW_GAP_BEFORE_ORIGINAL_DP
@@ -95,7 +122,12 @@ import com.eza.hyperglow.root.aod.artworkLeadingPx
 import com.eza.hyperglow.root.aod.artworkSidePx
 import com.eza.hyperglow.root.aod.baseTextSizeSp
 import com.eza.hyperglow.root.aod.duetAlignedRight
+import com.eza.hyperglow.root.aod.duetRowTransitionTimeline
 import com.eza.hyperglow.root.aod.layoutMetadataLines
+import com.eza.hyperglow.root.aod.metadataArtistPieceIndexes
+import com.eza.hyperglow.root.aod.metadataLineTexts
+import com.eza.hyperglow.root.aod.metadataSingleLineText
+import com.eza.hyperglow.root.aod.songInfoArtistScale
 import com.eza.hyperglow.root.aod.isLongKaraokeSyllable
 import com.eza.hyperglow.root.aod.karaokeFloatSinkPx
 import com.eza.hyperglow.root.aod.KaraokeWordRun
@@ -113,9 +145,15 @@ import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.originalRowHeight
 import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
+import com.eza.hyperglow.root.aod.pureMusicDisplayText
+import com.eza.hyperglow.customization.SpectrumSpec
 import com.eza.hyperglow.root.aod.resolveAodPalette
+import com.eza.hyperglow.root.aod.resolvedLyricLayoutLineLimit
 import com.eza.hyperglow.root.aod.OriginalLinePath
+import com.eza.hyperglow.root.aod.planDuetRow
 import com.eza.hyperglow.root.aod.planOriginalLine
+import com.eza.hyperglow.root.aod.projectedPositionMs
+import com.eza.hyperglow.root.aod.projectedWordsHaveTimedWindows
 import com.eza.hyperglow.root.aod.resolveRowAlignmentMode
 import com.eza.hyperglow.root.aod.rubyReservation
 import com.eza.hyperglow.root.aod.rubySpanGeometry
@@ -123,15 +161,33 @@ import com.eza.hyperglow.root.aod.rubyTextSizePx
 import com.eza.hyperglow.root.aod.safeSecondaryLineHeight
 import com.eza.hyperglow.root.aod.lineStartX
 import com.eza.hyperglow.root.aod.hasFirstLineAuxText
+import com.eza.hyperglow.root.aod.harmonyTimedSegments
 import com.eza.hyperglow.root.aod.karaokeUnitEnd
+import com.eza.hyperglow.root.aod.FittedSecondaryLines
+import com.eza.hyperglow.root.aod.fittedSecondaryLines
 import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
+import com.eza.hyperglow.root.aod.secondarySizeFloorSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
+import com.eza.hyperglow.root.aod.secondaryTimedVisualRanges
 import com.eza.hyperglow.root.aod.secondLineColorArgb
 import com.eza.hyperglow.root.aod.SecondLinePresentation
 import com.eza.hyperglow.root.aod.SecondLineAuxRow
 import com.eza.hyperglow.root.aod.secondLineAuxPreferredLines
 import com.eza.hyperglow.root.aod.secondLineAuxRows
 import com.eza.hyperglow.root.aod.secondLinePresentation
+import com.eza.hyperglow.root.aod.shouldStartDuetRowTransition
+import com.eza.hyperglow.root.aod.interludeDotExitAlpha
+import com.eza.hyperglow.root.aod.interludeDotLightingProgress
+import com.eza.hyperglow.root.aod.interludeDotRadius
+import com.eza.hyperglow.root.aod.interludeDotSmoothStep
+import com.eza.hyperglow.root.aod.interludeDotsProgress
+import com.eza.hyperglow.root.aod.interludeDotsStartX
+import com.eza.hyperglow.root.aod.interludeDotsActive
+import com.eza.hyperglow.root.aod.interludeDotsWidth
+import com.eza.hyperglow.root.aod.interludeDotsWindow
+import com.eza.hyperglow.root.aod.INTERLUDE_DOT_BACKGROUND_ALPHA
+import com.eza.hyperglow.root.aod.INTERLUDE_DOT_COUNT
+import com.eza.hyperglow.root.aod.INTERLUDE_DOT_GAP_TEXT_SIZE_FACTOR
 import com.eza.hyperglow.root.aod.staticNextLineTextFactor
 import com.eza.hyperglow.root.aod.staticSecondaryTextFactor
 import com.eza.hyperglow.root.aod.steadyTextAlpha
@@ -144,7 +200,10 @@ import com.eza.hyperglow.root.aod.END_EDGE_SAFETY_DP
 import com.eza.hyperglow.root.aod.lineTransitionEnterEasing
 import com.eza.hyperglow.root.aod.lineTransitionExitEasing
 import com.eza.hyperglow.root.lockscreen.cardColorRgb
+import com.eza.hyperglow.root.projection.LyricDuetLine
 import com.eza.hyperglow.root.projection.LyricSnapshot
+import kotlin.math.exp
+import kotlin.math.sin
 import com.eza.hyperglow.root.projection.LyricWord
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -164,6 +223,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal const val PREVIEW_CARD_MIN_HEIGHT_DP = 120f
 
 internal const val PREVIEW_CARD_MAX_HEIGHT_DP = 420f
+
+/**
+ * 并发行加入淡入时长(ms):与实机 AodLyricCanvasView.DUET_JOIN_FADE_MS 同值同源(实机侧为
+ * private,不能直接引用)。并发行内容键变化时整块淡入,淡入完成后恒全亮——这是并发行唯一的
+ * 进场过渡:主行换行不带它,它自己换行时才播(任务 1「并发行相对主行独立」的预览侧同源)。
+ */
+private const val PREVIEW_DUET_JOIN_FADE_MS = 180L
 
 /**
  * 预览卡片高度自适应:内容有多高卡片就多高,钳制在 [PREVIEW_CARD_MIN_HEIGHT_DP]..
@@ -220,13 +286,15 @@ internal fun AppearanceLivePreview(
     metadataSeparators: String,
     duetMarkers: Boolean = true,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
+    hideCreditLines: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val live = collectLiveSnapshot(
         metadataParts,
         metadataSeparators,
         duetMarkers,
-        profile.hideAlbumWhenSameAsTitle
+        profile.hideAlbumWhenSameAsTitle,
+        hideCreditLines
     )
     LyricPreviewSurface(
         profile = profile,
@@ -316,6 +384,147 @@ private fun SurfaceChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /**
+ * 实时预览时钟:有正在播放的实时快照时,按实机同一外推公式([projectedPositionMs],
+ * 见 `AodLyricCanvasView.projectedPosition`)逐帧推进播放位置——预览的扫光/逐字随真实
+ * 歌词时间走(此前预览恒按 2.5s 演示循环扫光,与实机不同拍)。演示态(null)由行块内的
+ * 演示循环驱动,行为不变。
+ */
+@Composable
+private fun rememberLivePreviewPosition(live: LyricSnapshot?): Long? {
+    if (live == null) return null
+    var position by remember(live) { mutableStateOf(live.positionMs) }
+    LaunchedEffect(live) {
+        while (true) {
+            withFrameNanos { }
+            position = projectedPositionMs(
+                live.positionMs,
+                live.sampledAtElapsedMs,
+                live.speed,
+                android.os.SystemClock.elapsedRealtime()
+            )
+        }
+    }
+    return position
+}
+
+/**
+ * 纯音乐/无歌词三态在预览快照上的应用(与实机 [com.eza.hyperglow.root.aod.toAodCanvasContent]
+ * 同源,per-surface,见 SurfaceProfile.noLyricsBehavior):非纯音乐且非真无歌词的曲目原样返回。
+ * - 纯音乐识别接管(优先):「纯音乐识别」开启且判定为纯音乐时,主行改画配置文本
+ *   (空回落默认「纯音乐，请欣赏」),盖过下面三态(与实机映射层同优先级)。
+ * - KEEP:原样(历史行为零变化)。
+ * - MUSIC_INFO:主行槽位改显示本面歌曲信息(快照的 metadata 即投影层按本面组装值;为空时
+ *   回落原标记行),并清掉标记行的词级/辅助/并发行/间奏数据(标记不是歌词,不参与卡拉OK/逐字)。
+ * - RESTORE_DEFAULT:清空歌词、歌曲信息与封面,交还系统默认(系统内容抑制由控制器解除)。
+ */
+private fun LyricSnapshot.applyNoLyricsBehavior(
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile
+): LyricSnapshot {
+    if (pureMusic || noLyrics) {
+        // 纯音乐识别接管(与实机映射层同源、同优先级):开启且判定为纯音乐时,主行槽位
+        // 改画配置文本(空回落默认),并清掉词级/辅助/并发行/间奏数据(占位不是歌词,
+        // 不参与卡拉OK/逐字);盖过 noLyricsBehavior 三态。
+        if (pureMusic && profile.pureMusicDisplay) {
+            return asPureMusicTextContent(pureMusicDisplayText(profile))
+        }
+        return when (profile.noLyricsBehavior) {
+            NO_LYRICS_BEHAVIOR_MUSIC_INFO -> asMusicInfoContent()
+            NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT -> asRestoreDefaultContent()
+            else -> this
+        }
+    }
+    // 尾奏超时:快照只标记 tailEligible(进入尾奏上下文),按本面自己的延迟在这里
+    // 计算到点与否——预览与实机同一判据;未到点前最后一行原样保留(KEEP 默认行为)。
+    if (!tailEligible) return this
+    val tailActive = tailTimeoutActive(
+        tailEligible = true,
+        lineStartMs = lineStartMs,
+        lineEndMs = lineEndMs,
+        positionMs = positionMs,
+        sampledAtElapsedMs = sampledAtElapsedMs,
+        speed = speed,
+        nowElapsedMs = android.os.SystemClock.elapsedRealtime(),
+        delaySeconds = profile.tailTimeoutDelaySeconds
+    )
+    if (!tailActive) return this
+    return when (profile.tailTimeoutBehavior) {
+        TAIL_TIMEOUT_BEHAVIOR_MUSIC_INFO -> asMusicInfoContent()
+        TAIL_TIMEOUT_BEHAVIOR_RESTORE_DEFAULT -> asRestoreDefaultContent()
+        else -> this
+    }
+}
+
+/**
+ * 纯音乐识别接管:主行槽位改画纯音乐占位文本(默认「纯音乐，请欣赏」/本面自定义),
+ * 清掉词级/辅助/并发行/间奏数据——与 [asMusicInfoContent] 同式(占位不是歌词)。
+ */
+private fun LyricSnapshot.asPureMusicTextContent(text: String): LyricSnapshot = copy(
+    original = text,
+    romanized = "",
+    translated = "",
+    nextLine = "",
+    nextLineRomanized = "",
+    nextLineTranslated = "",
+    words = emptyList(),
+    translationWords = emptyList(),
+    ruby = emptyList(),
+    layoutGroups = emptyList(),
+    alignedRight = false,
+    alignedRightMarkers = false,
+    lineLevelSync = false,
+    duetLine = null,
+    interludeStartMs = 0L,
+    interludeEndMs = 0L
+)
+
+/** MUSIC_INFO:主行槽位改显示本面歌曲信息,清掉词级/辅助/并发行/间奏数据。 */
+private fun LyricSnapshot.asMusicInfoContent(): LyricSnapshot = copy(
+    original = metadata.ifBlank { original },
+    romanized = "",
+    translated = "",
+    nextLine = "",
+    nextLineRomanized = "",
+    nextLineTranslated = "",
+    words = emptyList(),
+    translationWords = emptyList(),
+    ruby = emptyList(),
+    layoutGroups = emptyList(),
+    alignedRight = false,
+    alignedRightMarkers = false,
+    lineLevelSync = false,
+    duetLine = null,
+    interludeStartMs = 0L,
+    interludeEndMs = 0L
+)
+
+/** RESTORE_DEFAULT:清空歌词、歌曲信息与封面,交还系统默认(系统内容抑制由控制器解除)。 */
+private fun LyricSnapshot.asRestoreDefaultContent(): LyricSnapshot = copy(
+    metadata = "",
+    metadataVisible = false,
+    title = "",
+    artist = "",
+    album = "",
+    original = "",
+    romanized = "",
+    translated = "",
+    nextLine = "",
+    nextLineRomanized = "",
+    nextLineTranslated = "",
+    words = emptyList(),
+    translationWords = emptyList(),
+    ruby = emptyList(),
+    layoutGroups = emptyList(),
+    alignedRight = false,
+    alignedRightMarkers = false,
+    lineLevelSync = false,
+    duetLine = null,
+    interludeStartMs = 0L,
+    interludeEndMs = 0L,
+    artworkJpeg = ByteArray(0),
+    artworkKey = ""
+)
+
+/**
  * 深色预览面板 + 歌词内容。高度自适应内容(上下限见 [PREVIEW_CARD_MIN_HEIGHT_DP] /
  * [PREVIEW_CARD_MAX_HEIGHT_DP]),大字号/多行不再被固定高度裁掉;「card」背景铺满面板,
  * 歌词块在面板内水平居中、垂直居中。
@@ -331,11 +540,16 @@ private fun LyricPreviewSurface(
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
-    val snapshot = live ?: collectDemoSnapshot(
+    // 纯音乐曲目按本面「无歌词/纯音乐歌词行为」先做一次内容覆盖(与实机 LyricCanvasMapper
+    // 同源),预览与实机三态一致:KEEP 原样、MUSIC_INFO 主行改歌曲信息、RESTORE_DEFAULT 全清。
+    val snapshot = (live ?: collectDemoSnapshot(
         metadataParts,
         metadataSeparators,
         profile.hideAlbumWhenSameAsTitle
-    )
+    )).applyNoLyricsBehavior(profile)
+    // 实时时钟:有实时快照时逐帧外推真实播放位置(见 [rememberLivePreviewPosition]),
+    // 预览的扫光/逐字随真实歌词时间;演示态为 null,行为不变。
+    val livePositionMs = rememberLivePreviewPosition(live)
     // 歌曲图片(与实机同一几何公式):实时快照带已校对封面帧则显示真帧;演示态显示
     // 生成占位图,便于调形状/旋转开关所见即所得;实时无帧=不显示(与实机 fail-closed 一致)。
     // 只在歌曲信息行可见且文本非空时露出(与实机「图片随歌曲信息行」同一门槛)。
@@ -391,6 +605,14 @@ private fun LyricPreviewSurface(
         if (profile.fontFamily == "auto") Typeface.create("sans-serif", Typeface.NORMAL)
         else LyricTypefaceResolver.resolve(context, profile.fontFamily, "Regular")
     }
+    // 长间奏倒计时圆点(与实机 LyricCanvasMapper 同源):本面开关 + 「显示下一行」延迟映射
+    // 都走同一份纯函数 [interludeDotsWindow],预览与实机不会出现"预览有圆点实机没有"。
+    val interludeDots = interludeDotsWindow(
+        interludeStartMs = snapshot.interludeStartMs,
+        interludeEndMs = snapshot.interludeEndMs,
+        enabled = profile.interludeCountdown,
+        showsNextLine = profile.showNextLine || profile.secondaryNextLine
+    )
     // 对唱分侧门控(与实机 LyricCanvasMapper 同源):关闭时忽略行级 alignedRight。
     val alignedRight = duetAlignedRight(snapshot.alignedRight, profile.duetAlignment)
     val textAlign = previewRowTextAlign("auto", profile.alignment, alignedRight)
@@ -424,7 +646,8 @@ private fun LyricPreviewSurface(
         lineLevelSync = snapshot.lineLevelSync,
         lineSyncFillMode = profile.lineSyncFillMode,
         lineStartMs = snapshot.lineStartMs,
-        lineEndMs = snapshot.lineEndMs
+        lineEndMs = snapshot.lineEndMs,
+        hasWordEffect = profile.wordEffect != null
     )
     val previewFillMode = previewPlan.fillMode
     // 词级卡拉OK路径(与实机 drawOriginal 的 WORD_KARAOKE 分支同义):带真实词窗的行,
@@ -438,6 +661,8 @@ private fun LyricPreviewSurface(
     // 忽略真实曲面上的时钟/通知等占位偏移——否则息屏(AOD)歌词会按真实布局被挤到面板
     // 顶部一小条,大字号下一行就被裁掉,看起来像被遮挡。
     val density = LocalDensity.current
+    // sp→px 换算因子(与实机 scaledDensity 同式):自适应拟合必须按同一换算走,预览即实机。
+    val scaledDensity = density.density * density.fontScale
     var stableContentDp by remember(profile, scenario, snapshot.trackGeneration, density.density) {
         mutableStateOf(PREVIEW_CARD_MIN_HEIGHT_DP)
     }
@@ -491,6 +716,11 @@ private fun LyricPreviewSurface(
                 // 长音节判定(块时长 ≥700ms)与实机一致,快歌短词块同样不放大/不辉光。
                 val demoLineSpanMs = (snapshot.lineEndMs - snapshot.lineStartMs)
                     .takeIf { it >= 100L } ?: 2_500L
+                // 实时态时钟按行窗有效性与快照同步(与 span 兜底同一判据):窗口退化时
+                // 退回演示映射,不把预览钉死在 0/1。
+                val liveMainPositionMs = livePositionMs.takeIf {
+                    (snapshot.lineEndMs - snapshot.lineStartMs) >= 100L
+                }
                 // 换行/测量全部委托 LyricLayoutEngine(与实机同源):断行点、行数上限、
                 // Clip 语义一致;预览只负责卡片内的居中摆放。
                 val mainLayout = remember(
@@ -498,7 +728,7 @@ private fun LyricPreviewSurface(
                     textSize, lyricTypeface, regularTypeface,
                     previewRuby, availablePx, profile.lyricLineLimit, profile.overflow,
                     profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText,
-                    previewWordKaraoke
+                    previewWordKaraoke, profile.wordEffect
                 ) {
                     buildPreviewMainLayout(
                         text = snapshot.original,
@@ -509,8 +739,12 @@ private fun LyricPreviewSurface(
                         words = snapshot.words,
                         betterLyrics = profile.animation == "BetterLyrics",
                         wordKaraoke = previewWordKaraoke,
+                        wordEffect = profile.wordEffect,
                         unsungColorArgb = resolvedColors.unsungText,
                         lineSpanMs = demoLineSpanMs,
+                        // 行窗起点:演示快照为 0(合成词窗自 0 起,行为不变);实时快照
+                        // 为真实行窗起点(合成词窗与扫光都按真实窗口)。
+                        lineStartMs = snapshot.lineStartMs,
                         availableWidthPx = availablePx.toFloat(),
                         lineLimit = profile.lyricLineLimit,
                         wrap = profile.overflow == "Wrap",
@@ -523,13 +757,220 @@ private fun LyricPreviewSurface(
                         density = density.density
                     )
                 }
-                Column(Modifier.fillMaxWidth()) {
+                // 对唱并发行(与实机 buildRows 同源):本面「显示并发歌词(对唱)」开启且快照
+                // 带非空并发行时,在**辅助文字行组之后**堆叠并发行车道(段序同实机 buildRows:
+                // 主行 → 主行辅助行 → 并发行/和声行 → 下一行);在场时取代独立「下一行」行
+                // (与 #82 的 anti-dup 同式,防下方拥挤)。
+                // 和声行(harmony,插件行 role=BG 的 x-bg 回声)不走这一档:它常与主行同文,
+                // 同款堆叠就是两条一样的大字行(真机 2026-10-07 反馈的错观感);改走辅助行
+                // 车道,见下方 duetRows 的和声首行(与实机 buildRows 同源)。
+                val duet = snapshot.duetLine?.takeIf {
+                    previewDuetVisible(profile.duetConcurrent, it, profile.secondaryMode)
+                }
+                // 并发行内容键(与实机 duetLineKey 同口径):键不变 = 渲染原地保持,键变化才播
+                // 自己的换行过渡——并发行不随主行换行移动的判据(见 PreviewRowBlock.duetKey)。
+                val duetKey = duet?.let { previewDuetKey(it.text, it.lineStartMs) }
+                // 并发行自己的行窗跨度:并发行辅助行的逐字效果与行级合成时间轴同取它
+                // (实机 buildRows 的 duetAuxKaraokeWindow / buildDuetOriginalLayout 同源);
+                // 窗口过短(实时源的异常行窗)或本行无并发行时退到演示行跨度。
+                val duetSpanMs = duet?.let {
+                    (it.lineEndMs - it.lineStartMs).takeIf { span -> span >= 100L }
+                } ?: demoLineSpanMs
+                // 并发行段同口径:并发行窗口有效才按真实时间,否则退回演示映射。
+                val liveDuetPositionMs = livePositionMs.takeIf {
+                    duet != null && (duet.lineEndMs - duet.lineStartMs) >= 100L
+                }
+                // 并发行按自己的分侧解析对齐(与实机 alignmentFor(DUET_*) 同源),不随主行翻转。
+                val duetTextAlign = previewRowTextAlign(
+                    "auto",
+                    profile.alignment,
+                    duetAlignedRight(duet?.alignedRight ?: false, profile.duetAlignment)
+                )
+                // 并发行渲染路径与主行同一份决策([planDuetRow] → planOriginalLine):判据取并发行
+                // **自己的**真实词窗(实机 buildDuetOriginalLayout 的 hasTimedWordWindows(duet.words)
+                // 同源),不借主行的决策——主行无词窗而并发行有词窗时,预览此前会漏掉逐字推进。
+                val duetWordKaraoke = duet != null && planDuetRow(
+                    animationMode = profile.animation,
+                    timed = projectedWordsHaveTimedWindows(duet.words),
+                    lineLevelSync = snapshot.lineLevelSync,
+                    lineSyncFillMode = profile.lineSyncFillMode,
+                    lineStartMs = duet.lineStartMs,
+                    lineEndMs = duet.lineEndMs,
+                    hasWordEffect = profile.wordEffect != null
+                ).path == OriginalLinePath.WORD_KARAOKE
+                val duetLayout = remember(
+                    duet, duetTextAlign, duetWordKaraoke, duetSpanMs, textSize, lyricTypeface,
+                    regularTypeface, availablePx, profile.lyricLineLimit, profile.overflow,
+                    profile.adaptiveSectioning, profile.animation, resolvedColors.unsungText,
+                    profile.wordEffect
+                ) {
+                    if (duet == null || duet.harmony) {
+                        null
+                    } else {
+                        buildPreviewMainLayout(
+                            text = duet.text,
+                            textSizePx = with(density) { textSize.toPx() },
+                            typeface = lyricTypeface,
+                            rubyTypeface = regularTypeface,
+                            // 并发行 v1 不携带注音(与实机 buildDuetOriginalLayout 同口径)。
+                            ruby = emptyList(),
+                            words = duet.words,
+                            betterLyrics = profile.animation == "BetterLyrics",
+                            wordKaraoke = duetWordKaraoke,
+                            wordEffect = profile.wordEffect,
+                            unsungColorArgb = resolvedColors.unsungText,
+                            // 行级源的字符合成时间轴取并发行自己的行窗(与实机并发行扫光同拍)。
+                            lineSpanMs = duetSpanMs,
+                            lineStartMs = duet.lineStartMs,
+                            // 换行上限与实机 buildDuetOriginalLayout 同源:min(档位解析值, 2)
+                            // ——并发行双行封顶,防内容块失控。
+                            lineLimit = resolvedLyricLayoutLineLimit(
+                                profile.lyricLineLimit,
+                                duet.text.length,
+                                duet.words.size
+                            ).coerceAtMost(2),
+                            availableWidthPx = availablePx.toFloat(),
+                            wrap = profile.overflow == "Wrap",
+                            adaptiveSectioning = profile.adaptiveSectioning,
+                            alignment = when (duetTextAlign) {
+                                TextAlign.Center -> "center"
+                                TextAlign.End -> "end"
+                                else -> "start"
+                            },
+                            density = density.density
+                        )
+                    }
+                }
+                // 并发行自己的辅助文字行(音标/翻译):文本为空不构造该行(与实机 buildRows 的
+                // isNotBlank 门控同源);颜色/亮度档/间隔与主行辅助行一致。
+                // 和声行走辅助行车道:和声文本本身占首行(与实机 buildRows 的 ROMANIZED 行同源),
+                // 其音标/翻译不再单独出——和声多是主行文本的回声,那两份与主行的辅助行重复。
+                val duetRows = if (duet == null) {
+                    emptyList()
+                } else if (duet.harmony) {
+                    // 和声行走辅助行车道:字号同样吃辅助字号设置与自适应(与实机 buildRows 同源)。
+                    val harmonyRow = PreviewSecondaryLine(
+                        duet.text,
+                        secondaryReadingTextSizeSp(baseSp, profile.secondaryTextSizePercent).sp,
+                        italic = false
+                    )
+                    listOf(
+                        PreviewBlockRow(
+                            row = previewFittedSecondaryRow(
+                                harmonyRow,
+                                profile,
+                                baseSp,
+                                mainLayout.lines.size,
+                                availablePx,
+                                regularTypeface,
+                                scaledDensity
+                            ),
+                            color = secondaryColor,
+                            // 和声是主行自己的辅助车道,对齐随主行(与实机 alignmentFor 的非
+                            // DUET_* 行同源),不按并发行分侧翻转。
+                            align = textAlign,
+                            gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
+                            dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright),
+                            // 换行档取主行行数:和声多是主行文本的回声(实机 wrapSecondaryText
+                            // 同传 originalLayout.lineCount)。
+                            preferredLines = mainLayout.lines.size,
+                            karaoke = profile.secondaryWordKaraoke,
+                            // 和声自己的逐字词表(插件逐音节下发):逐字效果按真实词窗点亮,
+                            // 与实机 buildRows 的 harmonyTimedLines 共用同一判据函数。
+                            words = duet.words
+                        )
+                    )
+                } else {
+                    val showReading =
+                        com.eza.hyperglow.customization.auxShowsReading(profile.secondaryMode)
+                    val showTranslation =
+                        com.eza.hyperglow.customization.auxShowsTranslation(profile.secondaryMode)
+                    listOfNotNull(
+                        duet.romanized.takeIf { showReading && it.isNotBlank() }?.let {
+                            PreviewBlockRow(
+                                row = previewFittedSecondaryRow(
+                                    PreviewSecondaryLine(
+                                        it,
+                                        secondaryReadingTextSizeSp(
+                                            baseSp,
+                                            profile.secondaryTextSizePercent
+                                        ).sp,
+                                        italic = false
+                                    ),
+                                    profile,
+                                    baseSp,
+                                    duetLayout?.lines?.size ?: mainLayout.lines.size,
+                                    availablePx,
+                                    regularTypeface,
+                                    scaledDensity
+                                ),
+                                color = secondaryColor,
+                                align = duetTextAlign,
+                                gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
+                                dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright),
+                                // 并发行辅助行同样吃「辅助文字逐字效果」(实机 buildRows 的
+                                // duetAuxKaraokeWindow 同源),窗口取并发行自己的行窗。
+                                karaoke = profile.secondaryWordKaraoke
+                            )
+                        },
+                        duet.translated.takeIf { showTranslation && it.isNotBlank() }?.let {
+                            PreviewBlockRow(
+                                row = previewFittedSecondaryRow(
+                                    PreviewSecondaryLine(
+                                        it,
+                                        secondaryTranslationTextSizeSp(
+                                            baseSp,
+                                            profile.secondaryTextSizePercent
+                                        ).sp,
+                                        italic = true
+                                    ),
+                                    profile,
+                                    baseSp,
+                                    duetLayout?.lines?.size ?: mainLayout.lines.size,
+                                    availablePx,
+                                    regularTypeface,
+                                    scaledDensity
+                                ),
+                                color = secondaryColor,
+                                align = duetTextAlign,
+                                gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
+                                dimAlpha = staticSecondaryTextFactor(profile.secondaryTextBright),
+                                karaoke = profile.secondaryWordKaraoke
+                            )
+                        }
+                    )
+                }
+                val spectrumStart = when (profile.spectrum.color) {
+                    "primary" -> lyricColor
+                    else -> ComposeColor(resolvedColors.accent)
+                }
+                val spectrumEnd = if (profile.spectrum.color == "gradient") {
+                    lyricColor
+                } else {
+                    spectrumStart
+                }
+                Box(Modifier.fillMaxWidth()) {
+                    // 实机默认把频谱画在歌词框内、文字之前；预览也放在同一块内容的
+                    // 背景层，而不是永远追加到歌词下方。
+                    if (profile.spectrum.enabled && profile.spectrum.background) {
+                        PreviewSpectrum(
+                            spectrum = profile.spectrum,
+                            startColor = spectrumStart,
+                            endColor = spectrumEnd,
+                            active = live?.playbackActive ?: true,
+                            background = true,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+                    Column(Modifier.fillMaxWidth()) {
                     if (showMetadata && profile.metadataAnchor == "top") {
                         PreviewMetaLine(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
                             regularTypeface, availablePx, metadataAlign,
                             previewArtwork,
-                            Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp)
+                            Modifier.padding(bottom = METADATA_LYRIC_GAP_DP.dp),
+                            layout = profile.metadataLayout,
+                            artistSizePercent = profile.metadataArtistSizePercent
                         )
                     }
                     // 行块(主行+辅助文字+下一行)按行分流三段式换行:离场行组(主行+辅助
@@ -537,7 +978,16 @@ private fun LyricPreviewSurface(
                     val blockRows = ArrayList<PreviewBlockRow>(secondaryRows.size)
                     secondaryRows.forEach { row ->
                         blockRows += PreviewBlockRow(
-                            row = row,
+                            // 自适应大小:字号可能被拟合缩小(与实机 buildRows 同源)。
+                            row = previewFittedSecondaryRow(
+                                row,
+                                profile,
+                                baseSp,
+                                mainLayout.lines.size,
+                                availablePx,
+                                regularTypeface,
+                                scaledDensity
+                            ),
                             color = secondaryColor,
                             align = textAlign,
                             gapAbove = ROW_GAP_BEFORE_SECONDARY_DP.dp,
@@ -562,11 +1012,49 @@ private fun LyricPreviewSurface(
                         ),
                         profile.nextLineAux
                     )
+                    // 第二行歌词自身的呈现行数(与实机 buildRows 同序:先按主行行数作
+                    // preferredLines 布局第二行,再取其实际行数),第二行辅助行的换行档
+                    // 跟随它而不是主行行数(owner 2026-10-02 真机反馈);自适应开启时字号与
+                    // 行数同取拟合结果,否则第二行辅助行的换行档会与实机错位。
+                    val nextLineFit = if (nextPresentation == SecondLinePresentation.AS_SECONDARY) {
+                        remember(
+                            snapshot.nextLine,
+                            baseSp,
+                            profile.secondaryTextSizePercent,
+                            profile.secondaryAutoSize,
+                            regularTypeface,
+                            availablePx,
+                            profile.overflow,
+                            profile.adaptiveSectioning,
+                            mainLayout
+                        ) {
+                            val fitted = previewFittedSecondarySp(
+                                text = snapshot.nextLine,
+                                configuredSp = secondaryReadingTextSizeSp(
+                                    baseSp,
+                                    profile.secondaryTextSizePercent
+                                ),
+                                translation = false,
+                                baseSp = baseSp,
+                                preferredLines = mainLayout.lines.size,
+                                availableWidthPx = availablePx,
+                                wrap = profile.overflow == "Wrap",
+                                adaptiveSectioning = profile.adaptiveSectioning,
+                                typeface = regularTypeface,
+                                autoSize = profile.secondaryAutoSize,
+                                scaledDensity = scaledDensity
+                            )
+                            fitted.fittedSp.sp to fitted.lines.size
+                        }
+                    } else {
+                        // 独立下一行行形态不走辅助字号链(固定 15sp),行数恒 1(实机 preferredLines=1)。
+                        secondaryReadingTextSizeSp(baseSp, profile.secondaryTextSizePercent).sp to 1
+                    }
                     val nextBlockRow = when (nextPresentation) {
                         SecondLinePresentation.AS_SECONDARY -> PreviewBlockRow(
                             row = PreviewSecondaryLine(
                                 snapshot.nextLine,
-                                secondaryReadingTextSizeSp(baseSp).sp,
+                                nextLineFit.first,
                                 italic = false
                             ),
                             color = nextLineSecondaryColor,
@@ -587,34 +1075,9 @@ private fun LyricPreviewSurface(
                         )
                         SecondLinePresentation.NONE -> null
                     }
-                    // 第二行歌词自身的呈现行数(与实机 buildRows 同序:先按主行行数作
-                    // preferredLines 布局第二行,再取其实际行数),第二行辅助行的换行档
-                    // 跟随它而不是主行行数(owner 2026-10-02 真机反馈)。
-                    val nextLineRenderedLines = remember(
-                        snapshot.nextLine,
-                        baseSp,
-                        regularTypeface,
-                        availablePx,
-                        profile.overflow,
-                        profile.adaptiveSectioning,
-                        mainLayout
-                    ) {
-                        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                            // 显式接收者:外层同名局部变量(TextUnit textSize)会遮蔽 paint 成员。
-                            this.textSize = with(density) {
-                                secondaryReadingTextSizeSp(baseSp).sp.toPx()
-                            }
-                            this.typeface = regularTypeface
-                        }
-                        layoutSecondaryLines(
-                            text = snapshot.nextLine,
-                            paint = paint,
-                            availableWidth = availablePx.toFloat(),
-                            preferredLines = mainLayout.lines.size,
-                            wrap = profile.overflow == "Wrap",
-                            adaptiveSectioning = profile.adaptiveSectioning
-                        ).size
-                    }
+                    // 第二行歌词自身的呈现行数取 [nextLineFit] 的折行结果(同一拟合字号,与实机
+                    // buildRows 同源);独立下一行行形态恒 1(实机 preferredLines=1)。
+                    val nextLineRenderedLines = nextLineFit.second
                     // 独立下一行行形态下第二行恒单行呈现(与实机 wrapSecondaryText
                     // preferredLines=1 同源),其辅助行换行档随之;辅助形态按第二行自身呈现行数。
                     val nextAuxPreferredLines = secondLineAuxPreferredLines(
@@ -637,10 +1100,21 @@ private fun LyricPreviewSurface(
                             ).map { auxRow ->
                                 when (auxRow) {
                                     SecondLineAuxRow.ROMANIZED -> PreviewBlockRow(
-                                        row = PreviewSecondaryLine(
-                                            snapshot.nextLineRomanized,
-                                            secondaryReadingTextSizeSp(baseSp).sp,
-                                            italic = false
+                                        row = previewFittedSecondaryRow(
+                                            PreviewSecondaryLine(
+                                                snapshot.nextLineRomanized,
+                                                secondaryReadingTextSizeSp(
+                                                    baseSp,
+                                                    profile.secondaryTextSizePercent
+                                                ).sp,
+                                                italic = false
+                                            ),
+                                            profile,
+                                            baseSp,
+                                            nextAuxPreferredLines,
+                                            availablePx,
+                                            regularTypeface,
+                                            scaledDensity
                                         ),
                                         color = secondaryColor,
                                         align = nextLineAlign,
@@ -651,10 +1125,21 @@ private fun LyricPreviewSurface(
                                         preferredLines = nextAuxPreferredLines
                                     )
                                     SecondLineAuxRow.TRANSLATED -> PreviewBlockRow(
-                                        row = PreviewSecondaryLine(
-                                            snapshot.nextLineTranslated,
-                                            secondaryTranslationTextSizeSp(baseSp).sp,
-                                            italic = true
+                                        row = previewFittedSecondaryRow(
+                                            PreviewSecondaryLine(
+                                                snapshot.nextLineTranslated,
+                                                secondaryTranslationTextSizeSp(
+                                                    baseSp,
+                                                    profile.secondaryTextSizePercent
+                                                ).sp,
+                                                italic = true
+                                            ),
+                                            profile,
+                                            baseSp,
+                                            nextAuxPreferredLines,
+                                            availablePx,
+                                            regularTypeface,
+                                            scaledDensity
                                         ),
                                         color = secondaryColor,
                                         align = nextLineAlign,
@@ -670,17 +1155,21 @@ private fun LyricPreviewSurface(
                             emptyList()
                         }
                     PreviewAnimatedRowBlock(
+                        livePositionMs = liveMainPositionMs,
+                        liveDuetPositionMs = liveDuetPositionMs,
                         block = PreviewRowBlock(
                             mainLayout,
                             snapshot.original,
                             blockRows,
-                            nextBlockRow,
-                            nextAuxRows,
+                            // anti-dup:并发行在场时取代独立「下一行」行(与实机 buildRows 同式)。
+                            nextLine = if (duet == null) nextBlockRow else null,
+                            nextRows = if (duet == null) nextAuxRows else emptyList(),
                             // 辅助文字逐字效果:第一行辅助行按行块演示进度逐字点亮;亮度档沿用
                             // 「高亮辅助文字」(与实机 drawAuxKaraokeRow 同源),观感随逐字动画档。
                             auxKaraoke = if (profile.secondaryWordKaraoke) {
                                 PreviewAuxKaraoke(
                                     spanMs = demoLineSpanMs,
+                                    windowStartMs = snapshot.lineStartMs,
                                     betterLyrics = profile.animation == "BetterLyrics",
                                     // 与静态辅助行同一亮度公式(实机 drawSecondaryLine 同源)。
                                     alphaFactor = previewSecondaryAlpha(
@@ -689,7 +1178,29 @@ private fun LyricPreviewSurface(
                                 )
                             } else {
                                 null
-                            }
+                            },
+                            duet = duetLayout,
+                            duetRows = duetRows,
+                            // 并发行辅助行的逐字效果:跨度取并发行自己的行窗(实机
+                            // duetAuxKaraokeWindow 同源),其余档位与主行辅助行一致。
+                            duetAuxKaraoke = if (profile.secondaryWordKaraoke && duet != null) {
+                                PreviewAuxKaraoke(
+                                    spanMs = duetSpanMs,
+                                    windowStartMs = duet.lineStartMs,
+                                    betterLyrics = profile.animation == "BetterLyrics",
+                                    alphaFactor = previewSecondaryAlpha(
+                                        profile.secondaryTextBright
+                                    )
+                                )
+                            } else {
+                                null
+                            },
+                            duetKey = duetKey,
+                            interludeProgress = previewInterludeDotsProgress(
+                                window = interludeDots,
+                                positionMs = snapshot.positionMs
+                            ),
+                            interludeAlign = textAlign
                         ),
                         lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
                         lineTransitionSpeed = profile.lineTransitionSpeed,
@@ -709,13 +1220,211 @@ private fun LyricPreviewSurface(
                             snapshot.metadata, metadataColor, profile.metadataSizePercent,
                             regularTypeface, availablePx, metadataAlign,
                             previewArtwork,
-                            Modifier.padding(top = METADATA_LYRIC_GAP_DP.dp)
+                            Modifier.padding(top = METADATA_LYRIC_GAP_DP.dp),
+                            layout = profile.metadataLayout,
+                            artistSizePercent = profile.metadataArtistSizePercent
+                        )
+                    }
+                    if (profile.spectrum.enabled && !profile.spectrum.background) {
+                        PreviewSpectrum(
+                            spectrum = profile.spectrum,
+                            startColor = spectrumStart,
+                            endColor = spectrumEnd,
+                            active = live?.playbackActive ?: true,
+                            background = false
+                        )
+                    }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 设置页预览用的实时频谱：与 AodLyricCanvasView.drawSpectrum 共用同一套合成律动、
+ * 快攻慢放包络、峰值、灵敏度、透明度、自定义色和背景层语义。有实时歌词时按
+ * playbackActive 门控（暂停即衰减），演示态持续循环；source=loopback/capture
+ * 在预览侧没有 SystemUI 帧，使用与实机失败回退相同的律动。
+ */
+@Composable
+private fun PreviewSpectrum(
+    spectrum: SpectrumSpec,
+    startColor: ComposeColor,
+    endColor: ComposeColor,
+    active: Boolean,
+    background: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val bars = spectrum.barCount.coerceIn(12, 32)
+    val sensitivity = spectrum.sensitivity.coerceIn(50, 200) / 100f
+    val display = remember(bars) { FloatArray(bars) }
+    val peaks = remember(bars) { FloatArray(bars) }
+    val activeState = rememberUpdatedState(active)
+    val sensitivityState = rememberUpdatedState(sensitivity)
+    var frameTick by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(bars) {
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { now ->
+                val dt = if (lastNanos == 0L) {
+                    0.016f
+                } else {
+                    ((now - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.1f)
+                }
+                lastNanos = now
+                val time = android.os.SystemClock.elapsedRealtime() / 1000f
+                val target = if (activeState.value) {
+                    syntheticPreviewBands(bars, time)
+                } else {
+                    FloatArray(bars)
+                }
+                for (index in 0 until bars) {
+                    val value = (target[index] * sensitivityState.value).coerceIn(0f, 1f)
+                    val current = display[index]
+                    val rate = if (value > current) 14f else 4.5f
+                    val next = current + (value - current) * (1f - exp(-rate * dt))
+                    display[index] = next
+                    peaks[index] = maxOf(peaks[index] - dt * 0.55f, next)
+                }
+                frameTick = now
+            }
+        }
+    }
+
+    val customColor = parseHexColorInput(spectrum.customColor)?.let(::ComposeColor)
+    val baseStart = customColor ?: startColor
+    val baseEnd = customColor ?: endColor
+    val alpha = (spectrum.opacity.coerceIn(10, 100) / 100f) *
+        (customColor?.alpha ?: 1f)
+    val paintStart = baseStart.copy(alpha = alpha)
+    val paintEnd = baseEnd.copy(alpha = alpha)
+    val height = (SPECTRUM_BASE_HEIGHT_DP * spectrum.heightPercent.coerceIn(50, 200) / 100f).dp
+    val peakAlpha = alpha * 0.55f
+
+    Canvas(
+        if (background) modifier else modifier.fillMaxWidth().height(height)
+    ) {
+        // 读取 frameTick，让 Canvas 随每帧的数组更新重绘。
+        if (frameTick < 0L) return@Canvas
+        var maxValue = 0f
+        for (value in display) if (value > maxValue) maxValue = value
+        if (maxValue < 0.004f) return@Canvas
+
+        val areaHeight = if (background) size.height * 0.85f else size.height
+        if (areaHeight <= 0f) return@Canvas
+        val baseTop = if (background) (size.height - areaHeight) / 2f else 0f
+        val yFraction = spectrum.yOffsetPercent.coerceIn(-50, 50) / 100f
+        // 与实机一样整体平移；不再把 areaTop 钳回 baseTop（否则背景层高度=歌词框时
+        // 上下都没有余量，滑块看起来完全无效）。
+        val areaTop = baseTop + size.height * yFraction
+        val areaBottom = areaTop + areaHeight
+        val amplitude = if (background) 0.85f else 1f
+        val gap = (size.width * 0.35f / bars).coerceAtLeast(1f)
+        val barWidth = ((size.width - gap * (bars - 1)) / bars)
+            .coerceAtLeast(1f)
+        val totalWidth = barWidth * bars + gap * (bars - 1)
+        val startX = (size.width - totalWidth) / 2f
+        val brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+            colors = listOf(paintStart, paintEnd),
+            startY = areaBottom,
+            endY = areaTop
+        )
+        val peakBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
+            colors = listOf(
+                paintStart.copy(alpha = peakAlpha),
+                paintEnd.copy(alpha = peakAlpha)
+            ),
+            startY = areaBottom,
+            endY = areaTop
+        )
+        when (spectrum.style) {
+            "mirror" -> {
+                val center = (areaTop + areaBottom) / 2f
+                drawLine(
+                    color = baseStart.copy(alpha = alpha * 0.35f),
+                    start = Offset(0f, center),
+                    end = Offset(size.width, center),
+                    strokeWidth = 1.dp.toPx()
+                )
+                for (index in 0 until bars) {
+                    val half = (display[index].coerceIn(0f, 1f) * areaHeight * 0.45f)
+                        .coerceAtLeast(0.8.dp.toPx())
+                    val x = startX + index * (barWidth + gap)
+                    drawRoundRect(
+                        brush = brush,
+                        topLeft = Offset(x, center - half),
+                        size = Size(barWidth, half * 2f),
+                        cornerRadius = CornerRadius(barWidth / 2f)
+                    )
+                }
+            }
+
+            "line" -> {
+                val path = Path()
+                val step = if (bars <= 1) 0f else size.width / (bars - 1)
+                for (index in 0 until bars) {
+                    val x = index * step
+                    val y = areaBottom - display[index].coerceIn(0f, 1f) *
+                        areaHeight * amplitude
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(
+                    path = path,
+                    color = paintEnd,
+                    style = Stroke(width = 2.dp.toPx())
+                )
+            }
+
+            else -> {
+                for (index in 0 until bars) {
+                    val value = display[index].coerceIn(0f, 1f)
+                    val barHeight = (value * areaHeight * amplitude)
+                        .coerceAtLeast(1.2.dp.toPx())
+                    val x = startX + index * (barWidth + gap)
+                    drawRoundRect(
+                        brush = brush,
+                        topLeft = Offset(x, areaBottom - barHeight),
+                        size = Size(barWidth, barHeight),
+                        cornerRadius = CornerRadius(barWidth / 2f)
+                    )
+                    val peak = (peaks[index] * areaHeight * amplitude)
+                        .coerceIn(0f, areaHeight)
+                    if (peak > 0.01f) {
+                        drawRoundRect(
+                            brush = peakBrush,
+                            topLeft = Offset(x, areaBottom - peak - 1.dp.toPx()),
+                            size = Size(barWidth, 1.dp.toPx()),
+                            cornerRadius = CornerRadius(barWidth / 2f)
                         )
                     }
                 }
             }
         }
     }
+}
+
+/** 与 AodLyricCanvasView.syntheticBands 同式，时间轴取单调时钟。 */
+private fun syntheticPreviewBands(bars: Int, time: Float): FloatArray {
+    val out = FloatArray(bars)
+    val beat = 0.55f
+    val pulse = exp(-((time % beat) / beat) * 5.5f)
+    for (index in 0 until bars) {
+        val phase = index * 0.55f
+        val wave = 0.5f + 0.5f * sin(time * (1.3f + index * 0.04f) + phase)
+        val lowBias = (1f - index.toFloat() / (bars * 1.4f)).coerceIn(0f, 1f)
+        val noise = previewHashNoise(index, (time * 4f).toInt())
+        out[index] = (0.08f + 0.50f * wave * lowBias + 0.32f * pulse +
+            0.09f * noise).coerceIn(0f, 1f)
+    }
+    return out
+}
+
+private fun previewHashNoise(index: Int, tick: Int): Float {
+    var value = index * 374761393 + tick * 668265263
+    value = (value xor (value shr 13)) * 1274126177
+    return ((value xor (value shr 16)) and 0xFFFF) / 65535f
 }
 
 /** 预览侧歌曲图片呈现参数:形状/旋转生效值 + 自适应开关/自定义边长 + 解码后的帧(或演示占位)。 */
@@ -760,6 +1469,12 @@ private fun previewArtworkFromSnapshot(
     )
 }
 
+/** 预览歌曲信息的一行:文本 + 该行实际字号(堆叠式歌手行小于歌名行)。 */
+private data class PreviewMetadataLine(
+    val text: String,
+    val fontSize: androidx.compose.ui.unit.TextUnit
+)
+
 /**
  * 歌曲信息行:歌曲图片显示时按「图片槽+间距+文本块」成组布局(几何公式与实机
  * wrapMetadataText 同源),[textAlign] 作用于整组——图片恒在文本块左侧。
@@ -773,7 +1488,9 @@ private fun PreviewMetaLine(
     availableWidthPx: Int,
     textAlign: TextAlign,
     artwork: PreviewArtwork?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    layout: String = METADATA_LAYOUT_STACKED,
+    artistSizePercent: Int = DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
 ) {
     val size = previewMetadataTextSizeSp(sizePercent)
     val density = LocalDensity.current
@@ -788,13 +1505,50 @@ private fun PreviewMetaLine(
     } else {
         0f
     }
-    // 换行与实机 layoutMetadataLines 同算法:切片/折行后最多 MAX_METADATA_LAYOUT_LINES 行,溢出丢弃(无省略号)。
-    val lines = remember(text, sizePx, typeface, availableWidthPx, leadingPx) {
+    // 换行与实机 wrapMetadataText 同算法(布局 + 混合字号同源):single 布局把所有切片并成
+    // 一行(整行歌名字号);stacked 逐片测量——歌名段用歌名字号、其后各片用歌手字号
+    // (songInfoArtistScale),过宽的切片继续换行而非缩小整块。
+    val lines = remember(
+        text, sizePx, typeface, availableWidthPx, leadingPx, layout, artistSizePercent
+    ) {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = sizePx
             this.typeface = typeface
         }
-        layoutMetadataLines(text, paint, (availableWidthPx - leadingPx).coerceAtLeast(1f))
+        if (layout == METADATA_LAYOUT_SINGLE) {
+            val single = metadataSingleLineText(text)
+            if (single.isBlank()) {
+                emptyList()
+            } else {
+                layoutMetadataLines(
+                    single, paint, (availableWidthPx - leadingPx).coerceAtLeast(1f)
+                ).map { PreviewMetadataLine(it.text, size) }
+            }
+        } else {
+            val pieces = metadataLineTexts(text)
+            val artistIndexes = metadataArtistPieceIndexes(pieces.size)
+            val artistSize = sizePx * songInfoArtistScale(artistSizePercent)
+            layoutMetadataLines(
+                text = text,
+                piecePaints = pieces.mapIndexed { index, _ ->
+                    if (index in artistIndexes) {
+                        TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                            textSize = artistSize
+                            this.typeface = typeface
+                        }
+                    } else {
+                        paint
+                    }
+                },
+                availableWidth = (availableWidthPx - leadingPx).coerceAtLeast(1f)
+            ).map { line ->
+                val lineSize = if (line.pieceIndex in artistIndexes) artistSize else sizePx
+                PreviewMetadataLine(
+                    line.text,
+                    with(density) { lineSize.toSp() }
+                )
+            }
+        }
     }
     val groupArrangement = when (textAlign) {
         TextAlign.Center -> Arrangement.Center
@@ -825,7 +1579,7 @@ private fun PreviewMetaLine(
             lines.forEach { line ->
                 Text(
                     line.text,
-                    fontSize = size,
+                    fontSize = line.fontSize,
                     fontFamily = FontFamily(typeface),
                     color = color,
                     textAlign = textAlign,
@@ -917,6 +1671,96 @@ internal fun previewRowTextAlign(
     else -> TextAlign.Start
 }
 
+/**
+ * 并发行是否参与预览渲染:本面「显示并发歌词(对唱)」开关开启且快照携带非空并发行。
+ * 与实机 LyricCanvasMapper 的门控同源(`duet && profile.duetConcurrent`)——实机在映射层
+ * 就已按面丢弃,预览的演示快照不经映射层,故判据落在渲染侧;文本剥空(纯标记行)同样不上屏。
+ * 和声行(role=BG 的 x-bg 回声)与对唱开关解耦:本面辅助文字内容档选「和声」时同样放行
+ * (见 [com.eza.hyperglow.customization.SECONDARY_MODE_BACKGROUND_VOCAL]),同尺寸并发行
+ * 仍只认对唱开关——与实机 LyricCanvasMapper 同一判据。
+ */
+internal fun previewDuetVisible(
+    duetConcurrent: Boolean,
+    duetLine: LyricDuetLine?,
+    secondaryMode: String = "Main only"
+): Boolean = duetLine != null && duetLine.text.isNotBlank() &&
+    com.eza.hyperglow.root.aod.duetLineCarried(duetConcurrent, duetLine.harmony, secondaryMode)
+
+/**
+ * 并发行内容键(纯函数,JVM 可测;与实机 AodLyricCanvasView 的 duetLineKey 同口径:
+ * 文本 + 行窗起点)。键不变 = 并发行没换,渲染必须原地保持(不随主行换行进退);
+ * 键变化才播自己的换行过渡(退场→入场,首次出现回落加入淡入)。文本为空/无并发行
+ * 返回 null(不可见,不动画)。
+ */
+internal fun previewDuetKey(text: String?, lineStartMs: Long): String? =
+    text?.takeIf { it.isNotBlank() }?.let { "$it@$lineStartMs" }
+
+/**
+ * 长间奏倒计时圆点的窗口内进度(纯函数,JVM 可测;与实机
+ * [com.eza.hyperglow.root.aod.AodLyricCanvasView.interludeDotsFrame] 同一判据):
+ * 窗口非空且位置已进窗口时返回 0..1 的进度;进度走到 1(圆点已全部渐隐)返回 null——
+ * 与实机同式,动画自带终止条件,不再占用歌词行槽位。
+ *
+ * 预览取快照的 [positionMs] 而非逐帧投影位置:演示/实时快照的位置随快照刷新推进,
+ * 与实机的前向投影同语义(实机另按 speed 外推,两者都指向"当前歌词位置")。
+ */
+internal fun previewInterludeDotsProgress(window: LongRange?, positionMs: Long): Float? {
+    if (window == null || !interludeDotsActive(window, positionMs)) return null
+    val progress = interludeDotsProgress(positionMs, window)
+    return progress.takeIf { it < 1f }
+}
+
+/**
+ * 预览行扫光进度:实时态取真实播放位置在本行窗口内的比例(与实机 `lineProgress` 同一
+ * 判据 [timedWordProgress]);演示态取演示循环进度。实时快照的行窗退化时由调用方传
+ * null(退回演示映射),不把预览钉死在 0/1。
+ */
+internal fun previewSweepProgress(
+    livePositionMs: Long?,
+    lineStartMs: Long,
+    lineEndMs: Long,
+    demoProgress: Float
+): Float = livePositionMs?.let { timedWordProgress(it, lineStartMs, lineEndMs) } ?: demoProgress
+
+/**
+ * 预览逐字虚拟播放位置:实时态即真实播放位置(与实机 `drawWordKaraoke` /
+ * `drawAuxKaraokeRow` 按 [timedWordProgress](position, 词窗) 取比例同源);演示态把演示
+ * 循环进度映射到词位总跨度上(合成源路径,历史行为不变)。
+ */
+internal fun previewVirtualPositionMs(
+    livePositionMs: Long?,
+    spanStartMs: Long,
+    spanEndMs: Long,
+    demoProgress: Float
+): Long {
+    if (livePositionMs != null) return livePositionMs
+    return spanStartMs +
+        ((spanEndMs - spanStartMs) * demoProgress.coerceIn(0f, 1f)).toLong()
+}
+
+/**
+ * 并发行段在主行过渡期间的静止槽位偏移(px,纯函数,JVM 可测;与实机
+ * AodDuetLineIndependence.frozenDuetBaselines 同源):并发行内容键与过渡起点一致(并发行
+ * 没换)时,槽位取过渡起点快照——旧行组(主行+辅助文字)与新行组的高差,新布局不参与,
+ * 「主行换行不改变并发行位置」由此成立;并发行自己换了(键变化)或不在过渡中(起点键为 null)
+ * 时不偏移,由新布局接管。偏移作用于整个并发行段(段内各行同步平移,相对位置不变)。
+ *
+ * [previousGroupHeightPx] 为 0(退场层实测高要到过渡首帧之后才上报)时不偏移:否则首帧会
+ * 按「0 − 新行组高」把并发行顶到块顶,下一帧再跳回,反而制造一次可见跳动。
+ */
+internal fun previewDuetFrozenOffsetPx(
+    previousDuetKey: String?,
+    currentDuetKey: String?,
+    previousGroupHeightPx: Int,
+    currentGroupHeightPx: Int
+): Float = if (previousDuetKey != null && previousDuetKey == currentDuetKey &&
+    previousGroupHeightPx > 0
+) {
+    (previousGroupHeightPx - currentGroupHeightPx).toFloat()
+} else {
+    0f
+}
+
 private data class PreviewSecondaryLine(
     val text: String,
     val size: TextUnit,
@@ -928,19 +1772,108 @@ private fun previewSecondaryLines(
     snapshot: LyricSnapshot,
     baseSp: Float
 ): List<PreviewSecondaryLine> {
-    // 字号与实机 setContent 同源:音标行/翻译行各自公式(不同下限);翻译行走斜体(与实机一致)。
+    // 字号与实机 setContent 同源:音标行/翻译行各自公式(不同下限)×辅助字号倍率;
+    // 翻译行走斜体(与实机一致)。
     val reading = snapshot.romanized.ifBlank { null }?.let {
-        PreviewSecondaryLine(it, secondaryReadingTextSizeSp(baseSp).sp, italic = false)
+        PreviewSecondaryLine(
+            it,
+            secondaryReadingTextSizeSp(baseSp, profile.secondaryTextSizePercent).sp,
+            italic = false
+        )
     }
     val translation = snapshot.translated.ifBlank { null }?.let {
-        PreviewSecondaryLine(it, secondaryTranslationTextSizeSp(baseSp).sp, italic = true)
+        PreviewSecondaryLine(
+            it,
+            secondaryTranslationTextSizeSp(baseSp, profile.secondaryTextSizePercent).sp,
+            italic = true
+        )
     }
-    return when (profile.secondaryMode) {
-        "Transliteration" -> listOfNotNull(reading)
-        "Translation" -> listOfNotNull(translation)
-        "Both" -> listOfNotNull(reading, translation)
-        else -> emptyList()
+    // 第一行辅助行清单:与实机 buildRows 同源判据(历史档与多选档共用,见 auxShowsReading)。
+    val rows = ArrayList<PreviewSecondaryLine>(2)
+    if (com.eza.hyperglow.customization.auxShowsReading(profile.secondaryMode)) {
+        reading?.let { rows += it }
     }
+    if (com.eza.hyperglow.customization.auxShowsTranslation(profile.secondaryMode)) {
+        translation?.let { rows += it }
+    }
+    return rows
+}
+
+/**
+ * 辅助行自适应拟合(预览侧入口,与实机 AodLyricCanvasView.fittedSecondaryPaint 同源):
+ * 装得下恒返回设定字号(既有呈现逐像素不变);装不下缩到可读性下限(见 fittedSecondaryLines)。
+ * [scaledDensity] 为 sp→px 换算(与实机 scaledDensity 同式),预览与实机按同一换算拟合。
+ */
+private fun previewFittedSecondarySp(
+    text: String,
+    configuredSp: Float,
+    translation: Boolean,
+    baseSp: Float,
+    preferredLines: Int,
+    availableWidthPx: Int,
+    wrap: Boolean,
+    adaptiveSectioning: Boolean,
+    typeface: Typeface,
+    autoSize: Boolean,
+    scaledDensity: Float
+): FittedSecondaryLines {
+    val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = configuredSp * scaledDensity
+        this.typeface = typeface
+    }
+    return if (autoSize) {
+        fittedSecondaryLines(
+            text = text,
+            basePaint = paint,
+            configuredSp = configuredSp,
+            floorSp = secondarySizeFloorSp(baseSp, translation),
+            availableWidth = availableWidthPx.toFloat(),
+            preferredLines = preferredLines,
+            wrap = wrap,
+            adaptiveSectioning = adaptiveSectioning,
+            scaledDensity = scaledDensity
+        )
+    } else {
+        FittedSecondaryLines(
+            paint = paint,
+            fittedSp = configuredSp,
+            lines = layoutSecondaryLines(
+                text = text,
+                paint = paint,
+                availableWidth = availableWidthPx.toFloat(),
+                preferredLines = preferredLines,
+                wrap = wrap,
+                adaptiveSectioning = adaptiveSectioning
+            )
+        )
+    }
+}
+
+/** 辅助行按自适应拟合重建(字号可能缩小;文本/斜体不变):与实机 buildRows 的行字号同源。 */
+private fun previewFittedSecondaryRow(
+    row: PreviewSecondaryLine,
+    profile: com.eza.hyperglow.customization.CompiledSurfaceProfile,
+    baseSp: Float,
+    preferredLines: Int,
+    availableWidthPx: Int,
+    typeface: Typeface,
+    scaledDensity: Float
+): PreviewSecondaryLine {
+    if (!profile.secondaryAutoSize) return row
+    val fitted = previewFittedSecondarySp(
+        text = row.text,
+        configuredSp = row.size.value,
+        translation = row.italic,
+        baseSp = baseSp,
+        preferredLines = preferredLines,
+        availableWidthPx = availableWidthPx,
+        wrap = profile.overflow == "Wrap",
+        adaptiveSectioning = profile.adaptiveSectioning,
+        typeface = if (row.italic) Typeface.create(typeface, Typeface.ITALIC) else typeface,
+        autoSize = true,
+        scaledDensity = scaledDensity
+    )
+    return if (fitted.fittedSp < row.size.value) row.copy(size = fitted.fittedSp.sp) else row
 }
 
 internal fun previewCardColor(cardColor: String, cardAlpha: Int): ComposeColor {
@@ -970,13 +1903,21 @@ private class PreviewMainLayout(
     val betterLyrics: Boolean = false,
     /** 决策函数给出的词级卡拉OK路径(与实机 drawOriginal 的 WORD_KARAOKE 分支同义)。 */
     val wordKaraoke: Boolean = false,
+    /** 自定义单词效果(与实机 drawWordKaraoke(effect=...) 同源);null = 内置档。 */
+    val wordEffect: com.eza.hyperglow.customization.WordEffectSpec? = null,
     /** 未唱底字色(与实机 resolvedPalette.unsungText 同源)。 */
     val unsungColorArgb: Int = 0,
     /**
      * 该行块的真实行窗跨度(演示快照=切换周期);辅助文字逐字效果
      * ([PreviewAuxKaraoke.spanMs])与主行合成源共用同一跨度口径。
      */
-    val lineSpanMs: Long = 0L
+    val lineSpanMs: Long = 0L,
+    /**
+     * 该行块播放窗口起点(实时快照=真实行窗起点,演示快照=0):实时态扫光按
+     * [lineStartMs]..[lineStartMs]+[lineSpanMs] 取真实比例(实机 lineProgress 同式),
+     * 合成逐字词窗也以它为基准(实机 syntheticCharTimeWindow(window.first, …) 同源)。
+     */
+    val lineStartMs: Long = 0L
 )
 
 /** 预览一行内一个逐字词位:行内 x/宽 + 词时间窗;[longSyllable] 为合成词位的恒长音节标记;
@@ -1017,8 +1958,12 @@ private fun buildPreviewMainLayout(
     betterLyrics: Boolean,
     /** 词级卡拉OK路径(planOriginalLine 决策):真实词窗的行非 Minimal 档一律为真。 */
     wordKaraoke: Boolean,
+    /** 自定义单词效果;null = 内置档。随布局冻结,渲染时与实机共用同一解释器。 */
+    wordEffect: com.eza.hyperglow.customization.WordEffectSpec? = null,
     unsungColorArgb: Int,
     lineSpanMs: Long,
+    /** 本行播放窗口起点(演示快照=0):合成词窗与实时扫光都以它为基准。 */
+    lineStartMs: Long,
     availableWidthPx: Float,
     lineLimit: Int,
     wrap: Boolean,
@@ -1135,13 +2080,19 @@ private fun buildPreviewMainLayout(
             )
         }
     )
+    // 零窗占位词(布局分组合成)不是真实词级时间源:与实机 isTimedKaraokeWord 同判,
+    // 否则它们会让词位列表非空、跳过下面的行级合成,整行静态全亮。
+    val timedWords = alignedWords.filter { it.text.isNotBlank() && it.endMs > it.startMs }
     val wordRuns = when {
-        wordKaraoke && alignedWords.isNotEmpty() ->
-            result.lines.map { line -> previewWordRuns(line, text.length, alignedWords, paint) }
+        wordKaraoke && timedWords.isNotEmpty() ->
+            result.lines.map { line -> previewWordRuns(line, text.length, timedWords, paint) }
         // 合成源只吃行文本与行宽(与副文本行同型),主行行表按同一口径转换后共用。
-        wordKaraoke && betterLyrics -> syntheticPreviewWordRuns(
+        // 自定义效果与 BetterLyrics 一样需要词块:行级源(LRC)没有词时间,必须合成,
+        // 否则预览没有词位、效果只在实机可见。
+        wordKaraoke && (betterLyrics || wordEffect != null) -> syntheticPreviewWordRuns(
             result.lines.map { LyricLayoutTextLine(it.text, it.width) },
             paint,
+            lineStartMs,
             lineSpanMs
         )
         else -> emptyList()
@@ -1162,8 +2113,10 @@ private fun buildPreviewMainLayout(
         wordSpanEndMs = wordSpanEndMs,
         betterLyrics = betterLyrics,
         wordKaraoke = wordKaraoke,
+        wordEffect = wordEffect,
         unsungColorArgb = unsungColorArgb,
-        lineSpanMs = lineSpanMs
+        lineSpanMs = lineSpanMs,
+        lineStartMs = lineStartMs
     )
 }
 
@@ -1215,10 +2168,12 @@ private fun previewWordRuns(
 private fun syntheticPreviewWordRuns(
     lines: List<LyricLayoutTextLine>,
     paint: TextPaint,
+    lineStartMs: Long,
     lineSpanMs: Long
 ): List<List<PreviewWordRun>> {
     val totalWidth = lines.sumOf { it.width.toDouble() }.toFloat().coerceAtLeast(1f)
     val spanMs = lineSpanMs.coerceAtLeast(1L)
+    val windowEndMs = lineStartMs + spanMs
     var preceding = 0f
     val out = ArrayList<List<PreviewWordRun>>(lines.size)
     lines.forEach { line ->
@@ -1233,8 +2188,8 @@ private fun syntheticPreviewWordRuns(
             }
             val blockWidth = paint.measureText(line.text, block.first, block.last + 1)
             val blockWindow = syntheticCharTimeWindow(
-                0L,
-                spanMs,
+                lineStartMs,
+                windowEndMs,
                 totalWidth,
                 preceding + prefix,
                 blockWidth
@@ -1246,8 +2201,8 @@ private fun syntheticPreviewWordRuns(
                 val charEnd = karaokeUnitEnd(line.text, charIndex, block.last + 1)
                 val charWidth = paint.measureText(line.text, charIndex, charEnd)
                 val charWindow = syntheticCharTimeWindow(
-                    0L,
-                    spanMs,
+                    lineStartMs,
+                    windowEndMs,
                     totalWidth,
                     preceding + prefix,
                     charWidth
@@ -1315,9 +2270,11 @@ private fun previewRubyPlacements(
 }
 
 /**
- * 行块一代内容:主行 + 辅助文字行 + 下一行行。换行过渡按行分流三段式(与实机
+ * 行块一代内容:主行 + 辅助文字行 + 并发行段 + 下一行行。换行过渡按行分流三段式(与实机
  * drawOrientedContent 同构):离场行组(主行+辅助文字)退场 → 下一行晋级位移 →
  * 新到行(新辅助文字+新下一行)进场;[nextLine] 为晋级源(内容延续时升任主行)。
+ * 并发行段([duet]/[duetRows])不参与这三段:它有自己的内容键([duetKey])与自己的换行
+ * 过渡(退场→入场,首次出现回落加入淡入)。
  */
 private class PreviewRowBlock(
     val main: PreviewMainLayout,
@@ -1330,7 +2287,45 @@ private class PreviewRowBlock(
      * 辅助文字逐字效果(「辅助文字逐字效果」):非空时 [rows] 中标记 karaoke 的行(第一行
      * 辅助文字)走逐字渲染;第二行歌词及其辅助行不参与(其播放窗口尚未开始)。
      */
-    val auxKaraoke: PreviewAuxKaraoke? = null
+    val auxKaraoke: PreviewAuxKaraoke? = null,
+    /**
+     * 对唱并发行布局:与主行同款布局+词级扫光(同 [PreviewMainLayout]),占独立的并发行车道
+     * (段序在辅助文字行组之后、下一行行之前,与实机 buildRows 同源),不随主行换行进退;
+     * 在场时取代独立「下一行」行(anti-dup,与实机 buildRows 同式,防下方拥挤)。
+     * null = 本面无并发行、「显示并发歌词(对唱)」已关,或本行是和声行(和声走辅助行车道,
+     * 只经 [duetRows] 呈现,不再叠主行同款大字行)。
+     */
+    val duet: PreviewMainLayout? = null,
+    /**
+     * 并发行自己的辅助文字行(音标/翻译),紧随并发行之后;换行档跟随并发行呈现行数。
+     * 和声行([duet] 为空)时是唯一承载:首行即和声文本本身,按辅助行样式渲染。
+     */
+    val duetRows: List<PreviewBlockRow> = emptyList(),
+    /**
+     * 并发行辅助行(音标/翻译/和声行)的「辅助文字逐字效果」参数:跨度取并发行自己的行窗
+     * (实机 buildRows 的 duetAuxKaraokeWindow 同源),与主行辅助行的 [auxKaraoke] 区分开。
+     */
+    val duetAuxKaraoke: PreviewAuxKaraoke? = null,
+    /**
+     * 并发行内容键(文本 + 行窗起点,见 [previewDuetKey]):键不变 = 并发行未换,渲染原地
+     * 保持;键变化才播自己的换行过渡(退场→入场/加入淡入)。null = 并发行不可见
+     * (无并发行/开关关闭)。
+     */
+    val duetKey: String? = null,
+    /**
+     * 长间奏倒计时圆点的窗口内进度(0..1);null = 本帧不显示圆点(无窗口/未进窗口/
+     * 已走完)。非空时歌词行槽位(主行 + 其辅助行)改画圆点——与实机
+     * [com.eza.hyperglow.root.aod.AodLyricCanvasView.drawInterludeDots] 同一判据同源,
+     * 预览即实机。取值由 [previewInterludeDotsProgress] 给出(JVM 可测)。
+     */
+    val interludeProgress: Float? = null,
+    /**
+     * 圆点簇的对齐(跟随本面主对齐解析,参考实现「对齐跟随行对齐」):与 [rows]/[nextLine]
+     * 的 [PreviewBlockRow.align] 同一来源(主行对齐解析结果),圆点不吃行级独立对齐
+     * (它占的是主行槽位)。
+     */
+    val interludeAlign: androidx.compose.ui.text.style.TextAlign =
+        androidx.compose.ui.text.style.TextAlign.Start
 )
 
 /** 行块内副行(辅助文字/下一行)的渲染参数,随所属行块一起冻结;[dimAlpha] 为该行静态亮度档。 */
@@ -1346,7 +2341,14 @@ private class PreviewBlockRow(
      * 辅助文字逐字效果是否作用于本行:仅第一行辅助文字行(音标/翻译)在开关开启时为真;
      * 下一行行与第二行自身的辅助行恒假(见 [PreviewRowBlock.auxKaraoke])。
      */
-    val karaoke: Boolean = false
+    val karaoke: Boolean = false,
+    /**
+     * 本行自己的逐字词表(仅和声行携带,插件按 AMLL TTML 逐音节下发):逐字效果按**真实
+     * 词窗**点亮(实机 `AodLyricCanvasView.harmonyTimedLines` 同源,共用 [harmonyTimedSegments]
+     * 判据);空 = 按行窗均匀合成,即历史行为。第一行辅助文字行/下一行行不带词表(它们的
+     * 逐字时间另有来源或尚未开始,见 [PreviewRowBlock.auxKaraoke])。
+     */
+    val words: List<LyricWord> = emptyList()
 )
 
 /**
@@ -1362,6 +2364,12 @@ private class PreviewBlockRow(
 @Composable
 private fun PreviewAnimatedRowBlock(
     block: PreviewRowBlock,
+    /**
+     * 实时播放位置(实时态非空,见 [rememberLivePreviewPosition]):行块各段按真实时间
+     * 绘制扫光/逐字;[liveDuetPositionMs] 同口径服务并发行段。null = 演示态,行为不变。
+     */
+    livePositionMs: Long? = null,
+    liveDuetPositionMs: Long? = null,
     lineTransition: String,
     lineTransitionSpeed: String,
     color: ComposeColor,
@@ -1452,8 +2460,20 @@ private fun PreviewAnimatedRowBlock(
     var enterMainHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var enterRowsHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var enterNextHeightPx by remember(block.mainText) { mutableStateOf(0) }
+    // 并发行行组的实测高(退场层 = 旧并发行行块、入场层 = 新并发行行块):并发行自己的
+    // 过渡帧以它为位移基准(实机各层取本层行块同序,见 animatedBlockHeightDp)。
+    var exitDuetHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    var enterDuetHeightPx by remember(block.mainText) { mutableStateOf(0) }
     var nextRowTopPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
     var exitNextLineRowHeightPx by remember(exitingBlock?.mainText) { mutableStateOf(0) }
+    // 并发行在主行过渡期间的静止槽位偏移(px,与实机 AodDuetLineIndependence.frozenDuetBaselines
+    // 同源,判据见 previewDuetFrozenOffsetPx)。
+    val duetFrozenOffsetPx = previewDuetFrozenOffsetPx(
+        previousDuetKey = previous?.duetKey,
+        currentDuetKey = block.duetKey,
+        previousGroupHeightPx = exitMainHeightPx + exitRowsHeightPx,
+        currentGroupHeightPx = enterMainHeightPx + enterRowsHeightPx
+    )
     val mainBlockHeightDp = with(density) { block.main.blockHeight.toDp().value }
     val exitMainBlockHeightDp = with(density) { (previous ?: block).main.blockHeight.toDp().value }
     val blockWidthDp = with(density) { availableWidthPx.toDp().value }
@@ -1489,22 +2509,122 @@ private fun PreviewAnimatedRowBlock(
         },
         fromAlpha = previous?.nextLine?.dimAlpha ?: staticNextLineTextFactor()
     )
+    // 并发行自己的过渡帧(与实机同源):同一份配方/缓动,宽高基准取并发行行块自身
+    // (退场层用旧行块、入场层用新行块);首帧尚未测量时回落主行块高。
+    val duetJoin = remember { Animatable(1f) }
+    val duetExitProgress = remember { Animatable(1f) }
+    val duetEnterProgress = remember { Animatable(1f) }
+    val duetExitBlockHeightDp = with(density) {
+        if (exitDuetHeightPx > 0) exitDuetHeightPx.toDp().value else exitMainBlockHeightDp
+    }
+    val duetEnterBlockHeightDp = with(density) {
+        if (enterDuetHeightPx > 0) enterDuetHeightPx.toDp().value else mainBlockHeightDp
+    }
+    val duetExitFrame = lineTransitionExitFrame(
+        lineTransition,
+        lineTransitionExitEasing(lineTransition, duetExitProgress.value),
+        blockWidthDp,
+        duetExitBlockHeightDp
+    )
+    val duetEnterFrame = lineTransitionEnterFrame(
+        lineTransition,
+        lineTransitionEnterEasing(lineTransition, duetEnterProgress.value),
+        blockWidthDp,
+        duetEnterBlockHeightDp
+    )
+    // 并发行自己的换行过渡(与实机 AodLyricCanvasView 同源):内容键(文本 + 行窗起点)
+    // 变化且上一版并发行还在、档位非 None 时,播预设的退场 → 入场半段——**同一槽位、
+    // 无位移段**(见 [duetRowTransitionTimeline]);首次出现没有旧内容可退场、None 档
+    // 不播动画,回落既有 180ms 加入淡入。并发行不参与主行换行帧:主行换行时它原地不动,
+    // 只有自己的内容换了才动(键为 null 时并发行不可见,不动画)。
+    // 旧并发行内容取上一版**已落定**的并发行行块([stableDuetBlock],落定 = 它自己的过渡
+    // 播完才认新键):主行同时换行时退场层就是主行过渡的起点行块,仅并发行换行(实时数据
+    // 两行各有自己的行窗)时由 [stableDuetBlock] 单独成层承载退场半段。
+    val duetKey = block.duetKey
+    var previousDuetKey by remember { mutableStateOf(block.duetKey) }
+    var settledDuetKey by remember { mutableStateOf(block.duetKey) }
+    var stableDuetBlock by remember { mutableStateOf(block) }
+    // 只在「键真的换了一版」时写一次:该状态在组合期被读(退场层的取用条件),无条件写
+    // 新实例会每帧触发重组。
+    SideEffect {
+        if (block.duetKey == settledDuetKey && stableDuetBlock.duetKey != block.duetKey) {
+            stableDuetBlock = block
+        }
+    }
+    LaunchedEffect(duetKey) {
+        if (duetKey == previousDuetKey) return@LaunchedEffect
+        val previousBlock = stableDuetBlock
+        previousDuetKey = duetKey
+        val presetTransition = duetKey != null && shouldStartDuetRowTransition(
+            previousKey = previousBlock.duetKey,
+            nextKey = duetKey,
+            transitionMode = lineTransition,
+            // 旧内容由退场层重画:上一版行块确有并发行时它才在屏上(与实机
+            // previousRowAvailable 同一含义)。
+            previousRowAvailable = previousBlock.duetKey != null
+        )
+        if (presetTransition) {
+            val timeline = duetRowTransitionTimeline(lineTransition, lineTransitionSpeed)
+            duetJoin.snapTo(1f)
+            duetExitProgress.snapTo(0f)
+            duetEnterProgress.snapTo(0f)
+            coroutineScope {
+                launch {
+                    duetExitProgress.animateTo(
+                        1f,
+                        tween(timeline.exitMs.toInt(), easing = LinearEasing)
+                    )
+                }
+                delay(timeline.exitMs)
+                duetEnterProgress.animateTo(
+                    1f,
+                    tween(timeline.enterMs.toInt(), easing = LinearEasing)
+                )
+            }
+            // 两段播完才认新键为落定:过渡期间 [stableDuetBlock] 一直是旧内容(退场层的来源)。
+            settledDuetKey = duetKey
+        } else {
+            duetExitProgress.snapTo(1f)
+            duetEnterProgress.snapTo(1f)
+            settledDuetKey = duetKey
+            if (duetKey == null) {
+                duetJoin.snapTo(1f)
+                return@LaunchedEffect
+            }
+            duetJoin.snapTo(0f)
+            duetJoin.animateTo(
+                1f,
+                tween(PREVIEW_DUET_JOIN_FADE_MS.toInt(), easing = LinearEasing)
+            )
+        }
+    }
+    val duetAlpha = duetJoin.value
     // 角色分流(与实机同构):退场层画离场行组[主行+辅助文字]、下一行只占位(退场段原地
     // 保持、位移段起隐藏);入场层画新到行组[辅助文字+下一行]、主行只占位(由位移层绘制)。
+    // 并发行段不吃这两层的帧:它只吃自己的过渡帧(见 [PreviewRowBlockLayer.duetFrame])——
+    // 主行换行时原地不动,这是「并发行不随主行换行移动」的落点。
     val exitFrameParts = if (promoting) {
         setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS)
     } else {
-        PreviewRowPart.entries.toSet()
+        setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS, PreviewRowPart.NEXT)
     }
+    // 并发行段在退场层的取舍:并发行**自己**换行时留在退场层(旧内容按退场帧离场,与实机
+    // drawDuetRowExitLayer 同源——退场层画的就是上一版行块);否则恒为隐藏段(旧并发行不随
+    // 主行离场),由入场层单独绘制。
+    val duetExiting = duetExitProgress.value < 1f
     val exitHiddenParts = if (promoting && moveFrameProgress.value > 0f) {
-        setOf(PreviewRowPart.NEXT)
+        if (duetExiting) {
+            setOf(PreviewRowPart.NEXT)
+        } else {
+            setOf(PreviewRowPart.NEXT, PreviewRowPart.DUET)
+        }
     } else {
-        emptySet()
+        if (duetExiting) emptySet() else setOf(PreviewRowPart.DUET)
     }
     val enterFrameParts = if (promoting) {
         setOf(PreviewRowPart.ROWS, PreviewRowPart.NEXT)
     } else {
-        PreviewRowPart.entries.toSet()
+        setOf(PreviewRowPart.MAIN, PreviewRowPart.ROWS, PreviewRowPart.NEXT)
     }
     // 晋级时新主行的辅助行(内容延续组)由晋级层呈现:入场层占位不绘制,
     // 新到行组 = 新下一行及其辅助行(与实机入场层口径一致)。
@@ -1536,15 +2656,52 @@ private fun PreviewAnimatedRowBlock(
                 availableWidthPx = availableWidthPx,
                 wrap = wrap,
                 adaptiveSectioning = adaptiveSectioning,
+                duetFrame = duetExitFrame,
                 onPartHeightPx = { part, height ->
                     when (part) {
                         PreviewRowPart.MAIN -> exitMainHeightPx = height
                         PreviewRowPart.ROWS -> exitRowsHeightPx = height
                         PreviewRowPart.NEXT -> exitNextHeightPx = height
+                        // 并发行段不参与退场组高(它不随主行离场),但并发行自己的过渡帧
+                        // 以它为位移基准(实机退场层取本层行块同序)。
+                        PreviewRowPart.DUET -> exitDuetHeightPx = height
                     }
                 },
                 onNextRowTopPx = { nextRowTopPx = it },
                 onNextLineRowHeightPx = { exitNextLineRowHeightPx = it },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        // 仅并发行换行(主行未换:实时数据两行各有自己的行窗)时没有主行退场层可承载旧
+        // 并发行内容——由上一版并发行行块单独成层,只画 DUET 段(其余段隐藏只占位),
+        // 与实机 drawDuetRowExitLayer 同源;主行同时换行时上面那层已经承载了它。
+        if (previous == null && duetExiting && stableDuetBlock.duetKey != null &&
+            stableDuetBlock.duetKey != block.duetKey
+        ) {
+            PreviewRowBlockLayer(
+                block = stableDuetBlock,
+                sweepProgress = 1f,
+                frame = LineTransitionFrame(alpha = 1f),
+                frameParts = emptySet(),
+                hiddenParts = setOf(
+                    PreviewRowPart.MAIN,
+                    PreviewRowPart.ROWS,
+                    PreviewRowPart.NEXT
+                ),
+                color = color,
+                glowColor = glowColor,
+                glowEnabled = glowEnabled,
+                fillMode = fillMode,
+                rubyColor = rubyColor,
+                regularTypeface = regularTypeface,
+                availableWidthPx = availableWidthPx,
+                wrap = wrap,
+                adaptiveSectioning = adaptiveSectioning,
+                duetFrame = duetExitFrame,
+                onPartHeightPx = { part, height ->
+                    // 退场帧的位移基准取旧并发行行块实测高(与上面那层同口径)。
+                    if (part == PreviewRowPart.DUET) exitDuetHeightPx = height
+                },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1563,6 +2720,7 @@ private fun PreviewAnimatedRowBlock(
                 PreviewMainLayer(
                     layout = block.main,
                     progress = progressValue,
+                    livePositionMs = livePositionMs,
                     color = color,
                     glowColor = glowColor,
                     glowEnabled = glowEnabled,
@@ -1610,10 +2768,13 @@ private fun PreviewAnimatedRowBlock(
             }
         }
         // 段3 入场层:新到行(新辅助文字+新下一行)按入场半段进场;晋级时新「主行」
-        // 由段2接管,本层只画新到行组。
+        // 由段2接管,本层只画新到行组。并发行段由本层绘制(退场层只在自己换行时接走),
+        // 吃自己的过渡帧:预设入场半段或加入淡入。
         PreviewRowBlockLayer(
             block = block,
             sweepProgress = progressValue,
+            livePositionMs = livePositionMs,
+            liveDuetPositionMs = liveDuetPositionMs,
             frame = enterFrame,
             frameParts = enterFrameParts,
             hiddenParts = enterHiddenParts,
@@ -1626,11 +2787,17 @@ private fun PreviewAnimatedRowBlock(
             availableWidthPx = availableWidthPx,
             wrap = wrap,
             adaptiveSectioning = adaptiveSectioning,
+            duetAlpha = duetAlpha,
+            duetFrozenOffsetPx = duetFrozenOffsetPx,
+            duetFrame = duetEnterFrame,
             onPartHeightPx = { part, height ->
                 when (part) {
                     PreviewRowPart.MAIN -> enterMainHeightPx = height
                     PreviewRowPart.ROWS -> enterRowsHeightPx = height
                     PreviewRowPart.NEXT -> enterNextHeightPx = height
+                    // 并发行段不参与入场组高(它不随主行进场),但并发行自己的过渡帧
+                    // 以它为位移基准(实机入场层取本层行块同序)。
+                    PreviewRowPart.DUET -> enterDuetHeightPx = height
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -1638,13 +2805,23 @@ private fun PreviewAnimatedRowBlock(
     }
 }
 
-/** 行块内可独立分帧的三段:主行 / 辅助文字行组 / 下一行行(与实机行角色一一对应)。 */
-private enum class PreviewRowPart { MAIN, ROWS, NEXT }
+/**
+ * 行块内可独立分帧的四段:主行 / 辅助文字行组 / 并发行段(并发行或和声行及其辅助行) /
+ * 下一行行(与实机行角色一一对应;段序与实机 buildRows 的行序同源:主行 → 主行辅助行 →
+ * 并发行/和声行 → 下一行)。
+ *
+ * 并发行段与其它三段的区别:它**不吃主行换行帧**(见 [applyPartTransition] 的 DUET 说明)——
+ * 主行换行时并发行原地不动,只有自己的内容键变化才播自己的换行过渡(退场 → 入场半段,
+ * 首次出现回落加入淡入)。这是「并发行相对主行独立」在预览侧的同一语义。
+ */
+private enum class PreviewRowPart { MAIN, ROWS, DUET, NEXT }
 
 /**
- * 行块单层绘制:主行 LyricGlowRow + 辅助文字行 + 下一行行,按 [frameParts]/[hiddenParts]
- * 逐段分流——[frameParts] 内的行段共用 [frame](alpha/位移/缩放/旋转一次施加);
- * [hiddenParts] 内的行段只占位不绘制(由其它层接管);其余行段恒等展示。
+ * 行块单层绘制:主行 LyricGlowRow + 辅助文字行 + 并发行段(对唱大字行/和声行及其辅助行)+
+ * 下一行行,按 [frameParts]/[hiddenParts] 逐段分流——[frameParts] 内的行段共用 [frame]
+ * (alpha/位移/缩放/旋转一次施加);[hiddenParts] 内的行段只占位不绘制(由其它层接管);
+ * 其余行段恒等展示;并发行段只吃自己的过渡帧([duetFrame] × [duetAlpha]:预设退场/入场
+ * 半段或加入淡入),不吃主行 [frame]。
  * 各段实测高经 [onPartHeightPx] 上报,供调用方按角色组求和作为该层位移基准
  * (参考实现 target.getHeight()/4);下一行行顶经 [onNextRowTopPx] 上报,作为晋级位移起点。
  */
@@ -1652,6 +2829,12 @@ private enum class PreviewRowPart { MAIN, ROWS, NEXT }
 private fun PreviewRowBlockLayer(
     block: PreviewRowBlock,
     sweepProgress: Float,
+    /**
+     * 实时播放位置(实时态非空):主行段与第一行辅助行按主行窗口/位置取真实时间;
+     * [liveDuetPositionMs] 同口径服务并发行段(取并发行自己的行窗)。null = 演示态。
+     */
+    livePositionMs: Long? = null,
+    liveDuetPositionMs: Long? = null,
     frame: LineTransitionFrame,
     frameParts: Set<PreviewRowPart>,
     hiddenParts: Set<PreviewRowPart>,
@@ -1664,6 +2847,18 @@ private fun PreviewRowBlockLayer(
     availableWidthPx: Int,
     wrap: Boolean,
     adaptiveSectioning: Boolean,
+    /** 并发行段的加入淡入系数(实机 drawDuetOriginal 的 duetJoinAlpha 同源);只作用于 DUET 段。 */
+    duetAlpha: Float = 1f,
+    /**
+     * 并发行段在主行过渡期间的静止槽位偏移(px,实机 frozenDuetBaselines 同源):主行换行
+     * 过渡期间并发行停在过渡起点槽位;0 = 不偏移(无过渡,或并发行自己刚换行)。
+     */
+    duetFrozenOffsetPx: Float = 0f,
+    /**
+     * 并发行段自己的过渡帧(实机 withDuetRowTransition 同源):退场层传退场半段、入场层传
+     * 入场半段;恒等帧 = 无预设过渡(只吃 [duetAlpha] 的加入淡入)。
+     */
+    duetFrame: LineTransitionFrame = LineTransitionFrame(alpha = 1f),
     onPartHeightPx: (PreviewRowPart, Int) -> Unit = { _, _ -> },
     onNextRowTopPx: (Int) -> Unit = {},
     onNextLineRowHeightPx: (Int) -> Unit = {},
@@ -1671,28 +2866,44 @@ private fun PreviewRowBlockLayer(
 ) {
     val density = LocalDensity.current
     Column(modifier) {
-        // 主行段。
+        // 主行段(仅原文行):并发行有自己的车道(见下方 DUET 段),不再与主行同层进退——
+        // 主行换行时并发行原地不动(任务 1「并发行相对主行独立」的预览侧语义)。
         Box(
             Modifier
                 .fillMaxWidth()
                 .onSizeChanged { onPartHeightPx(PreviewRowPart.MAIN, it.height) }
                 .graphicsLayer { applyPartTransition(PreviewRowPart.MAIN, frame, frameParts, hiddenParts) }
         ) {
-            PreviewMainLayer(
-                layout = block.main,
-                progress = sweepProgress,
-                color = color,
-                glowColor = glowColor,
-                glowEnabled = glowEnabled,
-                fillMode = fillMode,
-                rubyColor = rubyColor,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(with(density) { block.main.blockHeight.toDp() })
-            )
+            // 长间奏倒计时圆点生效时主行槽位改画圆点(与实机 drawInterludeDots 同源):
+            // 圆点占同一槽位(同高度 Box),行块高度不变,卡片不呼吸。
+            if (block.interludeProgress != null) {
+                PreviewInterludeDots(
+                    progress = block.interludeProgress,
+                    textSizePx = block.main.paint.textSize,
+                    blockHeightPx = block.main.blockHeight,
+                    align = block.interludeAlign,
+                    unsungColor = ComposeColor(block.main.unsungColorArgb),
+                    sungColor = color,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                PreviewMainLayer(
+                    layout = block.main,
+                    progress = sweepProgress,
+                    livePositionMs = livePositionMs,
+                    color = color,
+                    glowColor = glowColor,
+                    glowEnabled = glowEnabled,
+                    fillMode = fillMode,
+                    rubyColor = rubyColor,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(with(density) { block.main.blockHeight.toDp() })
+                )
+            }
         }
-        // 辅助文字行组段。
-        if (block.rows.isNotEmpty()) {
+        // 辅助文字行组段:圆点占用歌词行槽位时一并让位(与实机同式,主行的辅助行同属该块)。
+        if (block.rows.isNotEmpty() && block.interludeProgress == null) {
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -1716,6 +2927,7 @@ private fun PreviewRowBlockLayer(
                                 textAlign = item.align,
                                 progress = sweepProgress,
                                 auxKaraoke = auxKaraoke,
+                                livePositionMs = livePositionMs,
                                 glowColor = glowColor,
                                 glowEnabled = glowEnabled,
                                 modifier = Modifier.padding(top = item.gapAbove)
@@ -1727,6 +2939,94 @@ private fun PreviewRowBlockLayer(
                                 typeface = regularTypeface,
                                 availableWidthPx = availableWidthPx,
                                 preferredLines = block.main.lines.size,
+                                wrap = wrap,
+                                adaptiveSectioning = adaptiveSectioning,
+                                textAlign = item.align,
+                                modifier = Modifier.padding(top = item.gapAbove)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // 并发行段:真对唱的主行同款大字行([block.duet]),或和声行的辅助行车道首行与并发行
+        // 自己的辅助行([block.duetRows])。段序在辅助文字行组之后、下一行行之前,与实机
+        // buildRows 的行序同源(主行 → 主行辅助行 → 并发行/和声行 → 下一行)。
+        // 段内行不吃主行换行帧(退场层只在自己换行时接走它),只吃自己的
+        // 过渡帧 [duetFrame] × [duetAlpha](实机 withDuetRowTransition 同源:预设退场/入场
+        // 半段或加入淡入);[duetFrozenOffsetPx] 让它在主行过渡期间停在过渡起点槽位
+        // (实机 frozenDuetBaselines 同源),与自己的帧位移叠加。
+        if (block.duet != null || block.duetRows.isNotEmpty()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        applyPartTransition(
+                            PreviewRowPart.DUET,
+                            frame,
+                            frameParts,
+                            hiddenParts,
+                            partAlpha = duetAlpha,
+                            duetFrame = duetFrame
+                        )
+                        translationY += duetFrozenOffsetPx
+                    }
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    val duet = block.duet
+                    if (duet != null) {
+                        // 并发行与主行同一渲染核心(自带词级扫光),间隔取实机同源常量;
+                        // 词级/行级路径由 [buildPreviewMainLayout] 按并发行自己的词窗决策。
+                        PreviewMainLayer(
+                            layout = duet,
+                            progress = sweepProgress,
+                            livePositionMs = liveDuetPositionMs,
+                            color = color,
+                            glowColor = glowColor,
+                            glowEnabled = glowEnabled,
+                            fillMode = fillMode,
+                            rubyColor = rubyColor,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = ROW_GAP_BEFORE_ORIGINAL_DP.dp)
+                                .height(with(density) { duet.blockHeight.toDp() })
+                        )
+                    }
+                    // 并发行/和声行自己的辅助行:换行档跟随并发行自身呈现行数(实机 buildRows 同源);
+                    // 和声行走辅助行车道时 duet 为空、行数档由行自带的 preferredLines 给出。
+                    block.duetRows.forEach { item ->
+                        val auxKaraoke = block.duetAuxKaraoke
+                        if (item.karaoke && auxKaraoke != null && auxKaraoke.spanMs > 0L) {
+                            // 并发行/和声行「辅助文字逐字效果」:与实机 drawAuxKaraokeRow 同一共享
+                            // 渲染核心(实机按并发行自己的行窗口点亮,预览走演示进度);和声行
+                            // 另带自己的词表 [PreviewBlockRow.words],有真实词窗时按词窗点亮
+                            // (与实机 harmonyTimedLines 同一判据,预览即实机)。
+                            PreviewSecondaryKaraokeRow(
+                                row = item.row,
+                                color = item.color,
+                                typeface = regularTypeface,
+                                availableWidthPx = availableWidthPx,
+                                preferredLines = item.preferredLines ?: duet?.lines?.size
+                                    ?: block.main.lines.size,
+                                wrap = wrap,
+                                adaptiveSectioning = adaptiveSectioning,
+                                textAlign = item.align,
+                                progress = sweepProgress,
+                                auxKaraoke = auxKaraoke,
+                                livePositionMs = liveDuetPositionMs,
+                                words = item.words,
+                                glowColor = glowColor,
+                                glowEnabled = glowEnabled,
+                                modifier = Modifier.padding(top = item.gapAbove)
+                            )
+                        } else {
+                            PreviewSecondaryRow(
+                                row = item.row,
+                                color = item.color,
+                                typeface = regularTypeface,
+                                availableWidthPx = availableWidthPx,
+                                preferredLines = item.preferredLines ?: duet?.lines?.size
+                                    ?: block.main.lines.size,
                                 wrap = wrap,
                                 adaptiveSectioning = adaptiveSectioning,
                                 textAlign = item.align,
@@ -1784,24 +3084,100 @@ private fun PreviewRowBlockLayer(
     }
 }
 
-/** graphicsLayer 作用域内按行段分流:隐藏段 alpha 置 0(占位),帧内段施加 [frame],其余恒等。 */
+/**
+ * graphicsLayer 作用域内按行段分流:隐藏段 alpha 置 0(占位),帧内段施加 [frame],其余恒等
+ * (alpha 只吃段自身的 [partAlpha])。
+ *
+ * 并发行段(DUET)只吃自己的 [duetFrame]:主行换行帧不作用于它(退场层只在自己换行时接走它)
+ * ——预设过渡期间是退场/入场半段,无预设过渡时恒等帧、只剩 [partAlpha] 的加入淡入。
+ * 与实机 withDuetRowTransition 同源:两行各有自己的时间轴。
+ */
 private fun GraphicsLayerScope.applyPartTransition(
     part: PreviewRowPart,
     frame: LineTransitionFrame,
     frameParts: Set<PreviewRowPart>,
-    hiddenParts: Set<PreviewRowPart>
+    hiddenParts: Set<PreviewRowPart>,
+    partAlpha: Float = 1f,
+    duetFrame: LineTransitionFrame = LineTransitionFrame(alpha = 1f)
 ) {
+    val applied = if (part == PreviewRowPart.DUET) duetFrame else frame
     when {
         part in hiddenParts -> alpha = 0f
-        part in frameParts -> {
-            alpha = frame.alpha
-            translationX = frame.translateXDp.dp.toPx()
-            translationY = frame.translateYDp.dp.toPx()
-            scaleX = frame.scale
-            scaleY = frame.scale
-            rotationZ = frame.rotationDeg
-            rotationX = frame.rotationXDeg
-            rotationY = frame.rotationYDeg
+        part in frameParts || part == PreviewRowPart.DUET -> {
+            alpha = applied.alpha * partAlpha
+            translationX = applied.translateXDp.dp.toPx()
+            translationY = applied.translateYDp.dp.toPx()
+            scaleX = applied.scale
+            scaleY = applied.scale
+            rotationZ = applied.rotationDeg
+            rotationX = applied.rotationXDeg
+            rotationY = applied.rotationYDeg
+        }
+        else -> alpha = partAlpha
+    }
+}
+
+/**
+ * 长间奏倒计时圆点(预览):与实机 [com.eza.hyperglow.root.aod.InterludeDotsRenderer] 逐值
+ * 同源——同一份 [InterludeDots] 纯函数给出半径/间距/点亮进度/渐隐系数,预览只是把
+ * `canvas.drawCircle` 换成 Compose 的 `drawCircle`(预览即实机的 CN+ 惯例)。
+ *
+ * 圆点簇的水平起点与垂直中心同实机:起点按 [align] 三档解析(实机走 alignedStart),
+ * 垂直取行块中心(实机取行盒中心),行块高度不变、卡片不呼吸。
+ */
+@Composable
+private fun PreviewInterludeDots(
+    progress: Float,
+    textSizePx: Float,
+    blockHeightPx: Float,
+    align: TextAlign,
+    unsungColor: ComposeColor,
+    sungColor: ComposeColor,
+    modifier: Modifier = Modifier
+) {
+    val backgroundArgb = unsungColor.copy(alpha = 1f).toArgb()
+    val highlightArgb = sungColor.copy(alpha = 1f).toArgb()
+    val alignment = when (align) {
+        TextAlign.Center -> "center"
+        TextAlign.End -> "end"
+        else -> "start"
+    }
+    val density = LocalDensity.current
+    Canvas(modifier.height(with(density) { blockHeightPx.toDp() })) {
+        if (textSizePx <= 0f || size.width <= 0f) return@Canvas
+        val gap = textSizePx * INTERLUDE_DOT_GAP_TEXT_SIZE_FACTOR
+        // 与实机同式:对齐基准取「当前圆点簇实宽」,圆点放大时簇宽同步变化、居中/右对齐跟随。
+        var cursorX = interludeDotsStartX(
+            widthPx = interludeDotsWidth(textSizePx, progress),
+            frameWidthPx = size.width,
+            padLeftPx = 0f,
+            padRightPx = 0f,
+            alignment = alignment
+        )
+        val centerY = size.height / 2f
+        repeat(INTERLUDE_DOT_COUNT) { index ->
+            val exitAlpha = interludeDotExitAlpha(progress, index)
+            val lighting = interludeDotLightingProgress(progress, index)
+            val radius = interludeDotRadius(textSizePx, lighting)
+            val centerX = cursorX + radius
+            // 底色圆:未唱色 @128(参考实现「白 @128」)乘本点渐隐系数。
+            drawCircle(
+                color = ComposeColor(backgroundArgb).copy(
+                    alpha = (INTERLUDE_DOT_BACKGROUND_ALPHA / 255f) * exitAlpha
+                ),
+                radius = radius,
+                center = Offset(centerX, centerY)
+            )
+            // 高亮圆:已唱色,透明度 = 点亮缓动 × 渐隐系数。
+            val highlightAlpha = interludeDotSmoothStep(lighting) * exitAlpha
+            if (highlightAlpha > 0f) {
+                drawCircle(
+                    color = ComposeColor(highlightArgb).copy(alpha = highlightAlpha),
+                    radius = radius,
+                    center = Offset(centerX, centerY)
+                )
+            }
+            cursorX += radius * 2f + gap
         }
     }
 }
@@ -1815,6 +3191,11 @@ private fun GraphicsLayerScope.applyPartTransition(
 private fun PreviewMainLayer(
     layout: PreviewMainLayout,
     progress: Float,
+    /**
+     * 实时播放位置(实时态非空):扫光取真实行窗内比例、逐字取真实位置(与实机
+     * lineProgress / drawWordKaraoke 同源);null = 演示态,按 [progress] 演示映射。
+     */
+    livePositionMs: Long? = null,
     color: ComposeColor,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
@@ -1822,9 +3203,21 @@ private fun PreviewMainLayer(
     rubyColor: ComposeColor,
     modifier: Modifier = Modifier
 ) {
+    val previewContext = LocalContext.current
+    val spriteProvider = remember(previewContext) {
+        com.eza.hyperglow.root.aod.appSpriteProvider(previewContext.applicationContext)
+    }
     val glowArgb = glowColor.toArgb()
     val sungArgb = color.copy(alpha = 1f).toArgb()
     val rubyArgb = rubyColor.toArgb()
+    // 实时态扫光:真实播放位置在本行窗口内的比例(实机 lineProgress 同式);演示态取
+    // 演示循环进度。逐字路径的虚拟播放位置同理取真实位置(见 [previewVirtualPositionMs])。
+    val sweepProgress = previewSweepProgress(
+        livePositionMs,
+        layout.lineStartMs,
+        layout.lineStartMs + layout.lineSpanMs,
+        progress
+    )
     Canvas(modifier) {
         // 注音先于主行绘制(与实机 drawOriginalGlowBlock 顺序一致):注音带位于主行基线
         // 上方,与主行字形不重叠;注音关闭时 placements 为空,无操作。
@@ -1854,23 +3247,46 @@ private fun PreviewMainLayer(
             // 逐字卡拉OK(与实机 drawWordKaraoke 同源):演示进度按词位总时间跨度映射为虚拟
             // 播放位置,逐词取已唱比例;共享渲染核心负责两种档位形态——BetterLyrics 档的
             // 未唱下沉/已唱上浮、长音节放大/辉光,基础档(Gradient 等)的历史词内扫光带。
-            val virtualPosition = layout.wordSpanStartMs +
-                ((layout.wordSpanEndMs - layout.wordSpanStartMs) * progress.coerceIn(0f, 1f)).toLong()
+            val virtualPosition = previewVirtualPositionMs(
+                livePositionMs,
+                layout.wordSpanStartMs,
+                layout.wordSpanEndMs,
+                progress
+            )
             drawIntoCanvas { canvas ->
-                drawPreviewKaraokeRuns(
-                    canvas = canvas.nativeCanvas,
-                    paint = layout.paint,
-                    runsPerLine = layout.wordRuns,
-                    baselines = layout.baselines,
-                    startsX = layout.startsX,
-                    virtualPosition = virtualPosition,
-                    sungColorArgb = sungArgb,
-                    unsungColorArgb = layout.unsungColorArgb,
-                    glowColorArgb = glowArgb,
-                    glowEnabled = glowEnabled,
-                    betterLyrics = layout.betterLyrics,
-                    sinkPx = karaokeFloatSinkPx(layout.lineHeight)
-                )
+                if (layout.wordEffect?.program != null) {
+                    // 沙箱效果程序接管整块:所有视觉行/所有词一次性装进上下文,VM 只执行
+                    // 一次(与实机整块语义同源);程序自己绘制文本,不能再走逐行
+                    // drawPreviewKaraokeRuns,否则同一块会被画两遍。
+                    drawPreviewKaraokeBlock(
+                        canvas = canvas.nativeCanvas,
+                        paint = layout.paint,
+                        layout = layout,
+                        virtualPosition = virtualPosition,
+                        sungColorArgb = sungArgb,
+                        glowColorArgb = glowArgb,
+                        sprites = spriteProvider
+                    )
+                } else {
+                    drawPreviewKaraokeRuns(
+                        canvas = canvas.nativeCanvas,
+                        paint = layout.paint,
+                        runsPerLine = layout.wordRuns,
+                        baselines = layout.baselines,
+                        startsX = layout.startsX,
+                        virtualPosition = virtualPosition,
+                        sungColorArgb = sungArgb,
+                        unsungColorArgb = layout.unsungColorArgb,
+                        glowColorArgb = glowArgb,
+                        glowEnabled = glowEnabled,
+                        betterLyrics = layout.betterLyrics,
+                        sinkPx = karaokeFloatSinkPx(layout.lineHeight),
+                        effect = layout.wordEffect,
+                        lineTexts = layout.lines.map { it.text },
+                        lineStartMs = layout.lineStartMs,
+                        lineSpanMs = layout.lineSpanMs
+                    )
+                }
             }
         } else {
             val rows = ArrayList<LyricGlowRow>(layout.lines.size)
@@ -1886,7 +3302,7 @@ private fun PreviewMainLayer(
                     canvas = canvas.nativeCanvas,
                     paint = layout.paint,
                     rows = rows,
-                    progress = progress,
+                    progress = sweepProgress,
                     sungColor = sungArgb,
                     glowColor = glowArgb,
                     glowEnabled = glowEnabled,
@@ -1912,13 +3328,24 @@ private fun drawPreviewKaraokeRuns(
     sungColorArgb: Int,
     unsungColorArgb: Int,
     glowColorArgb: Int,
+    /** 强调色(与实机 resolvedPalette.accent 同源);缺省回落辉光色。 */
+    accentColorArgb: Int = glowColorArgb,
     glowEnabled: Boolean,
     betterLyrics: Boolean,
     sinkPx: Float,
-    alphaFactor: Float = 1f
+    alphaFactor: Float = 1f,
+    /** 自定义单词效果;与实机 drawWordKaraoke 同源,非 null 时解释器接管。 */
+    effect: com.eza.hyperglow.customization.WordEffectSpec? = null,
+    /** 各行文本(与 [runsPerLine] 下标对齐);供沙箱效果程序读取整行上下文。 */
+    lineTexts: List<String> = emptyList(),
+    /** 该行块播放窗口起点(与实机 drawWordKaraoke 的 blockStartMs 同口径)。 */
+    lineStartMs: Long = 0L,
+    /** 该行块窗口跨度(与实机 blockEndMs - blockStartMs 同口径)。 */
+    lineSpanMs: Long = 0L
 ) {
     runsPerLine.forEachIndexed { index, runs ->
-        if (runs.isEmpty()) return@forEachIndexed
+        // 程序效果即使没有词位也可能用 lineText 绘制(与实机一致);DSL/内置档仍跳过空行。
+        if (runs.isEmpty() && effect?.program == null) return@forEachIndexed
         val baseline = baselines.getOrNull(index) ?: return@forEachIndexed
         val startX = startsX.getOrNull(index) ?: return@forEachIndexed
         val karaokeRuns = ArrayList<KaraokeWordRun>(runs.size)
@@ -1935,8 +3362,54 @@ private fun drawPreviewKaraokeRuns(
                     timedWordProgress(virtualPosition, run.highlightStartMs, run.highlightEndMs)
                 } else {
                     -1f
+                },
+                startMs = run.startMs,
+                endMs = run.endMs
+            )
+        }
+        // 沙箱效果程序的整行上下文:仅当效果带程序时构建(内置/DSL 路径零开销)。
+        val effectContext = if (effect?.program != null) {
+            EffectFrameContext(
+                timeMs = virtualPosition,
+                wallClockMs = android.os.SystemClock.elapsedRealtime(),
+                deltaMs = 0L,
+                frameIndex = 0L,
+                lineText = lineTexts.getOrElse(index) { "" },
+                lineStartMs = lineStartMs,
+                lineEndMs = lineStartMs + lineSpanMs,
+                lineProgress = if (lineSpanMs > 0L) {
+                    ((virtualPosition - lineStartMs).toFloat() / lineSpanMs.toFloat())
+                        .coerceIn(0f, 1f)
+                } else {
+                    0f
+                },
+                lineIndex = index,
+                canvasWidth = canvas.width.toFloat(),
+                canvasHeight = canvas.height.toFloat(),
+                textSize = paint.textSize,
+                baseline = baseline,
+                colors = EffectColors(
+                    sungColorArgb,
+                    unsungColorArgb,
+                    glowColorArgb,
+                    accentColorArgb
+                ),
+                words = karaokeRuns.mapIndexed { runIndex, run ->
+                    EffectWordSample(
+                        text = run.text,
+                        x = run.x,
+                        width = run.width,
+                        startMs = run.startMs,
+                        endMs = run.endMs,
+                        progress = run.playedFraction,
+                        index = runIndex,
+                        longSyllable = run.longSyllable ||
+                            run.durationMs >= (effect?.longSyllableMs ?: 700)
+                    )
                 }
             )
+        } else {
+            null
         }
         LyricWordKaraokeRenderer.draw(
             canvas = canvas,
@@ -1949,40 +3422,168 @@ private fun drawPreviewKaraokeRuns(
             glowEnabled = glowEnabled,
             betterLyrics = betterLyrics,
             sinkPx = sinkPx,
-            alphaFactor = alphaFactor
+            alphaFactor = alphaFactor,
+            effect = effect,
+            effectContext = effectContext
         )
     }
 }
 
 /**
+ * 整块逐字效果程序绘制(预览侧):与实机 drawWordKaraoke 的整块语义同源——把整块歌词的
+ * **所有视觉行与所有词**一次性装进 [EffectFrameContext],[EffectVm] 每帧只执行一次;
+ * 程序自己负责绘制文本,调用方不得再走逐行 [drawPreviewKaraokeRuns](避免双重绘制)。
+ * 程序超预算/异常中止时记一条告警日志,本帧该块留空(与实机同一降级口径)。
+ */
+private fun drawPreviewKaraokeBlock(
+    canvas: android.graphics.Canvas,
+    paint: TextPaint,
+    layout: PreviewMainLayout,
+    virtualPosition: Long,
+    sungColorArgb: Int,
+    glowColorArgb: Int,
+    sprites: com.eza.hyperglow.root.aod.EffectSpriteProvider? = null
+) {
+    val effect = layout.wordEffect ?: return
+    val program = effect.program ?: return
+    // 行窗跨度(实时=真实行窗,演示=切换周期);整块所有视觉行共用同一播放窗口。
+    val lineStartMs = layout.lineStartMs
+    val lineSpanMs = layout.lineSpanMs
+    val lineProgress = if (lineSpanMs > 0L) {
+        ((virtualPosition - lineStartMs).toFloat() / lineSpanMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val lines = layout.lines.mapIndexed { index, line ->
+        EffectLineSample(
+            text = line.text,
+            index = index,
+            startMs = lineStartMs,
+            endMs = lineStartMs + lineSpanMs,
+            progress = lineProgress,
+            x = layout.startsX[index],
+            width = line.width,
+            baseline = layout.baselines[index],
+            height = layout.lineHeight
+        )
+    }
+    // 整块词表:跨视觉行顺序编号(globalIndex),行下标/基线随词携带,程序按词自己落位。
+    val words = ArrayList<EffectWordSample>(
+        layout.wordRuns.sumOf { it.size }
+    )
+    var globalIndex = 0
+    layout.wordRuns.forEachIndexed { lineIndex, runs ->
+        val baseline = layout.baselines.getOrNull(lineIndex) ?: return@forEachIndexed
+        val startX = layout.startsX.getOrNull(lineIndex) ?: return@forEachIndexed
+        runs.forEach { run ->
+            words += EffectWordSample(
+                text = run.text,
+                x = startX + run.x,
+                width = run.width,
+                startMs = run.startMs,
+                endMs = run.endMs,
+                progress = timedWordProgress(virtualPosition, run.startMs, run.endMs),
+                index = globalIndex++,
+                longSyllable = run.longSyllable ||
+                    (run.endMs - run.startMs) >= effect.longSyllableMs,
+                lineIndex = lineIndex,
+                baseline = baseline
+            )
+        }
+    }
+    val blockWidth = layout.lines.indices.maxOfOrNull {
+        layout.startsX[it] + layout.lines[it].width
+    } ?: 0f
+    // 整块上下文:标量行字段取首行(与实机整块调用同口径),完整行/词数据在 lines/words。
+    val context = EffectFrameContext(
+        timeMs = virtualPosition,
+        wallClockMs = android.os.SystemClock.elapsedRealtime(),
+        deltaMs = 0L,
+        frameIndex = 0L,
+        lineText = layout.lines.firstOrNull()?.text ?: "",
+        lineStartMs = lineStartMs,
+        lineEndMs = lineStartMs + lineSpanMs,
+        lineProgress = lineProgress,
+        lineIndex = 0,
+        canvasWidth = canvas.width.toFloat(),
+        canvasHeight = canvas.height.toFloat(),
+        textSize = paint.textSize,
+        baseline = layout.baselines.firstOrNull() ?: 0f,
+        colors = EffectColors(sungColorArgb, layout.unsungColorArgb, glowColorArgb, glowColorArgb),
+        words = words,
+        lines = lines,
+        blockWidth = blockWidth,
+        blockHeight = layout.blockHeight
+    )
+    // 盒模型模式:与实机同一条收集+统一渲染路径,保证三端一致。
+    if (program.outputMode == EFFECT_OUTPUT_BOXES) {
+        val measureProbe = Paint(paint)
+        val measurer = EffectTextMeasurer { text, sizePx, _ ->
+            measureProbe.textSize = sizePx
+            measureProbe.measureText(text)
+        }
+        val boxes = runCatching {
+            EffectVm(program).collectBoxes(context, measurer)
+        }.getOrNull()
+        if (boxes != null) {
+            EffectBoxRenderer.draw(canvas, boxes, paint, sprites)
+        } else {
+            android.util.Log.w("PreviewComponents", "effect box program aborted")
+        }
+        return
+    }
+    val sink = AndroidEffectRenderSink(canvas, paint, context.colors)
+    val rendered = runCatching {
+        EffectVm(program).render(context, sink)
+    }.getOrElse { false }
+    // 程序可能留下未配对的 save;先弹回宿主深度,再决定是否记录中止。
+    runCatching { sink.restoreAll() }
+    if (!rendered) {
+        android.util.Log.w("PreviewComponents", "effect program aborted")
+    }
+}
+
+/**
  * 辅助文字行逐字效果(「辅助文字逐字效果」)的预览渲染参数,随行块一起冻结:
- * [spanMs] 为演示虚拟时间跨度(与主行合成源同取真实行窗),<=0 时不参与;
+ * [spanMs] 为虚拟时间跨度(与主行合成源同取真实行窗),<=0 时不参与;[windowStartMs]
+ * 为该行播放窗口起点(实时快照=真实行窗起点,演示快照=0):合成逐字词窗以它为基准,
+ * 实时态下与实机同源按「真实行窗 + 真实播放位置」推进,演示态下与 [spanMs] 构成
+ * 0 起点的虚拟时间轴,行为不变。
  * [alphaFactor] 为「高亮辅助文字」解析后的行亮度档(与实机 drawAuxKaraokeRow 同源)。
  */
 private class PreviewAuxKaraoke(
     val spanMs: Long,
+    val windowStartMs: Long = 0L,
     val betterLyrics: Boolean,
     val alphaFactor: Float
 )
 
-/** 预览辅助文字逐字行的实测布局:断行/落位/词位一次算好,逐帧只按进度取比例绘制。 */
+/**
+ * 预览辅助文字逐字行的实测布局:断行/落位/词位一次算好,逐帧只按进度取比例绘制。
+ * [spanStartMs]..[spanEndMs] 为演示进度映射到的虚拟时间跨度:合成路径=行窗(与历史逐字
+ * 推进一致),和声行真实词窗路径=片段词窗总跨度(长音节占比如实呈现)。
+ */
 private class PreviewAuxKaraokeLayout(
     val paint: TextPaint,
     val startsX: List<Float>,
     val baselines: List<Float>,
     val lineHeightPx: Float,
     val heightPx: Float,
-    val runs: List<List<PreviewWordRun>>
+    val runs: List<List<PreviewWordRun>>,
+    val spanStartMs: Long,
+    val spanEndMs: Long
 )
 
 /**
- * 辅助文字行逐字效果(预览侧,与实机 drawAuxKaraokeRow 同源):断行仍走共享
+ * 辅助文字行逐字效果(预览侧,与实机 drawAuxKaraokeRow 同源):断行走共享
  * [layoutSecondaryLines],词块合成/时间窗走共享纯函数([syntheticKaraokeBlocks] /
  * [syntheticCharTimeWindow]),绘制委托共享 [LyricWordKaraokeRenderer]。
  *
- * 预览是演示循环,进度由行块演示进度 [progress] 映射到 [spanMs] 虚拟时间轴;源侧真实
- * 逐字音标时间不参与预览(演示态没有真实播放位置),与主行行级源的合成路径同式——
- * 实机在源带逐字音标时间时走真实词窗,属预览演示性质的有意差异。
+ * 预览是演示循环,进度由行块演示进度 [progress] 映射到虚拟时间轴;源侧真实逐字音标时间
+ * 不参与预览(演示态没有真实播放位置),与主行行级源的合成路径同式。**例外是和声行**:
+ * [words] 非空(插件逐音节下发)且重建得出整行文本时,断行与时间轴都按真实词窗点亮
+ * (与实机 harmonyTimedLines 共用 [harmonyTimedSegments] 判据,预览即实机)——否则预览
+ * 把和声的拖长音平摊掉,与实机抢拍漂移是同款形态。
  */
 @Composable
 private fun PreviewSecondaryKaraokeRow(
@@ -1996,8 +3597,15 @@ private fun PreviewSecondaryKaraokeRow(
     textAlign: TextAlign,
     progress: Float,
     auxKaraoke: PreviewAuxKaraoke,
+    /**
+     * 实时播放位置(实时态非空):逐字按真实位置取已唱比例(与实机 drawAuxKaraokeRow
+     * 的 timedWordProgress(position, …) 同源);null = 演示态,按 [progress] 映射。
+     */
+    livePositionMs: Long? = null,
     glowColor: ComposeColor,
     glowEnabled: Boolean,
+    /** 本行自己的逐字词表(和声行携带,见 [PreviewBlockRow.words]);空 = 纯合成路径。 */
+    words: List<LyricWord> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -2005,6 +3613,7 @@ private fun PreviewSecondaryKaraokeRow(
     val sizePx = with(density) { row.size.toPx() }
     val layout = remember(
         row.text,
+        words,
         sizePx,
         measureTypeface,
         availableWidthPx,
@@ -2019,15 +3628,52 @@ private fun PreviewSecondaryKaraokeRow(
             textSize = sizePx
             this.typeface = measureTypeface
         }
-        // 断行与实机 wrapSecondaryText 同门控/同算法(引擎内部门控)。
-        val lines = layoutSecondaryLines(
-            text = row.text,
-            paint = paint,
-            availableWidth = availableWidthPx.toFloat(),
-            preferredLines = preferredLines,
-            wrap = wrap,
-            adaptiveSectioning = adaptiveSectioning
+        // 和声行带真实词窗时按词窗点亮(判据与实机 harmonyTimedLines 同源:共享纯函数 +
+        // secondaryTimedVisualRanges 折行);重建不出整行文本/无词表时整行回落合成路径。
+        val segments = harmonyTimedSegments(
+            words.map {
+                AodCanvasWord(
+                    text = it.text,
+                    romanized = it.romanized,
+                    startMs = it.startMs,
+                    endMs = it.endMs,
+                    boundaryAfter = it.boundaryAfter,
+                    sourceStart = it.sourceStart,
+                    sourceEnd = it.sourceEnd
+                )
+            },
+            row.text,
+            paint::measureText
         )
+        val lineSegments = if (segments == null) {
+            emptyList()
+        } else {
+            secondaryTimedVisualRanges(
+                segments,
+                availableWidthPx.toFloat(),
+                MAX_SECONDARY_LAYOUT_LINES,
+                wrap = wrap && adaptiveSectioning
+            ).map { range -> range.map(segments::get) }
+        }
+        // 断行与实机 wrapSecondaryText 同门控/同算法(引擎内部门控);真实词窗行按片段折行
+        // (与实机同式),行文本即片段文本直接相连。
+        val lines = if (lineSegments.isEmpty()) {
+            layoutSecondaryLines(
+                text = row.text,
+                paint = paint,
+                availableWidth = availableWidthPx.toFloat(),
+                preferredLines = preferredLines,
+                wrap = wrap,
+                adaptiveSectioning = adaptiveSectioning
+            )
+        } else {
+            lineSegments.map { segmentsOfLine ->
+                LyricLayoutTextLine(
+                    segmentsOfLine.joinToString("") { it.text },
+                    segmentsOfLine.sumOf { it.width.toDouble() }.toFloat()
+                )
+            }
+        }
         val metrics = paint.fontMetrics
         val lineHeight = safeSecondaryLineHeight(metrics.ascent, metrics.descent, metrics.bottom)
         val alignment = when (textAlign) {
@@ -2047,17 +3693,48 @@ private fun PreviewSecondaryKaraokeRow(
                 density = density.density
             )
         }
+        val runs = if (lineSegments.isEmpty()) {
+            syntheticPreviewWordRuns(lines, paint, auxKaraoke.windowStartMs, auxKaraoke.spanMs)
+        } else {
+            // 逐字词位几何取片段自身宽与真实词窗(与实机 drawAuxKaraokeRow 逐字段路径同式):
+            // 长音节判定按词窗时长,无块级高亮窗(逐字源语义)。
+            lineSegments.map { segmentsOfLine ->
+                var x = 0f
+                segmentsOfLine.map { segment ->
+                    val durationMs = segment.endMs - segment.startMs
+                    val run = PreviewWordRun(
+                        text = segment.text,
+                        x = x,
+                        width = segment.width,
+                        startMs = segment.startMs,
+                        endMs = segment.endMs,
+                        longSyllable = isLongKaraokeSyllable(durationMs)
+                    )
+                    x += segment.width + segment.gapAfter
+                    run
+                }
+            }
+        }
+        val timedSegments = lineSegments.flatten()
         PreviewAuxKaraokeLayout(
             paint = paint,
             startsX = startsX,
             baselines = lines.indices.map { -metrics.ascent + it * lineHeight },
             lineHeightPx = lineHeight,
             heightPx = lineHeight * lines.size,
-            runs = syntheticPreviewWordRuns(lines, paint, auxKaraoke.spanMs)
+            runs = runs,
+            // 合成路径(无真实片段)的虚拟时间轴自窗口起点起(实时态=真实行窗起点,与
+            // [syntheticPreviewWordRuns] 的合成词窗基准一致);演示态起点为 0,行为不变。
+            spanStartMs = timedSegments.minOfOrNull { it.startMs } ?: auxKaraoke.windowStartMs,
+            spanEndMs = timedSegments.maxOfOrNull { it.endMs } ?: auxKaraoke.spanMs.coerceAtLeast(1L)
         )
     }
-    val spanMs = auxKaraoke.spanMs.coerceAtLeast(1L)
-    val virtualPosition = (spanMs * progress.coerceIn(0f, 1f)).toLong()
+    val virtualPosition = previewVirtualPositionMs(
+        livePositionMs,
+        layout.spanStartMs,
+        layout.spanEndMs,
+        progress
+    )
     val colorArgb = color.toArgb()
     val glowArgb = glowColor.toArgb()
     Canvas(

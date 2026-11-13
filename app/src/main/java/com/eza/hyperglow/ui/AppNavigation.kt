@@ -58,6 +58,10 @@ internal sealed interface AppRoute : NavKey {
     /** 单个插件的缓存管理页。 */
     @Serializable
     data class PluginCache(val pluginId: String) : AppRoute
+
+    /** 歌词计算缓存(插件链结果)管理页。 */
+    @Serializable
+    data object PluginChainCache : AppRoute
 }
 
 /**

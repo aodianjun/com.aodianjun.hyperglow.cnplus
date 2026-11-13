@@ -16,6 +16,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Tests for [LyriconLyricProducer]: SDK callback → boundary mapping, and the
@@ -51,6 +55,32 @@ class LyriconLyricProducerTest {
         override fun destroy() {}
     }
 
+    /**
+     * 可配置的 [LyriconSubscriber] 桩:记录订阅/退订调用次数并返回指定的 subscribe 结果
+     * (2.10 重建成败判据用 —— 旧实现丢弃 subscribe 返回值,失败重建无从判定)。
+     */
+    private class StubSubscriber(private val acceptSubscribe: Boolean) : LyriconSubscriber {
+        override val subscriberInfo: SubscriberInfo = SubscriberInfo("test", "test")
+        var subscribeCalls = 0
+        var unsubscribeCalls = 0
+
+        override fun addConnectionListener(listener: ConnectionListener) {}
+        override fun removeConnectionListener(listener: ConnectionListener) {}
+        override fun subscribeActivePlayer(listener: ActivePlayerListener): Boolean {
+            subscribeCalls++
+            return acceptSubscribe
+        }
+
+        override fun unsubscribeActivePlayer(listener: ActivePlayerListener): Boolean {
+            unsubscribeCalls++
+            return true
+        }
+
+        override fun register() {}
+        override fun unregister() {}
+        override fun destroy() {}
+    }
+
     private fun line(begin: Long, end: Long, text: String, words: List<LyriconLyricWord>? = null) =
         RichLyricLine(
             begin = begin,
@@ -75,6 +105,21 @@ class LyriconLyricProducerTest {
             line(1_000, 3_000, "first", listOf(word(1_000, 1_500, "first"))),
             line(3_500, 5_000, "second", listOf(word(3_500, 4_000, "sec"), word(4_000, 5_000, "ond"))),
             line(5_000, 7_000, "third", words = null)
+        )
+    )
+
+    /**
+     * 对唱重叠:按 begin 排序的最后一行 B(5000..8000)先结束,前一行 A(0..10000)更晚结束。
+     * duration=20000 留出尾奏段,避免歌曲边界分支先清行。
+     */
+    private fun duetOverlapSong(): Song = Song(
+        id = "song-duet-overlap",
+        name = "Duet Overlap",
+        artist = "Test Artist",
+        duration = 20_000L,
+        lyrics = listOf(
+            line(0, 10_000, "lead", words = null),
+            line(5_000, 8_000, "duet", words = null)
         )
     )
 
@@ -253,6 +298,66 @@ class LyriconLyricProducerTest {
         val row = producer.fullSongSnapshot()!!.rows.single()
         assertEquals("译文", row.translation)
         assertEquals(listOf("译", "文"), row.translationWords?.map { it.text })
+    }
+
+    @Test
+    fun activeLine_carriesTranslationWordsWithTheirWindows() {
+        // 源自带逐字翻译词表（SDK `RichLyricLine.translationWords`）随活动行进入生产者状态，
+        // 供翻译辅助行按真实词窗点亮（与插件链 TRANSLATION_WORDS 同一条渲染链路）。
+        val song = Song(
+            id = "song-words",
+            name = "Words Song",
+            artist = "Test Artist",
+            duration = 8_000L,
+            lyrics = listOf(
+                RichLyricLine(
+                    begin = 1_000,
+                    end = 3_000,
+                    text = "first",
+                    translation = "译文",
+                    translationWords = listOf(word(1_000, 2_000, "译"), word(2_000, 3_000, "文"))
+                )
+            )
+        )
+        producer.playerListener.onSongChanged(song)
+        producer.playerListener.onPositionChanged(2_000L)
+
+        val state = producer.state.value!!
+        assertEquals(0, state.lineIndex)
+        assertEquals("译文", state.translatedLine)
+        assertEquals(listOf("译", "文"), state.translationWords.map { it.text })
+        assertEquals(1_000L, state.translationWords[0].startMs)
+        assertEquals(2_000L, state.translationWords[1].startMs)
+        assertEquals(3_000L, state.translationWords[1].endMs)
+    }
+
+    @Test
+    fun lineChange_clearsPreviousTranslationWords() {
+        // 与 cachedWords 同一生命周期：换到没有翻译词表的行时，上一行的词表不得残留。
+        val song = Song(
+            id = "song-mixed",
+            name = "Mixed Song",
+            artist = "Test Artist",
+            duration = 8_000L,
+            lyrics = listOf(
+                RichLyricLine(
+                    begin = 1_000,
+                    end = 3_000,
+                    text = "first",
+                    translation = "译文",
+                    translationWords = listOf(word(1_000, 2_000, "译"), word(2_000, 3_000, "文"))
+                ),
+                RichLyricLine(begin = 3_500, end = 5_000, text = "second", translation = "第二")
+            )
+        )
+        producer.playerListener.onSongChanged(song)
+        producer.playerListener.onPositionChanged(2_000L)
+        assertEquals(2, producer.state.value!!.translationWords.size)
+
+        producer.playerListener.onPositionChanged(4_000L)
+        val state = producer.state.value!!
+        assertEquals(1, state.lineIndex)
+        assertTrue(state.translationWords.isEmpty())
     }
 
     @Test
@@ -772,10 +877,9 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun positionExtrapolation_pastBudgetPastSongEnd_capsAtSongDuration() {
-        // issue #9(AOD 歌词播完后永久卡占位):外推越过歌尾后,位置钳制到歌曲时长并稳定
-        // 占位 —— 不再标记 positionUnknown 冻结在预算值,也不再每帧重走
-        // "越界→清空→占位" 重建循环。等真实位置恢复(亮屏)后重新选中正确行。
+    fun positionExtrapolation_pastSongEnd_holdsLastRealLineWhenWriterStale() {
+        // 熄屏冻结写入端、外推越过歌尾：不能当作真播完清行（旧行为会让歌词变占位/消失）。
+        // 保持最后真实位置与当前行，等真实位置/第二位置源回来再对齐。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -784,15 +888,13 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // near end → line 2 (still inside [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Stall for 90s (well past the 45s budget, projected 96s ≥ duration 8s) → capped at duration.
+        // Stall for 90s (well past the stale threshold) → hold the last real line, not a placeholder.
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
 
         val state = producer.state.value!!
-        assertEquals(-1, state.lineIndex)                 // active line cleared
-        assertEquals("", state.line)
-        // Capped at the song duration, NOT frozen at the extrapolation budget (51s).
-        assertEquals(8_000L, state.positionMs)
+        assertEquals(2, state.lineIndex)      // active line held, not cleared
+        assertEquals(6_000L, state.positionMs) // held at the last real position
     }
 
     @Test
@@ -824,16 +926,171 @@ class LyriconLyricProducerTest {
         assertEquals(6_000L + 100_000L, state.positionMs)
 
         // Real position eventually resumes (screen-on) → extrapolation stops, real value wins.
+        // 陈旧冲刷判定：沉默 ≥3s 后的首个落后值先观察一拍（不采纳该值），但观察拍本身
+        // 仍按挂钟推进展示位置——不得把位置钉在上一拍（2026-11-05 真机：写端冻结 30s
+        // 期间 AOD 停在 118747ms，sampledAt 每秒刷新却永不前进）。
         clockValue = 10_000L + 100_500L
         producer.playerListener.onPositionChanged(3_000L) // line 1 [3500,5000]? no → 3000 is line 0 end/line1 gap
         state = producer.state.value!!
-        assertEquals(3_000L, state.positionMs)
+        assertEquals(106_500L, state.positionMs) // 观察拍：继续按挂钟推进，但不采纳 3_000
+
+        clockValue = 10_000L + 100_517L
+        producer.playerListener.onPositionChanged(3_017L) // 正常 60Hz 节奏 → 真 seek，采纳
+        state = producer.state.value!!
+        assertEquals(3_017L, state.positionMs)
     }
 
     @Test
-    fun positionExtrapolation_pastSongEnd_holdsStableCappedPlaceholder() {
-        // issue #9:外推越过歌尾后,后续仍停更的回调不得继续推进位置,行保持清空且位置
-        // 稳定钳在 duration,避免 60Hz 重复投递与 SystemUI 无去重的重建风暴。
+    fun staleFlushRepeatedWhileWriterFrozen_keepsExtrapolatingInsteadOfFreezing() {
+        // 2026-11-05 真机（18:27:21–18:27:50）：写端熄屏冻结后按 60Hz 反复回传同一个
+        // 落后 40s+ 的陈旧值。冲刷判定先 ARM 再持续 REJECT；若这两条分支只重发状态、
+        // 不推进外推，展示位置会被永久钉死（AOD 卡在同一句的一个字上），而每次状态
+        // 的 sampledAt 都被刷新成当前时刻，渲染侧的 projectedPosition() 也救不回来。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        producer.playerListener.onSongChanged(threeLineSong().copy(duration = 180_000L))
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(60_000L) // real base
+
+        clockValue = 20_000L
+        producer.playerListener.onPositionChanged(60_000L) // stall → display 70_000
+        assertEquals(70_000L, producer.state.value!!.positionMs)
+
+        clockValue = 20_500L
+        producer.playerListener.onPositionChanged(20_000L) // stale first sample → ARM
+        assertEquals(70_500L, producer.state.value!!.positionMs)
+
+        clockValue = 21_000L
+        producer.playerListener.onPositionChanged(20_000L) // repeat → REJECT
+        assertEquals(71_000L, producer.state.value!!.positionMs)
+
+        clockValue = 23_000L
+        producer.playerListener.onPositionChanged(20_000L) // still stale → must keep moving
+        assertEquals(73_000L, producer.state.value!!.positionMs)
+    }
+
+    @Test
+    fun songChange_holdsPositionUntilFirstPlausibleRealPosition() {
+        // 2026-11-06 真机：切新歌时时间线归零，但写端可能还在回传旧歌残值、或新歌尚未
+        // 真正起播；此时位置回调持续重复同一个值。旧逻辑把「位置重复」当写端冻结去外推，
+        // 歌词在开唱前就从 0 自己往前走，真实位置回来后整段回跳。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+
+        // 旧歌已播到 20s。
+        producer.playerListener.onSongChanged(threeLineSong().copy(duration = 180_000L))
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(20_000L)
+        assertEquals(20_000L, producer.state.value!!.positionMs)
+
+        // 切到新歌：位置归零，未锚定 → speed 也是 0。
+        clockValue = 21_000L
+        producer.playerListener.onSongChanged(
+            threeLineSong().copy(id = "song-2", name = "Next Song", duration = 180_000L)
+        )
+        assertEquals(0L, producer.state.value!!.positionMs)
+        assertEquals(0f, producer.state.value!!.speed)
+
+        // 5 秒内只有旧歌残值重复到达：不得外推（旧实现会走到 5_000）。
+        clockValue = 26_000L
+        producer.playerListener.onPositionChanged(20_000L)
+        val held = producer.state.value!!
+        assertEquals(0L, held.positionMs)
+        assertEquals(0f, held.speed)
+
+        // 新歌真正起播：首个可信位置被采纳并锚定。
+        clockValue = 26_050L
+        producer.playerListener.onPositionChanged(50L)
+        val anchored = producer.state.value!!
+        assertEquals(50L, anchored.positionMs)
+        assertEquals(1f, anchored.speed)
+
+        // 锚定后写端冻结仍按挂钟外推（原有行为不受影响）。
+        clockValue = 27_050L
+        producer.playerListener.onPositionChanged(50L)
+        assertEquals(1_050L, producer.state.value!!.positionMs)
+    }
+
+    @Test
+    fun songChange_unanchoredFallsBackToMediaSessionAfterThreeSeconds() {
+        // 2026-11-07 真机：切到下一首歌词卡死，暂停后重新播放才恢复（重播逼写端写了
+        // 一次新位置）。写端整段回传旧歌时间线，合理性门控一直拒绝；回调本身没停，
+        // 「静默 15s 才兜底」永远不触发。超过 3s 仍锚不住时改用 MediaSession 锚定。
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong().copy(duration = 180_000L))
+        producer.playerListener.onPlaybackStateChanged(true)
+        producer.playerListener.onPositionChanged(20_000L) // 旧歌已锚定
+
+        clockValue = 11_000L
+        producer.playerListener.onSongChanged(
+            threeLineSong().copy(id = "song-2", name = "Next Song", duration = 180_000L)
+        )
+        assertEquals(0f, producer.state.value!!.speed)
+
+        // MediaSession 已经是新歌位置。
+        producer.mediaSessionPositionReader = {
+            MediaSessionPosition(
+                positionMs = 3_000L,
+                lastUpdateElapsedMs = clockValue,
+                speed = 1f
+            )
+        }
+
+        // 3s 后写端仍在回传旧歌的 20000（门控拒绝）→ 用 MediaSession 的 3000 锚定。
+        clockValue = 14_100L
+        producer.playerListener.onPositionChanged(20_000L)
+        val state = producer.state.value!!
+        assertTrue(
+            "expected MediaSession anchor, got ${state.positionMs}",
+            state.positionMs >= 3_000L
+        )
+        assertEquals(1f, state.speed)
+
+        // 锚定后写端恢复真实位置：正常采纳。
+        clockValue = 15_100L
+        producer.playerListener.onPositionChanged(3_050L)
+        assertEquals(3_050L, producer.state.value!!.positionMs)
+    }
+
+    @Test
+    fun stalledPositionWatchdog_onlyFiresWhilePlayingAndAnchored() {        // 在播 + 已锚定 + 超过 2s 没有真实位置 → 看门狗兜底推进（防「播放一半卡住」）。
+        assertTrue(
+            shouldAdvanceStalledPosition(
+                playing = true, anchored = true, lastRealClockMs = 1_000L, now = 3_000L
+            )
+        )
+        // 未到阈值不推进。
+        assertFalse(
+            shouldAdvanceStalledPosition(
+                playing = true, anchored = true, lastRealClockMs = 1_000L, now = 2_500L
+            )
+        )
+        // 暂停时位置本就该冻结。
+        assertFalse(
+            shouldAdvanceStalledPosition(
+                playing = false, anchored = true, lastRealClockMs = 1_000L, now = 9_000L
+            )
+        )
+        // 切歌后尚未锚定：必须等真实位置，不能从 0 自己外推。
+        assertFalse(
+            shouldAdvanceStalledPosition(
+                playing = true, anchored = false, lastRealClockMs = 1_000L, now = 9_000L
+            )
+        )
+        // 从未有过真实位置。
+        assertFalse(
+            shouldAdvanceStalledPosition(
+                playing = true, anchored = true, lastRealClockMs = -1L, now = 9_000L
+            )
+        )
+    }
+
+    @Test
+    fun positionExtrapolation_pastSongEnd_holdsLastRealLineWhileWriterStale() {
+        // 外推越过歌尾且写入端停写：保持最后真实位置与当前行，后续 stalled 回调不得推进。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -842,19 +1099,18 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // near end → line 2
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // Stall past the song end → capped at duration, line cleared.
+        // Stall past the song end → hold the last real line.
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
-        assertEquals(-1, producer.state.value!!.lineIndex)
+        assertEquals(2, producer.state.value!!.lineIndex)
 
         // A much later stalled callback must not advance the position further.
         clockValue = 200_000L
         producer.playerListener.onPositionChanged(6_000L)
 
         val state = producer.state.value!!
-        assertEquals(-1, state.lineIndex)
-        assertEquals("", state.line)
-        assertEquals(8_000L, state.positionMs) // stable, still capped at duration
+        assertEquals(2, state.lineIndex)
+        assertEquals(6_000L, state.positionMs) // stable at the last real position
     }
 
     @Test
@@ -943,6 +1199,33 @@ class LyriconLyricProducerTest {
         producer.playerListener.onSongChanged(threeLineSong()) // duration=8000, last line end=7000
         producer.playerListener.onPlaybackStateChanged(true)
         producer.playerListener.onPositionChanged(7_500L) // > 7000 (last line end), < 8000 (duration)
+
+        val state = producer.state.value!!
+        assertEquals(-1, state.lineIndex)
+        assertEquals("", state.line)
+    }
+
+    @Test
+    fun overlappingDuet_lastLineEndsEarlier_doesNotClearUntilLatestEnd() {
+        // 对唱重叠:按 begin 排序的最后一行 B(5000..8000)先结束,A(0..10000)还在唱。
+        // 旧实现以最后一行 end(8000)为尾奏终点,position=9000 时提前清行。
+        producer.playerListener.onSongChanged(duetOverlapSong())
+        producer.playerListener.onPositionChanged(9_000L)
+
+        val state = producer.state.value!!
+        // 选行逻辑不变(B 仍是「最后一条 begin <= pos」的行),但活动行不得被清空。
+        assertEquals(1, state.lineIndex)
+        assertEquals("duet", state.line)
+    }
+
+    @Test
+    fun overlappingDuet_clearsPastLatestLineEnd() {
+        // 真正越过全歌最晚 end(A 的 10000)才清行,而不是 B 的 8000。
+        producer.playerListener.onSongChanged(duetOverlapSong())
+        producer.playerListener.onPositionChanged(9_000L)
+        assertEquals(1, producer.state.value!!.lineIndex)
+
+        producer.playerListener.onPositionChanged(10_001L) // > A.end(10000), < duration(20000)
 
         val state = producer.state.value!!
         assertEquals(-1, state.lineIndex)
@@ -1108,7 +1391,7 @@ class LyriconLyricProducerTest {
 
     @Test
     fun positionExtrapolation_afterSongEnd_realPositionRestoresLine() {
-        // 外推越过歌尾被钳制并清空行后,一旦真实位置恢复(亮屏 writer 恢复),应重新选中正确行。
+        // 外推越过歌尾且写入端停写时保持最后真实行；真实位置恢复后按真实位置重新选行。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -1117,10 +1400,10 @@ class LyriconLyricProducerTest {
         producer.playerListener.onPositionChanged(6_000L) // line 2 (within [5000,7000])
         assertEquals(2, producer.state.value!!.lineIndex)
 
-        // 超过预算且越过歌尾 → 钳制到 duration、清空活动行(issue #9)。
+        // 超过 stale 阈值且越过歌尾 → 保持最后真实行（不清空）。
         clockValue = 100_000L
         producer.playerListener.onPositionChanged(6_000L)
-        assertEquals(-1, producer.state.value!!.lineIndex)
+        assertEquals(2, producer.state.value!!.lineIndex)
 
         // 真实位置恢复(新歌/重播),重新选中行。
         clockValue = 100_200L
@@ -1206,16 +1489,15 @@ class LyriconLyricProducerTest {
         producer.playerListener.onSongChanged(threeLineSong())
 
         // 即使远超旧的时间窗口(60s)，残留的 6000 仍必须被拒绝：否则会用旧歌位置在新歌词表
-        // 定位出错误行。拒绝后从 0 外推。
+        // 定位出错误行。拒绝期间未锚定，位置保持 0（不起播前外推）。
         clockValue = 10_000L + 60_001L
         producer.playerListener.onPositionChanged(6_000L)
 
         var state = producer.state.value!!
-        // 外推越过歌尾(0+60s ≥ duration 8s)后钳制到歌尾并清空活动行(issue #9);
-        // 残留旧位置 6000 未被接受。
+        // 未锚定 → 保持 0；残留旧位置 6000 未被接受，也不外推/不钳到歌尾。
         assertEquals(-1, state.lineIndex)
         assertEquals("", state.line)
-        assertEquals(8_000L, state.positionMs)
+        assertEquals(0L, state.positionMs)
 
         // 真实新歌位置(不同于残留 6000)到达后，恢复接受。
         clockValue = 10_000L + 61_000L
@@ -1537,11 +1819,11 @@ class LyriconLyricProducerTest {
         clockValue = 10_300L
 
         // The writer (still stuck) delivers 20000 again for the new song: the post-song-change
-        // gate rejects it (implausible for a song that just started), extrapolating from 0 —
-        // not capped to the new song's end, not accepted as a real position.
+        // gate rejects it (implausible for a song that just started). 新歌时间线尚未锚定,
+        // 保持 0 不外推（不在起播前自己往前走），也不按越界值钳到歌尾。
         producer.playerListener.onPositionChanged(20_000L)
         state = producer.state.value!!
-        assertEquals(100L, state.positionMs)
+        assertEquals(0L, state.positionMs)
         assertEquals(-1, state.lineIndex)
     }
 
@@ -1569,25 +1851,27 @@ class LyriconLyricProducerTest {
 
         // Old-timeline residual 16000 arrives 100ms after the change: the plausible bound is
         // 100 × 1.0 + 10000 = 10100 → 16000 is implausible (offset ≈ the old song's timeline).
+        // 未锚定 → 保持 0,不在起播前外推。
         clockValue = 12_200L
         producer.playerListener.onPositionChanged(16_000L)
         var state = producer.state.value!!
-        assertEquals(100L, state.positionMs) // extrapolated from 0
+        assertEquals(0L, state.positionMs)
         assertEquals(-1, state.lineIndex)    // before the first line
 
-        // The residual keeps accumulating at the playback rate → still rejected.
+        // The residual keeps accumulating at the playback rate → still rejected, still held.
         clockValue = 12_600L
         producer.playerListener.onPositionChanged(16_400L)
         state = producer.state.value!!
-        assertEquals(500L, state.positionMs)
+        assertEquals(0L, state.positionMs)
 
         // Frozen residual (repeats 16000) — by now the bound (14900 + 10000 = 24900) has grown
-        // past 16000, but the frozen value must stay rejected: extrapolation keeps advancing.
+        // past 16000, but the frozen value must stay rejected: still held at 0 until a real
+        // position arrives.
         clockValue = 27_000L
         producer.playerListener.onPositionChanged(16_000L)
         state = producer.state.value!!
-        assertEquals(14_900L, state.positionMs)
-        assertEquals(0, state.lineIndex) // gap after line 0 [1000,3000] shows line 0
+        assertEquals(0L, state.positionMs)
+        assertEquals(-1, state.lineIndex) // before the first line
 
         // A plausible real position (≤ elapsed × rate + tolerance) is accepted → gate opens.
         clockValue = 27_100L
@@ -1622,15 +1906,16 @@ class LyriconLyricProducerTest {
         producer.playerListener.onSongChanged(sixtySecondSong()) // gate closes @10_100
 
         // Old-timeline residual flowing at 2x: 40000 → 41000 over 500ms (rate estimate → 2.0).
+        // 门控拒绝期间未锚定,位置保持 0。
         clockValue = 10_200L
         producer.playerListener.onPositionChanged(40_000L)
         var state = producer.state.value!!
-        assertEquals(100L, state.positionMs) // extrapolated from 0
+        assertEquals(0L, state.positionMs)
 
         clockValue = 10_700L
         producer.playerListener.onPositionChanged(41_000L)
         state = producer.state.value!!
-        assertEquals(600L, state.positionMs)
+        assertEquals(0L, state.positionMs)
 
         // 15s after the song change a real 2x position arrives: 2 × 15s = 30000. With the
         // estimated 2.0x rate the bound is 15000 × 2 + 10000 = 40000 ≥ 30000 → accepted.
@@ -1644,10 +1929,10 @@ class LyriconLyricProducerTest {
     }
 
     @Test
-    fun postSongChange_beyondDurationResidual_rejectedAndExtrapolatesFromZero() {
+    fun postSongChange_beyondDurationResidual_rejectedAndHeldAtZero() {
         // issue #11 实报场景(旧歌比新歌长):残留远超新歌时长(487520ms vs 188718ms)且持续
-        // 累加。旧代码把它钳到歌尾清行 → 整首无歌词 + 60Hz capping 刷屏。门控拒绝 →
-        // 从 0 外推(新歌正确推进),真实位置到达后恢复。
+        // 累加。旧代码把它钳到歌尾清行 → 整首无歌词 + 60Hz capping 刷屏。门控拒绝后
+        // 新歌时间线未锚定,保持 0 不外推(不在起播前自己往前走),真实位置到达后恢复。
         var clockValue = 10_000L
         val producer = LyriconLyricProducer { clockValue }
 
@@ -1663,13 +1948,13 @@ class LyriconLyricProducerTest {
         clockValue = 10_200L
         producer.playerListener.onPositionChanged(487_520L)
         var state = producer.state.value!!
-        assertEquals(100L, state.positionMs) // extrapolated from 0, NOT capped to 8000
+        assertEquals(0L, state.positionMs) // held at 0, NOT capped to 8000, NOT extrapolated
         assertEquals(-1, state.lineIndex)
 
         clockValue = 12_100L
         producer.playerListener.onPositionChanged(488_000L)
         state = producer.state.value!!
-        assertEquals(2_000L, state.positionMs) // advancing through the new song
+        assertEquals(0L, state.positionMs) // still unanchored → held
 
         // Real new-song position arrives (screen-on) → accepted, correct line. (1200, not 1500:
         // the previous song's last position was 1500 and would be caught by the exact-match
@@ -1944,6 +2229,662 @@ class LyriconLyricProducerTest {
         assertEquals(3_600L, state.positionMs)
         assertEquals("second", state.line)
         assertEquals(1, state.lineIndex)
+    }
+
+    // --- 2.10 强制重建订阅的成败判据(旧实现丢弃 subscribe 返回值,失败的重建被重锚的
+    //     静默基线掩盖成「看起来新鲜」,下一次尝试再等 20s 静默 + 30s 冷却) ---
+
+    @Test
+    fun resubscribeOutcome_recoveredWhenPositionArrivesAfterRebuild() {
+        // 重建成功:subscribe 被 SDK 接受 + 验证窗内收到 onPositionChanged → 不升级。
+        assertEquals(
+            ResubscribeOutcome.RECOVERED,
+            classifyResubscribeOutcome(
+                subscribeAccepted = true,
+                positionArrivedSinceResubscribe = true,
+                sinceRebuildMs = LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS,
+                playing = true
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeOutcome_failedImmediatelyWhenSdkRejectsSubscribe() {
+        // subscribeActivePlayer=false:本次重建不可能恢复回调链,无需等验证窗直接判失败。
+        assertEquals(
+            ResubscribeOutcome.FAILED,
+            classifyResubscribeOutcome(
+                subscribeAccepted = false,
+                positionArrivedSinceResubscribe = false,
+                sinceRebuildMs = 0L,
+                playing = true
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeOutcome_pendingWithinVerifyWindow() {
+        // 验证窗未结束且尚无位置回调:判据未定,不计数。
+        assertEquals(
+            ResubscribeOutcome.PENDING,
+            classifyResubscribeOutcome(
+                subscribeAccepted = true,
+                positionArrivedSinceResubscribe = false,
+                sinceRebuildMs = LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS - 1L,
+                playing = true
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeOutcome_failedWhenNoPositionWithinWindowWhilePlaying() {
+        // 「重建后 X 秒内无 onPositionChanged」= 重建无效(播放中位置流本应毫秒级恢复)。
+        assertEquals(
+            ResubscribeOutcome.FAILED,
+            classifyResubscribeOutcome(
+                subscribeAccepted = true,
+                positionArrivedSinceResubscribe = false,
+                sinceRebuildMs = LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS,
+                playing = true
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeOutcome_inconclusiveWhilePausedPastWindow() {
+        // 暂停中位置流安静是预期行为:不得把「无位置回调」计为重建失败。
+        assertEquals(
+            ResubscribeOutcome.INCONCLUSIVE,
+            classifyResubscribeOutcome(
+                subscribeAccepted = true,
+                positionArrivedSinceResubscribe = false,
+                sinceRebuildMs = LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS * 10,
+                playing = false
+            )
+        )
+    }
+
+    @Test
+    fun resubscribeCooldown_keepsBaseUntilEscalationThreshold() {
+        val base = LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+        assertEquals(base, resubscribeCooldownMs(0))
+        assertEquals(base, resubscribeCooldownMs(1))
+        assertEquals(base, resubscribeCooldownMs(LyriconLyricProducer.RESUBSCRIBE_FAILURE_ESCALATION_N - 1))
+    }
+
+    @Test
+    fun resubscribeCooldownBacksOffButCapsAtSixtySeconds() {
+        val base = LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS
+        // 升级后按 2 的幂退避，但封顶 60s：持续失联时每 60s 重试一次（旧上限 240s 太慢）。
+        assertEquals(base * 2, resubscribeCooldownMs(3))
+        assertEquals(60_000L, resubscribeCooldownMs(4))
+        assertEquals(60_000L, resubscribeCooldownMs(5))
+        assertEquals(
+            LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MAX_MS,
+            resubscribeCooldownMs(9)
+        )
+        assertEquals(60_000L, LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MAX_MS)
+    }
+
+    @Test
+    fun positionSilenceBlindSpotForcesResubscribeWhenPlaybackStateUnknown() {
+        // 0.3.120 老病根：播放态不可确认 + 有歌 + 回调全静默 ≥60s + 冷却外 → 兜底重建。
+        assertTrue(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = true, hasSong = true,
+                silenceMs = 61_000L, sinceLastAttemptMs = 61_000L
+            )
+        )
+        // 播放态已知为暂停 → 静默是预期，不重建。
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = false, hasSong = true,
+                silenceMs = 300_000L, sinceLastAttemptMs = 300_000L
+            )
+        )
+        // 无歌 → 不重建；静默不够长 → 不重建；冷却内 → 不重建。
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = true, hasSong = false,
+                silenceMs = 300_000L, sinceLastAttemptMs = 300_000L
+            )
+        )
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = true, hasSong = true,
+                silenceMs = 59_000L, sinceLastAttemptMs = 300_000L
+            )
+        )
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = false, playingStateUnknown = true, hasSong = true,
+                silenceMs = 300_000L, sinceLastAttemptMs = 1_000L
+            )
+        )
+        // 在播时走原判定，不靠盲区兜底。
+        assertFalse(
+            shouldForceResubscribePositionBlindSpot(
+                playing = true, playingStateUnknown = true, hasSong = true,
+                silenceMs = 300_000L, sinceLastAttemptMs = 300_000L
+            )
+        )
+    }
+
+    @Test
+    fun forceResubscribe_recordsSubscribeReturnValueAndRearmsVerdict() {
+        // 旧实现丢弃 subscribeActivePlayer 返回值:SDK 拒绝订阅时同样重锚静默基线,
+        // 现场看不到「这次重建根本没生效」。现在必须记录返回值并武装成败判据。
+        val sub = StubSubscriber(acceptSubscribe = false)
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.subscriber = sub
+        producer.isPlayingState = true
+        producer.lastPositionCallbackElapsedMs = 10_000L
+
+        clockValue = 10_000L + LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS + 1_000L
+        producer.maybeResubscribeOnPositionSilence()
+
+        assertEquals(1, sub.subscribeCalls)
+        assertFalse("SDK 拒绝订阅必须被记录", producer.lastResubscribeAccepted)
+        assertFalse("重建后尚无位置回调", producer.positionArrivedSinceResubscribe)
+        assertFalse("判据已武装,等待结算", producer.resubscribeOutcomeSettled)
+        assertEquals(clockValue, producer.lastForcedResubscribeElapsedMs)
+    }
+
+    @Test
+    fun verifyPendingResubscribe_resetsFailureStreakAfterPositionArrives() {
+        // 重建成功(subscribe 接受 + 收到 onPositionChanged)→ 失败连击清零、不升级。
+        val sub = StubSubscriber(acceptSubscribe = true)
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.subscriber = sub
+        producer.isPlayingState = true
+        producer.lastPositionCallbackElapsedMs = 10_000L
+        producer.consecutiveResubscribeFailures = 2 // 已有失败连击
+
+        clockValue = 10_000L + LyriconLyricProducer.POSITION_SILENCE_RESUBSCRIBE_MS + 1_000L
+        producer.maybeResubscribeOnPositionSilence()
+        assertTrue(producer.lastResubscribeAccepted)
+
+        clockValue += 500L
+        producer.playerListener.onPositionChanged(1_500L) // 位置通道恢复
+
+        producer.verifyPendingResubscribe()
+
+        assertEquals(0, producer.consecutiveResubscribeFailures)
+        assertTrue(producer.resubscribeOutcomeSettled)
+    }
+
+    @Test
+    fun verifyPendingResubscribe_escalatesAndBacksOffAfterConsecutiveIneffectiveRebuilds() {
+        // 连续 N 次「重建后验证窗内无 onPositionChanged」→ 结算为失败并升级:
+        // 更强告警 + 冷却退避(实例级重建不采纳,见 escalateResubscribeFailures 的评估)。
+        val sub = StubSubscriber(acceptSubscribe = true)
+        var clockValue = 10_000L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.subscriber = sub
+        producer.isPlayingState = true
+        producer.lastPositionCallbackElapsedMs = 10_000L
+
+        var attemptAt = clockValue
+        repeat(LyriconLyricProducer.RESUBSCRIBE_FAILURE_ESCALATION_N) { index ->
+            // 基础冷却(未达阈值前不退化)后再次触发重建。
+            clockValue = attemptAt + LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS + 1L
+            producer.maybeResubscribeOnPositionSilence()
+            assertEquals("attempt ${index + 1} must rebuild", index + 1, sub.subscribeCalls)
+            attemptAt = clockValue
+            // 验证窗结束仍无位置回调 → 本次重建无效。
+            clockValue = attemptAt + LyriconLyricProducer.RESUBSCRIBE_VERIFY_WINDOW_MS
+            producer.verifyPendingResubscribe()
+        }
+
+        assertEquals(
+            LyriconLyricProducer.RESUBSCRIBE_FAILURE_ESCALATION_N,
+            producer.consecutiveResubscribeFailures
+        )
+        assertTrue(producer.resubscribeOutcomeSettled)
+
+        // 退避生效:45s 时(旧的基础 30s 冷却本已允许)不得再重建。
+        clockValue = attemptAt + 45_000L
+        producer.maybeResubscribeOnPositionSilence()
+        assertEquals(3, sub.subscribeCalls)
+        assertEquals(
+            LyriconLyricProducer.RESUBSCRIBE_COOLDOWN_MS * 2,
+            resubscribeCooldownMs(producer.consecutiveResubscribeFailures)
+        )
+
+        // 退避冷却过期后仍会重试 —— 升级只放慢节奏,不放弃恢复。
+        clockValue = attemptAt + resubscribeCooldownMs(producer.consecutiveResubscribeFailures) + 1L
+        producer.maybeResubscribeOnPositionSilence()
+        assertEquals(4, sub.subscribeCalls)
+    }
+
+    // --- 2.11 停播检测/播放态观测必须按「播放器包名」查 MediaSession(提供端插件包名不是
+    //     MediaSession 的归属者:提供端 ≠ 播放器时查询恒 null,issue #27 停止清曲目不触发) ---
+
+    @Test
+    fun sessionQueryPackage_prefersPlayerPackageOverProvider() {
+        assertEquals(
+            "com.netease.cloudmusic",
+            sessionQueryPackage(
+                activePlayerPackage = "com.netease.cloudmusic",
+                activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+            )
+        )
+    }
+
+    @Test
+    fun sessionQueryPackage_fallsBackToProviderWhenPlayerMissing() {
+        // 回落语义:播放器包名缺失/空白时退回提供端包名(覆盖 SDK 未上报 playerPackageName
+        // 的老版本/异常上报,保持历史行为)。
+        assertEquals(
+            "io.github.proify.lyricon.cmprovider",
+            sessionQueryPackage(
+                activePlayerPackage = null,
+                activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+            )
+        )
+        assertEquals(
+            "io.github.proify.lyricon.cmprovider",
+            sessionQueryPackage(
+                activePlayerPackage = " ",
+                activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+            )
+        )
+    }
+
+    @Test
+    fun sessionQueryPackage_nullWhenNeitherPackageKnown() {
+        assertNull(sessionQueryPackage(activePlayerPackage = null, activeProviderPackage = null))
+        assertNull(sessionQueryPackage(activePlayerPackage = null, activeProviderPackage = " "))
+    }
+
+    @Test
+    fun stopDetection_queriesPlayerPackageAndClearsStoppedTrack() {
+        // issue #27 真机链:provider=歌词提供端插件(cmprovider)、player=网易云。旧实现用
+        // 提供端包名查 getActiveSessions 恒 null →「停止清曲目」永不触发;修正后按播放器
+        // 包名查询,连续 STOP_CONFIRMATIONS 次 STOPPED 即释放陈旧曲目。
+        var clockValue = 0L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        val queried = mutableListOf<String>()
+        producer.activePlayerPlaybackStateReader = { pkg ->
+            queried += pkg
+            MediaPlayback.STOPPED
+        }
+
+        repeat(LyriconLyricProducer.STOP_CONFIRMATIONS) { producer.maybeClearOnStoppedPlayer() }
+
+        assertEquals(
+            List(LyriconLyricProducer.STOP_CONFIRMATIONS) { "com.netease.cloudmusic" },
+            queried
+        )
+        assertNull("stopped session must release the stale track", producer.state.value)
+        assertNull(producer.currentSong)
+    }
+
+    @Test
+    fun stopDetection_fallsBackToProviderPackageWhenPlayerUnknown() {
+        // 播放器包名未知时按提供端包名查询(回落路径仍能清曲目,保持历史行为)。
+        var clockValue = 0L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = null
+        producer.playerListener.onSongChanged(threeLineSong())
+        val queried = mutableListOf<String>()
+        producer.activePlayerPlaybackStateReader = { pkg ->
+            queried += pkg
+            MediaPlayback.STOPPED
+        }
+
+        repeat(LyriconLyricProducer.STOP_CONFIRMATIONS) { producer.maybeClearOnStoppedPlayer() }
+
+        assertEquals(
+            List(LyriconLyricProducer.STOP_CONFIRMATIONS) { "io.github.proify.lyricon.cmprovider" },
+            queried
+        )
+        assertNull(producer.state.value)
+    }
+
+    @Test
+    fun sessionPlayingObservation_usesPlayerPackage() {
+        // sessionPlayingObserved 恒 false(看门狗兜底失效)的根因是查询用错了包名:
+        // 播放器会话在播 → 观测必须为 true;提供端会话(查不到)不得影响结论。
+        var clockValue = 0L
+        val producer = LyriconLyricProducer { clockValue }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        val queried = mutableListOf<String>()
+        producer.activePlayerPlaybackStateReader = { pkg ->
+            queried += pkg
+            if (pkg == "com.netease.cloudmusic") MediaPlayback.PLAYING else null
+        }
+
+        producer.refreshSessionPlaying()
+
+        assertEquals(listOf("com.netease.cloudmusic"), queried)
+        assertEquals(true, producer.sessionPlayingObserved)
+    }
+
+    @Test
+    fun resolveSessionPlaying_truthTable() {
+        // 3.2 真值表逐行覆盖：state 非空时只看分类；state 空但会话在 → false；
+        // 会话查不到时有歌只认同名在播，无歌保持未知。
+        assertEquals(true, resolveSessionPlayingObserved(MediaPlayback.PLAYING, false, false, false))
+        assertEquals(false, resolveSessionPlayingObserved(MediaPlayback.STOPPED, true, true, true))
+        assertEquals(false, resolveSessionPlayingObserved(MediaPlayback.PAUSED, false, true, true))
+        assertEquals(false, resolveSessionPlayingObserved(null, true, true, true))
+        assertEquals(true, resolveSessionPlayingObserved(null, false, true, true))
+        assertEquals(false, resolveSessionPlayingObserved(null, false, true, false))
+        assertNull(resolveSessionPlayingObserved(null, false, false, false))
+        assertNull(resolveSessionPlayingObserved(null, false, false, true))
+    }
+
+    @Test
+    fun stopDetection_clearsWhenSessionExistsButStateNull() {
+        // 网易云停止态：会话仍 active、metadata 保留、playbackState 变 null。旧实现
+        // `?: return` 让 stoppedStreak 永远不累加；会话存在时应按 STOPPED 处理并在
+        // STOP_CONFIRMATIONS 次后清曲目。
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.activePlayerPlaybackStateReader = { null }
+        producer.sessionExistsReader = { true }
+
+        repeat(LyriconLyricProducer.STOP_CONFIRMATIONS) {
+            producer.maybeClearOnStoppedPlayer()
+        }
+
+        assertNull("session exists but state=null must clear the stale track", producer.state.value)
+        assertNull(producer.currentSong)
+    }
+
+    @Test
+    fun stopDetection_noClearWhenSessionMissingAndStateNull() {
+        // 读不到 ≠ 已停止：会话查不到时保持旧行为，不能误清曲目（小米 hide 不可逆）。
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.activePlayerPlaybackStateReader = { null }
+        producer.sessionExistsReader = { false }
+
+        repeat(LyriconLyricProducer.STOP_CONFIRMATIONS + 1) {
+            producer.maybeClearOnStoppedPlayer()
+        }
+
+        assertNotNull(producer.state.value)
+        assertNotNull(producer.currentSong)
+    }
+
+    @Test
+    fun sessionPlayingObservation_falseWhenSessionExistsButStateNull() {
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.activePlayerPlaybackStateReader = { null }
+        producer.sessionExistsReader = { true }
+
+        producer.refreshSessionPlaying()
+
+        assertEquals(false, producer.sessionPlayingObserved)
+    }
+
+    @Test
+    fun sessionPlayingObservation_ignoresUnrelatedPlayingSession() {
+        // 查询包名的会话不存在、存在无关残留会话（B 站 state=PLAYING）时，旧实现
+        // anySessionPlaying() 会把它当在播；收紧后只认同名在播 → false。
+        // JVM 没有真实 MediaSessionManager，anySessionActiveFor 返回 false，
+        // 正好覆盖「无关会话不参与」的判定。
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        producer.activePlayerPlaybackStateReader = { null }
+        producer.sessionExistsReader = { false }
+
+        producer.refreshSessionPlaying()
+
+        assertEquals(false, producer.sessionPlayingObserved)
+    }
+
+    @Test
+    fun sessionPlayingObservation_skipsSessionExistenceWhenStateKnown() {
+        // 会话存在性查询只在 state 未知时发生，避免每轮多一次 binder 往返。
+        val producer = LyriconLyricProducer { 0L }
+        producer.activeProviderPackage = "io.github.proify.lyricon.cmprovider"
+        producer.activePlayerPackage = "com.netease.cloudmusic"
+        producer.playerListener.onSongChanged(threeLineSong())
+        var sessionQueries = 0
+        producer.activePlayerPlaybackStateReader = { MediaPlayback.PLAYING }
+        producer.sessionExistsReader = {
+            sessionQueries++
+            false
+        }
+
+        producer.refreshSessionPlaying()
+
+        assertEquals(0, sessionQueries)
+        assertEquals(true, producer.sessionPlayingObserved)
+    }
+
+    // --- 2.12 sequence/generation 原子性(并发入口上的编号) ---
+
+    @Test
+    fun sequence_incrementsAtomicallyUnderConcurrentPositionCallbacks() {
+        // 位置回调在 Dispatchers.Default、跨源 seek 转发与看门狗都在并发入口上:volatile 上的
+        // `++` 是读-改-写,交错会丢号。原子递增后每次发射恰好消耗一个编号(无歌词歌曲:
+        // 发射路径不触碰 TimingNavigator 等共享缓存,隔离出编号本身的并发行为)。
+        val producer = LyriconLyricProducer { 1_000L }
+        producer.playerListener.onSongChanged(
+            Song(id = "nolyrics-long", name = "No Lyrics", artist = "A", duration = 1_000_000L)
+        )
+        // onSongChanged 自身已发射一次(metadata-only),基线之后的每次位置回调恰好消耗一个编号。
+        val baseSequence = producer.sequence.get()
+
+        val threads = 4
+        val perThread = 500
+        val nextPosition = AtomicLong(1_000L)
+        val done = CountDownLatch(threads)
+        repeat(threads) {
+            Thread {
+                repeat(perThread) {
+                    producer.playerListener.onPositionChanged(nextPosition.incrementAndGet())
+                }
+                done.countDown()
+            }.start()
+        }
+
+        assertTrue("concurrent callbacks must finish", done.await(30, TimeUnit.SECONDS))
+        assertEquals(baseSequence + (threads * perThread).toLong(), producer.sequence.get())
+    }
+
+    @Test
+    fun sessionNumberingFieldsAreAtomic() {
+        // 2.12:sequence/generation 必须用原子类型(volatile 上的 `++` 在多线程入口会丢号)。
+        assertEquals(AtomicLong::class.java, producer.sequence.javaClass)
+        assertEquals(AtomicInteger::class.java, producer.generation.javaClass)
+    }
+
+    @Test
+    fun mediaSessionFallbackOnlyAcceptsForwardPositions() {
+        // 共享内存停写后的第二位置源：只接受前进且不越歌长的 MediaSession 值。
+        val fallbackProducer = LyriconLyricProducer { 1_000L }
+        fallbackProducer.activePlayerPackage = "com.netease.cloudmusic"
+        fallbackProducer.lastRealPositionMs = 5_000L
+        fallbackProducer.mediaSessionPositionReader = {
+            MediaSessionPosition(positionMs = 10_000L, lastUpdateElapsedMs = 1_000L, speed = 1f)
+        }
+
+        assertEquals(10_000L, fallbackProducer.probeMediaSessionPosition(1_000L))
+
+        // 冻结/回退值不接受（否则会把歌词拉回去）：
+        // 位置 4000 停在 3000ms 时刻、now=3000（无外推余量），仍 <= lastReal(5000)。
+        fallbackProducer.lastMediaSessionProbeMs = 0L
+        fallbackProducer.mediaSessionPositionReader = {
+            MediaSessionPosition(positionMs = 4_000L, lastUpdateElapsedMs = 3_000L, speed = 1f)
+        }
+        assertNull(fallbackProducer.probeMediaSessionPosition(3_000L))
+
+        // 播放器延迟更新 playbackState 时按倍速推算到当前时刻：
+        // 原始 8000ms 停在 1000ms 时刻，now=6000 → 8000+5000=13000ms。
+        // 不推算的话 8000 <= lastReal(10000) 会被拒，歌词按更新延迟回卷
+        //（息屏时间戳滞后的根因）。
+        fallbackProducer.lastMediaSessionProbeMs = 0L
+        fallbackProducer.lastRealPositionMs = 10_000L
+        fallbackProducer.mediaSessionPositionReader = {
+            MediaSessionPosition(positionMs = 8_000L, lastUpdateElapsedMs = 1_000L, speed = 1f)
+        }
+        assertEquals(13_000L, fallbackProducer.probeMediaSessionPosition(6_000L))
+    }
+
+    @Test
+    fun staleFlushSampleIsHeldThenIgnoredWhileRacingButHonoredOnSeekCadence() {
+        // 2026-10-24 实测：写端沉默 ~20s 后送来落后 ~20s 的首值（91000 基准收到 72000），
+        // 随后 20ms 内按写入间隔大步冲完 → 旧行为把它当真实回跳，歌词倒回 20s 再快进重放。
+        // 值不落后于基准 / 落后幅度 <5s 且（未外推或短沉默）→ 采纳。
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 92_000L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 90_900L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 1_000L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = false, realPosition = 88_000L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 100L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        // 外推 + 沉默 ≥3s + 首个落后值 → 进入观察（忽略本拍）。
+        assertEquals(
+            StaleFlushAction.ARM,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 72_000L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        // 场景 B（Lyricon 实测）：MediaSession 兜底刚把基准恢复到真实位置（如 181s），
+        // 写端醒来送来冻结残留（30s，落后 150s）——即使未外推、沉默仅几十 ms，
+        // 落后 ≥5s 也必须进入判定。
+        assertEquals(
+            StaleFlushAction.ARM,
+            classifyStaleFlushSample(
+                extrapolating = false, realPosition = 30_805L, lastRealBaseMs = 181_103L,
+                sinceRealMs = 50L, pendingValueMs = Long.MIN_VALUE
+            )
+        )
+        // 与观察位完全相同的重复值：写端仍冻结，继续按住显示（不得当 seek 采纳）。
+        assertEquals(
+            StaleFlushAction.REJECT,
+            classifyStaleFlushSample(
+                extrapolating = false, realPosition = 30_805L, lastRealBaseMs = 181_103L,
+                sinceRealMs = 60L, pendingValueMs = 30_805L
+            )
+        )
+        // 观察后一拍跨进 ≥1.5s → 冲刷追赶，继续忽略；直到追上「基准 −5s」才采纳。
+        assertEquals(
+            StaleFlushAction.REJECT,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 74_610L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = 72_000L
+            )
+        )
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 91_200L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = 88_980L
+            )
+        )
+        // 观察后只按正常节奏小幅前进（~17ms）→ 真 seek 的新基准，采纳（仅延迟一拍）。
+        assertEquals(
+            StaleFlushAction.HONOR,
+            classifyStaleFlushSample(
+                extrapolating = true, realPosition = 72_017L, lastRealBaseMs = 91_000L,
+                sinceRealMs = 20_000L, pendingValueMs = 72_000L
+            )
+        )
+    }
+
+    // --- Song-level timing cache / routine emission coalescing ---
+
+    @Test
+    fun songTimingCachePrecomputesTimedAndWordFlagsWithSortedStarts() {
+        val cache = buildLyriconSongTimingCache(threeLineSong())
+
+        assertTrue(cache.hasTimedLyrics)
+        assertTrue(cache.hasAnyWordTimings)
+        assertEquals(0, cache.firstLineIndexAfter(500L))
+        // Strictly after: position == line 0 begin still returns the next line.
+        assertEquals(1, cache.firstLineIndexAfter(1_000L))
+        assertEquals(1, cache.firstLineIndexAfter(3_000L))
+        assertEquals(2, cache.firstLineIndexAfter(3_500L))
+        assertEquals(-1, cache.firstLineIndexAfter(7_000L))
+    }
+
+    @Test
+    fun routinePositionEmissionsAreCoalescedWithin50ms() {
+        var now = 1_000L
+        val producer = LyriconLyricProducer { now }
+        producer.playerListener.onSongChanged(threeLineSong())
+
+        now = 1_050L
+        producer.playerListener.onPositionChanged(2_000L)
+        val first = producer.state.value!!
+        assertEquals(0, first.lineIndex)
+        assertEquals(2_000L, first.positionMs)
+        val firstSequence = first.sequence
+
+        // Same line, 40 ms later: routine position-only update is held; the renderer
+        // extrapolates from sampledAtElapsedMs + speed until the next emitted sample.
+        now = 1_090L
+        producer.playerListener.onPositionChanged(2_090L)
+        val held = producer.state.value!!
+        assertEquals(firstSequence, held.sequence)
+        assertEquals(2_000L, held.positionMs)
+
+        // 100 ms after the last emission: due; publishes the newer position.
+        now = 1_150L
+        producer.playerListener.onPositionChanged(2_150L)
+        val resumed = producer.state.value!!
+        assertTrue(resumed.sequence > firstSequence)
+        assertEquals(2_150L, resumed.positionMs)
+    }
+
+    @Test
+    fun lineBoundaryBypassesCoalescingWindow() {
+        var now = 1_000L
+        val producer = LyriconLyricProducer { now }
+        producer.playerListener.onSongChanged(threeLineSong())
+
+        now = 1_050L
+        producer.playerListener.onPositionChanged(2_000L)
+        val first = producer.state.value!!
+        assertEquals(0, first.lineIndex)
+        val firstSequence = first.sequence
+
+        // Crossing into line 1 only 50 ms later must still emit immediately: the visual
+        // content changed even though the routine interval has not elapsed.
+        now = 1_100L
+        producer.playerListener.onPositionChanged(3_500L)
+        val next = producer.state.value!!
+        assertTrue(next.sequence > firstSequence)
+        assertEquals(1, next.lineIndex)
+        assertEquals(3_500L, next.positionMs)
     }
 
     private fun markerDuetSong(): Song = Song(

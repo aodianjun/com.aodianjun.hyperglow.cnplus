@@ -74,6 +74,20 @@ object SceneCompiler {
         return runCatching { json.decodeFromString<CustomizationDocument>(raw) }.getOrNull()
     }
 
+    /**
+     * [decodeDocument] 的 JsonElement 入口:导入端(ConfigBackupCodec)已把备份信封解析成
+     * JsonElement,这里复用同一元素,省掉 toString → parseToJsonElement → decodeFromString 的
+     * 重复解析(测量报告 2.4:子文档二次解析 ≈ +50–100% 子文档解析成本,仅导入时一次)。
+     * 安全检查与 [decodeDocument] 完全一致:按紧凑序列化计的大小上限 + unsafe schema 拒绝。
+     */
+    internal fun decodeDocumentElement(element: JsonElement): CustomizationDocument? {
+        if (element.toString().toByteArray().size > MAX_CONFIG_BYTES) return null
+        if (containsUnsafeSchemaElement(element)) return null
+        return runCatching {
+            json.decodeFromJsonElement(CustomizationDocument.serializer(), element)
+        }.getOrNull()
+    }
+
     internal fun finalizeCompiled(configuration: CompiledCustomization): CompiledCustomization? {
         val orderedProfiles = linkedMapOf<String, CompiledSurfaceProfile>()
         configuration.profiles[SURFACE_LOCKSCREEN]?.let { orderedProfiles[SURFACE_LOCKSCREEN] = it }
@@ -136,6 +150,7 @@ object SceneCompiler {
         // per-surface 歌曲信息内容:未显式设置(null)时由 withDocumentDefaults 预填文档级默认值;
         // 这里再兜一层归一化,兼容 compileSafeDefault 直接传入未预填的默认 profile。
         val parts = normalizeMetadataParts(profile.metadataParts)
+        val spectrum = normalizeSpectrum(profile.spectrum)
         val supportedWidgets = profile.widgets.asSequence()
             .filter { it.visible }
             .filter { it.type in KNOWN_WIDGETS }
@@ -148,6 +163,18 @@ object SceneCompiler {
                 supportedWidgets.removeLast()
             }
             supportedWidgets.add(0, WidgetSpec("lyrics"))
+        }
+        // spectrum 开关是唯一事实来源：打开时补齐 widget（placement 用它测量/隐藏），
+        // 关闭时清掉遗留 widget，避免旧配置把频谱带回来。
+        if (spectrum.enabled) {
+            if (supportedWidgets.none { it.type == "spectrum" }) {
+                if (supportedWidgets.size >= if (aod) MAX_AOD_WIDGETS else MAX_WIDGETS) {
+                    supportedWidgets.removeLast()
+                }
+                supportedWidgets += WidgetSpec("spectrum", optional = true)
+            }
+        } else {
+            supportedWidgets.removeAll { it.type == "spectrum" }
         }
         val palette = profile.palette.asSequence()
             .filter { it.key in SEMANTIC_COLORS && isAllowedPaletteValue(it.value) }
@@ -175,9 +202,13 @@ object SceneCompiler {
                 easing = profile.transition.easing.takeIf { it in EASINGS } ?: "fast_out_slow_in"
             ),
             alignment = profile.alignment.takeIf { it in ALIGNMENTS } ?: "auto",
-            secondaryMode = profile.secondaryMode.takeIf { it in SECONDARY_MODES } ?: "Main only",
+            secondaryMode = normalizeAuxMode(profile.secondaryMode),
             secondaryTextBright = profile.secondaryTextBright,
             secondaryWordKaraoke = profile.secondaryWordKaraoke,
+            secondaryTextSizePercent = normalizeSecondaryTextSizePercent(
+                profile.secondaryTextSizePercent
+            ),
+            secondaryAutoSize = profile.secondaryAutoSize,
             lyricLineLimit = normalizeLyricLineLimit(profile.lyricLineLimit),
             showNextLine = profile.showNextLine,
             secondaryNextLine = profile.secondaryNextLine,
@@ -186,6 +217,10 @@ object SceneCompiler {
                 supportedWidgets.any { it.type == "metadata" },
             metadataAnchor = if (profile.metadataAnchor == "bottom") "bottom" else "top",
             metadataSizePercent = profile.metadataSizePercent.coerceIn(50, 200),
+            metadataLayout = normalizeMetadataLayout(profile.metadataLayout),
+            metadataArtistSizePercent = normalizeSongInfoArtistSizePercent(
+                profile.metadataArtistSizePercent
+            ),
             metadataAlignment = profile.metadataAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             nextLineAlignment = profile.nextLineAlignment.takeIf { it in ALIGNMENTS } ?: "auto",
             artworkVisible = profile.artworkVisible,
@@ -196,6 +231,14 @@ object SceneCompiler {
             artworkSizeDp = normalizeArtworkSizeDp(profile.artworkSizeDp),
             duetAlignment = profile.duetAlignment,
             duetConcurrent = profile.duetConcurrent,
+            interludeCountdown = profile.interludeCountdown,
+            noLyricsBehavior = normalizeNoLyricsBehavior(profile.noLyricsBehavior),
+            pureMusicDisplay = profile.pureMusicDisplay,
+            pureMusicText = normalizePureMusicText(profile.pureMusicText),
+            tailTimeoutBehavior = normalizeTailTimeoutBehavior(profile.tailTimeoutBehavior),
+            tailTimeoutDelaySeconds = normalizeTailTimeoutDelaySeconds(
+                profile.tailTimeoutDelaySeconds
+            ),
             rubyVisible = profile.rubyVisible,
             weight = profile.weight.takeIf { it in WEIGHTS } ?: "Medium",
             textSize = profile.textSize.takeIf { it in TEXT_SIZES } ?: "normal",
@@ -209,6 +252,8 @@ object SceneCompiler {
                 profile.animation in ANIMATIONS -> profile.animation
                 else -> "Gradient"
             },
+            // 自定义效果随配置 JSON 下发;非法规格静默丢弃并回落内置档,不阻断整份配置。
+            wordEffect = normalizeWordEffectSpec(profile.wordEffect),
             glow = if (profile.glow == "On") "On" else "Off",
             lineSyncFillMode = normalizeLineSyncFillMode(profile.lineSyncFillMode),
             overflow = if (profile.overflow == "Clip") "Clip" else "Wrap",
@@ -226,7 +271,8 @@ object SceneCompiler {
             metadataParts = parts,
             metadataSeparators = normalizeMetadataSeparators(profile.metadataSeparators, parts),
             hideAlbumWhenSameAsTitle = profile.hideAlbumWhenSameAsTitle == true,
-            duetMarkers = profile.duetMarkers != false
+            duetMarkers = profile.duetMarkers != false,
+            spectrum = spectrum
         )
     }
 
@@ -259,7 +305,7 @@ object SceneCompiler {
         is JsonPrimitive -> element.contentOrNull?.let(::containsUnsafeSchemaValue) == true
     }
 
-    private fun containsUnsafeSchemaValue(value: String): Boolean {
+    internal fun containsUnsafeSchemaValue(value: String): Boolean {
         val trimmed = value.trim()
         val lower = trimmed.lowercase()
         return value.indexOf('\u0000') >= 0 ||
@@ -283,8 +329,8 @@ object SceneCompiler {
     const val SURFACE_LOCKSCREEN = "lockscreen"
     const val SURFACE_AOD = "aod"
 
-    val KNOWN_WIDGETS = setOf("lyrics", "metadata", "media_progress")
-    private val AOD_WIDGETS = setOf("lyrics", "metadata")
+    val KNOWN_WIDGETS = setOf("lyrics", "metadata", "media_progress", "spectrum")
+    private val AOD_WIDGETS = setOf("lyrics", "metadata", "spectrum")
     private val ANCHORS = setOf(
         "below_stock_clock",
         "screen_center",
@@ -301,7 +347,8 @@ object SceneCompiler {
     private val TRANSITIONS = setOf("continuity", "crossfade", "none")
     private val EASINGS = setOf("fast_out_slow_in", "linear", "ease_out")
     private val ALIGNMENTS = setOf("auto", "start", "center", "end")
-    private val SECONDARY_MODES = setOf("Main only", "Transliteration", "Translation", "Both")
+    // 辅助文字模式不再是固定档位集合:历史四档 + 多选内容集合,校验即归一
+    // (见 normalizeAuxMode;词表外的值回落「仅主歌词」)。
     private val WEIGHTS = setOf("Regular", "Medium", "Bold")
     private val TEXT_SIZES = setOf("small", "normal", "large", "xlarge", "custom")
     private val FONT_FAMILIES = setOf("noto", "spotify", "apple", "noto-sc", "custom")
@@ -331,7 +378,7 @@ object SceneCompiler {
         value in PALETTE_VALUES || isHexColorToken(value)
 
     private fun isHexColorToken(value: String): Boolean {
-        if (value[0] != '#' || value.length !in intArrayOf(4, 7, 9)) return false
+        if (value.isEmpty() || value[0] != '#' || value.length !in intArrayOf(4, 7, 9)) return false
         for (c in value.substring(1)) {
             if (Character.digit(c, 16) < 0) return false
         }

@@ -103,19 +103,24 @@ class CustomizationPreviewTest {
     }
 
     @Test
-    fun argbToColorTokenDropsAlphaChannel() {
+    fun argbToColorTokenKeepsAlphaChannelWhenTranslucent() {
+        // 不透明仍写 6 位 token(旧配置/预设选中态比对不变);带透明度写 8 位,
+        // 否则取色器的 alpha 在保存这一步就被丢掉,渲染层永远看不到。
         assertEquals("#FFD9A0", argbToColorToken(0xFFFFD9A0.toInt()))
         assertEquals("#000000", argbToColorToken(0xFF000000.toInt()))
+        assertEquals("#80FFD9A0", argbToColorToken(0x80FFD9A0.toInt()))
+        assertEquals("#00000000", argbToColorToken(0))
     }
 
     @Test
     fun parseHexColorInputAcceptsFlexibleHexCodes() {
-        // 取色弹窗的代码输入:允许省略 #、大小写混写、首尾空白;透明度按既有语义忽略。
+        // 取色弹窗的代码输入:允许省略 #、大小写混写、首尾空白;8 位 hex 保留透明度。
         assertEquals(0xFF66CCFF.toInt(), parseHexColorInput("#66CCFF"))
         assertEquals(0xFF66CCFF.toInt(), parseHexColorInput("66ccff"))
         assertEquals(0xFF66CCFF.toInt(), parseHexColorInput("  #66CCFF  "))
         assertEquals(0xFFFF8800.toInt(), parseHexColorInput("#F80"))
-        assertEquals(0xFF00AABB.toInt(), parseHexColorInput("#CC00AABB"))
+        assertEquals(0xCC00AABB.toInt(), parseHexColorInput("#CC00AABB"))
+        assertEquals(0x33FFFFFF, parseHexColorInput("33FFFFFF"))
     }
 
     @Test

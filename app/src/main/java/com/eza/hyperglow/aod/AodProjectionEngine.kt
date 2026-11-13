@@ -1,6 +1,9 @@
 package com.eza.hyperglow.aod
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.SystemClock
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.RuntimeCustomization
@@ -11,9 +14,12 @@ import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.plugin.PluginPipeline
+import com.eza.hyperglow.producer.LyricKind
 import com.eza.hyperglow.producer.LyricProducerState
 import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.producer.SongArtworkRepository
+import com.eza.hyperglow.producer.resolvePureMusic
+import com.eza.hyperglow.producer.resolvePureMusicEnhanced
 import com.eza.hyperglow.root.projection.currentProcessUserId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -117,6 +123,12 @@ internal class ProjectionReleaseGate {
     fun isCurrent(token: Long): Boolean = token == generation
 }
 
+/**
+ * [AodProjectionEngine.classifyStaleSample] 的处置结果:同会话过时样本软跳过(由 collect
+ * 送达的当前样本驱动投影),会话失效才释放(发布 visible=false 的 Hidden)。
+ */
+internal enum class StaleSampleAction { SoftSkip, Release }
+
 object AodProjectionEngine {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var scheduler: Job? = null
@@ -141,7 +153,13 @@ object AodProjectionEngine {
     private val publicationGuard = ProjectionPublicationGuard()
     private val releaseGate = ProjectionReleaseGate()
     private val powerSessionPolicy = AodPowerSessionPolicy()
+    private var screenReceiver: BroadcastReceiver? = null
     private val metadataIntroPolicy = SongMetadataIntroPolicy()
+    /**
+     * 尾奏保留策略(最后一行结束后的延迟窗口)。状态按会话保存,releaseNow 时清空;
+     * 只在投影层使用,不触碰 producer 的清行逻辑。
+     */
+    private val tailLineRetentionPolicy = TailLineRetentionPolicy()
 
     /**
      * The single ingress: [LyricProducers.arbiter].[LyricProducerArbiter.active]. Phase 3 engine
@@ -154,6 +172,7 @@ object AodProjectionEngine {
         if (started) return
         appContext = context.applicationContext
         started = true
+        registerScreenStateReceiver(context.applicationContext)
         publishCustomizationIfDue(SystemClock.elapsedRealtime())
         scope.launch {
             LyricProducers.arbiter.active.collect(::handleState)
@@ -163,6 +182,48 @@ object AodProjectionEngine {
                 delay(1_000L)
                 SpicyBridgeStore.expireIfStale()
             }
+        }
+        // 投影循环看门狗：一次引用竞态或生产者停更都不该让 100ms 投影永久停摆。
+        // 每秒检查一次，活跃会话下调度器/状态回退循环死了就重启；同时保证有限时长
+        // 保活策略至少每秒重算一次（到点才能按时撤唤醒）。
+        scope.launch {
+            while (true) {
+                delay(PROJECTION_TICKER_WATCHDOG_MS)
+                ensureProjectionTicker()
+            }
+        }
+    }
+
+    @Synchronized
+    private fun ensureProjectionTicker() {
+        val current = LyricProducers.arbiter.active.value ?: return
+        if (!current.playing) return
+        if (current.status == "ready") {
+            ensureScheduler(current)
+        } else if (shouldShowPlaybackFallback(current.status, current.playing)) {
+            startStatusKeepAlive(current)
+        }
+    }
+
+    /**
+     * 「保持息屏活动 N 分钟」的会话窗口从熄屏起算：熄屏前已播的时长不计入。
+     * 只注册系统广播 ACTION_SCREEN_OFF（受保护广播，第三方不可伪造）。
+     */
+    private fun registerScreenStateReceiver(context: Context) {
+        if (screenReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                    powerSessionPolicy.clear()
+                    AppLog.i("AodProjectionEngine", "screen off: keep-alive window restarted")
+                }
+            }
+        }
+        runCatching {
+            context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+            screenReceiver = receiver
+        }.onFailure {
+            AppLog.w("AodProjectionEngine", "screen state receiver unavailable", it)
         }
     }
 
@@ -177,6 +238,15 @@ object AodProjectionEngine {
         }
         cancelRelease()
         if (!isCurrentActive(state)) {
+            // 引用不等只说明样本被新实例替代,不说明会话失效:arbiter 播放中每 ~100ms tick
+            // 写新实例(签名含递增 sequence),收集协程读到 S_n 后 arbiter 已写 S_{n+1} 是
+            // 常态。同会话(producerId/generation/trackUri 相同)软跳过——当前样本会经
+            // collect 送达并由其驱动投影,过时样本交给 canPublish 的 token 校验拒绝。
+            // 只有换歌/换源或 active 已清空才走原释放路径:releaseNow 发布 visible=false
+            // 的 Hidden,而 Xiaomi 的 hide 不可逆,误判即终态隐藏。
+            if (classifyStaleSample(state, LyricProducers.arbiter.active.value) ==
+                StaleSampleAction.SoftSkip
+            ) return
             cancelPauseConfirmation()
             releaseNow(playbackActive = false)
             return
@@ -218,6 +288,27 @@ object AodProjectionEngine {
     private fun isCurrentActive(state: LyricProducerState): Boolean =
         LyricProducers.arbiter.active.value === state
 
+    /**
+     * [handleState] 收到「引用已非当前」样本时的处置判定(纯函数,便于单测)。
+     *
+     * 会话身份由 [ProjectionSessionIdentity] 决定:同一会话的新实例只是位置/内容更新
+     * (arbiter 每 ~100ms tick 写新引用),不是会话失效——软跳过,当前样本会经 collect
+     * 送达并由其驱动投影;只有 [current] 为 null(active 已清空)或会话不同(换歌/换源)
+     * 才是真失效,需要释放。
+     *
+     * 调用方保证 [sample] 已被引用相等判为「非当前」;实例相同不属于本函数,防御性返回
+     * [StaleSampleAction.SoftSkip](同一实例必然同会话,绝不释放——Hidden 不可逆)。
+     */
+    internal fun classifyStaleSample(
+        sample: LyricProducerState,
+        current: LyricProducerState?
+    ): StaleSampleAction = when {
+        current == null -> StaleSampleAction.Release
+        ProjectionSessionIdentity.from(current) == ProjectionSessionIdentity.from(sample) ->
+            StaleSampleAction.SoftSkip
+        else -> StaleSampleAction.Release
+    }
+
     @Synchronized
     private fun ensureScheduler(state: LyricProducerState) {
         val key = "${state.producerId}:${state.generation}:${state.trackUri}"
@@ -228,10 +319,11 @@ object AodProjectionEngine {
         scheduler = scope.launch {
             while (true) {
                 val current = LyricProducers.arbiter.active.value ?: break
-                if (!isCurrentActive(current) ||
-                    current.status != "ready" || !current.playing ||
-                    ProjectionSessionIdentity.from(current) != expectedSession
-                ) break
+                // 引用身份不是会话身份：arbiter 播放中每 ~100ms 写新实例，读到 S_n 后
+                // S_{n+1} 已落盘是常态。此处只按会话身份判定退出，否则一次竞态就会让
+                // 100ms 投影循环永久停摆——生产者不再发状态时 AOD 渲染冻结、到点判断
+                // 也不再重算（0.3.169 实测：画面动几秒就停、到点不熄灭）。
+                if (!shouldContinueProjectionTicker(current, expectedSession)) break
                 val publicationToken = publicationGuard.current(current) ?: break
                 val now = SystemClock.elapsedRealtime()
                 project(current, now, publicationToken)
@@ -255,7 +347,7 @@ object AodProjectionEngine {
             while (true) {
                 delay(FALLBACK_REFRESH_INTERVAL_MS)
                 val current = LyricProducers.arbiter.active.value ?: break
-                if (!isCurrentActive(current) || !canRefreshFallback(expected, current)) break
+                if (!canRefreshFallback(expected, current)) break
                 val publicationToken = publicationGuard.current(current) ?: break
                 val now = SystemClock.elapsedRealtime()
                 project(current, now, publicationToken)
@@ -364,8 +456,12 @@ object AodProjectionEngine {
     ) {
         cancelRelease()
         publicationGuard.invalidate()
+        // 发布代次递增必须排在 Hidden 之前：在途投影（验证已过、提交未到）的旧可见快照
+        // 会被 AodStateBridge.publishIfCurrent 在 bridge 锁内拒绝，不再覆盖这次 release。
+        AodStateBridge.invalidatePublications()
         stopStatusKeepAlive()
         stopScheduler()
+        tailLineRetentionPolicy.reset()
         if (!playbackActive) powerSessionPolicy.clear()
         AodStateBridge.publish(
             AodDisplayState(
@@ -381,18 +477,36 @@ object AodProjectionEngine {
      * Maps [state] to [AodDisplayState] via the pure [projectToDisplay] function (spec clause 8:
      * projection MUST NOT re-select the active line — producers do that). Publication is gated on
      * the state still being the arbiter's current active state and the token matching.
+     *
+     * 提交前的发布代次采样必须排在最终验证（[ProjectionPublicationGuard.canPublish]）**之前**：
+     * 验证与提交分属 guard/bridge 两把锁，暂停确认或延迟释放可在两者之间插入 release；
+     * 采样之后的任何 release 都会让 [AodStateBridge.publishIfCurrent] 在 bridge 锁内拒绝
+     * 这次旧提交（TOCTOU 窗口关闭）。不能只靠 canPublish——它已经返回、锁已释放。
      */
     private fun project(
         state: LyricProducerState,
         now: Long = SystemClock.elapsedRealtime(),
         publicationToken: ProjectionPublicationToken
     ) {
+        val publicationEpoch = AodStateBridge.currentPublicationEpoch()
         publishCustomizationIfDue(now)
         val prefs = appContext?.let(AodRenderPreferences::read) ?: AodRenderConfig()
         val compiled = appContext?.let(CustomizationRepository::loadCompiled)
+        // 尾奏保留:必须在 PluginPipeline.enrich 之前决定——插件富化以「当前行」为输入,
+        // 而 producer 清行后当前行已空;先补回最后一行,插件与投影才看到同一份内容。
+        // 纯音乐/真无歌词不参与尾奏(各自标记优先)。
+        // 纯音乐识别开关:任一面(锁屏/息屏)开启即启用空行兜底判定;与歌曲图片取帧同一
+        // 「任一面开启即生效」口径——判定是曲目级结论,两面共享一份快照。
+        val pureMusicEnhanced = compiled?.profiles?.values?.any { it.pureMusicDisplay } == true
+        val tailPureMusic = resolvePureMusicFor(state, pureMusicEnhanced)
+        val tailNoLyrics = state.lyricKind == LyricKind.NONE
+        val tailRetention = tailLineRetentionPolicy.apply(
+            state = state,
+            allowTail = !tailPureMusic && !tailNoLyrics
+        )
         // 插件富化在投影前同步查表:无插件结果时原样返回同一实例(保持下方
         // isCurrentActive 的引用相等校验),有结果时仅覆盖内容字段。
-        val effectiveState = PluginPipeline.enrich(state)
+        val effectiveState = PluginPipeline.enrich(tailRetention.state)
         // 歌曲图片:任一曲面(锁屏/息屏)显示开关打开时按曲目拉取已校对封面帧
         // (包名/曲目校对不过=无封面)。取图为异步,本次投影先带已有帧,出帧后经
         // onFrameReady 补挂重播;各曲面是否展示由自己的 profile 决定。
@@ -418,7 +532,11 @@ object AodProjectionEngine {
             powerSessionPolicy = powerSessionPolicy,
             userId = currentProcessUserId(),
             artworkJpeg = artwork?.jpeg ?: ByteArray(0),
-            artworkKey = artwork?.key ?: ""
+            artworkKey = artwork?.key ?: "",
+            pureMusic = resolvePureMusicFor(effectiveState, pureMusicEnhanced),
+            // 真无歌词:整首没有任何歌词行(纯音乐标记行走 LINE,不会误判)。
+            noLyrics = effectiveState.lyricKind == LyricKind.NONE,
+            tailEligible = tailRetention.tailEligible
         )
         if (!publicationGuard.canPublish(
                 token = publicationToken,
@@ -427,7 +545,7 @@ object AodProjectionEngine {
             ) || !isCurrentActive(state) || !state.playing
         ) return
         logRenderModeProbe(compiled, projectedState)
-        AodStateBridge.publish(projectedState)
+        AodStateBridge.publishIfCurrent(publicationEpoch, projectedState)
     }
 
     private var lastRenderProbeKey = ""
@@ -446,6 +564,39 @@ object AodProjectionEngine {
         AppLog.w("AodProjectionEngine", "Render mode probe: $key")
     }
 
+    /**
+     * 曲目级纯音乐判定(见 [resolvePureMusic]):优先读活动源的整首快照——仅当会话三元组
+     * 与当前状态一致时采用(过渡态丢弃,等同不存在);拿不到整首数据(Spicy 文档路径、
+     * SuperLyric 旧模块)时回落当前行文本。快照实现按会话缓存,每拍调用不会重建,满足投影
+     * 高频路径的廉价要求。
+     *
+     * [emptyRowsFallback] = 「纯音乐识别」开关(任一面开启):在标记文本命中之外补「整首无
+     * 歌词行」兜底——整首快照存在但没有任何行,或 producer 歌级声明 lyricKind == NONE
+     * (Lyricon `lines=0` 走这里:它对空歌词不产出快照,快照路拿不到信号)且时长有效、
+     * 播放越过确认窗口后按纯音乐处理(见 [resolvePureMusicEnhanced])。关闭时历史路径,
+     * 行为逐值不变。
+     */
+    private fun resolvePureMusicFor(
+        state: LyricProducerState,
+        emptyRowsFallback: Boolean
+    ): Boolean {
+        val source = LyricProducers.arbiter.activeSource.value
+        val snapshot = source?.let { LyricProducers.arbiter.fullSongSnapshot(it) }
+        val fullSongRows = snapshot?.takeIf { it.matches(state) }?.rows
+        return if (emptyRowsFallback) {
+            resolvePureMusicEnhanced(
+                fullSongRows = fullSongRows,
+                currentLine = state.line,
+                durationMs = state.durationMs,
+                positionMs = state.positionMs,
+                playing = state.playing,
+                producerNoLyrics = state.lyricKind == LyricKind.NONE
+            )
+        } else {
+            resolvePureMusic(fullSongRows, state.line)
+        }
+    }
+
     private fun publishCustomizationIfDue(now: Long) {
         if (now - lastCustomizationPublishAt < CUSTOMIZATION_REFRESH_MS) return
         val context = appContext ?: return
@@ -453,7 +604,8 @@ object AodProjectionEngine {
         AodStateBridge.publishConfiguration(
             RuntimeCustomization.loadCompiled(context),
             currentProcessUserId(),
-            experimentalMode = AodRenderPreferences.read(context).experimentalMode
+            experimentalMode = AodRenderPreferences.read(context).experimentalMode,
+            spriteAttachments = com.eza.hyperglow.customization.DecorSpriteStore.attachments(context)
         )
     }
 
@@ -495,6 +647,17 @@ object AodProjectionEngine {
         fallbackRefreshSession(current) == expected
 
     internal fun fallbackRefreshIntervalMs(): Long = FALLBACK_REFRESH_INTERVAL_MS
+
+    /**
+     * 投影 ticker 是否应继续：只按会话身份/播放状态判定，不看样本引用身份——
+     * arbiter 每 ~100ms 写新实例，引用比较会让循环在正常播放中误退出，
+     * 生产者停更后便再无人重启，表现为画面动几秒即冻结、到点也不撤唤醒。
+     */
+    internal fun shouldContinueProjectionTicker(
+        current: LyricProducerState?,
+        expectedSession: ProjectionSessionIdentity
+    ): Boolean = current != null && current.status == "ready" && current.playing &&
+        ProjectionSessionIdentity.from(current) == expectedSession
 
     fun shouldShowPlaybackFallback(status: String, playing: Boolean): Boolean =
         playing && (status == "loading" || status == "no_lyrics")
@@ -550,10 +713,10 @@ object AodProjectionEngine {
         playing: Boolean,
         aodEnabled: Boolean,
         keepAwake: Boolean,
-        keepAwakeUnsynced: Boolean,
-        hasTimedLyrics: Boolean
-    ): Boolean = playing && aodEnabled && keepAwake &&
-        (hasTimedLyrics || keepAwakeUnsynced)
+        // 与顶层 shouldKeepAodAliveFor 同源：保活不再依赖歌词是否存在（无限期 + 定时器）。
+        @Suppress("UNUSED_PARAMETER") keepAwakeUnsynced: Boolean,
+        @Suppress("UNUSED_PARAMETER") hasTimedLyrics: Boolean
+    ): Boolean = playing && aodEnabled && keepAwake
 
     fun isLineLevelDocumentType(type: String): Boolean =
         type.equals("Line", ignoreCase = true)
@@ -579,6 +742,7 @@ object AodProjectionEngine {
      */
     private const val KEEP_ALIVE_INTERVAL_MS = 1_500L
     private const val FALLBACK_REFRESH_INTERVAL_MS = 1_000L
+    private const val PROJECTION_TICKER_WATCHDOG_MS = 1_000L
     private const val TRANSITION_GRACE_MS = 1_500L
     internal const val PAUSE_CONFIRM_MS = 5_000L
     private const val CUSTOMIZATION_REFRESH_MS = 1_000L

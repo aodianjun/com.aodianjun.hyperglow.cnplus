@@ -95,9 +95,9 @@ class PluginClassLoaderPolicyTest {
         out[2] = 'x'.code.toByte()
         out[3] = '\n'.code.toByte()
         buf.putInt(0x3C, stringIdsOff)
-        buf.putInt(0x4C, typeIdsOff)
+        buf.putInt(0x44, typeIdsOff)   // 真 DEX 头偏移：fixture 必须与真实布局一致
         buf.putInt(0x60, descriptors.size)
-        buf.putInt(0x68, classDefsOff)
+        buf.putInt(0x64, classDefsOff)
         descriptors.forEachIndexed { i, descriptor ->
             buf.putInt(stringIdsOff + i * 4, dataOffsets[i])
             buf.putInt(typeIdsOff + i * 4, i)

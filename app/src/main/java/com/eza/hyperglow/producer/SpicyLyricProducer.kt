@@ -211,9 +211,10 @@ class SpicyLyricProducer : LyricProducer {
         val nextLineRomanized = nextRow?.romanized.orEmpty()
         val nextLineTranslated = nextRow?.translated.orEmpty()
 
-        // 对唱并发行候选(上游 99ba119d4 同语义):与主行播放窗口重叠 ≥1s 的另一唱词行,
-        // 纯时间轴判定(见 [selectDuetLineIndex]);间奏行(INTERLUDE)不参与。显示与否由
-        // 息屏「显示并发歌词(对唱)」开关在投影层决定(契约:投影不选行,生产者只出候选)。
+        // 对唱并发行候选(上游 99ba119d4 同语义,角色放宽见上游 fefe5c54):与主行播放窗口
+        // 重叠 ≥1s 的另一唱词行;显式伴唱行(role=BACKGROUND)正重叠即加入——短应答不被
+        // 一秒门吞掉。纯时间轴判定(见 [selectDuetLineIndex]);间奏行(INTERLUDE)不参与。
+        // 显示与否由息屏「显示并发歌词(对唱)」开关在投影层决定(契约:投影不选行,生产者只出候选)。
         val duetLine = timedDocument?.let { document ->
             val primaryIndex = if (row == null) -1 else document.rows.indexOfFirst { it === row }
             val companionIndex = if (primaryIndex < 0) {
@@ -221,7 +222,12 @@ class SpicyLyricProducer : LyricProducer {
             } else {
                 selectDuetLineIndex(
                     document.rows.map {
-                        DuetLineWindow(it.startMs, it.endMs, it.role == "INTERLUDE")
+                        DuetLineWindow(
+                            it.startMs,
+                            it.endMs,
+                            it.role == "INTERLUDE",
+                            it.role == "BACKGROUND"
+                        )
                     },
                     primaryIndex,
                     position

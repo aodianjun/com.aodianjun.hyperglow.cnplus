@@ -5,7 +5,10 @@ import android.os.Build
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.symbols.SymbolRequest
 import com.eza.hyperglow.root.symbols.SymbolResolver
+import com.eza.hyperglow.root.utils.PlatformVersion
+import java.util.Collections
 import java.util.EnumSet
+import java.util.WeakHashMap
 
 internal enum class XiaomiCapability {
     AOD_SURFACE,
@@ -212,6 +215,12 @@ internal data class XiaomiCapabilityReport(
 
 internal object XiaomiCapabilityResolver {
     private const val TAG = "XiaomiCapabilities"
+    /** 等 SystemUI 启动告一段落再开 DexKit 普查，避开首帧。 */
+    private const val OS4_AOD_CENSUS_DELAY_MS = 3_000L
+    /** 每类候选最多带回 40 个类名，日志可读且够定位宿主。 */
+    private const val OS4_AOD_CENSUS_LIMIT = 40
+    /** 最多普查 3 个 loader：默认 SystemUI、后到的 AOD/插件 APK 各一次。 */
+    private const val OS4_AOD_CENSUS_MAX_LOADERS = 3
     private var defaultSymbols = XiaomiSymbolSnapshot()
     private var aodSymbols = XiaomiSymbolSnapshot()
     private var systemUiVersion = "unknown"
@@ -224,6 +233,16 @@ internal object XiaomiCapabilityResolver {
      */
     @Volatile
     private var experimentalMode: Boolean = false
+    /**
+     * AOD dex 是否已经在本进程里被观测到。SystemUI 启动时默认 loader 只能看到 4 个探针,
+     * AOD 符号要等 AOD dex 加载后才出现;在那之前上报会把 4/16 的临时快照当成结算结果。
+     */
+    @Volatile
+    private var aodLoaderObserved = false
+    /** OS4 类名普查按 loader 限量执行;AOD 宿主可能落在后到的独立 APK loader 上。 */
+    private val os4AodCensusedLoaders =
+        Collections.newSetFromMap(WeakHashMap<ClassLoader, Boolean>())
+    private var os4AodCensusCount = 0
 
     @Synchronized
     fun setExperimentalMode(enabled: Boolean) {
@@ -283,6 +302,15 @@ internal object XiaomiCapabilityResolver {
                 "boolean",
                 "boolean",
                 "boolean"
+            ) || hasMethod(
+                classLoader,
+                ANIMATION_HELPER,
+                "doAnimationToAod",
+                "boolean",
+                "boolean",
+                "boolean",
+                "boolean",
+                ANIMATION_TRACKER
             ),
             linkageGeometry = hasNoArgMethod(
                 classLoader,
@@ -315,7 +343,11 @@ internal object XiaomiCapabilityResolver {
 
     @Synchronized
     fun observeAodLoader(classLoader: ClassLoader) {
-        if (!hasClass(classLoader, AOD_VIEW)) return
+        if (!hasClass(classLoader, AOD_VIEW)) {
+            scheduleOs4AodCensus(classLoader)
+            return
+        }
+        aodLoaderObserved = true
         aodSymbols = XiaomiSymbolSnapshot(
             aodSurface = hasNoArgMethod(classLoader, AOD_VIEW, "onAttachedToWindow") &&
                 hasNoArgMethod(classLoader, AOD_VIEW, "onDetachedFromWindow"),
@@ -362,6 +394,43 @@ internal object XiaomiCapabilityResolver {
         )
         logIfChanged()
     }
+
+    /**
+     * OS4 的 AOD 宿主不再以 `com.miui.aod.AODView` 出现：现场日志里 AodPositionHook /
+     * AodBrightnessHook 都报 class absent，AodWakeBroker 报 DozeHost class not found。
+     * 先做一次类名普查（后台线程、只读、每个进程一次），把新宿主名字带回日志，再按
+     * 结构指纹接 hook——不在没有现场符号时猜 hook 目标。OS3 命中 AOD_VIEW 时永不进入这里。
+     */
+    private fun scheduleOs4AodCensus(classLoader: ClassLoader) {
+        if (!PlatformVersion.isHyperOs4OrNewer) return
+        if (os4AodCensusCount >= OS4_AOD_CENSUS_MAX_LOADERS) return
+        if (!os4AodCensusedLoaders.add(classLoader)) return
+        os4AodCensusCount++
+        Thread({
+            try {
+                Thread.sleep(OS4_AOD_CENSUS_DELAY_MS)
+                val aod = SymbolResolver.classNamesContaining(classLoader, "aod", OS4_AOD_CENSUS_LIMIT)
+                val doze = SymbolResolver.classNamesContaining(classLoader, "doze", OS4_AOD_CENSUS_LIMIT)
+                HookLogger.i(
+                    TAG,
+                    "OS4 AOD census loader=${classLoader.javaClass.simpleName} " +
+                        "aod=${aod.size} doze=${doze.size} " +
+                        "aodClasses=[${aod.joinToString(",")}] dozeClasses=[${doze.joinToString(",")}]"
+                )
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } catch (error: Exception) {
+                HookLogger.w(TAG, "OS4 AOD census failed", error)
+            }
+        }, "hyperglow-os4-aod-census").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * AOD 包存在但 AOD dex 尚未加载时,默认 loader 的快照必然缺少全部 AOD 探针。
+     * 能力上报端应等 AOD loader 或超时后再发,避免把 4/16 的临时快照写成结算结果。
+     */
+    internal fun shouldDeferCapabilityReport(): Boolean =
+        !aodLoaderObserved && aodVersion != "missing"
 
     @Synchronized
     fun observeContext(context: Context) {
@@ -513,6 +582,7 @@ internal object XiaomiCapabilityResolver {
     private const val KEYGUARD_CLOCK_CONTAINER =
         "com.android.keyguard.clock.KeyguardClockContainer"
     private const val ANIMATION_HELPER = "com.android.keyguard.clock.animation.AnimationHelper"
+    private const val ANIMATION_TRACKER = "com.android.keyguard.clock.animation.AnimationTracker"
     private const val KEYGUARD_SENSOR_INJECTOR =
         "com.android.keyguard.injector.KeyguardSensorInjector"
     private const val KEYGUARD_EDITOR_HELPER =

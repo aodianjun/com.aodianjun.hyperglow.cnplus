@@ -34,6 +34,150 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun spectrumSpecIsNormalizedAndWidgetFollowsToggle() {
+        val document = SceneCompiler.safeDefaultDocument()
+        val profiles = document.profiles.toMutableMap()
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(
+                enabled = true,
+                style = "unknown",
+                barCount = 999,
+                heightPercent = 999,
+                sensitivity = 1,
+                color = "nope"
+            )
+        )
+        val compiled = SceneCompiler.compile(document.copy(profiles = profiles))
+        val profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+
+        assertTrue(profile.widgets.any { it.type == "spectrum" })
+        assertEquals("bars", profile.spectrum.style)
+        assertEquals(MAX_SPECTRUM_BARS, profile.spectrum.barCount)
+        assertEquals(200, profile.spectrum.heightPercent)
+        assertEquals(50, profile.spectrum.sensitivity)
+        assertEquals("accent", profile.spectrum.color)
+
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(enabled = false)
+        )
+        val disabled = SceneCompiler.compile(document.copy(profiles = profiles))
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertFalse(disabled.widgets.any { it.type == "spectrum" })
+    }
+
+    @Test
+    fun canonicalizeKeepsSpectrumSpec() {
+        // 回归:canonicalizeDocument 用 CompiledSurfaceProfile.toSurfaceProfile() 逐字段重建
+        // SurfaceProfile;漏掉新字段会让设置页开关保存后立刻弹回 false。
+        val document = SceneCompiler.safeDefaultDocument()
+        val profiles = document.profiles.toMutableMap()
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(
+                enabled = true,
+                style = "mirror",
+                barCount = 16,
+                heightPercent = 120,
+                sensitivity = 130,
+                color = "gradient"
+            )
+        )
+        val canonical = CustomizationRepository.canonicalizeDocument(
+            document.copy(profiles = profiles)
+        )
+        assertNotNull(canonical)
+        val profile = canonical!!.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertTrue(profile.spectrum.enabled)
+        assertEquals("mirror", profile.spectrum.style)
+        assertEquals(16, profile.spectrum.barCount)
+        assertEquals(120, profile.spectrum.heightPercent)
+        assertEquals(130, profile.spectrum.sensitivity)
+        assertEquals("gradient", profile.spectrum.color)
+        assertTrue(profile.widgets.any { it.type == "spectrum" })
+    }
+
+    @Test
+    fun spectrumCompiledConfigSurvivesSystemUiValidationHash() {
+        // 模拟 app 编译 → JSON → SystemUI 解码/校验的 hash 往返。任何一处漏字段都会让
+        // SystemUI 拒绝整份配置,现场表现就是自定义歌词样式全部回到默认。
+        val document = SceneCompiler.safeDefaultDocument()
+        val profiles = document.profiles.toMutableMap()
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(
+                enabled = true,
+                style = "line",
+                barCount = 20,
+                heightPercent = 140,
+                sensitivity = 120,
+                color = "primary"
+            )
+        )
+        val compiled = SceneCompiler.compile(document.copy(profiles = profiles))
+        val decoded = SceneCompiler.json.decodeFromString<CompiledCustomization>(
+            SceneCompiler.json.encodeToString(compiled)
+        )
+        val validated = SystemUiCustomizationValidator.validate(decoded)
+        assertNotNull(validated)
+        assertEquals(compiled.hash, validated!!.hash)
+        assertEquals(compiled.revision, validated.revision)
+        val profile = validated.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertTrue(profile.spectrum.enabled)
+        assertEquals("line", profile.spectrum.style)
+        assertEquals(20, profile.spectrum.barCount)
+        assertTrue(profile.widgets.any { it.type == "spectrum" })
+    }
+
+    @Test
+    fun disabledSpectrumIsOmittedFromCompiledJson() {
+        // 关闭频谱时编译配置不携带 spectrum 字段：旧 SystemUI（没有这个字段）解码后
+        // 重新序列化仍能得到同一 hash，不会把整份自定义样式配置拒掉。
+        val json = SceneCompiler.json.encodeToString(
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+        )
+        assertFalse(json.contains("\"spectrum\""))
+    }
+
+    @Test
+    fun spectrumDefaultsToRhythmAndKeepsMirrorStyle() {
+        val document = SceneCompiler.safeDefaultDocument()
+        val profiles = document.profiles.toMutableMap()
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(enabled = true, style = "mirror")
+        )
+        val profile = SceneCompiler.compile(document.copy(profiles = profiles))
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("mirror", profile.spectrum.style)
+        assertEquals("rhythm", profile.spectrum.source)
+        assertTrue(profile.spectrum.background)
+        assertEquals(40, profile.spectrum.opacity)
+    }
+
+    @Test
+    fun loopbackSpectrumSourceSurvivesCompile() {
+        val document = SceneCompiler.safeDefaultDocument()
+        val profiles = document.profiles.toMutableMap()
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(enabled = true, source = "loopback")
+        )
+        val compiled = SceneCompiler.compile(document.copy(profiles = profiles))
+        val profile = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("loopback", profile.spectrum.source)
+        val json = SceneCompiler.json.encodeToString(compiled)
+        assertTrue(json.contains("\"source\":\"loopback\""))
+    }
+
+    @Test
+    fun unknownSpectrumSourceFallsBackToRhythm() {
+        val document = SceneCompiler.safeDefaultDocument()
+        val profiles = document.profiles.toMutableMap()
+        profiles[SceneCompiler.SURFACE_AOD] = profiles.getValue(SceneCompiler.SURFACE_AOD).copy(
+            spectrum = SpectrumSpec(enabled = true, source = "bogus")
+        )
+        val profile = SceneCompiler.compile(document.copy(profiles = profiles))
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("rhythm", profile.spectrum.source)
+    }
+
+    @Test
     fun legacyPreferencesMigrateWithoutEnablingLockscreen() {
         val document = CustomizationRepository.documentFromLegacy(
             AodRenderConfig(
@@ -127,6 +271,84 @@ class SceneCompilerTest {
         assertEquals(
             0.8f,
             compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).maxHeightFraction
+        )
+    }
+
+    @Test
+    fun songInfoLayoutSurvivesCompilationAndDefaultsWhenUnset() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataLayout = "single"),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile()
+                )
+            )
+        )
+        assertEquals(
+            "single",
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).metadataLayout
+        )
+        assertEquals(
+            METADATA_LAYOUT_STACKED,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).metadataLayout
+        )
+    }
+
+    @Test
+    fun unknownSongInfoLayoutFallsBackToStacked() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataLayout = "bogus"),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(metadataLayout = "")
+                )
+            )
+        )
+        assertEquals(
+            METADATA_LAYOUT_STACKED,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).metadataLayout
+        )
+        assertEquals(
+            METADATA_LAYOUT_STACKED,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).metadataLayout
+        )
+    }
+
+    @Test
+    fun songInfoArtistSizeSurvivesCompilationAndDefaultsWhenUnset() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataArtistSizePercent = 55),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile()
+                )
+            )
+        )
+        val aod = compiled.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        val lockscreen = compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+
+        assertEquals(55, aod.metadataArtistSizePercent)
+        assertEquals(DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT, lockscreen.metadataArtistSizePercent)
+    }
+
+    @Test
+    fun outOfRangeSongInfoArtistSizeFallsBackToDefault() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(metadataArtistSizePercent = 0),
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(metadataArtistSizePercent = 400)
+                )
+            )
+        )
+
+        assertEquals(
+            DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).metadataArtistSizePercent
+        )
+        assertEquals(
+            DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).metadataArtistSizePercent
         )
     }
 
@@ -1195,6 +1417,194 @@ class SceneCompilerTest {
             SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
                 .profiles.getValue(SceneCompiler.SURFACE_AOD).duetConcurrent
         )
+    }
+
+    @Test
+    fun interludeCountdownCompilesValidatesAndSurvivesCanonicalizeRoundTrip() {
+        // 长间奏倒计时圆点开关必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返:
+        // 关闭状态是「与默认不同」的值,漏字段会被逐字段重建映射静默弹回默认(开启)。
+        val off = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(interludeCountdown = false)
+            )
+        )
+        assertFalse(
+            SceneCompiler.compile(off).profiles.getValue(SceneCompiler.SURFACE_AOD)
+                .interludeCountdown
+        )
+        assertFalse(
+            SystemUiCustomizationValidator.validate(SceneCompiler.compile(off))!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown
+        )
+        assertFalse(
+            CustomizationRepository.canonicalizeDocument(off)!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown
+        )
+        // 默认开启(参考 HyperLyric 默认档即倒计时)。
+        assertTrue(
+            SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown
+        )
+    }
+
+    @Test
+    fun interludeCountdownStaysPerSurfaceWhenOnlyOneSurfaceTurnsItOff() {
+        // per-surface:只关息屏时锁屏必须保持开启(改一面不联动另一面)。
+        val offAod = SceneCompiler.compile(
+            CustomizationDocument(
+                linkSurfaces = false,
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(interludeCountdown = false)
+                )
+            )
+        )
+        assertFalse(offAod.profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown)
+        assertTrue(
+            offAod.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeCountdown
+        )
+        val validated = SystemUiCustomizationValidator.validate(offAod)!!
+        assertFalse(validated.profiles.getValue(SceneCompiler.SURFACE_AOD).interludeCountdown)
+        assertTrue(
+            validated.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeCountdown
+        )
+        // linkSurfaces=true 时锁屏继承息屏值(与 linkSurfaces 的其它歌词呈现项同批)。
+        val linked = SystemUiCustomizationValidator.validate(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    linkSurfaces = true,
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(interludeCountdown = false)
+                    )
+                )
+            )
+        )!!
+        assertFalse(linked.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeCountdown)
+    }
+
+    @Test
+    fun tailTimeoutCompilesNormalizesAndSurvivesCanonicalizeRoundTrip() {
+        // 尾奏超时行为/延迟必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返:
+        // 非默认值漏字段会被逐字段重建映射静默弹回默认(KEEP / 3 秒)。
+        val configured = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    tailTimeoutBehavior = "music_info",
+                    tailTimeoutDelaySeconds = 12
+                )
+            )
+        )
+        val compiled = SceneCompiler.compile(configured)
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("music_info", compiled.tailTimeoutBehavior)
+        assertEquals(12, compiled.tailTimeoutDelaySeconds)
+
+        val validated = SystemUiCustomizationValidator.validate(
+            SceneCompiler.compile(configured)
+        )!!.profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("music_info", validated.tailTimeoutBehavior)
+        assertEquals(12, validated.tailTimeoutDelaySeconds)
+
+        val canonical = CustomizationRepository.canonicalizeDocument(configured)!!
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("music_info", canonical.tailTimeoutBehavior)
+        assertEquals(12, canonical.tailTimeoutDelaySeconds)
+
+        // 默认值:keep / 3 秒。
+        val defaults = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("keep", defaults.tailTimeoutBehavior)
+        assertEquals(3, defaults.tailTimeoutDelaySeconds)
+    }
+
+    @Test
+    fun tailTimeoutNormalizesIllegalBehaviorAndClampsDelay() {
+        // 非法行为回落 keep;延迟钳到 0-30。
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        tailTimeoutBehavior = "bogus",
+                        tailTimeoutDelaySeconds = 99
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("keep", compiled.tailTimeoutBehavior)
+        assertEquals(30, compiled.tailTimeoutDelaySeconds)
+
+        val negative = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        tailTimeoutDelaySeconds = -4
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals(0, negative.tailTimeoutDelaySeconds)
+    }
+
+    @Test
+    fun tailTimeoutStaysPerSurfaceAndFollowsLinkSurfaces() {
+        val offAod = SceneCompiler.compile(
+            CustomizationDocument(
+                linkSurfaces = false,
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                        tailTimeoutBehavior = "restore_default",
+                        tailTimeoutDelaySeconds = 9
+                    )
+                )
+            )
+        )
+        assertEquals(
+            "restore_default",
+            offAod.profiles.getValue(SceneCompiler.SURFACE_AOD).tailTimeoutBehavior
+        )
+        assertEquals(
+            "keep",
+            offAod.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutBehavior
+        )
+        assertEquals(
+            3,
+            offAod.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutDelaySeconds
+        )
+
+        val linked = SystemUiCustomizationValidator.validate(
+            SceneCompiler.compile(
+                CustomizationDocument(
+                    linkSurfaces = true,
+                    profiles = mapOf(
+                        SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                            tailTimeoutBehavior = "restore_default",
+                            tailTimeoutDelaySeconds = 9
+                        )
+                    )
+                )
+            )
+        )!!
+        assertEquals(
+            "restore_default",
+            linked.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutBehavior
+        )
+        assertEquals(
+            9,
+            linked.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).tailTimeoutDelaySeconds
+        )
+    }
+
+    @Test
+    fun emptyPaletteValueIsRejectedWithoutCrashing() {
+        assertFalse(SceneCompiler.isAllowedPaletteValue(""))
+
+        val document = SceneCompiler.safeDefaultDocument()
+        val tampered = document.copy(
+            profiles = document.profiles.mapValues { (_, profile) ->
+                profile.copy(palette = mapOf("accent" to ""))
+            }
+        )
+        val compiled = SceneCompiler.compile(tampered)
+        assertTrue(compiled.profiles.values.all { it.palette.isEmpty() })
     }
 
 }

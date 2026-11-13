@@ -4,7 +4,11 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -13,22 +17,37 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.MAX_CANVAS_PADDING_PERCENT
+import com.eza.hyperglow.aod.MAX_KEEP_AWAKE_DURATION_MS
+import com.eza.hyperglow.aod.MIN_KEEP_AWAKE_DURATION_MS
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import kotlin.math.roundToInt
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
+
+/** 自定义保活时长输入的分钟上限（与 [MAX_KEEP_AWAKE_DURATION_MS] 对齐）。 */
+private const val CUSTOM_DURATION_MAX_MINUTES = 1440
 
 @Composable
 internal fun AodBehaviorScreen(onBack: () -> Unit) {
@@ -97,6 +116,23 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
     var showRotationModeDialog by rememberSaveable { mutableStateOf(false) }
     var showRotationSettleDialog by rememberSaveable { mutableStateOf(false) }
     var showRefreshRateCapDialog by rememberSaveable { mutableStateOf(false) }
+    var showKeepAwakeCustomDialog by rememberSaveable { mutableStateOf(false) }
+    var customDurationMinutes by rememberSaveable { mutableStateOf("") }
+    var customDurationInvalid by rememberSaveable { mutableStateOf(false) }
+
+    val applyCustomDuration: () -> Unit = {
+        val minutes = customDurationMinutes.toIntOrNull()
+        if (minutes == null || minutes < 1 || minutes > CUSTOM_DURATION_MAX_MINUTES) {
+            customDurationInvalid = true
+        } else {
+            val value = minutes * 60_000L
+            if (updateKeepAwakeDuration(context, value)) {
+                keepAwakeDurationMs = value
+                showKeepAwakeCustomDialog = false
+                showKeepAwakeDurationDialog = false
+            }
+        }
+    }
 
     Scaffold(
         containerColor = appSurfaceColor(),
@@ -512,6 +548,69 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
                         }
                     )
                 }
+                // 自定义时长：预设之外的值由输入框设置（1–1440 分钟）。
+                val customSelected = keepAwakeDurationMs in
+                    MIN_KEEP_AWAKE_DURATION_MS..MAX_KEEP_AWAKE_DURATION_MS &&
+                    keepAwakeDurationMs !in KEEP_AWAKE_DURATIONS
+                RadioButtonPreference(
+                    stringResource(R.string.duration_custom),
+                    customSelected,
+                    {
+                        customDurationMinutes = (
+                            keepAwakeDurationMs.takeIf { it > 0 } ?: 300_000L
+                        ).div(60_000L).toString()
+                        customDurationInvalid = false
+                        showKeepAwakeCustomDialog = true
+                    }
+                )
+            }
+        }
+    }
+
+    if (showKeepAwakeCustomDialog) {
+        WindowDialog(
+            title = stringResource(R.string.dialog_custom_duration_title),
+            summary = stringResource(R.string.dialog_custom_duration_summary),
+            show = true,
+            onDismissRequest = { showKeepAwakeCustomDialog = false }
+        ) {
+            Column(Modifier.dialogScrollable()) {
+                TextField(
+                    value = customDurationMinutes,
+                    onValueChange = {
+                        customDurationMinutes = it.filter { ch -> ch.isDigit() }.take(4)
+                        customDurationInvalid = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = stringResource(R.string.dialog_custom_duration_hint),
+                    useLabelAsPlaceholder = true,
+                    textStyle = TextStyle(
+                        color = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+                        fontSize = 16.sp
+                    ),
+                    cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { applyCustomDuration() })
+                )
+                if (customDurationInvalid) {
+                    Text(
+                        text = stringResource(R.string.dialog_custom_duration_invalid),
+                        color = MiuixTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                    )
+                }
+                TextButton(
+                    text = stringResource(R.string.action_apply),
+                    onClick = { applyCustomDuration() },
+                    colors = ButtonDefaults.textButtonColorsPrimary()
+                )
             }
         }
     }

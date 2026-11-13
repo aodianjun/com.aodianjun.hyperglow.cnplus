@@ -3,7 +3,9 @@ package com.eza.hyperglow.ui
 import com.eza.hyperglow.DiagnosticLogLevel
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
+import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.customization.SurfaceProfile
 import com.eza.hyperglow.producer.LyricSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -64,7 +66,8 @@ class ConfigBackupCodecTest {
         aodBrightnessLevel = 73,
         aodDebugShowCanvasFrame = true,
         aodRefreshRateCap = 90,
-        filterNonMusicSources = false
+        filterNonMusicSources = false,
+        hideCreditLines = true
     )
 
     /** 每个补充设置面字段都取非默认值;插件值覆盖 SharedPreferences 全部六种原生类型。 */
@@ -133,6 +136,30 @@ class ConfigBackupCodecTest {
         )
 
         assertEquals(document, (result as ConfigBackupDecodeResult.Success).customizationDocument)
+    }
+
+    @Test
+    fun tailTimeoutSettingsRoundTripThroughConfigBackup() {
+        // 新字段走同一份 customizationDocument JSON(encodeDefaults + ignoreUnknownKeys),
+        // ConfigBackupCodec 本身不需要改;这里验证非默认值不会在备份/恢复时丢失。
+        val document = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    tailTimeoutBehavior = "restore_default",
+                    tailTimeoutDelaySeconds = 17
+                )
+            )
+        )
+
+        val result = ConfigBackupCodec.decode(
+            ConfigBackupCodec.encode(AodRenderConfig(), document, ConfigBackupSideSettings())
+                .toByteArray()
+        )
+
+        val decoded = (result as ConfigBackupDecodeResult.Success).customizationDocument!!
+            .profiles.getValue(SceneCompiler.SURFACE_AOD)
+        assertEquals("restore_default", decoded.tailTimeoutBehavior)
+        assertEquals(17, decoded.tailTimeoutDelaySeconds)
     }
 
     @Test
@@ -523,6 +550,47 @@ class ConfigBackupCodecTest {
         val atLimit = ByteArray(ConfigBackupCodec.MAX_BYTES) { 'z'.code.toByte() }
 
         val result = ConfigBackupCodec.decode(atLimit)
+
+        assertEquals(
+            ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED),
+            result
+        )
+    }
+
+    @Test
+    fun customizationSectionKeepsSchemaSafetyOnElementPath() {
+        // 子文档走「复用 JsonElement」入口后,安全检查必须与 decodeDocument(raw) 一致:
+        // unsafe schema 值(路径/URL/命令形态)仍整体拒绝。
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "customization": {"version": 1, "name": "file:///tmp/x"}
+            }
+        """.trimIndent()
+
+        val result = ConfigBackupCodec.decode(payload.toByteArray())
+
+        assertEquals(
+            ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED),
+            result
+        )
+    }
+
+    @Test
+    fun oversizeCustomizationSectionIsRejectedOnElementPath() {
+        // 子文档大小上限(SceneCompiler.MAX_CONFIG_BYTES,按紧凑序列化计)在复用
+        // JsonElement 后仍生效:信封整体未超 MAX_BYTES,但子文档自身超限即拒绝。
+        val padding = "x".repeat(SceneCompiler.MAX_CONFIG_BYTES + 1)
+        val payload = """
+            {
+              "format": "${ConfigBackupCodec.FORMAT}",
+              "version": ${ConfigBackupCodec.VERSION},
+              "customization": {"version": 1, "id": "safe", "padding": "$padding"}
+            }
+        """.trimIndent()
+
+        val result = ConfigBackupCodec.decode(payload.toByteArray())
 
         assertEquals(
             ConfigBackupDecodeResult.Rejected(ConfigBackupRejection.MALFORMED),

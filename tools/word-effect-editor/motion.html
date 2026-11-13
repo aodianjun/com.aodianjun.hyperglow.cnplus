@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="zh-hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HyperGlow Motion · 歌词动态排版编排器</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #17181c;
+    --panel: #1f2127;
+    --panel2: #262932;
+    --line: #33363f;
+    --text: #e8eaf0;
+    --muted: #9aa0ad;
+    --accent: #7ab3ff;
+    --ok: #5fd08a;
+    --bad: #ff8a8a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.55 "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  a { color: var(--accent); text-decoration: none; }
+  .layout { display: flex; gap: 12px; padding: 12px; align-items: flex-start; }
+  .col-left { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+  .col-right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
+  textarea {
+    width: 100%; min-height: 180px; resize: vertical;
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px; font: 12px/1.6 ui-monospace, Consolas, monospace;
+  }
+  input[type="text"], input[type="number"], select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font: inherit;
+  }
+  input[type="number"] { width: 72px; }
+  input[type="range"] { width: 120px; accent-color: var(--accent); }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 5px 12px; font: inherit; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #2b62b0; border-color: #2b62b0; }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+  .row label { color: var(--muted); white-space: nowrap; }
+  .hint { color: var(--muted); font-size: 12px; }
+  .warn { color: #ffce7a; font-size: 12px; white-space: pre-wrap; }
+  .stat { color: var(--muted); font-size: 12px; }
+  .stat b { color: var(--text); font-weight: 600; }
+  details summary { cursor: pointer; color: var(--muted); }
+  details .syntax { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+  details .syntax code { background: var(--panel2); border-radius: 4px; padding: 0 4px; }
+  canvas#preview {
+    width: 100%; aspect-ratio: 16 / 9; display: block;
+    background: #000; border: 1px solid var(--line); border-radius: 10px;
+  }
+  .transport { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .timecode { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-width: 150px; }
+  .linelist { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+  .linerow { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; }
+  .linerow.active { background: #2b62b033; }
+  .linerow.interlude { color: var(--muted); font-style: italic; }
+  .linerow input[type="number"] { width: 64px; padding: 2px 6px; }
+  .linerow .text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 10px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--muted); }
+  .badge.flash { color: #ffe27a; border-color: #ffe27a66; }
+  .badge.emph { color: #ff9ad2; border-color: #ff9ad266; }
+  .tapbar {
+    display: flex; gap: 8px; align-items: center; margin-top: 8px;
+    padding: 8px; border: 1px dashed var(--line); border-radius: 8px;
+  }
+  #tapButton { font-size: 15px; padding: 8px 22px; }
+  input[type="color"] { width: 34px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
+  .sync-mode { display: flex; align-items: center; gap: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>HyperGlow Motion</h1>
+  <span class="sub">歌词动态排版编排器 · 参考创作流自 JIZURA (MIT) · 产出 HyperGlow 盒模式效果包</span>
+  <span class="spacer"></span>
+  <a href="./index.html">← 文字效果编辑器</a>
+</header>
+
+<div class="layout">
+  <div class="col-left">
+    <div class="card">
+      <h2>歌词</h2>
+      <textarea id="lyrics" spellcheck="false"></textarea>
+      <div id="parseStatus" class="hint"></div>
+      <details>
+        <summary>语法说明</summary>
+        <ul class="syntax">
+          <li>一行就是一句;空行留出停顿</li>
+          <li><code>我还记得/黎明的颜色</code> — <code>/</code> 标记镜头切分(记录用)</li>
+          <li><code>*黎明*</code> — 强调段(行内含强调 → 该行编排幅度加成)</li>
+          <li>行末 <code>!</code> — 闪光(行开始瞬间全亮脉冲)</li>
+          <li><code>歌词|注音</code> — 注音/备注(HyperGlow 的注音由宿主绘制)</li>
+          <li><code>[01:23.45]歌词</code> — 直接使用 LRC 时间戳</li>
+          <li><code>[间奏 8]</code> — 8 秒间奏(省略秒数 = 4 秒)</li>
+          <li><code>#</code> 开头 — 注释</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>音乐与时间</h2>
+      <div class="row">
+        <input type="file" id="musicFile" accept="audio/*" style="display:none">
+        <button id="loadMusic">载入音乐</button>
+        <audio id="music" controls style="flex:1; height:32px"></audio>
+      </div>
+      <div class="row">
+        <label>BPM</label><input type="number" id="bpm" value="120" min="30" max="300" step="1">
+        <label>开始(秒)</label><input type="number" id="startSec" value="0" min="0" step="0.5">
+        <label>行时长(秒)</label><input type="number" id="lineDur" value="0" min="0" step="0.5">
+        <label class="sync-mode"><input type="checkbox" id="snap"> 吸附拍点</label>
+        <button class="small" id="retime">重新铺时间</button>
+      </div>
+      <div class="hint">行时长填 0 = 每行 4 拍(BPM 决定)。LRC 时间戳与点击同步优先于 BPM 铺底。</div>
+      <div class="tapbar">
+        <label class="sync-mode"><input type="checkbox" id="syncMode"> 同步模式</label>
+        <button id="tapButton" class="primary">TAP(空格)</button>
+        <button class="small" id="tapUndo">撤销一次(退格)</button>
+        <button class="small" id="tapClear">清除点击</button>
+        <span class="hint" id="tapCount"></span>
+      </div>
+      <div class="hint">同步模式下跟着音乐,在每行开始的瞬间按空格打点;按错了用退格撤销。</div>
+    </div>
+
+    <div class="card">
+      <h2>行与镜头</h2>
+      <div class="linelist" id="lineList"></div>
+    </div>
+  </div>
+
+  <div class="col-right">
+    <div class="card">
+      <h2>预览</h2>
+      <canvas id="preview" width="1280" height="720"></canvas>
+      <div class="transport">
+        <button id="playBtn">▶ 播放</button>
+        <label class="sync-mode"><input type="checkbox" id="loop" checked> 循环</label>
+        <label>速度
+          <select id="speed">
+            <option value="1" selected>1×</option>
+            <option value="0.75">0.75×</option>
+            <option value="0.5">0.5×</option>
+          </select>
+        </label>
+        <span class="timecode" id="timecode">00:00.00 / 00:00.00</span>
+        <span class="hint" id="frameStatus"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>编排(每次随机整体更换;R 键重摇)</h2>
+      <div class="row">
+        <label>主题</label>
+        <select id="theme">
+          <option value="lyric">抒情</option>
+          <option value="dynamic">动态文字</option>
+          <option value="typepv">文字PV</option>
+          <option value="japanese">和风</option>
+        </select>
+        <label>手法轮换</label>
+        <select id="cycle">
+          <option value="1">1 · 单一波形</option>
+          <option value="2" selected>2 · 双手法交替</option>
+          <option value="3">3 · 三手法轮换</option>
+        </select>
+        <label>seed</label>
+        <input type="number" id="seed" value="1" step="1" style="width:110px">
+        <button class="small" id="dice">🎲 新种子</button>
+        <button class="small" id="randomAll">随机编排 (R)</button>
+      </div>
+      <div class="row">
+        <label>波幅</label><input type="range" id="waveAmp" min="0" max="0.8" step="0.01" value="0.18">
+        <label>波频</label><input type="range" id="waveK" min="0.5" max="10" step="0.1" value="3.1">
+        <label>旋转</label><input type="range" id="rotAmp" min="0" max="40" step="1" value="8">
+        <label>弹跳</label><input type="range" id="bounceH" min="0" max="0.6" step="0.01" value="0.2">
+        <label>滑入</label><input type="range" id="slideD" min="0" max="2" step="0.05" value="0.6">
+        <label>脉冲</label><input type="range" id="pulse" min="0" max="0.6" step="0.01" value="0.2">
+        <label>未唱暗度</label><input type="range" id="unsungDim" min="0.1" max="0.6" step="0.01" value="0.38">
+        <label class="sync-mode"><input type="checkbox" id="flash"> 闪光</label>
+      </div>
+      <div class="row">
+        <label>已唱色</label><input type="color" id="sungColor" value="#ffffff">
+        <label>辉光</label><input type="color" id="glowColor" value="#66aaff">
+        <span class="hint">未唱色 = 已唱色 × 未唱暗度;实机上颜色还可以在「颜色」设置里覆盖。</span>
+      </div>
+      <div class="stat" id="programStats"></div>
+    </div>
+
+    <div class="card">
+      <h2>导出</h2>
+      <div class="row">
+        <button class="primary" id="exportPack">导出效果包 JSON(导入 HyperGlow)</button>
+        <button id="exportLrc">导出 LRC</button>
+        <button id="saveProject">保存工程</button>
+        <button id="loadProjectBtn">打开工程</button>
+        <input type="file" id="projectFile" accept=".json" style="display:none">
+      </div>
+      <div class="hint">
+        效果包导入 HyperGlow:外观 → 导入单词效果包 → 在「自定义单词效果」里选中。
+        预览与实机共用同一 VM,所见即所得;字体/注音由宿主绘制,以实机为准。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./engine.js"></script>
+<script src="./motion.js"></script>
+<script>
+'use strict';
+
+// engine.js → window.WEEngine;motion.js → window.HGMotion(UMD,与主编辑器同一份实现)
+const E = window.WEEngine;
+const M = window.HGMotion;
+
+const state = {
+  lyricsSrc: '',
+  parsed: { lines: [], warnings: [] },
+  timeline: { rows: [], total: 0, lineSec: 2 },
+  tap: [],
+  manualTimes: {},
+  seed: 1,
+  theme: 'lyric',
+  overrides: {},
+  palette: { sung: 0xFFFFFFFF, unsung: 0x88FFFFFF, glow: 0xFF66AAFF, accent: 0xFFFFAA33 },
+  built: null,        // { pack, effect, stats }
+  playing: false,
+  virtualClockStart: 0,
+  virtualClockOffset: 0,
+  lastFrameAt: 0,
+  activeRowIndex: -1
+};
+
+const $ = (id) => document.getElementById(id);
+
+// ---------------------------------------------------------------------------
+// 调色 / 字体
+// ---------------------------------------------------------------------------
+
+function cssRgb(argb) {
+  const c = E.colorChannels(argb | 0);
+  return 'rgb(' + c.r + ',' + c.g + ',' + c.b + ')';
+}
+function cssColor(argb, alphaMul) {
+  const c = E.colorChannels(argb | 0);
+  const a = Math.max(0, Math.min(1, (c.a / 255) * (alphaMul == null ? 1 : alphaMul)));
+  return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + a.toFixed(3) + ')';
+}
+const FONT_STACK = '"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif';
+const fontString = (size) => '600 ' + size + 'px ' + FONT_STACK;
+
+const measureCanvas = document.createElement('canvas');
+const measureCtx = measureCanvas.getContext('2d');
+function measure(text, sizePx) {
+  measureCtx.font = fontString(sizePx);
+  return measureCtx.measureText(text).width;
+}
+
+// ---------------------------------------------------------------------------
+// 解析 → 时间轴 → 编排 → 程序
+// ---------------------------------------------------------------------------
+
+function readControls() {
+  state.seed = Math.abs(Math.trunc(Number($('#seed').value) || 1)) || 1;
+  state.theme = $('#theme').value;
+  state.overrides = {
+    waveAmp: Number($('#waveAmp').value),
+    waveK: Number($('#waveK').value),
+    rotAmp: Number($('#rotAmp').value),
+    bounceH: Number($('#bounceH').value),
+    slideD: Number($('#slideD').value),
+    pulse: Number($('#pulse').value),
+    unsungDim: Number($('#unsungDim').value),
+    cycle: Number($('#cycle').value),
+    flash: $('#flash').checked
+  };
+  const sung = E.parseColor($('#sungColor').value) || 0xFFFFFFFF;
+  const glow = E.parseColor($('#glowColor').value) || 0xFF66AAFF;
+  const dim = E.clamp(state.overrides.unsungDim, 0.1, 0.6);
+  const dimAlpha = Math.round(255 * (1 - dim) + 40);
+  state.palette = {
+    sung,
+    unsung: (dimAlpha << 24 | (sung & 0xFFFFFF)) >>> 0,
+    glow,
+    accent: glow
+  };
+}
+
+function refresh() {
+  state.lyricsSrc = $('#lyrics').value;
+  state.parsed = M.parseLyrics(state.lyricsSrc);
+  const parseStatus = [];
+  if (state.parsed.warnings.length) parseStatus.push(state.parsed.warnings.join('\n'));
+  parseStatus.push('已解析 ' + state.parsed.lines.filter((l) => l.interlude == null).length + ' 行歌词' +
+    (state.parsed.lines.some((l) => l.interlude != null) ? '(含间奏)' : ''));
+  $('#parseStatus').textContent = parseStatus.join('\n');
+
+  state.timeline = M.buildTimeline(state.parsed, {
+    bpm: Number($('#bpm').value) || 120,
+    startSec: Number($('#startSec').value) || 0,
+    lineDurSec: Number($('#lineDur').value) || 0,
+    snap: $('#snap').checked,
+    tap: state.tap.slice(),
+    manualTimes: state.manualTimes
+  });
+  readControls();
+  const style = M.styleFromSeed(state.seed, state.theme, state.overrides);
+  state.style = style;
+  state.built = M.buildEffectPack(state.timeline, style, {
+    title: 'Motion · ' + style.themeName
+  });
+  if (state.built.ok) {
+    const stats = state.built.stats;
+    $('#programStats').innerHTML =
+      '程序 <b>' + stats.instructions + '</b> 条指令(上限 512) · 常量 <b>' + stats.constants +
+      '</b> · 逐帧绘制 <b>' + stats.drawOps + '</b>(上限 4096) · 估算 <b>' +
+      (stats.estimatedBytes / 1024).toFixed(1) + '</b> KiB(上限 12) — 全部在预算内即可导入';
+    $('#frameStatus').textContent = '';
+  } else {
+    $('#programStats').innerHTML = '<span style="color:var(--bad)">程序生成失败:' +
+      state.built.errors.join(';') + '</span>';
+    state.built = null;
+  }
+  renderLineList();
+}
+
+// ---------------------------------------------------------------------------
+// 行列表
+// ---------------------------------------------------------------------------
+
+function renderLineList() {
+  const list = $('#lineList');
+  const rows = state.timeline.rows;
+  list.innerHTML = '';
+  rows.forEach((row) => {
+    const div = document.createElement('div');
+    div.className = 'linerow' + (row.interlude ? ' interlude' : '') +
+      (row.index === state.activeRowIndex ? ' active' : '');
+    div.dataset.index = String(row.index);
+    if (row.interlude) {
+      div.innerHTML = '<span class="badge">间奏</span><span class="text">' +
+        row.interlude + ' 秒(不渲染歌词)</span>';
+    } else {
+      const timeInput = document.createElement('input');
+      timeInput.type = 'number';
+      timeInput.step = '0.1';
+      timeInput.value = row.start.toFixed(2);
+      timeInput.title = '行开始时间(秒);修改后该行锁定为手动时间';
+      timeInput.addEventListener('change', () => {
+        const value = Number(timeInput.value);
+        if (Number.isFinite(value) && value >= 0) {
+          state.manualTimes[lyricIndexOf(row)] = value;
+          refresh();
+        }
+      });
+      const jump = document.createElement('button');
+      jump.className = 'small';
+      jump.textContent = '◎';
+      jump.title = '跳到这行';
+      jump.addEventListener('click', () => seekTo(row.start));
+      const text = document.createElement('span');
+      text.className = 'text';
+      text.textContent = row.text;
+      const badges = document.createElement('span');
+      if (row.flash) badges.innerHTML += '<span class="badge flash">闪</span> ';
+      if (row.emph) badges.innerHTML += '<span class="badge emph">强</span> ';
+      if (row.shotCount > 1) badges.innerHTML += '<span class="badge">' + row.shotCount + '镜头</span>';
+      if (row.manual) badges.innerHTML += '<span class="badge">手动</span>';
+      div.append(timeInput, jump, text, badges);
+    }
+    list.appendChild(div);
+  });
+}
+
+function lyricIndexOf(row) {
+  // 行列表手动时间按「歌词行序号」记(间奏行不占号)
+  let index = -1;
+  for (const other of state.timeline.rows) {
+    if (other.interlude) continue;
+    index++;
+    if (other.index === row.index) return index;
+  }
+  return index;
+}
+
+// ---------------------------------------------------------------------------
+// 播放与预览
+// ---------------------------------------------------------------------------
+
+const audio = $('music');
+let speed = 1;
+
+function currentTimeSec() {
+  if (audio.src && !audio.paused) return audio.currentTime;
+  if (!state.playing) return state.virtualClockOffset;
+  return state.virtualClockOffset + (performance.now() - state.virtualClockStart) / 1000 * speed;
+}
+
+function seekTo(seconds) {
+  const total = Math.max(0.1, state.timeline.total);
+  const t = Math.max(0, Math.min(total - 0.01, seconds));
+  if (audio.src) {
+    audio.currentTime = t;
+    if (!audio.paused) audio.play();
+  }
+  state.virtualClockOffset = t;
+  state.virtualClockStart = performance.now();
+  drawFrame(t);
+}
+
+$('playBtn').addEventListener('click', () => {
+  state.playing = !state.playing;
+  if (state.playing) {
+    if (audio.src) {
+      audio.play().catch(() => {});
+    } else {
+      state.virtualClockStart = performance.now();
+    }
+    $('playBtn').textContent = '⏸ 暂停';
+  } else {
+    audio.pause();
+    state.virtualClockOffset = currentTimeSec();
+    $('playBtn').textContent = '▶ 播放';
+  }
+});
+$('speed').addEventListener('change', () => {
+  speed = Number($('speed').value) || 1;
+  if (audio.src && audio.playbackRate !== undefined) audio.playbackRate = speed;
+  state.virtualClockOffset = currentTimeSec();
+  state.virtualClockStart = performance.now();
+});
+$('loop').addEventListener('change', () => {});
+
+function drawFrame(tSeconds) {
+  const canvas = $('preview');
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const total = Math.max(0.01, state.timeline.total);
+  $('timecode').textContent = formatTime(tSeconds) + ' / ' + formatTime(total);
+
+  // 活跃行高亮
+  const rows = state.timeline.rows;
+  let activeIndex = -1;
+  for (const row of rows) {
+    if (tSeconds >= row.start && tSeconds < row.end) { activeIndex = row.index; break; }
+  }
+  if (activeIndex !== state.activeRowIndex) {
+    state.activeRowIndex = activeIndex;
+    renderLineList();
+  }
+
+  if (!state.built) return;
+  const frame = M.buildFrameContext(
+    state.timeline, tSeconds, state.palette, measure, canvas.width, canvas.height
+  );
+  if (!frame) return; // 间奏/空隙:留空
+  const sink = E.createBoxCollectorSink(measure, frame.colors.unsung, frame.textSize);
+  const result = E.runProgram(state.built.effect.program, frame, sink);
+  if (!result.ok || sink.failed) {
+    $('#frameStatus').textContent = '程序执行失败:' + (result.error || '预算超限') + '(实机会整块不绘制)';
+    return;
+  }
+  $('#frameStatus').textContent = '';
+  // 背景网格暗示画布边界
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.strokeRect(8.5, 8.5, canvas.width - 17, canvas.height - 17);
+  const scale = canvas.width / frame.canvasWidth;
+  ctx.save();
+  ctx.scale(scale, scale);
+  M.renderBoxes(ctx, sink.boxes, fontString, cssRgb, cssColor);
+  ctx.restore();
+}
+
+function formatTime(seconds) {
+  const total = Math.max(0, seconds);
+  const minutes = Math.floor(total / 60);
+  const rest = total - minutes * 60;
+  return String(minutes).padStart(2, '0') + ':' + rest.toFixed(2).padStart(5, '0');
+}
+
+function tick() {
+  if (state.playing) {
+    let t = currentTimeSec();
+    const total = Math.max(0.01, state.timeline.total);
+    if (t >= total) {
+      if (audio.src) {
+        if ($('#loop').checked) { audio.currentTime = 0; audio.play().catch(() => {}); t = 0; }
+        else { state.playing = false; $('playBtn').textContent = '▶ 播放'; }
+      } else if ($('#loop').checked) {
+        state.virtualClockOffset = 0;
+        state.virtualClockStart = performance.now();
+        t = 0;
+      } else {
+        state.playing = false;
+        state.virtualClockOffset = 0;
+        $('playBtn').textContent = '▶ 播放';
+      }
+    }
+    drawFrame(t);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ---------------------------------------------------------------------------
+// 音乐 / 点击同步
+// ---------------------------------------------------------------------------
+
+$('loadMusic').addEventListener('click', () => $('musicFile').click());
+$('musicFile').addEventListener('change', () => {
+  const file = $('musicFile').files[0];
+  if (!file) return;
+  audio.src = URL.createObjectURL(file);
+  audio.playbackRate = speed;
+  state.playing = false;
+  $('playBtn').textContent = '▶ 播放';
+});
+
+$('tapButton').addEventListener('click', () => doTap());
+$('tapUndo').addEventListener('click', () => {
+  state.tap.pop();
+  state.manualTimes = {};
+  refresh();
+});
+$('tapClear').addEventListener('click', () => {
+  state.tap = [];
+  state.manualTimes = {};
+  refresh();
+});
+$('retime').addEventListener('click', () => {
+  state.tap = [];
+  state.manualTimes = {};
+  refresh();
+});
+
+function doTap() {
+  const t = currentTimeSec();
+  state.tap.push(Math.round(t * 100) / 100);
+  state.manualTimes = {};
+  refresh();
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.target && /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
+  if (event.code === 'Space' && $('#syncMode').checked) {
+    event.preventDefault();
+    doTap();
+  } else if (event.code === 'Backspace' && $('#syncMode').checked) {
+    event.preventDefault();
+    state.tap.pop();
+    state.manualTimes = {};
+    refresh();
+  } else if (event.code === 'KeyR' && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    randomAll();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 编排控制
+// ---------------------------------------------------------------------------
+
+function randomAll() {
+  const themes = Object.keys(M.THEMES);
+  const theme = themes[Math.floor(Math.random() * themes.length)];
+  state.theme = theme;
+  state.seed = Math.floor(Math.random() * 0xffffff) + 1;
+  state.overrides = {}; // 清空手动覆盖,吃主题+seed 全随机
+  syncControlsFromStyle();
+  refresh();
+}
+
+function syncControlsFromStyle() {
+  $('theme').value = state.theme;
+  $('seed').value = state.seed;
+  const style = M.styleFromSeed(state.seed, state.theme, {});
+  const set = (id, value) => { $(id).value = value; };
+  set('waveAmp', Math.abs(style.waveAmp));
+  set('waveK', Math.abs(style.waveK));
+  set('rotAmp', style.rotAmp);
+  set('bounceH', style.bounceH);
+  set('slideD', style.slideD);
+  set('pulse', style.pulse);
+  set('unsungDim', style.unsungDim);
+  set('cycle', style.cycle);
+  $('flash').checked = style.flash;
+}
+
+for (const id of ['bpm', 'startSec', 'lineDur', 'snap']) {
+  $(id).addEventListener('change', refresh);
+}
+for (const id of ['theme', 'cycle', 'seed', 'waveAmp', 'waveK', 'rotAmp', 'bounceH',
+  'slideD', 'pulse', 'unsungDim', 'flash', 'sungColor', 'glowColor']) {
+  $(id).addEventListener('input', () => {
+    state.manualTimes = state.manualTimes; // 保持
+    refresh();
+  });
+}
+$('#dice').addEventListener('click', () => {
+  state.seed = Math.floor(Math.random() * 0xffffff) + 1;
+  $('seed').value = state.seed;
+  refresh();
+});
+$('#randomAll').addEventListener('click', randomAll);
+
+// ---------------------------------------------------------------------------
+// 导出
+// ---------------------------------------------------------------------------
+
+function download(filename, content, mime) {
+  const blob = new Blob([content], { type: mime || 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+$('exportPack').addEventListener('click', () => {
+  if (!state.built) return;
+  download('hyperglow-motion-' + state.theme + '-' + state.seed + '.json',
+    JSON.stringify(state.built.pack, null, 2));
+});
+$('exportLrc').addEventListener('click', () => {
+  download('motion-' + state.seed + '.lrc', M.toLrc(state.timeline), 'text/plain');
+});
+$('saveProject').addEventListener('click', () => {
+  download('motion-project-' + state.seed + '.json', JSON.stringify(M.toProject({
+    lyrics: state.lyricsSrc,
+    bpm: Number($('#bpm').value) || 120,
+    startSec: Number($('#startSec').value) || 0,
+    lineDurSec: Number($('#lineDur').value) || 0,
+    snap: $('#snap').checked,
+    tap: state.tap,
+    seed: state.seed,
+    theme: state.theme,
+    overrides: state.overrides,
+    palette: {
+      sung: $('#sungColor').value,
+      glow: $('#glowColor').value
+    }
+  })));
+});
+$('loadProjectBtn').addEventListener('click', () => $('projectFile').click());
+$('projectFile').addEventListener('change', () => {
+  const file = $('projectFile').files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const project = JSON.parse(String(reader.result));
+      if (project.format !== 'hyperglow-motion-project') throw new Error('不是 Motion 工程');
+      $('#lyrics').value = String(project.lyrics || '');
+      $('#bpm').value = project.bpm || 120;
+      $('#startSec').value = project.startSec || 0;
+      $('#lineDur').value = project.lineDurSec || 0;
+      $('#snap').checked = !!project.snap;
+      state.tap = Array.isArray(project.tap) ? project.tap.slice() : [];
+      state.manualTimes = {};
+      state.theme = project.theme || 'lyric';
+      state.seed = project.seed || 1;
+      state.overrides = project.overrides || {};
+      if (project.palette) {
+        if (project.palette.sung) $('#sungColor').value = project.palette.sung;
+        if (project.palette.glow) $('#glowColor').value = project.palette.glow;
+      }
+      syncControlsFromStyle();
+      // 覆盖值回填滑杆
+      const over = state.overrides || {};
+      const setIf = (id, key, fallbackId) => {
+        if (Number.isFinite(over[key])) $(id).value = over[key];
+      };
+      setIf('waveAmp', 'waveAmp', 'waveAmp');
+      setIf('waveK', 'waveK', 'waveK');
+      setIf('rotAmp', 'rotAmp', 'rotAmp');
+      setIf('bounceH', 'bounceH', 'bounceH');
+      setIf('slideD', 'slideD', 'slideD');
+      setIf('pulse', 'pulse', 'pulse');
+      setIf('unsungDim', 'unsungDim', 'unsungDim');
+      if (Number.isFinite(over.cycle)) $('#cycle').value = String(over.cycle);
+      if (over.flash !== undefined) $('#flash').checked = !!over.flash;
+      refresh();
+    } catch (error) {
+      $('#parseStatus').textContent = '工程打开失败:' + error.message;
+    }
+  };
+  reader.readAsText(file);
+});
+
+// ---------------------------------------------------------------------------
+// 启动
+// ---------------------------------------------------------------------------
+
+$('#lyrics').value = [
+  '# 把下面的歌词换成你自己的;每行开始的瞬间按空格打点',
+  '[00:00.50]夜色轻轻*落下*',
+  '街灯把影子拉长!',
+  '[间奏 4]',
+  '而我还记得|na yi ge xia tian',
+  '黎明之前的合唱'
+].join('\n');
+state.theme = 'lyric';
+state.seed = 20261109;
+$('seed').value = state.seed;
+syncControlsFromStyle();
+refresh();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

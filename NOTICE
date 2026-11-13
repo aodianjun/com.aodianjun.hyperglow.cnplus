@@ -11,6 +11,15 @@ https://github.com/limczhh/HyperLyric
 HyperLyric copyright belongs to its contributors and is licensed under GPL-3.0.
 Standalone package modifications copyright 2026 HyperGlow contributors.
 
+HyperGlow contains code adapted from HyperWave:
+https://github.com/leset0ng/hyperwave
+
+HyperWave copyright belongs to its contributors and is licensed under the
+Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).
+See LICENSES/Apache-2.0.txt.
+The adapted files are app/src/main/java/com/eza/hyperglow/root/spectrum/
+LoopbackCaptureContract.kt, FullRateCaptureHooks.kt and PlaybackCapture.kt.
+
 Bundled Noto Sans Regular, Medium, and Bold fonts:
 Copyright 2015-2021 Google LLC. All Rights Reserved.
 Licensed under the SIL Open Font License, Version 1.1.

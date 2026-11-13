@@ -65,9 +65,9 @@ Check:
 
 No.
 
-### Does Spicy EX Lite work?
+### Does Spicy EX work?
 
-Yes.
+Yes. The former Lite/Full split no longer exists; the module ships as a single Spicy EX.
 
 ### Battery or burn-in risk?
 
@@ -168,9 +168,9 @@ Spicy EX 使用单独的、仅限 Spotify 的作用域。
 
 不支持。
 
-### Spicy EX Lite 能用吗？
+### Spicy EX 能用吗？
 
-能用。
+能用。原先的 Lite/Full 之分已不存在，模块以单一的 Spicy EX 发布。
 
 ### 耗电或烧屏风险？
 

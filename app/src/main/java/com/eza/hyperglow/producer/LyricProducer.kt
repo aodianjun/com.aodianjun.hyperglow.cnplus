@@ -102,7 +102,8 @@ data class LyricLayoutGroup(
  * (SuperLyric 只推当前行,不产出并发行)。字段语义与主行对齐;lineEndMs 已按各源的
  * 行窗口钳制口径对齐(如 Spicy 取 min(fillEndMs, endMs))。并发行 v1 不携带
  * ruby/layoutGroups(三个接入源中只有 Spicy 可产,normalize 侧还要为文本 trim 重算
- * 区间;并入 v2 再评估)。
+ * 区间;并入 v2 再评估)。带 [harmony] 标记的是插件行表挂回来的同句和声(x-bg 回声),
+ * 渲染侧按辅助行车道绘制,不与对唱同款。
  */
 data class LyricDuetLine(
     val text: String,
@@ -115,6 +116,13 @@ data class LyricDuetLine(
      * [LyricProducerState.alignedRightMarkers]。
      */
     val alignedRightMarkers: Boolean = false,
+    /**
+     * 和声行标记:插件行表里 role=BG(AMLL TTML 的 `ttm:role="x-bg"`)挂回来的同句和声。
+     * 和声与主行同句同人,内容常是主行歌词的回声——渲染侧必须走辅助行车道(小字号辅助行),
+     * 不能按对唱与主行同款并排,否则屏上出现两条一样的大字行(真机 2026-10-07 反馈)。
+     * 只有不同演唱者身份([alignedRight] 对应的 ttm:agent)的并发行才是对唱。
+     */
+    val harmony: Boolean = false,
     val lineStartMs: Long = 0L,
     val lineEndMs: Long = 0L,
     val words: List<LyricWord> = emptyList()
@@ -163,6 +171,12 @@ data class LyricProducerState(
     val playing: Boolean,
     val receivedAtElapsedMs: Long,
     val words: List<LyricWord>?,
+    /**
+     * 插件提供的逐字翻译词表(词级译文 + 时间窗,见 `PluginLyricField.TRANSLATION_WORDS`):
+     * 辅助文字(翻译)行按真实词窗点亮。空表 = 无词级数据,渲染侧回落到行窗口合成
+     * (「辅助文字逐字效果」的历史行为)。
+     */
+    val translationWords: List<LyricWord> = emptyList(),
     val renderModes: ProducerRenderModes,
     val lyricKind: LyricKind = LyricKind.NONE,
     /**
@@ -232,7 +246,8 @@ interface LyricProducer {
 
     /**
      * 整首歌歌词快照（插件处理链的整首输入，见 [LyricSongSnapshot]）；null = 该源没有
-     * 整首数据（纯逐行源如 SuperLyric，由宿主侧 LineStreamAggregator 聚合代替）。
+     * 整首数据（SuperLyric 3.7+ 模块带 allLyrics 时直读快照，旧模块仍由宿主侧
+     * LineStreamAggregator 聚合代替）。
      * 快照的 producerId/generation/trackUri 必须与当前 [state] 的三元组一致。
      * 实现注意：本方法可能被高频路径间接调用，实现应廉价（读内存数组/缓存），
      * 复杂的解析必须在状态更新时完成。

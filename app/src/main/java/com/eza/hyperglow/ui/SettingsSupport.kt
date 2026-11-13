@@ -16,6 +16,8 @@ import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.DiagnosticLogLevel
 import com.eza.hyperglow.R
 import com.eza.hyperglow.normalizeLogRetentionDays
+import com.eza.hyperglow.aod.MAX_KEEP_AWAKE_DURATION_MS
+import com.eza.hyperglow.aod.MIN_KEEP_AWAKE_DURATION_MS
 import com.eza.hyperglow.aod.XiaomiRuntimeSupportState
 import kotlinx.serialization.json.*
 import java.net.HttpURLConnection
@@ -52,12 +54,15 @@ internal enum class SettingsTab {
 }
 
 internal const val GITHUB_URL = "https://github.com/amarinne/hyperglow"
-internal const val GITHUB_CNPLUS_URL = "https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus"
+/** CN+ 仓库已迁移到 Gitee；关于页的仓库入口指向此处。 */
+internal const val GITEE_CNPLUS_URL = "https://gitee.com/Mr__Pit/com.aodianjun.hyperglow.cnplus"
+/** LSPosed 模块仓库（LSP 实际读取的镜像仓库）；插件发行也镜像到这里，插件下载走此仓库。 */
+internal const val LSP_MODULE_URL = "https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus"
 /**
  * 插件 ZIP 的滚动预发行页（docs/PLUGIN_RELEASE_CONVENTIONS.md 定义的唯一发布通道）：
  * 每次 main 构建刷新，资产名固定，用户从这里下载插件包再本地安装。
  */
-internal const val PLUGINS_RELEASE_URL = "$GITHUB_CNPLUS_URL/releases/tag/plugins"
+internal const val PLUGINS_RELEASE_URL = "$LSP_MODULE_URL/releases/tag/plugins"
 /** 项目落地页(GitHub Pages):关于页「支持」入口指向此处,内含微信赞赏码与支付宝收款码。 */
 internal const val PROJECT_SITE_URL = "https://aodianjun.github.io/hyperglow-cnplus-site/"
 internal const val SPICY_EX_GITHUB_URL = "https://github.com/amarinne/spicy-ex/releases"
@@ -107,10 +112,11 @@ internal fun openExternalUrl(context: android.content.Context, url: String) {
     }
 }
 
+/** 检查更新读 LSP 镜像仓库（LSP 实际读取的发布源），不再读源仓库。 */
 internal fun queryLatestReleaseTag(): String? {
     var connection: HttpURLConnection? = null
     return try {
-        val url = URL("https://api.github.com/repos/aodianjun/com.aodianjun.hyperglow.cnplus/releases/latest")
+        val url = URL("https://api.github.com/repos/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/latest")
         connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = 5000
@@ -229,16 +235,29 @@ internal val BURN_IN_PATTERNS = listOf(
 )
 
 internal fun keepAwakeDurationLabel(context: android.content.Context, value: Long): String =
-    context.getString(
-        when (value) {
-            300_000L -> R.string.duration_5_minutes
-            600_000L -> R.string.duration_10_minutes
-            1_800_000L -> R.string.duration_30_minutes
-            3_600_000L -> R.string.duration_1_hour
-            7_200_000L -> R.string.duration_2_hours
-            else -> R.string.duration_indefinitely
+    when (value) {
+        300_000L -> context.getString(R.string.duration_5_minutes)
+        600_000L -> context.getString(R.string.duration_10_minutes)
+        1_800_000L -> context.getString(R.string.duration_30_minutes)
+        3_600_000L -> context.getString(R.string.duration_1_hour)
+        7_200_000L -> context.getString(R.string.duration_2_hours)
+        else -> if (value in MIN_KEEP_AWAKE_DURATION_MS..MAX_KEEP_AWAKE_DURATION_MS) {
+            customKeepAwakeDurationLabel(context, value)
+        } else {
+            context.getString(R.string.duration_indefinitely)
         }
-    )
+    }
+
+private fun customKeepAwakeDurationLabel(context: android.content.Context, value: Long): String {
+    val totalMinutes = (value / 60_000L).coerceAtLeast(1L).toInt()
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return when {
+        hours == 0 -> context.getString(R.string.duration_custom_minutes, minutes)
+        minutes == 0 -> context.getString(R.string.duration_custom_hours, hours)
+        else -> context.getString(R.string.duration_custom_hours_minutes, hours, minutes)
+    }
+}
 
 internal val KEEP_AWAKE_DURATIONS = listOf(
     300_000L,
@@ -253,8 +272,8 @@ internal val PAUSE_LINGER_OPTIONS = listOf(0L, 5_000L, 10_000L, 30_000L, -1L)
 
 internal val BURN_IN_INTERVALS = listOf(30_000L, 60_000L, 120_000L, 300_000L)
 
-/** 渲染刷新率上限档(issue #68 #12):0=跟随默认;60/90/120=可选上限。 */
-internal val AOD_REFRESH_RATE_CAPS = listOf(0, 60, 90, 120)
+/** 渲染刷新率上限档(issue #68 #12):0=跟随默认;30/60/90/120=可选上限。 */
+internal val AOD_REFRESH_RATE_CAPS = listOf(0, 30, 60, 90, 120)
 
 internal fun aodRefreshRateCapLabel(context: android.content.Context, value: Int): String =
     if (value <= 0) {

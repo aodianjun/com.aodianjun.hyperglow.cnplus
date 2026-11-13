@@ -8,6 +8,9 @@ class AodRenderPreferencesTest {
     @Test
     fun storedAutoValuesMigrateToConcreteDefaults() {
         assertEquals("Main only", normalizeAodSecondary("auto"))
+        // 辅助文字内容档「和声」必须原样通过:归一化把它压回 Main only 会让 wire 的
+        // validate_rewrote_fields 拒收整份配置(实机表现为「设置页正常、实机毫无变化」)。
+        assertEquals("BackgroundVocal", normalizeAodSecondary("BackgroundVocal"))
         assertEquals("Wrap", normalizeAodOverflow("Scroll with lyric"))
         assertEquals("hide", normalizeAodMetadataVisible("auto"))
         assertEquals("top", normalizeAodMetadataAnchor("fixed"))
@@ -77,24 +80,30 @@ class AodRenderPreferencesTest {
     @Test
     fun refreshRateCapAllowsOnlyOfferedSteps() {
         assertEquals(0, normalizeAodRefreshRateCap(0))
+        assertEquals(30, normalizeAodRefreshRateCap(30))
         assertEquals(60, normalizeAodRefreshRateCap(60))
         assertEquals(90, normalizeAodRefreshRateCap(90))
         assertEquals(120, normalizeAodRefreshRateCap(120))
-        assertEquals(0, normalizeAodRefreshRateCap(30))
         assertEquals(0, normalizeAodRefreshRateCap(144))
         assertEquals(0, normalizeAodRefreshRateCap(-1))
     }
 
     @Test
-    fun keepAwakeDurationAllowsOnlyOfferedSessionLengths() {
+    fun keepAwakeDurationAcceptsPresetsAndCustomRange() {
         assertEquals(-1L, normalizeKeepAwakeDurationMs(-1L))
         assertEquals(300_000L, normalizeKeepAwakeDurationMs(300_000L))
         assertEquals(600_000L, normalizeKeepAwakeDurationMs(600_000L))
         assertEquals(1_800_000L, normalizeKeepAwakeDurationMs(1_800_000L))
         assertEquals(3_600_000L, normalizeKeepAwakeDurationMs(3_600_000L))
         assertEquals(7_200_000L, normalizeKeepAwakeDurationMs(7_200_000L))
+        // 自定义时长：1 分钟 ~ 24 小时内的任意值都保留。
+        assertEquals(90_000L, normalizeKeepAwakeDurationMs(90_000L))
+        assertEquals(1_234_000L, normalizeKeepAwakeDurationMs(1_234_000L))
+        assertEquals(86_400_000L, normalizeKeepAwakeDurationMs(86_400_000L))
+        // 范围外回落不限时。
         assertEquals(-1L, normalizeKeepAwakeDurationMs(0L))
         assertEquals(-1L, normalizeKeepAwakeDurationMs(45_000L))
+        assertEquals(-1L, normalizeKeepAwakeDurationMs(86_400_001L))
     }
 
     @Test

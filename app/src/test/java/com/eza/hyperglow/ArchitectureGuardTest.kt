@@ -80,6 +80,7 @@ class ArchitectureGuardTest {
             "resolveAodPalette",
             "secondLineColorArgb",
             "LyricGlowRenderer",
+            "projectedPositionMs",
             "layoutOriginalLines",
             "layoutSecondaryLines",
             "layoutMetadataLines",
@@ -87,6 +88,20 @@ class ArchitectureGuardTest {
         )
         val missing = required.filterNot { text.contains(it) }
         assertTrue("PreviewComponents must delegate to shared render core, missing: $missing", missing.isEmpty())
+    }
+
+    @Test
+    fun aodCanvasProjectedPositionDelegatesToSharedFormula() {
+        // 位置外推同源(预览实时时钟的机器门):画布的 projectedPosition 必须委托共享纯函数
+        // [projectedPositionMs],两处各写一套公式就是「预览与实机不同拍」那类漂移的来源。
+        val base = mainSourceDir() ?: return
+        val canvas = File(base, "root/aod/AodLyricCanvasView.kt")
+        assertTrue("root/aod/AodLyricCanvasView.kt exists", canvas.isFile)
+        val text = canvas.readText()
+        assertTrue(
+            "AodLyricCanvasView.projectedPosition must delegate to projectedPositionMs",
+            text.contains("projectedPositionMs(")
+        )
     }
 
     @Test

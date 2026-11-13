@@ -14,6 +14,11 @@ customization, and fallback.
 - Lockscreen and AOD render separate views from the same content, row, timing anchor, and track
   generation.
 - A newly attached surface receives the cached latest snapshot immediately.
+- A producer `clear` drops the held state and document without retiring the generation, so a producer
+  that clears for a reason of its own may resume at the same generation. A held document belongs to
+  the current track by its track URI plus a whole-second duration tolerance (the producer rounds the
+  track length to the whole second), so an advance of the producer's session bookkeeping does not
+  invalidate it, and a document the producer never re-requests is not dropped for the rest of the song.
 - Stale expiry, Binder death, caller failure, or invalid payload hides every subscriber. A hidden
   state explicitly marked as a real Spotify pause may retain the last valid lyric snapshot under the
   shared bounded policy below. Terminal hidden state clears it.
@@ -217,7 +222,7 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   document for that generation emits a second wake event, allowing a synced track to restore AOD
   after an earlier unsynced track timed out. The exact verified wake broker calls Xiaomi's
   `DozeHost.fireAodState(true, "reason_keycode_goto")` only while the device is non-interactive.
-- Default keepalive additionally requires a `Line` or `Syllable` document containing at least one
+- Default keepalive additionally requires a `Line`, `Word`, or `Syllable` document containing at least one
   positive-duration row. Timed-document arrival upgrades the current presentation lease to persistent
   keepalive without a false gap. Static, missing, loading, no-lyrics, and degenerate zero-duration
   documents release naturally when the lease expires. `Also keep AOD active without timed lyrics`
@@ -259,12 +264,30 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   A resumed producer or a new session inside that window cancels the pending pause, so a song change
   never releases AOD lifetime or replays Xiaomi hide policy. The window opens once per session; a
   producer that keeps publishing while paused must not reopen it.
-- Ready, loading, and no-lyrics visible playback all receive the same 4-second freshness heartbeat;
-  unchanged fallback snapshots are refreshed instead of expiring after 5 seconds.
+- Ready, loading, and no-lyrics visible playback all receive the same freshness heartbeat: scalar
+  keepalive beats on a 1.5-second cadence, with a full snapshot re-sent on the 4.5-second republish
+  threshold (about 6 seconds on the fallback refresh loop); unchanged fallback snapshots are refreshed
+  instead of expiring after 15 seconds.
 - The wake broker retains the latest verified `DozeHost` as one bounded recovery reference across
   AOD plugin teardown. If a persistent session has no attached AOD surface, each bounded heartbeat
   may retry the same wake identity until Xiaomi recreates the surface. Interactive-screen requests
   remain suppressed and the system AOD master setting remains authoritative.
+- The broker captures that host from two seams, because a host reached only through the
+  `DozeTriggers` constructor is never observed on a ROM that builds its AOD plugin instance before
+  the hook installs. It adopts a live `DozeHost` from the existing AOD visibility seam as well, and
+  keeps the same single bounded reference either way. A `DozeHost` in Xiaomi's own active use is
+  the verification the constructor supplied; nothing weaker is accepted, and a repeat of the
+  instance already held is not a new capture.
+- A wake the broker cannot serve names the absent reference — host, wake method, or power manager —
+  rather than reporting one undifferentiated "unavailable". A missing reference outranks an
+  interactive screen in that report, so an ordinary suppression is never described as a fault, and a
+  fault is never hidden behind one. Each distinct reason is reported once; recovering clears the
+  latch so a later regression is reported again.
+- A missing-host refusal also carries why the installer last bailed, or `none` when it never did. On a
+  healthy ROM an installer skip is ordinary, because a class loader that cannot see the AOD dex bails
+  while a later one on the same dex succeeds, so a skip is recorded rather than reported and is only
+  read at the moment a wake is actually refused. That keeps one line able to separate a host that was
+  never handed over from an installer that never bound.
 - A keepalive edge that arrives while Xiaomi is already hiding AOD cannot be suppressed: the policy
   hide has run, its alarm can no longer be cancelled, and a wake delivered mid-animation only re-arms
   Xiaomi's own timer. That single race re-asserts the current wake identity once, on the first
@@ -319,7 +342,8 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   detail is `com.android.systemui:PICK_UP` are remapped. The module first requests AOD through the
   verified Xiaomi `DozeHost.fireAodState(true, "reason_keycode_goto")` state-machine seam, then
   always suppresses the full wake. If AOD is already sustained by active lyrics, the request is
-  effectively redundant and the existing AOD remains visible.
+  effectively redundant and the existing AOD remains visible. The wake method is resolved at hook
+  install rather than from the captured host, so a host obtained by adoption can still serve a wake.
 - The remap is global for this owner device and does not depend on Spotify, lyrics, media state, or
   either lyric surface being enabled.
 - Power-button, fingerprint, double-tap, notification, biometric, camera, and application wake
@@ -372,6 +396,18 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   mode or the `None` effect), the word-karaoke path, or the shared sweep block. The whole-block
   sweep therefore occurs only when that mode is explicitly selected, never as a fallback for
   word-timed sources.
+- Word effect programs are declarative sandboxed bytecode with one output mode: the default
+  `draw` mode issues controlled draw primitives through the host sink (existing behavior,
+  byte-for-byte unchanged), while `outputMode == "boxes"` emits a bounded list of positioned
+  boxes (text/rect/roundRect/circle/line/oval/arc/path with a paint-state snapshot and a full
+  baked affine matrix). Boxes are plain data — they can never name classes, resources, methods,
+  paths, URLs, commands, or executable code. Collection budgets are hard caps (512 boxes, 256
+  path segments per box, 4096 total path segments, 512 text characters per box, plus the shared
+  100k-step / 4096-draw-call frame budgets); any overrun or execution failure aborts the whole
+  frame and returns no partial boxes. The host renders boxes through one fixed renderer shared
+  by the device canvas and the in-app preview, with a conservative 2em vertical overdraw
+  allowance folded into placement and adaptive-height measurement; drawing remains clipped to
+  the logical canvas frame.
 - Word animation accepts a fixed `Minimal`/`Gradient`/`BetterLyrics` vocabulary per surface profile.
   `BetterLyrics` (modeled after jayfunc/BetterLyrics) renders sources through the shared word-karaoke
   renderer, used by both the device canvas and the in-app preview: word/syllable-timed sources use
@@ -494,9 +530,15 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   Explicit per-line sides still win in either state.
 - Show concurrent lines (duet) is a per-surface switch (default on; lockscreen and AOD independent — CN+ extends upstream's AOD-only scope to the lockscreen card): producers holding a
   whole-song line list (Spicy document, Lyricon, LyricInfo) pre-compute the concurrent candidate —
-  a sung line whose playback window overlaps the primary line by at least one second (pure
-  time-overlap; no singer metadata is involved and interlude rows never join). Projection only
-  applies the switch and converts the candidate; it never re-selects rows. When the switch is on
+  a sung line whose playback window overlaps the primary line by at least one second; an explicit
+  backing-vocal row (Spicy `role=BACKGROUND`, a plugin `role=BG` echo) joins for any positive
+  shared window, so short authored responses are no longer swallowed by the one-second gate, while
+  an incidental overlap between lead lines with less than one second of shared timing still never
+  joins. Row roles only feed this join threshold and take no part in identity derivation, and
+  sources without roles (Lyricon, LyricInfo) keep every row on the one-second gate; interlude rows
+  never join. A row already on screen still yields only to a genuinely overlapping candidate
+  (shared window of at least one second), so a short response never interrupts a line that is still
+  singing. Projection only applies the switch and converts the candidate; it never re-selects rows. When the switch is on
   and the snapshot carries the candidate, the AOD canvas stacks the concurrent line as a same-size
   section adjacent to the primary block (top-anchored layouts keep the primary's position stable;
   bottom-anchored and centered layouts redistribute the stack), each section with its own karaoke
@@ -662,6 +704,49 @@ first, lyrics shrink to the bounded minimum, and insufficient/unknown geometry f
   optional-row removal, bounded minimum size, and fail-closed placement remain authoritative.
 - Each surface profile stores metadata size from 50% to 200% and ruby-reading visibility. Ruby is
   shown by default and, when disabled, reserves no drawing or layout height.
+- Each surface profile stores the song-info layout: `stacked` (title over artist/album, each slice on
+  its own line when the slot separator is a newline — the historical default) or `single` (every
+  slice joined into one line with the inline middle-dot separator, the whole line sized by the title
+  font). Unknown values normalize to `stacked`. A stacked piece or a single line too wide for the
+  frame wraps onto further lines instead of shrinking the block to fit. In the stacked layout the
+  artist line additionally carries its own size as a percentage of the title size (40–100, default
+  80; not shown for `single`, where the whole line uses the title font); out-of-range values fall
+  back to the default rather than being clamped, so a bad document can never render a zero-height
+  line. When title and artist differ in size, the line box advances by the previous line's descent
+  plus the next line's ascent — the document-typesetting rule — instead of taking the tallest line's
+  box for all; identical sizes reduce to the previous result value for value.
+- Long-interlude countdown dots are a per-surface switch (on by default): when the gap between the
+  current line's end and the next line's start reaches four seconds, the lyric-row slot draws three
+  countdown dots instead of nothing — each dot lights up and scales up (smoothstep, up to +40%) as
+  the next line approaches, and from 60% progress the dots fade out one by one, rightmost first, so
+  they are gone exactly when the next line lands. Dot radius and gap follow the main line's text
+  size (0.25× and 0.34×) and take the palette's unsung/sung semantic tokens (the background dot is
+  the unsung color at half alpha). The window starts one second after the line's end — or at the end
+  itself on a surface that already shows the next line — and that choice is resolved per surface at
+  the render-mapping layer, because one projected snapshot feeds both surfaces; a stale projection
+  starts no window. The song-intro metadata presentation keeps priority: no window is projected
+  while it shows, and dots fill whatever remains of the interlude after it ends. Dots occupy the
+  lyric-row slot only; the next-line lane and the duet lane are unaffected. A surface with the
+  switch off renders exactly as before.
+- No-lyrics / pure music lyric behavior is a per-surface choice (keep by default), ported from
+  HyperLyric. A track whose whole lyric is the single marker line `纯音乐请欣赏` is a pure-music
+  track; the marker matches after stripping punctuation and whitespace, so variants such as
+  `纯音乐，请欣赏` or `纯音乐请欣赏 🎶` still count. The whole-song conclusion is resolved at the
+  projection layer from the active producer's full-song snapshot — matched against the current
+  session's producerId/generation/trackUri — and, for a streaming line-only source with no
+  snapshot, from the current line text. The marker's meaning is interpreted once, per surface, at
+  the render-mapping layer, exactly like duet-marker recognition, so the producer always publishes
+  the raw marker line. `Keep the marker` renders that line as a lyric, byte-for-byte as before.
+  `Replace with song info` reuses the generation-bound large-metadata lead slot: the marker row's
+  slot shows this surface's assembled song info, and the marker row's word-level data, auxiliary
+  lines (romanization/translation/next line), duet line, and interlude window are cleared — the
+  marker is not sung, so it never joins karaoke. `Use system default` renders no lyric, placeholder,
+  or song info, additionally drops the artwork, hands the surface back to the system default content,
+  and — on AOD — lifts that surface's stock-content suppression (otherwise the system content would
+  be hidden with nothing left to show); the lockscreen likewise hides the whole CN+ lyric card
+  (including its background and progress bar) for that surface. Non-pure-music tracks are untouched
+  by this choice, the two surfaces switch independently, and the App preview applies the same three
+  states through the same source so preview and device match.
 - Song info content is a document-level setting shared by both surfaces: which slices to show
   (title, artist, album), the order they render in, and one separator per adjacent pair. Selection
   order is display order (the selected order is preserved; unselected and blank slices are dropped;
@@ -747,9 +832,17 @@ as unable to run and disable runtime-dependent controls. Appearance editors rema
 and future configuration. The user can create a compatibility report containing package versions and
 bounded raw-symbol evidence.
 
+A resolved capability states that the ROM contract is present, not that a live instance was reached.
+A seam that installs and then finds no instance — a plugin built before the hook, or a host never
+handed over — keeps its capability and says so in the module log rather than reporting nothing.
+Capability and reachability are separate facts and the log names both.
+
 Capability report protocol v2 includes the report timestamp, effective profile state, experimental
 state, raw probe set, and resolved capability set. Protocol v1 remains accepted only for app/SystemUI
-update transition compatibility. Unknown profiles remain fail-closed; raw probe success alone does not
+update transition compatibility. A hook process that has not restarted rejects a state payload from
+a newer app build by name — protocol, scalars, kind, body, or body decode — rather than by one
+undifferentiated rejection, because the common cause is that self-healing update transition and
+must not be read as corruption. Unknown profiles remain fail-closed; raw probe success alone does not
 install or enable a hook.
 
 Capabilities are independent:
@@ -786,6 +879,9 @@ above and must fail back to Xiaomi's original target.
 - SystemUI 使用一个经过校验的 Binder 客户端和一个不可变的、surface 中立的歌词 snapshot。Binder 状态在投递到主线程之前，同步解码为自有不可变数据，并遵守共享的数量、UTF-8 与编码体积限制。
 - 锁屏与 AOD 基于相同的内容、行、时间锚点与曲目 generation 渲染各自的视图。
 - 新附加的 surface 会立即收到缓存的最新 snapshot。
+- 生产者 `clear` 会丢弃持有的状态与文档，但不退役 generation，因此生产者因自身原因清除后可在同一
+  generation 上恢复。持有文档按其曲目 URI 加整秒时长容差属于当前曲目（生产者把曲目长度取整到整秒），
+  因此生产者会话记账的推进不会使其失效，也不会让一份生产者不再重新请求的文档在余下整首歌里被丢弃。
 - 过期、Binder 死亡、调用方失败或无效 payload 会隐藏所有订阅方。被显式标记为真实 Spotify 暂停的隐藏状态，可以按照下文的共享有界策略保留最后的有效歌词 snapshot。终态隐藏状态会将其清除。
 - 过期 snapshot 在投递边界、订阅方看到之前就被丢弃。producer 按 1.5 秒节奏发布全量快照或心跳，而 MIUI doze 可能把 SystemUI 一次冻结约 20 秒，因此单次解冻会整批投递积压（真机实测：19ms 内 12 条，卡拉OK 位置跨度约 18 秒播放内容）。可见快照年龄超过 1.5 秒即丢弃，一批里只有最新状态会落地。换歌/换源（track generation 变化）、隐藏与暂停驻留边沿、以及绑定后的首条快照恒投递；被丢快照仍推进 revision 水位，并在其 keepalive/wake 标量与持有态不同时按最新值更新，keepalive 链绝不因此断开。
 - 状态/配置携带应用用户 ID；SystemUI 用户切换时会清除/重新绑定，并拒绝前一用户的缓存 payload。
@@ -855,14 +951,17 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 超级壁纸、翻盖、未知模式、无效几何、缺失符号或非活动歌词，均原样通过 Xiaomi 的原始平移。
 - 禁用功能、原生 Spotify 媒体播放器移除、projection 过期/断开、Binder 失败或 surface 资格校验失败，会释放静态/移动所有权，取消任何模块计时器，并恢复 Xiaomi 上一次未被修改的平移目标。符合条件的 Spotify 暂停仅在共享的配置超时内保留冻结的 AOD 场景与当前受管时钟位置。
 - 播放中的曲目 generation 变更会启动一个 8 秒的呈现租约并发出一次 wake 事件，使已同步与未同步的曲目都能短暂呈现换歌元数据。呈现策略以歌词字号显示标题和艺术家 3 秒，随后（在启用时）形变或交叉淡化到持久的小号曲目信息；否则移除标题/艺术家。正在活动的开场歌词或短于 3 秒的开场间隙，会将一整段 intro 推迟到下一个可用时间不少于 3 秒的 interlude。该状态绑定于 generation，每首歌曲最多消耗一次。它不改变播放、暂停保留、wake 身份、keepalive 或 AOD 生命周期策略。该 generation 的第一个被接受的带时值文档会发出第二个 wake 事件，允许已同步曲目在前一个未同步曲目超时后恢复 AOD。精确验证的 wake broker 仅在设备处于非交互状态时调用 Xiaomi 的 `DozeHost.fireAodState(true, "reason_keycode_goto")`。
-- 默认 keepalive 还额外要求存在包含至少一个正时长行的 `Line` 或 `Syllable` 文档。带时值文档到达会将当前呈现租约升级为持久 keepalive，且不产生虚假间隙。静态、缺失、加载中、无歌词以及退化的零时长文档在租约到期时自然释放。`Also keep AOD active without timed lyrics` 将这些未带时值状态升级为持久 keepalive。主保持唤醒偏好必须开启，租约、带时值与覆盖模式才能生效。
+- 默认 keepalive 还额外要求存在包含至少一个正时长行的 `Line`、`Word` 或 `Syllable` 文档。带时值文档到达会将当前呈现租约升级为持久 keepalive，且不产生虚假间隙。静态、缺失、加载中、无歌词以及退化的零时长文档在租约到期时自然释放。`Also keep AOD active without timed lyrics` 将这些未带时值状态升级为持久 keepalive。主保持唤醒偏好必须开启，租约、带时值与覆盖模式才能生效。
 - `Keep AOD active for` 将连续 Spotify 播放的生命周期会话限定为 5 分钟、10 分钟、30 分钟、1 小时、2 小时或无限期；默认为无限期。有限计时器在 keepalive 首次于连续播放段内变为活动时启动。切歌、文档变更、wake 事件、transport grace 与新鲜度心跳都不会重置它，同一播放段内的呈现租约间隙也不会重新锚定它。到期会释放 Xiaomi 生命周期抑制，播放可以继续；Spotify 暂停/停止仍然立即释放。该非播放沿之后的下一个符合条件的播放会话可以启动新计时器。
 - Xiaomi 生命周期抑制独立于画布可见性、布局与 linkage 所有权。它只要求已附加的 AOD surface、经校验的 keepalive 意图以及精确的生命周期能力。所配置时长的到期会在 projection 处撤回该 keepalive 意图，因此不存在单独的 SystemUI 计时器。该时长仅属于生命周期策略；它不改变 wake 身份、呈现租约、内容能力、暂停保留或渲染器状态。绘制唤醒的续期仍是渲染器侧的独立关注点。
 - 经校验的生命周期守卫还拥有一个窄幅亮度覆盖。在精确的 Xiaomi `DOZE_AOD` 状态下，通过 `MiuiDozeBrightnessTimeoutAdapter` 的较低非零请求会被钳制到 Xiaomi 自身的正 `CommonUtils.BRIGHTNESS_ON` 值。达到或高于该值的请求直接通过。零/关闭请求，以及 `DOZE_AOD_PAUSING`、`DOZE_AOD_PAUSED`、普通 `DOZE`、pulse、finish、未知状态或非活动守卫中的所有请求，均原样通过。这使口袋与接近传感暂停保持权威。守卫激活与释放时会通过原生适配器重新提交 Xiaomi 的上一次原始请求，因此 Xiaomi 保持其原生亮度超时行为，并在歌词 keepalive 结束时按原生适配器的正常延迟重新获得控制。
 - 一个被显式标记为 Spotify 仍在播放的瞬态隐藏沿，会在任何携带经校验 keepalive 意图的 snapshot 之后启动一个有界的 30 秒电源 grace。带时值歌词与由 `Also keep AOD active without timed lyrics` 保持的未带时值会话同样符合条件；歌词时值属于内容能力，绝不作为生命周期策略的门控。下一个可见 snapshot 会取消该 grace 而不重放 Xiaomi 隐藏策略。暂停/非播放状态立即释放。这防止短暂的生产者/状态间隙在歌曲中途中关闭 AOD。Projection 过期会保留已活动的经校验 keepalive 请求；断开连接、显式清除、暂停与 grace 到期仍然会释放它。
 - 换歌期间的非播放 `loading` 沿被投影为该有界的仍在播放 transport 间隙。其他所有非播放沿都是暂定的：Spotify 会在下一个 generation 到达前大约一秒将结束曲目报告为 `ready`/未播放，因此该沿首先被投影为同样的仍在播放 transport 间隙，只有在有界的 5 秒确认窗口之后、生产者仍在同一会话上处于非播放状态时，才成为真正的暂停保留。在该窗口内恢复的生产者或新会话会取消待定暂停，因此切歌永远不会释放 AOD 生命周期或重放 Xiaomi 隐藏策略。该窗口每会话只打开一次；在暂停时仍持续发布的生产者不得重新打开它。
-- ready、loading 与无歌词的可见播放都接收相同的 4 秒新鲜度心跳；未变化的 fallback snapshot 会被刷新，而不是在 5 秒后过期。
+- ready、loading 与无歌词的可见播放都接收相同的新鲜度心跳：纯标量 keepalive 按 1.5 秒节奏发送，snapshot 年龄超过 4.5 秒重发门槛时改发全量快照（回退刷新循环下约 6 秒）；未变化的 fallback snapshot 会被刷新，而不是在 15 秒后过期。
 - wake broker 将最近验证的 `DozeHost` 保留为一个有界的恢复引用，跨越 AOD 插件卸载周期。如果持久会话没有附加的 AOD surface，每个有界心跳都可以重试相同的 wake 身份，直到 Xiaomi 重建该 surface。交互式亮屏请求保持被抑制，系统 AOD 总开关设置保持权威。
+- broker 从两条接缝捕获该宿主：仅经 `DozeTriggers` 构造器拿到的宿主，在"先于 hook 安装就构建 AOD 插件实例"的 ROM 上永远观察不到。因此它同样从既有的 AOD 可见性接缝收养一个活跃的 `DozeHost`，两种情况都只保留同一个有界引用。构造器所供给的验证是"该 `DozeHost` 正被 Xiaomi 自己使用"，不接受任何更弱的证据；重复捕获已持有的同一实例不算新捕获。
+- 一次 broker 无法服务的 wake 会具名指出缺失的引用——宿主、wake 方法或电源管理器——而不是报一个无差别的"不可用"。在该报告里，缺失引用优先于交互式亮屏，因此普通的抑制永不被描述成故障，故障也永不会藏在抑制背后。每个不同的原因各报一次；恢复会清除闩锁，使之后的回归能再次被报出。
+- 缺失宿主的拒绝还会带上安装器上次为何跳过，从未跳过时为 `none`。在健康的 ROM 上，安装器跳过是常态：某个 class loader 看不见 AOD dex 会跳过，而同一 dex 上稍后的另一个 loader 会成功，因此跳过只被记录、不被上报，只在 wake 真正被拒的那一刻才被读取。这让同一行日志能区分"宿主从未被交出"与"安装器从未绑定"。
 - 在 Xiaomi 已经开始隐藏 AOD 时到达的 keepalive 沿无法被抑制：策略隐藏已经执行，其 alarm 已无法取消，动画中途送达的 wake 只会重新武装 Xiaomi 自己的计时器。这一唯一竞态会在"非活动→活动"生命周期沿之后的有界隐藏动画窗口内、第一个 AOD 显示关闭沿上，一次性重新断言当前 wake 身份，且仅当 surface 保持附加时如此。恢复仅在该守卫沿发生时 AOD 仍在呈现的情况下被武装，由第一个关闭沿消耗，并需要新的守卫激活才能重新武装。从未派发过 wake 的会话不携带身份，也不会恢复。
 - 显示电源除此之外归 Xiaomi 所有。传感器或口袋暂停、主动休眠、过期会话与已释放的租约都会到达同一个显示关闭沿，重新唤醒它们会与 Xiaomi 形成自我维持的循环，每隔几秒重新点亮面板。Keepalive 从不把已关闭的 AOD 显示当作持续的唤醒理由，wake broker 的最小请求间隔也不能替代该约束。
 - 已确认的 Spotify 暂停会释放生命周期守卫一次，最迟在该沿之后一个确认窗口内；其冻结卡片仅可在共享的配置超时内、直到 Xiaomi 休眠或直到原生媒体播放器被移除之前保留，以最先结束呈现者为准。
@@ -909,30 +1008,36 @@ projection disconnect/stale/invalid state -> discard frozen card
 - 未知组件会被丢弃。不存在有效歌词组件时，退回到内置安全 profile。
 - 锁屏 `backgroundStyle` 仅接受 `auto`、`card` 或 `none`；AOD 始终将其解析为 `none`。
 - 行级进度保留 `None`、`Top to bottom` 与仅主歌词的 `Left to right` 近似模式，另加一个独立的显式整块兼容模式。近似从左到右进度将所有换行的主歌词行视为一个连续序列：先自左向右完成一个视觉行，然后在下一行继续。正常的渐变/进度动画只作用于主歌词；ruby、音译与翻译保持静态。仅整块选项保留当前对所有可见歌词行的同时扫过效果，且不得规范化为仅主歌词。每个 surface profile 独立选择亮色或暗色的次要文本呈现。逐字/音节级同步保持不变。行级同步标志在有活动行且不处于大元数据引导态时为真——逐字源与行级源一视同仁。主行的渲染路径（静态全亮＝`Minimal` 档或 `None` 效果、词级卡拉OK、共享扫光块）由同一个共享决策给出，实机画布（锁屏与息屏共用同一画布）与 App 内预览读同一份，输入为行级同步标志、源类型、行窗、逐字动画档与发光偏好。因此整块横扫只在显式选择该档时出现，绝不作为逐字源的回退。
+- 逐字效果程序是声明式沙箱字节码，只有一个输出模式：缺省 `draw` 模式经宿主 sink 发出受控绘制原语（既有行为逐字节不变）；`outputMode == "boxes"` 盒模式则输出有界定位盒列表（text/rect/roundRect/circle/line/oval/arc/path，附绘制状态快照与完整烘焙仿射矩阵）。盒是纯数据，不能指定类、资源、方法、路径、URL、命令或任何可执行代码。收集预算是硬上限（单帧 512 盒、单路径盒 256 段、全帧路径 4096 段、单文字盒 512 字符，加上共用的 100k 步 / 4096 次绘制调用帧预算）；超限或执行失败整帧中止、不提交部分盒。宿主经同一个固定渲染器绘制盒——实机画布与 App 内预览共用，放置与自适应测量并入 2em 保守垂直外扩余量；绘制期仍被逻辑画布帧裁剪兜底。
 - 逐字动画接受 `Minimal`/`Gradient`/`BetterLyrics` 的固定词表（每个 surface 独立选择）。`BetterLyrics` 档（参考 jayfunc/BetterLyrics）把歌词源交给共享逐字卡拉OK渲染核心（实机画布与 App 内预览同源）：逐字/音节级时间源用真实词窗；行级（无逐字时间）源按字符合成时间窗——推进前缘与行级扫光几何完全一致，因此效果对两类源同样适用：**该档按口径 B 逐词块判定扫光**——长音节（≥700ms）「开始唱即整块按已唱色亮起」、不出现填充前缘（辉光仍只挂长音节词块），其余音节恢复历史词内扫光带（口径沿革：只关长音节（2026-10-04）→ 关「含长音节的整行」（2026-10-04 晚）→ 0.3.156 (183) 整档关闭 → 本次恢复短音节扫光（2026-10-05），当初逼出整档关闭的跳变成因已由同行形态稳定化 / 下一行文本稳定化 / 位置时钟过渡 / 摄取归一修掉）；未唱音节下沉约 10% 行高、唱到时在约 450ms 内上浮回基线；长音节（≥700ms；合成源按合成块时长判定——中文逐字块、西文按词块——短词块不放大不发光）演唱中放大到 1.15、唱完回落原大，长音节块内字符共享块级进度、整块同步放大/辉光；仅在发光偏好开启时，演唱中的长音节带 glow 色光晕（半径约为字号的 36%）。短音节保留既有放大运动（峰值 1.0505）；发光关闭时该运动不变、光晕消失（长音节整块亮起不变）。「行进度效果=None」仍解析为静态全亮；仅息屏的对唱并发行保留共享扫光管线；`BetterLyrics` 档绝不走共享行级扫光（带行窗的逐字源也不例外），恒走词级卡拉OK路径；profile 未知值仍规范化为 `Gradient`。
 - 帧调度遵循同一节拍契约:时序行播放期间画布按配置的帧间隔重绘(默认 16ms,或用户选择的渲染刷新率上限档)。息屏画布在此之上还有一档粗粒度降帧——电量低且未充电(≤15%)或设备热状态 ≥ MODERATE 时,逐字扫光降到 200ms(约 5fps)的粗粒度步进:扫光仍可读,而绘制功耗大幅下降。该降帧由用户开关(`aodPowerSaver`,默认开启)经编译配置门控:开关关闭时画布绝不降到帧上限以下。旧生产者不带该字段时按开启处理(保持历史行为),绝不静默换档。该降帧仅作用于息屏画布;锁屏画布恒按配置节拍渲染。
 - 同一行会被上游两阶段下发（逐行源推来的行里带不带词表取决于它那一笔），而折行引擎按「有无词表」走两条不同路径（词行布局 / 分组均衡折行），形态切换会重排整块并更换填充映射——真机录屏逐帧实测：换行瞬间下一行被顶下去一行高（80px）、填充前缘中途倒退重填。画布按行身份稳定增强数据：同一行只认第一次的折行形态，仅在行开始前的 300ms 宽限窗内接受「无词→带词」升级（此时尚未演唱、重排不可见）；「带词→无词」回退与演唱中的词表文本变化一律拒绝（见 `shouldAdoptLineEnhancements`）。下一行文本同样稳定化：与主行同文即视为「未就绪」（旧下一行刚被晋级、新下一行尚未推来，真机实测换行后 0.5s 内两者同文），沿用上一版文本，避免换行后行集合/行高随文本切换重排（见 `isNextLineStale`）。
-- 渲染面上呈现的渲染模式取值，一律先从编译后的 per-surface profile 解析，仅在没有编译产物时（降级 / 旧文档）才回落到歌词源上报的 renderModes。App 内预览渲染的正是这份编译产物，两端必须读同一个来源；只经由歌词源 renderModes 传递的设置属于同源契约破口，不是某个源的特例默认值。没有**正在播放**的歌词状态时，App 内预览一律回退到内置演示歌词行：仲裁器有意保留暂停时的冻结状态（暂停的位置流天然静默，不是故障），因此暂停后预览不得继续钉在暂停前那句歌词上，恢复播放后实时状态重新接管预览。本条只约束 App 内预览——锁屏/息屏的暂停保留语义不变。覆盖字段：字重、字号档与其自定义百分比、辅助文字模式、逐字动画、发光、行进度效果、折行裁剪、字体族、换行动画（profile 的 `Auto` 退默认解析）、主对齐、歌曲信息锚点、自适应分节。生产者不得上报会被息屏取值归一化改写的逐字动画值——历史遗留的 `Karaoke fill` 不在现行词表内。
+- 渲染面上呈现的渲染模式取值，一律先从编译后的 per-surface profile 解析，仅在没有编译产物时（降级 / 旧文档）才回落到歌词源上报的 renderModes。App 内预览渲染的正是这份编译产物，两端必须读同一个来源；只经由歌词源 renderModes 传递的设置属于同源契约破口，不是某个源的特例默认值。没有**正在播放**的歌词状态时，App 内预览一律回退到内置演示歌词行：仲裁器有意保留暂停时的冻结状态（暂停的位置流天然静默，不是故障），因此暂停后预览不得继续钉在暂停前那句歌词上，恢复播放后实时状态重新接管预览。实时态下预览的扫光与逐字推进按**真实播放位置**换算（与实机同一外推公式 `projectedPositionMs`：快照位置 + 采样以来的挂钟时间 × 播放速率），行窗/词窗取快照携带的真实窗口（合成源的字符合成时间窗以真实行窗为基准），不再按演示循环的固定节奏扫光；实时快照的行窗退化（跨度不足 100ms）时该行退回演示映射，不把预览钉死在 0/1。本条只约束 App 内预览——锁屏/息屏的暂停保留语义不变。覆盖字段：字重、字号档与其自定义百分比、辅助文字模式、逐字动画、发光、行进度效果、折行裁剪、字体族、换行动画（profile 的 `Auto` 退默认解析）、主对齐、歌曲信息锚点、自适应分节。生产者不得上报会被息屏取值归一化改写的逐字动画值——历史遗留的 `Karaoke fill` 不在现行词表内。
 - App 内预览的内置演示歌词行（没有实时歌词状态可呈现时使用）跟随界面语言：English 显示英文演示曲，其余选择（跟随系统 / 简体中文）显示中文演示曲。仅显式 English 才切换；设备语言为英文但用户显式选择「简体中文」时保留中文演示曲。
 - 内置演示歌词行带完整的辅助内容，让「辅助文字」与「显示振假名」开关在两种界面语言下都能在预览里看出效果：每一行都带音译与翻译（英文演示曲用音标 + 中译，中文演示曲用拼音 + 英译）；中文演示曲的注音覆盖整行，不得只标行首一小段——半截注音会在预览里于首字上方留下一簇孤立的拼音。
 - 每个 surface profile 还可以把下一行歌词（第二行歌词）作为辅助文字呈现。该呈现仅在第一行辅助文字实际显示时生效（第一行按「辅助文字」模式没有可显示的辅助文字行时，本开关不产生第二行呈现）；呈现沿用辅助文字的字号与该 profile 的亮/暗辅助文字选择，但颜色仍使用「下一行颜色」设置；生效时取代独立的下一行歌词行而不与之叠加，不生效时独立下一行呈现保持不变。
 - 「显示第二行辅助文字」（每个 surface 独立，以第二行歌词行实际显示为前提——「显示下一行歌词」或「辅助文字显示第二行歌词」任一开启时露出；两者都关时没有第二行歌词行，该开关不露出）：开启后第二行歌词自身也带出它的辅助文字行（音标/翻译，按辅助文字模式取用，源无内容则不出）——四行呈现，顺序为第一行歌词、第一行辅助文字、第二行歌词、第二行辅助文字。开启时第二行歌词行本身也按辅助文字形态呈现（即使「辅助文字显示第二行歌词」关闭——此时以「显示下一行歌词」为前提）；第二行歌词行以独立下一行行呈现时同样追加其辅助文字行（实机与预览同源）。其辅助文字行沿用辅助文字行的字号/亮度档与第二行歌词对齐，折行档跟随第二行歌词自身呈现的行数（不得沿用主行行数）；关闭时第二行歌词行按其所属开关的形态呈现、不追加辅助行。源没有下一行的辅助文字时只呈现有内容的部分。
 - 辅助文字行（音译、翻译与辅助文字形态的第二行歌词）以约为有效主行字号一半渲染；其可读性下限按有效主行字号等比封顶（不超过约 0.62 倍），任何字号档下辅助形态都必须明显小于主行，不得渲染成第二条主行。
-- 辅助文字可逐字点亮（「辅助文字逐字效果」，每个 surface 独立开关，默认关）：开启后第一行辅助行（音译与翻译）与主行共用同一逐字渲染核心——亮/暗推进与扫光随主行，「BetterLyrics」档下浮动、长块放大与辉光同样随主行；行本身仍取辅助行颜色与「高亮辅助文字」亮度档。源带词级音译时间时按真实词窗点亮；其余按该行自身的行窗口 + 行内几何合成（中文逐字、西文按词，块内共享一个高亮进度），推进前缘与主行行级合成源同式。并发行（对唱）自己的辅助行取并发行窗口。属于第二行的行——辅助文字形态的第二行歌词与其自身的辅助行——不参与（其播放窗口尚未开始）。本开关独立于主行行进度效果：进度效果选 `None` 时主行静态，辅助行照常逐字点亮并维持帧时钟。开关关闭时辅助行逐字节不变。
+- 辅助文字可逐字点亮（「辅助文字逐字效果」，每个 surface 独立开关，默认关）：开启后第一行辅助行（音译与翻译）与主行共用同一逐字渲染核心——亮/暗推进与扫光随主行，「BetterLyrics」档下浮动、长块放大与辉光同样随主行；行本身仍取辅助行颜色与「高亮辅助文字」亮度档。时间源三路：源带词级音译时间（`word.romanized` + 词窗）时按真实词窗点亮；翻译行的逐字翻译词表（片段文本直接相连即整行译文、片段自带真实词窗）同样按真实词窗点亮——词表有两个来源，插件链的 `PluginLyricField.TRANSLATION_WORDS`（经 `PluginSongBridge` → 生产者状态 → 快照 → wire v8 逐行随活动行富化）与歌词源自带的词表（Lyricon SDK `RichLyricLine.translationWords`，生产者随活动行直接下发），二者共用同一渲染链路且都要求**片段能逐字符重建整行译文**，重建不出时回落合成（辅助行的显示文本恒取 `translated`，不因词表差异改变显示内容）；其余（无词表的翻译行、无逐字音标的音标行）按该行自身的行窗口 + 行内几何合成（中文逐字、西文按词，块内共享一个高亮进度），推进前缘与主行行级合成源同式。并发行（对唱）自己的辅助行取并发行窗口。属于第二行的行——辅助文字形态的第二行歌词与其自身的辅助行——不参与（其播放窗口尚未开始）。本开关独立于主行行进度效果：进度效果选 `None` 时主行静态，辅助行照常逐字点亮并维持帧时钟。开关关闭时辅助行逐字节不变（逐字翻译词表不参与行装配，折行仍走 `wrapSecondaryText`）。App 内预览为演示循环，恒按行窗口合成（与「源侧真实逐字音标时间不参与预览」同一条有意差异）。
 - 歌曲信息与第二行歌词各自携带每个 surface 独立的对齐选择（`auto`、`start`、`center`、`end`）。`auto` 跟随主歌词对齐的解析结果（主对齐 `auto` 时仍按歌词方向右对齐）；显式值使该行独立于主歌词对齐。第二行歌词的两种呈现形态（辅助文字形态与独立下一行行）共用同一个第二行对齐选择。
 - 对唱分侧是每个 surface 独立的开关（默认开启）。开启时，行级 `alignedRight` 置位的行绘制在右侧；关闭时忽略该位，所有行按主对齐解析。行级分侧位来源于歌词源：源显式标记（Spicy `alignedRight`、Lyricon `isAlignedRight`、插件 `isAlignedRight`）恒优先，否则由行级演唱者身份元数据（`agent`/`amll:agent`/`vocal`/`amll:vocal`，类型键 `amll:agent-type`/`agent:type`/`agentType`/`vocal:type`）推导——首位歌手居左、其余居右；带显式类型时 `group` 恒左、`other` 起右并随歌手切换翻转。无演唱者信息的曲目保持纯主对齐行为。
 - 识别对唱标记是每个 surface 独立的开关（默认开启；未显式设置的曲面继承文档级默认值）。开启时，歌词行首的（男）/（女）/（合）文本标记被识别为演唱者身份：显示时隐去标记文本（主行、下一行与逐字词表同源处理），行级元数据没有演唱者身份时作为对唱分侧推导的兜底输入；「合」不参与交替、保持源值。快照为息屏/锁屏共用，只携带原始行文本与两套预计算分侧（元数据身份版、标记识别版），隐去标记与选用分侧的决策推迟到各渲染面按本面开关执行——改一面的开关不联动另一面。（副歌）/（间奏）等段落标记同样识别（连写或复合如（男·RAP）的标记串整串剥离），但只隐去文本——不作为演唱者身份、不改动行的分侧。词表外的括号内容按歌词原样保留。纯标记行保留原样显示。关闭时原样显示，标记不参与分侧。源显式分侧在两种状态下恒优先。
-- 显示并发歌词(对唱)是每个 surface 独立的开关(默认开启,锁屏与息屏各自独立;上游为 AOD-only,CN+ 扩展到锁屏卡片):持有整首行表的生产者(Spicy 文档、Lyricon、LyricInfo)在发射前预计算并发行候选——与主行播放窗口重叠达到 1 秒的另一唱词行(纯时间轴重叠判定,不依赖任何歌手标记;间奏行不参与)。投影层只做开关与格式转换,不从原始行表选行。开关开启且快照携带候选时,息屏画布把并发行作为与主行同尺寸的段落紧邻主行块堆叠(锚顶布局主行位置保持稳定;锚底/居中布局整块重排),各画各的逐字扫光;并发行加入时 180ms 静音淡入;已唱完的重叠行由退出缓冲保留到主行行末,双行段不在对唱中途塌掉;整块超出歌词区时按同一共享系数缩小(0.3 绝对下限,低于下限溢出裁切)。并发行在场时取代独立「下一行」行。任一曲面开启时投影即携带候选,各曲面按自己的开关渲染。SuperLyric(只推当前行的逐行源)不产出并发行。本次移植有意省去上游的槽位继承/双段独立过渡机制(v1 简化),选取语义与上游 99ba119d4 一致。
+- 显示并发歌词(对唱)是每个 surface 独立的开关(默认开启,锁屏与息屏各自独立;上游为 AOD-only,CN+ 扩展到锁屏卡片):持有整首行表的生产者(Spicy 文档、Lyricon、LyricInfo)在发射前预计算并发行候选——与主行播放窗口重叠达到 1 秒的另一唱词行;显式伴唱行(Spicy `role=BACKGROUND`、插件 `role=BG` 回声)只要有正重叠即加入,作者编排的短应答不再被一秒门整段吞掉,非伴唱 lead 行之间的偶然重叠仍守一秒门。行角色只决定这一加入门槛、不参与身份推导;无角色的源(Lyricon/LyricInfo)全部行守一秒门,间奏行不参与。已上屏的行仍只在真正重叠达到 1 秒的候选出现时让位——短应答不打断正在唱的行。投影层只做开关与格式转换,不从原始行表选行。开关开启且快照携带候选时,息屏画布把并发行作为与主行同尺寸的段落紧邻主行块堆叠(锚顶布局主行位置保持稳定;锚底/居中布局整块重排),各画各的逐字扫光;并发行加入时 180ms 静音淡入;已唱完的重叠行由退出缓冲保留到主行行末,双行段不在对唱中途塌掉;整块超出歌词区时按同一共享系数缩小(0.3 绝对下限,低于下限溢出裁切)。并发行在场时取代独立「下一行」行。任一曲面开启时投影即携带候选,各曲面按自己的开关渲染。SuperLyric(只推当前行的逐行源)不产出并发行。本次移植有意省去上游的槽位继承/双段独立过渡机制(v1 简化),选取语义与上游 99ba119d4 一致。
+- 「辅助文字」是**多选内容**（每个 surface 独立）：音译、翻译、和声三项可任意组合，逐项勾选即时生效；落库值为逗号连接的内容集合 + 一个和声状态位（`BackgroundVocal` / `NoHarmony`，恒有且只有一个），历史四档（`Main only`/`Transliteration`/`Translation`/`Both`）原样保留并按「显示和声」解释——历史档行为逐字节不变。和声项勾选时把插件行 `role=BG` 的 x-bg 回声作为辅助文字内容呈现（音译/翻译照常按各自勾选取用；和声行走辅助行车道、不参与同尺寸并发堆叠），并与「显示并发歌词(对唱)」解耦：勾了和声的曲面即使关掉对唱开关也收到和声候选并渲染和声行；取消勾选即整条和声不上屏（独立「下一行」行随之恢复，不再被它挤掉）。非和声的并发行仍只认本面的对唱开关（参考 HyperLyric 把和声与对唱拆成两个开关）。
 - 生产者 ingest 在选行/渲染之前把行窗与词窗的时间基准统一，只治自相矛盾的两类形状、正常拖尾逐字节不动：(1) 词窗超出行窗（词比行还长）→ 行窗扩到词窗并集（`行首 = min(词窗起点, 原行首)`、`行尾 = max(词窗终点, 原行尾)`）；(2) 行窗远大于文本可唱时长（逐字合成把乐器间隙吞进行窗的产物，真机实测单行偏差可达十余秒）且词级跨距可信 → 行窗向词对齐（首词起点/末词终点）；词级跨距同样失真时行窗保持原样、丢弃可疑词级并回退行级填充，头部贴附的行窗从 `end-估时` 起算；(3) 其余形状（含行窗比词窗并集长但差距在正常范围的正常拖尾）原样返回。不带词窗的一笔没有数据可归一，保持行窗原样（渲染侧稳定化已覆盖）。正常行零变化。行首钳制仅在全曲出现至少两个损坏行时启用（真实损坏是整首系统性的，真实长音则是孤立的长窗行）；孤立长窗行保持原有行窗不变。估时忽略行首标记——标记不发声；纯标记行按 0 字计。
 - 插件链保持字段级优先——处理器结果声明的 `changedFields`/`changedLyricFields` 决定它覆盖宿主哪些字段，声明 `WORDS` 的结果其词表（文本 + 时间戳）整份生效——同时合并文档自身保持时间轴自洽：合并后若有被接受的结果声明过 `WORDS`，逐行走与生产者 ingest 同一套归一（词窗超出行窗 → 行窗扩到并集；行窗远超可唱估时且词级跨距可信 → 向词对齐；其余形状含正常拖尾逐字节原样；无词窗的行没有数据可归一）。未声明 `WORDS` 时合并文档原样交给下游——宿主词表已在 ingest 过同一道门，宿主也绝不做 DTO 对比推断。插件词表时间戳由此既保持优先、又不与所在行窗自相矛盾。
 - 任一生产者观测到 seek 时跨源转发给其他生产者（`onExternalSeek`），位置源冻结/漏发 seek 回调的生产者立即落到权威位置，不再滞后。
 - 歌词时间偏移是文档级全局滑杆（默认 0ms,范围 ±5 秒,按 50ms 档量化;语义参考 HyperLyric 的歌词时间偏移）:时间轴源生产者（Lyricon、LyricInfo、Spicy）的选行查询与发射坐标——`positionMs`、行窗、词级时间与 `nextLineStartMs`——统一落在「播放位置 − 偏移」的显示时间轴上,正数延后显示、负数提前显示。机制层（位置外推、残留拒绝、seek 判定与跨源 seek 转发、歌尾钳制）保持原始媒体坐标,仅发射的显示坐标平移,逐字扫光与所选行保持同轴。拖动滑杆立即生效（设置变更即刷新生产者缓存）。SuperLyric 为逐行推流源（行到达即上屏）,不受偏移影响。偏移同时作用于息屏与锁屏;插件链的整首快照保持原始时间轴。
 - 主歌词接受每个 surface 1、2、3、4、5 行或不设用户限制的换行上限。高达 200% 的文本大小必须使用所选上限，而不是旧的固定三行上限。安全区几何、可选行移除、有界最小尺寸与 fail-closed 位置策略保持权威。
 - 每个 surface profile 存储从 50% 到 200% 的元数据大小与 ruby 朗读可见性。Ruby 默认显示，禁用时不占用绘制或布局高度。
+- 每个 surface profile 存储歌曲信息布局：`stacked`（歌名在上、歌手/专辑在下，槽位分隔符为换行时各占一行——历史默认）或 `single`（所有切片用行内中点分隔符并成一行，整行按歌名字号）。未知值一律归一到 `stacked`。堆叠的某片或单行的整行过宽时，换行到后续行而不是把整块缩小到放得下。堆叠布局下歌手行还带自己的字号（相对歌名的百分比，40–100，默认 80；`single` 下不显示，整行用歌名字号）；越界值回落默认值而不是钳制，坏文档永远不会渲染出零高行。歌名与歌手字号不同时，行盒按「上一行 descent + 下一行 ascent」推进（文档排版的行盒规则），而不是按最高行取统一行盒；字号全同时逐值等于旧结果。
+- 长间奏倒计时圆点是 per-surface 开关（默认开）：本行 end 与下一行 start 的空隙达到 4 秒时，歌词行槽位改画三个倒计时圆点——随下一行临近逐点 smoothstep 点亮并放大（至多 +40%），进度 60% 起逐点渐隐（最右先隐），下一行上屏时圆点正好隐尽。圆点半径与间距跟随主行字号（0.25× 与 0.34×），取色走调色板的未唱/已唱语义 token（底色为未唱色 @128）。窗口自本行结束 1 秒后开始；本面已显示下一行时从结束点即开始——该判定在渲染映射层按面解析，因为同一份投影快照同时喂给两个曲面；外推不可信时不启动窗口。开场大元数据引导保持优先：引导显示期间不下发窗口，圆点只填引导结束后的剩余间奏。圆点只占歌词行槽位，下一行车道与并发行车道不受影响；开关关闭的曲面渲染与改动前逐字一致。
+- 「无歌词/纯音乐歌词行为」是每个 surface 独立的选项（默认「保持原标记」，移植自 HyperLyric）：整首歌词只有一行标记「纯音乐请欣赏」的曲目为纯音乐曲目——判定在投影层完成，首选活动生产者的整首快照（与当前会话的 producerId/generation/trackUri 匹配），无快照的逐行源回落当前行文本；标记文本剥离标点与空白后精确相等，故「纯音乐，请欣赏」「纯音乐请欣赏 🎶」等变体同样命中。标记的语义只按面在渲染映射层解释一次（与「识别对唱标记」同式），生产者侧照常下发原始标记行，纯音乐判定不侵入生产者。「保持原标记」把标记行照常当歌词渲染，逐字节同改动前。「替换为歌曲信息」复用开场大元数据引导的主行槽位：标记行槽位改显示本面按「歌曲信息内容」组装后的歌名/歌手，并清掉标记行的词级数据、辅助行（音译/翻译/下一行）、并发行与间奏窗口（标记不发声，不参与卡拉OK）。「交还系统默认」不显示任何歌词/占位与歌曲信息，并清空封面，把该面交还系统默认内容——息屏额外解除本面的系统内容抑制（否则系统内容被藏而本面又无可显示，成空白屏），锁屏则整块交出 CN+ 歌词卡片（含卡片背景与进度条）。非纯音乐曲目不受该选择影响；锁屏与息屏各自独立；App 内预览经同一来源套用同一三态，所见即所得。
 - 歌曲信息内容为 per-surface 设置,锁屏与息屏各自独立(未显式设置的曲面继承文档级默认值,旧文档升级语义不变):显示哪些切片(歌名/歌手/专辑)、它们的渲染顺序,以及每一对相邻切片之间的分隔符。快照携带原始歌名/歌手/专辑,由各渲染面按本面配置重新组装——改一面的选择不联动另一面的歌曲信息组装与高度预算。选择顺序即显示顺序(保留所选顺序;未选与空白切片丢弃;切片内部的 `·` 仍视作切片边界)。选中两项及以上时,每对相邻切片各有一个分隔符槽位,逐槽从同一词表独立选择——`newline`(每切片一行,历史默认)或行内连接(` · `、` - `、` | `、`、`、` / `)。分隔符序列归一化为所选部分推出的槽位数:缺项/非法项回落 `newline`,多余项截断,仅选一项时无槽位。本次改动前保存的文档携带单一旧字段 `metadataSeparator`,首次读取时按槽位展开并清空,只播种一次。画布仅在换行符处把组装后的元数据拆成行——绝不在分隔符文本处拆分——且最多渲染三行元数据。未知部分/分隔符值归一为默认。此外,每个 surface profile 还携带「专辑与歌名一致时隐藏专辑」开关(未显式设置的曲面继承文档级默认值):开启且专辑文本与歌名在去两端空白后逐字相等时,组装歌曲信息时丢弃专辑切片,该槽位不再产出;专辑与歌名不同或为空时不受影响。
 - 歌曲图片为 per-surface 设置,锁屏与息屏各自独立(显示开关、方形/圆形形状、自适应/固定尺寸、仅圆形可选旋转);旧文档中存的文档级全局值在首次读取时一次性播种到两个曲面。开启时歌曲信息块左侧恰好一个图片槽:槽边长默认自适应(歌曲信息字号 × 1.6,随字号缩放),关闭该 surface 的自适应开关时改取固定自定义边长(12–96dp,默认 22dp,即 100% 歌曲信息字号下的自适应边长),不随字号变化;与文本间距 6dp,行级对齐把「图片+文本块」当整组落位,文本块内各行仍按各自对齐排布。图片带高取「歌曲信息文本块高」与「图片槽边长」的较大者:图片高于文本块时带高随图片增长、文本块在带内垂直居中,图片不被内容裁剪框/锁屏卡片裁切,带高计入卡片实测高与歌曲信息组件预算(静态预算按图片槽边长 + 8dp 上下余量入账,大尺寸自定义图片不被裁切);图片与文本块共用同一视觉中线(首末行基线中点 + (ascent + descent)/2,而非裸基线中点)。音乐暂停驻留期间圆形封面默认停转(暂停期无逐帧开销),仅「音乐暂停时继续旋转」打开的曲面继续旋转。取图 fail-closed:只显示经校对的「当前播放的音乐软件」当前曲目的专辑图(在播媒体会话且包名/曲目身份与当前歌曲一致)——系统播放窗口滞留的旧封面、其他包、或歧义命中一律不显示。封面帧有界(源图降采样至 ≤192px 后压成 ≤24KiB JPEG),按帧键解码一次。方形不旋转;圆形旋转为匀速 12 秒/圈,与逐字歌词共用有效节拍门(隐藏即停帧)。未知形状值归一为方形;旋转仅圆形生效。隐私:封面字节不出设备、不入诊断;功耗:静态封面不增加逐帧开销,旋转随既有节拍门停止(隐藏,或暂停且未开「音乐暂停时继续旋转」)。
 - 在绑定 generation 的歌曲 intro 期间，匹配的单行标题/艺术家文本会抑制重复的元数据行，并在三秒后形变为持久的元数据位置与大小。不兼容或换行的几何使用有界交叉淡化。两条路径都不改变整个 surface 的 alpha、keepalive 亮度策略或位置权威。
-- 导入的数据不能指定类、资源、方法、路径、URL、命令或外部位图来源。
+- 自定义装饰贴纸（编号 64..255，0..63 为内置素材）由 App 侧导入：效果文档只携带编号，图片字节不在文档内。发布配置时字节以只读 `ParcelFileDescriptor` 随配置 Bundle 传输，SystemUI 在回调内读满、按 sha256 与尺寸（≤1024 像素）/整批像素预算（≤6M px）校验后解码进进程内注册表；单张读失败/哈希不符只丢弃该张贴图，不影响配置应用。导入的数据仍然不能指定路径、URL、命令或可执行内容。
+
 - 重置会恢复内置安全 profile。
 
 已启用的固定注册表：
@@ -958,7 +1063,9 @@ artwork 强调色、状态文本、占位符（spacer）与分隔线，在各自
 
 应用显示来自最近接受的能力报告的显式支持状态：无报告、已验证、已验证但缺失符号、不支持、实验性符合条件或实验性活动。已配置的 surface 偏好在不受支持的 profile 上仍会存储，但应用必须将其描述为无法运行并禁用依赖运行时的控件。外观编辑器仍可用于预览和未来配置。用户可以创建包含包版本与有限原始符号证据的兼容性报告。
 
-能力报告协议 v2 包含报告时间戳、生效 profile 状态、实验状态、原始探测集与已解析能力集。协议 v1 仅因应用/SystemUI 升级过渡兼容而被继续接受。未知 profile 保持 fail-closed；仅原始探测成功不会安装或启用任何 hook。
+一项已解析的能力说明的是 ROM 契约存在，而非触及到了活实例。安装了却找不到实例的接缝（先于 hook 构建的插件，或从未被交出的宿主）保持其能力，并在模块日志里说明这一点，而不是什么都不报。能力与可达是两个不同的事实，日志两者都具名。
+
+能力报告协议 v2 包含报告时间戳、生效 profile 状态、实验状态、原始探测集与已解析能力集。协议 v1 仅因应用/SystemUI 升级过渡兼容而被继续接受。尚未重启的 hook 进程会按名字拒绝来自更新应用构建的状态载荷——协议、标量、kind、body 或 body 解码——而不是用一个无差别的拒绝，因为常见成因正是那个自愈的升级过渡，且不得被读成损坏。未知 profile 保持 fail-closed；仅原始探测成功不会安装或启用任何 hook。
 
 各能力相互独立：
 

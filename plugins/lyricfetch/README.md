@@ -114,9 +114,10 @@ HyperGlow 插件体系里可安装的一个插件。
 
 与 template/demo 的两处构建差异（都写在 `build.gradle.kts` 注释里）：
 
-- 依赖 `com.mocharealm.accompanist:lyrics-core:0.4.7`（Maven Central，纯 Kotlin/JVM，无传递依赖）；
+- 依赖 `com.mocharealm.accompanist:lyrics-core:0.5.0`（Maven Central，纯 Kotlin/JVM；传递依赖
+  kotlinx-serialization-json，同样打进 dex）；
 - **该依赖随插件打进 dex**（宿主契约允许插件自带类，child-first 加载），因此 `dexPlugin` 任务的
-  d8 输入除插件自身 jar 外还包含 runtime 依赖；`kotlin-stdlib` 仍由宿主提供、只作 `--classpath`。
+  d8 输入包含插件自身 jar 与全部 runtime 依赖（含 `kotlin-stdlib`）；插件自包含——宿主 release 包 R8 改名后无法按原名提供 kotlin。
 
 若要正式发布，建议把 `com.example.hyperglow.lyricfetch` 换成自己的命名空间（目录名、包名、
 `manifest.json` 的 `id`/`entry`、入口类名四处同步改）。

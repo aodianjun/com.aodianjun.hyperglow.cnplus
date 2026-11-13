@@ -34,12 +34,15 @@ object AodLifetimeHook {
             constructor.isAccessible = true
             HookRegistry.hook(module, FEATURE_ID, constructor, ControllerConstructorHooker)
         }
+        val policyMethods = ArrayList<Method>()
         for (methodName in POLICY_HIDE_METHODS) {
             val method = SymbolResolver.resolveMethod(
                 classLoader, FEATURE_ID, SymbolRequest.method(CONTROLLER_CLASS, methodName)
             ) ?: continue
+            policyMethods += method
             HookRegistry.hook(module, FEATURE_ID, method, PolicyHideHooker(method))
         }
+        AodLifetimeController.registerPolicyMethods(policyMethods)
         installWindowActionProbes(module, controllerClass)
         installVisibilityTelemetry(module, classLoader)
         HookLogger.i(
@@ -183,6 +186,7 @@ object AodLifetimeController {
     private var pendingControllerGeneration = -1L
     private var pendingMethod: Method? = null
     private var pendingReplay: Runnable? = null
+    private var policyMethods: List<Method> = emptyList()
     private var guardCause = "init"
 
     /** Records what the coordinator last acted on, so a guard transition can name its own cause. */
@@ -204,16 +208,45 @@ object AodLifetimeController {
     }
 
     @Synchronized
-    fun setLyricActive(active: Boolean) {
+    fun setLyricActive(active: Boolean, forceHideOnRelease: Boolean = false) {
         if (lyricActive == active) return
         lyricActive = active
-        HookLogger.i(TAG, "Lyric lifetime guard active=$active cause=$guardCause")
+        HookLogger.i(
+            TAG,
+            "Lyric lifetime guard active=$active cause=$guardCause forceHide=$forceHideOnRelease"
+        )
         AodBrightnessController.setLyricGuardActive(active)
         if (active) {
             clearPendingHideLocked()
             activeController.get()?.let(::cancelPolicyTimeouts)
         } else {
             replayPendingHide()
+            // 到点释放时若没有可重放的 hide（例如中途被一次短暂重激活清掉了 pending），
+            // 主动调用一次系统 policy hide。只放行超时不够：MIUI 的 hide 超时可能已被
+            // 我们取消且不再重新武装，AOD 会一直亮到播放停止。
+            if (forceHideOnRelease && pendingReplay == null) invokePolicyHideNow()
+        }
+    }
+
+    /** 由 hook 安装期登记可主动调用的 policy hide 方法（优先 smartHide）。 */
+    @Synchronized
+    fun registerPolicyMethods(methods: List<Method>) {
+        policyMethods = methods
+    }
+
+    private fun invokePolicyHideNow() {
+        val controller = activeController.get() ?: return
+        val method = policyMethods.firstOrNull { it.name == "smartHide" }
+            ?: policyMethods.firstOrNull()
+            ?: return
+        try {
+            method.invoke(controller)
+            HookLogger.i(TAG, "Invoked ${method.name} on keepalive expiry")
+        } catch (error: Exception) {
+            (error as? java.lang.reflect.InvocationTargetException)
+                ?.cause
+                ?.let { if (it is Error) throw it }
+            HookLogger.w(TAG, "Active AOD hide on expiry failed", error)
         }
     }
 

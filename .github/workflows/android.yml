@@ -93,10 +93,16 @@ jobs:
 
       - name: Upload debug APK (artifact)
         uses: actions/upload-artifact@v6
+        # 制品额度（500MB）耗尽时上传必然失败，但这只是 run 内传递/人工下载的辅助产物，
+        # 不应把已完成编译与单测的构建判红、并连带跳过 release job。失败降级为 warning。
+        continue-on-error: true
         with:
           name: hyperglow-debug-${{ matrix.variant }}
           path: ${{ env.APK_PATH }}
           if-no-files-found: error
+          # 制品仅用于同一 run 内 build → publish-debug 传递 APK（以及人工下载）;
+          # Actions 制品额度仅 500MB,历史调试包曾堆到数十 GB 导致上传全部失败,故压到最短保留期。
+          retention-days: 1
 
   # 汇总两个 debug 变体并发布为预发行 release。必须独立 job:矩阵两个变体并行,
   # 若各自 delete+create+upload 会互相覆盖(后删的删掉先传的 APK),导致缺一个变体。
@@ -109,16 +115,25 @@ jobs:
 
       - name: Download debug APKs
         uses: actions/download-artifact@v4
+        # 上传因制品额度耗尽而降级时这里必然拿不到 artifact；由下一步的守卫决定跳过。
+        continue-on-error: true
         with:
           path: apks
           pattern: hyperglow-debug-*
           merge-multiple: true
 
       - name: Publish debug APK to GitHub Release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # 制品额度耗尽时 artifact 上传/下载均降级，run 内拿不到 APK；此时保留现有
+          # debug release 不动（绝不删旧建空），等额度恢复后的下一次构建再刷新。
+          if ! ls apks/*.apk >/dev/null 2>&1; then
+            echo "::notice::No debug APK artifacts available (artifact storage quota hit); skipping debug release refresh."
+            exit 0
+          fi
           # 稳定的 debug release:每次构建都删除旧 release 再重建,确保发布时间刷新
           TAG="debug"
           # 从本次 commit 生成 release 简介(标题行 + 正文,若为空则给占位说明)
@@ -149,7 +164,7 @@ jobs:
             gh release upload "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --clobber || true
           done
           echo "Debug release assets:" && gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --json assets --jq '.assets[].name'
+            --json assets --jq '.assets[].name' || true
 
   # 发布用 release 变体: R8 压缩体积更小。若配置了 SIGNING_* secrets 则正式签名,
   # 否则构建未签名 APK(需自行补签)。产物上传到正式 Release(如 v0.3.65)。
@@ -186,17 +201,26 @@ jobs:
         run: chmod +x ./gradlew
 
       # 插件 ZIP = manifest.json + classes.dex(d8 取自 SDK build-tools)。
-      # 这一步在 PR 上也会执行:它是插件打包管线唯一的自动化验证(主 CI 只构建 :app)。
-      # amll-ttml 与 ai-translation 的单元测试一并在此运行(PLUGIN_RELEASE_CONVENTIONS §7:单测是发布前必过门禁)。
+      # 这一步在 PR 上也会执行:它是插件打包管线唯一的自动化验证;紧随其后的
+      # check-plugin-dex.py 校验 dex 自包含性(kotlin-stdlib 已自带、未捆绑插件 API)。
+      # amll-ttml / ai-translation / ai-translation-words 的单元测试一并在此运行(PLUGIN_RELEASE_CONVENTIONS §7:单测是发布前必过门禁)。
       - name: Build plugin ZIPs
-        run: ./gradlew :plugins:lyricfetch:pluginZip :plugins:scriptconvert:pluginZip :plugins:amll-ttml:test :plugins:amll-ttml:pluginZip :plugins:ai-translation:test :plugins:ai-translation:pluginZip --console=plain
+        run: ./gradlew :plugins:lyricfetch:pluginZip :plugins:scriptconvert:pluginZip :plugins:amll-ttml:test :plugins:amll-ttml:pluginZip :plugins:ai-translation:test :plugins:ai-translation:pluginZip :plugins:ai-translation-words:test :plugins:ai-translation-words:pluginZip :plugins:animation:pluginZip --console=plain
+
+      - name: Verify plugin DEX self-containment
+        run: python3 plugins/check-plugin-dex.py plugins/*/build/distributions/hyperglow-*-plugin.zip
 
       - name: Upload plugin ZIPs (artifact)
         uses: actions/upload-artifact@v6
+        # 制品额度耗尽时上传必然失败，但这只是人工下载的辅助产物（release 发布直接用
+        # 本地构建的 ZIP），不应判红，失败降级为 warning。
+        continue-on-error: true
         with:
           name: hyperglow-plugins
           path: plugins/*/build/distributions/hyperglow-*-plugin.zip
           if-no-files-found: error
+          # 同 build job:制品只用于 run 内传递/人工下载,压到最短保留期以省额度。
+          retention-days: 1
 
       - name: Publish plugin ZIPs to rolling pre-release
         if: github.ref == 'refs/heads/main'
@@ -210,6 +234,8 @@ jobs:
           SC_VER=$(grep -oP '"version":\s*"\K[^"]+' plugins/scriptconvert/src/main/plugin/manifest.json || echo "?")
           AT_VER=$(grep -oP '"version":\s*"\K[^"]+' plugins/amll-ttml/src/main/plugin/manifest.json || echo "?")
           AI_VER=$(grep -oP '"version":\s*"\K[^"]+' plugins/ai-translation/src/main/plugin/manifest.json || echo "?")
+          AW_VER=$(grep -oP '"version":\s*"\K[^"]+' plugins/ai-translation-words/src/main/plugin/manifest.json || echo "?")
+          AN_VER=$(grep -oP '"version":\s*"\K[^"]+' plugins/animation/src/main/plugin/manifest.json || echo "?")
           NOTES="> ⚠️ **插件随 main 滚动更新** — 每次构建都会删除重建本 release，资产始终对应最新提交。
 
           HyperLyric / HyperGlow 兼容插件（安装：HyperGlow 设置 → 插件管理 → 从本地 ZIP 安装，装好后在插件管理页开启）：
@@ -218,6 +244,8 @@ jobs:
           - **hyperglow-scriptconvert-plugin.zip** — 歌词字形转换：简 ⇄ 繁（OpenCC 词典）。
           - **hyperglow-amll-ttml-plugin.zip** — AMLL TTML 逐字歌词：从 AMLL TTML DataBase 取词（逐字/翻译/音译/和声/对唱，API 地址可配）；含宿主持久缓存管理。
           - **hyperglow-ai-translation-plugin.zip** — AI 歌词翻译：用任意 OpenAI 兼容接口（地址/模型/Key 可配）翻译歌词，按曲目缓存；含宿主缓存管理。
+          - **hyperglow-ai-translation-words-plugin.zip** — AI 逐字翻译：同上，并把译文按原词的逐字时间对齐成词级片段，配合「辅助文字逐字效果」让翻译辅助行随原词逐字点亮（需宿主支持 \`TRANSLATION_WORDS\` 的版本）；按曲目缓存；含宿主缓存管理。
+          - **hyperglow-animation-plugin.zip** — 歌词装饰动画包：呼吸光晕 / 粒子 / 涟漪 / 频谱条 / 漂浮音符 / 逐词波浪六种模式，强度、步长与 Unicode/ASCII 字形可配。
 
           ## 致谢
           - [accompanist-lyrics-core](https://github.com/6xingyv/accompanist-lyrics-core)（Apache-2.0，作者 6xingyv）— 多格式歌词解析内核，随 lyricfetch 打进 dex。
@@ -226,8 +254,8 @@ jobs:
           - [AMLL TTML DataBase](https://github.com/amll-dev/amll-ttml-db) / [amll-ttml-api](https://github.com/amll-dev/amll-ttml-api)（MIT / Apache-2.0 双许可，amll-dev）— amll-ttml 的歌词数据与 API 服务；歌词数据版权归各平台与权利人所有。
           - 在线来源：网易云音乐 / QQ 音乐 / LRCLIB（公开接口）；歌词数据版权归各平台与权利人所有。
 
-          插件版本：lyricfetch ${LF_VER} / scriptconvert ${SC_VER} / amll-ttml ${AT_VER} / ai-translation ${AI_VER}
-          构建自 commit \`${GITHUB_SHA}\`，源码见 plugins/lyricfetch、plugins/scriptconvert、plugins/amll-ttml 与 plugins/ai-translation。
+          插件版本：lyricfetch ${LF_VER} / scriptconvert ${SC_VER} / amll-ttml ${AT_VER} / ai-translation ${AI_VER} / ai-translation-words ${AW_VER} / animation ${AN_VER}
+          构建自 commit \`${GITHUB_SHA}\`，源码见 plugins/lyricfetch、plugins/scriptconvert、plugins/amll-ttml、plugins/ai-translation、plugins/ai-translation-words 与 plugins/animation。
 
           ⚠️ 插件不在主程序 APK 内，与主程序版本无关；插件默认关闭。"
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes || true
@@ -245,6 +273,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
+    needs: build
     if: github.ref == 'refs/heads/main'
     environment: release
     steps:
@@ -321,12 +350,17 @@ jobs:
 
       - name: Upload APKs (artifact)
         uses: actions/upload-artifact@v6
+        # 制品额度耗尽时上传必然失败，但正式发布用的是本地 APK（下一步直接 gh release
+        # upload），不应因这份冗余副本判红；失败降级为 warning。
+        continue-on-error: true
         with:
           name: hyperglow-version
           path: |
             ${{ env.RELEASE_APK }}
             ${{ env.DEBUG_APK }}
           if-no-files-found: error
+          # 同 build job:制品只用于 run 内传递/人工下载,压到最短保留期以省额度。
+          retention-days: 1
 
       - name: Publish APKs and update release notes
         # 上传到正式发布 tag(默认取版本号,如 v0.3.65;可用 RELEASE_TAG 覆盖),

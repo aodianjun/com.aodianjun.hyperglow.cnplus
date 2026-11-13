@@ -120,7 +120,9 @@ source range, lexical kind, keep-together intent, and confidence. AOD projects t
 Binder without changing timed words. The module-local persisted `Adaptive sectioning` preference
 defaults on: lexical chunks and secondary-row tokens are balanced across the required line count;
 Japanese particles stay with preceding phrases, Chinese dictionary phrases stay together, and Korean
-authored spaces remain break points. Groups wider than the canvas may emergency-break. With the
+authored spaces remain break points. Within the minimal line count, a break after clause punctuation
+costs less than an arbitrary split, so phrases break at commas and sentence ends when that needs no
+extra line. Groups wider than the canvas may emergency-break. With the
 preference off, AOD ignores layout groups and restores upstream behavior: timed words wrap greedily
 in source order without balancing, but transported fragments marked as parts of the same lexical word
 remain indivisible. Untimed text uses `Paint.breakText`, and each secondary row stays a single clipped
@@ -139,15 +141,29 @@ X sweep across every visible lyric row. Word/syllable timing remains unchanged.
 ## Security And Lifecycle
 
 - Producer endpoints accept only UIDs containing `com.spotify.music`.
-- AOD callback accepts only system UID containing `com.android.systemui`.
+- The app declares `forceQueryable` so Spotify can discover its bridge service and provider without
+  changing Spotify's manifest. Package visibility does not grant access; both endpoints validate caller UID.
+  Per AOSP `AppsFilterImpl`, the flag is only honored when the declaring package is system-installed,
+  so a priv-app/preinstalled install is what it actually serves; it is declared to match upstream and
+  changes nothing for a user-installed module.
+- AOD callback accepts only the caller UID resolved from the `com.android.systemui` package; SystemUI
+  is not always uid 1000, so a hardcoded system-UID check would reject valid callbacks.
 - Protocol, sequence, payload size, document identity, row count, word count, timing, and text bounds fail closed. Document pipes use the declared compressed byte count as an exact frame boundary and reject short/truncated frames.
 - Closed producer render-mode strings are normalized once at bridge ingress. Current values are
   preserved, known legacy aliases are canonicalized, unknown values use producer-safe defaults, and
   custom text size is clamped before state enters projection/rendering.
 - The producer retains at most one bounded immutable state and one compressed document for the
-  current session. Each Binder connection receives state first, then document, once; normal service
-  process death uses Android's existing automatic reconnect without creating a duplicate bind.
-  Explicit clear, generation retirement, and disable discard both retained payloads.
+  current session. Each Binder connection receives state first, then document, once. Android has no
+  automatic reconnect for a bound-service client: after the app process dies the client receives
+  `onServiceDisconnected` and no later `onServiceConnected`, so rebinding after service process death
+  is the producer client's responsibility. HyperGlow cannot recover that binding from its own side and
+  must not be specified as if it could. The provider transport is the exception, because every
+  `ContentResolver.call` re-acquires the provider and therefore survives app process death.
+  Explicit clear drops both retained payloads but does not retire the generation, so a producer that
+  clears for a reason of its own may resume at the same generation; a disable discards both retained
+  payloads. A held document's identity is its track URI plus a whole-second duration tolerance: the
+  producer rounds a track's length to the whole second, so an exact comparison would drop a document
+  the producer never re-requests and leave the rest of the song untimed.
 - App-to-SystemUI lyric state keeps the `onState(Bundle)` ABI but carries a versioned scalar envelope; full snapshots use one encoded body bounded to 48 KiB aggregate UTF-8 text, plus a separately bounded 24 KiB song-artwork JPEG frame (carried only when package/track-verified; empty otherwise), within a 96 KiB encoded-bytes ceiling. Hidden and keepalive messages remain scalar-only. The duet concurrent line (wire body v4, PR #118) rides in the same body and shares the 48 KiB text aggregate.
 - The scalar envelope carries Spotify `playbackActive` explicitly. Power policy never infers pause
   from lyric visibility, media rows, another media player, or renderer state.
@@ -164,8 +180,10 @@ X sweep across every visible lyric row. Word/syllable timing remains unchanged.
   missing Xiaomi symbols clears output and restores stock AOD placement.
 - Lockscreen lyrics require explicit opt-in and hide for unsupported/custom themes, secondary
   displays, bouncer/auth entry, stale state, or insufficient safe geometry.
-- While visible playback is active, including loading/no-lyrics fallback, a 4-second bounded heartbeat
-  refreshes snapshot freshness.
+- While visible playback is active, including loading/no-lyrics fallback, a bounded heartbeat refreshes
+  snapshot freshness: most beats are scalar keepalive messages on a 1.5-second cadence, and a full
+  snapshot is re-sent on a 4.5-second republish threshold (about 6 seconds on the loading/no-lyrics
+  fallback path).
   It pulses Xiaomi's AOD draw wake lock for 5.5 seconds only when AOD keepalive is enabled.
 - Device-verified `MiuiShowStyleController.smartHide()` and `hideDoze()` policy calls are suppressed
   only during the independent Spotify-playing AOD power session or a bounded playing-state transport
@@ -232,7 +250,10 @@ Customization is versioned, declarative data compiled in the app process and def
 again in SystemUI. SystemUI renders only a fixed internal widget registry. Imported documents may
 select known widgets, anchors, semantic palette tokens, typography, main-lyric line limits, static
 secondary-text brightness, and bounded transitions. Word animation selects from a fixed
-`Minimal`/`Gradient`/`BetterLyrics` vocabulary shared by both surfaces. They cannot name classes,
+`Minimal`/`Gradient`/`BetterLyrics` vocabulary shared by both surfaces, or a sandboxed effect
+program whose output is either controlled draw primitives (default) or a bounded list of
+positioned boxes (`EffectProgram.outputMode == "boxes"`) rendered by the host's fixed renderer.
+They cannot name classes,
 resources, methods, paths, URLs, commands, or executable code.
 
 Lockscreen profiles also accept a bounded `backgroundStyle`: `auto`/`card` resolves to the built-in
@@ -254,8 +275,11 @@ against arbitrary third-party code in SystemUI applies to plugin code as well.
   location (Android 14 rejects writable dex paths), and loaded through dedicated class loaders
   (`PathClassLoader` / `InMemoryDexClassLoader`).
 - Class-loader delegation is a load boundary, not a security sandbox: host-owned prefixes (`java.`,
-  `android.`, `kotlin.`, `androidx.`, the plugin API contract package) resolve parent-first and
-  everything else resolves child-first, so a plugin cannot shadow host classes.
+  `javax.`, `android.`, `androidx.`, `dalvik.`, `libcore.`, `org.json.`, `org.w3c.`, `org.xml.`,
+  `org.xmlpull.`, and the plugin API contract package) resolve parent-first; everything else —
+  including the `kotlin.` / `kotlinx.` helpers a plugin bundles — resolves child-first, so the
+  plugin's own copies win and it cannot shadow platform or API classes. (Full rule:
+  `docs/PLUGIN_DEVELOPMENT.md` §11.)
 - The plugin API surface is the byte-fingerprinted contract under `plugins/api`; CI fails when the
   contract changes without an explicit fingerprint update.
 - Trust model: a plugin is user-installed input of untrusted origin. Installing it grants it the app
@@ -384,7 +408,8 @@ AOD 亮度请求钳制到 Xiaomi 自身可读的 AOD 亮度级别。在暂停、
 Bridge 文档版本 1 接受可选的行级 `layoutGroups`。每个分组携带 UTF-16 源区间、词法类别、保持
 同组的意图以及置信度。AOD 通过 Binder 投递这些字段，且不改变逐时歌词词。模块本地持久化的
 `Adaptive sectioning` 偏好默认开启：词法块与次级行 token 会在所需行数内均衡分布；日语助词与其
-前置短语保持同组，中文词典词组保持完整，韩语中手工输入的空格仍作为可断行点。宽度超过画布的
+前置短语保持同组，中文词典词组保持完整，韩语中手工输入的空格仍作为可断行点。在最小行数内，
+子句标点之后的断点代价低于任意切分，因此不需要多出一行时短语断在逗号与句末。宽度超过画布的
 分组可以进行紧急断行。关闭该偏好后，AOD 会忽略布局分组并恢复上游行为：逐时词按源顺序贪婪
 换行、不做均衡，但被标记为同一词法单词组成部分的传输片段仍不可拆分。非逐时文本使用
 `Paint.breakText`，每个次级行保持为单条被裁剪的行。传输的音译片段即便位于该单一行上，也保留
@@ -400,14 +425,20 @@ profile 开关只选择亮色或暗色呈现，从不改变时序节奏。行级
 ## 安全与生命周期
 
 - 生产者端点只接受包含 `com.spotify.music` 的 UID。
-- AOD 回调只接受包含 `com.android.systemui` 的系统 UID。
+- 应用声明 `forceQueryable`，让 Spotify 无需改动自身 manifest 即可发现本模块的 bridge service 与 provider。包可见性不授予访问权限；两端仍各自校验 caller UID。按 AOSP `AppsFilterImpl` 的实现，该标志只在声明方为系统安装时被读取，因此真正生效的是 priv-app/预装安装；保留该声明是为与上游对齐，对用户安装的模块不改变任何行为。
+- AOD 回调只接受由 `com.android.systemui` 包名解析出的调用方 UID；SystemUI 并不总是 uid 1000，硬编码系统 UID 检查会拒绝正常调用。
 - 协议、序列号、载荷大小、文档标识、行数、词数、时序与文本边界一律 fail closed。文档管道以声明的压缩字节数作为精确的帧边界，并拒绝过短/截断的帧。
 - 封闭的生产者渲染模式字符串会在 bridge 入口处一次性归一化。当前值原样保留，已知的遗留别名
   转换为规范形式，未知值使用对生产者安全的默认值，自定义文字大小会在状态进入 projection/渲染
   之前被钳制。
 - 生产者为当前会话至多保留一份受限的不可变状态和一份压缩文档。每个 Binder 连接先接收一次
-  状态，再接收一次文档；正常的服务进程死亡走 Android 既有的自动重连，不会产生重复绑定。
-  显式清除、generation 退役与禁用操作都会丢弃这两份保留的载荷。
+  状态，再接收一次文档。Android **不会**为 bound-service 客户端自动重连：应用进程死亡后客户端
+  只会收到 `onServiceDisconnected`，不会再收到 `onServiceConnected`，因此服务进程死亡后的重绑是
+  生产者客户端自己的职责。HyperGlow 无法从自己这一侧恢复该绑定，也不得被规范成仿佛它能做到。
+  provider 传输是例外，因为每次 `ContentResolver.call` 都会重新获取 provider，因此能挺过应用
+  进程死亡。显式清除会丢弃两份保留的载荷，但不再退役 generation，因此生产者因自身原因清除后可在
+  同一 generation 上恢复；禁用操作会丢弃两份保留的载荷。持有文档的身份由其曲目 URI 加整秒时长容差
+  决定：生产者把曲目长度取整到整秒，精确比较会丢弃生产者不再重新请求的文档，让余下整首歌不计时。
 - App 到 SystemUI 的歌词状态保留 `onState(Bundle)` ABI，但携带版本化的标量信封；完整 snapshot 使用单一编码体，限制为 UTF-8 文本合计 48 KiB，另加单独限额的歌曲图片 JPEG 帧 24 KiB（仅包名/曲目校对通过时携带，否则为空），编码后总上限 96 KiB。隐藏与 keepalive 消息保持纯标量。对唱并发行（wire body v4,PR #118）随同一编码体携带,共享 48 KiB 文本聚合预算。
 - 标量信封显式携带 Spotify 的 `playbackActive`。电源策略绝不会从歌词可见性、媒体行、其他媒体
   播放器或渲染器状态推断暂停。
@@ -422,8 +453,9 @@ profile 开关只选择亮色或暗色呈现，从不改变时序节奏。行级
   Binder 死亡、surface 脱离或 Xiaomi 符号缺失都会清除输出并恢复原生 AOD 摆放。
 - 锁屏歌词需要显式开启，并在遇到不受支持/自定义主题、副屏、bouncer/鉴权入口、过期状态或安全
   几何不足时隐藏。
-- 当可见播放处于活跃状态（包括加载中/无歌词回退）时，一个间隔 4 秒的受限心跳会刷新 snapshot
-  的新鲜度。
+- 当可见播放处于活跃状态（包括加载中/无歌词回退）时，受限心跳会刷新 snapshot 的新鲜度：心跳
+  多为 1.5 秒一拍的纯标量 keepalive，snapshot 年龄超过 4.5 秒重发门槛时则改发全量快照
+  （加载中/无歌词回退路径下约 6 秒）。
   仅在启用 AOD keepalive 时，它才会为 Xiaomi 的 AOD 绘制 wake lock 发放 5.5 秒的脉冲。
 - 仅在独立的 Spotify 播放期 AOD 电源会话或受限的播放状态传输宽限期间，设备已验证的
   `MiuiShowStyleController.smartHide()` 与 `hideDoze()` 策略调用才会被抑制。每个播放中的歌曲
@@ -476,8 +508,15 @@ AOD 宿主容器以及锁屏控制器/宿主/几何接缝；未知 profile 仍�
 自定义内容是在 app 进程中编译的带版本声明式数据，并在 SystemUI 中再次进行防御性校验。SystemUI
 只渲染固定的内部 widget 注册表。导入的文档可以选择已知的 widget、锚点、语义化调色板 token、
 排版、主歌词行数上限、静态次级文本亮度以及受限的过渡效果。逐字动画从
-`Minimal`/`Gradient`/`BetterLyrics` 的固定词表中选择，两个 surface 共用。它们不能指定类、资源、
-方法、路径、URL、命令或任何可执行代码。
+`Minimal`/`Gradient`/`BetterLyrics` 的固定词表中选择，两个 surface 共用；或选择一段沙箱效果
+程序，其输出为受控绘制原语（缺省）或有界定位盒列表（`EffectProgram.outputMode == "boxes"`，
+由宿主固定渲染器绘制）。盒是纯数据，不能指定类、资源、方法、路径、URL、命令或任何可执行
+代码。用户导入的装饰贴纸同样不越过这条边界：文档只携带 64..255 的编号；图片字节经配置
+Bundle 的只读 `ParcelFileDescriptor` 通道下发，SystemUI 侧按 sha256 与尺寸/像素预算校验后
+才解码进进程内注册表，读失败或哈希不符只丢弃该张，配置里始终不出现路径、URL 或可执行内容。
+程序还可以携带一张不超过 256 条的逐词覆盖表（`wordOverrides`：行号、词号与五个数值），
+由 `wordOverride` 指令读取；它同样只是数值数据，经同一套归一化校验（范围/有限性/条数上限），
+不能指定资源或代码。
 
 锁屏 profile 还接受受限的 `backgroundStyle`：`auto`/`card` 解析为内置的非交互通知式遮罩；
 `none` 保持透明。AOD 始终将其规范化为 `none`。
@@ -494,8 +533,11 @@ AOD 宿主容器以及锁屏控制器/宿主/几何接缝；未知 profile 仍�
 - 安装与加载分阶段进行：插件包先做结构性校验（`PluginManifest`：id 格式、对宿主的 API 版本、
   入口点、设置 schema），写入只读位置（Android 14 拒绝可写 dex 路径），再经专用类加载器
   （`PathClassLoader` / `InMemoryDexClassLoader`）加载。
-- 类加载器委派是加载边界，不是安全沙箱：宿主拥有的前缀（`java.`、`android.`、`kotlin.`、
-  `androidx.`、插件 API 契约包）按双亲优先解析，其余按子优先解析，因此插件无法遮蔽宿主类。
+- 类加载器委派是加载边界，不是安全沙箱：宿主拥有的前缀（`java.`、`javax.`、`android.`、
+  `androidx.`、`dalvik.`、`libcore.`、`org.json.`、`org.w3c.`、`org.xml.`、`org.xmlpull.`、
+  插件 API 契约包）按双亲优先解析；其余——**包括插件自带的 `kotlin.` / `kotlinx.` 副本**——
+  按子优先解析：插件自己的副本胜出，插件无法遮蔽平台类或 API 类。（完整规则见
+  `docs/PLUGIN_DEVELOPMENT.md` §11。）
 - 插件 API 面是 `plugins/api` 下带字节指纹的契约；契约变更而没有显式更新指纹时，CI 会失败。
 - 信任模型：插件是用户自行安装的不可信来源输入。安装它所授予的是 app 进程自身的能力——没有
   SystemUI 访问权、没有 root、没有 Xposed hook。manifest 校验仅是结构性的；当前没有加密的

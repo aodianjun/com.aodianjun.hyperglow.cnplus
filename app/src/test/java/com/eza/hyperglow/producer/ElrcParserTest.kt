@@ -14,6 +14,10 @@ import org.junit.Test
  */
 class ElrcParserTest {
 
+    /** 直接构造 [ElrcParser.TimedLine](绕开 LRC 解析)用于尾奏/重叠判据测试。 */
+    private fun timedLine(begin: Long, end: Long, text: String) =
+        ElrcParser.TimedLine(begin, end, text, emptyList())
+
     @Test
     fun parsesPlainLrc_withMultipleTimestampsAndInterleavedMetadata() {
         val lrc = listOf(
@@ -199,6 +203,42 @@ class ElrcParserTest {
         // 与 activeLineAt 的「最后一条 start <= pos」语义一致，仅兜住真正的结尾。
         val lines = ElrcParser.parse("[00:01.000]One\n[00:05.000]Two\n[00:10.000]Three")
         assertEquals("One", activeLinePastEndOrNull(lines, 4_999L)?.text)
+    }
+
+    @Test
+    fun activeLinePastEndOrNull_duetOverlap_keepsStillSingingEarlierLine() {
+        // 对唱重叠:A(0..10000) 先开始,B(5000..8000) 按 begin 排序是最后一行。
+        // 旧实现只看最后一行 end,position=9000 时误判为尾奏并返回 null;A 实际还在唱。
+        val lines = listOf(
+            timedLine(0L, 10_000L, "A"),
+            timedLine(5_000L, 8_000L, "B")
+        )
+
+        assertEquals("A", activeLinePastEndOrNull(lines, 9_000L)?.text)
+    }
+
+    @Test
+    fun activeLinePastEndOrNull_duetOverlap_clearsPastLatestEnd() {
+        // 真正越过全歌最晚 end(A 的 10000)才清行,而不是 B 的 8000。
+        val lines = listOf(
+            timedLine(0L, 10_000L, "A"),
+            timedLine(5_000L, 8_000L, "B")
+        )
+
+        assertNull(activeLinePastEndOrNull(lines, 10_000L))
+        assertNull(activeLinePastEndOrNull(lines, 10_001L))
+    }
+
+    @Test
+    fun activeLinePastEndOrNull_noValidEnd_fallsBackToLastLineEnd() {
+        // 全部行 end 无效(end <= begin):退回旧判据「最后一行 end」,不改变异常数据表现。
+        val lines = listOf(
+            timedLine(0L, 0L, "A"),
+            timedLine(5_000L, 5_000L, "B")
+        )
+
+        assertEquals("A", activeLinePastEndOrNull(lines, 4_000L)?.text)
+        assertNull(activeLinePastEndOrNull(lines, 5_000L))
     }
 
     // --- 零宽字符剥离(Bridge LyricTextSanitizer 同集合,issue #68) ---

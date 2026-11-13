@@ -72,8 +72,8 @@ android {
         applicationId = "com.aodianjun.hyperglow.cnplus"
         minSdk = 33
         targetSdk = 37
-        versionCode = 193
-        versionName = "0.3.166"
+        versionCode = 300
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
@@ -91,16 +91,19 @@ android {
                 keyPassword = requireNotNull(signingKeyPassword)
             }
         }
-        // 固定调试签名密钥(已入库): 保证本地与 CI 每次构建签名一致,
-        // 更新时可覆盖安装,无需卸载。仅用于调试/测试分发。
+        // 固定调试签名密钥(keystore 已入库):保证多机与 CI 的调试包签名一致,更新时可覆盖安装。
+        // 口令不进仓库(安全门禁要求):从环境变量 HYPERGLOW_DEBUG_STORE_PASSWORD 读取
+        // (非机密值,与仓库内 keystore 配套,见 docs/CONTRIBUTING.md);未配置时不创建该
+        // 签名配置,debug 构建回退 AGP 默认调试签名(仅影响本地调试包之间的覆盖安装)。
         // 注意: 不能命名为 "debug"(AGP 已自动创建同名配置)。
         val debugKeystore = file("keystore/hyperglow-dbg.jks")
-        if (debugKeystore.exists()) {
+        val debugStorePassword = providers.environmentVariable("HYPERGLOW_DEBUG_STORE_PASSWORD").orNull
+        if (debugKeystore.exists() && !debugStorePassword.isNullOrBlank()) {
             create("hyperglowDebug") {
                 storeFile = debugKeystore
-                storePassword = "hyperglow_debug_2026"
+                storePassword = debugStorePassword
                 keyAlias = "hyperglow"
-                keyPassword = "hyperglow_debug_2026"
+                keyPassword = debugStorePassword
             }
         }
     }
@@ -109,9 +112,11 @@ android {
         debug {
             // 优先使用正式签名:CI release job 中 release 与 debug 使用同一正式密钥,
             // 使 release 版可直接覆盖已安装的 debug 版(签名一致才能覆盖安装)。
-            // 无正式签名密钥(本地/普通 CI)时回退到固定调试签名,保证每次构建签名一致。
-            signingConfig = signingConfigs.findByName("release")
+            // 其次固定调试签名(设置了 HYPERGLOW_DEBUG_STORE_PASSWORD 时),保证多机签名一致。
+            // 两者都没有时不赋值——保留 AGP 默认调试签名(本机可安装),不产出无签名包。
+            val preferredSigning = signingConfigs.findByName("release")
                 ?: signingConfigs.findByName("hyperglowDebug")
+            if (preferredSigning != null) signingConfig = preferredSigning
             buildConfigField(
                 "boolean",
                 "TRACE_LOGGING_AVAILABLE",
@@ -195,14 +200,16 @@ dependencies {
     // DexKit — dynamic symbol resolution for Xiaomi symbols that get renamed across ROM
     // versions. Brought in by the 2885511 sync; used only under the optional DexKit arm of
     // SymbolResolver (bundled reflection stays the fast path).
-    implementation("org.luckypray:dexkit:2.2.0")
+    implementation("org.luckypray:dexkit:2.3.0")
     // lyricon subscriber SDK — consumes lyrics from lyricon's central service
     // (Xposed-injected into com.android.systemui). Transitively pulls in
     // io.github.proify.lyricon.lyric:model (the Song/RichLyricLine model).
     implementation("io.github.proify.lyricon:subscriber:0.1.70")
     // SuperLyricApi — Binder-based receiver for lyrics published by the SuperLyric
     // Xposed module (com.hchen.superlyricapi: SuperLyricHelper / ISuperLyricReceiver).
-    implementation("com.github.HChenX:SuperLyricApi:3.4")
+    // 3.7 起支持全量歌词包（allLyrics/currentLyricIndex/duration/position/lyricId）与
+    // 行级 translation/secondary；旧版模块（≤3.4）的逐行包在新 jar 下仍按旧语义解析。
+    implementation("com.github.HChenX:SuperLyricApi:3.7")
     // LyricInfo needs no dependency: it injects lyrics into MediaSession metadata
     // (MediaMetadata.extras.lyricInfo, elrc format), consumed via MediaSessionManager.
     compileOnly("io.github.libxposed:api:102.0.0")
