@@ -88,6 +88,10 @@ class MainActivity : ComponentActivity() {
                                 layerBackdrop = layerBackdrop
                             )
                             val backStack = rememberNavBackStack<AppRoute>(AppRoute.Home)
+                            // 首次使用引导:盖在主页之上,完成后写入标记并从组合中移除。
+                            var showOnboarding by remember {
+                                mutableStateOf(OnboardingPreferences.shouldShow(this@MainActivity))
+                            }
                             var selectedTabName by rememberSaveable {
                                 mutableStateOf(SettingsTab.STATUS.name)
                             }
@@ -249,6 +253,14 @@ class MainActivity : ComponentActivity() {
                                         onCancel = {}
                                     )
                                 }
+                            }
+                            if (showOnboarding) {
+                                OnboardingScreen(
+                                    onFinish = {
+                                        OnboardingPreferences.markCompleted(this@MainActivity)
+                                        showOnboarding = false
+                                    }
+                                )
                             }
                         }
                     }

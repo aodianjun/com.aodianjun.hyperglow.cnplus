@@ -683,4 +683,26 @@
     <string name="diagnostic_preview_lsposed">LSPosed 模块日志</string>
     <string name="diagnostic_preview_settings">运行时设置</string>
     <string name="diagnostic_preview_empty">(空)</string>
+
+    <string name="onboarding_skip">跳过</string>
+    <string name="onboarding_next">下一步</string>
+    <string name="onboarding_start">开始使用</string>
+    <string name="onboarding_welcome_title">欢迎使用 HyperGlow CN+</string>
+    <string name="onboarding_welcome_summary">在锁屏与息屏上显示逐行、逐词同步的歌词动画。</string>
+    <string name="onboarding_requirements_title">开始之前</string>
+    <string name="onboarding_requirement_root">Root 权限</string>
+    <string name="onboarding_requirement_lsposed">LSPosed，并为系统界面启用 HyperGlow</string>
+    <string name="onboarding_requirement_source">至少一个歌词源</string>
+    <string name="onboarding_module_title">启用模块</string>
+    <string name="onboarding_module_summary">在 LSPosed 中启用 HyperGlow CN+，并勾选「系统界面」作用域，然后重启系统界面或重启手机。</string>
+    <string name="onboarding_module_status">模块状态</string>
+    <string name="onboarding_module_detected">已在系统界面生效</string>
+    <string name="onboarding_module_pending">尚未检测到</string>
+    <string name="onboarding_module_restart_hint">启用后仍未检测到，请重启系统界面。</string>
+    <string name="onboarding_action_open_lsposed">打开 LSPosed</string>
+    <string name="onboarding_source_title">选择歌词源</string>
+    <string name="onboarding_source_summary">至少启用一个歌词源，HyperGlow 才能读取歌词。之后可在状态页切换。</string>
+    <string name="onboarding_permission_title">检查权限</string>
+    <string name="onboarding_permission_summary">这些权限保证息屏时歌词持续更新，之后可在应用内调整。</string>
+    <string name="onboarding_action_grant_root">授权</string>
 </resources>

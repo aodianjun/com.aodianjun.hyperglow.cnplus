@@ -188,7 +188,7 @@ private fun XposedSourceHint(
     }
 }
 
-private fun openLsposedManager(context: android.content.Context) {
+internal fun openLsposedManager(context: android.content.Context) {
     // 用 getLaunchIntentForPackage 获取带 LAUNCHER category 的完整启动 Intent。
     // 直接 Intent(ACTION_MAIN).setPackage(...) 不带任何 category,隐式解析仅匹配声明了
     // android.intent.category.DEFAULT 的 filter;而 LSPosed 管理器的 MainActivity 只声明了

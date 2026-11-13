@@ -148,7 +148,7 @@ internal fun PermissionStatusSection() {
     }
 }
 
-private suspend fun checkRootGranted(): Boolean = withContext(Dispatchers.IO) {
+internal suspend fun checkRootGranted(): Boolean = withContext(Dispatchers.IO) {
     runCatching {
         val process = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
         val output = process.inputStream.bufferedReader().use { it.readText() }
@@ -157,7 +157,7 @@ private suspend fun checkRootGranted(): Boolean = withContext(Dispatchers.IO) {
     }.getOrDefault(false)
 }
 
-private suspend fun requestRootAccess() {
+internal suspend fun requestRootAccess() {
     withContext(Dispatchers.IO) {
         runCatching {
             val process = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
@@ -167,7 +167,7 @@ private suspend fun requestRootAccess() {
     }
 }
 
-private fun checkNotificationPermission(context: Context): Boolean {
+internal fun checkNotificationPermission(context: Context): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
     val manager = context.getSystemService(NotificationManager::class.java) ?: return false
     return manager.areNotificationsEnabled()
@@ -188,7 +188,7 @@ private fun checkForegroundServiceRunning(context: Context): Boolean {
     return channel.importance != NotificationManager.IMPORTANCE_NONE
 }
 
-private fun checkBatteryOptimizationWhitelisted(context: Context): Boolean {
+internal fun checkBatteryOptimizationWhitelisted(context: Context): Boolean {
     val powerManager = context.getSystemService(PowerManager::class.java) ?: return false
     return powerManager.isIgnoringBatteryOptimizations(context.packageName)
 }

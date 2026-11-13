@@ -674,4 +674,26 @@
     <string name="diagnostic_preview_lsposed">LSPosed module lines</string>
     <string name="diagnostic_preview_settings">Runtime settings</string>
     <string name="diagnostic_preview_empty">(empty)</string>
+
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_start">Get started</string>
+    <string name="onboarding_welcome_title">Welcome to HyperGlow CN+</string>
+    <string name="onboarding_welcome_summary">Line- and word-synced lyric animations on the lock screen and AOD.</string>
+    <string name="onboarding_requirements_title">Before you start</string>
+    <string name="onboarding_requirement_root">Root access</string>
+    <string name="onboarding_requirement_lsposed">LSPosed with HyperGlow enabled for SystemUI</string>
+    <string name="onboarding_requirement_source">At least one lyrics source</string>
+    <string name="onboarding_module_title">Enable the module</string>
+    <string name="onboarding_module_summary">Enable HyperGlow CN+ in LSPosed and check the SystemUI scope. Then restart SystemUI or reboot the device.</string>
+    <string name="onboarding_module_status">Module status</string>
+    <string name="onboarding_module_detected">Active in SystemUI</string>
+    <string name="onboarding_module_pending">Not detected yet</string>
+    <string name="onboarding_module_restart_hint">If it stays undetected after enabling, restart SystemUI.</string>
+    <string name="onboarding_action_open_lsposed">Open LSPosed</string>
+    <string name="onboarding_source_title">Choose a lyrics source</string>
+    <string name="onboarding_source_summary">Enable at least one source so HyperGlow has lyrics to display. You can switch sources later on the Status page.</string>
+    <string name="onboarding_permission_title">Check permissions</string>
+    <string name="onboarding_permission_summary">These keep lyrics updating while the screen is off. You can change them later in the app.</string>
+    <string name="onboarding_action_grant_root">Grant</string>
 </resources>
