@@ -22,7 +22,9 @@ internal object LyricReserveState {
     @Volatile
     private var module: XposedModule? = null
     @Volatile
-    private var reservePx = 0
+    private var headerOffsetPx = 0
+    @Volatile
+    private var childOffsetPx = 0
     private var stackRef: WeakReference<ViewGroup>? = null
     private var headerRef: WeakReference<View>? = null
     private val hookedMethods = Collections.synchronizedSet(mutableSetOf<String>())
@@ -31,15 +33,28 @@ internal object LyricReserveState {
         this.module = module
     }
 
-    fun update(stack: ViewGroup?, header: View?, reservePx: Int) {
-        if (stack == null || header == null || reservePx <= 0) {
+    /**
+     * 媒体卡与歌词的占位位移。header 与 header 之后的子视图分开给量：
+     * - 上方模式：两者同量上移（媒体卡 + 通知整体让位）；
+     * - 下方模式：媒体卡上移让出空间，通知按歌词实际高度单独下移；
+     * - 旧布局：两者都 0，直接 clear。
+     */
+    fun update(
+        stack: ViewGroup?,
+        header: View?,
+        headerOffsetPx: Int,
+        childOffsetPx: Int
+    ) {
+        if (stack == null || header == null || (headerOffsetPx == 0 && childOffsetPx == 0)) {
             clear()
             return
         }
-        val changed = this.reservePx != reservePx ||
+        val changed = this.headerOffsetPx != headerOffsetPx ||
+            this.childOffsetPx != childOffsetPx ||
             this.stackRef?.get() !== stack ||
             this.headerRef?.get() !== header
-        this.reservePx = reservePx
+        this.headerOffsetPx = headerOffsetPx
+        this.childOffsetPx = childOffsetPx
         this.stackRef = WeakReference(stack)
         this.headerRef = WeakReference(header)
         install(stack.javaClass)
@@ -48,8 +63,10 @@ internal object LyricReserveState {
 
     fun clear() {
         val stack = stackRef?.get()
-        val changed = reservePx != 0
-        reservePx = 0
+        val changed = headerOffsetPx != 0 || childOffsetPx != 0
+        headerOffsetPx = 0
+        childOffsetPx = 0
+        appliedHeaderOffsetPx = 0
         stackRef = null
         headerRef = null
         if (changed && stack != null) stack.requestLayout()
@@ -74,24 +91,42 @@ internal object LyricReserveState {
         }
     }
 
-    private fun apply(stack: ViewGroup) {
-        val reserve = reservePx
-        if (reserve <= 0) return
-        val header = headerRef?.get() ?: return
-        if (header.parent !== stack) return
+    private fun apply(stack: ViewGroup): Boolean {
+        val headerOffset = headerOffsetPx
+        val childOffset = childOffsetPx
+        if (headerOffset == 0 && childOffset == 0) return true
+        val header = headerRef?.get() ?: return false
+        if (header.parent !== stack) return false
         val headerIndex = stack.indexOfChild(header)
-        if (headerIndex < 0) return
+        if (headerIndex < 0) return false
+        if (headerOffset != 0) header.offsetTopAndBottom(headerOffset)
         for (index in headerIndex + 1 until stack.childCount) {
             val child = stack.getChildAt(index)
             if (child.visibility == View.GONE) continue
-            child.offsetTopAndBottom(reserve)
+            if (childOffset != 0) child.offsetTopAndBottom(childOffset)
         }
+        return true
     }
+
+    /**
+     * 实际已经落在媒体卡上的位移。读取锁屏几何时必须扣掉它，否则把「上次偏移后的位置」
+     * 当成原厂位置会在下一帧重复叠加。onLayout 期间先清零(子视图会被重新摆回原厂位置),
+     * apply 成功后再写成当前值。
+     */
+    @Volatile
+    private var appliedHeaderOffsetPx = 0
+
+    fun currentHeaderOffsetPx(): Int = appliedHeaderOffsetPx
 
     private object LayoutHooker : Hooker {
         override fun intercept(chain: Chain): Any? {
+            appliedHeaderOffsetPx = 0
             val result = chain.proceed()
-            (chain.thisObject as? ViewGroup)?.let(::apply)
+            val stack = chain.thisObject as? ViewGroup
+            if (stack != null) {
+                val applied = apply(stack)
+                appliedHeaderOffsetPx = if (applied) headerOffsetPx else 0
+            }
             return result
         }
     }

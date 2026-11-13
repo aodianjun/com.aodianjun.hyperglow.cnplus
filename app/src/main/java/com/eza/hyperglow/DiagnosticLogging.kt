@@ -127,6 +127,7 @@ internal object RuntimeCustomization {
             raiseToAod = preferences.raiseToAod,
             suppressLockscreenEditorLongPress = preferences.suppressLockscreenEditorLongPress,
             lockscreenReserveBelowMediaCard = preferences.lockscreenReserveBelowMediaCard,
+            lockscreenCardPlacement = preferences.lockscreenCardPlacement,
             aodBrightnessBoost = preferences.aodBrightnessBoost,
             aodBrightnessOverride = preferences.aodBrightnessOverride,
             aodBrightnessLevel = preferences.aodBrightnessLevel,
@@ -166,6 +167,7 @@ internal object RuntimeCustomization {
             configuration.suppressLockscreenEditorLongPress,
         lockscreenReserveBelowMediaCard: Boolean =
             configuration.lockscreenReserveBelowMediaCard,
+        lockscreenCardPlacement: String = configuration.lockscreenCardPlacement,
         aodBrightnessBoost: Boolean = configuration.aodBrightnessBoost,
         aodBrightnessOverride: Boolean = configuration.aodBrightnessOverride,
         aodBrightnessLevel: Int = configuration.aodBrightnessLevel,
@@ -187,6 +189,8 @@ internal object RuntimeCustomization {
                 raiseToAod = raiseToAod,
                 suppressLockscreenEditorLongPress = suppressLockscreenEditorLongPress,
                 lockscreenReserveBelowMediaCard = lockscreenReserveBelowMediaCard,
+                lockscreenCardPlacement =
+                    com.eza.hyperglow.aod.normalizeLockscreenCardPlacement(lockscreenCardPlacement),
                 aodBrightnessBoost = aodBrightnessBoost,
                 aodBrightnessOverride = aodBrightnessOverride,
                 aodBrightnessLevel = aodBrightnessLevel.coerceIn(

@@ -225,6 +225,7 @@ internal object DiagnosticReportFactory {
                     "lockscreenKeepAwake" to renderPreferences.lockscreenKeepAwake.toString(),
                     "lockscreenReserveBelowMediaCard" to
                         renderPreferences.lockscreenReserveBelowMediaCard.toString(),
+                    "lockscreenCardPlacement" to renderPreferences.lockscreenCardPlacement,
                     "raiseToAod" to renderPreferences.raiseToAod.toString(),
                     "positionFollowing" to
                         renderPreferences.experimentalPositionFollowing.toString(),

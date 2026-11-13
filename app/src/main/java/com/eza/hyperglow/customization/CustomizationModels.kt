@@ -331,7 +331,17 @@ data class CompiledCustomization(
      * 步进(约 5fps);关闭后始终按 [aodRefreshRateCap] 的帧上限渲染。App 端运行时
      * 开关,随配置下发到 SystemUI 侧 AodLyricCanvasView 的降帧总闸。
      */
-    val aodPowerSaver: Boolean = true
+    val aodPowerSaver: Boolean = true,
+    /**
+     * 锁屏歌词卡相对系统媒体卡的位置:
+     * - `clock`：沿用按系统时钟避让的旧布局；
+     * - `above_media`：歌词卡在媒体卡上方，媒体卡与通知栈整体上移让位；
+     * - `below_media`：歌词卡在媒体卡下方，卡片高度变化只推动下面的通知。
+     *
+     * 由 `AodRenderPreferences.lockscreenCardPlacement` 下发；[lockscreenReserveBelowMediaCard]
+     * 仅作为旧版本布尔值的兼容镜像保留。
+     */
+    val lockscreenCardPlacement: String = "clock"
 )
 
 @Serializable

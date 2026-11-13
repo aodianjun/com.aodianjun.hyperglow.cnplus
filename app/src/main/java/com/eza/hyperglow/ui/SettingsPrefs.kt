@@ -81,6 +81,25 @@ internal fun updateLockscreenReserveBelowMediaCard(
     return true
 }
 
+/** 锁屏歌词卡相对媒体卡的位置:clock / above_media / below_media。 */
+internal fun updateLockscreenCardPlacement(
+    context: android.content.Context,
+    placement: String
+): Boolean {
+    val normalized = com.eza.hyperglow.aod.normalizeLockscreenCardPlacement(placement)
+    val saved = context.getSharedPreferences(AodRenderPreferences.PREFS, 0).edit()
+        .putString(AodRenderPreferences.LOCKSCREEN_CARD_PLACEMENT, normalized)
+        // 旧布尔值继续与 below_media 同步,供旧版布局与诊断字段读取。
+        .putBoolean(
+            AodRenderPreferences.LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD,
+            normalized == "below_media"
+        )
+        .commit()
+    if (!saved) return false
+    publishRuntimeConfiguration(context)
+    return true
+}
+
 internal fun updateRaiseToAod(
     context: android.content.Context,
     enabled: Boolean
@@ -561,6 +580,9 @@ internal fun readDiagnosticLogsForExportWithSystemUi(context: android.content.Co
         append("version=").append(BuildConfig.VERSION_NAME)
         append('(').append(BuildConfig.VERSION_CODE).append(") ")
         append("build=").append(BuildConfig.BUILD_TYPE).append('\n')
+        // 现场排查用:OS 代际判定依赖的原始值。App 进程读属性失败时留空,不影响导出。
+        append("sdk=").append(android.os.Build.VERSION.SDK_INT).append('\n')
+        append("osName=").append(readHyperOsVersionName()).append('\n')
         append("exportedAtMs=").append(System.currentTimeMillis()).append("\n\n")
         append(appLogs)
         if (appLogs.isNotBlank()) append('\n')
@@ -573,6 +595,13 @@ internal fun readDiagnosticLogsForExportWithSystemUi(context: android.content.Co
         }
     }
 }
+
+/** `ro.mi.os.version.name`（如 `OS4.0.2.0...`）。App 进程被 hidden API 挡住时返回空。 */
+private fun readHyperOsVersionName(): String = runCatching {
+    (Class.forName("android.os.SystemProperties")
+        .getDeclaredMethod("get", String::class.java)
+        .invoke(null, "ro.mi.os.version.name") as? String)?.trim().orEmpty()
+}.getOrDefault("")
 
 /** SAF 写入失败时的本地兜底：写到 App 外部文件目录，返回可展示的绝对路径。 */
 internal fun writeDiagnosticLogsToLocalFile(

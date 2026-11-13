@@ -736,4 +736,29 @@ class LockscreenSurfaceControllerTest {
             )
         )
     }
+
+    @Test
+    fun adaptiveClockAnchorUsesVisibleBottomOnlyWhenMismatchExceedsTolerance() {
+        // OS4(tolerance=0): getClockBottom()=573,可见时钟底边=444 → 取 444,卡片不再被压低。
+        assertEquals(444, adaptiveLockscreenClockBottom(573, listOf(0, 444, 444), 0))
+        // 时钟未 attach/被裁掉时可见候选全 0,保留原解析值。
+        assertEquals(573, adaptiveLockscreenClockBottom(573, listOf(0, 0, 0), 0))
+        // 多个可见容器同时有效时取最深的一个,避免与容器内更低元素重叠。
+        assertEquals(500, adaptiveLockscreenClockBottom(573, listOf(444, 500), 0))
+        // 非 OS4:64dp(≈此测试的像素口径)以内保留原解析值;超过才补偿。
+        assertEquals(573, adaptiveLockscreenClockBottom(573, listOf(540), 64))
+        assertEquals(500, adaptiveLockscreenClockBottom(573, listOf(500), 64))
+    }
+
+    @Test
+    fun adaptiveMediaHeaderAnchorPrefersVisibleBottomOnlyWhenMismatchExceedsTolerance() {
+        // OS4(tolerance=0): 同一帧布局算式=1719,可见底边=1494;取 1494 后卡片落 1528。
+        assertEquals(1494, adaptiveMediaHeaderBottom(1719, 1494, 0)!!)
+        // 可见底边缺失时回退布局算式;两者都没有则不放置。
+        assertEquals(1719, adaptiveMediaHeaderBottom(1719, 0, 0)!!)
+        assertNull(adaptiveMediaHeaderBottom(null, 0, 0))
+        // 非 OS4:容差内保留布局算式,超过才取可见底边。
+        assertEquals(1719, adaptiveMediaHeaderBottom(1719, 1690, 32))
+        assertEquals(1494, adaptiveMediaHeaderBottom(1719, 1494, 32))
+    }
 }

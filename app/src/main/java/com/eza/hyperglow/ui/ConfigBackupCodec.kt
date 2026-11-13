@@ -215,7 +215,10 @@ internal object ConfigBackupCodec {
         BackupStringField(AodRenderPreferences.ANIMATION) { it.animation },
         BackupStringField(AodRenderPreferences.GLOW) { it.glow },
         BackupStringField(AodRenderPreferences.BURN_IN_PATTERN) { it.burnInPattern },
-        BackupStringField(AodRenderPreferences.AOD_ROTATION_MODE) { it.aodRotationMode }
+        BackupStringField(AodRenderPreferences.AOD_ROTATION_MODE) { it.aodRotationMode },
+        BackupStringField(AodRenderPreferences.LOCKSCREEN_CARD_PLACEMENT) {
+            it.lockscreenCardPlacement
+        }
     )
 
     fun encode(
@@ -747,6 +750,13 @@ internal object ConfigBackupCodec {
                 AodRenderPreferences.PLUGIN_AUTO_UPDATE_ENABLED,
                 base.pluginAutoUpdateEnabled,
                 DEFAULTS.pluginAutoUpdateEnabled
+            ),
+            lockscreenCardPlacement = com.eza.hyperglow.aod.normalizeLockscreenCardPlacement(
+                stored.resolveString(
+                    AodRenderPreferences.LOCKSCREEN_CARD_PLACEMENT,
+                    base.lockscreenCardPlacement,
+                    DEFAULTS.lockscreenCardPlacement
+                )
             )
         )
 

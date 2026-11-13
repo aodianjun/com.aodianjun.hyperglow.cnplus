@@ -380,6 +380,7 @@ internal object DiagnosticReportCodec {
         "keepAodActiveDurationMs",
         "lockscreenKeepAwake",
         "lockscreenReserveBelowMediaCard",
+        "lockscreenCardPlacement",
         "raiseToAod",
         "positionFollowing",
         "burnInPattern",

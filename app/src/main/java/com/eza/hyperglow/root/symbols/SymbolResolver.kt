@@ -7,6 +7,7 @@ import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.query.FindClass
 import org.luckypray.dexkit.query.FindField
 import org.luckypray.dexkit.query.FindMethod
+import org.luckypray.dexkit.query.enums.StringMatchType
 import org.luckypray.dexkit.query.matchers.ClassMatcher
 import org.luckypray.dexkit.query.matchers.FieldMatcher
 import org.luckypray.dexkit.query.matchers.MethodMatcher
@@ -203,6 +204,34 @@ object SymbolResolver {
         }
         SymbolSourceLog.record(featureId, "class:$owner", resolution.first != null, resolution.second)
         return resolution.first
+    }
+
+    /**
+     * 诊断用类名普查:按类名子串列出候选,只写日志,不参与 hook 解析。
+     *
+     * OS4 把 AOD 宿主移出了 `com.miui.aod.AODView`（现场日志：AOD position class absent、
+     * DozeHost class not found），此时需要把新类名带回日志再做结构指纹适配。只读查询,
+     * 与 [resolveClass] 的精确候选规则互不影响。
+     */
+    fun classNamesContaining(
+        loader: ClassLoader,
+        needle: String,
+        limit: Int = 40
+    ): List<String> {
+        val bridges = dexBridges(loader)
+        if (bridges.isEmpty()) return emptyList()
+        val query = FindClass.create().matcher(
+            ClassMatcher.create().className(needle, StringMatchType.Contains, true)
+        )
+        val names = LinkedHashSet<String>()
+        for (bridge in bridges) {
+            val results = runCatching { bridge.findClass(query) }.getOrNull() ?: continue
+            for (data in results) {
+                names.add(data.name)
+                if (names.size >= limit) return names.toList()
+            }
+        }
+        return names.toList()
     }
 
     /**

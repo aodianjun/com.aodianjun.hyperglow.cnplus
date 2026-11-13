@@ -30,6 +30,7 @@ import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiCapabilityResolver
 import com.eza.hyperglow.root.projection.LyricKeepAliveSignal
 import com.eza.hyperglow.root.projection.LyricRenderContent
+import com.eza.hyperglow.root.utils.PlatformVersion
 import com.eza.hyperglow.root.projection.LyricRetentionAnchor
 import com.eza.hyperglow.root.projection.LyricSnapshot
 import com.eza.hyperglow.root.projection.LyricSurfaceKind
@@ -1249,7 +1250,11 @@ internal object AodSurfaceController : SystemUiLyricSubscriber, LinkageSurface {
         // 关闭「实时跟随系统时钟」(锚定模式)且模块在渲染 AOD 时,钉住系统时钟位置
         // (不随防烧屏沉降下移),但保留时钟显示 —— 与「隐藏系统时钟」解耦(issue #26)。
         // 暂停/没有播放(!playbackActive)时不钉住,让时钟回到系统位置、随防烧屏正常移动。
-        val pinClock = renderable && playbackActive && !currentAodProfile().aodClockFollow
+        // OS4 现场反馈「刚进入 AOD 不锚定、过一会才锚定」:表面 attach 到首个可渲染快照之间
+        // 有一段空窗。OS4 只要场景已激活且有播放就提前接管,不再等 renderable;OS3 原条件不动。
+        val pinClock = (renderable ||
+            (PlatformVersion.isHyperOs4OrNewer && isSceneActive())) &&
+            playbackActive && !currentAodProfile().aodClockFollow
         // 自定义时钟 Y 偏移仅作用于「钉住」状态:把 App 端滑块值推到 AodPositionHook,
         // 叠加到被钉住的系统时钟 Y 上;未钉住时清零,确保不施加偏移。
         AodPositionHook.setClockYOffset(if (pinClock) (customization?.aodClockYOffset ?: 0) else 0)

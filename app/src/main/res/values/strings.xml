@@ -303,6 +303,8 @@
     <string name="section_lockscreen_layout">Lock screen layout</string>
     <string name="setting_lockscreen_reserve_below_media_card">Pin lyrics below the media card</string>
     <string name="summary_lockscreen_reserve_below_media_card">Notifications move below the lyrics; the media card stays put. May overlap on custom themes.</string>
+    <string name="option_above_media_card">Above the media card</string>
+    <string name="option_below_media_card">Below the media card</string>
     <string name="section_lockscreen_wake">Lock screen &amp; wake</string>
     <string name="setting_keep_lockscreen_awake">Keep lock screen awake</string>
     <string name="summary_keep_lockscreen_awake">Uses more battery.</string>

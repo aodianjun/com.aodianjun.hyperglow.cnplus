@@ -468,6 +468,12 @@ internal fun LyricAppearanceSection(
     }
 
     val selectedProfile = editorState.document.profiles[editorState.selectedSurface] ?: SurfaceProfile()
+    // 锁屏歌词卡相对媒体卡的位置:与「位置」锚点同屏编辑,避免出现第二个重复的位置开关。
+    var lockscreenCardPlacement by remember {
+        mutableStateOf(
+            com.eza.hyperglow.aod.AodRenderPreferences.read(context).lockscreenCardPlacement
+        )
+    }
     // per-surface 内容项(歌曲信息内容/分隔符/识别对唱标记):本面未显式设置(null)时继承文档级
     // 默认值(与 SceneCompiler.withDocumentDefaults 同口径)。读取用有效值,写入落到本面,改一面
     // 不再联动另一面。文档级字段仅作旧配置升级的兜底默认值。
@@ -509,18 +515,52 @@ internal fun LyricAppearanceSection(
         item { SmallTitle(text = stringResource(R.string.section_placement)) }
         item {
             SettingsCard {
-                AodChoiceRow(AodChoiceKind.POSITION, selectedProfile.anchor) {
+                val lockscreenSurface =
+                    editorState.selectedSurface == SceneCompiler.SURFACE_LOCKSCREEN
+                val positionValue = when {
+                    !lockscreenSurface -> selectedProfile.anchor
+                    lockscreenCardPlacement == "above_media" -> "above_media_card"
+                    lockscreenCardPlacement == "below_media" -> "below_media_card"
+                    else -> selectedProfile.anchor
+                }
+                AodChoiceRow(AodChoiceKind.POSITION, positionValue) {
                     openChoice(
                         AodChoiceKind.POSITION,
-                        listOf(
-                            "below_stock_clock",
-                            "screen_center",
-                            "screen_top_safe",
-                            "screen_bottom_safe",
-                            "custom_vertical_bias"
-                        ),
-                        selectedProfile.anchor
-                    ) { value -> updateSelected { it.copy(anchor = value) } }
+                        buildList {
+                            add("below_stock_clock")
+                            add("screen_center")
+                            add("screen_top_safe")
+                            add("screen_bottom_safe")
+                            add("custom_vertical_bias")
+                            if (lockscreenSurface) {
+                                add("above_media_card")
+                                add("below_media_card")
+                            }
+                        },
+                        positionValue
+                    ) { value ->
+                        when (value) {
+                            "above_media_card", "below_media_card" -> {
+                                val placement = if (value == "above_media_card") {
+                                    "above_media"
+                                } else {
+                                    "below_media"
+                                }
+                                if (updateLockscreenCardPlacement(context, placement)) {
+                                    lockscreenCardPlacement = placement
+                                    // 媒体相对位置由渲染偏好驱动;锚点回落到时钟下方,
+                                    // 避免两套位置同时生效造成重叠。
+                                    updateSelected { it.copy(anchor = "below_stock_clock") }
+                                }
+                            }
+                            else -> {
+                                if (updateLockscreenCardPlacement(context, "clock")) {
+                                    lockscreenCardPlacement = "clock"
+                                }
+                                updateSelected { it.copy(anchor = value) }
+                            }
+                        }
+                    }
                 }
                 AodChoiceRow(AodChoiceKind.WIDTH, selectedProfile.widthFraction.toString()) {
                     openChoice(
@@ -2614,6 +2654,8 @@ private fun choiceDisplayLabel(
         "screen_top_safe" -> R.string.option_top_safe_area
         "screen_bottom_safe" -> R.string.option_bottom_safe_area
         "custom_vertical_bias" -> R.string.option_custom_vertical_position
+        "above_media_card" -> R.string.option_above_media_card
+        "below_media_card" -> R.string.option_below_media_card
         else -> R.string.option_below_clock
     })
     AodChoiceKind.WIDTH ->

@@ -159,7 +159,14 @@ data class AodRenderConfig(
      * 「插件自动更新」:后台自动从插件发行通道拉取最新插件清单,缺失的插件自动安装、
      * 已装的旧版本自动升级,无需手动下载 ZIP。默认开启;关闭后只保留手动检查入口。
      */
-    val pluginAutoUpdateEnabled: Boolean = true
+    val pluginAutoUpdateEnabled: Boolean = true,
+    /**
+     * 锁屏歌词卡相对系统媒体卡的位置:
+     * - `clock`：沿用按系统时钟避让的旧布局（默认）；
+     * - `above_media`：歌词卡放在媒体卡上方，媒体卡与通知栈整体上移让位；
+     * - `below_media`：歌词卡放在媒体卡下方，卡片高度变化只推动下面的通知，媒体卡不动。
+     */
+    val lockscreenCardPlacement: String = "clock"
 ) {
     companion object {
         /** 出厂默认配置;备份解码时用于逐字段回退缺失/类型错误的值。 */
@@ -191,6 +198,12 @@ internal fun normalizeAodOverflow(value: String?): String = when (value) {
 
 internal fun normalizeAodMetadataVisible(value: String?): String =
     if (value == "show") "show" else "hide"
+
+/** 锁屏歌词卡相对媒体卡的位置。未知值一律回落到旧布局(clock)。 */
+internal fun normalizeLockscreenCardPlacement(value: String?): String = when (value) {
+    "above_media", "below_media" -> value
+    else -> "clock"
+}
 
 internal fun normalizeAodMetadataAnchor(value: String?): String =
     if (value == "bottom") "bottom" else "top"
@@ -401,6 +414,7 @@ object AodRenderPreferences {
     const val FILTER_NON_MUSIC_SOURCES = "filter_non_music_sources"
     const val HIDE_CREDIT_LINES = "hide_credit_lines"
     const val LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD = "lockscreen_reserve_below_media_card"
+    const val LOCKSCREEN_CARD_PLACEMENT = "lockscreen_card_placement"
     const val FORCE_LYRIC_PROVIDER = "force_lyric_provider"
     const val PLUGIN_RESULT_CACHE_ENABLED = "plugin_result_cache_enabled"
     const val PLUGIN_AUTO_UPDATE_ENABLED = "plugin_auto_update_enabled"
@@ -421,6 +435,17 @@ object AodRenderPreferences {
 
     private fun SharedPreferences.safeString(key: String, default: String?): String? =
         runCatching { getString(key, default) }.getOrDefault(default)
+
+    /** 旧版本只有「固定在音乐卡下方」布尔值:有该键、无新键时迁移成 below_media。 */
+    private fun resolveLockscreenCardPlacement(prefs: SharedPreferences): String {
+        val stored = prefs.safeString(LOCKSCREEN_CARD_PLACEMENT, null)
+        if (!stored.isNullOrBlank()) return normalizeLockscreenCardPlacement(stored)
+        return if (prefs.safeBoolean(LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD, false)) {
+            "below_media"
+        } else {
+            "clock"
+        }
+    }
 
     private var preferences: SharedPreferences? = null
     private var cachedConfig: AodRenderConfig? = null
@@ -513,7 +538,8 @@ object AodRenderPreferences {
             prefs.safeBoolean(LOCKSCREEN_RESERVE_BELOW_MEDIA_CARD, false),
             prefs.safeBoolean(FORCE_LYRIC_PROVIDER, false),
             prefs.safeBoolean(PLUGIN_RESULT_CACHE_ENABLED, true),
-            prefs.safeBoolean(PLUGIN_AUTO_UPDATE_ENABLED, true)
+            prefs.safeBoolean(PLUGIN_AUTO_UPDATE_ENABLED, true),
+            resolveLockscreenCardPlacement(prefs)
         ).also { cachedConfig = it }
     }
 
