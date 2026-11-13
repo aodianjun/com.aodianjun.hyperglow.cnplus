@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -146,6 +147,37 @@ internal fun PermissionStatusSection() {
             }
         )
     }
+    // 直接跳到 Root 管理器:授权弹窗被拒/未弹出时,用户可手动为 HyperGlow 授权。
+    ArrowPreference(
+        title = stringResource(R.string.action_open_root_manager),
+        summary = stringResource(R.string.summary_open_root_manager),
+        onClick = {
+            if (!openRootManager(context)) {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.toast_root_manager_not_found),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    )
+}
+
+/** 已知 Root 管理器的包名(Magisk / KernelSU / KernelSU Next / APatch)。 */
+private val ROOT_MANAGER_PACKAGES = listOf(
+    "com.topjohnwu.magisk",
+    "me.weishu.kernelsu",
+    "com.rifsxd.ksunext",
+    "me.bmax.apatch"
+)
+
+internal fun openRootManager(context: Context): Boolean {
+    val packageManager = context.packageManager
+    for (packageName in ROOT_MANAGER_PACKAGES) {
+        val intent = packageManager.getLaunchIntentForPackage(packageName) ?: continue
+        if (runCatching { context.startActivity(intent) }.isSuccess) return true
+    }
+    return false
 }
 
 internal suspend fun checkRootGranted(): Boolean = withContext(Dispatchers.IO) {

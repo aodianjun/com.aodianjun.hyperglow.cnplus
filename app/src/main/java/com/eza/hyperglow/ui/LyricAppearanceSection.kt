@@ -28,6 +28,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -159,7 +163,9 @@ internal fun LyricAppearanceSection(
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
     header: (@Composable () -> Unit)? = null,
-    footer: (@Composable () -> Unit)? = null
+    footer: (@Composable () -> Unit)? = null,
+    listState: LazyListState = rememberLazyListState(),
+    onRegisterAnchor: ((String, Int) -> Unit)? = null
 ) {
     val context = LocalContext.current
     // 「不显示非歌词内容」是应用级偏好(非按面),外观编辑页的悬浮预览同样要跟随它,
@@ -508,12 +514,23 @@ internal fun LyricAppearanceSection(
             )
         }
         LazyColumn(
+            state = listState,
             contentPadding = contentPadding,
             modifier = Modifier.weight(1f)
         ) {
-        header?.let { slot -> item { slot() } }
-        item { SmallTitle(text = stringResource(R.string.section_placement)) }
-        item {
+        // 每个列表项按组合顺序登记索引,供全局搜索滚到外观编辑器内的具体分组。
+        var searchItemIndex = 0
+        fun LazyListScope.trackedItem(
+            anchor: String? = null,
+            content: @Composable LazyItemScope.() -> Unit
+        ) {
+            anchor?.let { onRegisterAnchor?.invoke(it, searchItemIndex) }
+            item { content() }
+            searchItemIndex++
+        }
+        header?.let { slot -> trackedItem(GlobalSearchAnchor.APPEARANCE_HEADER) { slot() } }
+        trackedItem(GlobalSearchAnchor.APPEARANCE_PLACEMENT) { SmallTitle(text = stringResource(R.string.section_placement)) }
+        trackedItem {
             SettingsCard {
                 val lockscreenSurface =
                     editorState.selectedSurface == SceneCompiler.SURFACE_LOCKSCREEN
@@ -612,8 +629,8 @@ internal fun LyricAppearanceSection(
                 }
             }
         }
-        item { SmallTitle(text = stringResource(R.string.section_text_language)) }
-        item {
+        trackedItem(GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE) { SmallTitle(text = stringResource(R.string.section_text_language)) }
+        trackedItem {
             SettingsCard {
                 AodChoiceRow(AodChoiceKind.ALIGNMENT, selectedProfile.alignment) {
                     openChoice(
@@ -1128,8 +1145,8 @@ internal fun LyricAppearanceSection(
                 )
             }
         }
-        item { SmallTitle(text = stringResource(R.string.section_effects)) }
-        item {
+        trackedItem(GlobalSearchAnchor.APPEARANCE_EFFECTS) { SmallTitle(text = stringResource(R.string.section_effects)) }
+        trackedItem {
             SettingsCard {
                 AodChoiceRow(AodChoiceKind.WORD_ANIMATION, selectedProfile.animation) {
                     openChoice(
@@ -1247,8 +1264,8 @@ internal fun LyricAppearanceSection(
                 }
             }
         }
-        item { SmallTitle(text = stringResource(R.string.section_spectrum)) }
-        item {
+        trackedItem(GlobalSearchAnchor.APPEARANCE_SPECTRUM) { SmallTitle(text = stringResource(R.string.section_spectrum)) }
+        trackedItem {
             SettingsCard {
                 SwitchPreference(
                     selectedProfile.spectrum.enabled,
@@ -1413,8 +1430,8 @@ internal fun LyricAppearanceSection(
                 }
             }
         }
-        item { SmallTitle(text = stringResource(R.string.section_custom_sprites)) }
-        item {
+        trackedItem(GlobalSearchAnchor.APPEARANCE_SPRITES) { SmallTitle(text = stringResource(R.string.section_custom_sprites)) }
+        trackedItem {
             SettingsCard {
                 ArrowPreference(
                     title = stringResource(R.string.action_import_custom_sprite),
@@ -1444,8 +1461,8 @@ internal fun LyricAppearanceSection(
                 }
             }
         }
-        item { SmallTitle(text = stringResource(R.string.section_colors)) }
-        item {
+        trackedItem(GlobalSearchAnchor.APPEARANCE_COLORS) { SmallTitle(text = stringResource(R.string.section_colors)) }
+        trackedItem {
             SettingsCard {
                 PaletteColor.entries.forEach { paletteKey ->
                     val currentToken = paletteValue(selectedProfile.palette, paletteKey)
@@ -1478,8 +1495,8 @@ internal fun LyricAppearanceSection(
             }
         }
         if (editorState.selectedSurface == SceneCompiler.SURFACE_LOCKSCREEN) {
-            item { SmallTitle(text = stringResource(R.string.section_lockscreen_card)) }
-            item {
+            trackedItem(GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD) { SmallTitle(text = stringResource(R.string.section_lockscreen_card)) }
+            trackedItem {
                 SettingsCard {
                     SwitchPreference(
                         selectedProfile.backgroundStyle != "none",
@@ -1535,8 +1552,8 @@ internal fun LyricAppearanceSection(
                 }
             }
         }
-        item { SmallTitle(text = stringResource(R.string.section_both_surfaces)) }
-        item {
+        trackedItem(GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES) { SmallTitle(text = stringResource(R.string.section_both_surfaces)) }
+        trackedItem {
             Card(
                 modifier = Modifier.padding(12.dp).fillMaxWidth(),
                 colors = CardDefaults.defaultColors(
@@ -1565,7 +1582,7 @@ internal fun LyricAppearanceSection(
                 }
             }
         }
-        footer?.let { slot -> item { slot() } }
+        footer?.let { slot -> trackedItem { slot() } }
         }
     }
 

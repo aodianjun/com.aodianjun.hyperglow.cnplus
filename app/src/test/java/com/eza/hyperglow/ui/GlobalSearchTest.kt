@@ -47,6 +47,14 @@ class GlobalSearchTest {
     }
 
     @Test
+    fun experimentalEntriesAreHiddenWhenIneligible() {
+        val eligible = filterGlobalSearchEntries(context, "实验", experimentalEligible = true)
+        assertTrue(eligible.any { it.requiresExperimental })
+        val ineligible = filterGlobalSearchEntries(context, "实验", experimentalEligible = false)
+        assertTrue(ineligible.none { it.requiresExperimental })
+    }
+
+    @Test
     fun blankQueryReturnsNothing() {
         assertTrue(filterGlobalSearchEntries(context, "  ").isEmpty())
         assertTrue(globalSearchCompletions(context, "").isEmpty())

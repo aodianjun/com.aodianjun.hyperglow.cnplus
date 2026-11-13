@@ -789,6 +789,9 @@
     <string name="label_root_permission">Root 权限</string>
     <string name="summary_root_permission_granted">已授予 Root 权限</string>
     <string name="summary_root_permission_denied">点击授予 Root 权限</string>
+    <string name="action_open_root_manager">打开 Root 管理器</string>
+    <string name="summary_open_root_manager">在 Magisk / KernelSU / APatch 中为 HyperGlow 授权</string>
+    <string name="toast_root_manager_not_found">未找到可用的 Root 管理器</string>
 <string name="section_app_appearance">应用外观</string>
     <string name="setting_theme_mode">主题模式</string>
     <string name="option_theme_system">跟随系统</string>

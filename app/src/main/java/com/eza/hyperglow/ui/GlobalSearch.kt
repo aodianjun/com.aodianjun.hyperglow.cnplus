@@ -59,12 +59,23 @@ internal object GlobalSearchAnchor {
     const val APP_APPEARANCE = "app_appearance"
     const val APP_DEVELOPER = "app_developer"
     const val APP_SYSTEM = "app_system"
+    // 歌词外观编辑器内部的分组锚点(由 LyricAppearanceSection 的 LazyColumn 登记)。
+    const val APPEARANCE_HEADER = "appearance_header"
+    const val APPEARANCE_PLACEMENT = "appearance_placement"
+    const val APPEARANCE_TEXT_LANGUAGE = "appearance_text_language"
+    const val APPEARANCE_EFFECTS = "appearance_effects"
+    const val APPEARANCE_SPECTRUM = "appearance_spectrum"
+    const val APPEARANCE_SPRITES = "appearance_sprites"
+    const val APPEARANCE_COLORS = "appearance_colors"
+    const val APPEARANCE_LOCKSCREEN_CARD = "appearance_lockscreen_card"
+    const val APPEARANCE_BOTH_SURFACES = "appearance_both_surfaces"
 }
 
 /**
  * 全局搜索条目:只做「找到并带路」,不复制设置本身的交互。
  * [appearanceSection] 对应设置页顶部分段(0=息屏外观 1=锁屏外观 2=其他设置),
- * [anchor] 非空时先切页再滚到该分组;外观编辑器分段只切分段不滚动。
+ * [anchor] 非空时先切页再滚到该分组或外观编辑器内的具体分组。
+ * [requiresExperimental] 标记只在「实验模式可用」时才渲染的条目,避免搜到却找不到按钮。
  */
 internal data class GlobalSearchEntry(
     val titleRes: Int,
@@ -73,7 +84,8 @@ internal data class GlobalSearchEntry(
     val summaryRes: Int? = null,
     val keywords: String = "",
     val appearanceSection: Int? = null,
-    val anchor: String? = null
+    val anchor: String? = null,
+    val requiresExperimental: Boolean = false
 )
 
 private fun SettingsTab.navLabelRes(): Int = when (this) {
@@ -105,6 +117,13 @@ internal val GLOBAL_SEARCH_ENTRIES: List<GlobalSearchEntry> = listOf(
         sectionLabelRes = R.string.section_lyric_source,
         tab = SettingsTab.STATUS,
         keywords = "歌词 来源 选源 spotify lyricon superlyric lyric source",
+        anchor = GlobalSearchAnchor.STATUS_SOURCE
+    ),
+    GlobalSearchEntry(
+        titleRes = R.string.label_active_source,
+        sectionLabelRes = R.string.section_lyric_source,
+        tab = SettingsTab.STATUS,
+        keywords = "当前 歌词源 连接 状态 active source connection",
         anchor = GlobalSearchAnchor.STATUS_SOURCE
     ),
     GlobalSearchEntry(
@@ -157,6 +176,20 @@ internal val GLOBAL_SEARCH_ENTRIES: List<GlobalSearchEntry> = listOf(
         sectionLabelRes = R.string.section_permission_status,
         tab = SettingsTab.STATUS,
         keywords = "root 权限 超级用户 su",
+        anchor = GlobalSearchAnchor.STATUS_PERMISSION
+    ),
+    GlobalSearchEntry(
+        titleRes = R.string.label_foreground_service,
+        sectionLabelRes = R.string.section_permission_status,
+        tab = SettingsTab.STATUS,
+        keywords = "前台 服务 运行 foreground service",
+        anchor = GlobalSearchAnchor.STATUS_PERMISSION
+    ),
+    GlobalSearchEntry(
+        titleRes = R.string.action_open_root_manager,
+        sectionLabelRes = R.string.section_permission_status,
+        tab = SettingsTab.STATUS,
+        keywords = "root 管理器 magisk kernelsu apatch manager",
         anchor = GlobalSearchAnchor.STATUS_PERMISSION
     ),
 
@@ -224,6 +257,13 @@ internal val GLOBAL_SEARCH_ENTRIES: List<GlobalSearchEntry> = listOf(
         anchor = GlobalSearchAnchor.APP_LANGUAGE
     ),
     GlobalSearchEntry(
+        titleRes = R.string.setting_interface_language,
+        sectionLabelRes = R.string.section_language,
+        tab = SettingsTab.APP,
+        keywords = "界面 语言 中文 英文 interface language",
+        anchor = GlobalSearchAnchor.APP_LANGUAGE
+    ),
+    GlobalSearchEntry(
         titleRes = R.string.setting_predictive_back,
         sectionLabelRes = R.string.section_app_navigation,
         tab = SettingsTab.APP,
@@ -252,7 +292,8 @@ internal val GLOBAL_SEARCH_ENTRIES: List<GlobalSearchEntry> = listOf(
         tab = SettingsTab.APP,
         summaryRes = R.string.summary_experimental_mode,
         keywords = "实验 模式 尝鲜 experimental",
-        anchor = GlobalSearchAnchor.APP_DEVELOPER
+        anchor = GlobalSearchAnchor.APP_DEVELOPER,
+        requiresExperimental = true
     ),
     GlobalSearchEntry(
         titleRes = R.string.setting_force_lyric_provider,
@@ -260,7 +301,8 @@ internal val GLOBAL_SEARCH_ENTRIES: List<GlobalSearchEntry> = listOf(
         tab = SettingsTab.APP,
         summaryRes = R.string.summary_force_lyric_provider,
         keywords = "强制 歌词 提供者 force provider",
-        anchor = GlobalSearchAnchor.APP_DEVELOPER
+        anchor = GlobalSearchAnchor.APP_DEVELOPER,
+        requiresExperimental = true
     ),
     GlobalSearchEntry(
         titleRes = R.string.setting_aod_debug_show_canvas_frame,
@@ -331,62 +373,86 @@ internal val GLOBAL_SEARCH_ENTRIES: List<GlobalSearchEntry> = listOf(
         anchor = GlobalSearchAnchor.APP_SYSTEM
     ),
 
-    // ---- 歌词外观(只切分段,不滚动) ----
+    // ---- 歌词外观(切分段并滚到编辑器内的具体分组) ----
+    GlobalSearchEntry(
+        titleRes = R.string.setting_show_aod,
+        sectionLabelRes = R.string.section_appearance,
+        tab = SettingsTab.SETTINGS,
+        keywords = "息屏 显示 歌词 开关 aod show",
+        appearanceSection = 0,
+        anchor = GlobalSearchAnchor.APPEARANCE_HEADER
+    ),
+    GlobalSearchEntry(
+        titleRes = R.string.setting_show_lockscreen,
+        sectionLabelRes = R.string.section_appearance,
+        tab = SettingsTab.SETTINGS,
+        keywords = "锁屏 显示 歌词 开关 lockscreen show",
+        appearanceSection = 1,
+        anchor = GlobalSearchAnchor.APPEARANCE_HEADER
+    ),
     GlobalSearchEntry(
         titleRes = R.string.section_placement,
         sectionLabelRes = R.string.section_placement,
         tab = SettingsTab.SETTINGS,
         keywords = "位置 布局 对齐 偏移 placement layout offset",
-        appearanceSection = 0
+        appearanceSection = 0,
+        anchor = GlobalSearchAnchor.APPEARANCE_PLACEMENT
     ),
     GlobalSearchEntry(
         titleRes = R.string.section_text_language,
         sectionLabelRes = R.string.section_text_language,
         tab = SettingsTab.SETTINGS,
         keywords = "文字 字体 字号 语言 时间 歌曲名 text font size language",
-        appearanceSection = 0
+        appearanceSection = 0,
+        anchor = GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE
     ),
     GlobalSearchEntry(
         titleRes = R.string.section_effects,
         sectionLabelRes = R.string.section_effects,
         tab = SettingsTab.SETTINGS,
         keywords = "效果 动效 动画 过渡 effects animation",
-        appearanceSection = 0
+        appearanceSection = 0,
+        anchor = GlobalSearchAnchor.APPEARANCE_EFFECTS
     ),
     GlobalSearchEntry(
         titleRes = R.string.section_spectrum,
         sectionLabelRes = R.string.section_spectrum,
         tab = SettingsTab.SETTINGS,
         keywords = "频谱 波形 节奏 spectrum",
-        appearanceSection = 0
+        appearanceSection = 0,
+        anchor = GlobalSearchAnchor.APPEARANCE_SPECTRUM
     ),
     GlobalSearchEntry(
         titleRes = R.string.section_custom_sprites,
         sectionLabelRes = R.string.section_custom_sprites,
         tab = SettingsTab.SETTINGS,
         keywords = "贴纸 素材 自定义 sprites stickers",
-        appearanceSection = 0
+        appearanceSection = 0,
+        anchor = GlobalSearchAnchor.APPEARANCE_SPRITES
     ),
     GlobalSearchEntry(
         titleRes = R.string.section_colors,
         sectionLabelRes = R.string.section_colors,
         tab = SettingsTab.SETTINGS,
         keywords = "颜色 配色 色调 渐变 colors palette",
-        appearanceSection = 0
+        appearanceSection = 0,
+        anchor = GlobalSearchAnchor.APPEARANCE_COLORS
     ),
     GlobalSearchEntry(
         titleRes = R.string.section_lockscreen_card,
         sectionLabelRes = R.string.section_lockscreen_card,
         tab = SettingsTab.SETTINGS,
         keywords = "锁屏 媒体卡 卡片 lockscreen card",
-        appearanceSection = 1
+        appearanceSection = 1,
+        anchor = GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD
     ),
     GlobalSearchEntry(
         titleRes = R.string.section_both_surfaces,
         sectionLabelRes = R.string.section_both_surfaces,
         tab = SettingsTab.SETTINGS,
         keywords = "通用 全局 两面 both surfaces",
-        appearanceSection = 0
+        appearanceSection = 0,
+        anchor = GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES
     )
 )
 
@@ -453,11 +519,13 @@ private fun editDistanceAtMostOne(a: String, b: String): Boolean {
  */
 internal fun filterGlobalSearchEntries(
     context: Context,
-    query: String
+    query: String,
+    experimentalEligible: Boolean = true
 ): List<GlobalSearchEntry> {
     val tokens = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
     if (tokens.isEmpty()) return emptyList()
     return GLOBAL_SEARCH_ENTRIES.mapNotNull { entry ->
+        if (entry.requiresExperimental && !experimentalEligible) return@mapNotNull null
         val title = context.getString(entry.titleRes).lowercase()
         val haystack = buildString {
             append(title)
@@ -481,11 +549,13 @@ internal fun filterGlobalSearchEntries(
 internal fun globalSearchCompletions(
     context: Context,
     query: String,
-    limit: Int = 6
+    limit: Int = 6,
+    experimentalEligible: Boolean = true
 ): List<String> {
     val q = query.trim().lowercase()
     if (q.isEmpty()) return emptyList()
     return GLOBAL_SEARCH_ENTRIES
+        .filter { experimentalEligible || !it.requiresExperimental }
         .map { context.getString(it.titleRes) }
         .distinct()
         .filter { title ->
@@ -503,12 +573,17 @@ internal fun globalSearchCompletions(
 @Composable
 internal fun GlobalSearchOverlay(
     onDismiss: () -> Unit,
-    onSelect: (GlobalSearchEntry) -> Unit
+    onSelect: (GlobalSearchEntry) -> Unit,
+    experimentalEligible: Boolean = true
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
-    val results = remember(query) { filterGlobalSearchEntries(context, query) }
-    val completions = remember(query) { globalSearchCompletions(context, query) }
+    val results = remember(query, experimentalEligible) {
+        filterGlobalSearchEntries(context, query, experimentalEligible)
+    }
+    val completions = remember(query, experimentalEligible) {
+        globalSearchCompletions(context, query, experimentalEligible = experimentalEligible)
+    }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 

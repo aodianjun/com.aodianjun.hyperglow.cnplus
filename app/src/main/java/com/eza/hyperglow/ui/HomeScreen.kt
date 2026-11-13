@@ -144,6 +144,8 @@ internal fun HomeScreen(
     val settingsListState = rememberLazyListState()
     val appListState = rememberLazyListState()
     val aboutListState = rememberLazyListState()
+    // 歌词外观编辑器内部也有独立的 LazyColumn,搜索结果需要滚到它里面的分组。
+    val appearanceListState = rememberLazyListState()
     // anchor → LazyColumn item index,由各页 LazyColumn 组合时登记。
     val searchAnchorIndices = remember { mutableStateMapOf<String, Int>() }
     var pendingSearchScroll by remember { mutableStateOf<Pair<SettingsTab, String>?>(null) }
@@ -168,11 +170,12 @@ internal fun HomeScreen(
         val index = withTimeoutOrNull(3_000) {
             snapshotFlow { searchAnchorIndices[anchor] }.filterNotNull().first()
         }
-        val listState: LazyListState = when (tab) {
-            SettingsTab.STATUS -> statusListState
-            SettingsTab.SETTINGS -> settingsListState
-            SettingsTab.APP -> appListState
-            SettingsTab.ABOUT -> aboutListState
+        val listState: LazyListState = when {
+            anchor.startsWith("appearance_") -> appearanceListState
+            tab == SettingsTab.STATUS -> statusListState
+            tab == SettingsTab.SETTINGS -> settingsListState
+            tab == SettingsTab.APP -> appListState
+            else -> aboutListState
         }
         if (index != null) listState.scrollToItem(index)
         pendingSearchScroll = null
@@ -523,6 +526,10 @@ internal fun HomeScreen(
                             bottom = innerPadding.calculateBottomPadding() + 20.dp
                         ),
                         modifier = Modifier.weight(1f),
+                        listState = appearanceListState,
+                        onRegisterAnchor = { anchor, index ->
+                            searchAnchorIndices[anchor] = index
+                        },
                         // 分段自己的条目:该曲面的歌词总开关排在列表首,行为入口/锁屏唤醒排在列表尾。
                         header = {
                             if (appearanceSurface == SceneCompiler.SURFACE_AOD) {
@@ -1155,6 +1162,7 @@ internal fun HomeScreen(
         BackHandler { showGlobalSearch = false }
         GlobalSearchOverlay(
             onDismiss = { showGlobalSearch = false },
+            experimentalEligible = experimentalEligible,
             onSelect = { entry ->
                 showGlobalSearch = false
                 if (entry.tab == SettingsTab.SETTINGS) {

@@ -1,12 +1,7 @@
 package com.eza.hyperglow.ui
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -32,11 +27,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,8 +50,6 @@ import com.eza.hyperglow.aod.AodRenderPreferences
 import com.eza.hyperglow.aod.XiaomiCapabilityStore
 import com.eza.hyperglow.customization.CustomizationRepository
 import com.eza.hyperglow.customization.SceneCompiler
-import com.eza.hyperglow.producer.LyricProducers
-import com.eza.hyperglow.producer.LyricSource
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.utils.ShellUtils
 import kotlinx.coroutines.launch
@@ -67,8 +60,6 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -469,196 +460,30 @@ private fun ModulePage() {
 
 @Composable
 private fun LyricSourcePage() {
-    val context = LocalContext.current
-    // 真设置:直接切换当前歌词源(写入偏好并通知运行时),不是只展示来源列表。
-    var selectedSource by remember {
-        mutableStateOf(AodRenderPreferences.readLyricSource(context))
-    }
-    fun applySource(source: LyricSource) {
-        val arbiter = LyricProducers.arbiterOrNull()
-        if (arbiter != null) {
-            arbiter.setPreference(source, context)
-        } else {
-            // 模块尚未生效时运行时还没启动,先落盘,等 SystemUI 侧起来后读取。
-            AodRenderPreferences.writeLyricSource(context, source)
-        }
-        selectedSource = source
-    }
-    val summaryRes: (LyricSource) -> Int = { source ->
-        when (source) {
-            LyricSource.LYRICON -> R.string.summary_lyric_source_lyricon
-            LyricSource.SUPERLYRIC -> R.string.summary_lyric_source_superlyric
-            LyricSource.LYRICINFO -> R.string.summary_lyric_source_lyricinfo
-            LyricSource.SPICY -> R.string.summary_lyric_source_spicy
-        }
-    }
-
+    // 与状态页完全同源:同一个歌词源卡片(含真实连接状态)、同一个未连接引导
+    //(下载地址/通知使用权)、同一个选择对话框,避免引导页只是「展示有这玩意」。
+    var showSourceDialog by rememberSaveable { mutableStateOf(false) }
     OnboardingPageColumn {
         StepHero(3)
         OnboardingTitle(stringResource(R.string.onboarding_source_title))
         OnboardingSummary(stringResource(R.string.onboarding_source_summary))
-        OnboardingCard {
-            LyricSource.entries.forEachIndexed { index, source ->
-                if (index > 0) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 10.dp)
-                            .height(0.5.dp)
-                            .background(
-                                MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-                            )
-                    )
-                }
-                RadioButtonPreference(
-                    lyricSourceLabel(context, source),
-                    selectedSource == source,
-                    { applySource(source) }
-                )
-                Text(
-                    text = stringResource(summaryRes(source)),
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 3.dp)
-                )
-            }
-        }
-        OnboardingCard {
-            ArrowPreference(
-                title = stringResource(R.string.action_lyricinfo_notification_access),
-                summary = stringResource(R.string.onboarding_source_permission_hint),
-                onClick = {
-                    runCatching {
-                        context.startActivity(
-                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                        )
-                    }
-                }
-            )
-        }
+        LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true })
+        SourceSetupHint()
+    }
+    if (showSourceDialog) {
+        LyricSourcePickerDialog(onDismiss = { showSourceDialog = false })
     }
 }
 
 @Composable
 private fun PermissionPage() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var notificationGranted by remember { mutableStateOf(checkNotificationPermission(context)) }
-    var batteryWhitelisted by remember {
-        mutableStateOf(checkBatteryOptimizationWhitelisted(context))
-    }
-    var rootGranted by remember { mutableStateOf(false) }
-    val settingsLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        notificationGranted = checkNotificationPermission(context)
-        batteryWhitelisted = checkBatteryOptimizationWhitelisted(context)
-    }
-
-    LaunchedEffect(Unit) {
-        notificationGranted = checkNotificationPermission(context)
-        batteryWhitelisted = checkBatteryOptimizationWhitelisted(context)
-        rootGranted = checkRootGranted()
-    }
-
+    // 与状态页同一套权限检查组件:通知、前台服务、电池优化、Root(含跳转 Root 管理器)。
     OnboardingPageColumn {
         StepHero(4)
         OnboardingTitle(stringResource(R.string.onboarding_permission_title))
         OnboardingSummary(stringResource(R.string.onboarding_permission_summary))
-        OnboardingCard {
-            PermissionStatusRow(
-                title = stringResource(R.string.label_notification_permission),
-                status = stringResource(
-                    if (notificationGranted) R.string.summary_notification_permission_granted
-                    else R.string.summary_notification_permission_denied
-                ),
-                granted = notificationGranted,
-                actionLabel = stringResource(R.string.action_grant_notification_permission),
-                onAction = {
-                    settingsLauncher.launch(
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                        }
-                    )
-                }
-            )
-            PermissionStatusRow(
-                title = stringResource(R.string.label_battery_optimization),
-                status = stringResource(
-                    if (batteryWhitelisted) R.string.summary_battery_optimization_whitelisted
-                    else R.string.summary_battery_optimization_optimized
-                ),
-                granted = batteryWhitelisted,
-                actionLabel = stringResource(R.string.action_open_battery_settings),
-                onAction = {
-                    val requested = runCatching {
-                        settingsLauncher.launch(
-                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                            }
-                        )
-                    }.isSuccess
-                    if (!requested) {
-                        runCatching {
-                            settingsLauncher.launch(
-                                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                            )
-                        }
-                    }
-                }
-            )
-            PermissionStatusRow(
-                title = stringResource(R.string.label_root_permission),
-                status = stringResource(
-                    if (rootGranted) R.string.summary_root_permission_granted
-                    else R.string.summary_root_permission_denied
-                ),
-                granted = rootGranted,
-                actionLabel = stringResource(R.string.onboarding_action_grant_root),
-                onAction = {
-                    scope.launch {
-                        requestRootAccess()
-                        rootGranted = checkRootGranted()
-                    }
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun PermissionStatusRow(
-    title: String,
-    status: String,
-    granted: Boolean,
-    actionLabel: String,
-    onAction: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            Text(
-                text = status,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                color = if (granted) onboardingSuccessColor()
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-        }
-        if (!granted) {
-            Spacer(Modifier.width(8.dp))
-            TextButton(
-                text = actionLabel,
-                onClick = onAction,
-                colors = ButtonDefaults.textButtonColorsPrimary()
-            )
+        SettingsCard {
+            PermissionStatusSection()
         }
     }
 }

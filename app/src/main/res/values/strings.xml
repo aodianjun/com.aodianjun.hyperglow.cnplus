@@ -790,6 +790,9 @@
     <string name="label_root_permission">Root permission</string>
     <string name="summary_root_permission_granted">Root access granted</string>
     <string name="summary_root_permission_denied">Tap to grant root access</string>
+    <string name="action_open_root_manager">Open root manager</string>
+    <string name="summary_open_root_manager">Grant HyperGlow access in Magisk / KernelSU / APatch</string>
+    <string name="toast_root_manager_not_found">No root manager app found</string>
 <string name="section_app_appearance">App appearance</string>
     <string name="setting_theme_mode">Theme mode</string>
     <string name="option_theme_system">Follow system</string>
