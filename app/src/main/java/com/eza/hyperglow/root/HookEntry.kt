@@ -345,7 +345,7 @@ class HookEntry : XposedModule() {
     companion object {
         private const val TAG = "HookEntry"
         /** 本构建标记:现场日志靠它区分是否已加载新包(SystemUI 进程需重启才会换代码)。 */
-        private const val BUILD_TAG = "v0.4.0"
+        private const val BUILD_TAG = "v0.4.2"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
         private const val SYSTEM_SERVER_PACKAGE = "android"
         private const val MIUI_AOD_PACKAGE = "com.miui.aod"

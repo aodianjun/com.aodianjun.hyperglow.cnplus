@@ -19,7 +19,10 @@ internal object PlatformVersion {
         get() = confirmedOs4 || inferredHyperOs4OrNewer
 
     /** 现场诊断用：把读到的系统版本串原样带进日志，判定失败时能直接看出属性形态。 */
-    val rawVersionName: String? by lazy { systemProperty(HYPER_OS_VERSION_PROPERTY) }
+    val rawVersionName: String? by lazy {
+        systemProperty(HYPER_OS_VERSION_PROPERTY)?.takeIf { it.isNotBlank() }
+            ?: getpropVersionName()
+    }
 
     /**
      * 属性名在部分构建上不可读。KeyguardPanelViewController 的
@@ -39,7 +42,7 @@ internal object PlatformVersion {
     private val inferredHyperOs4OrNewer: Boolean by lazy { detectHyperOs4OrNewer() }
 
     private fun detectHyperOs4OrNewer(): Boolean {
-        val name = systemProperty(HYPER_OS_VERSION_PROPERTY)
+        val name = rawVersionName
         if (!name.isNullOrBlank()) {
             val major = OS_MAJOR.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
                 ?: BARE_MAJOR.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -52,6 +55,22 @@ internal object PlatformVersion {
         (Class.forName("android.os.SystemProperties")
             .getDeclaredMethod("get", String::class.java)
             .invoke(null, key) as? String)?.trim()
+    }.getOrNull()
+
+    /**
+     * App 进程受隐藏 API 限制时反射读不到 SystemProperties，用 `/system/bin/getprop`
+     * 兜底；只读 `ro.*`，不需要 root。最多等 1 秒，避免异常设备卡住 UI 线程。
+     */
+    private fun getpropVersionName(): String? = runCatching {
+        val process = ProcessBuilder("/system/bin/getprop", HYPER_OS_VERSION_PROPERTY)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        if (!process.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)) {
+            process.destroy()
+            return@runCatching null
+        }
+        output.trim().takeIf { it.isNotBlank() }
     }.getOrNull()
 
     private const val HYPER_OS_VERSION_PROPERTY = "ro.mi.os.version.name"

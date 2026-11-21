@@ -641,9 +641,17 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         val avoidsNotifications = profile.collisionPolicy == "avoid"
         val bottomReserve = (BOTTOM_RESERVE_DP * density).roundToInt()
         val fontScale = host.resources.displayMetrics.scaledDensity / density.coerceAtLeast(0.1f)
-        val placementMode = com.eza.hyperglow.aod.normalizeLockscreenCardPlacement(
+        val configuredPlacement = com.eza.hyperglow.aod.normalizeLockscreenCardPlacement(
             customization?.lockscreenCardPlacement
         )
+        // OS4 的位置弹窗只有媒体卡上下两项:默认值 clock 按「下方」生效,与弹窗展示一致。
+        val placementMode = if (PlatformVersion.isHyperOs4OrNewer &&
+            configuredPlacement == "clock"
+        ) {
+            "below_media"
+        } else {
+            configuredPlacement
+        }
         val aboveMedia = placementMode == "above_media"
         val belowMedia = placementMode == "below_media"
         // 旧布尔值兼容:新字段仍是 clock 且旧开关为 true 时按「下方」处理。
