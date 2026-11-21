@@ -1,0 +1,16 @@
+name = "hyperglow-preset-hub"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# 公开配置（不是密钥）。按需改仓库/标签。
+[vars]
+GITHUB_REPO = "aodianjun/com.aodianjun.hyperglow.cnplus"
+GITHUB_TAG = "presets"
+
+# 可选：给匿名归属哈希加盐（wrangler secret put OWNER_SALT）。不设也能用：
+# 归属值本身是设备 UUID 的 SHA-256，反推不出来。
+#
+# 可选：绑定 KV 后启用「每 IP 每小时 10 次」限流。
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT"
+# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
