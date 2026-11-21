@@ -517,27 +517,28 @@ internal fun LyricAppearanceSection(
             SettingsCard {
                 val lockscreenSurface =
                     editorState.selectedSurface == SceneCompiler.SURFACE_LOCKSCREEN
-                // 媒体卡上/下是 OS4 专属:OS3 的位置列表保持原来的 5 项。
+                // 媒体卡上/下是 OS4 专属:OS4 只保留这两项,OS3 保持原来的 5 项。
                 val supportsMediaPlacement = lockscreenSurface &&
                     com.eza.hyperglow.root.utils.PlatformVersion.isHyperOs4OrNewer
                 val positionValue = when {
                     !supportsMediaPlacement -> selectedProfile.anchor
                     lockscreenCardPlacement == "above_media" -> "above_media_card"
-                    lockscreenCardPlacement == "below_media" -> "below_media_card"
-                    else -> selectedProfile.anchor
+                    // OS4 默认(clock)按「媒体卡下方」展示并生效。
+                    else -> "below_media_card"
                 }
                 AodChoiceRow(AodChoiceKind.POSITION, positionValue) {
                     openChoice(
                         AodChoiceKind.POSITION,
                         buildList {
-                            add("below_stock_clock")
-                            add("screen_center")
-                            add("screen_top_safe")
-                            add("screen_bottom_safe")
-                            add("custom_vertical_bias")
                             if (supportsMediaPlacement) {
                                 add("above_media_card")
                                 add("below_media_card")
+                            } else {
+                                add("below_stock_clock")
+                                add("screen_center")
+                                add("screen_top_safe")
+                                add("screen_bottom_safe")
+                                add("custom_vertical_bias")
                             }
                         },
                         positionValue
