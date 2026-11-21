@@ -1880,8 +1880,8 @@ internal class AodLyricCanvasView(
         }
         if (fade <= 0f) return
 
-        val left = padLeft.toFloat()
-        val right = (ow - padRight).toFloat()
+        val left = padLeft.toFloat() + SPECTRUM_EDGE_INSET_DP * density
+        val right = (ow - padRight).toFloat() - SPECTRUM_EDGE_INSET_DP * density
         if (right <= left) return
         val baseBottom = (oh - padBottom).toFloat() - if (background) 2f * density else density
         val baseTop = if (background) {
@@ -1889,10 +1889,9 @@ internal class AodLyricCanvasView(
         } else {
             baseBottom - strip
         }
-        // 背景层的高度本来就是整块歌词框，若再按 area 高度钳制，maxTop 会等于 baseTop，
-        // yOffset 永远被夹回 0。这里保留完整绘制区，改为绘制前整体平移 + 裁剪到歌词框。
-        val areaTop = baseTop
-        val areaBottom = baseBottom
+        // 四周留出统一内边距，避免柱体和峰值帽直接贴住歌词框/屏幕边缘。
+        val areaTop = baseTop + SPECTRUM_EDGE_INSET_DP * density
+        val areaBottom = baseBottom - SPECTRUM_EDGE_INSET_DP * density
         val areaHeight = (areaBottom - areaTop).coerceAtLeast(1f)
         val width = right - left
         val gap = (width * 0.35f / bars).coerceIn(1f * density, 3f * density)
@@ -6023,6 +6022,7 @@ internal class AodLyricCanvasView(
         private const val SPECTRUM_RELEASE = 0.20f
         private const val SPECTRUM_PEAK_DECAY = 0.018f
         private const val SPECTRUM_FADE_MS = 500f
+        private const val SPECTRUM_EDGE_INSET_DP = 6f
         /** 频谱单独出帧的省电间隔：AOD 10fps，锁屏 30fps（系统省电时再减半）。 */
         private const val SPECTRUM_AOD_FRAME_INTERVAL_MS = 100L
         private const val SPECTRUM_LOCK_FRAME_INTERVAL_MS = 33L

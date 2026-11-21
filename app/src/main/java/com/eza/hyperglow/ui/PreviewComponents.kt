@@ -1312,20 +1312,23 @@ private fun PreviewSpectrum(
         for (value in display) if (value > maxValue) maxValue = value
         if (maxValue < 0.004f) return@Canvas
 
-        val areaHeight = if (background) size.height * 0.85f else size.height
+        val edgeInset = 6.dp.toPx()
+        val drawWidth = (size.width - edgeInset * 2f).coerceAtLeast(1f)
+        val contentHeight = (size.height - edgeInset * 2f).coerceAtLeast(1f)
+        val areaHeight = if (background) contentHeight * 0.85f else contentHeight
         if (areaHeight <= 0f) return@Canvas
-        val baseTop = if (background) (size.height - areaHeight) / 2f else 0f
+        val baseTop = edgeInset + if (background) (contentHeight - areaHeight) / 2f else 0f
         val yFraction = spectrum.yOffsetPercent.coerceIn(-50, 50) / 100f
         // 与实机一样整体平移；不再把 areaTop 钳回 baseTop（否则背景层高度=歌词框时
         // 上下都没有余量，滑块看起来完全无效）。
-        val areaTop = baseTop + size.height * yFraction
+        val areaTop = baseTop + contentHeight * yFraction
         val areaBottom = areaTop + areaHeight
         val amplitude = if (background) 0.85f else 1f
-        val gap = (size.width * 0.35f / bars).coerceAtLeast(1f)
-        val barWidth = ((size.width - gap * (bars - 1)) / bars)
+        val gap = (drawWidth * 0.35f / bars).coerceAtLeast(1f)
+        val barWidth = ((drawWidth - gap * (bars - 1)) / bars)
             .coerceAtLeast(1f)
         val totalWidth = barWidth * bars + gap * (bars - 1)
-        val startX = (size.width - totalWidth) / 2f
+        val startX = edgeInset + (drawWidth - totalWidth) / 2f
         val brush = androidx.compose.ui.graphics.Brush.verticalGradient(
             colors = listOf(paintStart, paintEnd),
             startY = areaBottom,
@@ -1344,8 +1347,8 @@ private fun PreviewSpectrum(
                 val center = (areaTop + areaBottom) / 2f
                 drawLine(
                     color = baseStart.copy(alpha = alpha * 0.35f),
-                    start = Offset(0f, center),
-                    end = Offset(size.width, center),
+                    start = Offset(edgeInset, center),
+                    end = Offset(size.width - edgeInset, center),
                     strokeWidth = 1.dp.toPx()
                 )
                 for (index in 0 until bars) {
@@ -1363,9 +1366,9 @@ private fun PreviewSpectrum(
 
             "line" -> {
                 val path = Path()
-                val step = if (bars <= 1) 0f else size.width / (bars - 1)
+                val step = if (bars <= 1) 0f else drawWidth / (bars - 1)
                 for (index in 0 until bars) {
-                    val x = index * step
+                    val x = edgeInset + index * step
                     val y = areaBottom - display[index].coerceIn(0f, 1f) *
                         areaHeight * amplitude
                     if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
