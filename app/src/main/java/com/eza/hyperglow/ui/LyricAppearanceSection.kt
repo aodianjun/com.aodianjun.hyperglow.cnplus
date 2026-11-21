@@ -517,8 +517,11 @@ internal fun LyricAppearanceSection(
             SettingsCard {
                 val lockscreenSurface =
                     editorState.selectedSurface == SceneCompiler.SURFACE_LOCKSCREEN
+                // 媒体卡上/下是 OS4 专属:OS3 的位置列表保持原来的 5 项。
+                val supportsMediaPlacement = lockscreenSurface &&
+                    com.eza.hyperglow.root.utils.PlatformVersion.isHyperOs4OrNewer
                 val positionValue = when {
-                    !lockscreenSurface -> selectedProfile.anchor
+                    !supportsMediaPlacement -> selectedProfile.anchor
                     lockscreenCardPlacement == "above_media" -> "above_media_card"
                     lockscreenCardPlacement == "below_media" -> "below_media_card"
                     else -> selectedProfile.anchor
@@ -532,7 +535,7 @@ internal fun LyricAppearanceSection(
                             add("screen_top_safe")
                             add("screen_bottom_safe")
                             add("custom_vertical_bias")
-                            if (lockscreenSurface) {
+                            if (supportsMediaPlacement) {
                                 add("above_media_card")
                                 add("below_media_card")
                             }
