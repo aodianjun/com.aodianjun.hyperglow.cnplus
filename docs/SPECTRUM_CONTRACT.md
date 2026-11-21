@@ -71,6 +71,8 @@
   `mirror` 带中轴线、`customColor`/`sensitivity`/`opacity`/`yOffsetPercent` 同源；
   有实时歌词时按 `playbackActive` 门控，暂停即衰减，演示态持续循环。预览侧没有
   SystemUI 回环帧，`loopback`/`capture` 源使用与实机失败回退相同的律动。
+- 横屏全屏化：歌词按内容自适应放大，频谱层则以逻辑帧中心做反向缩放，按逻辑帧 1:1
+  铺满屏幕；避免柱基线被全屏倍数推出画布，`yOffsetPercent` 也不会被放大倍数放大。
 
 ## 4. 配置
 

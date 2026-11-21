@@ -1937,6 +1937,22 @@ internal class AodLyricCanvasView(
         val frameHeight = (frameBottom - frameTop).coerceAtLeast(1f)
         val yShift = frameHeight * (spectrumSpec.yOffsetPercent.coerceIn(-50, 50) / 100f)
         canvas.save()
+        // 横屏全屏化会把整块画布按歌词内容放大；频谱背景若跟着放大，柱基线会被推出
+        // 画布底边（看起来像被裁掉/没铺满）。这里以逻辑帧中心反向缩放，让频谱按
+        // 逻辑帧 1:1 铺满，Y 偏移也不会被全屏倍数放大。
+        if (fullscreenLandscapeActive()) {
+            val fullscreenScale = effectiveLandscapeScale()
+            if (fullscreenScale.isFinite() && fullscreenScale > 0.001f &&
+                kotlin.math.abs(fullscreenScale - 1f) > 0.001f
+            ) {
+                canvas.scale(
+                    1f / fullscreenScale,
+                    1f / fullscreenScale,
+                    ow / 2f,
+                    oh / 2f
+                )
+            }
+        }
         canvas.clipRect(0f, frameTop, ow.toFloat(), frameBottom)
         canvas.translate(0f, yShift)
         try {
