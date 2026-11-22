@@ -146,7 +146,6 @@ internal object SearchRowKeys {
     const val APPEARANCE_IMPORT_WORD_EFFECT = "appearance_import_word_effect"
     const val APPEARANCE_WORD_EFFECT_STUDIO = "appearance_word_effect_studio"
     const val APPEARANCE_IMPORT_SPRITE = "appearance_import_sprite"
-    const val APPEARANCE_PRESET_PACK = "appearance_preset_pack"
     const val APPEARANCE_IMPORT_APPEARANCE = "appearance_import_appearance"
     const val APPEARANCE_EXPORT_APPEARANCE = "appearance_export_appearance"
     const val APPEARANCE_RESET_SURFACES = "appearance_reset_surfaces"
@@ -1186,14 +1185,6 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
     ),
 
     // ---- 两个显示区域 ----
-    appearanceRow(
-        R.string.action_preset_pack,
-        R.string.summary_action_preset_pack,
-        R.string.section_both_surfaces,
-        GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES,
-        SearchRowKeys.APPEARANCE_PRESET_PACK,
-        "预设 包 一键 观感 preset pack"
-    ),
     appearanceRow(
         R.string.action_import_appearance,
         null,

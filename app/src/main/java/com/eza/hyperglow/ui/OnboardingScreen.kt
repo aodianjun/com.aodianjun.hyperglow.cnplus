@@ -594,8 +594,8 @@ private fun CloudPresetPickerPage(
             Toast.makeText(
                 context,
                 context.getString(
-                    if (applied) R.string.toast_preset_applied
-                    else R.string.toast_preset_apply_failed,
+                    if (applied) R.string.onboarding_preset_apply_success
+                    else R.string.onboarding_preset_apply_failed,
                     preset.name
                 ),
                 Toast.LENGTH_LONG
