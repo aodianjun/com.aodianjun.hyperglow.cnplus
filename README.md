@@ -215,6 +215,10 @@ before opening a pull request:
   repackaged CN+ fork is based on.
 - [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) — the referenced project HyperGlow
   adapts code from, which this fork inherits.
+- [1812z/HyperIsland](https://github.com/1812z/HyperIsland) — the configuration-preset data model
+  (per-section snapshots, local/cloud presets, upload/review flow) and the anonymous-hub concept
+  referenced by HyperGlow's preset page. Interaction patterns and thresholds only; no code from
+  its repository is used.
 - [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —
   several hardening pieces in the lyric ingestion path (translation lane alignment, word-timing
   repair, text sanitization, opening-metadata cleanup) are adapted from its implementation.
@@ -358,6 +362,7 @@ JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 
 - [amarinne/hyperglow](https://github.com/amarinne/hyperglow) —— 本 CN+ 重打包版所基于的上游项目。
 - [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) —— HyperGlow 改编借鉴其代码的参考项目，本 fork 沿用了该代码。
+- [1812z/HyperIsland](https://github.com/1812z/HyperIsland) —— HyperGlow 的配置预设页参考了其配置预设数据模型（分节快照、本地/云端预设、上传/审核流程）与匿名 Hub 思路；仅借鉴交互与设计，未使用其代码。
 - [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —— 歌词摄取路径的多项加固（翻译 lane 对齐、词级时间轴修复、文本清洗、开头元数据清理）改编自其实现。
 - [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics) —— 歌词时间轴规整（词级对齐、重叠仲裁）借鉴了 AMLL 公开的思路与阈值；仅借鉴思路与阈值，未使用其（AGPL）代码。
 - [jayfunc/BetterLyrics](https://github.com/jayfunc/BetterLyrics) —— 「BetterLyrics」逐字动画档的播放效果（长音节放大与辉光、未唱音节下沉与唱到上浮的浮动节奏、词块级高亮节奏）参考了其 LyricsAnimator / LyricsEffectSettings 的阈值与观感；仅借鉴思路与参数，未使用其（GPL-3.0）代码。
