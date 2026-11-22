@@ -1,0 +1,12 @@
+{
+  "name": "hyperglow-preset-hub-edgeone",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HyperGlow 配置预设匿名上传 Hub 的 EdgeOne Pages 备用入口",
+  "scripts": {
+    "test": "node test.mjs",
+    "dev": "edgeone pages dev",
+    "link": "edgeone pages link"
+  }
+}

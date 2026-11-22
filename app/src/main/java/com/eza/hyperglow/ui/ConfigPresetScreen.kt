@@ -643,7 +643,7 @@ internal fun ConfigPresetDetailScreen(
         scope.launch {
             val fallback = withContext(Dispatchers.IO) { PresetHubStore.load(context, hub) }
             // 匿名 Hub：完全不需要 GitHub 凭证，署名取上传弹窗里的输入。
-            if (hub.hasAnonymousUrl) {
+            if (hub.hasAnonymousUpload) {
                 val author = authorInput.ifBlank { "anonymous" }
                 val result = PresetHubClient.uploadAnonymous(
                     config = hub,

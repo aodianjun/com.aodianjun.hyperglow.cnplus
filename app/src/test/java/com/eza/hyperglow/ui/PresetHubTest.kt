@@ -186,6 +186,27 @@ class PresetHubTest {
     }
 
     @Test
+    fun `backup anonymous url is tried after the primary and is also https-only`() {
+        val config = PresetHubConfig(
+            anonymousUrl = "https://primary.example",
+            anonymousBackupUrl = "https://backup.example"
+        )
+
+        assertEquals(
+            listOf("https://primary.example", "https://backup.example"),
+            config.anonymousEndpoints
+        )
+        assertTrue(config.hasAnonymousUpload)
+        assertTrue(config.canUpload)
+        assertFalse(
+            PresetHubConfig(anonymousBackupUrl = "http://backup.example").canUpload
+        )
+        assertTrue(
+            PresetHubConfig(anonymousBackupUrl = "https://backup.example").canUpload
+        )
+    }
+
+    @Test
     fun `local preset json without author still decodes`() {
         val raw = """{"id":"x","name":"n","note":"","createdAt":1,"payload":{}}"""
         val decoded = json.decodeFromString<ConfigPreset>(raw)
