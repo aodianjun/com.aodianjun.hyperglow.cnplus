@@ -113,6 +113,23 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 - Built-in diagnostics (guided capture, locally generated report ready for a GitHub issue)
   and settings backup/restore.
 
+## Config presets and cloud sharing
+
+The config preset page snapshots the whole configuration — lyrics appearance, AOD/lockscreen
+behaviour, app appearance, lyric source, interface/navigation and diagnostics — into named
+presets. Every card shows a colour preview of the preset, and the detail page renders the real
+lyrics preview plus a per-key change list before applying.
+
+- **Local presets** stay on the device and are not included in config backups.
+- **Cloud presets** are read anonymously from a public GitHub release (`presets` tag,
+  `presets.json` asset) and cached for offline use; browsing and applying them needs no token.
+- Applying a cloud preset writes the selected sections directly into the app settings. Plugin
+  settings are unchecked by default because they can contain API keys.
+- **Uploading** either uses a fine-grained GitHub token with `Contents: Read and write`
+  (Cloud settings), or a self-hosted anonymous hub: deploy
+  [`tools/preset-hub-worker`](tools/preset-hub-worker/README.md), put its root URL into
+  *Cloud settings → Anonymous upload URL*, and this device no longer needs a GitHub token.
+
 ## Requirements
 
 - Rooted HyperOS 3 or 4.
@@ -259,11 +276,21 @@ before opening a pull request:
 - 横屏全屏歌词：整块在屏幕上居中，并可设置安全区内边距。
 - 锁屏布局：歌词块可定位到媒体卡上方或下方；可选把歌词固定在媒体卡下方，通知顺延下移。
 - 外观设置：主题色（默认/动态取色/自定义）、背景图与压暗/模糊、玻璃化（半透明）顶栏/卡片/导航、文字颜色与字体、AOD 歌词调色板透明度，另提供六套一键外观预设。
+- 配置预设：把整套设置存成本地快照；支持从 GitHub Release 拉取云端预设（匿名可读），应用前可看卡片大预览与详情实时预览，也可通过自部署的匿名 Hub（`tools/preset-hub-worker`）上传，不需要 GitHub Token。入口在首页状态页歌词预览上方，以及「配置备份」区。
 - AOD 亮度增强、渲染刷新率上限、内容感知帧率（静态内容短脉冲、行级扫光约 24fps、逐字效果保持连续）、30fps 档，以及发热/低电量时的省电降帧开关。
 - 歌词显示时保持 AOD 常亮（时长可配置，最长不限）。
 - 播放音乐时保持锁屏常亮。
 - 拿起手机显示 AOD 而非完整锁屏。
 - 内置诊断（引导采集、本地生成报告并可一键组装 GitHub issue）与设置备份/恢复。
+
+## 配置预设与云端共享
+
+配置预设页把整套设置（歌词外观、息屏/锁屏行为、应用外观、歌词源、界面/导航、诊断）存成命名快照。列表卡片带配色缩略预览，详情页是实时歌词预览 + 逐项变更清单，确认后再应用。
+
+- **本地预设**只存在本机，不写进配置备份。
+- **云端预设**从公开的 GitHub Release（`presets` 标签、`presets.json` 资产）匿名读取并本地缓存，浏览和应用都不需要 Token。
+- 应用云端预设会直接把勾选的分节写进 App 设置；插件设置默认不勾选，避免把别人的 API Key 带进来。
+- **上传**有两种：在「云端设置」填一个 `Contents: Read and write` 的 GitHub fine-grained Token；或者部署 [`tools/preset-hub-worker`](tools/preset-hub-worker/README.md) 匿名 Hub，把根地址填到「云端设置 → 匿名上传地址」，本机就完全不需要 GitHub Token。
 
 ## 环境要求
 

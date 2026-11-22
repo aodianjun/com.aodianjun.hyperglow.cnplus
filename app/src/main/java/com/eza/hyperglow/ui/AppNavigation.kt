@@ -35,6 +35,14 @@ internal sealed interface AppRoute : NavKey {
     @Serializable
     data object AppAppearance : AppRoute
 
+    /** 配置预设:保存/切换整套设置,应用前可预览外观与分节差异。 */
+    @Serializable
+    data object ConfigPresets : AppRoute
+
+    /** 单条配置预设的详情(勾选分节 + 预览 + 应用)。 */
+    @Serializable
+    data class ConfigPresetDetail(val presetId: String) : AppRoute
+
     @Serializable
     data object Help : AppRoute
 

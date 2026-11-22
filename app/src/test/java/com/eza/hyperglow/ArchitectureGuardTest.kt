@@ -33,6 +33,7 @@ class ArchitectureGuardTest {
             marker = Regex("""java\.net\.URL|HttpURLConnection|OkHttpClient|openConnection"""),
             allowedRelativePaths = setOf(
                 "diagnostics/DiagnosticUploader.kt",
+                "ui/PresetHubClient.kt",
                 "ui/SettingsSupport.kt",
                 "ui/VersionCheck.kt"
             ),
