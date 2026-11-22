@@ -72,13 +72,15 @@ internal data class CloudPresetManifest(
 internal fun isValidPresetHubRepo(value: String): Boolean =
     Regex("""^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$""").matches(value.trim())
 
-/** GitHub 通道设置：仓库、Release 标签、上传 Token、匿名 Hub 地址、缓存的登录名。 */
+/** GitHub 通道设置：仓库、Release 标签、上传 Token、主/备匿名 Hub 地址、缓存的登录名。 */
 internal data class PresetHubConfig(
     val repo: String = PRESET_HUB_DEFAULT_REPO,
     val tag: String = PRESET_HUB_DEFAULT_TAG,
     val token: String = "",
     val login: String = "",
-    val anonymousUrl: String = ""
+    val anonymousUrl: String = "",
+    /** 备用匿名 Hub（例如 EdgeOne）；主地址网络不可用时自动回退。 */
+    val anonymousBackupUrl: String = ""
 ) {
     val hasRepo: Boolean get() = isValidPresetHubRepo(repo) &&
         repo.length <= 120 &&
@@ -86,18 +88,39 @@ internal data class PresetHubConfig(
         tag.length <= 100 &&
         tag.none { it == '\n' || it == '\r' }
 
+    /** 主地址是否已填（不校验 HTTPS）。 */
     val hasAnonymousUrl: Boolean get() = anonymousUrl.isNotBlank()
 
-    /** 匿名 Hub 必须走 HTTPS（预设内容会发给该地址）；留空表示不用匿名通道。 */
-    val anonymousUrlValid: Boolean
-        get() = !hasAnonymousUrl ||
-            (anonymousUrl.startsWith("https://") &&
-                anonymousUrl.length in 9..300 &&
-                anonymousUrl.none { it.isWhitespace() })
+    /** 匿名 Hub 必须走 HTTPS（预设内容会发给该地址）；留空表示不用该地址。 */
+    val anonymousUrlValid: Boolean get() = isValidAnonymousUrl(anonymousUrl)
+
+    val anonymousBackupUrlValid: Boolean get() = isValidAnonymousUrl(anonymousBackupUrl)
+
+    /** 主地址或备用地址任一可用，就能走免 Token 上传。 */
+    val hasAnonymousUpload: Boolean
+        get() = (anonymousUrl.isNotBlank() && anonymousUrlValid) ||
+            (anonymousBackupUrl.isNotBlank() && anonymousBackupUrlValid)
+
+    /** 实际要尝试的匿名端点：主地址在前，备用地址在后，去重。 */
+    val anonymousEndpoints: List<String>
+        get() = buildList {
+            anonymousUrl.trim().takeIf {
+                it.isNotBlank() && anonymousUrlValid
+            }?.let(::add)
+            anonymousBackupUrl.trim().takeIf {
+                it.isNotBlank() && anonymousBackupUrlValid
+            }?.let(::add)
+        }.distinct()
 
     val canUpload: Boolean
-        get() = hasRepo && (token.isNotBlank() || (hasAnonymousUrl && anonymousUrlValid))
+        get() = hasRepo && (token.isNotBlank() || hasAnonymousUpload)
 }
+
+private fun isValidAnonymousUrl(value: String): Boolean =
+    value.isBlank() ||
+        (value.startsWith("https://") &&
+            value.length in 9..300 &&
+            value.none { it.isWhitespace() })
 
 internal object PresetHubPreferences {
     private const val PREFS = "hyperglow_preset_hub"
@@ -106,6 +129,7 @@ internal object PresetHubPreferences {
     private const val KEY_TOKEN = "token"
     private const val KEY_LOGIN = "login"
     private const val KEY_ANONYMOUS_URL = "anonymous_url"
+    private const val KEY_ANONYMOUS_BACKUP_URL = "anonymous_backup_url"
     private const val KEY_DEVICE_ID = "device_id"
 
     fun read(context: Context): PresetHubConfig {
@@ -117,7 +141,8 @@ internal object PresetHubPreferences {
                 ?: PRESET_HUB_DEFAULT_TAG,
             token = prefs.getString(KEY_TOKEN, "").orEmpty(),
             login = prefs.getString(KEY_LOGIN, "").orEmpty(),
-            anonymousUrl = prefs.getString(KEY_ANONYMOUS_URL, "").orEmpty()
+            anonymousUrl = prefs.getString(KEY_ANONYMOUS_URL, "").orEmpty(),
+            anonymousBackupUrl = prefs.getString(KEY_ANONYMOUS_BACKUP_URL, "").orEmpty()
         )
     }
 
@@ -129,6 +154,7 @@ internal object PresetHubPreferences {
                 .putString(KEY_TAG, config.tag.trim())
                 .putString(KEY_TOKEN, config.token.trim())
                 .putString(KEY_ANONYMOUS_URL, config.anonymousUrl.trim())
+                .putString(KEY_ANONYMOUS_BACKUP_URL, config.anonymousBackupUrl.trim())
                 // Token 换人后旧的登录名不再可信，让下一次上传重新问 GitHub。
                 .putString(KEY_LOGIN, if (old.token == config.token) old.login else "")
                 .commit()

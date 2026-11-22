@@ -41,7 +41,7 @@ internal object PresetHubClient {
     /** 拉取云端清单；仓库/Release/资产不存在时返回空清单（不是错误）。 */
     suspend fun fetch(config: PresetHubConfig): Result<CloudPresetManifest> =
         withContext(Dispatchers.IO) {
-            guarded {
+            val primary = guarded {
                 if (!config.hasRepo) throw PresetHubException(PresetHubFailure.INVALID_CONFIG)
                 val release = getRelease(config) ?: return@guarded CloudPresetManifest()
                 val asset = release.assets.firstOrNull { it.name == PRESET_HUB_ASSET_NAME }
@@ -49,7 +49,51 @@ internal object PresetHubClient {
                 val raw = downloadAsset(config, asset).toString(Charsets.UTF_8)
                 parseCloudManifest(raw) ?: throw PresetHubException(PresetHubFailure.MALFORMED)
             }
+            if (primary.isSuccess) return@withContext primary
+            val failure = (primary.exceptionOrNull() as? PresetHubException)?.failure
+            if (failure != null && failure in setOf(
+                    PresetHubFailure.NETWORK,
+                    PresetHubFailure.SERVER,
+                    PresetHubFailure.RATE_LIMITED
+                ) && config.anonymousEndpoints.isNotEmpty()
+            ) {
+                // 返回备用路径的结果（即使失败），错误信息才指向真正尝试过的通道。
+                return@withContext guarded { fetchAnonymousManifest(config) }
+            }
+            primary
         }
+
+    /**
+     * 主路径（GitHub API）网络失败时，从主/备匿名 Hub 的 `/api/presets` 拉同一份清单。
+     * EdgeOne 备用入口是在服务端读 GitHub 的，所以手机到 GitHub 被挡时仍可能拿到列表。
+     */
+    private fun fetchAnonymousManifest(config: PresetHubConfig): CloudPresetManifest {
+        var lastError: PresetHubException? = null
+        config.anonymousEndpoints.forEachIndexed { index, endpoint ->
+            try {
+                val response = request(
+                    method = "GET",
+                    url = endpoint.trimEnd('/') + "/api/presets",
+                    accept = JSON_ACCEPT
+                )
+                if (response.code in 200..299) {
+                    return parseCloudManifest(response.body.toString(Charsets.UTF_8))
+                        ?: throw PresetHubException(PresetHubFailure.MALFORMED)
+                }
+                lastError = anonymousError(response)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: PresetHubException) {
+                lastError = error
+            } catch (error: Exception) {
+                lastError = PresetHubException(PresetHubFailure.NETWORK, cause = error)
+            }
+            if (index == config.anonymousEndpoints.lastIndex) {
+                throw lastError
+            }
+        }
+        throw lastError ?: PresetHubException(PresetHubFailure.NETWORK)
+    }
 
     /**
      * 上传一条本地预设（同 id 覆盖，否则新增）。
@@ -109,9 +153,8 @@ internal object PresetHubClient {
         deviceId: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         guarded {
-            if (!config.hasAnonymousUrl || !config.anonymousUrlValid) {
-                throw PresetHubException(PresetHubFailure.INVALID_CONFIG)
-            }
+            val endpoints = config.anonymousEndpoints
+            if (endpoints.isEmpty()) throw PresetHubException(PresetHubFailure.INVALID_CONFIG)
             val body = buildJsonObject {
                 put("id", preset.id.removePrefix(CLOUD_PRESET_PREFIX))
                 put("name", preset.name)
@@ -122,15 +165,39 @@ internal object PresetHubClient {
             if (body.size > CONFIG_PRESET_MAX_BYTES + 8 * 1024) {
                 throw PresetHubException(PresetHubFailure.TOO_LARGE)
             }
-            val url = config.anonymousUrl.trim().trimEnd('/') + "/api/presets"
-            val response = request(
-                method = "POST",
-                url = url,
-                body = body,
-                headers = mapOf("X-HyperGlow-Device" to deviceId)
-            )
-            if (response.code !in 200..299) throw anonymousError(response)
-            Unit
+            var lastError: PresetHubException? = null
+            endpoints.forEachIndexed { index, endpoint ->
+                val response = try {
+                    request(
+                        method = "POST",
+                        url = endpoint.trimEnd('/') + "/api/presets",
+                        body = body,
+                        headers = mapOf("X-HyperGlow-Device" to deviceId)
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: PresetHubException) {
+                    throw if (error.failure != PresetHubFailure.TOO_LARGE) {
+                        PresetHubException(PresetHubFailure.NETWORK, cause = error)
+                    } else {
+                        error
+                    }
+                } catch (error: Exception) {
+                    throw PresetHubException(PresetHubFailure.NETWORK, cause = error)
+                }
+                if (response.code in 200..299) return@guarded Unit
+                val failure = anonymousError(response)
+                lastError = failure
+                // 主 Hub 网络/5xx/限流/路由异常时自动尝试备用 Hub；4xx 语义错误不重试。
+                val retryable = failure.failure in setOf(
+                    PresetHubFailure.NETWORK,
+                    PresetHubFailure.SERVER,
+                    PresetHubFailure.RATE_LIMITED,
+                    PresetHubFailure.NOT_FOUND
+                )
+                if (!retryable || index == endpoints.lastIndex) throw failure
+            }
+            throw lastError ?: PresetHubException(PresetHubFailure.NETWORK)
         }
     }
 

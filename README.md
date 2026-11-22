@@ -129,6 +129,11 @@ lyrics preview plus a per-key change list before applying.
   (Cloud settings), or a self-hosted anonymous hub: deploy
   [`tools/preset-hub-worker`](tools/preset-hub-worker/README.md), put its root URL into
   *Cloud settings → Anonymous upload URL*, and this device no longer needs a GitHub token.
+- A second anonymous hub can run on **EdgeOne Pages** from
+  [`tools/preset-hub-edgeone`](tools/preset-hub-edgeone/README.md). Put its root URL into
+  *Cloud settings → Backup anonymous upload URL*; the app automatically falls back to it when
+  the primary hub is unreachable. Both hubs write the same GitHub release, so the cloud list
+  never forks.
 
 ## Requirements
 
@@ -295,6 +300,7 @@ before opening a pull request:
 - **云端预设**从公开的 GitHub Release（`presets` 标签、`presets.json` 资产）匿名读取并本地缓存，浏览和应用都不需要 Token。
 - 应用云端预设会直接把勾选的分节写进 App 设置；插件设置默认不勾选，避免把别人的 API Key 带进来。
 - **上传**有两种：在「云端设置」填一个 `Contents: Read and write` 的 GitHub fine-grained Token；或者部署 [`tools/preset-hub-worker`](tools/preset-hub-worker/README.md) 匿名 Hub，把根地址填到「云端设置 → 匿名上传地址」，本机就完全不需要 GitHub Token。
+- 还可以在 **EdgeOne Pages** 上部署第二套匿名 Hub（[`tools/preset-hub-edgeone`](tools/preset-hub-edgeone/README.md)），把根地址填到「云端设置 → 备用匿名上传地址」；主 Hub 不可达时 App 会自动回退。两套 Hub 写的是同一个 GitHub Release，云端列表不会分叉。
 
 ## 环境要求
 
