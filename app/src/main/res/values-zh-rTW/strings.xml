@@ -399,6 +399,8 @@
     <string name="preset_hub_plugin_apply_warning">此預設含上傳者的插件設置，其中可能有 API Key，預設不勾選。</string>
     <string name="preset_hub_token_required">請先在雲端設定裡填寫 GitHub Token 或匿名上傳位址。</string>
     <string name="preset_hub_anonymous_url_hint">匿名上傳位址（選填）</string>
+    <string name="preset_hub_backup_url_hint">備用匿名上傳位址（選填）</string>
+    <string name="preset_hub_backup_note">主 Hub 無法連線時自動嘗試。必須是 HTTPS；OWNER_SALT 要與主 Hub 一致。</string>
     <string name="preset_hub_anonymous_note">填了就走你部署的 Hub（tools/preset-hub-worker），其 GITHUB_REPO/GITHUB_TAG 要與上面的倉庫/標籤一致；本機不需要 GitHub Token。</string>
     <string name="preset_hub_anonymous_plugins_blocked">匿名 Hub 不接受插件設置（其中可能含 API Key）。</string>
     <string name="preset_hub_author_hint">署名（選填）</string>

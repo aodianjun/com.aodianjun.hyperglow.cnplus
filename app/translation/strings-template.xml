@@ -425,6 +425,8 @@
     <string name="preset_hub_plugin_apply_warning">This preset includes the uploader’s plugin settings, which may contain API keys. They are unchecked by default.</string>
     <string name="preset_hub_token_required">Add a GitHub token or an anonymous upload URL in Cloud settings first.</string>
     <string name="preset_hub_anonymous_url_hint">Anonymous upload URL (optional)</string>
+    <string name="preset_hub_backup_url_hint">Backup anonymous upload URL (optional)</string>
+    <string name="preset_hub_backup_note">Tried automatically if the primary hub cannot be reached. Must be HTTPS; keep the same OWNER_SALT as the primary.</string>
     <string name="preset_hub_anonymous_note">When set, uploads go through your hub (tools/preset-hub-worker). Keep its GITHUB_REPO/GITHUB_TAG in sync with the fields above; this device needs no GitHub token.</string>
     <string name="preset_hub_anonymous_plugins_blocked">The anonymous hub does not accept plugin settings (they may contain API keys).</string>
     <string name="preset_hub_author_hint">Display name (optional)</string>

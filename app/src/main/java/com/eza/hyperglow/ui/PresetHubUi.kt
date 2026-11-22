@@ -354,7 +354,7 @@ internal fun PresetUploadDialog(
     val context = LocalContext.current
     val hub = remember { PresetHubPreferences.read(context) }
     // 匿名 Hub 在服务端直接拒绝 pluginSettings；这里不展示该分节，避免用户选了才报错。
-    val anonymous = hub.hasAnonymousUrl
+    val anonymous = hub.hasAnonymousUpload
     val uploadable = preset.sections.filterNot {
         anonymous && it == ConfigPresetSection.PLUGINS
     }
@@ -466,6 +466,7 @@ internal fun PresetHubSettingsDialog(
     var tag by remember { mutableStateOf(initial.tag) }
     var token by remember { mutableStateOf(initial.token) }
     var anonymousUrl by remember { mutableStateOf(initial.anonymousUrl) }
+    var anonymousBackupUrl by remember { mutableStateOf(initial.anonymousBackupUrl) }
     var invalid by remember { mutableStateOf(false) }
 
     fun save() {
@@ -474,9 +475,13 @@ internal fun PresetHubSettingsDialog(
             tag = tag.trim(),
             token = token.trim(),
             login = initial.login,
-            anonymousUrl = anonymousUrl.trim()
+            anonymousUrl = anonymousUrl.trim(),
+            anonymousBackupUrl = anonymousBackupUrl.trim()
         )
-        if (!candidate.hasRepo || !candidate.anonymousUrlValid) {
+        if (!candidate.hasRepo ||
+            !candidate.anonymousUrlValid ||
+            !candidate.anonymousBackupUrlValid
+        ) {
             invalid = true
             return
         }
@@ -572,11 +577,38 @@ internal fun PresetHubSettingsDialog(
                     imeAction = ImeAction.Done
                 )
             )
+            Spacer(Modifier.height(8.dp))
+            TextField(
+                value = anonymousBackupUrl,
+                onValueChange = {
+                    anonymousBackupUrl = it.take(300)
+                    invalid = false
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = stringResource(R.string.preset_hub_backup_url_hint),
+                useLabelAsPlaceholder = true,
+                textStyle = TextStyle(
+                    color = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+                    fontSize = 16.sp
+                ),
+                cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done
+                )
+            )
             Text(
                 text = stringResource(R.string.preset_hub_anonymous_note),
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+            )
+            Text(
+                text = stringResource(R.string.preset_hub_backup_note),
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
             )
             Text(
                 text = stringResource(R.string.preset_hub_token_note),
@@ -587,8 +619,10 @@ internal fun PresetHubSettingsDialog(
             if (invalid) {
                 Text(
                     text = stringResource(
-                        if (anonymousUrl.isNotBlank() &&
-                            !anonymousUrl.trim().startsWith("https://")
+                        if ((anonymousUrl.isNotBlank() &&
+                                !anonymousUrl.trim().startsWith("https://")) ||
+                            (anonymousBackupUrl.isNotBlank() &&
+                                !anonymousBackupUrl.trim().startsWith("https://"))
                         ) {
                             R.string.preset_hub_settings_invalid_url
                         } else {
