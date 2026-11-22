@@ -1,0 +1,8 @@
+{
+  "name": "hyperglow-preset-hub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test.mjs"
+  }
+}

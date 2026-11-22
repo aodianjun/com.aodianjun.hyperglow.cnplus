@@ -1995,12 +1995,15 @@ internal fun previewEnvironment(
 internal fun collectDemoSnapshot(
     metadataParts: String,
     metadataSeparators: String,
-    hideAlbumWhenSameAsTitle: Boolean = false
+    hideAlbumWhenSameAsTitle: Boolean = false,
+    animate: Boolean = true
 ): LyricSnapshot {
     val context = LocalContext.current
     val lines = demoLines(context)
     var index by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(animate) {
+        // 卡片缩略图只要一帧:不轮播演示行,避免列表滚动时每张卡都在切行重绘。
+        if (!animate) return@LaunchedEffect
         while (true) {
             delay(DEMO_LINE_SWITCH_MS)
             index = (index + 1) % lines.size

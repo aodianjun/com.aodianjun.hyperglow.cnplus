@@ -18,6 +18,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -98,6 +99,11 @@ class MainActivity : ComponentActivity() {
                             var selectedTabName by rememberSaveable {
                                 mutableStateOf(SettingsTab.STATUS.name)
                             }
+                            // 配置预设应用后会整体改写设置面；自增一次让 HomeScreen 以 key 重建,
+                            // 避免保留在 remember 里的旧开关值/旧文档造成界面与落盘状态不一致。
+                            var configRevision by remember { mutableStateOf(0) }
+                            // 预设变更（删除/上传/存本地）后自增，通知仍在返回栈里的列表页重读存储与云端缓存。
+                            var presetRevision by remember { mutableStateOf(0) }
                             var predictiveBackEnabled by remember {
                                 mutableStateOf(
                                     AppNavigationPreferences.readPredictiveBack(this@MainActivity)
@@ -150,45 +156,50 @@ class MainActivity : ComponentActivity() {
                                     effects = navEffects
                                 ) {
                                     entry<AppRoute.Home> {
-                                        HomeScreen(
-                                            showRestartResult = ::showRestartResult,
-                                            selectedTabName = selectedTabName,
-                                            onSelectTab = { selectedTabName = it },
-                                            onOpenDiagnostics = { backStack.pushRoute(AppRoute.Diagnostics) },
-                                            onOpenPlugins = { backStack.pushRoute(AppRoute.Plugins) },
-                                            onOpenAodBehavior = { backStack.pushRoute(AppRoute.AodBehavior) },
-                                            onOpenAppAppearance = { backStack.pushRoute(AppRoute.AppAppearance) },
-                                            onOpenOnboarding = { showOnboarding = true },
-                                            onOpenHelp = { backStack.pushRoute(AppRoute.Help) },
-                                            onOpenChangelog = { backStack.pushRoute(AppRoute.Changelog) },
-                                            onOpenContributors = { backStack.pushRoute(AppRoute.Contributors) },
-                                            onOpenLicenses = { backStack.pushRoute(AppRoute.Licenses) },
-                                            onOpenLyricEnhancement = {
-                                                backStack.pushRoute(AppRoute.LyricEnhancement)
-                                            },
-                                            floatingNavBar = appAppearance.floatingNavBar,
-                                            predictiveBackEnabled = predictiveBackEnabled,
-                                            onPredictiveBackChanged = { enabled ->
-                                                if (AppNavigationPreferences.writePredictiveBack(
-                                                        this@MainActivity,
-                                                        enabled
-                                                    )
-                                                ) {
-                                                    predictiveBackEnabled = enabled
+                                        key(configRevision) {
+                                            HomeScreen(
+                                                showRestartResult = ::showRestartResult,
+                                                selectedTabName = selectedTabName,
+                                                onSelectTab = { selectedTabName = it },
+                                                onOpenDiagnostics = { backStack.pushRoute(AppRoute.Diagnostics) },
+                                                onOpenPlugins = { backStack.pushRoute(AppRoute.Plugins) },
+                                                onOpenAodBehavior = { backStack.pushRoute(AppRoute.AodBehavior) },
+                                                onOpenAppAppearance = { backStack.pushRoute(AppRoute.AppAppearance) },
+                                                onOpenOnboarding = { showOnboarding = true },
+                                                onOpenConfigPresets = {
+                                                    backStack.pushRoute(AppRoute.ConfigPresets)
+                                                },
+                                                onOpenHelp = { backStack.pushRoute(AppRoute.Help) },
+                                                onOpenChangelog = { backStack.pushRoute(AppRoute.Changelog) },
+                                                onOpenContributors = { backStack.pushRoute(AppRoute.Contributors) },
+                                                onOpenLicenses = { backStack.pushRoute(AppRoute.Licenses) },
+                                                onOpenLyricEnhancement = {
+                                                    backStack.pushRoute(AppRoute.LyricEnhancement)
+                                                },
+                                                floatingNavBar = appAppearance.floatingNavBar,
+                                                predictiveBackEnabled = predictiveBackEnabled,
+                                                onPredictiveBackChanged = { enabled ->
+                                                    if (AppNavigationPreferences.writePredictiveBack(
+                                                            this@MainActivity,
+                                                            enabled
+                                                        )
+                                                    ) {
+                                                        predictiveBackEnabled = enabled
+                                                    }
+                                                },
+                                                backTriggerPercent = backTriggerPercent,
+                                                onBackTriggerPercentChanged = { percent ->
+                                                    val normalized = normalizeBackTriggerPercent(percent)
+                                                    if (normalized != backTriggerPercent) {
+                                                        backTriggerPercent = normalized
+                                                        AppNavigationPreferences.writeBackTriggerPercent(
+                                                            this@MainActivity,
+                                                            normalized
+                                                        )
+                                                    }
                                                 }
-                                            },
-                                            backTriggerPercent = backTriggerPercent,
-                                            onBackTriggerPercentChanged = { percent ->
-                                                val normalized = normalizeBackTriggerPercent(percent)
-                                                if (normalized != backTriggerPercent) {
-                                                    backTriggerPercent = normalized
-                                                    AppNavigationPreferences.writeBackTriggerPercent(
-                                                        this@MainActivity,
-                                                        normalized
-                                                    )
-                                                }
-                                            }
-                                        )
+                                            )
+                                        }
                                     }
                                     entry<AppRoute.Diagnostics> {
                                         DiagnosticsScreen(onBack = { backStack.popRoute() })
@@ -218,6 +229,31 @@ class MainActivity : ComponentActivity() {
                                             onAppearanceChanged = {
                                                 appAppearance = loadAppUiAppearance(this@MainActivity)
                                             }
+                                        )
+                                    }
+                                    entry<AppRoute.ConfigPresets> {
+                                        ConfigPresetScreen(
+                                            refreshKey = presetRevision,
+                                            onBack = { backStack.popRoute() },
+                                            onOpenPreset = { presetId ->
+                                                backStack.pushRoute(
+                                                    AppRoute.ConfigPresetDetail(presetId)
+                                                )
+                                            }
+                                        )
+                                    }
+                                    entry<AppRoute.ConfigPresetDetail> { route ->
+                                        ConfigPresetDetailScreen(
+                                            presetId = route.presetId,
+                                            onBack = { backStack.popRoute() },
+                                            onApplied = {
+                                                // 整套设置已被预设改写:重建 Home 的 remembered 状态,
+                                                // 并刷新应用外观(主题/背景/玻璃控件即时生效)。
+                                                configRevision++
+                                                appAppearance =
+                                                    loadAppUiAppearance(this@MainActivity)
+                                            },
+                                            onPresetChanged = { presetRevision++ }
                                         )
                                     }
                                     entry<AppRoute.Help> { HelpScreen(onBack = { backStack.popRoute() }) }
