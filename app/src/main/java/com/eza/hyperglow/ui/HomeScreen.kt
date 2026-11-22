@@ -57,6 +57,7 @@ import com.eza.hyperglow.producer.LyricProducers
 import com.eza.hyperglow.root.capability.XiaomiCapability
 import com.eza.hyperglow.root.capability.XiaomiProfileState
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.Icon
@@ -98,6 +99,7 @@ internal fun HomeScreen(
     onOpenPlugins: () -> Unit,
     onOpenAodBehavior: () -> Unit,
     onOpenAppAppearance: () -> Unit,
+    onOpenConfigPresets: () -> Unit,
     onOpenHelp: () -> Unit,
     onOpenChangelog: () -> Unit,
     onOpenContributors: () -> Unit,
@@ -656,6 +658,7 @@ internal fun HomeScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            ConfigPresetEntryCard(onClick = onOpenConfigPresets)
                             LiveStatusSection()
                             LyricPreviewCardWithSwitch(
                                 lockscreenProfile = lockscreenProfile,
@@ -778,6 +781,11 @@ internal fun HomeScreen(
                         item { SmallTitle(text = stringResource(R.string.section_config_backup)) }
                         item {
                             SettingsCard {
+                                ArrowPreference(
+                                    title = stringResource(R.string.config_preset_title),
+                                    summary = stringResource(R.string.config_preset_summary),
+                                    onClick = onOpenConfigPresets
+                                )
                                 ArrowPreference(
                                     title = stringResource(R.string.setting_export_config),
                                     summary = stringResource(R.string.summary_export_config),
@@ -1318,4 +1326,27 @@ internal fun HomeScreen(
         }
     }
 
+}
+
+/**
+ * 第一页（状态页）预览上方的配置预设入口：图标 + 标题 + 一句话说明。
+ * 走 [BasicComponent]，与设置页其它入口同一套卡片材质，但放在歌词预览正上方，进得更快。
+ */
+@Composable
+private fun ConfigPresetEntryCard(onClick: () -> Unit) {
+    SettingsCard {
+        BasicComponent(
+            title = stringResource(R.string.config_preset_title),
+            summary = stringResource(R.string.config_preset_entry_summary),
+            startAction = {
+                Icon(
+                    imageVector = MiuixIcons.Tune,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            },
+            onClick = onClick
+        )
+    }
 }

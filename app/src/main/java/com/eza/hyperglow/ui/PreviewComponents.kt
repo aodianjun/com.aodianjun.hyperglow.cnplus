@@ -287,15 +287,26 @@ internal fun AppearanceLivePreview(
     duetMarkers: Boolean = true,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
     hideCreditLines: Boolean = false,
+    /**
+     * false = 使用固定演示快照而不是正在播放的歌词；预设列表卡片用，避免每张卡片都订阅
+     * 实时歌词并把同一首歌画 N 遍。
+     */
+    useLiveSnapshot: Boolean = true,
+    /** false = 演示行不轮播；卡片缩略图只需要一帧，详情页保持 true。 */
+    animateDemo: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val live = collectLiveSnapshot(
-        metadataParts,
-        metadataSeparators,
-        duetMarkers,
-        profile.hideAlbumWhenSameAsTitle,
-        hideCreditLines
-    )
+    val live = if (useLiveSnapshot) {
+        collectLiveSnapshot(
+            metadataParts,
+            metadataSeparators,
+            duetMarkers,
+            profile.hideAlbumWhenSameAsTitle,
+            hideCreditLines
+        )
+    } else {
+        null
+    }
     LyricPreviewSurface(
         profile = profile,
         scenario = scenario,
@@ -303,6 +314,7 @@ internal fun AppearanceLivePreview(
         metadataParts = metadataParts,
         metadataSeparators = metadataSeparators,
         artwork = artwork,
+        animateDemo = animateDemo,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -537,6 +549,7 @@ private fun LyricPreviewSurface(
     metadataParts: String,
     metadataSeparators: String,
     artwork: ArtworkDisplayConfig = artworkDisplayConfig(profile),
+    animateDemo: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     // 有实时歌词时跟随最新快照;否则用循环播放的演示快照,让预览始终可见且持续更新。
@@ -545,7 +558,8 @@ private fun LyricPreviewSurface(
     val snapshot = (live ?: collectDemoSnapshot(
         metadataParts,
         metadataSeparators,
-        profile.hideAlbumWhenSameAsTitle
+        profile.hideAlbumWhenSameAsTitle,
+        animate = animateDemo
     )).applyNoLyricsBehavior(profile)
     // 实时时钟:有实时快照时逐帧外推真实播放位置(见 [rememberLivePreviewPosition]),
     // 预览的扫光/逐字随真实歌词时间;演示态为 null,行为不变。
