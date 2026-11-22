@@ -175,6 +175,8 @@ internal fun openRootManager(context: Context): Boolean {
     val packageManager = context.packageManager
     for (packageName in ROOT_MANAGER_PACKAGES) {
         val intent = packageManager.getLaunchIntentForPackage(packageName) ?: continue
+        // 与 openLsposedManager 一致:非 Activity Context 直接 startActivity 需要 NEW_TASK。
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (runCatching { context.startActivity(intent) }.isSuccess) return true
     }
     return false

@@ -9,8 +9,10 @@ import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
@@ -196,6 +198,21 @@ internal fun appSurfaceColor(): Color =
 @Composable
 internal fun appOverlaySurfaceColor(): Color =
     top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
+
+/**
+ * 覆盖层根节点用:消费所有指针事件,防止点在空白处时穿透到下层页面。
+ *
+ * 覆盖层的背景与 Scaffold 本身不带 pointerInput,若不加这一层,点在卡片/按钮之外的
+ * 空白区域会命中底下的 HomeScreen(顶栏图标、开关、列表)。子节点在 Main pass 里
+ * 先收到事件,按钮和滚动交互不受影响。
+ */
+internal fun Modifier.blockOverlayPointerInput(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent().changes.forEach { change -> change.consume() }
+        }
+    }
+}
 
 /** 从裸键值表解析外观状态;未知值一律回落默认(fail-closed)。 */
 internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearance {

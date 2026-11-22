@@ -93,9 +93,12 @@ class MainActivity : ComponentActivity() {
                             )
                             val backStack = rememberNavBackStack<AppRoute>(AppRoute.Home)
                             // 首次使用引导:盖在主页之上,完成后写入标记并从组合中移除。
-                            var showOnboarding by remember {
+                            // manual 区分「首次启动」与「关于页手动重看」:前者不允许返回退出,
+                            // 否则未看完就退出、下次启动还会再弹一遍。
+                            var showOnboarding by rememberSaveable {
                                 mutableStateOf(OnboardingPreferences.shouldShow(this@MainActivity))
                             }
+                            var onboardingManual by rememberSaveable { mutableStateOf(false) }
                             var selectedTabName by rememberSaveable {
                                 mutableStateOf(SettingsTab.STATUS.name)
                             }
@@ -165,7 +168,10 @@ class MainActivity : ComponentActivity() {
                                                 onOpenPlugins = { backStack.pushRoute(AppRoute.Plugins) },
                                                 onOpenAodBehavior = { backStack.pushRoute(AppRoute.AodBehavior) },
                                                 onOpenAppAppearance = { backStack.pushRoute(AppRoute.AppAppearance) },
-                                                onOpenOnboarding = { showOnboarding = true },
+                                                onOpenOnboarding = {
+                                                    onboardingManual = true
+                                                    showOnboarding = true
+                                                },
                                                 onOpenConfigPresets = {
                                                     backStack.pushRoute(AppRoute.ConfigPresets)
                                                 },
@@ -301,24 +307,24 @@ class MainActivity : ComponentActivity() {
                                         onCancel = {}
                                     )
                                 }
-                                if (showOnboarding) {
-                                    // 引导覆盖层在最上层:返回手势先关闭引导,不触发底下的页面返回。
-                                    PredictiveBackHandler(
-                                        enabled = true,
-                                        onProgress = { _ -> },
-                                        onCommit = { showOnboarding = false },
-                                        onCancel = {}
-                                    )
-                                }
                             }
                             if (showOnboarding) {
                                 OnboardingScreen(
                                     onFinish = {
                                         OnboardingPreferences.markCompleted(this@MainActivity)
                                         showOnboarding = false
+                                        onboardingManual = false
                                     },
-                                    // 从设置重新打开时可按返回退出,不改写首次启动标记。
-                                    onBack = { showOnboarding = false }
+                                    // 首次启动不传 onBack:顶栏不显示返回按钮,返回手势也被引导层消费,
+                                    // 只能「跳过」或「开始使用」。手动重看时允许返回且不写完成标记。
+                                    onBack = if (onboardingManual) {
+                                        {
+                                            showOnboarding = false
+                                            onboardingManual = false
+                                        }
+                                    } else {
+                                        null
+                                    }
                                 )
                             }
                         }

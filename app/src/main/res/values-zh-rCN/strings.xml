@@ -976,14 +976,25 @@
     <string name="onboarding_action_open_lsposed">打开 LSPosed</string>
     <string name="onboarding_action_restart_systemui">重启系统界面</string>
     <string name="onboarding_display_title">打开歌词显示</string>
+    <string name="onboarding_preset_title">选择外观预设</string>
+    <string name="onboarding_preset_summary">从云端获取整套歌词观感预设；只应用外观，不改行为设置。</string>
+    <string name="onboarding_preset_applied">已应用</string>
+    <string name="onboarding_preset_loading">正在获取云端预设…</string>
+    <string name="onboarding_preset_load_failed">云端预设加载失败</string>
+    <string name="onboarding_preset_empty">云端还没有可用的外观预设</string>
+    <string name="onboarding_preset_retry">重试</string>
+    <string name="onboarding_preset_cloud_section">云端预设</string>
+    <string name="onboarding_preset_pick">选择云端预设</string>
+    <string name="onboarding_preset_pick_summary">浏览云端预设，应用后只替换外观</string>
+    <string name="onboarding_preset_change">点按更换</string>
+    <string name="onboarding_back">上一步</string>
     <string name="onboarding_source_title">选择歌词源</string>
     <string name="onboarding_source_summary">选择要使用的歌词源，点选后立即生效；之后可在状态页切换。</string>
-    <string name="onboarding_source_permission_hint">LyricInfo / SuperLyric 读取通知需要此权限。</string>
     <string name="onboarding_permission_title">检查权限</string>
     <string name="onboarding_permission_summary">这些权限保证息屏时歌词持续更新，之后可在应用内调整。</string>
-    <string name="onboarding_action_grant_root">授权</string>
     <string name="search_title">搜索</string>
     <string name="search_placeholder">搜索设置</string>
+    <string name="search_hint">搜索设置、歌词外观与关于入口</string>
     <string name="search_empty">没有找到相关设置</string>
     <string name="search_scope">%1$s · %2$s</string>
 </resources>

@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -36,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -102,6 +102,13 @@ private data class HomeTab(
     val labelRes: Int
 )
 
+/** 搜索结果待滚动目标:先到 [anchor] 分组,再尝试把 [rowAnchor] 对应的具体开关带进视口。 */
+private data class PendingSearchScroll(
+    val tab: SettingsTab,
+    val anchor: String,
+    val rowAnchor: String?
+)
+
 @Composable
 internal fun HomeScreen(
     showRestartResult: (Boolean) -> Unit,
@@ -150,7 +157,7 @@ internal fun HomeScreen(
     val appearanceListState = rememberLazyListState()
     // anchor → LazyColumn item index,由各页 LazyColumn 组合时登记。
     val searchAnchorIndices = remember { mutableStateMapOf<String, Int>() }
-    var pendingSearchScroll by remember { mutableStateOf<Pair<SettingsTab, String>?>(null) }
+    var pendingSearchScroll by remember { mutableStateOf<PendingSearchScroll?>(null) }
     val selectedTab = SettingsTab.entries.firstOrNull { it.name == selectedTabName }
         ?: SettingsTab.STATUS
     val selectedTabIndex = SettingsTab.entries.indexOf(selectedTab)
@@ -166,20 +173,34 @@ internal fun HomeScreen(
         }
     }
     val prefs = remember { context.getSharedPreferences(AodRenderPreferences.PREFS, 0) }
-    // 搜索结果:等目标页(或设置分段)的 LazyColumn 组合并登记锚点后再滚动。
+    // 搜索结果:先等外层分页停到目标 Tab,再滚到分组;有行级锚点时继续把具体开关带进视口。
     LaunchedEffect(pendingSearchScroll) {
-        val (tab, anchor) = pendingSearchScroll ?: return@LaunchedEffect
-        val index = withTimeoutOrNull(3_000) {
-            snapshotFlow { searchAnchorIndices[anchor] }.filterNotNull().first()
+        val pending = pendingSearchScroll ?: return@LaunchedEffect
+        // 分页动画期间目标页可能尚未组合,提前读锚点会拿到上一次的旧索引。
+        withTimeoutOrNull(3_000) {
+            snapshotFlow { pagerState.currentPage to pagerState.isScrollInProgress }
+                .first { (page, scrolling) -> !scrolling && page == pending.tab.ordinal }
+        }
+        val index = withTimeoutOrNull(2_000) {
+            snapshotFlow { searchAnchorIndices[pending.anchor] }.filterNotNull().first()
         }
         val listState: LazyListState = when {
-            anchor.startsWith("appearance_") -> appearanceListState
-            tab == SettingsTab.STATUS -> statusListState
-            tab == SettingsTab.SETTINGS -> settingsListState
-            tab == SettingsTab.APP -> appListState
+            GlobalSearchAnchor.isAppearanceAnchor(pending.anchor) -> appearanceListState
+            pending.tab == SettingsTab.STATUS -> statusListState
+            pending.tab == SettingsTab.SETTINGS -> settingsListState
+            pending.tab == SettingsTab.APP -> appListState
             else -> aboutListState
         }
         if (index != null) listState.scrollToItem(index)
+        // 行级锚点:条件开关未渲染时不会登记,超时后停在分组标题即可。
+        pending.rowAnchor?.let { rowKey ->
+            withTimeoutOrNull(1_500) {
+                while (!GlobalSearchRowAnchors.isRegistered(rowKey)) {
+                    withFrameNanos { }
+                }
+            }
+            GlobalSearchRowAnchors.reveal(rowKey)
+        }
         pendingSearchScroll = null
     }
     val exportConfigLauncher = rememberLauncherForActivityResult(
@@ -377,7 +398,14 @@ internal fun HomeScreen(
         )
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == CustomizationRepository.KEY_DOCUMENT) {
-                customizationDocument = CustomizationRepository.loadDocument(context)
+                val document = CustomizationRepository.loadDocument(context)
+                customizationDocument = document
+                // 预设/导入是整份文档替换,可能同时改了曲面 enabled;同步主页两个总开关,
+                // 避免「配置已开、界面还显示关」。
+                document.profiles[SceneCompiler.SURFACE_AOD]?.enabled?.let { aodEnabled = it }
+                document.profiles[SceneCompiler.SURFACE_LOCKSCREEN]?.enabled?.let {
+                    lockscreenEnabled = it
+                }
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -403,14 +431,13 @@ internal fun HomeScreen(
             AppTopBar(
                 title = stringResource(R.string.app_name),
                 actions = {
-                    if (SettingsTab.entries[pagerState.currentPage] != SettingsTab.ABOUT) {
-                        IconButton(onClick = { showGlobalSearch = true }) {
-                            Icon(
-                                imageVector = MiuixIcons.Regular.Search,
-                                contentDescription = stringResource(R.string.search_title),
-                                tint = appTopBarTitleColor()
-                            )
-                        }
+                    // 全局搜索:四个 Tab 都可用,索引覆盖设置项、外观逐项与关于页入口。
+                    IconButton(onClick = { showGlobalSearch = true }) {
+                        Icon(
+                            imageVector = MiuixIcons.Regular.Search,
+                            contentDescription = stringResource(R.string.search_title),
+                            tint = appTopBarTitleColor()
+                        )
                     }
                     IconButton(onClick = { showRestartDialog = true }) {
                         Icon(
@@ -550,6 +577,9 @@ internal fun HomeScreen(
                                             }
                                         },
                                         stringResource(R.string.setting_show_aod),
+                                        modifier = Modifier.searchRowAnchor(
+                                            SearchRowKeys.APPEARANCE_SHOW_AOD
+                                        ),
                                         summary = if (aodSupported) {
                                             null
                                         } else {
@@ -581,6 +611,9 @@ internal fun HomeScreen(
                                             }
                                         },
                                         stringResource(R.string.setting_show_lockscreen),
+                                        modifier = Modifier.searchRowAnchor(
+                                            SearchRowKeys.APPEARANCE_SHOW_LOCKSCREEN
+                                        ),
                                         summary = if (lockscreenSupported) {
                                             null
                                         } else {
@@ -596,6 +629,9 @@ internal fun HomeScreen(
                                 SettingsCard {
                                     ArrowPreference(
                                         title = stringResource(R.string.title_aod_behavior_settings),
+                                        modifier = Modifier.searchRowAnchor(
+                                            SearchRowKeys.APPEARANCE_AOD_BEHAVIOR
+                                        ),
                                         summary = stringResource(R.string.summary_aod_behavior_entry),
                                         onClick = onOpenAodBehavior,
                                         enabled = aodSupported
@@ -613,6 +649,9 @@ internal fun HomeScreen(
                                                 }
                                             },
                                             stringResource(R.string.setting_keep_lockscreen_awake),
+                                            modifier = Modifier.searchRowAnchor(
+                                                SearchRowKeys.APPEARANCE_KEEP_LOCKSCREEN_AWAKE
+                                            ),
                                             summary =
                                                 stringResource(R.string.summary_keep_lockscreen_awake),
                                             enabled = lockscreenSupported && lockscreenEnabled
@@ -625,6 +664,9 @@ internal fun HomeScreen(
                                                 }
                                             },
                                             stringResource(R.string.setting_block_lockscreen_customization),
+                                            modifier = Modifier.searchRowAnchor(
+                                                SearchRowKeys.APPEARANCE_BLOCK_LOCKSCREEN_CUSTOMIZATION
+                                            ),
                                             summary = if (lockscreenEditorGestureSupported) {
                                                 stringResource(R.string.summary_block_lockscreen_customization)
                                             } else {
@@ -640,6 +682,9 @@ internal fun HomeScreen(
                                                 }
                                             },
                                             stringResource(R.string.setting_raise_to_aod),
+                                            modifier = Modifier.searchRowAnchor(
+                                                SearchRowKeys.APPEARANCE_RAISE_TO_AOD
+                                            ),
                                             summary = if (raiseToAodSupported) {
                                                 stringResource(R.string.summary_raise_to_aod)
                                             } else {
@@ -867,6 +912,9 @@ internal fun HomeScreen(
                             SettingsCard {
                                 ArrowPreference(
                                     title = stringResource(R.string.config_preset_title),
+                                    modifier = Modifier.searchRowAnchor(
+                                        SearchRowKeys.SETTINGS_CONFIG_PRESET
+                                    ),
                                     summary = stringResource(R.string.config_preset_summary),
                                     onClick = onOpenConfigPresets
                                 )
@@ -1100,35 +1148,46 @@ internal fun HomeScreen(
                 }
 
                 SettingsTab.ABOUT -> {
-                    item { SmallTitle(text = stringResource(R.string.section_about)) }
-                    item {
+                    tracked(GlobalSearchAnchor.ABOUT_HOME) {
+                        SmallTitle(text = stringResource(R.string.section_about))
+                    }
+                    tracked {
                         AboutHeroCard(
                             systemUiVersion = capabilityReport.systemUiVersion,
                             aodVersion = capabilityReport.aodVersion
                         )
                     }
-                    item { AboutAuthorCard() }
-                    item {
+                    tracked { AboutAuthorCard() }
+                    tracked(GlobalSearchAnchor.ABOUT_LINKS) {
                         SettingsCard {
                             ArrowPreference(
                                 title = stringResource(R.string.title_onboarding),
+                                modifier = Modifier.searchRowAnchor(
+                                    SearchRowKeys.ABOUT_ONBOARDING
+                                ),
                                 summary = stringResource(R.string.summary_onboarding),
                                 onClick = onOpenOnboarding
                             )
                             ArrowPreference(
                                 title = stringResource(R.string.title_help),
+                                modifier = Modifier.searchRowAnchor(SearchRowKeys.ABOUT_HELP),
                                 onClick = onOpenHelp
                             )
                             ArrowPreference(
                                 title = stringResource(R.string.title_changelog),
+                                modifier = Modifier.searchRowAnchor(SearchRowKeys.ABOUT_CHANGELOG),
                                 onClick = onOpenChangelog
                             )
                             ArrowPreference(
                                 title = stringResource(R.string.title_contributors),
+                                modifier = Modifier.searchRowAnchor(
+                                    SearchRowKeys.ABOUT_CONTRIBUTORS
+                                ),
                                 onClick = onOpenContributors
                             )
                             ArrowPreference(
                                 title = stringResource(R.string.title_licenses),
+                                modifier = Modifier.searchRowAnchor(SearchRowKeys.ABOUT_LICENSES),
                                 summary = stringResource(R.string.summary_licenses),
                                 onClick = onOpenLicenses
                             )
@@ -1166,19 +1225,37 @@ internal fun HomeScreen(
         }
     }
     if (showGlobalSearch) {
-        // 返回手势/按键先关闭搜索覆盖层,不触发底下的页面返回。
-        BackHandler { showGlobalSearch = false }
         GlobalSearchOverlay(
             onDismiss = { showGlobalSearch = false },
             experimentalEligible = experimentalEligible,
             onSelect = { entry ->
                 showGlobalSearch = false
-                if (entry.tab == SettingsTab.SETTINGS) {
-                    // 其他设置固定为 2;外观分段由条目指定。
-                    settingsSectionIndex = entry.appearanceSection ?: 2
+                // 新的选择覆盖旧目标;子页条目不需要主页滚动。
+                pendingSearchScroll = null
+                when (entry.destination) {
+                    GlobalSearchDestination.APP_APPEARANCE -> onOpenAppAppearance()
+                    GlobalSearchDestination.AOD_BEHAVIOR -> onOpenAodBehavior()
+                    null -> {
+                        if (entry.tab == SettingsTab.SETTINGS) {
+                            // 外观通用项保持当前曲面(在其他设置时回落到息屏);锁屏专属项固定 1;
+                            // 其他设置固定 2。这样在锁屏外观里搜索不会莫名跳回息屏。
+                            settingsSectionIndex = when {
+                                entry.appearanceSection != null -> entry.appearanceSection
+                                GlobalSearchAnchor.isAppearanceAnchor(entry.anchor) ->
+                                    if (settingsSectionIndex == 2) 0 else settingsSectionIndex
+                                else -> 2
+                            }
+                        }
+                        entry.anchor?.let {
+                            pendingSearchScroll = PendingSearchScroll(
+                                entry.tab,
+                                it,
+                                entry.rowAnchor
+                            )
+                        }
+                        scope.launch { pagerState.animateScrollToPage(entry.tab.ordinal) }
+                    }
                 }
-                entry.anchor?.let { pendingSearchScroll = entry.tab to it }
-                scope.launch { pagerState.animateScrollToPage(entry.tab.ordinal) }
             }
         )
         }
@@ -1454,6 +1531,7 @@ private fun ConfigPresetEntryCard(onClick: () -> Unit) {
     SettingsCard {
         BasicComponent(
             title = stringResource(R.string.config_preset_title),
+            modifier = Modifier.searchRowAnchor(SearchRowKeys.STATUS_CONFIG_PRESET),
             summary = stringResource(R.string.config_preset_entry_summary),
             startAction = {
                 Icon(

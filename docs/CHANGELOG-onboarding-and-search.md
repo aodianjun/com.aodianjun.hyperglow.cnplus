@@ -1,11 +1,11 @@
 # HyperGlow CN+ 变更文档
 
-- **变更主题**：首次启动引导、全局搜索、引导页真实设置、Root 管理器跳转、覆盖层可读性修复
-- **应用版本**：0.4.0（versionCode 300）
+- **变更主题**：首次启动引导、云端外观预设、全局全量搜索、Miuix 页面重构、Root 管理器跳转、覆盖层可读性修复
+- **应用版本**：0.4.2（versionCode 302，按需求保持版本号不变）
 - **包名**：`com.aodianjun.hyperglow.cnplus`
-- **日期**：2026-11-21
-- **分支**：`trae/agent-NHVrHQ`
-- **改动规模**：16 个文件，+1756 / -59（相对上游主线 `4c171f4`）
+- **日期**：2026-11-22
+- **分支**：`feat/onboarding-search-polish`（已合并最新 main：云端预设 + EdgeOne 备份 Hub）
+- **改动规模**：18 个文件，+3990 / −82（相对 main `0ece0a7`）
 
 ---
 
@@ -13,18 +13,19 @@
 
 | # | 模块 | 改动说明 | 主要文件 |
 |---|------|----------|----------|
-| 1 | 首次启动引导 | 新增 4 页全屏引导覆盖层，首次安装自动弹出 | `OnboardingScreen.kt`、`MainActivity.kt` |
+| 1 | 首次启动引导 | 新增 5 页全屏引导覆盖层，首次安装自动弹出 | `OnboardingScreen.kt`、`MainActivity.kt` |
 | 2 | 引导入口 | 设置 → 关于 新增「使用引导」，可随时重看 | `HomeScreen.kt` |
 | 3 | 引导页真实设置 | 第 2 页可直接开关息屏/锁屏歌词、重启系统界面 | `OnboardingScreen.kt` |
-| 4 | 引导页歌词源 | 第 3 页复用主页面歌词源组件（连接状态 / 下载地址 / 授权 / 选源） | `OnboardingScreen.kt`、`LyricSourceComponents.kt` |
-| 5 | 引导页权限 | 第 4 页复用主页面权限检查组件 | `OnboardingScreen.kt`、`PermissionStatusSection.kt` |
-| 6 | 全局搜索 | 状态 / 设置 / App 设置三页顶栏搜索入口 + 全屏搜索覆盖层 | `GlobalSearch.kt`、`HomeScreen.kt` |
-| 7 | 模糊搜索与补全 | 子串、跳字、英文编辑距离容错 + 输入补全胶囊 | `GlobalSearch.kt` |
-| 8 | 搜索定位 | 搜索结果显示所属页面/分组，选中后切页并滚动到对应位置 | `HomeScreen.kt`、`LyricAppearanceSection.kt` |
-| 9 | 条件条目过滤 | 实验模式相关条目按可用性过滤，避免搜到却找不到按钮 | `GlobalSearch.kt`、`HomeScreen.kt` |
-| 10 | Root 管理器跳转 | 权限区新增「打开 Root 管理器」，自动匹配 Magisk / KernelSU / APatch | `PermissionStatusSection.kt` |
-| 11 | 覆盖层可读性 | 引导页与搜索页改用不透明底色，修复透字看不清 | `AppUiAppearance.kt`、`AppTopBar.kt` |
-| 12 | 测试与构建 | 新增搜索与引导偏好测试；开启 Robolectric 资源加载 | `GlobalSearchTest.kt`、`OnboardingPreferencesTest.kt`、`app/build.gradle.kts` |
+| 4 | 引导页云端预设 | 第 3 页只放入口与已选名称；选择在独立子页完成，只应用外观分节 | `OnboardingScreen.kt`、`PresetHub*.kt`、`ConfigPresetStore.kt` |
+| 5 | 引导页歌词源 | 第 4 页复用主页面歌词源组件（连接状态 / 下载地址 / 授权 / 选源） | `OnboardingScreen.kt`、`LyricSourceComponents.kt` |
+| 6 | 引导页权限 | 第 5 页复用主页面权限检查组件 | `OnboardingScreen.kt`、`PermissionStatusSection.kt` |
+| 7 | 全局搜索 | 四个 Tab 顶栏搜索入口 + 全屏搜索覆盖层；Miuix `InputField` 输入 | `GlobalSearch.kt`、`HomeScreen.kt` |
+| 8 | 全量索引 | 168 条：主 Tab 全部开关、外观逐项、子页选项、配置预设、关于页入口 | `GlobalSearch.kt` |
+| 9 | 搜索定位 | 分组滚动 + 行级 `BringIntoView`；子页选项直接打开对应页面 | `HomeScreen.kt`、`LyricAppearanceSection.kt` |
+| 10 | 条件条目过滤 | 实验模式相关条目按可用性过滤，避免搜到却找不到按钮 | `GlobalSearch.kt`、`HomeScreen.kt` |
+| 11 | Root 管理器跳转 | 权限区新增「打开 Root 管理器」，自动匹配 Magisk / KernelSU / APatch | `PermissionStatusSection.kt` |
+| 12 | 覆盖层可读性 | 引导页与搜索页改用不透明底色，修复透字看不清 | `AppUiAppearance.kt`、`AppTopBar.kt` |
+| 13 | 测试与构建 | 搜索索引/匹配/行级锚点测试；搜索匹配拆成纯文档逻辑，不依赖 Android 资源加载 | `GlobalSearchTest.kt`、`OnboardingPreferencesTest.kt` |
 
 ---
 
@@ -47,21 +48,24 @@
 ### 2.2 界面结构
 
 - 全屏覆盖层，盖在主页面之上，不进入导航栈。
-- `Scaffold` 使用不透明覆盖层底色 `appOverlaySurfaceColor()`。
+- 欢迎页图标改用 `HyperGlowCnPlusIcon`：组合 CN+ 自适应图标的 `ic_launcher_background` + `ic_launcher_foreground`（带「+」与青色进度条），不再引用上游旧的 `drawable/ic_launcher`。
+- `Scaffold` 使用不透明覆盖层底色 `appOverlaySurfaceColor()`，并消费空白处指针事件，防止点击穿透。
 - 顶栏使用 `AppTopBar(overlay = true)`，不做壁纸模糊。
 - 顶部：非最后一页显示「跳过」。
 - 底部：圆点页码 + 「下一步」；最后一页为「开始使用」。
 - 页面内容不满一屏时垂直居中，超出时可整页滚动（适配小屏 / 大字号）。
-- 手势返回：`PredictiveBackHandler` 优先关闭引导，不触发底层页面返回。
+- 手势返回：`PredictiveBackHandler` 在引导层内消费。首次启动时返回手势被吞掉（避免没看完就退出），
+  手动重看时返回只关闭引导，不触发底层页面返回。
 
-### 2.3 四个页面
+### 2.3 五个页面
 
 | 页 | 标题 | 内容 |
 |----|------|------|
 | 1 | 欢迎使用 HyperGlow CN+ | 功能简介 + 开始前的要求清单：Root 权限、LSPosed 并勾选系统界面作用域、至少一个歌词源 |
 | 2 | 启用模块 | 实时模块状态（已生效 / 尚未检测到）+ **真实开关** + 打开 LSPosed + 重启系统界面 |
-| 3 | 选择歌词源 | 与主页面同源的歌词源卡片 + 未连接引导 + 选源对话框 |
-| 4 | 检查权限 | 与主页面同源的权限状态组件 |
+| 3 | 选择外观预设 | `CustomizationPresets.ALL` 六个预设一键套用，应用后同步运行时 |
+| 4 | 选择歌词源 | 与主页面同源的歌词源卡片 + 未连接引导 + 选源对话框 |
+| 5 | 检查权限 | 与主页面同源的权限状态组件 |
 
 ### 2.4 第 2 页：真实写入设置
 
@@ -74,7 +78,23 @@
 - **重启系统界面**：`ShellUtils.restartHookedProcesses(systemUi = true, miuAod = false, hyperglowApp = false)`，成功/失败均有 Toast 提示。
 - 模块状态监听 `XiaomiCapabilityStore.PREFS`，SystemUI 上报后无需退出引导即可刷新。
 
-### 2.5 第 3 页：歌词源（与主页面同源）
+### 2.5 第 3 页：云端外观预设（选择在子页）
+
+第 3 页本身只保留入口：
+
+- `ArrowPreference` 显示「选择云端预设」；已应用后显示预设名 + 「已应用 · 点按更换」；
+- 点按打开独立全屏子页 `CloudPresetPickerPage`，返回只关闭子页，不退出整个引导。
+
+子页行为：
+
+- 先读 `PresetHubStore` 本地缓存（离线也能展示上次结果），再 `PresetHubClient.fetch` 拉取云端清单；
+- 只列包含 `ConfigPresetSection.APPEARANCE` 分节的云端预设，卡片用 `PresetPreviewCard` 大预览；
+- 点选后 `ConfigPresetStore.decode(..., setOf(APPEARANCE))` + `apply`，**只应用外观分节**，
+  不改行为、语言、歌词源与插件设置；
+- 加载 / 失败 / 云端为空三种状态分别有 `BasicComponent` 文案与「重试」按钮；
+- 应用成功回到第 3 页并显示预设名；网络不可用且无缓存时可直接返回跳过。
+
+### 2.6 第 4 页：歌词源（与主页面同源）
 
 直接复用主页面组件，而不是引导页单独实现一套：
 
@@ -84,20 +104,24 @@
 
 因此主页面后续对歌词源交互的任何修改都会自动同步到引导页。
 
-### 2.6 第 4 页：权限检查（与主页面同源）
+### 2.7 第 5 页：权限检查（与主页面同源）
 
 - 使用 `SettingsCard { PermissionStatusSection() }`，与状态页完全一致；
 - 覆盖通知权限、歌词前台服务、电池优化、Root 权限；
 - Root 授权同时支持系统授权弹窗与跳转 Root 管理器手动授权；
 - 删除了引导页原先自写的权限行、ActivityResult launcher 与对应 import。
 
-### 2.7 入口与返回行为
+### 2.8 入口与返回行为
 
+- **步骤式引导**：`HorizontalPager(userScrollEnabled = false)`，只能走底部「上一步 / 下一步」，
+  避免误滑到未准备的分页；第 1 页不显示「上一步」。
 - **设置 → 关于 → 使用引导**：新增 `ArrowPreference`，点击重新打开引导覆盖层。
-- 从设置重新打开时顶栏显示返回按钮；返回只关闭引导，不写入完成标记。
-- 首次启动没有返回按钮，只能「跳过」或「开始使用」；两者都会写入完成标记。
+- 手动重看时 `onboardingManual = true`：顶栏显示返回按钮，返回只关闭引导，不写入完成标记。
+- 首次启动没有返回按钮，返回手势也会被引导层吞掉，只能「跳过」或「开始使用」；两者都会写入完成标记。
+- `showOnboarding` 与 `onboardingManual` 使用 `rememberSaveable`：旋转屏幕不会把手动打开的引导丢掉，
+  也不会把首次启动的引导误判为已完成。
 
-### 2.8 偏好与测试
+### 2.9 偏好与测试
 
 `OnboardingPreferencesTest`（Robolectric）覆盖：
 
@@ -113,85 +137,44 @@
 
 ### 3.1 入口
 
-- 位置：顶栏搜索图标，出现在**状态 / 设置 / App 设置**三页。
-- 关于页不出现在顶栏图标，也不参与搜索索引。
+- 位置：顶栏搜索图标，**状态 / 设置 / App 设置 / 关于** 四个 Tab 都有。
+- 关于页本身也参与索引（使用引导、帮助、更新日志、贡献者、开源许可）。
 - 点击后打开全屏搜索覆盖层，输入框自动聚焦、弹出键盘。
 
 ### 3.2 界面结构
 
 - `Scaffold` 使用 `appOverlaySurfaceColor()`，`AppTopBar(overlay = true)`，返回键关闭。
-- 顶部搜索框（`TextField`，`ImeAction.Search`）。
+- 覆盖层根节点加 `blockOverlayPointerInput()`，消费空白处的指针事件，避免点击穿透到下层页面。
+- 顶部使用 Miuix `InputField`（搜索图标 + 清除按钮，`ImeAction.Search`）；打开后自动展开、
+  请求焦点并拉起输入法，搜索键或选中结果时先收起键盘。
 - 有输入且存在候选时，搜索框下方显示横向滚动补全胶囊。
-- 结果以 `SettingsCard` + `ArrowPreference` 列表展示，每条显示：
-  - 条目名称；
-  - 所属范围：「页面 · 分组」，例如「状态 · 歌词源」。
+- 结果按「页面 · 分组」用 `SmallTitle` + `Card` 聚合，`LazyColumn` 以组为 item：
+  - 组标题显示范围，例如「状态 · 歌词源」；
+  - 组内 `ArrowPreference` 显示条目名称与说明；长结果不再整块组合。
 
-### 3.3 索引范围（45 条）
+### 3.3 索引范围（168 条）
 
-#### 状态页（13 条）
+不再只索引「分组标题」，而是把每个开关 / 下拉项 / 滑杆 / 颜色行都收进索引：
 
-| 条目 | 定位锚点 |
-|------|----------|
-| 模块状态 | `STATUS_HOME` |
-| 实时状态 | `STATUS_LIVE` |
-| 歌词源 | `STATUS_SOURCE` |
-| 当前歌词源 | `STATUS_SOURCE` |
-| 过滤非音乐来源 | `STATUS_SOURCE` |
-| 隐藏制作信息 | `STATUS_SOURCE` |
-| 插件管理 | `STATUS_SOURCE` |
-| 报告问题 | `STATUS_RUNTIME` |
-| 通知权限 | `STATUS_PERMISSION` |
-| 电池优化 | `STATUS_PERMISSION` |
-| Root 权限 | `STATUS_PERMISSION` |
-| 歌词前台服务 | `STATUS_PERMISSION` |
-| 打开 Root 管理器 | `STATUS_PERMISSION` |
+| 范围 | 条数 | 说明 |
+|------|------|------|
+| 状态页 | 14 | 模块状态、实时状态、配置预设入口、歌词源卡片、运行时、权限区全部行 |
+| 设置 · 其他设置 | 7 | 歌词增强、暂停行为、配置预设、配置备份 |
+| 歌词外观 · 分组标题 | 10 | 两个总开关 + 位置/文字/效果/频谱/贴纸/颜色/锁屏卡/两区域 |
+| 歌词外观 · 逐项 | 85 | 47 个开关/滑杆/动作行 + 31 个下拉项 + 7 个语义色行 |
+| App 设置 | 16 | 语言、导航、应用外观入口、开发者选项、系统集成 |
+| App 外观子页 | 11 | 主题、控件色、字体、背景图/变暗/模糊、系统栏图标等 |
+| 息屏行为子页 | 20 | 保持常亮、时钟跟随、亮度、防烧屏、旋转、边距等 |
+| 关于页 | 5 | 使用引导、帮助、更新日志、贡献者、开源许可 |
 
-#### 设置 · 其他设置（6 条）
+关键覆盖点：
 
-| 条目 | 定位锚点 |
-|------|----------|
-| 歌词增强 | `SETTINGS_ENHANCEMENT` |
-| 暂停时显示内容 | `SETTINGS_PLAYBACK` |
-| Spotify 暂停后 | `SETTINGS_PLAYBACK` |
-| 导出配置 | `SETTINGS_BACKUP` |
-| 导入配置 | `SETTINGS_BACKUP` |
-| 重置默认 | `SETTINGS_BACKUP` |
-
-#### 歌词外观编辑器（10 条）
-
-| 条目 | 定位锚点 | 分段 |
-|------|----------|------|
-| 在息屏显示 | `APPEARANCE_HEADER` | 息屏 |
-| 在锁屏显示 | `APPEARANCE_HEADER` | 锁屏 |
-| 位置 | `APPEARANCE_PLACEMENT` | 息屏 |
-| 文字和语言 | `APPEARANCE_TEXT_LANGUAGE` | 息屏 |
-| 效果 | `APPEARANCE_EFFECTS` | 息屏 |
-| 音乐频谱 | `APPEARANCE_SPECTRUM` | 息屏 |
-| 自定义贴纸 | `APPEARANCE_SPRITES` | 息屏 |
-| 颜色 | `APPEARANCE_COLORS` | 息屏 |
-| 锁屏歌词卡片 | `APPEARANCE_LOCKSCREEN_CARD` | 锁屏 |
-| 两个显示区域 | `APPEARANCE_BOTH_SURFACES` | 息屏 |
-
-#### App 设置（16 条）
-
-| 条目 | 定位锚点 |
-|------|----------|
-| 语言 | `APP_LANGUAGE` |
-| 界面语言 | `APP_LANGUAGE` |
-| 预测性返回 | `APP_NAVIGATION` |
-| 返回触发阈值 | `APP_NAVIGATION` |
-| 应用外观 | `APP_APPEARANCE` |
-| 实验模式（条件显示） | `APP_DEVELOPER` |
-| 强制歌词提供者（条件显示） | `APP_DEVELOPER` |
-| 息屏调试画布边框 | `APP_DEVELOPER` |
-| 诊断日志 | `APP_DEVELOPER` |
-| 日志保留时长 | `APP_DEVELOPER` |
-| 日志级别 | `APP_DEVELOPER` |
-| 导出日志 | `APP_DEVELOPER` |
-| 清空日志 | `APP_DEVELOPER` |
-| 常驻前台通知 | `APP_SYSTEM` |
-| 隐藏后台卡片 | `APP_SYSTEM` |
-| 隐藏桌面图标 | `APP_SYSTEM` |
+- 外观编辑器里的「字体」「字号」「字重」「逐字效果」「辉光」「频谱开关/灵敏度」
+  「锁屏歌词卡片」「播放进度」「语义色」等都能直接搜到；
+- 通用外观项选中时**保持当前曲面**（在锁屏外观里搜索不会跳回息屏）；
+  锁屏专属项（高度、卡片颜色、播放进度、保持唤醒等）固定切到锁屏分段；
+- 子页选项带 `destination`，选中直接打开「应用外观」或「息屏行为」页面；
+- 合并 main 新增的「配置预设」后，状态页入口与「配置备份」行也已补进索引。
 
 ### 3.4 模糊匹配规则
 
@@ -205,15 +188,16 @@
 |--------|------|------|
 | 1 | 标题包含连续子串 | 1200 − 位置 |
 | 2 | 说明/分组/关键词包含连续子串 | 900 − 位置 |
-| 3 | 标题按顺序包含查询字符（跳字） | 560 |
-| 4 | 全字段按顺序包含查询字符（跳字） | 420 |
-| 5 | 英文单词编辑距离 ≤ 1（长度 ≥ 3） | 300 |
+| 3 | 标题按顺序包含查询字符（跳字，长度 ≥ 3 或 2 个汉字） | 560 |
+| 4 | 全字段按顺序包含查询字符（跳字，同上） | 420 |
+| 5 | 英文单词编辑距离 ≤ 1（长度 ≥ 3，纯 ASCII） | 300 |
 
 示例：
 
 - 「歌源」可以命中「歌词来源」（跳字）；
 - 「sorce」可以命中 `source`（英文编辑距离 1）；
 - 「歌词 来源」两个词都命中才返回。
+- 单字「歌」只走连续子串；两字母英文（如 `sg`）不做跳字，避免把整张索引捞回来。
 
 ### 3.5 输入补全
 
@@ -223,39 +207,57 @@
 
 ### 3.6 条件显示条目
 
-「实验模式」「强制歌词提供者」只在实验模式可用时渲染于界面。
+只有「实验模式」是条件条目：它仅在实验模式可用时渲染于设置页
+（`experimentalEligible = EXPERIMENTAL_ELIGIBLE || UNSUPPORTED_PROFILE`）。
 
 搜索索引为这类条目增加 `requiresExperimental` 标记，并在过滤与补全时接收 `experimentalEligible`：
 
 - 实验模式不可用：条目从结果与补全中完全移除，避免「搜到但页面没有这个按钮」；
 - 实验模式可用：正常参与搜索与定位。
 
-`experimentalEligible` 与设置页显示实验开关的条件一致
-（`EXPERIMENTAL_ELIGIBLE` 或 `UNSUPPORTED_PROFILE`）。
+「强制歌词提供者」在设置页始终渲染，因此**不**带 `requiresExperimental`，
+否则会出现「按钮在、却搜不到」的反向不一致。
 
 ### 3.7 定位与滚动机制
 
 1. 各页 `LazyColumn` 组合时按顺序登记 `anchor → item index`
    （`HomeScreen.kt` 的 `tracked(...)`、`LyricAppearanceSection.kt` 的 `trackedItem(...)`）。
-2. 选中搜索结果后：
-   - 关闭搜索覆盖层；
-   - 若目标在「设置」页，先切换顶部分段：外观条目按 `appearanceSection` 切到息屏/锁屏，其余切到「其他设置」；
+2. 每个可搜索的开关/下拉/滑杆/颜色行在组合时登记一个 `BringIntoViewRequester`
+   （`GlobalSearchRowAnchors`，key 由 `SearchRowKeys` 或枚举名生成）。
+3. 选中搜索结果后：
+   - 关闭搜索覆盖层并收起输入法；
+   - 子页选项（带 `destination`）直接 `onOpenAppAppearance / onOpenAodBehavior`，不切主页分页；
+   - 若目标在「设置」页：外观通用项保持当前曲面，锁屏专属项切到锁屏，其他设置切到「其他设置」；
    - 切换到目标 Tab（`pagerState.animateScrollToPage`）。
-3. 等待目标列表组合并登记锚点（最多 3 秒），随后 `scrollToItem(index)`。
-4. 外观编辑器使用独立的 `appearanceListState`，搜索可直接滚到编辑器内部的具体分组。
+4. **先等外层分页停到目标 Tab**（`currentPage == 目标 && !isScrollInProgress`，最多 3 秒），
+   再等分组锚点登记（最多 2 秒），随后 `scrollToItem(index)`。
+5. 若条目有 `rowAnchor`：等行登记（最多 1.5 秒）后调用 `bringIntoView()`，把具体开关带进视口；
+   条件开关未渲染时自动回落到分组标题。
+6. 外观锚点集合由 `GlobalSearchAnchor.APPEARANCE_ANCHORS / isAppearanceAnchor` 显式判定，
+   外观编辑器使用独立的 `appearanceListState`。
 
 ### 3.8 测试
 
-`GlobalSearchTest`（Robolectric，`sdk = 36`，`zh-rCN`）：
+`GlobalSearchTest`（纯 JUnit，不加载 Android 资源）：
+
+匹配逻辑拆成 `resolveGlobalSearchDocuments(context)`（一次性解析文案）与
+`filterGlobalSearchDocuments(documents, query, experimentalEligible)`（纯匹配），
+测试直接构造 `GlobalSearchDocument`，不再依赖 Robolectric 的 `isIncludeAndroidResources`。
+后者会改变全局测试环境，实测会让无关的 `PluginRuntimeTest` 出现 5 个超时失败。
 
 | 用例 | 覆盖点 |
 |------|--------|
 | `exactTitleStillMatches` | 精确标题命中 |
 | `subsequenceFuzzyMatchFindsSkippedCharacters` | 跳字模糊匹配（歌源 → 歌词来源） |
+| `twoLetterAsciiQueryDoesNotSpraySubsequenceHits` | 两字母英文不做跳字，避免整表命中 |
+| `singleChineseCharacterStillMatchesContiguousText` | 单字仍可连续子串命中 |
 | `multiTokenQueryRequiresEveryToken` | 多词 AND 语义 |
 | `typoInEnglishKeywordStillMatches` | 英文拼写容错（sorce → source） |
 | `completionsReturnTitlesContainingInput` | 输入补全 |
 | `experimentalEntriesAreHiddenWhenIneligible` | 条件条目按实验模式过滤 |
+| `forceProviderSearchableWhenExperimentalIneligible` | 非条件条目不被误过滤 |
+| `indexCoversAppearanceRowsAndAbout` | 外观逐项/子页/关于页索引覆盖，行级锚点存在 |
+| `appearanceAnchorsAreClassifiedExplicitly` | 外观锚点显式分类 |
 | `blankQueryReturnsNothing` | 空查询不返回结果/补全 |
 
 ---
@@ -279,6 +281,9 @@
 - 使用 `PackageManager.getLaunchIntentForPackage` 获取带 LAUNCHER category 的完整启动 Intent；
 - 找到并成功启动即返回；
 - 一个都没找到时 Toast 提示「未找到可用的 Root 管理器」。
+- `AndroidManifest.xml` 的 `<queries>` 同步声明上述四个包名：Android 11+ 未声明的包对
+  `getLaunchIntentForPackage` 不可见，缺声明会把已安装的管理器误判为「未找到」。
+  本应用虽声明了 `forceQueryable`，但它只在系统安装场景生效（普通安装不生效），不能替代 `<queries>`。
 
 引导页第 4 页复用同一权限组件，因此也自动具备该入口。
 
@@ -301,7 +306,7 @@
 
 ## 6. 字符串与本地化
 
-新增 33 条字符串，同步维护 4 份文件：
+新增 44 条字符串（原 33 条，清理 2 条无引用；新增云端预设/引导页脚/搜索提示等），同步维护 4 份文件：
 
 - `app/src/main/res/values/strings.xml`
 - `app/src/main/res/values-zh-rCN/strings.xml`
@@ -314,10 +319,12 @@
 | 引导流程 | `onboarding_skip`、`onboarding_next`、`onboarding_start`、`onboarding_welcome_title`、`onboarding_welcome_summary` |
 | 开始前要求 | `onboarding_requirements_title`、`onboarding_requirement_root`、`onboarding_requirement_lsposed`、`onboarding_requirement_source` |
 | 启用模块 | `onboarding_module_title`、`onboarding_module_summary`、`onboarding_module_status`、`onboarding_module_detected`、`onboarding_module_pending`、`onboarding_module_restart_hint`、`onboarding_action_open_lsposed`、`onboarding_action_restart_systemui`、`onboarding_display_title` |
-| 歌词源 | `onboarding_source_title`、`onboarding_source_summary`、`onboarding_source_permission_hint` |
-| 权限 | `onboarding_permission_title`、`onboarding_permission_summary`、`onboarding_action_grant_root` |
+| 外观预设 | `onboarding_preset_title`、`onboarding_preset_summary`、`onboarding_preset_applied`、`onboarding_preset_loading`、`onboarding_preset_load_failed`、`onboarding_preset_empty`、`onboarding_preset_retry`、`onboarding_preset_cloud_section`、`onboarding_preset_pick`、`onboarding_preset_pick_summary`、`onboarding_preset_change` |
+| 引导页脚 | `onboarding_back` |
+| 歌词源 | `onboarding_source_title`、`onboarding_source_summary` |
+| 权限 | `onboarding_permission_title`、`onboarding_permission_summary` |
 | Root 管理器 | `action_open_root_manager`、`summary_open_root_manager`、`toast_root_manager_not_found` |
-| 全局搜索 | `search_title`、`search_placeholder`、`search_empty`、`search_scope` |
+| 全局搜索 | `search_title`、`search_placeholder`、`search_hint`、`search_empty`、`search_scope` |
 
 中文示例：
 
@@ -339,9 +346,15 @@
 
 覆盖：
 
-- `GlobalSearchTest`：7 个用例全部通过；
+- 全量 1905 个用例，0 失败 / 0 错误；
+- `GlobalSearchTest`：12 个用例全部通过（纯 JUnit，不加载 Android 资源），
+  其中 `indexCoversAppearanceRowsAndAbout` 断言索引 ≥150 条、外观行/子页/关于页均有覆盖；
 - `OnboardingPreferencesTest`：3 个用例全部通过；
-- 既有 `UiStringsContractTest` 通过。
+- 既有 `UiStringsContractTest`、`PluginRuntimeTest`、`PresetHubTest`、`ConfigPresetStoreTest` 通过。
+
+> 曾尝试用 `isIncludeAndroidResources = true` 让搜索测试直接读资源，实测会使无关的
+> `PluginRuntimeTest` 出现 5 个超时失败（关闭后恢复）。因此搜索匹配改为
+> 「资源解析 + 纯文档匹配」，测试不再改变全局测试环境。
 
 ### 7.2 构建
 
@@ -349,23 +362,14 @@
 ./gradlew :app:assembleDebug --console=plain
 ```
 
-结果：`BUILD SUCCESSFUL in 44s`
+结果：`BUILD SUCCESSFUL`（增量 52s）
 
-产物：`app/build/outputs/apk/debug/app-debug.apk`（约 52 MB，Debug 签名）
+产物：`app/build/outputs/apk/debug/app-debug.apk`（约 56 MB，Debug 签名）
+版本校验：`versionCode=302 / versionName=0.4.2`（按需求不升版本）
 
 ### 7.3 部署
 
-| 项 | 值 |
-|----|----|
-| 站点 | `https://37jf66nh10g1fv1rs64.traesite.cn` |
-| 可见性 | 私有 |
-| 部署类型 | Node.js 20 静态文件服务（FunctionWeb） |
-| 下载文件 | `HyperGlow-CNPlus-0.4.0-debug.apk` |
-| 部署 ID | `dep_6af6a7a496c416ccc7fbeb15` |
-| 状态 | 成功（100%） |
-
-> APK 超过 50 MiB，无法使用普通静态托管，因此通过 `prepare-static-function.mjs` 转为
-> Node.js 20 静态服务器部署。
+本次仅本地构建验证，未部署站点；0.4.0 的旧部署信息不再适用于当前产物。
 
 ---
 
@@ -387,11 +391,12 @@
 | `app/src/main/java/com/eza/hyperglow/ui/HomeScreen.kt` | 搜索入口与覆盖层、锚点登记与滚动、关于页引导入口 |
 | `app/src/main/java/com/eza/hyperglow/ui/MainActivity.kt` | 引导覆盖层挂载、返回处理、关于页回调 |
 | `app/src/main/java/com/eza/hyperglow/ui/PermissionStatusSection.kt` | Root 管理器跳转 |
+| `app/src/main/java/com/eza/hyperglow/ui/HomeComponents.kt` | 新增 `HyperGlowCnPlusIcon`（CN+ 自适应图标组合），欢迎页/关于页回落共用 |
 | `app/src/main/java/com/eza/hyperglow/ui/LyricAppearanceSection.kt` | 外观编辑器列表项锚点登记与外部 `LazyListState` |
 | `app/src/main/java/com/eza/hyperglow/ui/LyricSourceComponents.kt` | `openLsposedManager` / `lyricSourceLabel` 改为 `internal` 供引导页复用 |
 | `app/src/main/java/com/eza/hyperglow/ui/AppUiAppearance.kt` | 新增不透明覆盖层底色 |
 | `app/src/main/java/com/eza/hyperglow/ui/AppTopBar.kt` | 新增 `overlay` 模式 |
-| `app/build.gradle.kts` | 单元测试加载 Android 资源 |
+| `app/src/main/AndroidManifest.xml` | `<queries>` 声明 Root 管理器包，修复 Android 11+ 跳转误报 |
 | `app/src/main/res/values/strings.xml` | 新增英文字符串 |
 | `app/src/main/res/values-zh-rCN/strings.xml` | 新增简体中文字符串 |
 | `app/src/main/res/values-zh-rTW/strings.xml` | 新增繁体中文字符串 |
@@ -401,12 +406,21 @@
 
 ## 9. 备注与已知限制
 
-1. **Debug 构建**：当前交付 APK 为 Debug 签名，仅供测试安装。
-2. **搜索范围**：关于页不参与搜索，也没有搜索入口（按需求只覆盖其余页面）。
-3. **条件条目**：实验模式关闭时，「实验模式」「强制歌词提供者」不会出现在搜索结果中；
-   开启实验模式后即可正常搜索并定位。
-4. **引导页复用**：第 3、4 页直接复用主页面组件，后续主页面交互调整会自动同步。
-5. **未引用字符串**：`onboarding_source_permission_hint`、`onboarding_action_grant_root`
-   在改为复用主页面组件后已无代码引用，目前保留在资源文件中未删除。
-6. **首次启动判定**：只要检测到任一用户配置（`aod_render` / `app_ui_appearance` / `app_navigation`），
+1. **Debug 构建**：当前交付 APK 为 Debug 签名，仅供测试安装；版本号保持 0.4.2（302）。
+2. **搜索范围**：四个 Tab 都有搜索入口；索引覆盖主 Tab 全部开关、歌词外观逐项、应用外观/息屏行为子页、
+   配置预设入口、关于页入口。插件管理、歌词增强里的插件项是运行时动态生成的，不在静态索引内。
+3. **条件条目**：实验模式不可用时，只有「实验模式」从搜索结果中移除；
+   「强制歌词提供者」在设置页始终可见，因此始终可搜索。
+   条件开关（如纯音乐文本、第二行辅助文字）未渲染时，搜索会停在所属分组标题。
+4. **子页定位**：应用外观/息屏行为条目会直接打开对应子页；子页本身没有逐行锚点，进入后需按页面内的分组查看。
+5. **引导页复用**：第 4、5 页直接复用主页面歌词源/权限组件，后续主页面交互调整会自动同步。
+6. **云端预设子页**：第 3 页只放入口；选择在独立子页完成，先读本地缓存再拉云端清单。
+   只展示含外观分节的预设，应用时只写外观分节，不改行为/语言/歌词源/插件设置。
+   无网络且无缓存时显示失败态与「重试」，返回即可跳过。
+7. **首次启动返回**：首次启动的引导层会吞掉返回手势，避免未看完就退出导致下次启动重复弹出；
+   手动重看时返回只关闭引导。
+8. **首次启动判定**：只要检测到任一用户配置（`aod_render` / `app_ui_appearance` / `app_navigation`），
    即视为老用户，不再自动弹出引导；仍可从设置 → 关于手动打开。
+9. **Miuix 重构**：引导页改为步骤式（禁滑动、底部上一步/下一步）、`SmallTitle + Card` 分组、
+   12.dp 卡片边距；搜索页改用 `InputField`，结果按分组用 `SmallTitle + Card` 懒加载。
+10. **欢迎页图标**：改用 CN+ 自适应图标组合（background + foreground），不再使用上游旧的扁平 `ic_launcher`。

@@ -977,14 +977,25 @@
     <string name="onboarding_action_open_lsposed">Open LSPosed</string>
     <string name="onboarding_action_restart_systemui">Restart SystemUI</string>
     <string name="onboarding_display_title">Turn on lyric display</string>
+    <string name="onboarding_preset_title">Choose a look</string>
+    <string name="onboarding_preset_summary">Fetch a ready-made lyric look from the cloud. Only appearance is applied; behavior settings stay untouched.</string>
+    <string name="onboarding_preset_applied">Applied</string>
+    <string name="onboarding_preset_loading">Loading cloud presets…</string>
+    <string name="onboarding_preset_load_failed">Couldn\'t load cloud presets</string>
+    <string name="onboarding_preset_empty">No appearance presets in the cloud yet</string>
+    <string name="onboarding_preset_retry">Retry</string>
+    <string name="onboarding_preset_cloud_section">Cloud presets</string>
+    <string name="onboarding_preset_pick">Choose a cloud preset</string>
+    <string name="onboarding_preset_pick_summary">Browse cloud presets; only appearance is applied</string>
+    <string name="onboarding_preset_change">Tap to change</string>
+    <string name="onboarding_back">Back</string>
     <string name="onboarding_source_title">Choose a lyrics source</string>
     <string name="onboarding_source_summary">Choose the lyrics source to use. Tapping it applies immediately; you can switch later on the Status page.</string>
-    <string name="onboarding_source_permission_hint">Needed by LyricInfo / SuperLyric to read notifications.</string>
     <string name="onboarding_permission_title">Check permissions</string>
     <string name="onboarding_permission_summary">These keep lyrics updating while the screen is off. You can change them later in the app.</string>
-    <string name="onboarding_action_grant_root">Grant</string>
     <string name="search_title">Search</string>
     <string name="search_placeholder">Search settings</string>
+    <string name="search_hint">Search settings, lyric appearance and About entries</string>
     <string name="search_empty">No matching settings</string>
     <string name="search_scope">%1$s · %2$s</string>
 </resources>

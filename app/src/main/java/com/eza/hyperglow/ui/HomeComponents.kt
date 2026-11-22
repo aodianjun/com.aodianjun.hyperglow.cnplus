@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.BuildConfig
@@ -178,10 +179,9 @@ internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
                     modifier = Modifier.size(72.dp).clip(RoundedCornerShape(18.dp))
                 )
             } else {
-                Image(
-                    painter = painterResource(R.drawable.ic_launcher),
-                    contentDescription = null,
-                    modifier = Modifier.size(72.dp)
+                HyperGlowCnPlusIcon(
+                    modifier = Modifier.size(72.dp),
+                    cornerRadius = 18.dp
                 )
             }
             Text(
@@ -247,8 +247,31 @@ internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
 /**
  * 关于页应用图标:直接取系统解析的应用图标(自适应图标 background+foreground 由系统合成,
  * 与桌面/系统设置里看到的始终一致)——换图标后无需改这里,不再硬编码 drawable。
- * 渲染失败(理论不会)时由调用方回落 [R.drawable.ic_launcher]。
+ * 渲染失败(理论不会)时由调用方回落到 [HyperGlowCnPlusIcon]。
  */
+/**
+ * CN+ 自有应用图标:自适应图标的 background + foreground 组合,带「+」与青色进度条。
+ * 欢迎页与关于页回落共用,避免再引用上游旧的扁平 ic_launcher。
+ */
+@Composable
+internal fun HyperGlowCnPlusIcon(
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 22.dp
+) {
+    Box(modifier.clip(RoundedCornerShape(cornerRadius))) {
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_background),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize()
+        )
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_foreground),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
 @Composable
 private fun rememberAppIconBitmap(sizePx: Int = 216): ImageBitmap? {
     val context = LocalContext.current

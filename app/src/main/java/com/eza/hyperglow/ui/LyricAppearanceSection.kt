@@ -619,6 +619,7 @@ internal fun LyricAppearanceSection(
                         }
                     },
                     title = stringResource(R.string.setting_custom_position),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_CUSTOM_POSITION),
                     summary = stringResource(R.string.summary_custom_position),
                     valueText = "${(selectedProfile.verticalBias * 100).roundToInt()}%",
                     valueRange = 0f..100f,
@@ -648,6 +649,7 @@ internal fun LyricAppearanceSection(
                     selectedProfile.duetAlignment,
                     { enabled -> updateSelected { it.copy(duetAlignment = enabled) } },
                     stringResource(R.string.setting_duet_alignment),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_DUET_ALIGNMENT),
                     summary = stringResource(R.string.summary_duet_alignment)
                 )
                 // 显示并发歌词(对唱):per-surface 开关,锁屏与息屏各自独立
@@ -656,6 +658,7 @@ internal fun LyricAppearanceSection(
                     selectedProfile.duetConcurrent,
                     { enabled -> updateSelected { it.copy(duetConcurrent = enabled) } },
                     stringResource(R.string.setting_duet_concurrent),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_DUET_CONCURRENT),
                     summary = stringResource(R.string.summary_duet_concurrent)
                 )
                 // 长间奏倒计时圆点(per-surface):本行 end 与下一行 start 空隙 ≥4s 时,歌词行
@@ -665,6 +668,7 @@ internal fun LyricAppearanceSection(
                     selectedProfile.interludeCountdown,
                     { enabled -> updateSelected { it.copy(interludeCountdown = enabled) } },
                     stringResource(R.string.setting_interlude_countdown),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_INTERLUDE_COUNTDOWN),
                     summary = stringResource(R.string.summary_interlude_countdown)
                 )
                 // 无歌词/纯音乐歌词行为(per-surface):整首只有「纯音乐请欣赏」标记的纯音乐曲目,
@@ -688,6 +692,7 @@ internal fun LyricAppearanceSection(
                     selectedProfile.pureMusicDisplay,
                     { enabled -> updateSelected { it.copy(pureMusicDisplay = enabled) } },
                     stringResource(R.string.setting_pure_music_display),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_PURE_MUSIC_DISPLAY),
                     summary = stringResource(R.string.summary_pure_music_display)
                 )
                 if (selectedProfile.pureMusicDisplay) {
@@ -695,6 +700,9 @@ internal fun LyricAppearanceSection(
                     // 与渲染层 pureMusicDisplayText 同一口径)。
                     ArrowPreference(
                         title = stringResource(R.string.setting_pure_music_text),
+                        modifier = Modifier.searchRowAnchor(
+                            SearchRowKeys.APPEARANCE_PURE_MUSIC_TEXT
+                        ),
                         summary = normalizePureMusicText(selectedProfile.pureMusicText)
                             .ifBlank { PURE_MUSIC_TEXT_DEFAULT },
                         onClick = { activePureMusicTextEditor = true }
@@ -729,6 +737,7 @@ internal fun LyricAppearanceSection(
                         }
                     },
                     title = stringResource(R.string.setting_tail_timeout_delay),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_TAIL_TIMEOUT_DELAY),
                     summary = stringResource(R.string.summary_tail_timeout_delay),
                     valueText = stringResource(
                         R.string.value_tail_timeout_delay_seconds,
@@ -744,6 +753,7 @@ internal fun LyricAppearanceSection(
                     effectiveDuetMarkers,
                     { enabled -> updateSelected { it.copy(duetMarkers = enabled) } },
                     stringResource(R.string.setting_duet_markers),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_DUET_MARKERS),
                     summary = stringResource(R.string.summary_duet_markers)
                 )
                 // 歌词时间偏移(文档级全局):显示时间轴 = 播放位置 − 偏移,正数延后、
@@ -758,6 +768,7 @@ internal fun LyricAppearanceSection(
                         updateDocument { it.copy(lyricTimeOffsetMs = quantized) }
                     },
                     title = stringResource(R.string.setting_lyric_time_offset),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_LYRIC_TIME_OFFSET),
                     summary = stringResource(R.string.summary_lyric_time_offset),
                     valueText = run {
                         val v = editorState.document.lyricTimeOffsetMs
@@ -812,6 +823,7 @@ internal fun LyricAppearanceSection(
                     selectedProfile.secondaryAutoSize,
                     { enabled -> updateSelected { it.copy(secondaryAutoSize = enabled) } },
                     stringResource(R.string.setting_secondary_auto_size),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_SECONDARY_AUTO_SIZE),
                     summary = stringResource(R.string.summary_secondary_auto_size)
                 )
                 // 露出门槛:任一辅助内容在显示(音标/翻译/和声,和声默认在——见 auxHarmonyShown)
@@ -828,7 +840,10 @@ internal fun LyricAppearanceSection(
                     SwitchPreference(
                         selectedProfile.secondaryTextBright,
                         { bright -> updateSelected { it.copy(secondaryTextBright = bright) } },
-                        stringResource(R.string.setting_bright_secondary_text)
+                        stringResource(R.string.setting_bright_secondary_text),
+                        modifier = Modifier.searchRowAnchor(
+                            SearchRowKeys.APPEARANCE_SECONDARY_TEXT_BRIGHT
+                        )
                     )
                 }
                 // 辅助文字逐字效果(per-surface):第一行辅助文字行(音标/翻译)与和声行随歌词逐字点亮。
@@ -841,13 +856,19 @@ internal fun LyricAppearanceSection(
                             updateSelected { it.copy(secondaryWordKaraoke = enabled) }
                         },
                         stringResource(R.string.setting_secondary_word_karaoke),
+                        modifier = Modifier.searchRowAnchor(
+                            SearchRowKeys.APPEARANCE_SECONDARY_WORD_KARAOKE
+                        ),
                         summary = stringResource(R.string.summary_secondary_word_karaoke)
                     )
                 }
                 SwitchPreference(
                     selectedProfile.secondaryNextLine,
                     { enabled -> updateSelected { it.copy(secondaryNextLine = enabled) } },
-                    stringResource(R.string.setting_secondary_next_line)
+                    stringResource(R.string.setting_secondary_next_line),
+                    modifier = Modifier.searchRowAnchor(
+                        SearchRowKeys.APPEARANCE_SECONDARY_NEXT_LINE
+                    )
                 )
                 // 「显示第二行辅助文字」以第二行歌词行实际显示为前提:「显示下一行歌词」
                 // 或「辅助文字显示第二行歌词」任一开启时露出;两者都关时没有第二行歌词行,
@@ -856,13 +877,15 @@ internal fun LyricAppearanceSection(
                     SwitchPreference(
                         selectedProfile.nextLineAux,
                         { enabled -> updateSelected { it.copy(nextLineAux = enabled) } },
-                        stringResource(R.string.setting_next_line_aux)
+                        stringResource(R.string.setting_next_line_aux),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_NEXT_LINE_AUX)
                     )
                 }
                 SwitchPreference(
                     selectedProfile.rubyVisible,
                     { visible -> updateSelected { it.copy(rubyVisible = visible) } },
-                    stringResource(R.string.setting_show_furigana)
+                    stringResource(R.string.setting_show_furigana),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_RUBY_VISIBLE)
                 )
                 AodChoiceRow(AodChoiceKind.LONG_LINES, selectedProfile.overflow) {
                     openChoice(
@@ -885,12 +908,14 @@ internal fun LyricAppearanceSection(
                 SwitchPreference(
                     selectedProfile.adaptiveSectioning,
                     { enabled -> updateSelected { it.copy(adaptiveSectioning = enabled) } },
-                    stringResource(R.string.setting_keep_phrases_together)
+                    stringResource(R.string.setting_keep_phrases_together),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_ADAPTIVE_SECTIONING)
                 )
                 SwitchPreference(
                     selectedProfile.showNextLine,
                     { enabled -> updateSelected { it.copy(showNextLine = enabled) } },
-                    stringResource(R.string.setting_show_next_line)
+                    stringResource(R.string.setting_show_next_line),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_SHOW_NEXT_LINE)
                 )
                 if (selectedProfile.showNextLine || selectedProfile.secondaryNextLine ||
                     selectedProfile.nextLineAux
@@ -909,7 +934,8 @@ internal fun LyricAppearanceSection(
                 SwitchPreference(
                     selectedProfile.metadataVisible,
                     { visible -> updateSelected { withMetadataVisible(it, visible) } },
-                    stringResource(R.string.setting_show_song_info)
+                    stringResource(R.string.setting_show_song_info),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_METADATA_VISIBLE)
                 )
                 if (selectedProfile.metadataVisible) {
                     AodChoiceRow(AodChoiceKind.SONG_INFO_POSITION, selectedProfile.metadataAnchor) {
@@ -1018,6 +1044,9 @@ internal fun LyricAppearanceSection(
                                 }
                             },
                             stringResource(R.string.setting_hide_album_same_as_title),
+                            modifier = Modifier.searchRowAnchor(
+                                SearchRowKeys.APPEARANCE_HIDE_ALBUM_SAME_AS_TITLE
+                            ),
                             summary = stringResource(R.string.summary_hide_album_same_as_title)
                         )
                     }
@@ -1026,7 +1055,8 @@ internal fun LyricAppearanceSection(
                     SwitchPreference(
                         selectedProfile.artworkVisible,
                         { visible -> updateSelected { it.copy(artworkVisible = visible) } },
-                        stringResource(R.string.setting_show_song_artwork)
+                        stringResource(R.string.setting_show_song_artwork),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_ARTWORK_VISIBLE)
                     )
                     if (selectedProfile.artworkVisible) {
                         AodChoiceRow(
@@ -1049,7 +1079,10 @@ internal fun LyricAppearanceSection(
                             { adaptive ->
                                 updateSelected { it.copy(artworkAdaptiveScale = adaptive) }
                             },
-                            stringResource(R.string.setting_song_artwork_adaptive)
+                            stringResource(R.string.setting_song_artwork_adaptive),
+                            modifier = Modifier.searchRowAnchor(
+                                SearchRowKeys.APPEARANCE_ARTWORK_ADAPTIVE_SCALE
+                            )
                         )
                         if (!selectedProfile.artworkAdaptiveScale) {
                             val sizeDp = normalizeArtworkSizeDp(selectedProfile.artworkSizeDp)
@@ -1064,6 +1097,9 @@ internal fun LyricAppearanceSection(
                                     }
                                 },
                                 title = stringResource(R.string.setting_song_artwork_size),
+                                modifier = Modifier.searchRowAnchor(
+                                    SearchRowKeys.APPEARANCE_ARTWORK_SIZE
+                                ),
                                 summary = stringResource(R.string.summary_song_artwork_size),
                                 valueText = "${sizeDp}dp",
                                 valueRange =
@@ -1075,7 +1111,10 @@ internal fun LyricAppearanceSection(
                             SwitchPreference(
                                 selectedProfile.artworkSpin,
                                 { spin -> updateSelected { it.copy(artworkSpin = spin) } },
-                                stringResource(R.string.setting_song_artwork_spin)
+                                stringResource(R.string.setting_song_artwork_spin),
+                                modifier = Modifier.searchRowAnchor(
+                                    SearchRowKeys.APPEARANCE_ARTWORK_SPIN
+                                )
                             )
                             if (selectedProfile.artworkSpin) {
                                 SwitchPreference(
@@ -1083,7 +1122,10 @@ internal fun LyricAppearanceSection(
                                     { enabled ->
                                         updateSelected { it.copy(artworkSpinWhenPaused = enabled) }
                                     },
-                                    stringResource(R.string.setting_song_artwork_spin_paused)
+                                    stringResource(R.string.setting_song_artwork_spin_paused),
+                                    modifier = Modifier.searchRowAnchor(
+                                        SearchRowKeys.APPEARANCE_ARTWORK_SPIN_WHEN_PAUSED
+                                    )
                                 )
                             }
                         }
@@ -1105,6 +1147,7 @@ internal fun LyricAppearanceSection(
                 }
                 TextSizePreference(
                     title = stringResource(R.string.setting_lyric_size),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_LYRIC_SIZE),
                     percent = effectiveTextSizePercent(selectedProfile),
                     onDecrease = {
                         updateSelected {
@@ -1145,6 +1188,7 @@ internal fun LyricAppearanceSection(
                 }
                 ArrowPreference(
                     title = stringResource(R.string.action_import_custom_font),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_CUSTOM_FONT),
                     onClick = { fontImportLauncher.launch(arrayOf("*/*")) }
                 )
             }
@@ -1203,6 +1247,9 @@ internal fun LyricAppearanceSection(
                 }
                 ArrowPreference(
                     title = stringResource(R.string.action_import_word_effect_pack),
+                    modifier = Modifier.searchRowAnchor(
+                        SearchRowKeys.APPEARANCE_IMPORT_WORD_EFFECT
+                    ),
                     onClick = {
                         effectImportLauncher.launch(
                             arrayOf("application/json", "text/plain", "*/*")
@@ -1212,6 +1259,9 @@ internal fun LyricAppearanceSection(
                 // 在线编辑器:浏览器里调好效果 → 导出 .hgwordanim.json → 回到上一行导入。
                 ArrowPreference(
                     title = stringResource(R.string.action_open_word_effect_studio),
+                    modifier = Modifier.searchRowAnchor(
+                        SearchRowKeys.APPEARANCE_WORD_EFFECT_STUDIO
+                    ),
                     summary = stringResource(R.string.summary_word_effect_studio),
                     onClick = { openWordEffectStudio(context) }
                 )
@@ -1280,6 +1330,7 @@ internal fun LyricAppearanceSection(
                         if (!enabled) stopSpectrumCaptureIfUnused()
                     },
                     stringResource(R.string.setting_spectrum_enabled),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_SPECTRUM_ENABLED),
                     summary = stringResource(R.string.summary_spectrum_enabled)
                 )
                 if (selectedProfile.spectrum.enabled) {
@@ -1340,6 +1391,7 @@ internal fun LyricAppearanceSection(
                             }
                         },
                         stringResource(R.string.setting_spectrum_background),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_SPECTRUM_BACKGROUND),
                         summary = stringResource(R.string.summary_spectrum_background)
                     )
                     SliderPreference(
@@ -1354,6 +1406,7 @@ internal fun LyricAppearanceSection(
                             }
                         },
                         title = stringResource(R.string.setting_spectrum_opacity),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_SPECTRUM_OPACITY),
                         valueText = "${selectedProfile.spectrum.opacity}%",
                         valueRange = 10f..100f,
                         steps = 9
@@ -1371,6 +1424,9 @@ internal fun LyricAppearanceSection(
                                 }
                             },
                             title = stringResource(R.string.setting_spectrum_y_offset),
+                            modifier = Modifier.searchRowAnchor(
+                                SearchRowKeys.APPEARANCE_SPECTRUM_Y_OFFSET
+                            ),
                             valueText = "${selectedProfile.spectrum.yOffsetPercent}%",
                             valueRange = -50f..50f,
                             steps = 20
@@ -1389,6 +1445,9 @@ internal fun LyricAppearanceSection(
                                 }
                             },
                             title = stringResource(R.string.setting_spectrum_height),
+                            modifier = Modifier.searchRowAnchor(
+                                SearchRowKeys.APPEARANCE_SPECTRUM_HEIGHT
+                            ),
                             valueText = "${selectedProfile.spectrum.heightPercent}%",
                             valueRange = 50f..200f,
                             steps = 15
@@ -1406,6 +1465,9 @@ internal fun LyricAppearanceSection(
                             }
                         },
                         title = stringResource(R.string.setting_spectrum_sensitivity),
+                        modifier = Modifier.searchRowAnchor(
+                            SearchRowKeys.APPEARANCE_SPECTRUM_SENSITIVITY
+                        ),
                         valueText = "${selectedProfile.spectrum.sensitivity}%",
                         valueRange = 50f..200f,
                         steps = 15
@@ -1439,6 +1501,7 @@ internal fun LyricAppearanceSection(
             SettingsCard {
                 ArrowPreference(
                     title = stringResource(R.string.action_import_custom_sprite),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_IMPORT_SPRITE),
                     summary = stringResource(R.string.summary_import_custom_sprite),
                     onClick = { spriteImportLauncher.launch(arrayOf("image/*")) }
                 )
@@ -1472,6 +1535,9 @@ internal fun LyricAppearanceSection(
                     val currentToken = paletteValue(selectedProfile.palette, paletteKey)
                     ArrowPreference(
                         title = stringResource(paletteKey.titleRes),
+                        modifier = Modifier.searchRowAnchor(
+                            GlobalSearchRowAnchors.appearancePaletteKey(paletteKey.name)
+                        ),
                         summary = colorTokenLabel(context, currentToken),
                         startAction = {
                             ColorSwatch(
@@ -1486,6 +1552,7 @@ internal fun LyricAppearanceSection(
                 val spectrumCustom = selectedProfile.spectrum.customColor
                 ArrowPreference(
                     title = stringResource(R.string.palette_spectrum),
+                    modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_SPECTRUM_COLOR),
                     summary = if (spectrumCustom.isBlank()) {
                         stringResource(R.string.palette_spectrum_follow_preset)
                     } else {
@@ -1509,7 +1576,8 @@ internal fun LyricAppearanceSection(
                                 it.copy(backgroundStyle = if (enabled) "card" else "none")
                             }
                         },
-                        stringResource(R.string.setting_show_lyric_card)
+                        stringResource(R.string.setting_show_lyric_card),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_LYRIC_CARD)
                     )
                     if (selectedProfile.backgroundStyle == "card") {
                         AodChoiceRow(AodChoiceKind.CARD_COLOR, selectedProfile.cardColor) {
@@ -1527,6 +1595,9 @@ internal fun LyricAppearanceSection(
                                 }
                             },
                             title = stringResource(R.string.setting_card_transparency),
+                            modifier = Modifier.searchRowAnchor(
+                                SearchRowKeys.APPEARANCE_CARD_TRANSPARENCY
+                            ),
                             summary = stringResource(R.string.summary_card_transparency),
                             valueText = "${selectedProfile.cardAlpha}%",
                             valueRange = 0f..100f,
@@ -1551,6 +1622,9 @@ internal fun LyricAppearanceSection(
                             }
                         },
                         stringResource(R.string.setting_show_playback_progress),
+                        modifier = Modifier.searchRowAnchor(
+                            SearchRowKeys.APPEARANCE_PLAYBACK_PROGRESS
+                        ),
                         summary = stringResource(R.string.summary_show_playback_progress)
                     )
                 }
@@ -1568,19 +1642,23 @@ internal fun LyricAppearanceSection(
                 Column {
                     ArrowPreference(
                         title = stringResource(R.string.action_preset_pack),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_PRESET_PACK),
                         summary = stringResource(R.string.summary_action_preset_pack),
                         onClick = { showPresetDialog = true }
                     )
                     ArrowPreference(
                         title = stringResource(R.string.action_import_appearance),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_IMPORT_APPEARANCE),
                         onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) }
                     )
                     ArrowPreference(
                         title = stringResource(R.string.action_export_appearance),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_EXPORT_APPEARANCE),
                         onClick = { exportLauncher.launch("hyperglow-profile.json") }
                     )
                     ArrowPreference(
                         title = stringResource(R.string.action_reset_surfaces),
+                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_RESET_SURFACES),
                         onClick = { showResetDialog = true }
                     )
                 }
@@ -2458,6 +2536,9 @@ private fun AodChoiceRow(
     val context = LocalContext.current
     ArrowPreference(
         title = stringResource(kind.titleRes),
+        modifier = Modifier.searchRowAnchor(
+            GlobalSearchRowAnchors.appearanceChoiceKey(kind.name)
+        ),
         summary = choiceDisplayLabel(context, kind, value, customFontNames, customEffectNames),
         onClick = onClick
     )
@@ -2615,11 +2696,13 @@ private fun TextSizePreference(
     percent: Int,
     onDecrease: () -> Unit,
     onIncrease: () -> Unit,
+    modifier: Modifier = Modifier,
     minPercent: Int = 50,
     maxPercent: Int = 200
 ) {
     BasicComponent(
         title = title,
+        modifier = modifier,
         endActions = {
             IconButton(
                 onClick = onDecrease,
@@ -2918,7 +3001,7 @@ private fun SpectrumCaptureSwitch(
     }
 }
 
-private enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
+internal enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     POSITION(R.string.choice_position),
     WIDTH(R.string.choice_width),
     HEIGHT(R.string.choice_height),

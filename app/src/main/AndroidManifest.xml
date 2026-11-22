@@ -13,6 +13,12 @@
         <package android:name="com.android.systemui" />
         <package android:name="com.miui.aod" />
         <package android:name="org.lsposed.manager" />
+        <!-- Root 管理器跳转:Android 11+ 未声明的包对 getLaunchIntentForPackage 不可见,
+             会误报「未找到可用的 Root 管理器」。这里只放开本应用主动拉起的四个管理器。 -->
+        <package android:name="com.topjohnwu.magisk" />
+        <package android:name="me.weishu.kernelsu" />
+        <package android:name="com.rifsxd.ksunext" />
+        <package android:name="me.bmax.apatch" />
     </queries>
 
     <!-- enableOnBackInvokedCallback:预测性返回手势(API 33+)的显式开关。App 内导航
