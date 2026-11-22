@@ -192,8 +192,6 @@ internal fun LyricAppearanceSection(
     // 纯音乐识别显示文本编辑器(per-surface):与歌曲信息内容编辑器同式,WindowDialog + TextField。
     var activePureMusicTextEditor by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
-    // 预设包选择器:一键应用整套外观(息屏+锁屏),新装应用不必逐项手调。
-    var showPresetDialog by remember { mutableStateOf(false) }
     // 音乐频谱可选的系统回放监听：默认不启用，只有用户把数据源切到 capture 并打开开关才采集。
     var spectrumCapturePending by remember { mutableStateOf(false) }
     val spectrumProjectionLauncher = rememberLauncherForActivityResult(
@@ -1550,11 +1548,6 @@ internal fun LyricAppearanceSection(
             ) {
                 Column {
                     ArrowPreference(
-                        title = stringResource(R.string.action_preset_pack),
-                        summary = stringResource(R.string.summary_action_preset_pack),
-                        onClick = { showPresetDialog = true }
-                    )
-                    ArrowPreference(
                         title = stringResource(R.string.action_import_appearance),
                         onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) }
                     )
@@ -1751,43 +1744,6 @@ internal fun LyricAppearanceSection(
                         ).show()
                     }
                 )
-            }
-        }
-    }
-
-    // 预设包选择器:整份文档替换(外观整体切换,不做字段合并),走 saveDocument 的
-    // canonicalize 落盘;成功后与导入同路——同步运行时 + 重建编辑器状态。
-    if (showPresetDialog) {
-        WindowDialog(
-            title = stringResource(R.string.action_preset_pack),
-            summary = stringResource(R.string.summary_action_preset_pack),
-            show = true,
-            onDismissRequest = { showPresetDialog = false }
-        ) {
-            Column(
-                Modifier
-                    .heightIn(max = 440.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                CustomizationPresets.ALL.forEach { preset ->
-                    ArrowPreference(
-                        title = stringResource(preset.nameRes),
-                        summary = stringResource(preset.summaryRes),
-                        onClick = {
-                            showPresetDialog = false
-                            val applied = CustomizationPresets.apply(context, preset)
-                            if (applied) {
-                                val document = CustomizationRepository.loadDocument(context)
-                                syncCustomizationRuntime(context, document)
-                                editorState = CustomizationEditorState(
-                                    document,
-                                    editorState.selectedSurface
-                                )
-                            }
-                            CustomizationPresets.toastApplied(context, preset, applied)
-                        }
-                    )
-                }
             }
         }
     }

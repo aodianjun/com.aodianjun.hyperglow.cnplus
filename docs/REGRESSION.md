@@ -912,6 +912,8 @@ README 明确"单测通过是必要非充分条件"：凡触碰 SystemUI hook、
 
 - 配置预设的 EdgeOne 备用上传通道（`tools/preset-hub-edgeone/`，EdgeOne Pages Cloud Functions）：与 Cloudflare Worker 同协议——`GET /api/presets` 公开读 GitHub Release，`POST /api/presets` 用服务端 `GITHUB_TOKEN` 写同一个 `presets` Release；`OWNER_SALT` 必须与 Worker 一致，`owner` 哈希才能跨入口识别。App 云端设置新增「备用匿名上传地址」：上传先主后备，仅在 NETWORK / SERVER / RATE_LIMITED / NOT_FOUND 时回退；云端列表读取在 GitHub API 网络失败时也从主/备 Hub 的 `/api/presets` 拉同一份清单。EdgeOne 端分节白名单、单条 256 KiB / 清单 8 MiB / 100 条、owner 归属校验与 Worker 一致。已有 Node 冒烟（`tools/preset-hub-edgeone/test.mjs`：首次上传建 Release/资产、同设备更新、换设备 409、插件分节拒绝、列表）。部署见 `tools/preset-hub-edgeone/README.md`（EdgeOne Pages 新建项目，根目录 `tools/preset-hub-edgeone`，无构建，环境变量 `GITHUB_TOKEN` / `GITHUB_REPO` / `GITHUB_TAG` / `OWNER_SALT`）——合并后待真机冒烟：部署 EdgeOne 后填「备用匿名上传地址」，断掉主地址（或把主地址改错）再上传，应自动走 EdgeOne 且 GitHub Release 出现同一条；主/备都不可达时应报网络错误而不是静默失败。
 
+- 内置「预设包」移除与六套外观预设迁移（2026-11-22）：删除外观编辑「两个显示区域」卡里的「预设包」入口、`CustomizationPresets.kt` 与相关 16 条字符串（`action_preset_pack` / `summary_action_preset_pack` / `toast_preset_*` / `preset_*_name|summary`）；六套预设的 `CustomizationDocument` 导出为 `presets/*.json`（每套一个 config preset，payload 只含 `customization`），并合并进云端 `presets` Release 的 `presets.json`（当前共 7 条：六套精选 + 用户已有 `aodianjun默认`）。精选条目 `author=aodianjun`、无 `owner`，匿名上传通道不能覆盖；应用它们只替换整份歌词外观文档，不动行为/应用外观/插件设置。`presets/manifest.json` 保存同一份云端清单，`presets/README.md` 记录文件与发布方式。验证：`assembleDebug` 通过、全量单测通过；Worker `GET /api/presets` 返回 7 条，六套名称/分节正确。真机冒烟：外观编辑不再出现「预设包」入口；云端列表出现六套预设，卡片配色缩略与旧观感一致；应用后息屏/锁屏切换到对应外观，其它设置不变。
+
 ## 台账的使用方式
 
 - 合并触碰某领域的改动前，先查该领域最近一条记录；若改动可能使其回归，评审时要求补充新的真机证据。
