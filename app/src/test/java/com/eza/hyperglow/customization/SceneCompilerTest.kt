@@ -922,6 +922,50 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun nonDefaultCardMaterialTuningSurvivesDocumentRoundTrip() {
+        val tuning = CardMaterialTuning(
+            edgeThickness = 33,
+            refraction = 27,
+            reflectionStrength = 88,
+            lightDirection = 123,
+            blendColor = "#123456",
+            blendOpacity = 70,
+            softLight = 9f
+        )
+        val document = CustomizationDocument(
+            profiles = mapOf(
+                SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                    backgroundStyle = "card",
+                    cardMaterial = "liquid_glass",
+                    cardMaterialTuning = tuning
+                )
+            )
+        )
+        val raw = SceneCompiler.json.encodeToString(
+            CustomizationDocument.serializer(),
+            document
+        )
+        val decoded = SceneCompiler.decodeDocument(raw)!!
+        assertEquals(
+            33,
+            decoded.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+                .cardMaterialTuning.edgeThickness
+        )
+        val compiled = SceneCompiler.compile(decoded)
+            .profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        assertEquals(33, compiled.cardMaterialTuning.edgeThickness)
+        assertEquals(70, compiled.cardMaterialTuning.blendOpacity)
+        assertEquals("#123456", compiled.cardMaterialTuning.blendColor)
+
+        val canonical = CustomizationRepository.canonicalizeDocument(document)!!
+        assertEquals(
+            33,
+            canonical.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+                .cardMaterialTuning.edgeThickness
+        )
+    }
+
+    @Test
     fun cardAlphaAndColorSurviveSystemUiValidationForEachPresetToken() {
         CARD_COLOR_VALUES.forEach { token ->
             val compiled = SceneCompiler.compile(

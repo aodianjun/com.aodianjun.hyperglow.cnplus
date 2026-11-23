@@ -110,6 +110,7 @@ internal fun Modifier.appGlassMaterial(
     val tuning = LocalAppGlassTuning.current
     val blurPercent = LocalAppGlassBlurPercent.current
     val spec = remember(material, darkTheme) { appGlassSpec(material, darkTheme) }
+    val highlight = rememberAppGlassHighlight(material, darkTheme, hdr, tiltReactive, tuning)
     val tintBase = tintColor ?: LocalAppControlColor.current ?: MiuixTheme.colorScheme.surface
     val transparency = if (material == AppGlassMaterial.SOFT) {
         (1f + tuning.transparency.coerceIn(-50f, 50f) / 100f).coerceIn(0f, 1f)
@@ -121,30 +122,6 @@ internal fun Modifier.appGlassMaterial(
         appGlassBlendColor(tuning)
     }
     val blurEnabled = LocalAppBackgroundActive.current
-    val density = LocalDensity.current
-    val edgeRenderer = remember(density.density) { LyricCardMaterialRenderer(density.density) }
-    val materialToken = material.cardMaterialToken
-    val radiusPx = with(density) { cornerRadius.toPx() }
-    val lightAngle = tuning.lightDirection.coerceIn(0, 359) * PI.toFloat() / 180f
-    val basePosition = remember(lightAngle) {
-        LightPosition(
-            cos(lightAngle) * 0.5f + 0.5f,
-            sin(lightAngle) * 0.5f + 0.5f,
-            -0.5f
-        )
-    }
-    val tilt = if (material == AppGlassMaterial.LIQUID && tiltReactive) {
-        rememberTiltLight(
-            basePosition = basePosition,
-            color = Color.White,
-            intensity = 1f,
-            sensitivity = 0.16f
-        )
-    } else {
-        null
-    }
-    val lightX = tilt?.position?.x?.let { (it - 0.5f) * 2f } ?: cos(lightAngle)
-    val lightY = tilt?.position?.y?.let { (it - 0.5f) * 2f } ?: sin(lightAngle)
     return drawBackdrop(
         backdrop = backdrop,
         shape = { surfaceShape },
@@ -177,36 +154,11 @@ internal fun Modifier.appGlassMaterial(
                 )
             )
         },
-        // 边缘/折射/色散由 LyricCardMaterialRenderer 的 SDF shader 负责,miuix 只做
-        // backdrop 采样与混色;避免两套高光叠加。
-        highlight = { null }
-    ).then(
-        Modifier.drawWithContent {
-            drawIntoCanvas { canvas ->
-                edgeRenderer.draw(
-                    canvas = canvas.nativeCanvas,
-                    bounds = RectF(0f, 0f, size.width, size.height),
-                    cornerRadiusPx = radiusPx,
-                    materialToken = materialToken,
-                    hdrHighlight = hdr,
-                    lightX = lightX,
-                    lightY = lightY,
-                    tuning = tuning
-                )
-            }
-            drawContent()
-        }
+        // 边缘/折射/色散统一交给 miuix 的 Highlight/BloomStroke:同一套
+        // backdrop 合成里直接可见,不再额外叠一层 Canvas shader。
+        highlight = { highlight }
     )
 }
-
-private val AppGlassMaterial.cardMaterialToken: String
-    get() = when (this) {
-        AppGlassMaterial.GAUSSIAN -> CARD_MATERIAL_GAUSSIAN
-        AppGlassMaterial.HIGHLIGHT -> CARD_MATERIAL_HIGHLIGHT
-        AppGlassMaterial.LIQUID -> CARD_MATERIAL_LIQUID
-        AppGlassMaterial.SOFT -> CARD_MATERIAL_SOFT
-        AppGlassMaterial.NONE -> CARD_MATERIAL_GAUSSIAN
-    }
 
 /** 材质页混色:blendColor 只在 blendOpacity > 0 时叠加,不替换主题表面色。 */
 private fun appGlassBlendColor(tuning: CardMaterialTuning): Color? {
@@ -280,16 +232,59 @@ private fun rememberAppGlassHighlight(
     material: AppGlassMaterial,
     darkTheme: Boolean,
     hdr: Boolean,
-    tiltReactive: Boolean
+    tiltReactive: Boolean,
+    tuning: CardMaterialTuning
 ): Highlight? {
     val base = remember(material, darkTheme) { appGlassBaseHighlight(material, darkTheme) }
-    if (base == null) {
-        return if (hdr) HdrTopSheen else null
+    val edgeAlpha = when (material) {
+        AppGlassMaterial.GAUSSIAN -> if (hdr) 0.2f else 0f
+        AppGlassMaterial.HIGHLIGHT,
+        AppGlassMaterial.LIQUID -> tuning.reflectionStrength.coerceIn(0, 100) / 100f
+        AppGlassMaterial.SOFT -> if (!tuning.highlight) {
+            0f
+        } else {
+            (0.25f + tuning.softReflection.coerceIn(-50f, 50f) / 100f * 0.5f +
+                tuning.softReflectionLighten.coerceIn(-50f, 50f) / 100f * 0.3f +
+                tuning.softLight.coerceIn(-50f, 50f) * 0.004f).coerceIn(0f, 1f)
+        }
+        AppGlassMaterial.NONE -> 0f
     }
+    if (edgeAlpha <= 0f && !hdr) return null
+    val width = when (material) {
+        AppGlassMaterial.GAUSSIAN -> 1.dp
+        AppGlassMaterial.HIGHLIGHT,
+        AppGlassMaterial.LIQUID -> (tuning.edgeThickness.coerceIn(4, 40) / 10f).dp
+        AppGlassMaterial.SOFT ->
+            (1.5f + tuning.softEdgeThickness.coerceIn(-50f, 50f) / 20f).dp.coerceAtLeast(0.5.dp)
+        AppGlassMaterial.NONE -> 1.dp
+    }
+    val bloomBase = (base?.style as? BloomStroke) ?: SoftGlowStroke
+    val angle = tuning.lightDirection.coerceIn(0, 359) * PI.toFloat() / 180f
+    val basePosition = LightPosition(
+        cos(angle) * 0.5f + 0.5f,
+        sin(angle) * 0.5f + 0.5f,
+        -0.5f
+    )
+    val intensityScale = tuning.directionalLightIntensity.coerceIn(0.1f, 2f)
+    val bloom = bloomBase.copy(
+        color = bloomBase.color.copy(
+            alpha = (bloomBase.color.alpha * (0.6f + tuning.refraction / 100f))
+                .coerceIn(0f, 1f)
+        ),
+        innerBlurRadius = (1.5f + tuning.refraction / 100f * 4f).dp,
+        primaryLight = bloomBase.primaryLight.copy(
+            position = basePosition,
+            intensity = bloomBase.primaryLight.intensity * intensityScale
+        ),
+        secondaryLight = bloomBase.secondaryLight.copy(
+            intensity = bloomBase.secondaryLight.intensity *
+                (0.8f + tuning.darker / 100f * 0.8f)
+        )
+    )
+    val tuned = Highlight(width = width, alpha = edgeAlpha, style = bloom)
     if (material != AppGlassMaterial.LIQUID || !tiltReactive) {
-        return base.withHdrHighlight(hdr)
+        return tuned.withHdrHighlight(hdr)
     }
-    val bloom = base.style as? BloomStroke ?: return base.withHdrHighlight(hdr)
     val primary = rememberTiltLight(
         basePosition = bloom.primaryLight.position,
         color = bloom.primaryLight.color,
@@ -302,7 +297,7 @@ private fun rememberAppGlassHighlight(
         intensity = bloom.secondaryLight.intensity,
         sensitivity = 0.12f
     )
-    return base.copy(
+    return tuned.copy(
         style = bloom.copy(primaryLight = primary, secondaryLight = secondary)
     ).withHdrHighlight(hdr)
 }

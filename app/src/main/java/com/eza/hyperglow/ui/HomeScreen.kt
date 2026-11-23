@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,6 +40,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -468,28 +470,56 @@ internal fun HomeScreen(
             val glassActive = isAppGlassMaterialActive()
             val navColor = if (glassActive) Color.Transparent else appNavBarColor()
             if (floatingNavBar) {
-                FloatingNavigationBar(
-                    modifier = if (glassActive) {
-                        Modifier.appGlassMaterial(
-                            RoundedCornerShape(50.dp),
-                            cornerRadius = 50.dp,
-                            tiltReactive = true
-                        )
-                    } else {
-                        Modifier
-                    },
-                    color = navColor
-                ) {
-                    tabs.forEach { entry ->
-                        FloatingNavigationBarItem(
-                            selected = pagerState.currentPage == entry.tab.ordinal,
-                            onClick = {
-                                scope.launch { pagerState.animateScrollToPage(entry.tab.ordinal) }
-                            },
-                            icon = entry.icon,
-                            label = stringResource(entry.labelRes),
-                            colors = itemColors
-                        )
+                if (glassActive) {
+                    // 悬浮底栏的玻璃只包住真正的胶囊:自定义一圈 Row 作玻璃底,
+                    // 让 FloatingNavigationBar 自身透明,避免整条 bottomBar 被涂成一块。
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(bottom = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .appGlassMaterial(
+                                    RoundedCornerShape(50),
+                                    cornerRadius = 50.dp,
+                                    tiltReactive = true
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            tabs.forEach { entry ->
+                                FloatingNavigationBarItem(
+                                    selected = pagerState.currentPage == entry.tab.ordinal,
+                                    onClick = {
+                                        scope.launch {
+                                            pagerState.animateScrollToPage(entry.tab.ordinal)
+                                        }
+                                    },
+                                    icon = entry.icon,
+                                    label = stringResource(entry.labelRes),
+                                    colors = itemColors
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    FloatingNavigationBar(color = navColor) {
+                        tabs.forEach { entry ->
+                            FloatingNavigationBarItem(
+                                selected = pagerState.currentPage == entry.tab.ordinal,
+                                onClick = {
+                                    scope.launch { pagerState.animateScrollToPage(entry.tab.ordinal) }
+                                },
+                                icon = entry.icon,
+                                label = stringResource(entry.labelRes),
+                                colors = itemColors
+                            )
+                        }
                     }
                 }
             } else {
