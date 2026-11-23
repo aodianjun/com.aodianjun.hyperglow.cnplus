@@ -571,6 +571,7 @@ internal fun HomeScreen(
             Column(Modifier.fillMaxSize()) {
                 if (isSettingsPage) {
                     // 设置页顶部分段选择器:息屏设置 / 锁屏设置 / 其他设置(固定在列表上方)。
+                    val tabGlass = isAppGlassMaterialActive()
                     TabRow(
                         tabs = listOf(
                             stringResource(R.string.settings_section_aod),
@@ -587,21 +588,38 @@ internal fun HomeScreen(
                             contentColor = appControlContentColor(
                                 MiuixTheme.colorScheme.onSurfaceVariantSummary
                             ),
-                            selectedBackgroundColor = appGlassSurface(
-                                LocalAppControlColor.current
-                                    ?: MiuixTheme.colorScheme.surfaceContainer,
-                                APP_GLASS_NAV_ALPHA
-                            ),
+                            selectedBackgroundColor = if (tabGlass) {
+                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f)
+                            } else {
+                                appGlassSurface(
+                                    LocalAppControlColor.current
+                                        ?: MiuixTheme.colorScheme.surfaceContainer,
+                                    APP_GLASS_NAV_ALPHA
+                                )
+                            },
                             selectedContentColor = appControlContentColor(
                                 MiuixTheme.colorScheme.onBackground
                             )
                         ),
-                        modifier = Modifier.padding(
-                            top = innerPadding.calculateTopPadding() + 8.dp,
-                            start = 12.dp,
-                            end = 12.dp,
-                            bottom = 4.dp
-                        )
+                        modifier = Modifier
+                            .padding(
+                                top = innerPadding.calculateTopPadding() + 8.dp,
+                                start = 12.dp,
+                                end = 12.dp,
+                                bottom = 4.dp
+                            )
+                            .then(
+                                if (tabGlass) {
+                                    Modifier
+                                        .clip(RoundedCornerShape(24.dp))
+                                        .appGlassMaterial(
+                                            RoundedCornerShape(24.dp),
+                                            cornerRadius = 24.dp
+                                        )
+                                } else {
+                                    Modifier
+                                }
+                            )
                     )
                 }
                 if (appearanceSurface != null) {
