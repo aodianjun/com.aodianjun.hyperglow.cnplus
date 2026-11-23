@@ -79,6 +79,8 @@ import com.eza.hyperglow.customization.DecorSpriteStore
 import com.eza.hyperglow.customization.LyricTimeOffset
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
+import com.eza.hyperglow.customization.INTERLUDE_DOTS_STYLES
+import com.eza.hyperglow.customization.normalizeInterludeDotsStyle
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIORS
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
 import com.eza.hyperglow.customization.normalizeNoLyricsBehavior
@@ -669,6 +671,26 @@ internal fun LyricAppearanceSection(
                     modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_INTERLUDE_COUNTDOWN),
                     summary = stringResource(R.string.summary_interlude_countdown)
                 )
+                if (selectedProfile.interludeCountdown) {
+                    // 圆点样式(per-surface,参考 HyperLyric PR #124):经典逐点点亮 / AMLL
+                    // 呼吸缩放+错峰点亮+两段退场。默认经典,升级零观感变化。
+                    AodChoiceRow(
+                        AodChoiceKind.INTERLUDE_DOTS_STYLE,
+                        selectedProfile.interludeDotsStyle
+                    ) {
+                        openChoice(
+                            AodChoiceKind.INTERLUDE_DOTS_STYLE,
+                            INTERLUDE_DOTS_STYLES,
+                            selectedProfile.interludeDotsStyle
+                        ) { value ->
+                            updateSelected {
+                                it.copy(
+                                    interludeDotsStyle = normalizeInterludeDotsStyle(value)
+                                )
+                            }
+                        }
+                    }
+                }
                 // 无歌词/纯音乐歌词行为(per-surface):整首只有「纯音乐请欣赏」标记的纯音乐曲目,
                 // 该标记行的呈现方式——保持原标记 / 替换为歌曲信息 / 交还系统默认。息屏与锁屏各自独立。
                 AodChoiceRow(AodChoiceKind.NO_LYRICS_BEHAVIOR, selectedProfile.noLyricsBehavior) {
@@ -2881,6 +2903,11 @@ private fun choiceDisplayLabel(
     AodChoiceKind.LONG_LINES -> context.getString(
         if (value == "Clip") R.string.option_clip else R.string.option_wrap
     )
+    // 倒计时圆点样式(per-surface):仅「长间奏倒计时圆点」开启时展示。
+    AodChoiceKind.INTERLUDE_DOTS_STYLE -> context.getString(when (value) {
+        "amll" -> R.string.option_interlude_dots_amll
+        else -> R.string.option_interlude_dots_classic
+    })
     // 无歌词/纯音乐歌词行为(per-surface):整首只有「纯音乐请欣赏」标记时的呈现方式。
     AodChoiceKind.NO_LYRICS_BEHAVIOR -> context.getString(when (value) {
         "music_info" -> R.string.option_no_lyrics_behavior_music_info
@@ -2966,6 +2993,7 @@ internal enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     SECOND_LINE_ALIGNMENT(R.string.choice_second_line_alignment),
     SECONDARY_TEXT(R.string.choice_secondary_text),
     LONG_LINES(R.string.choice_long_lines),
+    INTERLUDE_DOTS_STYLE(R.string.setting_interlude_dots_style),
     NO_LYRICS_BEHAVIOR(R.string.setting_no_lyrics_behavior),
     TAIL_TIMEOUT_BEHAVIOR(R.string.setting_tail_timeout_behavior),
     LYRIC_LINES(R.string.choice_lyric_lines),

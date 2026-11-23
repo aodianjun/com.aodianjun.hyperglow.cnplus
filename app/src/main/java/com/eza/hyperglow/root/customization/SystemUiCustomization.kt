@@ -83,6 +83,8 @@ internal object SystemUiCustomizationValidator {
                 // 长间奏倒计时圆点:与 linkSurfaces 的其它歌词呈现项同批继承息屏值
                 // (开关只决定「本面画不画圆点」,不牵动快照内容)。
                 interludeCountdown = rawAod.interludeCountdown,
+                // 倒计时圆点样式:同为歌词呈现项,linkSurfaces 下继承息屏值。
+                interludeDotsStyle = rawAod.interludeDotsStyle,
                 // 无歌词/纯音乐歌词行为:同为歌词呈现项,linkSurfaces 下继承息屏值。
                 noLyricsBehavior = rawAod.noLyricsBehavior,
                 // 纯音乐识别开关/显示文本:同为歌词呈现项,linkSurfaces 下继承息屏值。
@@ -220,6 +222,11 @@ internal object SystemUiCustomizationValidator {
             noLyricsBehavior = com.eza.hyperglow.customization.normalizeNoLyricsBehavior(
                 profile.noLyricsBehavior
             ),
+            // 与 SceneCompiler.compileProfile 同源归一:词表外回落 classic,避免 hash 校验拒收。
+            interludeDotsStyle =
+                com.eza.hyperglow.customization.normalizeInterludeDotsStyle(
+                    profile.interludeDotsStyle
+                ),
             // 与 SceneCompiler.compileProfile 同源归一(去首尾空白、截断;空 = 默认文案,
             // 渲染层回落 PURE_MUSIC_TEXT_DEFAULT)。开关为纯布尔透传。
             pureMusicDisplay = profile.pureMusicDisplay,

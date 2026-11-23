@@ -1,5 +1,6 @@
 package com.eza.hyperglow.root.aod
 
+import com.eza.hyperglow.customization.INTERLUDE_DOTS_STYLE_CLASSIC
 import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
 
 internal data class AodCanvasLayoutGroup(
@@ -158,6 +159,8 @@ internal data class AodCanvasContent(
      */
     val interludeDotsStartMs: Long = 0L,
     val interludeDotsEndMs: Long = 0L,
+    /** 本面倒计时圆点样式(classic/amll);窗口为 0/0 时不参与绘制。 */
+    val interludeDotsStyle: String = INTERLUDE_DOTS_STYLE_CLASSIC,
     /** 歌词源是否正在播放：合成频谱只认“音乐播放”，暂停/加载边不跳动。 */
     val playbackActive: Boolean = false,
     /** 本面音乐频谱条配置；非 enabled 时不预留高度、不绘制。 */

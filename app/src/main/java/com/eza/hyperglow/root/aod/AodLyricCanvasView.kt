@@ -21,6 +21,7 @@ import com.eza.hyperglow.aod.SpectrumContract
 import com.eza.hyperglow.aod.SpectrumFrame
 import com.eza.hyperglow.aod.resampleSpectrumBands
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
+import com.eza.hyperglow.customization.INTERLUDE_DOTS_STYLE_AMLL
 import com.eza.hyperglow.customization.MAX_SPECTRUM_BARS
 import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
 import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
@@ -461,6 +462,10 @@ internal class AodLyricCanvasView(
      * 数学在 [InterludeDots] 纯函数里,本类只做 android.graphics 落点,与预览同源。
      */
     private val interludeDotsRenderer = InterludeDotsRenderer()
+    /** AMLL 样式圆点适配层(PR #124);时间线按 interlude 窗口缓存,绘制期不重建。 */
+    private val amllInterludeDotsRenderer = AmllInterludeDotsRenderer()
+    private var amllTimelineWindow: LongRange? = null
+    private var amllTimeline: AmllInterludeTimeline? = null
     private var currentRenderStyle = captureRenderStyle()
     private var contentBoundsChangedListener: (() -> Unit)? = null
     private var sceneActive = false
@@ -2222,15 +2227,30 @@ internal class AodLyricCanvasView(
             content.interludeDotsEndMs
         ) ?: return null
         val positionMs = projectedPosition()
-        if (!interludeDotsActive(window, positionMs)) return null
-        val progress = interludeDotsProgress(positionMs, window)
-        // 进度走完(圆点已全部渐隐)即不再占用行槽位:与并发行加入淡入同式,动画自带终止条件。
-        if (progress >= 1f) return null
         val textSize = originalPaint.textSize
         if (textSize <= 0f) return null
         val alignment = viewAlignment(
             resolveAlignmentMode(content.alignmentMode, content.alignedRight)
         )
+        if (content.interludeDotsStyle == INTERLUDE_DOTS_STYLE_AMLL) {
+            // isActiveAt 只表示“未结束”，起点之前也必须让位给原歌词行。
+            if (positionMs < window.first) return null
+            val timeline = amllTimelineFor(window)
+            if (!timeline.isActiveAt(positionMs)) return null
+            return InterludeDotsFrame(
+                progress = 0f,
+                startX = alignedStart(
+                    textWidth = AmllInterludeTimeline.CONTENT_WIDTH_EM * textSize,
+                    lineAlignment = alignment
+                ),
+                textSize = textSize,
+                amllSnapshot = timeline.snapshotAt(positionMs)
+            )
+        }
+        if (!interludeDotsActive(window, positionMs)) return null
+        val progress = interludeDotsProgress(positionMs, window)
+        // 进度走完(圆点已全部渐隐)即不再占用行槽位:与并发行加入淡入同式,动画自带终止条件。
+        if (progress >= 1f) return null
         return InterludeDotsFrame(
             progress = progress,
             startX = alignedStart(
@@ -2239,6 +2259,30 @@ internal class AodLyricCanvasView(
             ),
             textSize = textSize
         )
+    }
+
+    /** AMLL 时间线只依赖窗口两端,按窗口缓存;换间奏/换歌自动重建。 */
+    private fun amllTimelineFor(window: LongRange): AmllInterludeTimeline {
+        val cached = amllTimeline
+        if (cached != null && amllTimelineWindow == window) return cached
+        return AmllInterludeTimeline.build(window.first, window.last).also {
+            amllTimelineWindow = window
+            amllTimeline = it
+        }
+    }
+
+    /** 帧循环是否需要驱动当前圆点样式:classic 按进度,AMLL 按时间线活性。 */
+    private fun interludeDotsAnimatingForStyle(
+        window: LongRange?,
+        positionMs: Long,
+        speed: Float
+    ): Boolean {
+        if (window == null || speed <= 0f) return false
+        if (content.interludeDotsStyle == INTERLUDE_DOTS_STYLE_AMLL) {
+            if (positionMs < window.first) return false
+            return amllTimelineFor(window).isActiveAt(positionMs)
+        }
+        return interludeDotsAnimating(window, positionMs, speed)
     }
 
     /**
@@ -2250,16 +2294,29 @@ internal class AodLyricCanvasView(
         val frame = interludeDotsFrame() ?: return false
         val metrics = originalPaint.fontMetrics
         val centerY = baseline + (metrics.descent + metrics.ascent) / 2f
-        interludeDotsRenderer.draw(
-            canvas = canvas,
-            textSize = frame.textSize,
-            progress = frame.progress,
-            startX = frame.startX,
-            centerY = centerY,
-            // 底色 = 未唱色(参考实现的「白 @128」作用于底色),高亮 = 已唱色。
-            backgroundColorArgb = resolvedPalette.unsungText,
-            highlightColorArgb = resolvedPalette.sungText
-        )
+        val amllSnapshot = frame.amllSnapshot
+        if (amllSnapshot != null) {
+            // AMLL 单色:取已唱色,圆点不透明度已含容器/错峰/退场系数。
+            amllInterludeDotsRenderer.draw(
+                canvas = canvas,
+                textSize = frame.textSize,
+                snapshot = amllSnapshot,
+                startX = frame.startX,
+                centerY = centerY,
+                colorArgb = resolvedPalette.sungText
+            )
+        } else {
+            interludeDotsRenderer.draw(
+                canvas = canvas,
+                textSize = frame.textSize,
+                progress = frame.progress,
+                startX = frame.startX,
+                centerY = centerY,
+                // 底色 = 未唱色(参考实现的「白 @128」作用于底色),高亮 = 已唱色。
+                backgroundColorArgb = resolvedPalette.unsungText,
+                highlightColorArgb = resolvedPalette.sungText
+            )
+        }
         return true
     }
 
@@ -2267,7 +2324,8 @@ internal class AodLyricCanvasView(
     private data class InterludeDotsFrame(
         val progress: Float,
         val startX: Float,
-        val textSize: Float
+        val textSize: Float,
+        val amllSnapshot: AmllDotsSnapshot? = null
     )
 
     private fun drawSecondaryRowsStatic(
@@ -4799,7 +4857,7 @@ internal class AodLyricCanvasView(
     private fun nonSpectrumAnimationActive(): Boolean =
         timingEffectActive() || exitSnapshot != null || duetExitSnapshot != null ||
             artworkSpinActive() || handoffActive || duetJoinStartedAt != 0L ||
-            interludeDotsAnimating(
+            interludeDotsAnimatingForStyle(
                 window = interludeDotsWindowOf(
                     content.interludeDotsStartMs,
                     content.interludeDotsEndMs
@@ -4819,7 +4877,7 @@ internal class AodLyricCanvasView(
         // 并发行自己的换行过渡(挂钟驱动)同样要帧循环才走得完,与主行过渡同待遇。
         timedOrTransitionActive = timingEffectActive() || exitSnapshot != null ||
             duetExitSnapshot != null || artworkSpinActive() || spectrumDrawingActive() ||
-            interludeDotsAnimating(
+            interludeDotsAnimatingForStyle(
                 window = interludeDotsWindowOf(
                     content.interludeDotsStartMs,
                     content.interludeDotsEndMs

@@ -1482,6 +1482,45 @@ class SceneCompilerTest {
     }
 
     @Test
+    fun interludeDotsStyleCompilesNormalizesAndSurvivesRoundTrip() {
+        // 圆点样式:amll 需穿过 compile/SystemUI 校验/canonicalize;未知值回落 classic。
+        val configured = CustomizationDocument(
+            linkSurfaces = false,
+            profiles = mapOf(
+                SceneCompiler.SURFACE_AOD to SurfaceProfile(
+                    interludeDotsStyle = INTERLUDE_DOTS_STYLE_AMLL
+                ),
+                SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                    interludeDotsStyle = "bogus"
+                )
+            )
+        )
+        val compiled = SceneCompiler.compile(configured)
+        assertEquals(
+            INTERLUDE_DOTS_STYLE_AMLL,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_AOD).interludeDotsStyle
+        )
+        assertEquals(
+            INTERLUDE_DOTS_STYLE_CLASSIC,
+            compiled.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeDotsStyle
+        )
+        val validated = SystemUiCustomizationValidator.validate(compiled)!!
+        assertEquals(
+            INTERLUDE_DOTS_STYLE_AMLL,
+            validated.profiles.getValue(SceneCompiler.SURFACE_AOD).interludeDotsStyle
+        )
+        assertEquals(
+            INTERLUDE_DOTS_STYLE_CLASSIC,
+            validated.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).interludeDotsStyle
+        )
+        assertEquals(
+            INTERLUDE_DOTS_STYLE_AMLL,
+            CustomizationRepository.canonicalizeDocument(configured)!!
+                .profiles.getValue(SceneCompiler.SURFACE_AOD).interludeDotsStyle
+        )
+    }
+
+    @Test
     fun tailTimeoutCompilesNormalizesAndSurvivesCanonicalizeRoundTrip() {
         // 尾奏超时行为/延迟必须穿过 compile、SystemUI 二次校验与仓库 canonicalize 往返:
         // 非默认值漏字段会被逐字段重建映射静默弹回默认(KEEP / 3 秒)。

@@ -10,11 +10,28 @@ import com.eza.hyperglow.root.aod.secondaryReadingTextSizeSp
 import com.eza.hyperglow.root.aod.secondaryTranslationTextSizeSp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CustomizationPreviewTest {
+    @Test
+    fun previewAmllInterludeSnapshotIsBoundedToTheWindow() {
+        // 起点前必须让位给原歌词行;起点那刻占槽但入场淡入尚不可见;窗口结束即释放。
+        val window = 1_000L..9_000L
+        assertNull(previewAmllInterludeSnapshot(window, 0L))
+        assertNull(previewAmllInterludeSnapshot(window, 999L))
+        val atStart = previewAmllInterludeSnapshot(window, 1_000L)
+        assertNotNull(atStart)
+        assertFalse("入场淡入段不画墨迹但仍占槽位", atStart!!.isVisible)
+        val mid = previewAmllInterludeSnapshot(window, 5_000L)
+        assertNotNull(mid)
+        assertTrue(mid!!.isVisible)
+        assertNull(previewAmllInterludeSnapshot(window, 9_000L))
+        assertNull(previewAmllInterludeSnapshot(null, 5_000L))
+    }
+
     @Test
     fun previewPlacementUsesNotificationAndFodReserves() {
         val profile = SceneCompiler.compile(SceneCompiler.safeDefaultDocument())

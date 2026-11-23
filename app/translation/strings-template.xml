@@ -527,6 +527,10 @@
 <string name="summary_duet_concurrent">When another sung line overlaps the current line by at least one second, show both lines together, each with its own karaoke timing. Lockscreen and always-on display switch independently.</string>
     <string name="setting_interlude_countdown">Countdown dots for long interludes</string>
     <string name="summary_interlude_countdown">When the gap between the current line and the next one lasts at least 4 seconds, show three dots in the lyric row that light up one by one and fade out as the next line approaches. Lockscreen and always-on display switch independently.</string>
+    <string name="setting_interlude_dots_style">Dot style</string>
+    <string name="summary_interlude_dots_style">Classic lights the dots one by one and fades them out. AMLL adds breathing scale, staggered lighting and a two-phase exit.</string>
+    <string name="option_interlude_dots_classic">Classic</string>
+    <string name="option_interlude_dots_amll">AMLL style</string>
     <string name="setting_no_lyrics_behavior">No lyrics / pure music behavior</string>
     <string name="option_no_lyrics_behavior_keep">Keep the marker</string>
     <string name="option_no_lyrics_behavior_music_info">Replace with song info</string>

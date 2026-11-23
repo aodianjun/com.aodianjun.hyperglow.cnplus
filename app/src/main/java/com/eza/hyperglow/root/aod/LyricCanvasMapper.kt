@@ -4,6 +4,7 @@ import com.eza.hyperglow.aod.tailTimeoutActive
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
+import com.eza.hyperglow.customization.INTERLUDE_DOTS_STYLE_CLASSIC
 import com.eza.hyperglow.customization.METADATA_PARTS_DEFAULT
 import com.eza.hyperglow.customization.METADATA_SEPARATORS_DEFAULT
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
@@ -219,6 +220,7 @@ internal fun LyricSnapshot.toAodCanvasContent(
     playbackPaused = pauseRetentionEligible,
     interludeDotsStartMs = interludeDots?.first ?: 0L,
     interludeDotsEndMs = interludeDots?.last ?: 0L,
+    interludeDotsStyle = profile?.interludeDotsStyle ?: INTERLUDE_DOTS_STYLE_CLASSIC,
     // 并发行门控(实机与预览同源,见 duetLineCarried):同尺寸并发行只认本面对唱开关;
     // 和声行两段门控——候选携带(对唱开关 ∨ 勾了和声档)且未被多选里的「和声」取消勾选。
     duetLine = if (duet && duetLineCarried(
@@ -314,7 +316,8 @@ private fun AodCanvasContent.blankTailEnhancements(): AodCanvasContent = copy(
     lineLevelSync = false,
     duetLine = null,
     interludeDotsStartMs = 0L,
-    interludeDotsEndMs = 0L
+    interludeDotsEndMs = 0L,
+    interludeDotsStyle = INTERLUDE_DOTS_STYLE_CLASSIC
 )
 
 /** 尾奏/无歌词 RESTORE_DEFAULT:再清空歌曲信息与封面,交还系统默认。 */

@@ -535,6 +535,10 @@
 <string name="summary_duet_concurrent">另一行唱词与主行播放窗口重叠达到 1 秒时,两行同时显示、各画各的逐字扫光。锁屏与息屏各自独立开关。</string>
     <string name="setting_interlude_countdown">长间奏显示倒计时圆点</string>
     <string name="summary_interlude_countdown">当前行与下一行之间的空隙达到 4 秒时,歌词行位置改画三个圆点,随下一行临近逐点点亮再渐隐。锁屏与息屏各自独立开关。</string>
+    <string name="setting_interlude_dots_style">圆点样式</string>
+    <string name="summary_interlude_dots_style">经典：逐点点亮、末段渐隐；AMLL：呼吸缩放、三圆点错峰点亮、两段式退场。</string>
+    <string name="option_interlude_dots_classic">经典</string>
+    <string name="option_interlude_dots_amll">AMLL 样式</string>
     <string name="setting_no_lyrics_behavior">无歌词/纯音乐歌词行为</string>
     <string name="option_no_lyrics_behavior_keep">保持原标记</string>
     <string name="option_no_lyrics_behavior_music_info">替换为歌曲信息</string>

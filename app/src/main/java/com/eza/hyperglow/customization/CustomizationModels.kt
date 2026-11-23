@@ -177,6 +177,13 @@ data class SurfaceProfile(
      */
     val interludeCountdown: Boolean = true,
     /**
+     * 倒计时圆点样式(仅 [interludeCountdown] 开启时生效,参考 HyperLyric PR #124):
+     * [INTERLUDE_DOTS_STYLE_CLASSIC] 为历史逐点点亮样式;
+     * [INTERLUDE_DOTS_STYLE_AMLL] 为 AMLL 呼吸缩放/三圆点错峰点亮/两段式退场。
+     * per-surface 设置,默认 classic(升级零观感变化)。
+     */
+    val interludeDotsStyle: String = INTERLUDE_DOTS_STYLE_CLASSIC,
+    /**
      * 无歌词/纯音乐歌词行为(参考 HyperLyric 同名能力):整首只有「纯音乐请欣赏」标记的
      * 纯音乐曲目,该标记行的呈现方式——[NO_LYRICS_BEHAVIOR_KEEP] 保持原标记(默认)、
      * [NO_LYRICS_BEHAVIOR_MUSIC_INFO] 替换为歌曲信息、[NO_LYRICS_BEHAVIOR_RESTORE_DEFAULT]
@@ -424,6 +431,8 @@ data class CompiledSurfaceProfile(
     val duetConcurrent: Boolean = true,
     /** 长间奏倒计时圆点开关,见 [SurfaceProfile.interludeCountdown];每个 surface 独立生效。 */
     val interludeCountdown: Boolean = true,
+    /** 倒计时圆点样式,见 [SurfaceProfile.interludeDotsStyle];每个 surface 独立生效。 */
+    val interludeDotsStyle: String = INTERLUDE_DOTS_STYLE_CLASSIC,
     /** 无歌词/纯音乐歌词行为,见 [SurfaceProfile.noLyricsBehavior];每个 surface 独立生效。 */
     val noLyricsBehavior: String = NO_LYRICS_BEHAVIOR_KEEP,
     /** 纯音乐识别开关,见 [SurfaceProfile.pureMusicDisplay];每个 surface 独立生效。 */
@@ -491,6 +500,25 @@ val NO_LYRICS_BEHAVIORS = listOf(
 /** 无歌词/纯音乐歌词行为归一:词表外(旧配置/损坏值)一律回落 [NO_LYRICS_BEHAVIOR_KEEP]。 */
 internal fun normalizeNoLyricsBehavior(value: String): String =
     value.takeIf { it in NO_LYRICS_BEHAVIORS } ?: NO_LYRICS_BEHAVIOR_KEEP
+
+/**
+ * 长间奏倒计时圆点样式(参考 HyperLyric PR #124):
+ * - [INTERLUDE_DOTS_STYLE_CLASSIC]:历史逐点点亮/末段渐隐(默认,升级零变化);
+ * - [INTERLUDE_DOTS_STYLE_AMLL]:AMLL 样式——呼吸缩放、三圆点错峰点亮、两段式退场。
+ * 每个 surface 独立设置。
+ */
+const val INTERLUDE_DOTS_STYLE_CLASSIC = "classic"
+const val INTERLUDE_DOTS_STYLE_AMLL = "amll"
+
+/** 倒计时圆点样式可选集(顺序即设置页选项顺序)。 */
+val INTERLUDE_DOTS_STYLES = listOf(
+    INTERLUDE_DOTS_STYLE_CLASSIC,
+    INTERLUDE_DOTS_STYLE_AMLL
+)
+
+/** 倒计时圆点样式归一:词表外(旧配置/损坏值)回落 classic。 */
+internal fun normalizeInterludeDotsStyle(value: String): String =
+    value.takeIf { it in INTERLUDE_DOTS_STYLES } ?: INTERLUDE_DOTS_STYLE_CLASSIC
 
 /**
  * 纯音乐显示文本默认值:纯音乐曲目在歌词位置的占位文案(参考网易云音乐

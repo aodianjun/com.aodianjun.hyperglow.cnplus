@@ -316,6 +316,7 @@ object CustomizationRepository {
         duetAlignment = duetAlignment,
         duetConcurrent = duetConcurrent,
         interludeCountdown = interludeCountdown,
+        interludeDotsStyle = interludeDotsStyle,
         noLyricsBehavior = noLyricsBehavior,
         pureMusicDisplay = pureMusicDisplay,
         pureMusicText = pureMusicText,

@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eza.hyperglow.R
 import com.eza.hyperglow.customization.ARTWORK_SHAPE_CIRCLE
+import com.eza.hyperglow.customization.INTERLUDE_DOTS_STYLE_AMLL
 import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.SPECTRUM_BASE_HEIGHT_DP
 import com.eza.hyperglow.customization.artworkDisplayConfig
@@ -177,6 +178,8 @@ import com.eza.hyperglow.root.aod.secondLineAuxRows
 import com.eza.hyperglow.root.aod.secondLinePresentation
 import com.eza.hyperglow.root.aod.shouldStartDuetRowTransition
 import com.eza.hyperglow.root.aod.interludeDotExitAlpha
+import com.eza.hyperglow.root.aod.AmllDotsSnapshot
+import com.eza.hyperglow.root.aod.AmllInterludeTimeline
 import com.eza.hyperglow.root.aod.interludeDotLightingProgress
 import com.eza.hyperglow.root.aod.interludeDotRadius
 import com.eza.hyperglow.root.aod.interludeDotSmoothStep
@@ -1210,10 +1213,26 @@ private fun LyricPreviewSurface(
                                 null
                             },
                             duetKey = duetKey,
-                            interludeProgress = previewInterludeDotsProgress(
-                                window = interludeDots,
-                                positionMs = snapshot.positionMs
-                            ),
+                            interludeProgress = if (
+                                profile.interludeDotsStyle == INTERLUDE_DOTS_STYLE_AMLL
+                            ) {
+                                null
+                            } else {
+                                previewInterludeDotsProgress(
+                                    window = interludeDots,
+                                    positionMs = snapshot.positionMs
+                                )
+                            },
+                            interludeAmllSnapshot = if (
+                                profile.interludeDotsStyle == INTERLUDE_DOTS_STYLE_AMLL
+                            ) {
+                                previewAmllInterludeSnapshot(
+                                    window = interludeDots,
+                                    positionMs = snapshot.positionMs
+                                )
+                            } else {
+                                null
+                            },
                             interludeAlign = textAlign
                         ),
                         lineTransition = resolveLineTransition(profile.lineTransition, "Fade up"),
@@ -1725,6 +1744,20 @@ internal fun previewInterludeDotsProgress(window: LongRange?, positionMs: Long):
     if (window == null || !interludeDotsActive(window, positionMs)) return null
     val progress = interludeDotsProgress(positionMs, window)
     return progress.takeIf { it < 1f }
+}
+
+/**
+ * AMLL 样式圆点的预览帧(纯函数,JVM 可测):与实机 AodLyricCanvasView 使用同一
+ * [AmllInterludeTimeline];活动期内返回快照(入场淡入段可能 isVisible=false,
+ * 但槽位仍被占用),窗口外/已结束返回 null。
+ */
+internal fun previewAmllInterludeSnapshot(
+    window: LongRange?,
+    positionMs: Long
+): AmllDotsSnapshot? {
+    if (window == null || positionMs < window.first) return null
+    val timeline = AmllInterludeTimeline.build(window.first, window.last)
+    return if (timeline.isActiveAt(positionMs)) timeline.snapshotAt(positionMs) else null
 }
 
 /**
@@ -2337,6 +2370,12 @@ private class PreviewRowBlock(
      */
     val interludeProgress: Float? = null,
     /**
+     * AMLL 样式圆点的预览快照;非空时主行槽位改画 AMLL 圆点(与实机
+     * [com.eza.hyperglow.root.aod.AodLyricCanvasView] 同一时间线)。与 [interludeProgress]
+     * 互斥:样式为 classic 时走前者,amll 时走本字段。
+     */
+    val interludeAmllSnapshot: AmllDotsSnapshot? = null,
+    /**
      * 圆点簇的对齐(跟随本面主对齐解析,参考实现「对齐跟随行对齐」):与 [rows]/[nextLine]
      * 的 [PreviewBlockRow.align] 同一来源(主行对齐解析结果),圆点不吃行级独立对齐
      * (它占的是主行槽位)。
@@ -2893,7 +2932,17 @@ private fun PreviewRowBlockLayer(
         ) {
             // 长间奏倒计时圆点生效时主行槽位改画圆点(与实机 drawInterludeDots 同源):
             // 圆点占同一槽位(同高度 Box),行块高度不变,卡片不呼吸。
-            if (block.interludeProgress != null) {
+            val amllDots = block.interludeAmllSnapshot
+            if (amllDots != null) {
+                PreviewAmllInterludeDots(
+                    snapshot = amllDots,
+                    textSizePx = block.main.paint.textSize,
+                    blockHeightPx = block.main.blockHeight,
+                    align = block.interludeAlign,
+                    sungColor = color,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else if (block.interludeProgress != null) {
                 PreviewInterludeDots(
                     progress = block.interludeProgress,
                     textSizePx = block.main.paint.textSize,
@@ -3195,6 +3244,50 @@ private fun PreviewInterludeDots(
                 )
             }
             cursorX += radius * 2f + gap
+        }
+    }
+}
+
+/**
+ * AMLL 样式倒计时圆点(预览):与实机 [com.eza.hyperglow.root.aod.AmllInterludeDotsRenderer]
+ * 同源。单色取已唱色,圆点 alpha = 快照不透明度 × 颜色自带 alpha。
+ */
+@Composable
+private fun PreviewAmllInterludeDots(
+    snapshot: AmllDotsSnapshot,
+    textSizePx: Float,
+    blockHeightPx: Float,
+    align: TextAlign,
+    sungColor: ComposeColor,
+    modifier: Modifier = Modifier
+) {
+    val alignment = when (align) {
+        TextAlign.Center -> "center"
+        TextAlign.End -> "end"
+        else -> "start"
+    }
+    val density = LocalDensity.current
+    Canvas(modifier.height(with(density) { blockHeightPx.toDp() })) {
+        if (textSizePx <= 0f || size.width <= 0f || !snapshot.isVisible) return@Canvas
+        val startX = interludeDotsStartX(
+            widthPx = AmllInterludeTimeline.CONTENT_WIDTH_EM * textSizePx,
+            frameWidthPx = size.width,
+            padLeftPx = 0f,
+            padRightPx = 0f,
+            alignment = alignment
+        )
+        val centerY = size.height / 2f
+        repeat(AmllInterludeTimeline.DOT_COUNT) { index ->
+            val opacity = snapshot.dotOpacity(index)
+            if (opacity <= 0f) return@repeat
+            val centerX = startX +
+                AmllInterludeTimeline.dotCenterXEm(index, snapshot.scale) * textSizePx
+            val radius = AmllInterludeTimeline.dotRadiusEm(snapshot.scale) * textSizePx
+            drawCircle(
+                color = sungColor.copy(alpha = sungColor.alpha * opacity),
+                radius = radius,
+                center = Offset(centerX, centerY)
+            )
         }
     }
 }

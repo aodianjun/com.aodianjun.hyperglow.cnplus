@@ -232,6 +232,7 @@ object SceneCompiler {
             duetAlignment = profile.duetAlignment,
             duetConcurrent = profile.duetConcurrent,
             interludeCountdown = profile.interludeCountdown,
+            interludeDotsStyle = normalizeInterludeDotsStyle(profile.interludeDotsStyle),
             noLyricsBehavior = normalizeNoLyricsBehavior(profile.noLyricsBehavior),
             pureMusicDisplay = profile.pureMusicDisplay,
             pureMusicText = normalizePureMusicText(profile.pureMusicText),
