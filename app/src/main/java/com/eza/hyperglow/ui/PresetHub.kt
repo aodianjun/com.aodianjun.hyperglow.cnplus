@@ -131,6 +131,9 @@ internal object PresetHubPreferences {
     private const val KEY_ANONYMOUS_URL = "anonymous_url"
     private const val KEY_ANONYMOUS_BACKUP_URL = "anonymous_backup_url"
     private const val KEY_DEVICE_ID = "device_id"
+    /** 本机匿名上传成功的云端 id；用于「我的上传」标记、覆盖与删除入口。 */
+    private const val KEY_OWNED_CLOUD_IDS = "owned_cloud_ids"
+    private const val MAX_OWNED_CLOUD_IDS = 200
 
     fun read(context: Context): PresetHubConfig {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -177,6 +180,42 @@ internal object PresetHubPreferences {
         if (login.isBlank()) return
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_LOGIN, login)
+            .apply()
+    }
+
+    /**
+     * 本机匿名上传过的云端 id。
+     *
+     * 匿名归属由 Worker 端的 `SHA-256(device + OWNER_SALT)` 决定；App 不知道盐，无法从清单
+     * 反推哪些条目属于自己，所以在**本机上传成功时记账**。同一设备重传同 id 会命中 Worker
+     * 的 owner 校验并覆盖原条目，这里只负责让界面知道哪些条目可以管理。
+     */
+    fun ownedCloudIds(context: Context): Set<String> =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_OWNED_CLOUD_IDS, emptySet())
+            .orEmpty()
+            .filter { it.isNotBlank() }
+            .toSet()
+
+    fun rememberOwnedCloudId(context: Context, cloudId: String) {
+        val id = cloudId.trim()
+        if (id.isBlank()) return
+        val next = LinkedHashSet(ownedCloudIds(context))
+        next.add(id)
+        while (next.size > MAX_OWNED_CLOUD_IDS) {
+            next.remove(next.first())
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putStringSet(KEY_OWNED_CLOUD_IDS, next)
+            .apply()
+    }
+
+    fun forgetOwnedCloudId(context: Context, cloudId: String) {
+        val id = cloudId.trim()
+        if (id.isBlank()) return
+        val next = ownedCloudIds(context) - id
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putStringSet(KEY_OWNED_CLOUD_IDS, next)
             .apply()
     }
 }
@@ -334,6 +373,8 @@ internal enum class PresetHubFailure {
     RATE_LIMITED,
     NOT_FOUND,
     CONFLICT,
+    /** 匿名 Hub 的 owner 校验失败：这条预设由另一台设备上传，当前设备不能覆盖/删除。 */
+    NOT_OWNER,
     MALFORMED,
     TOO_LARGE,
     SERVER

@@ -97,14 +97,31 @@ function preset(id, name = "Night", extra = {}) {
 
 async function upload(device, body) {
   const response = await worker.fetch(request(device, body), env);
+  return { status: response.status, body: await parse(response) };
+}
+
+async function remove(device, id) {
+  const response = await worker.fetch(
+    new Request("https://hub.test/api/presets/delete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-HyperGlow-Device": device,
+      },
+      body: JSON.stringify({ id }),
+    }),
+    env,
+  );
+  return { status: response.status, body: await parse(response) };
+}
+
+async function parse(response) {
   const text = await response.text();
-  let parsed = null;
   try {
-    parsed = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
-    // ignore
+    return null;
   }
-  return { status: response.status, body: parsed };
 }
 
 function currentManifest() {
@@ -135,23 +152,57 @@ result = await upload("device-B", preset("preset-1", "Hijack"));
 assert.equal(result.status, 409);
 assert.equal(result.body.error, "id_taken");
 
-// 4. 插件设置 / 未知分节：400
+// 4. 任意合法顶层分节都保留：插件设置与将来新增的键都不能被 Hub 丢掉
 result = await upload(
   "device-A",
-  preset("preset-2", "Leak", { pluginSettings: { demo: { apiKey: "secret" } } }),
+  preset("preset-2", "Plugin", { pluginSettings: { demo: { apiKey: "secret" } } }),
 );
+assert.equal(result.status, 200);
+manifest = currentManifest();
+assert.deepEqual(
+  manifest.presets.find((item) => item.id === "preset-2").payload.pluginSettings,
+  { demo: { apiKey: "secret" } },
+);
+result = await upload(
+  "device-A",
+  preset("preset-3", "Future", { futureSettings: { flag: true, mode: "new" } }),
+);
+assert.equal(result.status, 200);
+manifest = currentManifest();
+assert.deepEqual(
+  manifest.presets.find((item) => item.id === "preset-3").payload.futureSettings,
+  { flag: true, mode: "new" },
+);
+
+// 4b. 仍然拒绝异常分节名与 null 分节
+result = await upload("device-A", preset("preset-bad", "Bad", { "bad key": {} }));
 assert.equal(result.status, 400);
-result = await upload("device-A", preset("preset-3", "Unknown", { unknownSection: {} }));
+result = await upload("device-A", preset("preset-null", "Null", { futureSettings: null }));
 assert.equal(result.status, 400);
 
+// 4c. 删除自己上传的条目：换设备 403，原设备 200，重复删 404
+result = await remove("device-B", "preset-3");
+assert.equal(result.status, 403);
+assert.equal(result.body.error, "not_owner");
+result = await remove("device-A", "preset-3");
+assert.equal(result.status, 200);
+manifest = currentManifest();
+assert.ok(!manifest.presets.some((item) => item.id === "preset-3"));
+result = await remove("device-A", "preset-3");
+assert.equal(result.status, 404);
+
 // 5. 新预设新增；列表接口返回最新清单
+// 前面的负例也计入限流，先把测试用 KV 清空（限流本身在步骤 7 单独验证）。
+kv.clear();
 result = await upload("device-A", preset("preset-4", "Fresh"));
 assert.equal(result.status, 200);
 const listResponse = await worker.fetch(new Request("https://hub.test/api/presets"), env);
 assert.equal(listResponse.status, 200);
 const listed = await listResponse.json();
-assert.equal(listed.presets.length, 2);
+assert.equal(listed.presets.length, 3);
 assert.ok(listed.presets.some((item) => item.id === "preset-4"));
+assert.ok(listed.presets.some((item) => item.id === "preset-2"));
+assert.ok(!listed.presets.some((item) => item.id === "preset-3"));
 
 // 6. 健康检查
 const health = await worker.fetch(new Request("https://hub.test/health"), env);

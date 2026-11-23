@@ -95,4 +95,57 @@ class ConfigPresetStoreTest {
         assertTrue(filtered.containsKey(ConfigBackupCodec.FORMAT_KEY))
         assertTrue(filtered.containsKey(ConfigBackupCodec.VERSION_KEY))
     }
+
+    @Test
+    fun `unknown top-level keys become their own sections after the known ones`() {
+        val payload = JsonObject(
+            envelope().toMutableMap().apply {
+                put("futureSettings", buildJsonObject { put("flag", true) })
+                put("anotherNewSection", JsonPrimitive("x"))
+            }
+        )
+        val sections = preset(payload).sections.toList()
+
+        val future = sections.first { it.envelopeKeys == listOf("futureSettings") }
+        assertFalse(future.isKnown)
+        assertEquals("key:futureSettings", future.id)
+        // 已知分节保持在前，未知键按字母序追加。
+        assertEquals(
+            listOf("key:anotherNewSection", "key:futureSettings"),
+            sections.takeLast(2).map { it.id }
+        )
+        assertTrue(sections.indexOf(future) > sections.indexOf(ConfigPresetSection.LYRIC_SOURCE))
+    }
+
+    @Test
+    fun `filtered envelope keeps unknown sections when selected`() {
+        val payload = JsonObject(
+            envelope().toMutableMap().apply {
+                put("futureSettings", buildJsonObject { put("flag", true) })
+            }
+        )
+        val source = preset(payload)
+        val future = source.sections.first { it.envelopeKeys == listOf("futureSettings") }
+
+        val filtered = ConfigPresetStore.filteredEnvelope(
+            preset = source,
+            selected = setOf(future)
+        )
+
+        assertTrue(filtered.containsKey("futureSettings"))
+        assertFalse(filtered.containsKey(ConfigBackupCodec.CUSTOMIZATION_KEY))
+        assertFalse(filtered.containsKey(ConfigBackupCodec.PREFERENCES_KEY))
+        assertEquals(3, filtered.size)
+    }
+
+    @Test
+    fun `empty object sections are ignored`() {
+        val payload = JsonObject(
+            envelope().toMutableMap().apply {
+                put(ConfigBackupCodec.PLUGIN_SETTINGS_KEY, JsonObject(emptyMap()))
+            }
+        )
+
+        assertFalse(ConfigPresetSection.PLUGINS in preset(payload).sections)
+    }
 }

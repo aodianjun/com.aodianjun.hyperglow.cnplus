@@ -79,6 +79,10 @@ internal fun ConfigPresetScreen(
     var cloudFetchedAt by remember(hub.repo, hub.tag) {
         mutableStateOf(PresetHubStore.fetchedAt(context, hub))
     }
+    // 本机匿名上传过的云端 id；决定卡片「我的」徽标。
+    var ownedCloudIds by remember {
+        mutableStateOf(PresetHubPreferences.ownedCloudIds(context))
+    }
     var showCreate by remember { mutableStateOf(false) }
     var showHubSettings by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -132,6 +136,7 @@ internal fun ConfigPresetScreen(
         presets = ConfigPresetStore.load(context)
         cloud = withContext(Dispatchers.IO) { PresetHubStore.load(context, hub) }
         cloudFetchedAt = PresetHubStore.fetchedAt(context, hub)
+        ownedCloudIds = PresetHubPreferences.ownedCloudIds(context)
     }
     LaunchedEffect(hub.repo, hub.tag) {
         cloud = withContext(Dispatchers.IO) { PresetHubStore.load(context, hub) }
@@ -211,6 +216,12 @@ internal fun ConfigPresetScreen(
                     PresetPreviewCard(
                         preset = preset,
                         subtitle = presetListSummary(preset),
+                        // 本地预设 id 与云端 id 相同：本机上传过就标「已发布」。
+                        badge = if (preset.id in ownedCloudIds) {
+                            stringResource(R.string.preset_hub_published_badge)
+                        } else {
+                            null
+                        },
                         onClick = { onOpenPreset(preset.id) }
                     )
                 }
@@ -270,7 +281,9 @@ internal fun ConfigPresetScreen(
                     key = { CLOUD_PRESET_PREFIX + it.id }
                 ) { cloudPreset ->
                     val display = cloudPreset.toConfigPreset()
-                    val isMine = hub.login.isNotBlank() && cloudPreset.author == hub.login
+                    // 匿名上传按本机记账判断归属；Token 上传仍按 GitHub 登录名匹配作者。
+                    val isMine = cloudPreset.id in ownedCloudIds ||
+                        (hub.login.isNotBlank() && cloudPreset.author == hub.login)
                     PresetPreviewCard(
                         preset = display,
                         subtitle = cloudPresetSubtitle(cloudPreset),
@@ -337,9 +350,7 @@ private fun cloudPresetSubtitle(preset: CloudPreset): String {
         ?: stringResource(R.string.preset_hub_anonymous)
     val sectionCount = stringResource(
         R.string.config_preset_section_count,
-        ConfigPresetSection.entries.count { section ->
-            section.envelopeKeys.any { preset.payload.containsKey(it) }
-        }
+        ConfigPresetSection.of(preset.payload).size
     )
     return listOfNotNull(
         author,
@@ -378,21 +389,29 @@ private fun CreateConfigPresetDialog(
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    var selected by remember {
-        mutableStateOf(ConfigPresetSection.entries.map { it.id }.toSet())
-    }
+    // null = 还在导出当前配置；分节清单完全由当前信封决定，后续版本新增的键会自动出现。
+    var available by remember { mutableStateOf<List<ConfigPresetSection>?>(null) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var saving by remember { mutableStateOf(false) }
     var formError by remember { mutableStateOf(false) }
 
+    LaunchedEffect(Unit) {
+        val sections = withContext(Dispatchers.IO) {
+            ConfigPresetStore.currentSections(context)
+        }
+        available = sections
+        selected = sections.map { it.id }.toSet()
+    }
+
     fun create() {
         if (saving) return
-        if (name.isBlank() || selected.isEmpty()) {
+        val sections = available.orEmpty().filter { it.id in selected }.toSet()
+        if (name.isBlank() || sections.isEmpty()) {
             formError = true
             return
         }
         formError = false
         saving = true
-        val sections = ConfigPresetSection.entries.filter { it.id in selected }.toSet()
         scope.launch {
             val created = withContext(Dispatchers.IO) {
                 ConfigPresetStore.capture(context, name, note, sections)
@@ -452,20 +471,30 @@ private fun CreateConfigPresetDialog(
             )
             Spacer(Modifier.height(12.dp))
             SmallTitle(text = stringResource(R.string.config_preset_sections))
-            ConfigPresetSection.entries.forEach { section ->
-                SwitchPreference(
-                    checked = section.id in selected,
-                    onCheckedChange = { checked ->
-                        selected = if (checked) {
-                            selected + section.id
-                        } else {
-                            selected - section.id
-                        }
-                        formError = false
-                    },
-                    title = stringResource(section.titleRes),
-                    summary = stringResource(section.summaryRes)
+            val loadedSections = available
+            if (loadedSections == null) {
+                Text(
+                    text = stringResource(R.string.config_preset_loading),
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
                 )
+            } else {
+                loadedSections.forEach { section ->
+                    SwitchPreference(
+                        checked = section.id in selected,
+                        onCheckedChange = { checked ->
+                            selected = if (checked) {
+                                selected + section.id
+                            } else {
+                                selected - section.id
+                            }
+                            formError = false
+                        },
+                        title = section.titleText(),
+                        summary = section.summaryText()
+                    )
+                }
             }
             Text(
                 text = stringResource(R.string.config_preset_sections_summary),
@@ -514,6 +543,7 @@ internal fun ConfigPresetDetailScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val hub = PresetHubPreferences.read(context)
     val isCloud = isCloudPresetId(presetId)
     val cloudId = if (isCloud) presetId.removePrefix(CLOUD_PRESET_PREFIX) else null
     var preset by remember(presetId) { mutableStateOf<ConfigPreset?>(null) }
@@ -526,9 +556,16 @@ internal fun ConfigPresetDetailScreen(
     }
     var showDetails by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
+    var showDeleteCloud by remember { mutableStateOf(false) }
     var showHubSettings by remember { mutableStateOf(false) }
     var showUploadDialog by remember { mutableStateOf(false) }
-    var autoUploadAfterSettings by remember { mutableStateOf(false) }
+    var uploadCandidate by remember { mutableStateOf<ConfigPreset?>(null) }
+    // 没配上传通道时先把这次上传的载荷留住，设置保存后自动续上。
+    var pendingUploadSource by remember { mutableStateOf<ConfigPreset?>(null) }
+    // 本机匿名上传过这条云端预设：可覆盖/删除。
+    var ownedCloud by remember(presetId) { mutableStateOf(false) }
+    var capturing by remember { mutableStateOf(false) }
+    var deletingCloud by remember { mutableStateOf(false) }
     var applying by remember { mutableStateOf(false) }
     var uploading by remember { mutableStateOf(false) }
 
@@ -547,6 +584,8 @@ internal fun ConfigPresetDetailScreen(
         selected = loaded?.sections.orEmpty().let { sections ->
             if (isCloud) sections - ConfigPresetSection.PLUGINS else sections
         }
+        ownedCloud = cloudId != null &&
+            PresetHubPreferences.ownedCloudIds(context).contains(cloudId)
         loading = false
     }
 
@@ -620,11 +659,11 @@ internal fun ConfigPresetDetailScreen(
         }
     }
 
-    fun upload() {
+    fun requestUpload(source: ConfigPreset) {
         if (uploading) return
-        val hub = PresetHubPreferences.read(context)
-        if (!hub.canUpload) {
-            autoUploadAfterSettings = true
+        val currentHub = PresetHubPreferences.read(context)
+        if (!currentHub.canUpload) {
+            pendingUploadSource = source
             showHubSettings = true
             Toast.makeText(
                 context,
@@ -634,7 +673,40 @@ internal fun ConfigPresetDetailScreen(
             return
         }
         // 先让用户确认要公开的分节（插件设置默认不上传）。
+        uploadCandidate = source
         showUploadDialog = true
+    }
+
+    fun upload() = requestUpload(active)
+
+    /**
+     * 用当前设置覆盖这条云端预设：抓一份当前全部分节的快照，沿用原云端 id（匿名 Hub 按
+     * 设备 owner 允许同设备覆盖），再走正常的上传确认流程。
+     */
+    fun overwriteWithCurrent() {
+        if (uploading || capturing) return
+        capturing = true
+        scope.launch {
+            val captured = withContext(Dispatchers.IO) {
+                ConfigPresetStore.capture(
+                    context = context,
+                    name = active.name,
+                    note = active.note,
+                    sections = ConfigPresetStore.currentSections(context).toSet()
+                )
+            }
+            capturing = false
+            if (captured == null) {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.preset_hub_overwrite_capture_failed),
+                    Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+            // 保留 cloud: 前缀；上传客户端会在发请求前去掉。署名沿用原条目。
+            requestUpload(captured.copy(id = active.id, author = active.author))
+        }
     }
 
     fun doUpload(payloadPreset: ConfigPreset, authorInput: String) {
@@ -652,6 +724,11 @@ internal fun ConfigPresetDetailScreen(
                     deviceId = PresetHubPreferences.deviceId(context)
                 )
                 if (result.isSuccess) {
+                    // 记下本机上传成功的云端 id：列表标「我的」，详情页可覆盖/删除。
+                    result.getOrNull()?.let { uploadedId ->
+                        PresetHubPreferences.rememberOwnedCloudId(context, uploadedId)
+                        if (uploadedId == cloudId) ownedCloud = true
+                    }
                     // Worker 已改完 Release；拉一次清单把本地缓存刷新成最新。
                     PresetHubClient.fetch(hub).onSuccess { manifest ->
                         PresetHubStore.save(context, hub, manifest)
@@ -727,6 +804,50 @@ internal fun ConfigPresetDetailScreen(
         }
     }
 
+    fun deleteCloud() {
+        val id = cloudId ?: return
+        if (deletingCloud) return
+        deletingCloud = true
+        scope.launch {
+            val currentHub = PresetHubPreferences.read(context)
+            val result = PresetHubClient.deleteAnonymous(
+                config = currentHub,
+                cloudId = id,
+                deviceId = PresetHubPreferences.deviceId(context)
+            )
+            deletingCloud = false
+            result.onSuccess {
+                PresetHubPreferences.forgetOwnedCloudId(context, id)
+                ownedCloud = false
+                // 删除接口只返回 ok；把本地缓存的清单同步剔除，返回列表时不会闪回旧条目。
+                withContext(Dispatchers.IO) {
+                    val cached = PresetHubStore.load(context, currentHub)
+                    if (cached != null) {
+                        PresetHubStore.save(
+                            context,
+                            currentHub,
+                            cached.copy(presets = cached.presets.filterNot { it.id == id })
+                        )
+                    }
+                }
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.preset_hub_deleted_cloud),
+                    Toast.LENGTH_LONG
+                ).show()
+                onPresetChanged()
+                onBack()
+            }.onFailure { error ->
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.preset_hub_delete_cloud_failed) + "：" +
+                        hubFailureText(context, error),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     Scaffold(
         containerColor = appSurfaceColor(),
         topBar = {
@@ -790,7 +911,7 @@ internal fun ConfigPresetDetailScreen(
                                     selected - section
                                 }
                             },
-                            title = stringResource(section.titleRes),
+                            title = section.titleText(),
                             summary = sectionSummary(section, included, changes, previewLoading)
                         )
                     }
@@ -920,6 +1041,19 @@ internal fun ConfigPresetDetailScreen(
                         colors = ButtonDefaults.textButtonColorsPrimary(),
                         onClick = { apply() }
                     )
+                    if (isCloud && ownedCloud) {
+                        TextButton(
+                            text = stringResource(
+                                if (capturing) {
+                                    R.string.preset_hub_overwrite_busy
+                                } else {
+                                    R.string.preset_hub_overwrite
+                                }
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { overwriteWithCurrent() }
+                        )
+                    }
                     if (isCloud) {
                         TextButton(
                             text = stringResource(R.string.preset_hub_save_local),
@@ -937,6 +1071,19 @@ internal fun ConfigPresetDetailScreen(
                             ),
                             modifier = Modifier.fillMaxWidth(),
                             onClick = { upload() }
+                        )
+                    }
+                    if (isCloud && ownedCloud && hub.hasAnonymousUpload) {
+                        TextButton(
+                            text = stringResource(
+                                if (deletingCloud) {
+                                    R.string.preset_hub_deleting_cloud
+                                } else {
+                                    R.string.preset_hub_delete_cloud
+                                }
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { showDeleteCloud = true }
                         )
                     }
                 }
@@ -986,12 +1133,44 @@ internal fun ConfigPresetDetailScreen(
         }
     }
 
-    if (showUploadDialog) {
+    if (showDeleteCloud) {
+        WindowDialog(
+            title = stringResource(R.string.preset_hub_delete_cloud_title),
+            summary = stringResource(R.string.preset_hub_delete_cloud_summary, active.name),
+            show = true,
+            onDismissRequest = { showDeleteCloud = false }
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = stringResource(R.string.action_cancel),
+                    modifier = Modifier.weight(1f),
+                    onClick = { showDeleteCloud = false }
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = stringResource(R.string.preset_hub_delete_cloud),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = {
+                        showDeleteCloud = false
+                        deleteCloud()
+                    }
+                )
+            }
+        }
+    }
+
+    val candidate = uploadCandidate
+    if (showUploadDialog && candidate != null) {
         PresetUploadDialog(
-            preset = active,
-            onDismiss = { showUploadDialog = false },
+            preset = candidate,
+            onDismiss = {
+                showUploadDialog = false
+                uploadCandidate = null
+            },
             onUpload = { filtered, author ->
                 showUploadDialog = false
+                uploadCandidate = null
                 doUpload(filtered, author)
             }
         )
@@ -1007,11 +1186,10 @@ internal fun ConfigPresetDetailScreen(
                     context.getString(R.string.preset_hub_saved),
                     Toast.LENGTH_SHORT
                 ).show()
-                // 从「没 Token」点上传进来的：设置保存后直接续上这次上传（进入分节确认）。
-                if (autoUploadAfterSettings) {
-                    autoUploadAfterSettings = false
-                    upload()
-                }
+                // 从「没 Token」点上传/覆盖进来的：设置保存后直接续上这次上传（进入分节确认）。
+                val pending = pendingUploadSource
+                pendingUploadSource = null
+                if (pending != null) requestUpload(pending)
             }
         )
     }
@@ -1024,9 +1202,9 @@ private fun sectionSummary(
     changes: Int,
     loading: Boolean
 ): String = when {
-    !included -> stringResource(section.summaryRes)
+    !included -> section.summaryText()
     loading -> stringResource(R.string.config_preset_preview_loading)
-    section == ConfigPresetSection.APPEARANCE && changes > 0 ->
+    section.id == ConfigPresetSection.APPEARANCE.id && changes > 0 ->
         stringResource(R.string.config_preset_appearance_replaced)
     changes == 0 -> stringResource(R.string.config_preset_no_changes)
     else -> stringResource(R.string.config_preset_changes, changes)
@@ -1070,7 +1248,7 @@ private fun ChangeRow(section: ConfigPresetSection, change: ConfigPresetChange) 
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(
-            text = "${stringResource(section.titleRes)} · ${change.key}",
+            text = "${section.titleText()} · ${change.key}",
             fontSize = 13.sp,
             color = MiuixTheme.colorScheme.onSurfaceContainerHighest
         )
@@ -1088,6 +1266,20 @@ private fun ChangeRow(section: ConfigPresetSection, change: ConfigPresetChange) 
 }
 
 private const val CHANGE_VALUE_PREVIEW_MAX = 60
+
+/** 已知分节用本地化标题；信封里新增、当前版本尚未归组的分节回落到原始键名。 */
+@Composable
+internal fun ConfigPresetSection.titleText(): String =
+    titleRes?.let { stringResource(it) }
+        ?: stringResource(
+            R.string.config_preset_section_custom_title,
+            envelopeKeys.firstOrNull() ?: id
+        )
+
+@Composable
+internal fun ConfigPresetSection.summaryText(): String =
+    summaryRes?.let { stringResource(it) }
+        ?: stringResource(R.string.config_preset_section_custom_summary)
 
 private fun formatPresetTime(epochMillis: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(epochMillis))

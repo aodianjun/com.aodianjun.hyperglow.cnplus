@@ -6,6 +6,7 @@ HyperIsland 的配置格式、用的是 EdgeOne Blob。这里不复用它的数�
 
 - `GET /api/presets`：读 GitHub Release 里的 `presets.json`（公开，不需要 Token）
 - `POST /api/presets`：匿名上传/更新，函数用服务端 `GITHUB_TOKEN` 写同一个 Release
+- `POST /api/presets/delete`：匿名删除自己上传的条目；设备 `owner` 哈希必须匹配
 - `GET /api/health`：自检，返回仓库/标签与 `tokenConfigured` 布尔值
 
 两个入口写同一份 GitHub Release，所以 App 不需要在两套数据之间同步；Cloudflare 不可用时把

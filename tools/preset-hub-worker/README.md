@@ -67,10 +67,10 @@ wrangler login                 # 登录你的 Cloudflare 账号
 }
 ```
 
-`payload` 只允许以下分节（未知键/`pluginSettings` 直接 400）：
-
-`customization`、`renderPreferences`、`appUiAppearance`、`lyricSource`、`uiLanguage`、
-`appNavigation`、`diagnostics`。
+`payload` 可以带任意合法的顶层分节。Hub 不做已知键白名单：分节名只需匹配
+`[A-Za-z][A-Za-z0-9_.-]{0,63}`，最多 64 个，值为 `null` 会被拒绝。这样 App 以后新增的设置面
+不用先改 Hub 就能上传；`pluginSettings` 同样被接受，但 App 上传弹窗默认不勾选
+（可能含 API Key/令牌），只有用户明确选择才会进入公开清单。清单读取端也原样保留未知分节。
 
 成功：`200 {"ok":true,"id":"...","updatedAt":169...}`。
 
@@ -85,6 +85,18 @@ wrangler login                 # 登录你的 Cloudflare 账号
 | 500 | `server_not_configured` | 没配 `GITHUB_TOKEN` |
 | 502 | `github_*` / `upload_*` / `asset_*` | GitHub 侧失败 |
 
+### `POST /api/presets/delete`
+
+删除本机上传的条目。请求头同样带 `X-HyperGlow-Device`，body：
+
+```json
+{ "id": "preset-uuid" }
+```
+
+Worker 用 `SHA-256(device + OWNER_SALT)` 与条目的 `owner` 比对，一致才删除；没有 `owner`
+的精选/Token 条目或换设备删除都返回 `403 not_owner`。成功：`200 {"ok":true,"id":"..."}`；
+条目不存在：`404 not_found`。App 侧只有本机上传成功的条目才会显示「删除云端预设」。
+
 ### `GET /api/presets`
 
 直接返回当前的 `presets.json` 清单（公开，CORS 允许所有来源）。
@@ -95,17 +107,19 @@ wrangler login                 # 登录你的 Cloudflare 账号
 
 ## 安全设计
 
-- 分节白名单 + 固定 backup format/version，拒绝插件设置（可能含 API Key）。
+- 固定 backup format/version；分节名做形状约束（挡 `__proto__` 等键）但不做已知键白名单，
+  未知/新增分节原样保留。插件设置由 App 默认不勾选，避免误公开 API Key。
 - 单条 256 KiB、清单 8 MiB、最多 100 条。
-- 匿名归属：`SHA-256(设备标识 + OWNER_SALT)` 写进条目的 `owner`；只有同一设备能覆盖自己的条目，
-  不能凭 id 劫持别人。
+- 匿名归属：`SHA-256(设备标识 + OWNER_SALT)` 写进条目的 `owner`；只有同一设备能覆盖/删除
+  自己的条目，不能凭 id 劫持别人。App 不保存盐，只在**本机上传成功时**记下云端 id，
+  用来显示「我的上传」和提供覆盖/删除入口。
 - 下载资产 302 到签名 CDN 时**不带** GitHub Token。
 - 服务端 Token 只在 Worker secret 中，日志/响应都不包含。
 - 依赖 GitHub Release 本身的公开性；仓库必须是 public，否则 App 匿名读不到。
 
 ## 自测
 
-无网络冒烟测试（mock GitHub API，覆盖首次上传/同设备更新/跨设备 409/插件拒绝/列表/限流/CORS）：
+无网络冒烟测试（mock GitHub API，覆盖首次上传/同设备更新/跨设备 409/插件与未知分节保留/异常分节拒绝/同设备删除/换设备删除 403/列表/限流/CORS）：
 
 ```bash
 cd tools/preset-hub-worker

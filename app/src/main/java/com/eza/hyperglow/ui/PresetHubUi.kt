@@ -65,6 +65,7 @@ internal fun hubFailureText(context: Context, error: Throwable): String {
         PresetHubFailure.RATE_LIMITED -> context.getString(R.string.preset_hub_error_rate)
         PresetHubFailure.NOT_FOUND -> context.getString(R.string.preset_hub_error_repo)
         PresetHubFailure.CONFLICT -> context.getString(R.string.preset_hub_error_conflict)
+        PresetHubFailure.NOT_OWNER -> context.getString(R.string.preset_hub_error_not_owner)
         PresetHubFailure.MALFORMED -> context.getString(R.string.preset_hub_error_malformed)
         PresetHubFailure.TOO_LARGE -> context.getString(R.string.preset_hub_error_too_large)
         PresetHubFailure.SERVER -> context.getString(
@@ -376,14 +377,17 @@ internal fun PresetUploadDialog(
 ) {
     val context = LocalContext.current
     val hub = remember { PresetHubPreferences.read(context) }
-    // 匿名 Hub 在服务端直接拒绝 pluginSettings；这里不展示该分节，避免用户选了才报错。
-    val anonymous = hub.hasAnonymousUpload
-    val uploadable = preset.sections.filterNot {
-        anonymous && it == ConfigPresetSection.PLUGINS
+    // 所有分节都允许上传（含将来新增的分节）。插件设置可能含 API Key/令牌，默认不勾选，
+    // 只有用户明确打开才会进入公开清单。
+    val uploadable = preset.sections.toList()
+    var selected by remember {
+        mutableStateOf(uploadable.filterNot { it == ConfigPresetSection.PLUGINS }.toSet())
     }
-    var selected by remember { mutableStateOf(uploadable.toSet()) }
     var invalid by remember { mutableStateOf(false) }
-    var author by remember { mutableStateOf(hub.login) }
+    // 覆盖云端已有条目时沿用原署名；本机有 GitHub 登录名则优先用登录名。
+    var author by remember {
+        mutableStateOf(hub.login.ifBlank { preset.author })
+    }
 
     WindowDialog(
         title = stringResource(R.string.preset_hub_upload),
@@ -420,20 +424,11 @@ internal fun PresetUploadDialog(
                         selected = if (checked) selected + section else selected - section
                         invalid = false
                     },
-                    title = stringResource(section.titleRes),
-                    summary = stringResource(section.summaryRes)
+                    title = section.titleText(),
+                    summary = section.summaryText()
                 )
             }
-            if (anonymous) {
-                if (ConfigPresetSection.PLUGINS in preset.sections) {
-                    Text(
-                        text = stringResource(R.string.preset_hub_anonymous_plugins_blocked),
-                        fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
-                    )
-                }
-            } else if (ConfigPresetSection.PLUGINS in preset.sections) {
+            if (ConfigPresetSection.PLUGINS in preset.sections) {
                 Text(
                     text = stringResource(R.string.preset_hub_upload_secret_warning),
                     fontSize = 12.sp,

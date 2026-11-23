@@ -127,11 +127,15 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 ## Config presets and cloud sharing
 
 The config preset page snapshots the whole configuration — lyrics appearance, AOD/lockscreen
-behaviour, app appearance, lyric source, interface/navigation and diagnostics — into named
-presets. Every card shows a colour preview of the preset, and the detail page renders the real
-lyrics preview plus a per-key change list before applying.
+behaviour, app appearance, lyric source, interface/navigation, diagnostics, plugin settings and
+every section added in later versions — into named presets. Sections are discovered from the
+backup envelope instead of a fixed list, so new settings keys are captured, uploaded and
+round-tripped automatically. Every card shows a colour preview of the preset, and the detail page
+renders the real lyrics preview plus a per-key change list before applying.
 
 - **Local presets** stay on the device and are not included in config backups.
+- Sections the current app version does not recognise yet are preserved verbatim and labelled
+  “new in a newer version”; a newer app applies them from the same preset.
 - The six former appearance presets (Classic Dark, Warm Gold, Ice Blue, Sakura, Mint, Showcase)
   are now published as curated cloud presets under [`presets/`](presets/README.md); the old
   in-app “preset packs” entry has been removed.
@@ -139,6 +143,10 @@ lyrics preview plus a per-key change list before applying.
   `presets.json` asset) and cached for offline use; browsing and applying them needs no token.
 - Applying a cloud preset writes the selected sections directly into the app settings. Plugin
   settings are unchecked by default because they can contain API keys.
+- A successful anonymous upload is remembered on this device: the cloud card gets a “Mine” badge,
+  the matching local preset gets a “Published” badge, and the cloud detail page can **overwrite
+  it with the current settings** or **delete it**. Ownership is the anonymous hub’s
+  `SHA-256(device + OWNER_SALT)`; another device cannot manage it.
 - **Uploading** either uses a fine-grained GitHub token with `Contents: Read and write`
   (Cloud settings), or a self-hosted anonymous hub: deploy
   [`tools/preset-hub-worker`](tools/preset-hub-worker/README.md), put its root URL into
@@ -316,12 +324,14 @@ before opening a pull request:
 
 ## 配置预设与云端共享
 
-配置预设页把整套设置（歌词外观、息屏/锁屏行为、应用外观、歌词源、界面/导航、诊断）存成命名快照。列表卡片带配色缩略预览，详情页是实时歌词预览 + 逐项变更清单，确认后再应用。
+配置预设页把整套设置（歌词外观、息屏/锁屏行为、应用外观、歌词源、界面/导航、诊断、插件设置，以及以后新增的每一个分节）存成命名快照。分节直接从配置备份信封推导，不靠固定清单，所以新增的设置键会自动被捕获、上传并随预设往返。列表卡片带配色缩略预览，详情页是实时歌词预览 + 逐项变更清单，确认后再应用。
 
 - **本地预设**只存在本机，不写进配置备份。
+- 当前版本还不认识的分节会原样保留，界面标为「新增设置」；更新版本的应用可以直接从同一条预设里应用它。
 - 原先内置的六套外观预设（经典暗夜、暖金辉光、冰蓝夜色、樱花甜心、薄荷清新、全开体验）已迁移为 [`presets/`](presets/README.md) 下的云端预设，旧的「预设包」入口已移除。
 - **云端预设**从公开的 GitHub Release（`presets` 标签、`presets.json` 资产）匿名读取并本地缓存，浏览和应用都不需要 Token。
 - 应用云端预设会直接把勾选的分节写进 App 设置；插件设置默认不勾选，避免把别人的 API Key 带进来。
+- 匿名上传成功后，本机会记住这条云端 id：云端卡片显示「我的」，对应的本地预设显示「已发布」，云端详情页可以用**当前设置覆盖**或**删除**。归属由匿名 Hub 的 `SHA-256(设备标识 + OWNER_SALT)` 决定，换一台设备不能管理它。
 - **上传**有两种：在「云端设置」填一个 `Contents: Read and write` 的 GitHub fine-grained Token；或者部署 [`tools/preset-hub-worker`](tools/preset-hub-worker/README.md) 匿名 Hub，把根地址填到「云端设置 → 匿名上传地址」，本机就完全不需要 GitHub Token。
 - 还可以在 **EdgeOne Pages** 上部署第二套匿名 Hub（[`tools/preset-hub-edgeone`](tools/preset-hub-edgeone/README.md)），把根地址填到「云端设置 → 备用匿名上传地址」；主 Hub 不可达时 App 会自动回退。两套 Hub 写的是同一个 GitHub Release，云端列表不会分叉。
 

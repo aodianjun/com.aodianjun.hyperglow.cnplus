@@ -326,7 +326,7 @@
     <string name="config_preset_name_hint">預設名稱</string>
     <string name="config_preset_note_hint">備註（選填）</string>
     <string name="config_preset_sections">分節</string>
-    <string name="config_preset_sections_summary">只把勾選的分節寫進預設；套用時未勾選的分節維持現狀。</string>
+    <string name="config_preset_sections_summary">只把勾選的分節寫進預設；套用時未勾選的分節維持現狀。後續版本新增的設置分節會自動列出。</string>
     <string name="config_preset_section_count">%1$d 個分節</string>
     <string name="config_preset_form_error">請填寫名稱並至少勾選一個分節。</string>
     <string name="config_preset_saved">預設已儲存：%1$s</string>
@@ -367,6 +367,8 @@
     <string name="config_preset_section_diagnostics_summary">診斷日誌開關、保留天數與等級。</string>
     <string name="config_preset_section_plugins">插件設置</string>
     <string name="config_preset_section_plugins_summary">已安裝插件中允許備份的設置項。</string>
+    <string name="config_preset_section_custom_title">新增設置：%1$s</string>
+    <string name="config_preset_section_custom_summary">較新版本新增的設置分節，會原樣保留並隨預設一起傳遞。</string>
     <string name="config_preset_loading">正在載入…</string>
 
     <!-- 雲端預設：GitHub Release 通道，公開可讀，上傳需要 Token。 -->
@@ -406,7 +408,6 @@
     <string name="preset_hub_backup_url_hint">備用匿名上傳位址（選填）</string>
     <string name="preset_hub_backup_note">主 Hub 無法連線時自動嘗試。必須是 HTTPS；OWNER_SALT 要與主 Hub 一致。</string>
     <string name="preset_hub_anonymous_note">填了就走你部署的 Hub（tools/preset-hub-worker），其 GITHUB_REPO/GITHUB_TAG 要與上面的倉庫/標籤一致；本機不需要 GitHub Token。</string>
-    <string name="preset_hub_anonymous_plugins_blocked">匿名 Hub 不接受插件設置（其中可能含 API Key）。</string>
     <string name="preset_hub_author_hint">署名（選填）</string>
     <string name="preset_hub_settings_invalid_url">匿名上傳位址必須以 https:// 開頭。</string>
     <string name="preset_hub_error_conflict">此預設 id 已屬於另一台裝置，請改名後重新上傳。</string>
@@ -416,6 +417,17 @@
     <string name="preset_hub_author">作者：%1$s</string>
     <string name="preset_hub_anonymous">匿名</string>
     <string name="preset_hub_mine_badge">我的</string>
+    <string name="preset_hub_published_badge">已發布</string>
+    <string name="preset_hub_overwrite">用目前設置覆蓋</string>
+    <string name="preset_hub_overwrite_busy">正在讀取目前設置…</string>
+    <string name="preset_hub_overwrite_capture_failed">無法讀取目前設置</string>
+    <string name="preset_hub_delete_cloud">刪除雲端預設</string>
+    <string name="preset_hub_deleting_cloud">正在刪除…</string>
+    <string name="preset_hub_delete_cloud_title">刪除這條雲端預設？</string>
+    <string name="preset_hub_delete_cloud_summary">“%1$s”將從雲端刪除，且無法復原。</string>
+    <string name="preset_hub_deleted_cloud">雲端預設已刪除</string>
+    <string name="preset_hub_delete_cloud_failed">雲端預設刪除失敗</string>
+    <string name="preset_hub_error_not_owner">只有上傳這條預設的裝置能管理它。</string>
     <string name="preset_hub_cloud_badge">雲端</string>
     <string name="preset_hub_tap_preview">點按查看即時預覽與分節</string>
     <string name="preset_hub_no_appearance">此預設不含外觀文件。</string>

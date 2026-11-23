@@ -151,12 +151,14 @@ internal object PresetHubClient {
         preset: ConfigPreset,
         author: String,
         deviceId: String
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<String> = withContext(Dispatchers.IO) {
         guarded {
             val endpoints = config.anonymousEndpoints
             if (endpoints.isEmpty()) throw PresetHubException(PresetHubFailure.INVALID_CONFIG)
+            val cloudId = preset.id.removePrefix(CLOUD_PRESET_PREFIX)
+            if (cloudId.isBlank()) throw PresetHubException(PresetHubFailure.INVALID_CONFIG)
             val body = buildJsonObject {
-                put("id", preset.id.removePrefix(CLOUD_PRESET_PREFIX))
+                put("id", cloudId)
                 put("name", preset.name)
                 put("note", preset.note)
                 put("author", author.take(20))
@@ -185,10 +187,57 @@ internal object PresetHubClient {
                 } catch (error: Exception) {
                     throw PresetHubException(PresetHubFailure.NETWORK, cause = error)
                 }
-                if (response.code in 200..299) return@guarded Unit
+                if (response.code in 200..299) return@guarded cloudId
                 val failure = anonymousError(response)
                 lastError = failure
                 // 主 Hub 网络/5xx/限流/路由异常时自动尝试备用 Hub；4xx 语义错误不重试。
+                val retryable = failure.failure in setOf(
+                    PresetHubFailure.NETWORK,
+                    PresetHubFailure.SERVER,
+                    PresetHubFailure.RATE_LIMITED,
+                    PresetHubFailure.NOT_FOUND
+                )
+                if (!retryable || index == endpoints.lastIndex) throw failure
+            }
+            throw lastError ?: PresetHubException(PresetHubFailure.NETWORK)
+        }
+    }
+
+    /**
+     * 匿名删除自己上传的云端预设。Worker 用 `X-HyperGlow-Device` 的哈希校验 owner：
+     * 只有当初上传的那台设备能删，换设备返回 403 `not_owner`。
+     */
+    suspend fun deleteAnonymous(
+        config: PresetHubConfig,
+        cloudId: String,
+        deviceId: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        guarded {
+            val endpoints = config.anonymousEndpoints
+            if (endpoints.isEmpty()) throw PresetHubException(PresetHubFailure.INVALID_CONFIG)
+            val id = cloudId.removePrefix(CLOUD_PRESET_PREFIX).trim()
+            if (id.isBlank()) throw PresetHubException(PresetHubFailure.INVALID_CONFIG)
+            val body = buildJsonObject { put("id", id) }
+                .toString().toByteArray(Charsets.UTF_8)
+            var lastError: PresetHubException? = null
+            endpoints.forEachIndexed { index, endpoint ->
+                val response = try {
+                    request(
+                        method = "POST",
+                        url = endpoint.trimEnd('/') + "/api/presets/delete",
+                        body = body,
+                        headers = mapOf("X-HyperGlow-Device" to deviceId)
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: PresetHubException) {
+                    throw PresetHubException(PresetHubFailure.NETWORK, cause = error)
+                } catch (error: Exception) {
+                    throw PresetHubException(PresetHubFailure.NETWORK, cause = error)
+                }
+                if (response.code in 200..299) return@guarded Unit
+                val failure = anonymousError(response)
+                lastError = failure
                 val retryable = failure.failure in setOf(
                     PresetHubFailure.NETWORK,
                     PresetHubFailure.SERVER,
@@ -372,8 +421,9 @@ internal object PresetHubClient {
     private fun anonymousError(response: HttpResponse): PresetHubException {
         val failure = when (response.code) {
             400, 422 -> PresetHubFailure.MALFORMED
-            HttpURLConnection.HTTP_UNAUTHORIZED,
-            HttpURLConnection.HTTP_FORBIDDEN -> PresetHubFailure.UNAUTHORIZED
+            HttpURLConnection.HTTP_UNAUTHORIZED -> PresetHubFailure.UNAUTHORIZED
+            // 匿名 Hub 的 403 只用于 owner 校验失败（上传冲突走 409）。
+            HttpURLConnection.HTTP_FORBIDDEN -> PresetHubFailure.NOT_OWNER
             HttpURLConnection.HTTP_NOT_FOUND -> PresetHubFailure.NOT_FOUND
             409 -> PresetHubFailure.CONFLICT
             413 -> PresetHubFailure.TOO_LARGE

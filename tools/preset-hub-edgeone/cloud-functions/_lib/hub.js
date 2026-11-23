@@ -16,16 +16,9 @@ const MANIFEST_VERSION = 1;
 const BACKUP_FORMAT = "hyperglow-config-backup";
 const BACKUP_VERSION = 1;
 
-// 与 Cloudflare Worker 完全一致：插件设置等敏感/未知分节一律拒绝。
-const ALLOWED_SECTIONS = new Set([
-  "customization",
-  "renderPreferences",
-  "appUiAppearance",
-  "lyricSource",
-  "uiLanguage",
-  "appNavigation",
-  "diagnostics",
-]);
+// 与 Cloudflare Worker 完全一致：分节不做白名单，未知顶层键原样保留（前向兼容）。
+const SECTION_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+const MAX_SECTIONS = 64;
 
 const MAX_PRESET_BYTES = 256 * 1024;
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
@@ -150,6 +143,65 @@ export async function uploadPreset(env, request) {
   return { ok: true, id: preset.id, updatedAt: next.updatedAt };
 }
 
+/** 删除自己上传的条目；owner 校验与上传一致，只有原上传设备能删。 */
+export async function deletePreset(env, request) {
+  const config = configFromEnv(env);
+  if (!config.token) throw new HttpError(500, "server_not_configured");
+
+  const device = String(request.headers.get("x-hyperglow-device") || "").trim();
+  if (!device || device.length > 128) throw new HttpError(400, "missing_device");
+
+  const declared = Number(request.headers.get("content-length") || "0");
+  if (declared > 4096) throw new HttpError(413, "too_large");
+  const rawBody = await request.text();
+  if (Buffer.byteLength(rawBody, "utf8") > 4096) throw new HttpError(413, "too_large");
+
+  let body;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    throw new HttpError(400, "invalid_json");
+  }
+  const id = typeof body?.id === "string" ? body.id.trim() : "";
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(id)) throw new HttpError(400, "invalid_id");
+
+  const owner = ownerHash(device, config.salt);
+  const release = await getRelease(config);
+  if (!release) throw new HttpError(404, "not_found");
+  const asset = release.assets.find((item) => item.name === ASSET_NAME);
+  if (!asset) throw new HttpError(404, "not_found");
+
+  const current = parseManifest(await downloadAsset(config, asset.id));
+  if (!current) throw new HttpError(502, "bad_manifest");
+  const existing = current.presets.find((item) => item.id === id);
+  if (!existing) throw new HttpError(404, "not_found");
+  if (!existing.owner || existing.owner !== owner) {
+    throw new HttpError(403, "not_owner");
+  }
+
+  const next = {
+    format: MANIFEST_FORMAT,
+    version: MANIFEST_VERSION,
+    updatedAt: Date.now(),
+    presets: current.presets.filter((item) => item.id !== id),
+  };
+  const nextJson = JSON.stringify(next);
+  if (Buffer.byteLength(nextJson, "utf8") > MAX_MANIFEST_BYTES) {
+    throw new HttpError(413, "manifest_too_large");
+  }
+
+  await deleteAsset(config, asset.id);
+  try {
+    await uploadAsset(config, release.uploadUrl, nextJson);
+  } catch (error) {
+    const refreshed = await getRelease(config).catch(() => null);
+    if (!refreshed || !refreshed.assets.some((item) => item.name === ASSET_NAME)) {
+      throw error;
+    }
+  }
+  return { ok: true, id };
+}
+
 function normalizePreset(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const name = cleanText(body.name, MAX_NAME);
@@ -161,12 +213,15 @@ function normalizePreset(body) {
   if (payload.format !== BACKUP_FORMAT || payload.version !== BACKUP_VERSION) return null;
 
   const filtered = { format: BACKUP_FORMAT, version: BACKUP_VERSION };
+  let sectionCount = 0;
   for (const [key, value] of Object.entries(payload)) {
     if (key === "format" || key === "version") continue;
-    if (!ALLOWED_SECTIONS.has(key)) return null;
+    if (!SECTION_KEY_PATTERN.test(key)) return null;
+    if (value === null || typeof value === "undefined") return null;
+    if (++sectionCount > MAX_SECTIONS) return null;
     filtered[key] = value;
   }
-  if (Object.keys(filtered).length <= 2) return null;
+  if (sectionCount === 0) return null;
   if (Buffer.byteLength(JSON.stringify(filtered), "utf8") > MAX_PRESET_BYTES) return null;
 
   const id = typeof body.id === "string" && /^[A-Za-z0-9._-]{1,80}$/.test(body.id)

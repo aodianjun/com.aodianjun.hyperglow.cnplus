@@ -37,58 +37,110 @@ internal const val CONFIG_PRESET_MAX_BYTES = 256 * 1024
 /**
  * 配置预设的一个分节。
  *
- * 每个分节直接对应配置备份信封里的顶层键：预设本身存的就是一份**裁剪过的备份信封**，
- * 因此快照/应用都复用 [ConfigBackupCodec] 的类型化编解码与 [applyImportedConfig] 的落盘路径，
- * 不需要再维护第二套设置键表（参考 HyperIsland 的 PresetConfigs，但分节粒度按本应用设置面收敛）。
+ * 分节直接对应配置备份信封的顶层键：预设本身存的就是一份**裁剪过的备份信封**，
+ * 因此快照/应用都复用 [ConfigBackupCodec] 的类型化编解码与 [applyImportedConfig] 的落盘路径。
+ *
+ * 已知分节带本地化标题/说明，并允许把多个顶层键归成一组（例如界面语言 + 界面导航）。
+ * 信封里出现、但当前版本还不认识的顶层键会作为**自定义分节**原样保留，标题回落到键名：
+ * 备份信封以后新增任何设置面，预设都会自动纳入、上传并随信封一起往返，不需要再回来
+ * 维护一张白名单（旧的固定 `entries` 正是会静默丢掉新键的地方）。
  */
-internal enum class ConfigPresetSection(
+internal data class ConfigPresetSection(
     val id: String,
-    @param:StringRes val titleRes: Int,
-    @param:StringRes val summaryRes: Int,
-    val envelopeKeys: List<String>
+    val envelopeKeys: List<String>,
+    @param:StringRes val titleRes: Int?,
+    @param:StringRes val summaryRes: Int?
 ) {
-    APPEARANCE(
-        "appearance",
-        R.string.config_preset_section_appearance,
-        R.string.config_preset_section_appearance_summary,
-        listOf(ConfigBackupCodec.CUSTOMIZATION_KEY)
-    ),
-    BEHAVIOR(
-        "behavior",
-        R.string.config_preset_section_behavior,
-        R.string.config_preset_section_behavior_summary,
-        listOf(ConfigBackupCodec.PREFERENCES_KEY)
-    ),
-    APP_UI(
-        "app_ui",
-        R.string.config_preset_section_app_ui,
-        R.string.config_preset_section_app_ui_summary,
-        listOf(ConfigBackupCodec.APP_UI_KEY)
-    ),
-    LYRIC_SOURCE(
-        "lyric_source",
-        R.string.config_preset_section_lyric_source,
-        R.string.config_preset_section_lyric_source_summary,
-        listOf(ConfigBackupCodec.LYRIC_SOURCE_KEY)
-    ),
-    INTERFACE(
-        "interface",
-        R.string.config_preset_section_interface,
-        R.string.config_preset_section_interface_summary,
-        listOf(ConfigBackupCodec.UI_LANGUAGE_KEY, ConfigBackupCodec.APP_NAVIGATION_KEY)
-    ),
-    DIAGNOSTICS(
-        "diagnostics",
-        R.string.config_preset_section_diagnostics,
-        R.string.config_preset_section_diagnostics_summary,
-        listOf(ConfigBackupCodec.DIAGNOSTICS_KEY)
-    ),
-    PLUGINS(
-        "plugins",
-        R.string.config_preset_section_plugins,
-        R.string.config_preset_section_plugins_summary,
-        listOf(ConfigBackupCodec.PLUGIN_SETTINGS_KEY)
-    )
+    val isKnown: Boolean get() = titleRes != null
+
+    companion object {
+        val APPEARANCE = ConfigPresetSection(
+            "appearance",
+            listOf(ConfigBackupCodec.CUSTOMIZATION_KEY),
+            R.string.config_preset_section_appearance,
+            R.string.config_preset_section_appearance_summary
+        )
+        val BEHAVIOR = ConfigPresetSection(
+            "behavior",
+            listOf(ConfigBackupCodec.PREFERENCES_KEY),
+            R.string.config_preset_section_behavior,
+            R.string.config_preset_section_behavior_summary
+        )
+        val APP_UI = ConfigPresetSection(
+            "app_ui",
+            listOf(ConfigBackupCodec.APP_UI_KEY),
+            R.string.config_preset_section_app_ui,
+            R.string.config_preset_section_app_ui_summary
+        )
+        val LYRIC_SOURCE = ConfigPresetSection(
+            "lyric_source",
+            listOf(ConfigBackupCodec.LYRIC_SOURCE_KEY),
+            R.string.config_preset_section_lyric_source,
+            R.string.config_preset_section_lyric_source_summary
+        )
+        val INTERFACE = ConfigPresetSection(
+            "interface",
+            listOf(ConfigBackupCodec.UI_LANGUAGE_KEY, ConfigBackupCodec.APP_NAVIGATION_KEY),
+            R.string.config_preset_section_interface,
+            R.string.config_preset_section_interface_summary
+        )
+        val DIAGNOSTICS = ConfigPresetSection(
+            "diagnostics",
+            listOf(ConfigBackupCodec.DIAGNOSTICS_KEY),
+            R.string.config_preset_section_diagnostics,
+            R.string.config_preset_section_diagnostics_summary
+        )
+        val PLUGINS = ConfigPresetSection(
+            "plugins",
+            listOf(ConfigBackupCodec.PLUGIN_SETTINGS_KEY),
+            R.string.config_preset_section_plugins,
+            R.string.config_preset_section_plugins_summary
+        )
+
+        /** 已知分节的固定展示顺序。 */
+        val known: List<ConfigPresetSection> = listOf(
+            APPEARANCE,
+            BEHAVIOR,
+            APP_UI,
+            LYRIC_SOURCE,
+            INTERFACE,
+            DIAGNOSTICS,
+            PLUGINS
+        )
+
+        /**
+         * 从备份信封推导分节：已知分节按固定顺序在前，未归组的顶层键按字母序追加。
+         * 空对象分节（例如一个插件都没装时的 pluginSettings）视为不存在。
+         */
+        fun of(envelope: JsonObject): List<ConfigPresetSection> {
+            val available = envelope.keys.filterTo(LinkedHashSet()) { key ->
+                if (key == ConfigBackupCodec.FORMAT_KEY ||
+                    key == ConfigBackupCodec.VERSION_KEY
+                ) {
+                    return@filterTo false
+                }
+                val element = envelope[key]
+                !(element is JsonObject && element.isEmpty())
+            }
+            val presentKnown = known.filter { section ->
+                section.envelopeKeys.any { it in available }
+            }
+            val claimed = presentKnown.flatMapTo(HashSet()) { it.envelopeKeys }
+            val custom = available
+                .filterNot { it in claimed }
+                .sorted()
+                .map { key ->
+                    ConfigPresetSection(
+                        // 加前缀避免未来信封键与已知分节 id 重名（例如真出现 "appearance"）。
+                        id = "key:$key",
+                        envelopeKeys = listOf(key),
+                        titleRes = null,
+                        summaryRes = null
+                    )
+                }
+            return presentKnown + custom
+        }
+    }
 }
 
 /**
@@ -107,11 +159,9 @@ internal data class ConfigPreset(
     /** 云端预设的上传者；本地预设为空串。 */
     val author: String = ""
 ) {
-    /** 本预设实际包含的分节（按固定展示顺序）。 */
+    /** 本预设实际包含的分节：已知分节在前，信封里未归组的顶层键自动追加。 */
     val sections: Set<ConfigPresetSection>
-        get() = ConfigPresetSection.entries.filterTo(LinkedHashSet()) { section ->
-            section.envelopeKeys.any { payload.containsKey(it) }
-        }
+        get() = LinkedHashSet(ConfigPresetSection.of(payload))
 }
 
 /** 单条字段差异；[key] 是原始设置键或 `pluginId/key`。 */
@@ -223,7 +273,8 @@ internal object ConfigPresetStore {
 
     /**
      * 把当前整套配置快照成预设：只保留 [sections] 命中的信封顶层键。
-     * 与配置备份导出同源（[exportAllConfig]），所以快照里每个值都是当前生效值。
+     * 与配置备份导出同源（[exportAllConfig]），所以快照里每个值都是当前生效值；
+     * 分节集合由 [currentSections] 从当前信封动态生成，因此以后新增的设置键也能被捕获。
      */
     fun capture(
         context: Context,
@@ -239,21 +290,19 @@ internal object ConfigPresetStore {
             envelope[ConfigBackupCodec.VERSION_KEY]?.let {
                 put(ConfigBackupCodec.VERSION_KEY, it)
             }
-            ConfigPresetSection.entries.forEach { section ->
-                if (section in sections) {
-                    section.envelopeKeys.forEach { key ->
-                        val value = envelope[key]
-                        // 一个插件都没装时 pluginSettings 是空对象，不落这个空分节。
-                        val emptyPlugins = key == ConfigBackupCodec.PLUGIN_SETTINGS_KEY &&
-                            value is JsonObject && value.isEmpty()
-                        if (value != null && !emptyPlugins) put(key, value)
+            sections.forEach { section ->
+                section.envelopeKeys.forEach { key ->
+                    val value = envelope[key]
+                    // 空对象分节（如没装插件时的 pluginSettings）没有任何可应用的内容。
+                    if (value != null && !(value is JsonObject && value.isEmpty())) {
+                        put(key, value)
                     }
                 }
             }
         }
-        // 一个分节都没抓到（例如插件一个都没装、对应键缺席）时不落空预设。
-        val hasSection = ConfigPresetSection.entries.any { section ->
-            section.envelopeKeys.any { payload.containsKey(it) }
+        // 一个分节都没抓到（例如对应键缺席）时不落空预设。
+        val hasSection = payload.keys.any {
+            it != ConfigBackupCodec.FORMAT_KEY && it != ConfigBackupCodec.VERSION_KEY
         }
         if (!hasSection) return null
         if (payload.toString().toByteArray(Charsets.UTF_8).size > CONFIG_PRESET_MAX_BYTES) {
@@ -269,6 +318,14 @@ internal object ConfigPresetStore {
     }
 
     /**
+     * 当前导出信封里实际存在的全部分节（含本版本尚未认识的键）。
+     * 新建预设对话框用它生成勾选项，默认全选，新增设置面无需改界面代码就会自动出现。
+     * 导出整份配置要序列化设置与插件设置，调用方应放在 IO 线程。
+     */
+    fun currentSections(context: Context): List<ConfigPresetSection> =
+        currentEnvelope(context)?.let(ConfigPresetSection::of).orEmpty()
+
+    /**
      * 计算应用前预览。必须在 IO 线程调用：导出当前配置要序列化整份设置与插件设置，
      * 与配置备份导入端的线程约束一致（JSON 编解码不占主线程）。
      */
@@ -278,9 +335,8 @@ internal object ConfigPresetStore {
         selected: Set<ConfigPresetSection>
     ): ConfigPresetPreview {
         val current = currentEnvelope(context) ?: JsonObject(emptyMap())
-        val sections = ConfigPresetSection.entries.map { section ->
-            val included = section in selected &&
-                section.envelopeKeys.any { preset.payload.containsKey(it) }
+        val sections = preset.sections.map { section ->
+            val included = section in selected
             ConfigPresetSectionPreview(
                 section = section,
                 included = included,
@@ -307,7 +363,7 @@ internal object ConfigPresetStore {
         preset.payload[ConfigBackupCodec.VERSION_KEY]?.let {
             put(ConfigBackupCodec.VERSION_KEY, it)
         }
-        ConfigPresetSection.entries.forEach { section ->
+        preset.sections.forEach { section ->
             if (section in selected) {
                 section.envelopeKeys.forEach { key ->
                     preset.payload[key]?.let { put(key, it) }
@@ -350,8 +406,8 @@ internal object ConfigPresetStore {
         section: ConfigPresetSection,
         current: JsonObject,
         preset: JsonObject
-    ): List<ConfigPresetChange> = when (section) {
-        ConfigPresetSection.APPEARANCE -> {
+    ): List<ConfigPresetChange> = when (section.id) {
+        ConfigPresetSection.APPEARANCE.id -> {
             val before = current[ConfigBackupCodec.CUSTOMIZATION_KEY]
             val after = preset[ConfigBackupCodec.CUSTOMIZATION_KEY]
             // 外观文档整份替换，只报一条差异；界面据此展示「整份替换」文案。
@@ -361,20 +417,20 @@ internal object ConfigPresetStore {
                 listOf(ConfigPresetChange(ConfigBackupCodec.CUSTOMIZATION_KEY, "", ""))
             }
         }
-        ConfigPresetSection.BEHAVIOR -> diffObject(
+        ConfigPresetSection.BEHAVIOR.id -> diffObject(
             current[ConfigBackupCodec.PREFERENCES_KEY],
             preset[ConfigBackupCodec.PREFERENCES_KEY]
         )
-        ConfigPresetSection.APP_UI -> diffObject(
+        ConfigPresetSection.APP_UI.id -> diffObject(
             current[ConfigBackupCodec.APP_UI_KEY],
             preset[ConfigBackupCodec.APP_UI_KEY]
         )
-        ConfigPresetSection.LYRIC_SOURCE -> diffPrimitive(
+        ConfigPresetSection.LYRIC_SOURCE.id -> diffPrimitive(
             ConfigBackupCodec.LYRIC_SOURCE_KEY,
             current[ConfigBackupCodec.LYRIC_SOURCE_KEY],
             preset[ConfigBackupCodec.LYRIC_SOURCE_KEY]
         )
-        ConfigPresetSection.INTERFACE ->
+        ConfigPresetSection.INTERFACE.id ->
             diffPrimitive(
                 ConfigBackupCodec.UI_LANGUAGE_KEY,
                 current[ConfigBackupCodec.UI_LANGUAGE_KEY],
@@ -383,14 +439,18 @@ internal object ConfigPresetStore {
                 current[ConfigBackupCodec.APP_NAVIGATION_KEY],
                 preset[ConfigBackupCodec.APP_NAVIGATION_KEY]
             )
-        ConfigPresetSection.DIAGNOSTICS -> diffObject(
+        ConfigPresetSection.DIAGNOSTICS.id -> diffObject(
             current[ConfigBackupCodec.DIAGNOSTICS_KEY],
             preset[ConfigBackupCodec.DIAGNOSTICS_KEY]
         )
-        ConfigPresetSection.PLUGINS -> diffPluginSettings(
+        ConfigPresetSection.PLUGINS.id -> diffPluginSettings(
             current[ConfigBackupCodec.PLUGIN_SETTINGS_KEY],
             preset[ConfigBackupCodec.PLUGIN_SETTINGS_KEY]
         )
+        // 当前版本还不认识的分节：按路径展开对象差异，至少让用户看到会改动哪些键。
+        else -> section.envelopeKeys.flatMap { key ->
+            diffGeneric(key, current[key], preset[key])
+        }
     }
 
     private fun diffPrimitive(
@@ -412,6 +472,38 @@ internal object ConfigPresetStore {
                 changes += ConfigPresetChange(key, current.displayValue(), value.displayValue())
             }
         }
+        return changes
+    }
+
+    /**
+     * 未知分节的通用差异：对象递归展开成 `key.subkey` 路径，数组/标量各报一条。
+     * 这样后续版本新增的设置面也能在旧版本的预览里显示改动点。
+     */
+    private fun diffGeneric(
+        key: String,
+        before: JsonElement?,
+        after: JsonElement?
+    ): List<ConfigPresetChange> {
+        if (before == null || after == null || before == after) return emptyList()
+        val beforeObject = before as? JsonObject
+        val afterObject = after as? JsonObject
+        if (beforeObject == null || afterObject == null) {
+            return listOf(ConfigPresetChange(key, before.displayValue(), after.displayValue()))
+        }
+        val changes = mutableListOf<ConfigPresetChange>()
+        fun walk(prefix: String, left: JsonObject, right: JsonObject) {
+            right.forEach { (childKey, value) ->
+                val path = if (prefix.isEmpty()) childKey else "$prefix.$childKey"
+                val old = left[childKey]
+                if (old == value) return@forEach
+                if (old is JsonObject && value is JsonObject) {
+                    walk(path, old, value)
+                } else {
+                    changes += ConfigPresetChange(path, old.displayValue(), value.displayValue())
+                }
+            }
+        }
+        walk(key, beforeObject, afterObject)
         return changes
     }
 

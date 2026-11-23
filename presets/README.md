@@ -16,9 +16,12 @@ preset JSON and are published to the cloud preset hub (`presets` release, `prese
 - `manifest.json` is the same shape the app reads from the cloud hub
   (`format: hyperglow-preset-hub`, `version: 1`, `presets: [...]`).
 - Each individual file is one entry of that manifest.
-- Every payload is a `hyperglow-config-backup` envelope with only the `customization` section:
-  applying one replaces the whole lyrics appearance document (both lock screen and AOD), and
-  leaves behavior/appearance/plugin settings untouched.
+- The preset model is section-agnostic: the app discovers sections from the top-level keys of the
+  config backup envelope, so settings added by future versions are captured automatically. The
+  hub preserves unknown sections verbatim instead of applying a fixed allowlist.
+- These six curated files currently carry only the `customization` section: applying one replaces
+  the whole lyrics appearance document (both lock screen and AOD) and leaves behaviour, app
+  appearance and plugin settings untouched. Presets created in the app may carry every section.
 - The cloud copies are curated (`author: aodianjun`, no anonymous `owner`), so they cannot be
   overwritten through the anonymous upload path.
 

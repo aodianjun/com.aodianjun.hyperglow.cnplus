@@ -5,8 +5,9 @@
 // 读取仍然可以直接走 GitHub（公开 Release），这个 Worker 只处理上传。
 //
 // 安全边界：
-// - 只接受配置备份信封（format/version 固定），只放行白名单分节；
-//   `pluginSettings` 等未知分节一律拒绝，防止把插件 API Key 发到公开清单。
+// - 只接受配置备份信封（format/version 固定）；分节不做固定白名单，未知顶层键原样保留，
+//   这样后续版本新增的设置面无需先改 Hub 就能上传。插件设置由 App 默认不勾选，
+//   只有用户明确选择才会进入公开清单。
 // - 单条 256 KiB、清单 8 MiB / 100 条。
 // - 每 IP 每小时 10 次（需要绑定 KV；未绑定则跳过限流，见 README）。
 // - 匿名上传用 `X-HyperGlow-Device` 的哈希做归属：只有同一设备能覆盖自己上传的条目，
@@ -21,15 +22,9 @@ const MANIFEST_VERSION = 1;
 const BACKUP_FORMAT = "hyperglow-config-backup";
 const BACKUP_VERSION = 1;
 
-const ALLOWED_SECTIONS = new Set([
-  "customization",
-  "renderPreferences",
-  "appUiAppearance",
-  "lyricSource",
-  "uiLanguage",
-  "appNavigation",
-  "diagnostics",
-]);
+// 分节名只做形状约束（同时挡掉 __proto__ 之类的键），不维护已知键白名单。
+const SECTION_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+const MAX_SECTIONS = 64;
 
 const MAX_PRESET_BYTES = 256 * 1024;
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
@@ -57,6 +52,7 @@ async function route(request, env) {
       repo: repoOf(env),
       tag: tagOf(env),
       upload: "POST /api/presets",
+      delete: "POST /api/presets/delete",
       list: "GET /api/presets",
     });
   }
@@ -65,6 +61,9 @@ async function route(request, env) {
   }
   if (url.pathname === "/api/presets" && request.method === "POST") {
     return uploadPreset(request, env);
+  }
+  if (url.pathname === "/api/presets/delete" && request.method === "POST") {
+    return deletePreset(request, env);
   }
   return json({ error: "not_found" }, 404);
 }
@@ -129,19 +128,87 @@ function normalizePreset(body) {
   if (payload.format !== BACKUP_FORMAT || payload.version !== BACKUP_VERSION) return null;
 
   const filtered = { format: BACKUP_FORMAT, version: BACKUP_VERSION };
+  let sectionCount = 0;
   for (const [key, value] of Object.entries(payload)) {
     if (key === "format" || key === "version") continue;
-    // 未知键（包括 pluginSettings）直接拒绝：宁可让用户改选分节，也不把敏感设置公开。
-    if (!ALLOWED_SECTIONS.has(key)) return null;
+    // 任意合法顶层分节都原样保留（前向兼容后续版本新增的设置）。
+    if (!SECTION_KEY_PATTERN.test(key)) return null;
+    if (value === null || typeof value === "undefined") return null;
+    if (++sectionCount > MAX_SECTIONS) return null;
     filtered[key] = value;
   }
-  if (Object.keys(filtered).length <= 2) return null;
+  if (sectionCount === 0) return null;
   if (byteLength(JSON.stringify(filtered)) > MAX_PRESET_BYTES) return null;
 
   const id = typeof body.id === "string" && /^[A-Za-z0-9._-]{1,80}$/.test(body.id)
     ? body.id
     : crypto.randomUUID();
   return { id, name, note, author, payload: filtered };
+}
+
+/**
+ * 删除自己上传的条目。归属校验与上传同一套 owner 哈希：没有 owner（Token 上传/精选）
+ * 或 owner 不匹配都返回 403，只有原上传设备能删。
+ */
+async function deletePreset(request, env) {
+  if (!env.GITHUB_TOKEN) return json({ error: "server_not_configured" }, 500);
+  if (await rateLimited(request, env)) return json({ error: "rate_limited" }, 429);
+
+  const declaredLength = Number(request.headers.get("content-length") || "0");
+  if (declaredLength > 4096) return json({ error: "too_large" }, 413);
+  const rawBody = await request.text();
+  if (byteLength(rawBody) > 4096) return json({ error: "too_large" }, 413);
+
+  let body;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+  const id = typeof body?.id === "string" ? body.id.trim() : "";
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(id)) return json({ error: "invalid_id" }, 400);
+
+  const device = (request.headers.get("X-HyperGlow-Device") || "").trim();
+  if (!device || device.length > 128) return json({ error: "missing_device" }, 400);
+
+  try {
+    const owner = await ownerHash(device, env.OWNER_SALT || "");
+    const gh = github(env);
+    const release = await getRelease(gh);
+    if (!release) return json({ error: "not_found" }, 404);
+    const asset = release.assets.find((item) => item.name === ASSET_NAME);
+    if (!asset) return json({ error: "not_found" }, 404);
+
+    const manifest = parseManifest(await downloadAsset(gh, asset.id));
+    if (!manifest) throw new HttpError(502, "bad_manifest");
+    const existing = manifest.presets.find((item) => item.id === id);
+    if (!existing) return json({ error: "not_found" }, 404);
+    if (!existing.owner || existing.owner !== owner) {
+      return json({ error: "not_owner" }, 403);
+    }
+
+    const next = {
+      format: MANIFEST_FORMAT,
+      version: MANIFEST_VERSION,
+      updatedAt: Date.now(),
+      presets: manifest.presets.filter((item) => item.id !== id),
+    };
+    const nextJson = JSON.stringify(next);
+    if (byteLength(nextJson) > MAX_MANIFEST_BYTES) {
+      throw new HttpError(413, "manifest_too_large");
+    }
+    if (env.RATE_LIMIT) {
+      await env.RATE_LIMIT.put("manifest_backup", nextJson, { expirationTtl: 30 * 86_400 });
+    }
+    await deleteAsset(gh, asset.id);
+    await uploadAsset(gh, release.uploadUrl, nextJson);
+    return json({ ok: true, id });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 502;
+    const code = error instanceof HttpError ? error.code : "github_failed";
+    console.error(`delete rejected: ${code} (${status})`);
+    return json({ error: code }, status);
+  }
 }
 
 async function updateManifest(env, preset, owner) {
