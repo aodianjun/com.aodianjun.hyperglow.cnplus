@@ -239,6 +239,24 @@ data class SurfaceProfile(
     /** 卡片背景色 token,见 [CARD_COLOR_VALUES]。 */
     val cardColor: String = "black",
     /**
+     * 锁屏歌词卡片材质 token,见 [CARD_MATERIAL_VALUES]。默认 solid = 既有纯色卡片;
+     * 其余档位使用材质自带的模糊底与透明度,不再读取 [cardColor]/[cardAlpha]。
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val cardMaterial: String = DEFAULT_CARD_MATERIAL,
+    /** 卡片 HDR 高光:增强边缘高光峰值与光晕;默认关,保持旧版卡片观感。 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val cardHdrHighlight: Boolean = false,
+    /** 玻璃材质模糊层的不透明度,0-100;仅 cardMaterial != solid 时生效。 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val cardMaterialAlpha: Int = DEFAULT_CARD_MATERIAL_ALPHA,
+    /**
+     * 玻璃材质的完整调节参数,字段与默认值对齐 HyperIsland 的材质页
+     * (blur 之外的全部滑条)。默认对象不落盘,保持旧配置哈希。
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val cardMaterialTuning: CardMaterialTuning = CardMaterialTuning(),
+    /**
      * 歌曲信息显示部分(歌名/歌手/专辑),顺序即显示顺序;每个 surface 独立设置,
      * 修改本面不影响另一面。null = 继承文档级 [CustomizationDocument.metadataParts]
      * (旧配置升级时的默认值,见 SceneCompiler 的解析)。
@@ -382,6 +400,18 @@ data class CompiledSurfaceProfile(
     val cardAlpha: Int = 85,
     /** 卡片背景色 token,见 [CARD_COLOR_VALUES]。仅当 backgroundStyle=="card" 时生效。 */
     val cardColor: String = "black",
+    /** 卡片材质 token,见 [CARD_MATERIAL_VALUES];default 省略以保持旧配置哈希。 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val cardMaterial: String = DEFAULT_CARD_MATERIAL,
+    /** 卡片 HDR 高光开关;default false 省略。 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val cardHdrHighlight: Boolean = false,
+    /** 玻璃材质模糊层不透明度,0-100;仅 cardMaterial != solid 时生效。 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val cardMaterialAlpha: Int = DEFAULT_CARD_MATERIAL_ALPHA,
+    /** 玻璃材质完整调节参数,见 [CardMaterialTuning];默认对象不落盘。 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val cardMaterialTuning: CardMaterialTuning = CardMaterialTuning(),
     val metadataSizePercent: Int = 100,
     /** 歌曲信息布局(stacked/single),见 [SurfaceProfile.metadataLayout];编译时经 [normalizeMetadataLayout] 归一。 */
     val metadataLayout: String = METADATA_LAYOUT_STACKED,
@@ -456,10 +486,111 @@ val CARD_COLOR_VALUES = setOf("black", "dark_gray", "white", "accent", "blur")
 const val DEFAULT_CARD_ALPHA = 85
 const val DEFAULT_CARD_COLOR = "black"
 
+/**
+ * 锁屏歌词卡片材质 token。solid 保持既有纯色卡片;其余档位在底色上叠加
+ * 高斯模糊底纹、定向高光边、液态高光或柔光晕。
+ */
+val CARD_MATERIAL_VALUES = setOf(
+    CARD_MATERIAL_SOLID,
+    CARD_MATERIAL_GAUSSIAN,
+    CARD_MATERIAL_HIGHLIGHT,
+    CARD_MATERIAL_LIQUID,
+    CARD_MATERIAL_SOFT
+)
+const val CARD_MATERIAL_SOLID = "solid"
+const val CARD_MATERIAL_GAUSSIAN = "gaussian"
+const val CARD_MATERIAL_HIGHLIGHT = "highlight_glass"
+const val CARD_MATERIAL_LIQUID = "liquid_glass"
+const val CARD_MATERIAL_SOFT = "soft_glass"
+const val DEFAULT_CARD_MATERIAL = CARD_MATERIAL_SOLID
+const val DEFAULT_CARD_MATERIAL_ALPHA = 100
+
+/**
+ * 玻璃材质的完整调节参数,字段名/默认值与 HyperIsland 材质页一一对应
+ * (`blur` 由既有 [SurfaceProfile.cardMaterialAlpha] 承载)。
+ *
+ * 玻璃组(highlight/liquid)直接映射到卡片边缘 shader:edgeThickness/refraction/
+ * reflectionStrength/darker/lightDirection/dispersion。柔光组在自绘 shader 上取
+ * 可表达的字段,`backgroundSaturation`/`backgroundBrightness` 另用于静态壁纸预模糊;
+ * 系统级实时模糊由 SurfaceFlinger 合成,无法逐像素改色,这两个值只影响回落路径。
+ */
+@Serializable
+data class CardMaterialTuning(
+    val softLight: Float = 0f,
+    val saturation: Float = 0f,
+    val brightness: Float = 0f,
+    val softDarker: Float = 0f,
+    val transparency: Float = -0.57f,
+    val burn: Float = 0f,
+    val softRefraction: Float = 0f,
+    val softEdgeThickness: Float = 0.8f,
+    val softShapeEdgeWidth: Float = 0f,
+    val softShapeEdgePower: Float = 0f,
+    val softReflectionLighten: Float = 0f,
+    val softReflection: Float = 0f,
+    val directionalLightIntensity: Float = 1f,
+    val backgroundSaturation: Float = 0f,
+    val backgroundBrightness: Float = 0.04f,
+    val refraction: Int = 16,
+    val edgeThickness: Int = 16,
+    val reflectionStrength: Int = 42,
+    val darker: Int = 14,
+    val lightDirection: Int = 243,
+    val dispersion: Int = 18,
+    val blendColor: String = "#FFFFFF",
+    val blendOpacity: Int = 0,
+    val highlight: Boolean = true
+)
+
+private val MATERIAL_BLEND_COLOR = Regex("""^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$""")
+
+/** 只接受 `#RRGGBB`/`#AARRGGBB`(可省略 #);非法值回落白色,避免把坏色带进 shader。 */
+internal fun normalizeMaterialBlendColor(raw: String): String {
+    val trimmed = raw.trim()
+    val token = if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+    return if (MATERIAL_BLEND_COLOR.matches(token)) token.uppercase() else "#FFFFFF"
+}
+
+/** 与 HyperIsland 的 optInt/optDouble 同域钳制;旧配置缺字段时保持数据类默认值。 */
+internal fun normalizeCardMaterialTuning(value: CardMaterialTuning): CardMaterialTuning {
+    fun decimal(raw: Float): Float = raw.coerceIn(-50f, 50f)
+    return CardMaterialTuning(
+        softLight = decimal(value.softLight),
+        saturation = decimal(value.saturation),
+        brightness = decimal(value.brightness),
+        softDarker = decimal(value.softDarker),
+        transparency = decimal(value.transparency),
+        burn = decimal(value.burn),
+        softRefraction = decimal(value.softRefraction),
+        softEdgeThickness = decimal(value.softEdgeThickness),
+        softShapeEdgeWidth = decimal(value.softShapeEdgeWidth),
+        softShapeEdgePower = decimal(value.softShapeEdgePower),
+        softReflectionLighten = decimal(value.softReflectionLighten),
+        softReflection = decimal(value.softReflection),
+        directionalLightIntensity = decimal(value.directionalLightIntensity),
+        backgroundSaturation = decimal(value.backgroundSaturation),
+        backgroundBrightness = decimal(value.backgroundBrightness),
+        refraction = value.refraction.coerceIn(0, 40),
+        edgeThickness = value.edgeThickness.coerceIn(4, 40),
+        reflectionStrength = value.reflectionStrength.coerceIn(0, 100),
+        darker = value.darker.coerceIn(0, 100),
+        lightDirection = ((value.lightDirection % 360) + 360) % 360,
+        dispersion = value.dispersion.coerceIn(0, 100),
+        blendColor = normalizeMaterialBlendColor(value.blendColor),
+        blendOpacity = value.blendOpacity.coerceIn(0, 100),
+        highlight = value.highlight
+    )
+}
+
 internal fun normalizeCardAlpha(value: Int): Int = value.coerceIn(0, 100)
+
+internal fun normalizeCardMaterialAlpha(value: Int): Int = value.coerceIn(0, 100)
 
 internal fun normalizeCardColor(value: String): String =
     value.takeIf { it in CARD_COLOR_VALUES } ?: DEFAULT_CARD_COLOR
+
+internal fun normalizeCardMaterial(value: String): String =
+    value.takeIf { it in CARD_MATERIAL_VALUES } ?: DEFAULT_CARD_MATERIAL
 
 internal fun normalizeLyricLineLimit(value: Int): Int = when (value) {
     NO_LYRIC_LINE_LIMIT,

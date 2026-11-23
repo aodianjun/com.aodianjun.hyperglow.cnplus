@@ -83,6 +83,10 @@ class MainActivity : ComponentActivity() {
                         LocalAppBackgroundActive provides appAppearance.hasBackgroundImage,
                         LocalAppControlColor provides appAppearance.controlColorArgb?.let { ComposeColor(it) },
                         LocalAppControlOpacity provides appAppearance.controlOpacityPercent / 100f,
+                        LocalAppGlassMaterial provides appAppearance.glassMaterial,
+                        LocalAppGlassHdrHighlight provides appAppearance.hdrHighlight,
+                        LocalAppGlassTuning provides appAppearance.glassTuning,
+                        LocalAppGlassBlurPercent provides appAppearance.glassBlurPercent,
                         LocalAppLayerBackdrop provides layerBackdrop
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
@@ -357,54 +361,63 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 背景图片层:图片铺满并按设置模糊后叠遮罩保证可读性;无图片或解码失败时不绘制任何内容。
- *  该层同时作为 backdrop 源被记录,供各屏顶栏的渐变模糊采样。
+/** 背景层:图片铺满并按设置模糊后叠遮罩保证可读性;启用了玻璃材质时即使没有图片也绘制
+ *  主题底色,为顶栏/卡片/底栏的 backdrop 采样提供不透明内容(否则模糊会采到透明黑)。
+ *  该层同时作为 backdrop 源被记录,供各屏顶栏与玻璃表面采样。
  *  解码(本地估算 50–300ms/次,真机未测)搬 IO 通道:以 mtime 为代次键,换图时
- *  latest wins(旧结果不覆盖新选择);首次加载完成前不绘制(与解码失败回落一致),
- *  换图期间保留上一张,避免闪回空底。 */
+ *  latest wins(旧结果不覆盖新选择);首次加载完成前保留主题底色,换图期间保留上一张,
+ *  避免闪回空底。 */
 @Composable
 private fun AppBackgroundLayer(
     appearance: AppUiAppearance,
     darkTheme: Boolean,
     layerBackdrop: LayerBackdrop
 ) {
-    if (!appearance.hasBackgroundImage) return
+    val materialActive = appearance.glassMaterial != AppGlassMaterial.NONE
+    if (!appearance.hasBackgroundImage && !materialActive) return
     val context = LocalContext.current
-    val bitmap = rememberAppAsyncResource<ImageBitmap>(appearance.backgroundImageMtime) {
-        loadAppBackgroundBitmap(context)?.asImageBitmap()
-    } ?: return
+    val bitmap = if (appearance.hasBackgroundImage) {
+        rememberAppAsyncResource<ImageBitmap>(appearance.backgroundImageMtime) {
+            loadAppBackgroundBitmap(context)?.asImageBitmap()
+        }
+    } else {
+        null
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .layerBackdrop(layerBackdrop)
+            .background(MiuixTheme.colorScheme.surface)
     ) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (appearance.backgroundBlurPercent > 0) {
-                        Modifier.blur(
-                            radius = backgroundBlurRadius(appearance.backgroundBlurPercent),
-                            edgeTreatment = BlurredEdgeTreatment.Unbounded
-                        )
-                    } else {
-                        Modifier
-                    }
-                )
-        )
-        val dim = appearance.backgroundDimPercent / 100f
-        if (dim > 0f) {
-            Box(
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        (if (darkTheme) ComposeColor(0xFF000000) else ComposeColor(0xFFFFFFFF))
-                            .copy(alpha = dim)
+                    .then(
+                        if (appearance.backgroundBlurPercent > 0) {
+                            Modifier.blur(
+                                radius = backgroundBlurRadius(appearance.backgroundBlurPercent),
+                                edgeTreatment = BlurredEdgeTreatment.Unbounded
+                            )
+                        } else {
+                            Modifier
+                        }
                     )
             )
+            val dim = appearance.backgroundDimPercent / 100f
+            if (dim > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            (if (darkTheme) ComposeColor(0xFF000000) else ComposeColor(0xFFFFFFFF))
+                                .copy(alpha = dim)
+                        )
+                )
+            }
         }
     }
 }

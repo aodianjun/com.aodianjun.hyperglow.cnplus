@@ -3,6 +3,7 @@ package com.eza.hyperglow.ui
 import com.eza.hyperglow.DiagnosticLogLevel
 import com.eza.hyperglow.aod.AodRenderConfig
 import com.eza.hyperglow.aod.AodRenderPreferences
+import com.eza.hyperglow.customization.CardMaterialTuning
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.customization.SurfaceProfile
@@ -86,6 +87,16 @@ class ConfigBackupCodecTest {
             textColorArgb = 0xFFFF8800.toInt(),
             fontFamily = "custom:myfont",
             systemBarIcons = AppSystemBarIcons.LIGHT,
+            glassMaterial = AppGlassMaterial.LIQUID,
+            hdrHighlight = true,
+            glassBlurPercent = 77,
+            glassTuning = CardMaterialTuning(
+                edgeThickness = 33,
+                lightDirection = 123,
+                blendColor = "#123456",
+                blendOpacity = 55,
+                softLight = 4.5f
+            ),
             floatingNavBar = false
         ),
         uiLanguage = UiLanguage.SIMPLIFIED_CHINESE,
@@ -364,7 +375,9 @@ class ConfigBackupCodecTest {
                 "background_dim_percent": 250,
                 "background_blur_percent": "far",
                 "control_color_argb": "far",
-                "control_opacity_percent": 250
+                "control_opacity_percent": 250,
+                "glass_material": "ALIEN",
+                "hdr_highlight": "yes"
               },
               "diagnostics": {
                 "diagnostic_logging": "yes",
@@ -383,6 +396,10 @@ class ConfigBackupCodecTest {
         assertEquals(DEFAULT_BACKGROUND_BLUR_PERCENT, appearance.backgroundBlurPercent)
         assertEquals(null, appearance.controlColorArgb)
         assertEquals(100, appearance.controlOpacityPercent)
+        assertEquals(AppGlassMaterial.NONE, appearance.glassMaterial)
+        assertEquals(false, appearance.hdrHighlight)
+        assertEquals(50, appearance.glassBlurPercent)
+        assertEquals(CardMaterialTuning(), appearance.glassTuning)
         assertEquals(false, side.diagnosticLogging)
         assertEquals(7, side.logRetentionDays)
     }

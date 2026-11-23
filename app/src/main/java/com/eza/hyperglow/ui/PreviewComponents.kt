@@ -1,6 +1,7 @@
 package com.eza.hyperglow.ui
 
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.TextPaint
 import androidx.compose.animation.animateContentSize
@@ -48,6 +49,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
@@ -80,6 +82,10 @@ import com.eza.hyperglow.customization.ArtworkDisplayConfig
 import com.eza.hyperglow.customization.SPECTRUM_BASE_HEIGHT_DP
 import com.eza.hyperglow.customization.artworkDisplayConfig
 import com.eza.hyperglow.customization.CustomFontContract
+import com.eza.hyperglow.customization.CardMaterialTuning
+import com.eza.hyperglow.customization.DEFAULT_CARD_MATERIAL
+import com.eza.hyperglow.customization.normalizeCardMaterial
+import com.eza.hyperglow.customization.normalizeCardMaterialTuning
 import com.eza.hyperglow.customization.DEFAULT_SONG_INFO_ARTIST_SIZE_PERCENT
 import com.eza.hyperglow.customization.METADATA_LAYOUT_STACKED
 import com.eza.hyperglow.customization.METADATA_LAYOUT_SINGLE
@@ -147,6 +153,7 @@ import com.eza.hyperglow.root.aod.metadataTextSizeSp
 import com.eza.hyperglow.root.aod.nextLineTextSizeSp
 import com.eza.hyperglow.root.aod.pureMusicDisplayText
 import com.eza.hyperglow.customization.SpectrumSpec
+import com.eza.hyperglow.root.lockscreen.LyricCardMaterialRenderer
 import com.eza.hyperglow.root.aod.resolveAodPalette
 import com.eza.hyperglow.root.aod.resolvedLyricLayoutLineLimit
 import com.eza.hyperglow.root.aod.OriginalLinePath
@@ -694,12 +701,51 @@ private fun LyricPreviewSurface(
         // 锁屏卡片背景(息屏强制无卡片背景)。卡片背景铺满面板,面板高度随歌词内容自适应,
         // 与实机卡片背景(AdaptiveLyricCardBackgroundView)随内容收缩的语义一致。
         if (profile.backgroundStyle == "card") {
+            val density = LocalDensity.current.density
+            val materialRenderer = remember(density) { LyricCardMaterialRenderer(density) }
+            val material = normalizeCardMaterial(profile.cardMaterial)
+            val materialTuning = normalizeCardMaterialTuning(profile.cardMaterialTuning)
+            val cardFill = if (material == DEFAULT_CARD_MATERIAL) {
+                previewCardColor(profile.cardColor, profile.cardAlpha)
+            } else {
+                // 玻璃材质不注入卡片颜色/透明度;预览没有壁纸模糊,用近似半透明底。
+                previewGlassColor()
+            }
             Box(
                 Modifier
                     .matchParentSize()
                     .padding(4.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(previewCardColor(profile.cardColor, profile.cardAlpha))
+                    .drawBehind {
+                        // 材质层复用 SystemUI 卡片渲染器,预览与锁屏同源
+                        // (固定光位,预览不做传感器倾斜,也没有实机壁纸模糊)。
+                        val radius = 14.dp.toPx()
+                        drawRoundRect(
+                            color = cardFill,
+                            cornerRadius = CornerRadius(radius, radius)
+                        )
+                        if (material != DEFAULT_CARD_MATERIAL) {
+                            previewMaterialTint(materialTuning)?.let { tint ->
+                                drawRoundRect(
+                                    color = tint,
+                                    cornerRadius = CornerRadius(radius, radius)
+                                )
+                            }
+                            val angle = materialTuning.lightDirection * Math.PI.toFloat() / 180f
+                            drawIntoCanvas { canvas ->
+                                materialRenderer.draw(
+                                    canvas = canvas.nativeCanvas,
+                                    bounds = RectF(0f, 0f, size.width, size.height),
+                                    cornerRadiusPx = radius,
+                                    materialToken = material,
+                                    hdrHighlight = profile.cardHdrHighlight,
+                                    lightX = kotlin.math.cos(angle),
+                                    lightY = kotlin.math.sin(angle),
+                                    tuning = materialTuning
+                                )
+                            }
+                        }
+                    }
             )
         }
         Column(
@@ -1897,6 +1943,23 @@ internal fun previewCardColor(cardColor: String, cardAlpha: Int): ComposeColor {
     // 卡片色与实机 AdaptiveLyricCardBackgroundView.cardColorRgb 同一 token 映射,alpha 由 cardAlpha 单独控制。
     val rgb = cardColorRgb(cardColor) and 0x00FFFFFF
     return ComposeColor(0xFF000000.toInt() or rgb).copy(alpha = cardAlpha.coerceIn(0, 100) / 100f)
+}
+
+/** 玻璃材质的预览近似底色:不使用 cardColor/cardAlpha,只给一层固定的中性半透明底。 */
+internal fun previewGlassColor(): ComposeColor =
+    ComposeColor(0xFF000000.toInt()).copy(alpha = 0.32f)
+
+/** 材质页 blendColor/blendOpacity 的预览近似(柔光档叠 transparency)。 */
+internal fun previewMaterialTint(tuning: CardMaterialTuning): ComposeColor? {
+    if (tuning.blendOpacity <= 0) return null
+    val base = runCatching {
+        android.graphics.Color.parseColor(tuning.blendColor)
+    }.getOrDefault(android.graphics.Color.WHITE)
+    val transparency = (1f + tuning.transparency.coerceIn(-50f, 50f) / 100f).coerceIn(0f, 1f)
+    val alpha = tuning.blendOpacity.coerceIn(0, 100) / 100f *
+        (android.graphics.Color.alpha(base) / 255f) * transparency
+    if (alpha <= 0f) return null
+    return ComposeColor(base).copy(alpha = alpha.coerceIn(0f, 1f))
 }
 
 /** 预览主歌词行布局:行断点来自共享引擎,基线/对齐 X 按实机行距公式解析。 */

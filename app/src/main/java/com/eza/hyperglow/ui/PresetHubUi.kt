@@ -88,13 +88,24 @@ internal fun PresetPreviewCard(
     badge: String? = null,
     onClick: () -> Unit
 ) {
+    val glass = isAppGlassMaterialActive()
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .height(188.dp)
+            .then(
+                if (glass) {
+                    Modifier.appGlassMaterial(
+                        RoundedCornerShape(CardDefaults.CornerRadius),
+                        cornerRadius = CardDefaults.CornerRadius
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .clickable(onClick = onClick),
         colors = CardDefaults.defaultColors(
-            color = appCardContainerColor(),
+            color = if (glass) Color.Transparent else appCardContainerColor(),
             contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
         )
     ) {
@@ -291,10 +302,22 @@ internal fun PresetGridSearchField(
     value: String,
     onValueChange: (String) -> Unit
 ) {
+    val glass = isAppGlassMaterialActive()
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (glass) {
+                    Modifier.appGlassMaterial(
+                        RoundedCornerShape(CardDefaults.CornerRadius),
+                        cornerRadius = CardDefaults.CornerRadius
+                    )
+                } else {
+                    Modifier
+                }
+            ),
         colors = CardDefaults.defaultColors(
-            color = appCardContainerColor(),
+            color = if (glass) Color.Transparent else appCardContainerColor(),
             contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
         )
     ) {

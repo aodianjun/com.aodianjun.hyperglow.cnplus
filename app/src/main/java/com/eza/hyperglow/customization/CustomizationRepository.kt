@@ -344,6 +344,11 @@ object CustomizationRepository {
         backgroundStyle = backgroundStyle,
         cardAlpha = cardAlpha,
         cardColor = cardColor,
+        // 卡片材质同样必须逐字段带上,否则存盘/导入会静默回落到纯色。
+        cardMaterial = cardMaterial,
+        cardHdrHighlight = cardHdrHighlight,
+        cardMaterialAlpha = cardMaterialAlpha,
+        cardMaterialTuning = cardMaterialTuning,
         // 频谱配置:canonicalize 逐字段重建时必须带上,否则保存/加载/导出会静默丢失,
         // 设置页开关会表现为“点开又弹回”。
         spectrum = spectrum

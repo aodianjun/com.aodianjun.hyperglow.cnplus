@@ -2,6 +2,9 @@ package com.eza.hyperglow.ui
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import com.eza.hyperglow.customization.CardMaterialTuning
+import com.eza.hyperglow.customization.SceneCompiler
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -26,6 +29,8 @@ class AppUiAppearanceTest {
         assertEquals(null, appearance.textColorArgb)
         assertEquals(FONT_FAMILY_SYSTEM, appearance.fontFamily)
         assertEquals(AppSystemBarIcons.AUTO, appearance.systemBarIcons)
+        assertEquals(AppGlassMaterial.NONE, appearance.glassMaterial)
+        assertFalse(appearance.hdrHighlight)
     }
 
     @Test
@@ -43,7 +48,9 @@ class AppUiAppearanceTest {
                 "control_opacity_percent" to "far",
                 "text_color_argb" to "red",
                 "font_family" to "ALIEN",
-                "system_bar_icons" to "ALIEN"
+                "system_bar_icons" to "ALIEN",
+                "glass_material" to "ALIEN",
+                "hdr_highlight" to "yes"
             )
         )
         assertEquals(AppThemeMode.SYSTEM, appearance.themeMode)
@@ -57,6 +64,8 @@ class AppUiAppearanceTest {
         assertEquals(null, appearance.textColorArgb)
         assertEquals(FONT_FAMILY_SYSTEM, appearance.fontFamily)
         assertEquals(AppSystemBarIcons.AUTO, appearance.systemBarIcons)
+        assertEquals(AppGlassMaterial.NONE, appearance.glassMaterial)
+        assertFalse(appearance.hdrHighlight)
     }
 
     @Test
@@ -74,7 +83,9 @@ class AppUiAppearanceTest {
                 "control_opacity_percent" to 250,
                 "text_color_argb" to 0xFFFF8800.toInt(),
                 "font_family" to "custom:myfont",
-                "system_bar_icons" to "LIGHT"
+                "system_bar_icons" to "LIGHT",
+                "glass_material" to "SOFT",
+                "hdr_highlight" to true
             )
         )
         assertEquals(AppThemeMode.DARK, appearance.themeMode)
@@ -89,6 +100,43 @@ class AppUiAppearanceTest {
         assertEquals(0xFFFF8800.toInt(), appearance.textColorArgb)
         assertEquals("custom:myfont", appearance.fontFamily)
         assertEquals(AppSystemBarIcons.LIGHT, appearance.systemBarIcons)
+        assertEquals(AppGlassMaterial.SOFT, appearance.glassMaterial)
+        assertTrue(appearance.hdrHighlight)
+    }
+
+    @Test
+    fun glassTuningRoundTripsAndInvalidValuesFallBack() {
+        val defaults = normalizeAppUiAppearance(emptyMap())
+        assertEquals(50, defaults.glassBlurPercent)
+        assertEquals(CardMaterialTuning(), defaults.glassTuning)
+
+        val raw = SceneCompiler.json.encodeToString(
+            CardMaterialTuning.serializer(),
+            CardMaterialTuning(
+                edgeThickness = 99,
+                lightDirection = -10,
+                blendColor = "not-a-color",
+                blendOpacity = 70,
+                softLight = 99f
+            )
+        )
+        val parsed = normalizeAppUiAppearance(
+            mapOf(
+                "glass_blur_percent" to 250,
+                "glass_tuning" to raw
+            )
+        )
+        assertEquals(100, parsed.glassBlurPercent)
+        assertEquals(40, parsed.glassTuning.edgeThickness)
+        assertEquals(350, parsed.glassTuning.lightDirection)
+        assertEquals("#FFFFFF", parsed.glassTuning.blendColor)
+        assertEquals(70, parsed.glassTuning.blendOpacity)
+        assertEquals(50f, parsed.glassTuning.softLight, 0.001f)
+
+        assertEquals(
+            CardMaterialTuning(),
+            normalizeAppUiAppearance(mapOf("glass_tuning" to "{broken")).glassTuning
+        )
     }
 
     @Test

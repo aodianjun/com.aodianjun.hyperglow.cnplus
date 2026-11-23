@@ -24,3 +24,13 @@ Bundled Noto Sans Regular, Medium, and Bold fonts:
 Copyright 2015-2021 Google LLC. All Rights Reserved.
 Licensed under the SIL Open Font License, Version 1.1.
 See app/src/main/assets/fonts/OFL.txt.
+
+HyperGlow contains a material edge shader adapted from HyperIsland:
+https://github.com/1812z/HyperIsland
+
+HyperIsland copyright belongs to its contributors and is licensed under the
+MIT License. See LICENSES/MIT.txt.
+The adapted file is
+app/src/main/java/com/eza/hyperglow/root/lockscreen/LyricCardMaterialRenderer.kt
+(rounded-rect SDF edge/bloom shader); the material tuning parameter set follows
+HyperIsland's material page.

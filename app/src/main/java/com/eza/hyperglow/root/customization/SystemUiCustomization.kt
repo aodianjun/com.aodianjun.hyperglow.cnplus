@@ -10,6 +10,8 @@ import com.eza.hyperglow.customization.normalizeArtworkShape
 import com.eza.hyperglow.customization.normalizeArtworkSizeDp
 import com.eza.hyperglow.customization.normalizeCardAlpha
 import com.eza.hyperglow.customization.normalizeCardColor
+import com.eza.hyperglow.customization.normalizeCardMaterial
+import com.eza.hyperglow.customization.normalizeCardMaterialAlpha
 import com.eza.hyperglow.customization.normalizeLineTransition
 import com.eza.hyperglow.customization.normalizeLineTransitionSpeed
 import com.eza.hyperglow.customization.normalizeLyricLineLimit
@@ -77,6 +79,10 @@ internal object SystemUiCustomizationValidator {
                 backgroundStyle = rawLockscreen.backgroundStyle,
                 cardAlpha = rawLockscreen.cardAlpha,
                 cardColor = rawLockscreen.cardColor,
+                cardMaterial = rawLockscreen.cardMaterial,
+                cardHdrHighlight = rawLockscreen.cardHdrHighlight,
+                cardMaterialAlpha = rawLockscreen.cardMaterialAlpha,
+                cardMaterialTuning = rawLockscreen.cardMaterialTuning,
                 metadataParts = rawAod.metadataParts,
                 metadataSeparators = rawAod.metadataSeparators,
                 duetMarkers = rawAod.duetMarkers,
@@ -237,6 +243,12 @@ internal object SystemUiCustomizationValidator {
             backgroundStyle = if (!aod && profile.backgroundStyle == "card") "card" else "none",
             cardAlpha = normalizeCardAlpha(profile.cardAlpha),
             cardColor = normalizeCardColor(profile.cardColor),
+            cardMaterial = normalizeCardMaterial(profile.cardMaterial),
+            cardHdrHighlight = profile.cardHdrHighlight,
+            cardMaterialAlpha = normalizeCardMaterialAlpha(profile.cardMaterialAlpha),
+            cardMaterialTuning = com.eza.hyperglow.customization.normalizeCardMaterialTuning(
+                profile.cardMaterialTuning
+            ),
             palette = profile.palette.asSequence()
                 .filter { it.key in SEMANTIC_COLORS && SceneCompiler.isAllowedPaletteValue(it.value) }
                 .take(SEMANTIC_COLORS.size)

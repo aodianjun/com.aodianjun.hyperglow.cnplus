@@ -52,6 +52,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.R
+import com.eza.hyperglow.customization.CARD_MATERIAL_GAUSSIAN
+import com.eza.hyperglow.customization.CARD_MATERIAL_HIGHLIGHT
+import com.eza.hyperglow.customization.CARD_MATERIAL_LIQUID
+import com.eza.hyperglow.customization.CARD_MATERIAL_SOFT
 import com.eza.hyperglow.customization.CustomFontContract
 import com.eza.hyperglow.customization.CustomFontStore
 import java.util.Locale
@@ -95,6 +99,7 @@ internal fun AppAppearanceScreen(
     var pendingBackgroundUri by remember { mutableStateOf<Uri?>(null) }
     var pendingBackgroundDim by remember { mutableStateOf(appearance.backgroundDimPercent) }
     var pendingBackgroundBlur by remember { mutableStateOf(appearance.backgroundBlurPercent) }
+    var showGlassBlendPicker by remember { mutableStateOf(false) }
 
     fun commit(next: AppUiAppearance) {
         if (updateAppUiAppearance(context, next)) {
@@ -274,6 +279,62 @@ internal fun AppAppearanceScreen(
                     )
                 }
             }
+            item { SmallTitle(text = stringResource(R.string.section_glass_material)) }
+            item {
+                SettingsCard {
+                    OverlayDropdownPreference(
+                        items = AppGlassMaterial.entries.map { appGlassMaterialLabel(context, it) },
+                        selectedIndex = appearance.glassMaterial.ordinal,
+                        title = stringResource(R.string.setting_glass_material),
+                        summary = stringResource(R.string.summary_glass_material),
+                        onSelectedIndexChange = { index ->
+                            commit(appearance.copy(glassMaterial = AppGlassMaterial.entries[index]))
+                        }
+                    )
+                    AnimatedVisibility(
+                        visible = appearance.glassMaterial != AppGlassMaterial.NONE,
+                        enter = expandVertically(animationSpec = tween(300)) +
+                            fadeIn(animationSpec = tween(220)),
+                        exit = shrinkVertically(animationSpec = tween(300)) +
+                            fadeOut(animationSpec = tween(180))
+                    ) {
+                        Column {
+                            SwitchPreference(
+                                appearance.hdrHighlight,
+                                { enabled -> commit(appearance.copy(hdrHighlight = enabled)) },
+                                stringResource(R.string.setting_hdr_highlight),
+                                summary = stringResource(R.string.summary_hdr_highlight)
+                            )
+                            SliderPreference(
+                                value = appearance.glassBlurPercent.toFloat(),
+                                onValueChange = { value ->
+                                    commit(appearance.copy(glassBlurPercent = value.toInt()))
+                                },
+                                title = stringResource(R.string.setting_glass_blur),
+                                summary = stringResource(R.string.summary_glass_blur),
+                                valueText = "${appearance.glassBlurPercent}%",
+                                valueRange = 0f..100f,
+                                steps = 19
+                            )
+                            val glassToken = when (appearance.glassMaterial) {
+                                AppGlassMaterial.GAUSSIAN -> CARD_MATERIAL_GAUSSIAN
+                                AppGlassMaterial.HIGHLIGHT -> CARD_MATERIAL_HIGHLIGHT
+                                AppGlassMaterial.LIQUID -> CARD_MATERIAL_LIQUID
+                                AppGlassMaterial.SOFT -> CARD_MATERIAL_SOFT
+                                AppGlassMaterial.NONE -> CARD_MATERIAL_GAUSSIAN
+                            }
+                            CardMaterialTuningRows(
+                                material = glassToken,
+                                tuning = appearance.glassTuning,
+                                onChange = { tuning ->
+                                    commit(appearance.copy(glassTuning = tuning))
+                                },
+                                onPickBlendColor = { showGlassBlendPicker = true }
+                            )
+                        }
+                    }
+                }
+            }
             item { SmallTitle(text = stringResource(R.string.setting_system_bar_icons)) }
             item {
                 SettingsCard {
@@ -347,6 +408,40 @@ internal fun AppAppearanceScreen(
                 showTextColorDialog = false
             },
             onDismiss = { showTextColorDialog = false }
+        )
+    }
+
+    if (showGlassBlendPicker) {
+        val tuning = appearance.glassTuning
+        val rgb = com.eza.hyperglow.root.aod.parseColorOrNull(tuning.blendColor) ?: 0x00FFFFFF
+        val currentArgb = (rgb and 0x00FFFFFF) or (
+            (tuning.blendOpacity.coerceIn(0, 100) * 255 / 100) shl 24
+            )
+        MaterialBlendColorPickerDialog(
+            currentArgb = currentArgb,
+            onPick = { argb ->
+                commit(
+                    appearance.copy(
+                        glassTuning = tuning.copy(
+                            blendColor = String.format(
+                                java.util.Locale.US,
+                                "#%06X",
+                                argb and 0xFFFFFF
+                            ),
+                            blendOpacity = ((argb ushr 24) and 0xFF) * 100 / 255
+                        )
+                    )
+                )
+            },
+            onReset = {
+                commit(
+                    appearance.copy(
+                        glassTuning = tuning.copy(blendColor = "#FFFFFF", blendOpacity = 0)
+                    )
+                )
+                showGlassBlendPicker = false
+            },
+            onDismiss = { showGlassBlendPicker = false }
         )
     }
 

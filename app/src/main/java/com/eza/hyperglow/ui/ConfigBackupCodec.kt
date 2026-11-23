@@ -15,6 +15,7 @@ import com.eza.hyperglow.aod.normalizeAodLandscapeTextScale
 import com.eza.hyperglow.aod.normalizeAodRefreshRateCap
 import com.eza.hyperglow.aod.normalizeAodRotationMode
 import com.eza.hyperglow.aod.normalizeAodRotationSettleMs
+import com.eza.hyperglow.customization.CardMaterialTuning
 import com.eza.hyperglow.customization.CustomizationDocument
 import com.eza.hyperglow.customization.SceneCompiler
 import com.eza.hyperglow.normalizeDiagnosticLogLevel
@@ -28,6 +29,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
@@ -294,6 +297,16 @@ internal object ConfigBackupCodec {
             appearance.textColorArgb?.let { put(KEY_TEXT_COLOR_ARGB, it) }
             put(KEY_FONT_FAMILY, appearance.fontFamily)
             put(KEY_SYSTEM_BAR_ICONS, appearance.systemBarIcons.name)
+            put(KEY_GLASS_MATERIAL, appearance.glassMaterial.name)
+            put(KEY_HDR_HIGHLIGHT, appearance.hdrHighlight)
+            put(KEY_GLASS_BLUR_PERCENT, appearance.glassBlurPercent)
+            put(
+                KEY_GLASS_TUNING,
+                SceneCompiler.json.encodeToString(
+                    CardMaterialTuning.serializer(),
+                    appearance.glassTuning
+                )
+            )
             put(KEY_FLOATING_NAV_BAR, appearance.floatingNavBar)
         }
 
@@ -446,6 +459,10 @@ internal object ConfigBackupCodec {
         stored.int(KEY_TEXT_COLOR_ARGB)?.let { values[KEY_TEXT_COLOR_ARGB] = it }
         stored.string(KEY_FONT_FAMILY)?.let { values[KEY_FONT_FAMILY] = it }
         stored.string(KEY_SYSTEM_BAR_ICONS)?.let { values[KEY_SYSTEM_BAR_ICONS] = it }
+        stored.string(KEY_GLASS_MATERIAL)?.let { values[KEY_GLASS_MATERIAL] = it }
+        stored.boolean(KEY_HDR_HIGHLIGHT)?.let { values[KEY_HDR_HIGHLIGHT] = it }
+        stored.int(KEY_GLASS_BLUR_PERCENT)?.let { values[KEY_GLASS_BLUR_PERCENT] = it }
+        stored.string(KEY_GLASS_TUNING)?.let { values[KEY_GLASS_TUNING] = it }
         stored.boolean(KEY_FLOATING_NAV_BAR)?.let { values[KEY_FLOATING_NAV_BAR] = it }
         return normalizeAppUiAppearance(values)
     }

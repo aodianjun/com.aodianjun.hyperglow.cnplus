@@ -757,7 +757,22 @@ class SceneCompilerTest {
                     SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
                         backgroundStyle = "card",
                         cardAlpha = 30,
-                        cardColor = "accent"
+                        cardColor = "accent",
+                        cardMaterial = "liquid_glass",
+                        cardHdrHighlight = true,
+                        cardMaterialAlpha = 55,
+                        cardMaterialTuning = CardMaterialTuning(
+                            edgeThickness = 30,
+                            refraction = 25,
+                            reflectionStrength = 80,
+                            darker = 40,
+                            lightDirection = 123,
+                            dispersion = 60,
+                            blendColor = "#112233",
+                            blendOpacity = 40,
+                            softLight = 5f,
+                            backgroundSaturation = -10f
+                        )
                     ),
                     SceneCompiler.SURFACE_AOD to SurfaceProfile(
                         backgroundStyle = "none",
@@ -771,6 +786,13 @@ class SceneCompilerTest {
         assertEquals("card", lockscreen.backgroundStyle)
         assertEquals(30, lockscreen.cardAlpha)
         assertEquals("accent", lockscreen.cardColor)
+        assertEquals("liquid_glass", lockscreen.cardMaterial)
+        assertTrue(lockscreen.cardHdrHighlight)
+        assertEquals(55, lockscreen.cardMaterialAlpha)
+        assertEquals(30, lockscreen.cardMaterialTuning.edgeThickness)
+        assertEquals(123, lockscreen.cardMaterialTuning.lightDirection)
+        assertEquals("#112233", lockscreen.cardMaterialTuning.blendColor)
+        assertEquals(40, lockscreen.cardMaterialTuning.blendOpacity)
 
         // 运行时验证器在 linkSurfaces=true 时同样必须保留锁屏卡片的颜色/透明度,
         // 而不是回退到 AOD 取值(回归:锁屏卡片颜色/透明度调整无效)。
@@ -779,6 +801,10 @@ class SceneCompilerTest {
         assertEquals("card", validated.backgroundStyle)
         assertEquals(30, validated.cardAlpha)
         assertEquals("accent", validated.cardColor)
+        assertEquals("liquid_glass", validated.cardMaterial)
+        assertTrue(validated.cardHdrHighlight)
+        assertEquals(55, validated.cardMaterialAlpha)
+        assertEquals(lockscreen.cardMaterialTuning, validated.cardMaterialTuning)
     }
 
     @Test
@@ -810,6 +836,89 @@ class SceneCompilerTest {
                 )
             ).profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).cardAlpha
         )
+    }
+
+    @Test
+    fun cardMaterialFallsBackToSolidAndSurvivesValidation() {
+        val bundle = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        backgroundStyle = "card",
+                        cardMaterial = "neon_liquid",
+                        cardHdrHighlight = true,
+                        cardMaterialAlpha = 150
+                    )
+                )
+            )
+        )
+        val compiled = bundle.profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        assertEquals(DEFAULT_CARD_MATERIAL, compiled.cardMaterial)
+        assertTrue(compiled.cardHdrHighlight)
+        assertEquals(100, compiled.cardMaterialAlpha)
+
+        val validated = SystemUiCustomizationValidator.validate(bundle)!!
+            .profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN)
+        assertEquals(DEFAULT_CARD_MATERIAL, validated.cardMaterial)
+        assertTrue(validated.cardHdrHighlight)
+        assertEquals(100, validated.cardMaterialAlpha)
+    }
+
+    @Test
+    fun cardMaterialTuningIsClampedAndInvalidColorFallsBack() {
+        val compiled = SceneCompiler.compile(
+            CustomizationDocument(
+                profiles = mapOf(
+                    SceneCompiler.SURFACE_LOCKSCREEN to SurfaceProfile(
+                        backgroundStyle = "card",
+                        cardMaterial = "soft_glass",
+                        cardMaterialTuning = CardMaterialTuning(
+                            edgeThickness = 999,
+                            refraction = -5,
+                            reflectionStrength = 999,
+                            darker = -1,
+                            lightDirection = -10,
+                            dispersion = 999,
+                            blendColor = "not-a-color",
+                            blendOpacity = 999,
+                            softLight = 99f,
+                            saturation = -99f,
+                            transparency = 99f,
+                            softEdgeThickness = 999f,
+                            directionalLightIntensity = -99f,
+                            backgroundBrightness = 999f
+                        )
+                    )
+                )
+            )
+        ).profiles.getValue(SceneCompiler.SURFACE_LOCKSCREEN).cardMaterialTuning
+
+        assertEquals(40, compiled.edgeThickness)
+        assertEquals(0, compiled.refraction)
+        assertEquals(100, compiled.reflectionStrength)
+        assertEquals(0, compiled.darker)
+        assertEquals(350, compiled.lightDirection)
+        assertEquals(100, compiled.dispersion)
+        assertEquals("#FFFFFF", compiled.blendColor)
+        assertEquals(100, compiled.blendOpacity)
+        assertEquals(50f, compiled.softLight, 0.001f)
+        assertEquals(-50f, compiled.saturation, 0.001f)
+        assertEquals(50f, compiled.transparency, 0.001f)
+        assertEquals(50f, compiled.softEdgeThickness, 0.001f)
+        assertEquals(-50f, compiled.directionalLightIntensity, 0.001f)
+        assertEquals(50f, compiled.backgroundBrightness, 0.001f)
+    }
+
+    @Test
+    fun defaultCardMaterialTuningStaysOutOfSerializedConfig() {
+        val json = kotlinx.serialization.json.Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }.encodeToString(
+            SurfaceProfile.serializer(),
+            SurfaceProfile(backgroundStyle = "card", cardMaterial = "liquid_glass")
+        )
+        assertFalse(json.contains("cardMaterialTuning"))
     }
 
     @Test

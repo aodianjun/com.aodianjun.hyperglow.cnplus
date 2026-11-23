@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -462,8 +463,23 @@ internal fun HomeScreen(
                 unselectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer),
                 selectedContentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
             )
+            // 玻璃材质开启时,底栏自身容器让位给 backdrop;形状跟 miuix 默认圆角一致
+            // (悬浮底栏 50dp 胶囊,贴底底栏为矩形)。
+            val glassActive = isAppGlassMaterialActive()
+            val navColor = if (glassActive) Color.Transparent else appNavBarColor()
             if (floatingNavBar) {
-                FloatingNavigationBar(color = appNavBarColor()) {
+                FloatingNavigationBar(
+                    modifier = if (glassActive) {
+                        Modifier.appGlassMaterial(
+                            RoundedCornerShape(50.dp),
+                            cornerRadius = 50.dp,
+                            tiltReactive = true
+                        )
+                    } else {
+                        Modifier
+                    },
+                    color = navColor
+                ) {
                     tabs.forEach { entry ->
                         FloatingNavigationBarItem(
                             selected = pagerState.currentPage == entry.tab.ordinal,
@@ -477,7 +493,18 @@ internal fun HomeScreen(
                     }
                 }
             } else {
-                NavigationBar(color = appNavBarColor()) {
+                NavigationBar(
+                    modifier = if (glassActive) {
+                        // 0 圆角要用 CornerBasedShape;RectangleShape 会让高光 shader 退化成胶囊。
+                        Modifier.appGlassMaterial(
+                            RoundedCornerShape(0.dp),
+                            cornerRadius = 0.dp
+                        )
+                    } else {
+                        Modifier
+                    },
+                    color = navColor
+                ) {
                     tabs.forEach { entry ->
                         NavigationBarItem(
                             selected = pagerState.currentPage == entry.tab.ordinal,

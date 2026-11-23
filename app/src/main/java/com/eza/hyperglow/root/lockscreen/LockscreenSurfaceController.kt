@@ -11,6 +11,7 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.SurfaceEvidence
+import com.eza.hyperglow.customization.CardMaterialTuning
 import com.eza.hyperglow.customization.CompiledCustomization
 import com.eza.hyperglow.customization.CompiledSurfaceProfile
 import com.eza.hyperglow.customization.SceneCompiler
@@ -111,6 +112,10 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
     private var lastCardBackgroundStyle: String? = null
     private var lastCardAlpha: Int = -1
     private var lastCardColor: String? = null
+    private var lastCardMaterial: String? = null
+    private var lastCardHdrHighlight: Boolean? = null
+    private var lastCardMaterialAlpha: Int? = null
+    private var lastCardMaterialTuning: CardMaterialTuning? = null
     private var lastOs4ClockProbe: String? = null
     private var lastOs4MediaProbe: String? = null
     private var lastOs4ProbeAt = 0L
@@ -900,7 +905,11 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         applyCardBackground(
             style = renderProfile.backgroundStyle,
             alpha = renderProfile.cardAlpha,
-            color = renderProfile.cardColor
+            color = renderProfile.cardColor,
+            material = renderProfile.cardMaterial,
+            hdrHighlight = renderProfile.cardHdrHighlight,
+            materialAlpha = renderProfile.cardMaterialAlpha,
+            tuning = renderProfile.cardMaterialTuning
         )
         applyFrameLayoutGeometry(card, rect.width, rect.height, rect.left, rect.top)
         applyFrameLayoutGeometry(canvas, contentWidth, lyricHeight, horizontalInset, verticalInset)
@@ -1375,19 +1384,52 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         }
     }
 
-    private fun applyCardBackground(style: String, alpha: Int, color: String) {
+    private fun applyCardBackground(
+        style: String,
+        alpha: Int,
+        color: String,
+        material: String,
+        hdrHighlight: Boolean,
+        materialAlpha: Int,
+        tuning: CardMaterialTuning
+    ) {
         val enabled = style == "card"
-        // style 变了必须重设 enabled;color/alpha 变了只在 enabled 时重绘外观。
+        // style 变了必须重设 enabled;外观字段变了只在 enabled 时重绘。
         val styleChanged = lastCardBackgroundStyle != style
-        val appearanceChanged = enabled && (lastCardAlpha != alpha || lastCardColor != color)
+        val appearanceChanged = enabled && (
+            lastCardAlpha != alpha ||
+                lastCardColor != color ||
+                lastCardMaterial != material ||
+                lastCardHdrHighlight != hdrHighlight ||
+                lastCardMaterialAlpha != materialAlpha ||
+                lastCardMaterialTuning != tuning
+            )
         if (!styleChanged && !appearanceChanged) return
+        HookLogger.w(
+            "LyricCard",
+            "apply style=$style material=$material hdr=$hdrHighlight strength=$materialAlpha " +
+                "alpha=$alpha color=$color tuning=$tuning"
+        )
         lastCardBackgroundStyle = style
         lastCardAlpha = alpha
         lastCardColor = color
+        lastCardMaterial = material
+        lastCardHdrHighlight = hdrHighlight
+        lastCardMaterialAlpha = materialAlpha
+        lastCardMaterialTuning = tuning
         sceneCard?.background = null
         cardBackgroundView?.let { view ->
             view.setCardEnabled(enabled)
-            if (enabled) view.setCardAppearance(alpha, color)
+            if (enabled) {
+                view.setCardAppearance(
+                    alpha,
+                    color,
+                    material,
+                    hdrHighlight,
+                    materialAlpha,
+                    tuning
+                )
+            }
         }
     }
 
@@ -1536,6 +1578,10 @@ internal object LockscreenSurfaceController : SystemUiLyricSubscriber, LinkageSu
         lastCardBackgroundStyle = null
         lastCardAlpha = -1
         lastCardColor = null
+        lastCardMaterial = null
+        lastCardHdrHighlight = null
+        lastCardMaterialAlpha = null
+        lastCardMaterialTuning = null
         sceneRole = LinkageSceneRole.INACTIVE
         handoffActive = false
         transitionFailedHidden = false

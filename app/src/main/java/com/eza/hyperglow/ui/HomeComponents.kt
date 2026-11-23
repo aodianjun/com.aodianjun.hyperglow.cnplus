@@ -108,9 +108,18 @@ internal fun HomeOverviewHero(
                 )
             }
         }
+        val glass = isAppGlassMaterialActive()
         Card(
+            modifier = if (glass) {
+                Modifier.appGlassMaterial(
+                    RoundedCornerShape(CardDefaults.CornerRadius),
+                    cornerRadius = CardDefaults.CornerRadius
+                )
+            } else {
+                Modifier
+            },
             colors = CardDefaults.defaultColors(
-                color = appCardContainerColor(),
+                color = if (glass) ComposeColor.Transparent else appCardContainerColor(),
                 contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
             )
         ) {
@@ -394,9 +403,20 @@ private fun HomeStatusCard(working: Boolean, supportLabel: String, modifier: Mod
     // 语义色只做点缀:背景在主题 surface 上低透明度混合,深浅模式下都不出现整块刺眼浅色;
     // 文字走主题 onSurface,深色模式自动反相。背景图片生效时随卡片玻璃化,让壁纸透出。
     val statusBackground = appGlassSurface(lerp(MiuixTheme.colorScheme.surface, statusColor, 0.12f))
+    val glass = isAppGlassMaterialActive()
     Card(
-        modifier = modifier,
-        colors = CardDefaults.defaultColors(color = statusBackground)
+        modifier = if (glass) {
+            modifier.appGlassMaterial(
+                RoundedCornerShape(CardDefaults.CornerRadius),
+                cornerRadius = CardDefaults.CornerRadius,
+                tintColor = statusBackground
+            )
+        } else {
+            modifier
+        },
+        colors = CardDefaults.defaultColors(
+            color = if (glass) ComposeColor.Transparent else statusBackground
+        )
     ) {
         Box(Modifier.fillMaxSize()) {
             // 背景大图标:固定在卡片右下角,并裁剪到卡片内,避免超出卡片宽度/高度
@@ -441,10 +461,22 @@ private fun HomeStatCard(
     modifier: Modifier,
     onClick: (() -> Unit)? = null
 ) {
+    val glass = isAppGlassMaterialActive()
     Card(
-        modifier = modifier.fillMaxWidth().clickable(enabled = onClick != null) { onClick?.invoke() },
+        modifier = modifier.fillMaxWidth()
+            .then(
+                if (glass) {
+                    Modifier.appGlassMaterial(
+                        RoundedCornerShape(CardDefaults.CornerRadius),
+                        cornerRadius = CardDefaults.CornerRadius
+                    )
+                } else {
+                    Modifier
+                }
+            )
+            .clickable(enabled = onClick != null) { onClick?.invoke() },
         colors = CardDefaults.defaultColors(
-            color = appCardContainerColor(),
+            color = if (glass) ComposeColor.Transparent else appCardContainerColor(),
             contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
         )
     ) {

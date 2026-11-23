@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -71,6 +72,8 @@ internal object GlobalSearchAnchor {
     const val APPEARANCE_HEADER = "appearance_header"
     const val APPEARANCE_PLACEMENT = "appearance_placement"
     const val APPEARANCE_TEXT_LANGUAGE = "appearance_text_language"
+    const val APPEARANCE_SONG_INFO = "appearance_song_info"
+    const val APPEARANCE_TEXT_STYLE = "appearance_text_style"
     const val APPEARANCE_EFFECTS = "appearance_effects"
     const val APPEARANCE_SPECTRUM = "appearance_spectrum"
     const val APPEARANCE_SPRITES = "appearance_sprites"
@@ -86,6 +89,8 @@ internal object GlobalSearchAnchor {
         APPEARANCE_HEADER,
         APPEARANCE_PLACEMENT,
         APPEARANCE_TEXT_LANGUAGE,
+        APPEARANCE_SONG_INFO,
+        APPEARANCE_TEXT_STYLE,
         APPEARANCE_EFFECTS,
         APPEARANCE_SPECTRUM,
         APPEARANCE_SPRITES,
@@ -604,13 +609,6 @@ private val BASE_SEARCH_ENTRIES: List<GlobalSearchEntry> = listOf(
         keywords = "锁屏 媒体卡 卡片 lockscreen card",
         appearanceSection = 1,
         anchor = GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD
-    ),
-    GlobalSearchEntry(
-        titleRes = R.string.section_both_surfaces,
-        sectionLabelRes = R.string.section_both_surfaces,
-        tab = SettingsTab.SETTINGS,
-        keywords = "通用 全局 两面 both surfaces",
-        anchor = GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES
     )
 )
 
@@ -876,39 +874,39 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
         R.string.setting_show_song_info,
         null,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         SearchRowKeys.APPEARANCE_METADATA_VISIBLE,
         "歌曲信息 歌名 歌手 song info metadata"
     ),
     appearanceChoiceRow(
         AodChoiceKind.SONG_INFO_POSITION,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         "歌曲信息 位置 上 下 song info position"
     ),
     appearanceChoiceRow(
         AodChoiceKind.SONG_INFO_ALIGNMENT,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         "歌曲信息 对齐 song info alignment"
     ),
     appearanceChoiceRow(
         AodChoiceKind.SONG_INFO_LAYOUT,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         "歌曲信息 布局 单行 两行 song info layout"
     ),
     appearanceChoiceRow(
         AodChoiceKind.SONG_INFO_SEPARATOR,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         "歌曲信息 分隔符 separator"
     ),
     appearanceRow(
         R.string.setting_hide_album_same_as_title,
         R.string.summary_hide_album_same_as_title,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         SearchRowKeys.APPEARANCE_HIDE_ALBUM_SAME_AS_TITLE,
         "专辑 同名 隐藏 album same as title"
     ),
@@ -916,21 +914,21 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
         R.string.setting_show_song_artwork,
         null,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         SearchRowKeys.APPEARANCE_ARTWORK_VISIBLE,
         "封面 专辑图 artwork cover"
     ),
     appearanceChoiceRow(
         AodChoiceKind.SONG_ARTWORK_SHAPE,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         "封面 形状 圆形 方形 artwork shape"
     ),
     appearanceRow(
         R.string.setting_song_artwork_adaptive,
         null,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         SearchRowKeys.APPEARANCE_ARTWORK_ADAPTIVE_SCALE,
         "封面 自适应 缩放 artwork adaptive"
     ),
@@ -938,7 +936,7 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
         R.string.setting_song_artwork_size,
         R.string.summary_song_artwork_size,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         SearchRowKeys.APPEARANCE_ARTWORK_SIZE,
         "封面 大小 尺寸 artwork size"
     ),
@@ -946,7 +944,7 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
         R.string.setting_song_artwork_spin,
         null,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         SearchRowKeys.APPEARANCE_ARTWORK_SPIN,
         "封面 旋转 artwork spin"
     ),
@@ -954,7 +952,7 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
         R.string.setting_song_artwork_spin_paused,
         null,
         R.string.section_text_language,
-        GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+        GlobalSearchAnchor.APPEARANCE_SONG_INFO,
         SearchRowKeys.APPEARANCE_ARTWORK_SPIN_WHEN_PAUSED,
         "封面 暂停 旋转 artwork spin paused"
     ),
@@ -963,34 +961,34 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
     appearanceChoiceRow(
         AodChoiceKind.TEXT_WEIGHT,
         R.string.section_effects,
-        GlobalSearchAnchor.APPEARANCE_EFFECTS,
+        GlobalSearchAnchor.APPEARANCE_TEXT_STYLE,
         "字重 粗细 加粗 text weight bold"
     ),
     appearanceChoiceRow(
         AodChoiceKind.TEXT_SIZE,
         R.string.section_effects,
-        GlobalSearchAnchor.APPEARANCE_EFFECTS,
+        GlobalSearchAnchor.APPEARANCE_TEXT_STYLE,
         "字号 大小 text size"
     ),
     appearanceRow(
         R.string.setting_lyric_size,
         null,
         R.string.section_effects,
-        GlobalSearchAnchor.APPEARANCE_EFFECTS,
+        GlobalSearchAnchor.APPEARANCE_TEXT_STYLE,
         SearchRowKeys.APPEARANCE_LYRIC_SIZE,
         "字号 大小 百分比 加减 歌词 size percent"
     ),
     appearanceChoiceRow(
         AodChoiceKind.FONT,
         R.string.section_effects,
-        GlobalSearchAnchor.APPEARANCE_EFFECTS,
+        GlobalSearchAnchor.APPEARANCE_TEXT_STYLE,
         "字体 字形 font"
     ),
     appearanceRow(
         R.string.action_import_custom_font,
         null,
         R.string.section_effects,
-        GlobalSearchAnchor.APPEARANCE_EFFECTS,
+        GlobalSearchAnchor.APPEARANCE_TEXT_STYLE,
         SearchRowKeys.APPEARANCE_CUSTOM_FONT,
         "导入 自定义 字体 custom font import"
     ),
@@ -1184,32 +1182,6 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
         appearanceSection = 1
     ),
 
-    // ---- 两个显示区域 ----
-    appearanceRow(
-        R.string.action_import_appearance,
-        null,
-        R.string.section_both_surfaces,
-        GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES,
-        SearchRowKeys.APPEARANCE_IMPORT_APPEARANCE,
-        "导入 外观 配置 appearance import"
-    ),
-    appearanceRow(
-        R.string.action_export_appearance,
-        null,
-        R.string.section_both_surfaces,
-        GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES,
-        SearchRowKeys.APPEARANCE_EXPORT_APPEARANCE,
-        "导出 外观 配置 appearance export"
-    ),
-    appearanceRow(
-        R.string.action_reset_surfaces,
-        null,
-        R.string.section_both_surfaces,
-        GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES,
-        SearchRowKeys.APPEARANCE_RESET_SURFACES,
-        "重置 外观 恢复默认 reset"
-    ),
-
     // ---- 列表尾部:行为入口 / 锁屏唤醒 ----
     appearanceRow(
         R.string.title_aod_behavior_settings,
@@ -1392,6 +1364,27 @@ private val SUBPAGE_SEARCH_ENTRIES: List<GlobalSearchEntry> = listOf(
         R.string.section_app_appearance,
         GlobalSearchDestination.APP_APPEARANCE,
         "系统栏 图标 状态栏 system bar icons"
+    ),
+    subpageRow(
+        R.string.setting_glass_material,
+        R.string.summary_glass_material,
+        R.string.section_glass_material,
+        GlobalSearchDestination.APP_APPEARANCE,
+        "玻璃 材质 高斯 高光 液态 柔光 glass material"
+    ),
+    subpageRow(
+        R.string.setting_hdr_highlight,
+        null,
+        R.string.section_glass_material,
+        GlobalSearchDestination.APP_APPEARANCE,
+        "HDR 高光 玻璃 highlight"
+    ),
+    subpageRow(
+        R.string.setting_glass_blur,
+        R.string.summary_glass_blur,
+        R.string.section_glass_material,
+        GlobalSearchDestination.APP_APPEARANCE,
+        "玻璃 模糊 强度 blur"
     ),
 
     // ---- 设置 → 息屏行为 ----
@@ -1734,15 +1727,19 @@ internal fun GlobalSearchOverlay(
         keyboardController?.show()
     }
     BackHandler(onBack = onDismiss)
+    val glass = isAppGlassMaterialActive()
 
+    Box(Modifier.fillMaxSize()) {
+    AppSoftGlassBackground()
     Scaffold(
         modifier = Modifier.blockOverlayPointerInput(),
-        containerColor = appOverlaySurfaceColor(),
+        containerColor = Color.Transparent,
         topBar = {
             AppTopBar(
                 title = stringResource(R.string.search_title),
                 onBack = onDismiss,
-                overlay = true
+                overlay = true,
+                glassOverlay = true
             )
         }
     ) { innerPadding ->
@@ -1760,8 +1757,20 @@ internal fun GlobalSearchOverlay(
                 onExpandedChange = { fieldExpanded = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                label = stringResource(R.string.search_placeholder)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .then(
+                        if (glass) {
+                            Modifier.appGlassMaterial(RoundedCornerShape(50), cornerRadius = 24.dp)
+                        } else {
+                            Modifier
+                        }
+                    ),
+                label = stringResource(R.string.search_placeholder),
+                color = if (glass) {
+                    Color.Transparent
+                } else {
+                    MiuixTheme.colorScheme.surfaceContainerHigh
+                }
             )
             if (query.isNotBlank() && completions.isNotEmpty()) {
                 // 输入补全:点一下把输入补成完整标题,同时保留关键词搜索入口。
@@ -1775,8 +1784,20 @@ internal fun GlobalSearchOverlay(
                     completions.forEach { completion ->
                         Box(
                             modifier = Modifier
+                                .then(
+                                    if (glass) {
+                                        Modifier.appGlassMaterial(
+                                            RoundedCornerShape(50),
+                                            cornerRadius = 24.dp
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                                 .clip(RoundedCornerShape(50))
-                                .background(appCardContainerColor())
+                                .background(
+                                    if (glass) Color.Transparent else appCardContainerColor()
+                                )
                                 .clickable { query = completion }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
@@ -1830,9 +1851,19 @@ internal fun GlobalSearchOverlay(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 12.dp)
-                                .padding(bottom = 12.dp),
+                                .padding(bottom = 12.dp)
+                                .then(
+                                    if (glass) {
+                                        Modifier.appGlassMaterial(
+                                            RoundedCornerShape(CardDefaults.CornerRadius),
+                                            cornerRadius = CardDefaults.CornerRadius
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
                             colors = CardDefaults.defaultColors(
-                                color = appCardContainerColor(),
+                                color = if (glass) Color.Transparent else appCardContainerColor(),
                                 contentColor = appControlContentColor(
                                     MiuixTheme.colorScheme.onSurfaceContainer
                                 )
@@ -1855,5 +1886,6 @@ internal fun GlobalSearchOverlay(
                 }
             }
         }
+    }
     }
 }

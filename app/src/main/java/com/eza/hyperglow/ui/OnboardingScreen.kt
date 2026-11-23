@@ -2,7 +2,6 @@ package com.eza.hyperglow.ui
 
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +17,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -27,6 +28,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -42,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -63,10 +66,19 @@ import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Lock
+import top.yukonga.miuix.kmp.icon.extended.Music
+import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.nav.gesture.PredictiveBackHandler
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -159,19 +171,39 @@ internal fun OnboardingScreen(onFinish: () -> Unit, onBack: (() -> Unit)? = null
         modifier = Modifier.blockOverlayPointerInput(),
         containerColor = appOverlaySurfaceColor(),
         topBar = {
-            AppTopBar(
-                title = stringResource(R.string.app_name),
-                onBack = onBack,
-                overlay = true,
-                actions = {
-                    if (!isLastPage) {
-                        TextButton(
-                            text = stringResource(R.string.onboarding_skip),
-                            onClick = onFinish
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(56.dp)
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (onBack != null) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = MiuixIcons.Regular.Back,
+                            contentDescription = stringResource(R.string.onboarding_back)
                         )
                     }
                 }
-            )
+                if (pagerState.currentPage != 0) {
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MiuixTheme.textStyles.title4,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                if (!isLastPage) {
+                    IconButton(onClick = onFinish) {
+                        Icon(
+                            imageVector = MiuixIcons.Regular.Close,
+                            contentDescription = stringResource(R.string.onboarding_skip)
+                        )
+                    }
+                }
+            }
         }
     ) { innerPadding ->
         Column(
@@ -197,10 +229,8 @@ internal fun OnboardingScreen(onFinish: () -> Unit, onBack: (() -> Unit)? = null
                     else -> PermissionPage()
                 }
             }
-            OnboardingFooter(
-                pageCount = ONBOARDING_PAGE_COUNT,
+            OnboardingControls(
                 currentPage = pagerState.currentPage,
-                showBack = pagerState.currentPage > 0,
                 primaryLabel = stringResource(
                     if (isLastPage) R.string.onboarding_start else R.string.onboarding_next
                 ),
@@ -239,6 +269,8 @@ private fun OnboardingPageColumn(content: @Composable ColumnScope.() -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 560.dp)
+                .align(Alignment.TopCenter)
                 .verticalScroll(rememberScrollState())
                 .heightIn(min = viewportHeight)
                 .padding(horizontal = 12.dp, vertical = 16.dp),
@@ -250,31 +282,22 @@ private fun OnboardingPageColumn(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun StepHero(step: Int) {
-    Box(
-        modifier = Modifier
-            .size(104.dp)
-            .clip(CircleShape)
-            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = step.toString(),
-            fontSize = 44.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MiuixTheme.colorScheme.primary
-        )
-    }
+private fun StepHero(icon: ImageVector) {
+    Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = MiuixTheme.colorScheme.primary,
+        modifier = Modifier.size(70.dp)
+    )
 }
 
 @Composable
 private fun OnboardingTitle(text: String) {
     Text(
         text = text,
-        fontSize = 26.sp,
-        fontWeight = FontWeight.SemiBold,
+        style = MiuixTheme.textStyles.title1,
         textAlign = TextAlign.Center,
-        modifier = Modifier.padding(top = 24.dp)
+        modifier = Modifier.padding(top = 18.dp)
     )
 }
 
@@ -282,22 +305,32 @@ private fun OnboardingTitle(text: String) {
 private fun OnboardingSummary(text: String) {
     Text(
         text = text,
-        fontSize = 15.sp,
-        lineHeight = 22.sp,
+        style = MiuixTheme.textStyles.body1,
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         textAlign = TextAlign.Center,
-        modifier = Modifier.padding(top = 12.dp)
+        modifier = Modifier.padding(top = 8.dp)
     )
 }
 
 @Composable
 private fun OnboardingCard(content: @Composable () -> Unit) {
+    val glass = isAppGlassMaterialActive()
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp),
+            .padding(top = 12.dp)
+            .then(
+                if (glass) {
+                    Modifier.appGlassMaterial(
+                        RoundedCornerShape(CardDefaults.CornerRadius),
+                        cornerRadius = CardDefaults.CornerRadius
+                    )
+                } else {
+                    Modifier
+                }
+            ),
         colors = CardDefaults.defaultColors(
-            color = appCardContainerColor(),
+            color = if (glass) Color.Transparent else appCardContainerColor(),
             contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
         )
     ) {
@@ -309,20 +342,16 @@ private fun OnboardingCard(content: @Composable () -> Unit) {
 private fun WelcomePage() {
     OnboardingPageColumn {
         HyperGlowCnPlusIcon(
-            modifier = Modifier.size(112.dp),
-            cornerRadius = 28.dp
+            modifier = Modifier.size(116.dp),
+            cornerRadius = 29.dp
         )
-        OnboardingTitle(stringResource(R.string.onboarding_welcome_title))
-        OnboardingSummary(stringResource(R.string.onboarding_welcome_summary))
-        SmallTitle(
-            text = stringResource(R.string.onboarding_requirements_title),
-            modifier = Modifier.padding(top = 20.dp)
+        Text(
+            text = stringResource(R.string.app_name),
+            fontSize = 40.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 28.dp)
         )
-        OnboardingCard {
-            RequirementRow(stringResource(R.string.onboarding_requirement_root))
-            RequirementRow(stringResource(R.string.onboarding_requirement_lsposed))
-            RequirementRow(stringResource(R.string.onboarding_requirement_source))
-        }
     }
 }
 
@@ -386,12 +415,21 @@ private fun ModulePage() {
         effectiveReport.has(XiaomiCapability.LOCKSCREEN_GEOMETRY)
 
     OnboardingPageColumn {
-        StepHero(2)
+        StepHero(MiuixIcons.Regular.Settings)
         OnboardingTitle(stringResource(R.string.onboarding_module_title))
         OnboardingSummary(stringResource(R.string.onboarding_module_summary))
         SmallTitle(
+            text = stringResource(R.string.onboarding_requirements_title),
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        OnboardingCard {
+            RequirementRow(stringResource(R.string.onboarding_requirement_root))
+            RequirementRow(stringResource(R.string.onboarding_requirement_lsposed))
+            RequirementRow(stringResource(R.string.onboarding_requirement_source))
+        }
+        SmallTitle(
             text = stringResource(R.string.onboarding_module_status),
-            modifier = Modifier.padding(top = 20.dp)
+            modifier = Modifier.padding(top = 12.dp)
         )
         OnboardingCard {
             Row(
@@ -511,7 +549,7 @@ private fun ModulePage() {
 @Composable
 private fun PresetPage(selectedPresetName: String?, onOpenPicker: () -> Unit) {
     OnboardingPageColumn {
-        StepHero(3)
+        StepHero(MiuixIcons.Regular.Tune)
         OnboardingTitle(stringResource(R.string.onboarding_preset_title))
         OnboardingSummary(stringResource(R.string.onboarding_preset_summary))
         SmallTitle(
@@ -612,14 +650,17 @@ private fun CloudPresetPickerPage(
         onCancel = {}
     )
 
+    Box(Modifier.fillMaxSize()) {
+    AppSoftGlassBackground()
     Scaffold(
         modifier = Modifier.blockOverlayPointerInput(),
-        containerColor = appOverlaySurfaceColor(),
+        containerColor = Color.Transparent,
         topBar = {
             AppTopBar(
                 title = stringResource(R.string.onboarding_preset_cloud_section),
                 onBack = onDismiss,
-                overlay = true
+                overlay = true,
+                glassOverlay = true
             )
         }
     ) { innerPadding ->
@@ -680,6 +721,7 @@ private fun CloudPresetPickerPage(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -688,7 +730,7 @@ private fun LyricSourcePage() {
     //(下载地址/通知使用权)、同一个选择对话框,避免引导页只是「展示有这玩意」。
     var showSourceDialog by rememberSaveable { mutableStateOf(false) }
     OnboardingPageColumn {
-        StepHero(4)
+        StepHero(MiuixIcons.Regular.Music)
         OnboardingTitle(stringResource(R.string.onboarding_source_title))
         OnboardingSummary(stringResource(R.string.onboarding_source_summary))
         LyricSourceSection(onOpenSourceDialog = { showSourceDialog = true })
@@ -703,7 +745,7 @@ private fun LyricSourcePage() {
 private fun PermissionPage() {
     // 与状态页同一套权限检查组件:通知、前台服务、电池优化、Root(含跳转 Root 管理器)。
     OnboardingPageColumn {
-        StepHero(5)
+        StepHero(MiuixIcons.Regular.Lock)
         OnboardingTitle(stringResource(R.string.onboarding_permission_title))
         OnboardingSummary(stringResource(R.string.onboarding_permission_summary))
         SettingsCard {
@@ -713,67 +755,36 @@ private fun PermissionPage() {
 }
 
 @Composable
-private fun OnboardingFooter(
-    pageCount: Int,
+private fun OnboardingControls(
     currentPage: Int,
-    showBack: Boolean,
     primaryLabel: String,
     onBack: () -> Unit,
     onPrimary: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.TopCenter
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .widthIn(max = 560.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            repeat(pageCount) { index ->
-                val selected = index == currentPage
-                val width by animateDpAsState(
-                    targetValue = if (selected) 20.dp else 7.dp,
-                    label = "onboardingDotWidth"
-                )
-                Box(
-                    modifier = Modifier
-                        .height(7.dp)
-                        .width(width)
-                        .clip(CircleShape)
-                        .background(
-                            if (selected) MiuixTheme.colorScheme.primary
-                            else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.16f)
-                        )
-                )
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (showBack) {
-                TextButton(
-                    text = stringResource(R.string.onboarding_back),
-                    onClick = onBack,
-                    modifier = Modifier.weight(1f)
-                )
+            Button(
+                onClick = onBack,
+                enabled = currentPage > 0,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(stringResource(R.string.onboarding_back))
             }
             Button(
                 onClick = onPrimary,
-                modifier = Modifier.weight(if (showBack) 2f else 1f),
-                minHeight = 50.dp,
+                modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColorsPrimary()
             ) {
-                Text(
-                    text = primaryLabel,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.onPrimary
-                )
+                Text(primaryLabel)
             }
         }
     }

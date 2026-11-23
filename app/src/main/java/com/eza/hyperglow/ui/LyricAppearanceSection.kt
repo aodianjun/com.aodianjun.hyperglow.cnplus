@@ -14,13 +14,24 @@ import androidx.annotation.StringRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -36,18 +47,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -65,6 +81,8 @@ import com.eza.hyperglow.aod.AodRenderPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import com.eza.hyperglow.customization.CustomFontContract
@@ -79,6 +97,7 @@ import com.eza.hyperglow.customization.DecorSpriteStore
 import com.eza.hyperglow.customization.LyricTimeOffset
 import com.eza.hyperglow.customization.LINE_TRANSITION_MODES
 import com.eza.hyperglow.customization.LINE_TRANSITION_SPEEDS
+import com.eza.hyperglow.customization.DEFAULT_CARD_MATERIAL
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIORS
 import com.eza.hyperglow.customization.NO_LYRICS_BEHAVIOR_KEEP
 import com.eza.hyperglow.customization.normalizeNoLyricsBehavior
@@ -134,6 +153,19 @@ import com.eza.hyperglow.root.surface.WidgetMeasurement
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Album
+import top.yukonga.miuix.kmp.icon.extended.ExpandMore
+import top.yukonga.miuix.kmp.icon.extended.Layers
+import top.yukonga.miuix.kmp.icon.extended.Location
+import top.yukonga.miuix.kmp.icon.extended.Lock
+import top.yukonga.miuix.kmp.icon.extended.Music
+import top.yukonga.miuix.kmp.icon.extended.Notes
+import top.yukonga.miuix.kmp.icon.extended.Photos
+import top.yukonga.miuix.kmp.icon.extended.Sidebar
+import top.yukonga.miuix.kmp.icon.extended.Theme
+import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.ColorPicker
@@ -194,10 +226,11 @@ internal fun LyricAppearanceSection(
     var activeChoice by remember { mutableStateOf<AodChoice?>(null) }
     var activeColorPicker by remember { mutableStateOf<PaletteColor?>(null) }
     var showSpectrumColorPicker by remember { mutableStateOf(false) }
+    var showMaterialBlendPicker by remember { mutableStateOf(false) }
+    var showMaterialTuningDialog by remember { mutableStateOf(false) }
     var activePartsEditor by remember { mutableStateOf(false) }
     // 纯音乐识别显示文本编辑器(per-surface):与歌曲信息内容编辑器同式,WindowDialog + TextField。
     var activePureMusicTextEditor by remember { mutableStateOf(false) }
-    var showResetDialog by remember { mutableStateOf(false) }
     // 音乐频谱可选的系统回放监听：默认不启用，只有用户把数据源切到 capture 并打开开关才采集。
     var spectrumCapturePending by remember { mutableStateOf(false) }
     val spectrumProjectionLauncher = rememberLauncherForActivityResult(
@@ -266,52 +299,6 @@ internal fun LyricAppearanceSection(
     // 进入外观页时清掉可能残留的监听服务：默认数据源是律动，不应在后台继续录音。
     LaunchedEffect(Unit) {
         stopSpectrumCaptureIfUnused()
-    }
-
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val raw = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val bytes = input.readNBytes(SceneCompiler.MAX_CONFIG_BYTES + 1)
-                if (bytes.size > SceneCompiler.MAX_CONFIG_BYTES) {
-                    error("Appearance file too large")
-                }
-                bytes.toString(Charsets.UTF_8)
-            } ?: error("Appearance file unavailable")
-        }.getOrNull()
-        val imported = raw != null && CustomizationRepository.importDocument(context, raw)
-        if (imported) {
-            val document = CustomizationRepository.loadDocument(context)
-            syncCustomizationRuntime(context, document)
-            editorState = CustomizationEditorState(document, editorState.selectedSurface)
-        }
-        Toast.makeText(
-            context,
-            if (imported) {
-                context.getString(R.string.toast_appearance_imported)
-            } else {
-                context.getString(R.string.toast_appearance_invalid)
-            },
-            Toast.LENGTH_LONG
-        ).show()
-    }
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val written = runCatching {
-            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
-                it.write(CustomizationRepository.exportDocument(context))
-            } ?: error("Appearance file unavailable")
-        }.isSuccess
-        Toast.makeText(
-            context,
-            context.getString(
-                if (written) R.string.toast_appearance_exported
-                else R.string.toast_appearance_export_failed
-            ),
-            Toast.LENGTH_LONG
-        ).show()
     }
 
     fun saveEditor(next: CustomizationEditorState): Boolean {
@@ -493,8 +480,51 @@ internal fun LyricAppearanceSection(
             .profiles.getValue(editorState.selectedSurface)
     }
     var previewCollapsed by rememberSaveable { mutableStateOf(false) }
+    // 分组跳转条:列表很长时先定位分组,不在整页里盲滚。
+    val jumpSections = remember {
+        listOf(
+            R.string.section_placement to GlobalSearchAnchor.APPEARANCE_PLACEMENT,
+            R.string.section_lyrics_content to GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE,
+            R.string.section_song_info_artwork to GlobalSearchAnchor.APPEARANCE_SONG_INFO,
+            R.string.section_text_style to GlobalSearchAnchor.APPEARANCE_TEXT_STYLE,
+            R.string.section_effects to GlobalSearchAnchor.APPEARANCE_EFFECTS,
+            R.string.section_spectrum to GlobalSearchAnchor.APPEARANCE_SPECTRUM,
+            R.string.section_custom_sprites to GlobalSearchAnchor.APPEARANCE_SPRITES,
+            R.string.section_colors to GlobalSearchAnchor.APPEARANCE_COLORS,
+            R.string.section_lockscreen_card to GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD
+        )
+    }
+    val jumpIndices = remember { mutableStateMapOf<String, Int>() }
+    val jumpScope = rememberCoroutineScope()
+    var railExpanded by rememberSaveable { mutableStateOf(false) }
+    val contentBlur by animateDpAsState(
+        targetValue = if (railExpanded) 12.dp else 0.dp,
+        label = "appearanceRailBlur"
+    )
+    val currentSection by remember {
+        derivedStateOf {
+            val first = listState.firstVisibleItemIndex
+            jumpSections.lastOrNull { (_, anchor) ->
+                (jumpIndices[anchor] ?: Int.MAX_VALUE) <= first
+            }?.second ?: jumpSections.first().second
+        }
+    }
+    LaunchedEffect(railExpanded) {
+        if (railExpanded) {
+            delay(4_000)
+            railExpanded = false
+        }
+    }
 
-    Column(modifier.fillMaxWidth()) {
+    Box(modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(top = 44.dp)
+                .then(
+                    if (contentBlur > 0.dp) Modifier.blur(contentBlur) else Modifier
+                )
+        ) {
         // 顶部常驻悬浮预览:调节下方选项时效果实时可见;点击标题栏可折叠让位给长列表
         AppearancePreviewHeader(
             expanded = !previewCollapsed,
@@ -522,7 +552,10 @@ internal fun LyricAppearanceSection(
             anchor: String? = null,
             content: @Composable LazyItemScope.() -> Unit
         ) {
-            anchor?.let { onRegisterAnchor?.invoke(it, searchItemIndex) }
+            anchor?.let {
+                onRegisterAnchor?.invoke(it, searchItemIndex)
+                jumpIndices[it] = searchItemIndex
+            }
             item { content() }
             searchItemIndex++
         }
@@ -632,7 +665,7 @@ internal fun LyricAppearanceSection(
                 }
             }
         }
-        trackedItem(GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE) { SmallTitle(text = stringResource(R.string.section_text_language)) }
+        trackedItem(GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE) { SmallTitle(text = stringResource(R.string.section_lyrics_content)) }
         trackedItem {
             SettingsCard {
                 AodChoiceRow(AodChoiceKind.ALIGNMENT, selectedProfile.alignment) {
@@ -929,6 +962,13 @@ internal fun LyricAppearanceSection(
                         ) { value -> updateSelected { it.copy(nextLineAlignment = value) } }
                     }
                 }
+            }
+        }
+        trackedItem(GlobalSearchAnchor.APPEARANCE_SONG_INFO) {
+            SmallTitle(text = stringResource(R.string.section_song_info_artwork))
+        }
+        trackedItem {
+            SettingsCard {
                 SwitchPreference(
                     selectedProfile.metadataVisible,
                     { visible -> updateSelected { withMetadataVisible(it, visible) } },
@@ -1129,6 +1169,13 @@ internal fun LyricAppearanceSection(
                         }
                     }
                 }
+            }
+        }
+        trackedItem(GlobalSearchAnchor.APPEARANCE_TEXT_STYLE) {
+            SmallTitle(text = stringResource(R.string.section_text_style))
+        }
+        trackedItem {
+            SettingsCard {
                 AodChoiceRow(AodChoiceKind.TEXT_WEIGHT, selectedProfile.weight) {
                     openChoice(
                         AodChoiceKind.TEXT_WEIGHT,
@@ -1578,29 +1625,67 @@ internal fun LyricAppearanceSection(
                         modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_LYRIC_CARD)
                     )
                     if (selectedProfile.backgroundStyle == "card") {
-                        AodChoiceRow(AodChoiceKind.CARD_COLOR, selectedProfile.cardColor) {
+                        AodChoiceRow(AodChoiceKind.CARD_MATERIAL, selectedProfile.cardMaterial) {
                             openChoice(
-                                AodChoiceKind.CARD_COLOR,
-                                com.eza.hyperglow.customization.CARD_COLOR_VALUES.toList(),
-                                selectedProfile.cardColor
-                            ) { value -> updateSelected { it.copy(cardColor = value) } }
+                                AodChoiceKind.CARD_MATERIAL,
+                                com.eza.hyperglow.customization.CARD_MATERIAL_VALUES.toList(),
+                                selectedProfile.cardMaterial
+                            ) { value -> updateSelected { it.copy(cardMaterial = value) } }
                         }
-                        SliderPreference(
-                            value = selectedProfile.cardAlpha.toFloat(),
-                            onValueChange = { value ->
-                                updateSelected {
-                                    it.copy(cardAlpha = value.roundToInt())
-                                }
-                            },
-                            title = stringResource(R.string.setting_card_transparency),
-                            modifier = Modifier.searchRowAnchor(
-                                SearchRowKeys.APPEARANCE_CARD_TRANSPARENCY
-                            ),
-                            summary = stringResource(R.string.summary_card_transparency),
-                            valueText = "${selectedProfile.cardAlpha}%",
-                            valueRange = 0f..100f,
-                            steps = 19
-                        )
+                        if (selectedProfile.cardMaterial != DEFAULT_CARD_MATERIAL) {
+                            SwitchPreference(
+                                selectedProfile.cardHdrHighlight,
+                                { enabled ->
+                                    updateSelected { it.copy(cardHdrHighlight = enabled) }
+                                },
+                                stringResource(R.string.setting_card_hdr_highlight),
+                                summary = stringResource(R.string.summary_card_hdr_highlight)
+                            )
+                            SliderPreference(
+                                value = selectedProfile.cardMaterialAlpha.toFloat(),
+                                onValueChange = { value ->
+                                    updateSelected {
+                                        it.copy(cardMaterialAlpha = value.roundToInt())
+                                    }
+                                },
+                                title = stringResource(R.string.setting_card_material_alpha),
+                                summary = stringResource(R.string.summary_card_material_alpha),
+                                valueText = "${selectedProfile.cardMaterialAlpha}%",
+                                valueRange = 0f..100f,
+                                steps = 19
+                            )
+                            // 材质微调滑条很多,收进子页面(弹窗),卡片分组本身只保留材质/模糊/HDR。
+                            ArrowPreference(
+                                title = stringResource(R.string.setting_material_tuning),
+                                summary = stringResource(R.string.summary_material_tuning),
+                                onClick = { showMaterialTuningDialog = true }
+                            )
+                        } else {
+                            // 卡片颜色/透明度只在纯色材质下注入;玻璃材质用自身的模糊层与透明度。
+                            AodChoiceRow(AodChoiceKind.CARD_COLOR, selectedProfile.cardColor) {
+                                openChoice(
+                                    AodChoiceKind.CARD_COLOR,
+                                    com.eza.hyperglow.customization.CARD_COLOR_VALUES.toList(),
+                                    selectedProfile.cardColor
+                                ) { value -> updateSelected { it.copy(cardColor = value) } }
+                            }
+                            SliderPreference(
+                                value = selectedProfile.cardAlpha.toFloat(),
+                                onValueChange = { value ->
+                                    updateSelected {
+                                        it.copy(cardAlpha = value.roundToInt())
+                                    }
+                                },
+                                title = stringResource(R.string.setting_card_transparency),
+                                modifier = Modifier.searchRowAnchor(
+                                    SearchRowKeys.APPEARANCE_CARD_TRANSPARENCY
+                                ),
+                                summary = stringResource(R.string.summary_card_transparency),
+                                valueText = "${selectedProfile.cardAlpha}%",
+                                valueRange = 0f..100f,
+                                steps = 19
+                            )
+                        }
                     }
                     val progressEnabled = selectedProfile.widgets.any { it.type == "media_progress" }
                     SwitchPreference(
@@ -1628,36 +1713,34 @@ internal fun LyricAppearanceSection(
                 }
             }
         }
-        trackedItem(GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES) { SmallTitle(text = stringResource(R.string.section_both_surfaces)) }
-        trackedItem {
-            Card(
-                modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                colors = CardDefaults.defaultColors(
-                    color = appCardContainerColor(),
-                    contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
-                )
-            ) {
-                Column {
-                    ArrowPreference(
-                        title = stringResource(R.string.action_import_appearance),
-                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_IMPORT_APPEARANCE),
-                        onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) }
-                    )
-                    ArrowPreference(
-                        title = stringResource(R.string.action_export_appearance),
-                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_EXPORT_APPEARANCE),
-                        onClick = { exportLauncher.launch("hyperglow-profile.json") }
-                    )
-                    ArrowPreference(
-                        title = stringResource(R.string.action_reset_surfaces),
-                        modifier = Modifier.searchRowAnchor(SearchRowKeys.APPEARANCE_RESET_SURFACES),
-                        onClick = { showResetDialog = true }
-                    )
-                }
+        footer?.let { slot ->
+            trackedItem(GlobalSearchAnchor.APPEARANCE_BOTH_SURFACES) { slot() }
+        }
+        }
+    }
+
+    if (railExpanded) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.28f))
+                .clickable { railExpanded = false }
+        )
+    }
+    AppearanceSectionRail(
+        sections = jumpSections,
+        selectedAnchor = currentSection,
+        expanded = railExpanded,
+        onExpand = { railExpanded = true },
+        onCollapse = { railExpanded = false },
+        onSelect = { anchor ->
+            jumpIndices[anchor]?.let { index ->
+                jumpScope.launch { listState.animateScrollToItem(index) }
             }
-        }
-        footer?.let { slot -> trackedItem { slot() } }
-        }
+            railExpanded = false
+        },
+        modifier = Modifier.align(Alignment.TopCenter)
+    )
     }
 
     activeColorPicker?.let { paletteKey ->
@@ -1692,6 +1775,63 @@ internal fun LyricAppearanceSection(
                 showSpectrumColorPicker = false
             },
             onDismiss = { showSpectrumColorPicker = false }
+        )
+    }
+
+    if (showMaterialTuningDialog) {
+        WindowDialog(
+            title = stringResource(R.string.setting_material_tuning),
+            summary = stringResource(R.string.summary_material_tuning),
+            show = true,
+            onDismissRequest = { showMaterialTuningDialog = false }
+        ) {
+            Column(Modifier.dialogScrollable()) {
+                CardMaterialTuningRows(
+                    material = selectedProfile.cardMaterial,
+                    tuning = selectedProfile.cardMaterialTuning,
+                    onChange = { tuning ->
+                        updateSelected { it.copy(cardMaterialTuning = tuning) }
+                    },
+                    onPickBlendColor = { showMaterialBlendPicker = true }
+                )
+            }
+        }
+    }
+
+    if (showMaterialBlendPicker) {
+        val tuning = selectedProfile.cardMaterialTuning
+        val rgb = com.eza.hyperglow.root.aod.parseColorOrNull(tuning.blendColor) ?: 0x00FFFFFF
+        val currentArgb = (rgb and 0x00FFFFFF) or (
+            (tuning.blendOpacity.coerceIn(0, 100) * 255 / 100) shl 24
+            )
+        MaterialBlendColorPickerDialog(
+            currentArgb = currentArgb,
+            onPick = { argb ->
+                updateSelected {
+                    it.copy(
+                        cardMaterialTuning = it.cardMaterialTuning.copy(
+                            blendColor = String.format(
+                                java.util.Locale.US,
+                                "#%06X",
+                                argb and 0xFFFFFF
+                            ),
+                            blendOpacity = ((argb ushr 24) and 0xFF) * 100 / 255
+                        )
+                    )
+                }
+            },
+            onReset = {
+                updateSelected {
+                    it.copy(
+                        cardMaterialTuning = it.cardMaterialTuning.copy(
+                            blendColor = "#FFFFFF",
+                            blendOpacity = 0
+                        )
+                    )
+                }
+                showMaterialBlendPicker = false
+            },
+            onDismiss = { showMaterialBlendPicker = false }
         )
     }
 
@@ -1794,50 +1934,6 @@ internal fun LyricAppearanceSection(
                         title = partLabel(part)
                     )
                 }
-            }
-        }
-    }
-
-    if (showResetDialog) {
-        WindowDialog(
-            title = stringResource(R.string.dialog_reset_title),
-            summary =
-                stringResource(R.string.dialog_reset_summary),
-            show = true,
-            onDismissRequest = { showResetDialog = false }
-        ) {
-            androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth()) {
-                TextButton(
-                    text = stringResource(R.string.action_cancel),
-                    modifier = Modifier.weight(1f),
-                    onClick = { showResetDialog = false }
-                )
-                Spacer(Modifier.width(20.dp))
-                TextButton(
-                    text = stringResource(R.string.action_restore),
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                    onClick = {
-                        showResetDialog = false
-                        val reset = CustomizationRepository.reset(context)
-                        if (reset) {
-                            val document = CustomizationRepository.loadDocument(context)
-                            syncCustomizationRuntime(context, document)
-                            editorState = CustomizationEditorState(
-                                document,
-                                editorState.selectedSurface
-                            )
-                        }
-                        Toast.makeText(
-                            context,
-                            context.getString(
-                                if (reset) R.string.toast_settings_restored
-                                else R.string.toast_settings_restore_failed
-                            ),
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                )
             }
         }
     }
@@ -2926,6 +3022,13 @@ private fun choiceDisplayLabel(
         "blur" -> R.string.option_card_color_blur
         else -> R.string.option_card_color_black
     })
+    AodChoiceKind.CARD_MATERIAL -> context.getString(when (value) {
+        "gaussian" -> R.string.option_card_material_gaussian
+        "highlight_glass" -> R.string.option_card_material_highlight
+        "liquid_glass" -> R.string.option_card_material_liquid
+        "soft_glass" -> R.string.option_card_material_soft
+        else -> R.string.option_card_material_solid
+    })
 }
 
 /**
@@ -2985,6 +3088,7 @@ internal enum class AodChoiceKind(@param:StringRes val titleRes: Int) {
     TEXT_BRIGHTNESS(R.string.choice_text_brightness),
     TRANSITION_SPEED(R.string.choice_scene_transition_speed),
     CARD_COLOR(R.string.choice_card_color),
+    CARD_MATERIAL(R.string.choice_card_material),
     SPECTRUM_SOURCE(R.string.choice_spectrum_source),
     SPECTRUM_STYLE(R.string.choice_spectrum_style),
     SPECTRUM_COLOR(R.string.choice_spectrum_color)
@@ -3044,4 +3148,191 @@ internal fun metadataSeparatorDisplayLabel(
 ): String = when (normalizeMetadataSeparator(value)) {
     METADATA_SEPARATOR_NEWLINE -> context.getString(R.string.option_song_info_separator_newline)
     else -> metadataSeparatorText(value)
+}
+
+/**
+ * 顶部横向节点导航:收起只显示节点,向下滑/点展开箭头出玻璃面板;
+ * 展开时才显示图标+文字,内容区由调用方叠加模糊与遮罩。
+ */
+@Composable
+private fun AppearanceSectionRail(
+    sections: List<Pair<Int, String>>,
+    selectedAnchor: String,
+    expanded: Boolean,
+    onExpand: () -> Unit,
+    onCollapse: () -> Unit,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val glass = isAppGlassMaterialActive()
+    Box(modifier.fillMaxWidth()) {
+        if (!expanded) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 6.dp)
+                    .clip(RoundedCornerShape(50))
+                    .then(
+                        if (glass) {
+                            Modifier.appGlassMaterial(
+                                RoundedCornerShape(50),
+                                cornerRadius = 50.dp
+                            )
+                        } else {
+                            Modifier.background(
+                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.82f)
+                            )
+                        }
+                    )
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { change, dragAmount ->
+                            change.consume()
+                            if (dragAmount > 0f) onExpand()
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                sections.forEach { (_, anchor) ->
+                    val selected = selectedAnchor == anchor
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable { onSelect(anchor) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            Modifier
+                                .size(if (selected) 10.dp else 6.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (selected) {
+                                        MiuixTheme.colorScheme.primary
+                                    } else {
+                                        MiuixTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                                    }
+                                )
+                        )
+                    }
+                }
+                IconButton(onClick = onExpand, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = MiuixIcons.Regular.ExpandMore,
+                        contentDescription = stringResource(R.string.appearance_nav_toggle),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (glass) {
+                            Modifier.appGlassMaterial(
+                                RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
+                                cornerRadius = 24.dp
+                            )
+                        } else {
+                            Modifier.background(
+                                MiuixTheme.colorScheme.surfaceContainerHigh,
+                                RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                            )
+                        }
+                    )
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { change, dragAmount ->
+                            change.consume()
+                            if (dragAmount < 0f) onCollapse()
+                        }
+                    }
+                    .padding(vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.appearance_nav_title),
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onCollapse) {
+                        Icon(
+                            imageVector = MiuixIcons.Regular.Sidebar,
+                            contentDescription = stringResource(R.string.appearance_nav_toggle)
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    sections.forEach { (labelRes, anchor) ->
+                        val selected = selectedAnchor == anchor
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) {
+                                        MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                    } else {
+                                        MiuixTheme.colorScheme.surfaceContainer
+                                    }
+                                )
+                                .clickable { onSelect(anchor) }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = appearanceSectionIcon(anchor),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (selected) {
+                                    MiuixTheme.colorScheme.primary
+                                } else {
+                                    MiuixTheme.colorScheme.onSurfaceContainerVariant
+                                }
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(labelRes),
+                                fontSize = 13.sp,
+                                color = if (selected) {
+                                    MiuixTheme.colorScheme.primary
+                                } else {
+                                    MiuixTheme.colorScheme.onSurface
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun appearanceSectionIcon(anchor: String): ImageVector = when (anchor) {
+    GlobalSearchAnchor.APPEARANCE_PLACEMENT -> MiuixIcons.Regular.Location
+    GlobalSearchAnchor.APPEARANCE_TEXT_LANGUAGE -> MiuixIcons.Regular.Notes
+    GlobalSearchAnchor.APPEARANCE_SONG_INFO -> MiuixIcons.Regular.Album
+    GlobalSearchAnchor.APPEARANCE_TEXT_STYLE -> MiuixIcons.Regular.Theme
+    GlobalSearchAnchor.APPEARANCE_EFFECTS -> MiuixIcons.Regular.Tune
+    GlobalSearchAnchor.APPEARANCE_SPECTRUM -> MiuixIcons.Regular.Music
+    GlobalSearchAnchor.APPEARANCE_SPRITES -> MiuixIcons.Regular.Layers
+    GlobalSearchAnchor.APPEARANCE_COLORS -> MiuixIcons.Regular.Photos
+    GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD -> MiuixIcons.Regular.Lock
+    else -> MiuixIcons.Regular.Sidebar
 }

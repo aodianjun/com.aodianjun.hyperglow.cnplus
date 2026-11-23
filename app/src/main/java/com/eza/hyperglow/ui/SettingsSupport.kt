@@ -9,8 +9,10 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.eza.hyperglow.AppLog
 import com.eza.hyperglow.DiagnosticLogLevel
@@ -29,13 +31,27 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun SettingsCard(content: @Composable () -> Unit) {
+    val glass = isAppGlassMaterialActive()
+    val cardModifier = Modifier
+        .padding(horizontal = 12.dp)
+        .padding(bottom = 8.dp)
+        .fillMaxWidth()
+        .then(
+            if (glass) {
+                Modifier.appGlassMaterial(
+                    RoundedCornerShape(CardDefaults.CornerRadius),
+                    cornerRadius = CardDefaults.CornerRadius
+                )
+            } else {
+                Modifier
+            }
+        )
     Card(
-        modifier = Modifier
-            .padding(horizontal = 12.dp)
-            .padding(bottom = 8.dp)
-            .fillMaxWidth(),
+        modifier = cardModifier,
         colors = CardDefaults.defaultColors(
-            color = appCardContainerColor(),
+            // 玻璃材质下容器完全让位给 backdrop(模糊 + 高光由 modifier 绘制);
+            // 未启用材质时沿用原有实色/半透明容器。
+            color = if (glass) Color.Transparent else appCardContainerColor(),
             contentColor = appControlContentColor(MiuixTheme.colorScheme.onSurfaceContainer)
         )
     ) {

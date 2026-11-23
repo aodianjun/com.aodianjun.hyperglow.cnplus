@@ -36,6 +36,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -86,26 +87,37 @@ private fun FullScreenStatus(
             .padding(top = innerPadding.calculateTopPadding() + 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text,
-            fontSize = 14.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-        )
-        if (retryLabel != null && onRetry != null) {
-            Spacer(Modifier.height(12.dp))
-            TextButton(text = retryLabel, onClick = onRetry)
+        SettingsCard {
+            Text(
+                text,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            )
+            if (retryLabel != null && onRetry != null) {
+                TextButton(
+                    text = retryLabel,
+                    onClick = onRetry,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun StatusLine(text: String) {
-    Text(
-        text,
-        fontSize = 14.sp,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(top = 48.dp)
-    )
+    SettingsCard {
+        Text(
+            text,
+            fontSize = 14.sp,
+            color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+            modifier = Modifier.padding(16.dp)
+        )
+    }
 }
 
 @Composable
@@ -144,12 +156,34 @@ internal fun HelpScreen(onBack: () -> Unit) {
 
 @Composable
 private fun MarkdownContent(lines: List<MarkdownLine>, innerPadding: PaddingValues) {
+    val sections = remember(lines) { markdownSections(lines) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = contentListPadding(innerPadding)
     ) {
-        items(lines) { line -> MarkdownLineView(line) }
+        items(sections) { section ->
+            // 每段独立一张玻璃卡:标题+正文不再直接压在壁纸上,帮助页可读性优先。
+            SettingsCard {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    section.forEach { line -> MarkdownLineView(line) }
+                }
+            }
+        }
     }
+}
+
+/** 按一级/二级标题切段;段内保持原始行序,渲染成一张玻璃卡。 */
+private fun markdownSections(lines: List<MarkdownLine>): List<List<MarkdownLine>> {
+    val sections = mutableListOf<MutableList<MarkdownLine>>()
+    lines.forEach { line ->
+        if (sections.isEmpty() ||
+            (line.kind == MarkdownLineKind.HEADING && line.level <= 2)
+        ) {
+            sections += mutableListOf<MarkdownLine>()
+        }
+        sections.last() += line
+    }
+    return sections
 }
 
 @Composable
@@ -191,37 +225,35 @@ internal fun ChangelogScreen(onBack: () -> Unit) {
 
 @Composable
 private fun ReleaseCard(entry: ReleaseEntry) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                entry.tagName,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f)
-            )
-            entry.publishedDate?.let { date ->
+    SettingsCard {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    date,
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    entry.tagName,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                entry.publishedDate?.let { date ->
+                    Text(
+                        date,
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceContainerVariant
+                    )
+                }
+            }
+            if (entry.title.isNotEmpty() && entry.title != entry.tagName) {
+                Text(
+                    entry.title,
+                    fontSize = 14.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
-        }
-        if (entry.title.isNotEmpty() && entry.title != entry.tagName) {
-            Text(
-                entry.title,
-                fontSize = 14.sp,
-                color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-        }
-        if (entry.body.isNotBlank()) {
-            Column(modifier = Modifier.padding(top = 6.dp)) {
-                parseMarkdownLines(entry.body).forEach { line -> MarkdownLineView(line) }
+            if (entry.body.isNotBlank()) {
+                Column(Modifier.padding(top = 6.dp)) {
+                    parseMarkdownLines(entry.body).forEach { line -> MarkdownLineView(line) }
+                }
             }
         }
     }
@@ -248,7 +280,9 @@ internal fun ContributorsScreen(onBack: () -> Unit) {
                 if (current.isEmpty()) {
                     item { StatusLine(stringResource(R.string.contributors_empty)) }
                 }
-                items(current, key = { it.login }) { entry -> ContributorRow(entry) }
+                items(current, key = { it.login }) { entry ->
+                    SettingsCard { ContributorRow(entry) }
+                }
             }
             failed -> FullScreenStatus(
                 text = stringResource(R.string.about_content_load_failed),
@@ -278,7 +312,7 @@ private fun ContributorRow(entry: ContributorEntry) {
                 if (entry.profileUrl.isEmpty()) Modifier
                 else Modifier.clickable { openExternalUrl(context, entry.profileUrl) }
             )
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val bitmap = avatar
@@ -313,7 +347,7 @@ private fun ContributorRow(entry: ContributorEntry) {
             Text(
                 stringResource(R.string.contributors_contributions, entry.contributions),
                 fontSize = 13.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                color = MiuixTheme.colorScheme.onSurfaceContainerVariant
             )
         }
     }
@@ -328,12 +362,14 @@ internal fun LicensesScreen(onBack: () -> Unit) {
             contentPadding = contentListPadding(innerPadding)
         ) {
             item {
-                Text(
-                    stringResource(R.string.licenses_summary),
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                SettingsCard {
+                    Text(
+                        stringResource(R.string.licenses_summary),
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
             }
             item {
                 SettingsCard {
@@ -354,13 +390,23 @@ private data class LicenseEntry(val name: String, val license: String, val url: 
 
 private val LICENSE_ENTRIES = listOf(
     LicenseEntry("HyperGlow", "GPL-3.0", "https://github.com/amarinne/hyperglow"),
+    LicenseEntry("HyperIsland", "MIT", "https://github.com/1812z/HyperIsland"),
     LicenseEntry("HyperLyric", "GPL-3.0", "https://github.com/limczhh/HyperLyric"),
+    LicenseEntry("HyperWave", "Apache-2.0", "https://github.com/leset0ng/hyperwave"),
+    LicenseEntry(
+        "ColorOS Live Lyrics Bridge",
+        "Apache-2.0",
+        "https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge"
+    ),
     LicenseEntry("Miuix (Compose UI framework)", "Apache-2.0", "https://github.com/compose-miuix-ui/miuix"),
+    LicenseEntry("AndroidX / Jetpack Compose", "Apache-2.0", "https://developer.android.com/jetpack/androidx"),
+    LicenseEntry("Kotlin", "Apache-2.0", "https://kotlinlang.org"),
+    LicenseEntry("kotlinx.coroutines", "Apache-2.0", "https://github.com/Kotlin/kotlinx.coroutines"),
+    LicenseEntry("kotlinx.serialization", "Apache-2.0", "https://github.com/Kotlin/kotlinx.serialization"),
     LicenseEntry("DexKit", "Apache-2.0", "https://github.com/LuckyPray/DexKit"),
     LicenseEntry("SuperLyricApi", "LGPL-2.1", "https://github.com/HChenX/SuperLyricApi"),
     LicenseEntry("Lyricon subscriber SDK", "Apache-2.0", "https://github.com/proify/Lyricon"),
-    LicenseEntry("kotlinx.coroutines", "Apache-2.0", "https://github.com/Kotlin/kotlinx.coroutines"),
-    LicenseEntry("kotlinx.serialization", "Apache-2.0", "https://github.com/Kotlin/kotlinx.serialization"),
+    LicenseEntry("libxposed API", "Apache-2.0", "https://github.com/libxposed/api"),
     LicenseEntry("Noto Sans / Noto Sans SC fonts", "SIL OFL 1.1", "https://fonts.google.com/noto")
 )
 
@@ -386,7 +432,7 @@ private fun MarkdownLineView(line: MarkdownLine) {
             text = AnnotatedString(line.spans.joinToString(separator = "") { span -> span.text }),
             fontSize = 13.sp,
             fontFamily = FontFamily.Monospace,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
             modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 2.dp)
         )
         MarkdownLineKind.PARAGRAPH -> Text(

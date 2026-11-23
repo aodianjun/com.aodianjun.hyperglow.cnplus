@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.runtime.Composable
@@ -39,18 +40,44 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * [overlay] 用于盖在其它页面上的全屏覆盖层:不做壁纸模糊(否则下层页面内容会透出来),
  * 底色改用不透明的 [appOverlaySurfaceColor]。
+ * [glassOverlay] 为 true 时,覆盖层允许走玻璃材质(配合 [AppSoftGlassBackground] 的整屏玻璃);
+ * 未启用材质/不支持 shader 时仍回落不透明底色。
  */
 @Composable
 internal fun AppTopBar(
     title: String,
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    overlay: Boolean = false
+    overlay: Boolean = false,
+    glassOverlay: Boolean = false
 ) {
     val backdrop = LocalAppLayerBackdrop.current
     val scrimBase = LocalAppControlColor.current ?: MiuixTheme.colorScheme.surface
     Box(modifier = Modifier.fillMaxWidth()) {
-        if (!overlay && LocalAppBackgroundActive.current && backdrop != null && isRuntimeShaderSupported()) {
+        if ((!overlay || glassOverlay) && isAppGlassMaterialActive()) {
+            // 玻璃材质优先于渐变模糊:整条顶栏统一模糊,再由材质决定是否带边缘高光。
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    // 用 0 圆角的 CornerBasedShape,而不是 RectangleShape:
+                    // 高光 shader 只认 CornerBasedShape,RectangleShape 会退化成半高胶囊圆角。
+                    .appGlassMaterial(
+                        RoundedCornerShape(0.dp),
+                        cornerRadius = 0.dp,
+                        tiltReactive = true
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to scrimBase.copy(alpha = (0.45f * LocalAppControlOpacity.current).coerceIn(0f, 1f)),
+                            1f to Color.Transparent
+                        )
+                    )
+            )
+        } else if (!overlay && LocalAppBackgroundActive.current && backdrop != null && isRuntimeShaderSupported()) {
             Box(
                 modifier = Modifier
                     .matchParentSize()

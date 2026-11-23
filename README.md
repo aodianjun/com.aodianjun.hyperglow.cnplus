@@ -101,9 +101,20 @@ Requires root, LSPosed and a lyrics source ([Spicy EX](https://github.com/amarin
 - Landscape full-screen lyrics, centred on the display with a configurable safe-area inset.
 - Lock-screen layout: position the lyrics above or below the media card, and optionally pin
   them below the media card so incoming notifications move down instead.
+- Lockscreen lyric-card materials: Gaussian blur, highlight glass, liquid glass and soft glass,
+  with an optional HDR-style highlight; card colour and opacity stay configurable.
+- Full HyperIsland-style material tuning for the lyric card: blur, edge width, refraction,
+  highlight/shadow, light direction and dispersion for glass; soft-light, refraction, shape-edge
+  and background controls for soft glass; plus a blend colour/opacity and highlight switch.
+  Background saturation/brightness apply to the static-wallpaper fallback only — the OS4 live blur
+  is composited by SurfaceFlinger and cannot be colour-graded per pixel.
 - Appearance settings: theme colour (default/dynamic/custom), background image with dimming and
-  blur, glass (translucent) top bar, cards and navigation, text colour and font, transparency
-  for the AOD lyric palette.
+  blur, glass top bar, cards and navigation with Gaussian blur, highlight glass, liquid glass and
+  soft glass materials plus an HDR-highlight option, full per-material tuning (blur strength,
+  edge/refraction/highlight/shadow/light direction/dispersion, soft-glass lighting/refraction/
+  background, blend colour and opacity), text colour and font, transparency for the AOD lyric
+  palette. The lyric appearance editor uses a collapsible Miuix navigation rail, button-style
+  toggles, split content groups and a material fine-tuning subpage.
 - AOD brightness boost, a render frame-rate cap, content-aware frame pacing (static content
   pulses, line sweeps at ~24 fps, continuous word effects), a 30 fps tier, and a power-saving
   frame-drop toggle for hot or low-battery states.
@@ -162,6 +173,12 @@ APK from [Releases](https://github.com/aodianjun/com.aodianjun.hyperglow.cnplus/
 > distributed as separate ZIPs on the
 > [`plugins` release](https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/tag/plugins).
 > The plugin management page can download and update them in-app, or install from a local ZIP.
+
+> [!IMPORTANT]
+> After updating the module APK, restart System UI (the refresh button on the home page, or reboot)
+> before judging appearance changes. System UI keeps running the previous module classes until it
+> restarts; an old validator can reject a newer config payload and temporarily fall back to default
+> styles. The saved configuration is not lost.
 
 1. Enable HyperGlow in LSPosed.
 2. Enable your lyrics source:
@@ -224,9 +241,9 @@ before opening a pull request:
 - [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) — the referenced project HyperGlow
   adapts code from, which this fork inherits.
 - [1812z/HyperIsland](https://github.com/1812z/HyperIsland) — the configuration-preset data model
-  (per-section snapshots, local/cloud presets, upload/review flow) and the anonymous-hub concept
-  referenced by HyperGlow's preset page. Interaction patterns and thresholds only; no code from
-  its repository is used.
+  (per-section snapshots, local/cloud presets, upload/review flow), the anonymous-hub concept
+  referenced by HyperGlow's preset page, and the material edge shader / material-tuning parameter
+  set adapted for the lyric card (MIT). See [NOTICE](NOTICE).
 - [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —
   several hardening pieces in the lyric ingestion path (translation lane alignment, word-timing
   repair, text sanitization, opening-metadata cleanup) are adapted from its implementation.
@@ -287,7 +304,9 @@ before opening a pull request:
 - AOD 歌词跟随设备横竖屏旋转（横屏/反向横屏），可选隐藏横屏下的系统息屏内容。
 - 横屏全屏歌词：整块在屏幕上居中，并可设置安全区内边距。
 - 锁屏布局：歌词块可定位到媒体卡上方或下方；可选把歌词固定在媒体卡下方，通知顺延下移。
-- 外观设置：主题色（默认/动态取色/自定义）、背景图与压暗/模糊、玻璃化（半透明）顶栏/卡片/导航、文字颜色与字体、AOD 歌词调色板透明度。
+- 锁屏歌词卡片材质：高斯模糊、高光玻璃、液态玻璃、柔光玻璃，可选 HDR 风格高光；卡片颜色与透明度仍可调。
+- 锁屏卡片完整材质调节（对齐 HyperIsland 材质页）：玻璃组的模糊、边缘宽度、折射、高光/暗边、光源方向、色散；柔光组的柔光、折射、轮廓边缘与背景调节；以及混色颜色/不透明度与高光开关。背景饱和度/亮度只作用于静态壁纸回落路径——OS4 实时模糊由 SurfaceFlinger 合成，不能逐像素改色。
+- 外观设置：主题色（默认/动态取色/自定义）、背景图与压暗/模糊、顶栏/卡片/导航的玻璃材质（高斯模糊、高光玻璃、液态玻璃、柔光玻璃）与 HDR 高光开关、完整材质调节（模糊强度、边缘/折射/高光/暗边/光源方向/色散，柔光组光照/折射/背景，混色颜色与不透明度）、文字颜色与字体、AOD 歌词调色板透明度。歌词外观编辑器使用可收起的 Miuix 左侧导航栏、按钮式开关、拆分后的内容分组与材质微调子页。
 - 配置预设：把整套设置存成本地快照；支持从 GitHub Release 拉取云端预设（匿名可读），应用前可看卡片大预览与详情实时预览，也可通过自部署的匿名 Hub（`tools/preset-hub-worker`）上传，不需要 GitHub Token。入口在首页状态页歌词预览上方，以及「配置备份」区。
 - AOD 亮度增强、渲染刷新率上限、内容感知帧率（静态内容短脉冲、行级扫光约 24fps、逐字效果保持连续）、30fps 档，以及发热/低电量时的省电降帧开关。
 - 歌词显示时保持 AOD 常亮（时长可配置，最长不限）。
@@ -328,6 +347,11 @@ before opening a pull request:
 > 可选插件（在线取词、简 ⇄ 繁转换、AMLL TTML 逐字歌词、AI 翻译、AI 逐字翻译、装饰动画）以独立 ZIP
 > 发布在 [`plugins` 发行](https://github.com/Xposed-Modules-Repo/com.aodianjun.hyperglow.cnplus/releases/tag/plugins)，
 > 可在应用内「插件管理」页下载与更新，也可 **从本地 ZIP 安装**。
+
+> [!IMPORTANT]
+> 更新模块 APK 后请先重启系统界面（首页右上角刷新按钮，或重启手机）再判断外观变化。
+> 系统界面在重启前仍运行旧模块类，旧校验器可能拒绝新配置并临时回落到默认样式；
+> 已保存的配置不会丢失。
 
 1. 在 LSPosed 中启用 HyperGlow。
 2. 启用你的歌词源：
@@ -372,7 +396,7 @@ JAVA_HOME=/path/to/jdk21 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 
 - [amarinne/hyperglow](https://github.com/amarinne/hyperglow) —— 本 CN+ 重打包版所基于的上游项目。
 - [limczhh/HyperLyric](https://github.com/limczhh/HyperLyric) —— HyperGlow 改编借鉴其代码的参考项目，本 fork 沿用了该代码。
-- [1812z/HyperIsland](https://github.com/1812z/HyperIsland) —— HyperGlow 的配置预设页参考了其配置预设数据模型（分节快照、本地/云端预设、上传/审核流程）与匿名 Hub 思路；仅借鉴交互与设计，未使用其代码。
+- [1812z/HyperIsland](https://github.com/1812z/HyperIsland) —— HyperGlow 的配置预设页参考了其配置预设数据模型（分节快照、本地/云端预设、上传/审核流程）与匿名 Hub 思路；锁屏卡片的材质边缘 shader 与材质调节参数集改编自其实现（MIT）。参见 [NOTICE](NOTICE)。
 - [Andrea-lyz/ColorOS-Live-Lyrics-Bridge](https://github.com/Andrea-lyz/ColorOS-Live-Lyrics-Bridge) —— 歌词摄取路径的多项加固（翻译 lane 对齐、词级时间轴修复、文本清洗、开头元数据清理）改编自其实现。
 - [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics) —— 歌词时间轴规整（词级对齐、重叠仲裁）借鉴了 AMLL 公开的思路与阈值；仅借鉴思路与阈值，未使用其（AGPL）代码。
 - [jayfunc/BetterLyrics](https://github.com/jayfunc/BetterLyrics) —— 「BetterLyrics」逐字动画档的播放效果（长音节放大与辉光、未唱音节下沉与唱到上浮的浮动节奏、词块级高亮节奏）参考了其 LyricsAnimator / LyricsEffectSettings 的阈值与观感；仅借鉴思路与参数，未使用其（GPL-3.0）代码。

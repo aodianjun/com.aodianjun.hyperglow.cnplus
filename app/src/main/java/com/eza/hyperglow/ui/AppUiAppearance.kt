@@ -19,9 +19,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.eza.hyperglow.AppLog
+import com.eza.hyperglow.customization.CardMaterialTuning
 import com.eza.hyperglow.customization.CustomFontContract
+import com.eza.hyperglow.customization.SceneCompiler
+import com.eza.hyperglow.customization.normalizeCardMaterialTuning
 import com.eza.hyperglow.R
 import java.io.File
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.Colors
 import top.yukonga.miuix.kmp.theme.LocalContentColor
@@ -44,6 +49,14 @@ internal data class AppUiAppearance(
     val textColorArgb: Int? = null,
     val fontFamily: String = FONT_FAMILY_SYSTEM,
     val systemBarIcons: AppSystemBarIcons = AppSystemBarIcons.AUTO,
+    /** 顶栏/卡片/底栏的玻璃材质;NONE 保持既有半透明/实色行为。 */
+    val glassMaterial: AppGlassMaterial = AppGlassMaterial.NONE,
+    /** HDR 高光:增强玻璃边缘高光峰值与光晕(加法混合模拟)。 */
+    val hdrHighlight: Boolean = false,
+    /** 应用内玻璃模糊强度:0-100,50 = 材质基础半径,100 = 1.5×。 */
+    val glassBlurPercent: Int = 50,
+    /** 应用内玻璃的完整材质调节(与 HyperIsland 材质页字段同源)。 */
+    val glassTuning: CardMaterialTuning = CardMaterialTuning(),
     /** 底部导航是否用悬浮样式(miuix FloatingNavigationBar);关闭改用贴底 NavigationBar。 */
     val floatingNavBar: Boolean = true
 )
@@ -71,6 +84,27 @@ internal enum class AppSystemBarIcons {
     DARK
 }
 
+/**
+ * 应用界面玻璃材质档位。四种材质共用 miuix-blur 的 backdrop 采样管线,
+ * 区别只在模糊半径、颜色调整与边缘高光;NONE 表示不启用(默认,零回归)。
+ */
+internal enum class AppGlassMaterial {
+    /** 关闭:沿用既有实色/半透明配色。 */
+    NONE,
+
+    /** 高斯模糊:只模糊背景,不画边缘高光。 */
+    GAUSSIAN,
+
+    /** 高光玻璃:模糊 + 两路定向光边缘高光。 */
+    HIGHLIGHT,
+
+    /** 液态玻璃:低模糊 + 随设备倾斜移动的定向高光。 */
+    LIQUID,
+
+    /** 柔光玻璃:大半径模糊 + 宽而柔的低强度光晕。 */
+    SOFT
+}
+
 internal const val DEFAULT_THEME_COLOR_ARGB = 0xFF3482FF.toInt()
 internal const val DEFAULT_BACKGROUND_DIM_PERCENT = 45
 internal const val DEFAULT_BACKGROUND_BLUR_PERCENT = 0
@@ -95,6 +129,10 @@ internal const val KEY_CONTROL_OPACITY_PERCENT = "control_opacity_percent"
 internal const val KEY_TEXT_COLOR_ARGB = "text_color_argb"
 internal const val KEY_FONT_FAMILY = "font_family"
 internal const val KEY_SYSTEM_BAR_ICONS = "system_bar_icons"
+internal const val KEY_GLASS_MATERIAL = "glass_material"
+internal const val KEY_HDR_HIGHLIGHT = "hdr_highlight"
+internal const val KEY_GLASS_BLUR_PERCENT = "glass_blur_percent"
+internal const val KEY_GLASS_TUNING = "glass_tuning"
 internal const val KEY_FLOATING_NAV_BAR = "floating_nav_bar"
 
 /** 控件玻璃化的默认不透明度:100% 即三档原生透明度(顶栏 0.7/卡片 0.82/导航 0.93)。 */
@@ -125,6 +163,18 @@ internal val LocalAppControlOpacity = staticCompositionLocalOf { 1f }
 
 /** 背景图层的 backdrop 句柄:顶栏渐变模糊据此采样壁纸;未启用背景或未记录时为 null。 */
 internal val LocalAppLayerBackdrop = staticCompositionLocalOf { null as top.yukonga.miuix.kmp.blur.LayerBackdrop? }
+
+/** 当前玻璃材质;MainActivity 从外观状态提供。NONE 时各表面沿用原有配色。 */
+internal val LocalAppGlassMaterial = staticCompositionLocalOf { AppGlassMaterial.NONE }
+
+/** HDR 高光开关;仅当材质不是 NONE 且 RuntimeShader 可用时参与高光参数。 */
+internal val LocalAppGlassHdrHighlight = staticCompositionLocalOf { false }
+
+/** 应用内玻璃的完整材质调节;默认对象保持旧观感。 */
+internal val LocalAppGlassTuning = staticCompositionLocalOf { CardMaterialTuning() }
+
+/** 应用内玻璃模糊强度,50 = 材质基础半径。 */
+internal val LocalAppGlassBlurPercent = staticCompositionLocalOf { 50 }
 
 // 背景图片生效时的玻璃化透明度:顶栏最透、卡片轻透、底部悬浮导航最实——
 // 三档让壁纸透出的同时拉开层次(导航与卡片明度/实度差异即区分度来源)。
@@ -179,10 +229,10 @@ internal fun appNavBarColor(): Color {
 internal fun appTopBarTitleColor(): Color =
     appControlContentColor(MiuixTheme.colorScheme.onSurface)
 
-/** 背景图片生效时容器透明,否则维持 miuix 默认 surface 色。 */
+/** 背景图片生效或启用了玻璃材质时容器透明(底色由 MainActivity 的背景层提供),否则维持 miuix 默认 surface 色。 */
 @Composable
 internal fun appSurfaceColor(): Color =
-    if (LocalAppBackgroundActive.current) {
+    if (LocalAppBackgroundActive.current || LocalAppGlassMaterial.current != AppGlassMaterial.NONE) {
         Color.Transparent
     } else {
         top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
@@ -234,6 +284,19 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
     val fontFamily = normalizeAppFontFamily(values[KEY_FONT_FAMILY])
     val systemBarIcons = AppSystemBarIcons.entries.firstOrNull { it.name == values[KEY_SYSTEM_BAR_ICONS] }
         ?: AppSystemBarIcons.AUTO
+    val glassMaterial = AppGlassMaterial.entries.firstOrNull { it.name == values[KEY_GLASS_MATERIAL] }
+        ?: AppGlassMaterial.NONE
+    val hdrHighlight = values[KEY_HDR_HIGHLIGHT] as? Boolean ?: false
+    val glassBlurPercent = ((values[KEY_GLASS_BLUR_PERCENT] as? Int)
+        ?: 50).coerceIn(0, 100)
+    val glassTuning = (values[KEY_GLASS_TUNING] as? String)
+        ?.let { raw ->
+            runCatching {
+                SceneCompiler.json.decodeFromString(CardMaterialTuning.serializer(), raw)
+            }.getOrNull()
+        }
+        ?.let(::normalizeCardMaterialTuning)
+        ?: CardMaterialTuning()
     val floatingNavBar = values[KEY_FLOATING_NAV_BAR] as? Boolean ?: true
     return AppUiAppearance(
         themeMode = themeMode,
@@ -248,6 +311,10 @@ internal fun normalizeAppUiAppearance(values: Map<String, Any?>): AppUiAppearanc
         textColorArgb = textColorArgb,
         fontFamily = fontFamily,
         systemBarIcons = systemBarIcons,
+        glassMaterial = glassMaterial,
+        hdrHighlight = hdrHighlight,
+        glassBlurPercent = glassBlurPercent,
+        glassTuning = glassTuning,
         floatingNavBar = floatingNavBar
     )
 }
@@ -275,6 +342,13 @@ internal fun updateAppUiAppearance(
             KEY_TEXT_COLOR_ARGB to appearance.textColorArgb,
             KEY_FONT_FAMILY to appearance.fontFamily,
             KEY_SYSTEM_BAR_ICONS to appearance.systemBarIcons.name,
+            KEY_GLASS_MATERIAL to appearance.glassMaterial.name,
+            KEY_HDR_HIGHLIGHT to appearance.hdrHighlight,
+            KEY_GLASS_BLUR_PERCENT to appearance.glassBlurPercent,
+            KEY_GLASS_TUNING to SceneCompiler.json.encodeToString(
+                CardMaterialTuning.serializer(),
+                appearance.glassTuning
+            ),
             KEY_FLOATING_NAV_BAR to appearance.floatingNavBar
         )
     )
@@ -301,6 +375,16 @@ internal fun updateAppUiAppearance(
     }
     editor.putString(KEY_FONT_FAMILY, normalized.fontFamily)
     editor.putString(KEY_SYSTEM_BAR_ICONS, normalized.systemBarIcons.name)
+    editor.putString(KEY_GLASS_MATERIAL, normalized.glassMaterial.name)
+    editor.putBoolean(KEY_HDR_HIGHLIGHT, normalized.hdrHighlight)
+    editor.putInt(KEY_GLASS_BLUR_PERCENT, normalized.glassBlurPercent)
+    editor.putString(
+        KEY_GLASS_TUNING,
+        SceneCompiler.json.encodeToString(
+            CardMaterialTuning.serializer(),
+            normalized.glassTuning
+        )
+    )
     editor.putBoolean(KEY_FLOATING_NAV_BAR, normalized.floatingNavBar)
     return editor.commit()
 }
@@ -565,5 +649,18 @@ internal fun appSystemBarIconsLabel(
         AppSystemBarIcons.AUTO -> R.string.option_bar_icons_auto
         AppSystemBarIcons.LIGHT -> R.string.option_bar_icons_light
         AppSystemBarIcons.DARK -> R.string.option_bar_icons_dark
+    }
+)
+
+internal fun appGlassMaterialLabel(
+    context: android.content.Context,
+    material: AppGlassMaterial
+): String = context.getString(
+    when (material) {
+        AppGlassMaterial.NONE -> R.string.option_glass_material_none
+        AppGlassMaterial.GAUSSIAN -> R.string.option_glass_material_gaussian
+        AppGlassMaterial.HIGHLIGHT -> R.string.option_glass_material_highlight
+        AppGlassMaterial.LIQUID -> R.string.option_glass_material_liquid
+        AppGlassMaterial.SOFT -> R.string.option_glass_material_soft
     }
 )

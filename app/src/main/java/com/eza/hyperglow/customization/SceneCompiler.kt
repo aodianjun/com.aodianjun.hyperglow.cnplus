@@ -44,7 +44,11 @@ object SceneCompiler {
                 artworkSizeDp = lockscreenSource.artworkSizeDp,
                 backgroundStyle = lockscreenSource.backgroundStyle,
                 cardAlpha = lockscreenSource.cardAlpha,
-                cardColor = lockscreenSource.cardColor
+                cardColor = lockscreenSource.cardColor,
+                cardMaterial = lockscreenSource.cardMaterial,
+                cardHdrHighlight = lockscreenSource.cardHdrHighlight,
+                cardMaterialAlpha = lockscreenSource.cardMaterialAlpha,
+                cardMaterialTuning = lockscreenSource.cardMaterialTuning
             ) ?: lockscreenSource
         )
         val aod = compileProfile(SURFACE_AOD, aodSource)
@@ -268,6 +272,10 @@ object SceneCompiler {
             },
             cardAlpha = normalizeCardAlpha(profile.cardAlpha),
             cardColor = normalizeCardColor(profile.cardColor),
+            cardMaterial = normalizeCardMaterial(profile.cardMaterial),
+            cardHdrHighlight = profile.cardHdrHighlight,
+            cardMaterialAlpha = normalizeCardMaterialAlpha(profile.cardMaterialAlpha),
+            cardMaterialTuning = normalizeCardMaterialTuning(profile.cardMaterialTuning),
             metadataParts = parts,
             metadataSeparators = normalizeMetadataSeparators(profile.metadataSeparators, parts),
             hideAlbumWhenSameAsTitle = profile.hideAlbumWhenSameAsTitle == true,
