@@ -144,6 +144,9 @@ internal object SearchRowKeys {
     const val APPEARANCE_SPECTRUM_SENSITIVITY = "appearance_spectrum_sensitivity"
     const val APPEARANCE_LYRIC_CARD = "appearance_lyric_card"
     const val APPEARANCE_PLAYBACK_PROGRESS = "appearance_playback_progress"
+    const val APPEARANCE_CARD_HDR_HIGHLIGHT = "appearance_card_hdr_highlight"
+    const val APPEARANCE_CARD_MATERIAL_ALPHA = "appearance_card_material_alpha"
+    const val APPEARANCE_MATERIAL_TUNING = "appearance_material_tuning"
     const val APPEARANCE_CARD_TRANSPARENCY = "appearance_card_transparency"
     const val APPEARANCE_SPECTRUM_COLOR = "appearance_spectrum_color"
     const val APPEARANCE_CUSTOM_FONT = "appearance_custom_font"
@@ -1154,6 +1157,40 @@ private val APPEARANCE_ROW_ENTRIES: List<GlobalSearchEntry> = listOf(
         GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD,
         SearchRowKeys.APPEARANCE_LYRIC_CARD,
         "锁屏 歌词 卡片 背景 lyric card",
+        appearanceSection = 1
+    ),
+    appearanceChoiceRow(
+        AodChoiceKind.CARD_MATERIAL,
+        R.string.section_lockscreen_card,
+        GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD,
+        "锁屏 卡片 材质 纯色 高斯 高光 液态 柔光 card material",
+        appearanceSection = 1
+    ),
+    appearanceRow(
+        R.string.setting_card_hdr_highlight,
+        R.string.summary_card_hdr_highlight,
+        R.string.section_lockscreen_card,
+        GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD,
+        SearchRowKeys.APPEARANCE_CARD_HDR_HIGHLIGHT,
+        "锁屏 卡片 HDR 高光 highlight",
+        appearanceSection = 1
+    ),
+    appearanceRow(
+        R.string.setting_card_material_alpha,
+        R.string.summary_card_material_alpha,
+        R.string.section_lockscreen_card,
+        GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD,
+        SearchRowKeys.APPEARANCE_CARD_MATERIAL_ALPHA,
+        "锁屏 卡片 模糊 强度 材质 透明度 material alpha",
+        appearanceSection = 1
+    ),
+    appearanceRow(
+        R.string.setting_material_tuning,
+        R.string.summary_material_tuning,
+        R.string.section_lockscreen_card,
+        GlobalSearchAnchor.APPEARANCE_LOCKSCREEN_CARD,
+        SearchRowKeys.APPEARANCE_MATERIAL_TUNING,
+        "锁屏 卡片 材质 微调 折射 色散 光照 material tuning",
         appearanceSection = 1
     ),
     appearanceChoiceRow(

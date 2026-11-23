@@ -1639,6 +1639,9 @@ internal fun LyricAppearanceSection(
                                     updateSelected { it.copy(cardHdrHighlight = enabled) }
                                 },
                                 stringResource(R.string.setting_card_hdr_highlight),
+                                modifier = Modifier.searchRowAnchor(
+                                    SearchRowKeys.APPEARANCE_CARD_HDR_HIGHLIGHT
+                                ),
                                 summary = stringResource(R.string.summary_card_hdr_highlight)
                             )
                             SliderPreference(
@@ -1649,6 +1652,9 @@ internal fun LyricAppearanceSection(
                                     }
                                 },
                                 title = stringResource(R.string.setting_card_material_alpha),
+                                modifier = Modifier.searchRowAnchor(
+                                    SearchRowKeys.APPEARANCE_CARD_MATERIAL_ALPHA
+                                ),
                                 summary = stringResource(R.string.summary_card_material_alpha),
                                 valueText = "${selectedProfile.cardMaterialAlpha}%",
                                 valueRange = 0f..100f,
@@ -1657,6 +1663,9 @@ internal fun LyricAppearanceSection(
                             // 材质微调滑条很多,收进子页面(弹窗),卡片分组本身只保留材质/模糊/HDR。
                             ArrowPreference(
                                 title = stringResource(R.string.setting_material_tuning),
+                                modifier = Modifier.searchRowAnchor(
+                                    SearchRowKeys.APPEARANCE_MATERIAL_TUNING
+                                ),
                                 summary = stringResource(R.string.summary_material_tuning),
                                 onClick = { showMaterialTuningDialog = true }
                             )

@@ -151,6 +151,18 @@ class GlobalSearchTest {
                 it.destination == GlobalSearchDestination.AOD_BEHAVIOR
             }
         )
+        // 玻璃/卡片材质新增项:材质下拉带行锚点,App 外观子页项带 destination。
+        val cardMaterial = GLOBAL_SEARCH_ENTRIES.first {
+            it.titleRes == R.string.choice_card_material
+        }
+        assertEquals(
+            GlobalSearchRowAnchors.appearanceChoiceKey(AodChoiceKind.CARD_MATERIAL.name),
+            cardMaterial.rowAnchor
+        )
+        val glassMaterial = GLOBAL_SEARCH_ENTRIES.first {
+            it.titleRes == R.string.setting_glass_material
+        }
+        assertEquals(GlobalSearchDestination.APP_APPEARANCE, glassMaterial.destination)
         // 全量索引应覆盖 160 条上下,避免后续新增开关时又退回只索引分组标题。
         assertTrue(GLOBAL_SEARCH_ENTRIES.size >= 150)
     }
