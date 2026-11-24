@@ -26,7 +26,7 @@ release with the same name in the mirror repository**.
 | Version number source | `versionCode` / `versionName` in `app/build.gradle.kts` |
 | Mirror credentials | The workspace's classic PAT (`gh_token.txt` / `.gh_pat`) — it has admin on the mirror repo (verified 2026-10-07) |
 
-## Current Push Status (verified 2026-11-13)
+## Current Push Status (verified 2026-11-24)
 
 Repository files: synced to the source `main` on 2026-10-07 (mirror commit `7b9d4e69`,
 "Sync upstream main (v0.3.166 / versionCode 193)") — the first sync since `89-0.3.70`;
@@ -43,7 +43,7 @@ the sync set); re-synced on 2026-11-02 (mirror commit `e2c5d4e`, "Sync upstream 
 byte-verified via blob SHA, mirror-only files — including `README.md` — preserved); re-synced
 on 2026-11-13 (mirror commit `03860b7`, "Sync upstream main (v0.4.0 / versionCode 300)";
 94 added + 93 updated + 0 deleted, 592 source files byte-verified via blob SHA, mirror-only
-files including `README.md` preserved).
+files including `README.md` preserved). re-synced on 2026-11-24 (mirror commit `dc9e501`, "Sync upstream main (v0.4.1 / versionCode 301)"; 41 added + 37 updated + 0 deleted, 632 of 633 source files byte-verified via blob SHA — the mirror-owned `README.md` is deliberately excluded from the sync set and preserved).
 
 Plugin release: the mirror's `plugins` pre-release was refreshed on 2026-10-14 with the
 self-contained (kotlin-stdlib bundled) plugin ZIPs and switched to `prerelease: true` so it
@@ -55,6 +55,7 @@ verified, and its release body refreshed from the source.
 
 | Source repository release | Mirror status |
 |---|---|
+| `301-0.4.1` | ✅ Pushed (2026-11-24, workspace classic PAT) — release + debug APKs byte-identical to the source (names, sizes, SHA-256); marked latest; source release promoted to stable. |
 | `300-0.4.0` | ✅ Pushed (2026-11-13, classic PAT) — asset byte sizes match the source repo exactly; `created_at` is current |
 | `198-0.3.171` | ✅ Pushed (2026-11-02, classic PAT) — asset byte sizes match the source repo exactly; `created_at` is current |
 | `197-0.3.170` | ✅ Pushed (2026-10-23, provided classic PAT) — asset byte sizes match the source repo exactly; `make_latest` set to true, `created_at` is current |
