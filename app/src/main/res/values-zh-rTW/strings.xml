@@ -40,8 +40,20 @@
     <string name="update_check_up_to_date">當前已是最新版本</string>
     <string name="update_check_failed">檢查失敗，請確認網絡連接</string>
     <string name="update_dialog_title">發現新版本</string>
-    <string name="update_dialog_summary">發現新版本 v%1$s，可前往發佈頁下載安裝。</string>
+    <string name="update_dialog_summary">發現新版本 v%1$s，可在應用程式內直接下載並安裝。</string>
     <string name="action_download">前往下載</string>
+    <string name="update_action_download_install">下載並安裝</string>
+    <string name="update_action_retry">重試</string>
+    <string name="update_action_open_release">開啟發佈頁</string>
+    <string name="update_downloading_title">正在下載更新</string>
+    <string name="update_downloading_summary">正在下載 v%1$s… %2$s</string>
+    <string name="update_downloading_fallback_title">正在使用備用線路</string>
+    <string name="update_downloading_fallback_summary">GitHub 直連不可用，正透過 assets.lsposed.org 下載 v%1$s… %2$s</string>
+    <string name="update_download_failed">下載失敗，請確認網絡後重試。</string>
+    <string name="update_signature_mismatch">下載包的簽名與已安裝應用程式不一致，無法覆蓋安裝。請開啟發佈頁手動安裝。</string>
+    <string name="update_no_asset">最新發行中沒有可安裝的 APK，請開啟發佈頁手動下載。</string>
+    <string name="update_install_started">更新已下載，請在系統提示中完成安裝。</string>
+    <string name="update_install_failed">無法啟動系統安裝器，請開啟發佈頁手動安裝。</string>
     <string name="label_systemui_aod">系統界面 / 息屏顯示</string>
     <string name="label_aod_lyrics">息屏歌詞</string>
     <string name="label_lockscreen_lyrics">鎖屏歌詞</string>
@@ -638,9 +650,9 @@
     <string name="summary_material_tuning">邊緣、折射、光照、柔光與混色參數收進子頁面。</string>
     <string name="summary_card_hdr_highlight">增強卡片邊緣高光峰值與光暈；峰值仍受 SDR 輸出上限約束。</string>
     <string name="setting_glass_blur">模糊強度</string>
-    <string name="summary_glass_blur">相對材質基礎模糊半徑：0% = 0.5×，50% = 1×，100% = 1.5×。</string>
+    <string name="summary_glass_blur">相對材質基礎模糊半徑：0% ≈ 關閉，50% = 0.75×，100% = 1.5×。</string>
     <string name="setting_card_material_alpha">模糊強度</string>
-    <string name="summary_card_material_alpha">調整玻璃模糊層的強度；玻璃材質不使用卡片顏色與卡片透明度。系統級即時模糊僅在 HyperOS 4 上啟用，舊系統自動回退為靜態桌布模糊。</string>
+    <string name="summary_card_material_alpha">調整玻璃模糊層的強度，0% 接近不模糊；玻璃材質不使用卡片顏色與卡片透明度。系統級即時模糊僅在 HyperOS 4 上啟用，舊系統自動回退為靜態桌布模糊。</string>
     <string name="material_blend_section">混色</string>
     <string name="material_blend_color">顏色</string>
     <string name="material_blend_opacity">不透明度</string>

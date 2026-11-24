@@ -122,15 +122,16 @@ internal fun Modifier.appGlassMaterial(
         appGlassBlendColor(tuning)
     }
     val blurEnabled = LocalAppBackgroundActive.current
+    // 0% 直接关闭模糊(不再保留 0.5× 底噪),100% 保持 1.5× 上限。
+    val blurRadius = spec.blurRadius * (
+        blurPercent.coerceIn(0, 100) / 100f * 1.5f
+        )
     return drawBackdrop(
         backdrop = backdrop,
         shape = { surfaceShape },
         effects = {
-            if (blurEnabled) {
-                blur(
-                    radiusX = (spec.blurRadius *
-                        (0.5f + blurPercent.coerceIn(0, 100) / 100f)).toPx()
-                )
+            if (blurEnabled && blurRadius > 0.dp) {
+                blur(radiusX = blurRadius.toPx())
             }
             colorControls(
                 brightness = (

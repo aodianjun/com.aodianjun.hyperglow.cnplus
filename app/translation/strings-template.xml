@@ -45,8 +45,20 @@
     <string name="update_check_up_to_date">You are on the latest version</string>
     <string name="update_check_failed">Check failed. Please check your network connection</string>
     <string name="update_dialog_title">Update available</string>
-    <string name="update_dialog_summary">A newer version v%1$s is available. Download and install it from the release page.</string>
+    <string name="update_dialog_summary">A newer version v%1$s is available. Download and install it in the app.</string>
     <string name="action_download">Download</string>
+    <string name="update_action_download_install">Download &amp; install</string>
+    <string name="update_action_retry">Retry</string>
+    <string name="update_action_open_release">Open release page</string>
+    <string name="update_downloading_title">Downloading update</string>
+    <string name="update_downloading_summary">Downloading v%1$s… %2$s</string>
+    <string name="update_downloading_fallback_title">Downloading via backup route</string>
+    <string name="update_downloading_fallback_summary">GitHub is unreachable. Downloading v%1$s via assets.lsposed.org… %2$s</string>
+    <string name="update_download_failed">Download failed. Check your network and try again.</string>
+    <string name="update_signature_mismatch">The downloaded build is signed with a different key, so it cannot replace the installed app. Open the release page to install it manually.</string>
+    <string name="update_no_asset">The latest release has no installable APK. Open the release page to download it manually.</string>
+    <string name="update_install_started">Update downloaded. Follow the system prompt to install it.</string>
+    <string name="update_install_failed">Could not start the system installer. Open the release page to install it manually.</string>
     <string name="label_systemui_aod">System UI / AOD</string>
     <string name="label_aod_lyrics">AOD lyrics</string>
     <string name="label_lockscreen_lyrics">Lock screen lyrics</string>
@@ -681,9 +693,9 @@
     <string name="summary_material_tuning">Edge, refraction, light, soft-glass and blend parameters in a subpage.</string>
     <string name="summary_card_hdr_highlight">Boosts the card edge highlight and bloom. The peak still stays within SDR output.</string>
     <string name="setting_glass_blur">Blur strength</string>
-    <string name="summary_glass_blur">Relative to the material\'s base blur radius: 0% = 0.5×, 50% = 1×, 100% = 1.5×.</string>
+    <string name="summary_glass_blur">Relative to the material\'s base blur radius: 0% ≈ off, 50% = 0.75×, 100% = 1.5×.</string>
     <string name="setting_card_material_alpha">Blur strength</string>
-    <string name="summary_card_material_alpha">Adjusts the glass blur strength. Glass materials do not use the card color or card opacity. System-level live blur is available on HyperOS 4 only; older systems fall back to static wallpaper blur.</string>
+    <string name="summary_card_material_alpha">Adjusts the glass blur strength; 0% is nearly off. Glass materials do not use the card color or card opacity. System-level live blur is available on HyperOS 4 only; older systems fall back to static wallpaper blur.</string>
     <string name="material_blend_section">Blend</string>
     <string name="material_blend_color">Color</string>
     <string name="material_blend_opacity">Opacity</string>

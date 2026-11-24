@@ -161,34 +161,41 @@ internal class AdaptiveLyricCardBackgroundView(context: android.content.Context)
             // 优先走 SurfaceFlinger 的背景模糊(动态壁纸也能模糊);仅 HyperOS 4 启用,
             // 非 OS4 或调用失败时回落到旧实现:静态壁纸预模糊/中性半透明。
             val blurDp = cardBlurRadiusDp(materialToken, materialAlphaPercent) ?: 0f
-            val nativeActive = nativeBlur.update(
-                bounds = rect,
-                cornerRadiusPx = radius,
-                blurRadiusPx = blurDp * density
-            )
-            val drewBackground = if (nativeActive) {
-                true
-            } else {
-                val location = IntArray(2)
-                getLocationOnScreen(location)
-                backdropRenderer.draw(
-                    canvas = canvas,
-                    bounds = rect,
-                    cornerRadiusPx = radius,
-                    materialToken = materialToken,
-                    materialAlphaPercent = materialAlphaPercent,
-                    hostScreenX = location[0].toFloat(),
-                    hostScreenY = location[1].toFloat(),
-                    tuning = tuning
-                )
-            }
-            if (drewBackground) {
-                // 混色层与 HyperIsland 的 blendColor/blendOpacity 对齐;0% 时不压任何颜色,
-                // 让实时模糊自己透出来。
+            if (blurDp <= 0.05f) {
+                // 0% 允许关到接近不模糊:不挂 surface,也不走静态壁纸预模糊,
+                // 只保留混色层与材质边缘,避免最低仍有一层 0.5× 模糊。
+                nativeBlur.hide()
                 drawTintOverlay(canvas, rect, radius)
             } else {
-                // 动态壁纸没有静态图可采样时,回落为中性半透明玻璃。
-                canvas.drawRoundRect(rect, radius, radius, fallbackPaint)
+                val nativeActive = nativeBlur.update(
+                    bounds = rect,
+                    cornerRadiusPx = radius,
+                    blurRadiusPx = blurDp * density
+                )
+                val drewBackground = if (nativeActive) {
+                    true
+                } else {
+                    val location = IntArray(2)
+                    getLocationOnScreen(location)
+                    backdropRenderer.draw(
+                        canvas = canvas,
+                        bounds = rect,
+                        cornerRadiusPx = radius,
+                        materialToken = materialToken,
+                        materialAlphaPercent = materialAlphaPercent,
+                        hostScreenX = location[0].toFloat(),
+                        hostScreenY = location[1].toFloat(),
+                        tuning = tuning
+                    )
+                }
+                if (drewBackground) {
+                    // 混色层与 HyperIsland 的 blendColor/blendOpacity 对齐;0% 时不压任何颜色,
+                    // 让实时模糊自己透出来。
+                    drawTintOverlay(canvas, rect, radius)
+                } else {
+                    // 动态壁纸没有静态图可采样时,回落为中性半透明玻璃。
+                    canvas.drawRoundRect(rect, radius, radius, fallbackPaint)
+                }
             }
         }
         materialRenderer.draw(

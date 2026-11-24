@@ -453,5 +453,6 @@ internal fun cardBlurRadiusDp(materialToken: String, strengthPercent: Int): Floa
         CARD_MATERIAL_SOFT -> 20f
         else -> return null
     }
-    return base * (0.5f + strengthPercent.coerceIn(0, 100) / 100f)
+    // 0% 允许到接近 0;100% 仍是 1.5× 基础半径。
+    return base * (strengthPercent.coerceIn(0, 100) / 100f * 1.5f)
 }
