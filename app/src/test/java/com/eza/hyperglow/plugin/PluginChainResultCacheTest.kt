@@ -170,14 +170,14 @@ class PluginChainResultCacheTest {
 
         val listed = PluginChainResultCache.listEntries(context)
         assertEquals(2, listed.size)
-        // 列表按缓存时间新→旧:后存的 Song Two 在前。
-        assertEquals("Song Two", listed[0].title)
-        assertEquals("Singer B", listed[0].artist)
-        assertEquals("spicy", listed[0].producerId)
-        assertEquals(1, listed[0].rows)
-        assertTrue(listed[0].sizeBytes > 0L)
-        assertTrue(listed[0].createdAtEpochMs > 0L)
-        assertEquals(secondIdentity, listed[0].identity)
+        // 两次 store 可能落在同一毫秒;只校验条目内容,不依赖同毫秒下的先后顺序。
+        val second = listed.first { it.title == "Song Two" }
+        assertEquals("Singer B", second.artist)
+        assertEquals("spicy", second.producerId)
+        assertEquals(1, second.rows)
+        assertTrue(second.sizeBytes > 0L)
+        assertTrue(second.createdAtEpochMs > 0L)
+        assertEquals(secondIdentity, second.identity)
 
         // 单删命中:其余条目不受影响,且删掉的那首再 load 不命中。
         assertTrue(PluginChainResultCache.clearEntry(context, secondIdentity))
