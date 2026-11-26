@@ -348,6 +348,7 @@ internal fun PluginManagementScreen(
         PluginUpdateUiState.Idle -> Unit
         PluginUpdateUiState.Checking -> {
             WindowDialog(
+                motion = appDialogMotion,
                 title = stringResource(R.string.plugin_update_checking_title),
                 summary = stringResource(R.string.plugin_update_checking_summary),
                 show = true,
@@ -356,6 +357,7 @@ internal fun PluginManagementScreen(
         }
         is PluginUpdateUiState.Installing -> {
             WindowDialog(
+                motion = appDialogMotion,
                 title = stringResource(R.string.plugin_update_installing_title),
                 summary = stringResource(
                     R.string.plugin_update_installing_summary,
@@ -369,6 +371,7 @@ internal fun PluginManagementScreen(
             when (val outcome = uiState.outcome) {
                 is PluginUpdateCenter.CheckOutcome.Failure -> {
                     WindowDialog(
+                        motion = appDialogMotion,
                         title = stringResource(R.string.plugin_update_failed_title),
                         summary = stringResource(
                             R.string.plugin_update_failed_summary,
@@ -380,6 +383,7 @@ internal fun PluginManagementScreen(
                 }
                 is PluginUpdateCenter.CheckOutcome.Success -> {
                     WindowDialog(
+                        motion = appDialogMotion,
                         title = stringResource(R.string.plugin_update_result_title),
                         summary = stringResource(R.string.plugin_update_result_summary),
                         show = true,
@@ -493,6 +497,7 @@ internal fun PluginManagementScreen(
             uninstallPluginId = null
         } else {
             WindowDialog(
+                motion = appDialogMotion,
                 title = stringResource(R.string.plugin_uninstall_confirm_title),
                 summary = stringResource(
                     R.string.plugin_uninstall_confirm_summary,
@@ -778,6 +783,7 @@ internal fun PluginSettingEditDialog(
         PluginSettingType.SELECT -> {
             val selected = PluginSettingsStore.getString(context, pluginId, setting)
             WindowDialog(
+                motion = appDialogMotion,
                 title = title,
                 summary = setting.localizedDialogSummary(languageTag),
                 show = true,
@@ -811,6 +817,7 @@ internal fun PluginSettingEditDialog(
                 mutableStateOf(PluginSettingsStore.getStringSet(context, pluginId, setting))
             }
             WindowDialog(
+                motion = appDialogMotion,
                 title = title,
                 summary = setting.localizedDialogSummary(languageTag),
                 show = true,
@@ -854,6 +861,7 @@ internal fun PluginSettingEditDialog(
             val numericInput = isNumber ||
                 setting.inputType == PluginSettingInputType.NUMBER
             WindowDialog(
+                motion = appDialogMotion,
                 title = title,
                 summary = setting.localizedDialogSummary(languageTag),
                 show = true,

@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -28,6 +29,7 @@ import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -77,6 +79,7 @@ class MainActivity : ComponentActivity() {
                 applySystemBarIcons(this@MainActivity, appAppearance, darkTheme)
             }
             val layerBackdrop = rememberLayerBackdrop()
+            var backgroundLuminance by remember { mutableFloatStateOf(0f) }
             MiuixTheme(controller = controller, textStyles = appTextStyles) {
                 AppTextOverride(textColorArgb = appAppearance.textColorArgb) {
                     CompositionLocalProvider(
@@ -87,13 +90,15 @@ class MainActivity : ComponentActivity() {
                         LocalAppGlassHdrHighlight provides appAppearance.hdrHighlight,
                         LocalAppGlassTuning provides appAppearance.glassTuning,
                         LocalAppGlassBlurPercent provides appAppearance.glassBlurPercent,
+                        LocalAppBackgroundLuminance provides backgroundLuminance,
                         LocalAppLayerBackdrop provides layerBackdrop
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
                             AppBackgroundLayer(
                                 appearance = appAppearance,
                                 darkTheme = darkTheme,
-                                layerBackdrop = layerBackdrop
+                                layerBackdrop = layerBackdrop,
+                                onLuminance = { backgroundLuminance = it }
                             )
                             val backStack = rememberNavBackStack<AppRoute>(AppRoute.Home)
                             // 首次使用引导:盖在主页之上,完成后写入标记并从组合中移除。
@@ -371,10 +376,14 @@ class MainActivity : ComponentActivity() {
 private fun AppBackgroundLayer(
     appearance: AppUiAppearance,
     darkTheme: Boolean,
-    layerBackdrop: LayerBackdrop
+    layerBackdrop: LayerBackdrop,
+    onLuminance: (Float) -> Unit
 ) {
     val materialActive = appearance.glassMaterial != AppGlassMaterial.NONE
-    if (!appearance.hasBackgroundImage && !materialActive) return
+    if (!appearance.hasBackgroundImage && !materialActive) {
+        SideEffect { onLuminance(0f) }
+        return
+    }
     val context = LocalContext.current
     val bitmap = if (appearance.hasBackgroundImage) {
         rememberAppAsyncResource<ImageBitmap>(appearance.backgroundImageMtime) {
@@ -383,6 +392,10 @@ private fun AppBackgroundLayer(
     } else {
         null
     }
+    val backgroundLuminance = remember(bitmap) {
+        bitmap?.let { runCatching { averageImageLuminance(it) }.getOrDefault(0f) } ?: 0f
+    }
+    LaunchedEffect(backgroundLuminance) { onLuminance(backgroundLuminance) }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -421,3 +434,29 @@ private fun AppBackgroundLayer(
         }
     }
 }
+
+/** 32×32 网格抽样图片亮度;只作为材质压暗曲线的输入,不直接改背景。 */
+private fun averageImageLuminance(bitmap: ImageBitmap): Float {
+    val source = bitmap.asAndroidBitmap()
+    val stepX = (source.width / 32).coerceAtLeast(1)
+    val stepY = (source.height / 32).coerceAtLeast(1)
+    var sum = 0.0
+    var count = 0
+    var y = 0
+    while (y < source.height) {
+        var x = 0
+        while (x < source.width) {
+            val color = source.getPixel(x, y)
+            sum += (
+                0.2126 * android.graphics.Color.red(color) +
+                    0.7152 * android.graphics.Color.green(color) +
+                    0.0722 * android.graphics.Color.blue(color)
+                ) / 255.0
+            count++
+            x += stepX
+        }
+        y += stepY
+    }
+    return if (count == 0) 0f else (sum / count).toFloat()
+}
+

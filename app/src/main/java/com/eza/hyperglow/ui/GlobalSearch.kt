@@ -1765,6 +1765,7 @@ internal fun GlobalSearchOverlay(
     }
     BackHandler(onBack = onDismiss)
     val glass = isAppGlassMaterialActive()
+    val pillShape = rememberSquircleShape(50.dp)
 
     Box(Modifier.fillMaxSize()) {
     AppSoftGlassBackground()
@@ -1824,14 +1825,14 @@ internal fun GlobalSearchOverlay(
                                 .then(
                                     if (glass) {
                                         Modifier.appGlassMaterial(
-                                            RoundedCornerShape(50),
+                                            pillShape,
                                             cornerRadius = 24.dp
                                         )
                                     } else {
                                         Modifier
                                     }
                                 )
-                                .clip(RoundedCornerShape(50))
+                                .clip(pillShape)
                                 .background(
                                     if (glass) Color.Transparent else appCardContainerColor()
                                 )

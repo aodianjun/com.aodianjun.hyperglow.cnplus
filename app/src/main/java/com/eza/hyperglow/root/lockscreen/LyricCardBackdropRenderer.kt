@@ -20,6 +20,8 @@ import com.eza.hyperglow.customization.CARD_MATERIAL_LIQUID
 import com.eza.hyperglow.customization.CARD_MATERIAL_SOFT
 import com.eza.hyperglow.customization.CARD_MATERIAL_SOLID
 import com.eza.hyperglow.customization.CardMaterialTuning
+import com.eza.hyperglow.customization.DARKEN_SAMPLE_VALUES
+import com.eza.hyperglow.customization.DEFAULT_DARKEN_SAMPLE_MS
 import com.eza.hyperglow.root.HookLogger
 import java.util.concurrent.Executors
 import kotlin.math.max
@@ -52,14 +54,21 @@ internal class LyricCardBackdropRenderer(
     private val screenWidth: Int
     private val screenHeight: Int
     private var screenWallpaper: Bitmap? = null
+    /** 壁纸平均亮度(静态图抽样;动态壁纸用系统主色),供材质压暗曲线使用。 */
+    internal var wallpaperLuminance = 0f
+        private set
     private var blurredWallpaper: Bitmap? = null
     private var blurredKey: String? = null
     private var noiseBitmap: Bitmap? = null
     private var loading = false
+    private var loadAttempted = false
     private var blurLoading = false
     private var pendingRequest: BlurRequest? = null
     private var released = false
     private var lastDrawLog: String? = null
+    private var sampleIntervalMs = DEFAULT_DARKEN_SAMPLE_MS
+    private var sampleRunnable: Runnable? = null
+    private var sampleInFlight = false
 
     private data class BlurRequest(
         val material: String,
@@ -77,10 +86,14 @@ internal class LyricCardBackdropRenderer(
     }
 
     fun ensureLoaded() {
-        if (released || screenWallpaper != null || loading) return
+        if (released || screenWallpaper != null || loading || loadAttempted) return
+        loadAttempted = true
         loading = true
         executor.execute {
             val loaded = loadWallpaper()
+            val luminance = loaded?.let {
+                runCatching { averageLuminance(it) }.getOrDefault(0f)
+            } ?: runCatching { wallpaperColorsLuminance() }.getOrDefault(0f)
             handler.post {
                 loading = false
                 if (released) {
@@ -88,7 +101,49 @@ internal class LyricCardBackdropRenderer(
                     return@post
                 }
                 screenWallpaper = loaded
-                if (loaded != null) onReady()
+                wallpaperLuminance = luminance
+                if (loaded != null || luminance > 0f) onReady()
+                restartSampling()
+            }
+        }
+    }
+
+    /** 设置壁纸亮度采样间隔;0 = 打开锁屏只采一次。 */
+    fun setSampleInterval(ms: Int) {
+        val normalized = ms.takeIf { it in DARKEN_SAMPLE_VALUES } ?: DEFAULT_DARKEN_SAMPLE_MS
+        if (sampleIntervalMs == normalized) return
+        sampleIntervalMs = normalized
+        restartSampling()
+    }
+
+    private fun restartSampling() {
+        sampleRunnable?.let { handler.removeCallbacks(it) }
+        sampleRunnable = null
+        if (released || sampleIntervalMs <= 0) return
+        val runnable = object : Runnable {
+            override fun run() {
+                if (released) return
+                refreshLuminance()
+                handler.postDelayed(this, sampleIntervalMs.toLong())
+            }
+        }
+        sampleRunnable = runnable
+        handler.postDelayed(runnable, sampleIntervalMs.toLong())
+    }
+
+    private fun refreshLuminance() {
+        if (sampleInFlight || released) return
+        sampleInFlight = true
+        executor.execute {
+            val luminance = runCatching {
+                screenWallpaper?.let { averageLuminance(it) } ?: wallpaperColorsLuminance()
+            }.getOrDefault(wallpaperLuminance)
+            handler.post {
+                sampleInFlight = false
+                if (!released) {
+                    wallpaperLuminance = luminance
+                    onReady()
+                }
             }
         }
     }
@@ -168,6 +223,8 @@ internal class LyricCardBackdropRenderer(
     fun release() {
         if (released) return
         released = true
+        sampleRunnable?.let { handler.removeCallbacks(it) }
+        sampleRunnable = null
         executor.shutdownNow()
         synchronized(bitmapLock) {
             screenWallpaper?.recycle()
@@ -240,6 +297,44 @@ internal class LyricCardBackdropRenderer(
             noiseBitmap = bitmap
             bitmap
         }.getOrNull()
+    }
+
+    /** 32×32 抽样壁纸亮度;只作为材质压暗曲线输入。 */
+    private fun averageLuminance(source: Bitmap): Float {
+        val stepX = (source.width / 32).coerceAtLeast(1)
+        val stepY = (source.height / 32).coerceAtLeast(1)
+        var sum = 0.0
+        var count = 0
+        var y = 0
+        while (y < source.height) {
+            var x = 0
+            while (x < source.width) {
+                val color = source.getPixel(x, y)
+                sum += (
+                    0.2126 * android.graphics.Color.red(color) +
+                        0.7152 * android.graphics.Color.green(color) +
+                        0.0722 * android.graphics.Color.blue(color)
+                    ) / 255.0
+                count++
+                x += stepX
+            }
+            y += stepY
+        }
+        return if (count == 0) 0f else (sum / count).toFloat()
+    }
+
+    /** 动态壁纸没有静态图时,用系统上报的壁纸主色估算亮度。 */
+    private fun wallpaperColorsLuminance(): Float {
+        val colors = runCatching {
+            WallpaperManager.getInstance(context)
+                .getWallpaperColors(WallpaperManager.FLAG_LOCK)
+        }.getOrNull() ?: return 0f
+        val color = colors.primaryColor.toArgb()
+        return (
+            0.2126 * android.graphics.Color.red(color) +
+                0.7152 * android.graphics.Color.green(color) +
+                0.0722 * android.graphics.Color.blue(color)
+            ).toFloat() / 255f
     }
 
     private fun loadWallpaper(): Bitmap? {

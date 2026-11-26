@@ -84,6 +84,9 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.TabRowDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.glass.GlassNavigationBar
+import top.yukonga.miuix.kmp.glass.GlassNavigationItem
+import top.yukonga.miuix.kmp.glass.GlassSegmentedTabRow
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Info
@@ -468,11 +471,13 @@ internal fun HomeScreen(
             // 玻璃材质开启时,底栏自身容器让位给 backdrop;形状跟 miuix 默认圆角一致
             // (悬浮底栏 50dp 胶囊,贴底底栏为矩形)。
             val glassActive = isAppGlassMaterialActive()
-            val navColor = if (glassActive) Color.Transparent else appNavBarColor()
+            val navGlassStyle = rememberAppGlassComponentStyle(tiltReactive = true)
+            val navBackdrop = LocalAppLayerBackdrop.current
+            val navColor = if (navGlassStyle != null) Color.Transparent else appNavBarColor()
             if (floatingNavBar) {
-                if (glassActive) {
-                    // 悬浮底栏的玻璃只包住真正的胶囊:自定义一圈 Row 作玻璃底,
-                    // 让 FloatingNavigationBar 自身透明,避免整条 bottomBar 被涂成一块。
+                if (navGlassStyle != null && navBackdrop != null) {
+                    // 官方 GlassNavigationBar:胶囊/指示器/拖拽选中都由 miuix 处理,
+                    // 材质仍是本项目的模糊半径、色层与 EdgeStroke 调参。
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -480,32 +485,31 @@ internal fun HomeScreen(
                             .padding(bottom = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .appGlassMaterial(
-                                    RoundedCornerShape(50),
-                                    cornerRadius = 50.dp,
-                                    tiltReactive = true
-                                )
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            tabs.forEach { entry ->
-                                FloatingNavigationBarItem(
-                                    selected = pagerState.currentPage == entry.tab.ordinal,
-                                    onClick = {
-                                        scope.launch {
-                                            pagerState.animateScrollToPage(entry.tab.ordinal)
-                                        }
-                                    },
+                        GlassNavigationBar(
+                            items = tabs.map { entry ->
+                                val label = stringResource(entry.labelRes)
+                                GlassNavigationItem(
                                     icon = entry.icon,
-                                    label = stringResource(entry.labelRes),
-                                    colors = itemColors
+                                    label = label,
+                                    contentDescription = label
                                 )
-                            }
-                        }
+                            },
+                            selectedIndex = pagerState.currentPage,
+                            onSelect = { index ->
+                                scope.launch { pagerState.animateScrollToPage(index) }
+                            },
+                            backdrop = navBackdrop,
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                            defaultWindowInsetsPadding = false,
+                            material = navGlassStyle.material,
+                            stroke = navGlassStyle.stroke,
+                            selectedColor = appControlContentColor(
+                                MiuixTheme.colorScheme.onSurfaceContainer
+                            ),
+                            unselectedColor = appControlContentColor(
+                                MiuixTheme.colorScheme.onSurfaceContainer
+                            )
+                        )
                     }
                 } else {
                     FloatingNavigationBar(color = navColor) {
@@ -571,56 +575,69 @@ internal fun HomeScreen(
             Column(Modifier.fillMaxSize()) {
                 if (isSettingsPage) {
                     // 设置页顶部分段选择器:息屏设置 / 锁屏设置 / 其他设置(固定在列表上方)。
-                    val tabGlass = isAppGlassMaterialActive()
-                    TabRow(
-                        tabs = listOf(
-                            stringResource(R.string.settings_section_aod),
-                            stringResource(R.string.settings_section_lockscreen),
-                            stringResource(R.string.settings_section_other)
-                        ),
-                        selectedTabIndex = settingsSectionIndex,
-                        onTabSelected = { settingsSectionIndex = it },
-                        // 接入 App 控件外观体系:自定义控件色/背景图玻璃化/不透明度总控都生效。
-                        // 轨道完全透明(HyperOS 分段控件的做法):只留选中的胶囊浮在页面上,
-                        // 自定义控件色时选中态靠胶囊与页面的实度差呈现,不会出现一条突兀的底条。
-                        colors = TabRowDefaults.tabRowColors(
-                            backgroundColor = Color.Transparent,
+                    val settingsTabs = listOf(
+                        stringResource(R.string.settings_section_aod),
+                        stringResource(R.string.settings_section_lockscreen),
+                        stringResource(R.string.settings_section_other)
+                    )
+                    val tabGlassStyle = rememberAppGlassComponentStyle()
+                    val tabBackdrop = LocalAppLayerBackdrop.current
+                    if (tabGlassStyle != null && tabBackdrop != null) {
+                        // 官方分段玻璃:轨道/指示器/材质过渡交给 miuix-glass,
+                        // blurRadius、色层与 EdgeStroke 仍来自本项目的材质调参。
+                        GlassSegmentedTabRow(
+                            tabs = settingsTabs,
+                            selectedIndex = settingsSectionIndex,
+                            onSelect = { settingsSectionIndex = it },
+                            backdrop = tabBackdrop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    top = innerPadding.calculateTopPadding() + 8.dp,
+                                    start = 12.dp,
+                                    end = 12.dp,
+                                    bottom = 4.dp
+                                ),
+                            material = tabGlassStyle.material,
+                            stroke = tabGlassStyle.stroke,
+                            trackColor = Color.Transparent,
+                            indicatorColor = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
+                            selectedContentColor = appControlContentColor(
+                                MiuixTheme.colorScheme.onBackground
+                            ),
                             contentColor = appControlContentColor(
                                 MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            ),
-                            selectedBackgroundColor = if (tabGlass) {
-                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f)
-                            } else {
-                                appGlassSurface(
+                            )
+                        )
+                    } else {
+                        TabRow(
+                            tabs = settingsTabs,
+                            selectedTabIndex = settingsSectionIndex,
+                            onTabSelected = { settingsSectionIndex = it },
+                            // 接入 App 控件外观体系:自定义控件色/背景图玻璃化/不透明度总控都生效。
+                            // 轨道完全透明(HyperOS 分段控件的做法):只留选中的胶囊浮在页面上。
+                            colors = TabRowDefaults.tabRowColors(
+                                backgroundColor = Color.Transparent,
+                                contentColor = appControlContentColor(
+                                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                ),
+                                selectedBackgroundColor = appGlassSurface(
                                     LocalAppControlColor.current
                                         ?: MiuixTheme.colorScheme.surfaceContainer,
                                     APP_GLASS_NAV_ALPHA
+                                ),
+                                selectedContentColor = appControlContentColor(
+                                    MiuixTheme.colorScheme.onBackground
                                 )
-                            },
-                            selectedContentColor = appControlContentColor(
-                                MiuixTheme.colorScheme.onBackground
-                            )
-                        ),
-                        modifier = Modifier
-                            .padding(
+                            ),
+                            modifier = Modifier.padding(
                                 top = innerPadding.calculateTopPadding() + 8.dp,
                                 start = 12.dp,
                                 end = 12.dp,
                                 bottom = 4.dp
                             )
-                            .then(
-                                if (tabGlass) {
-                                    Modifier
-                                        .clip(RoundedCornerShape(24.dp))
-                                        .appGlassMaterial(
-                                            RoundedCornerShape(24.dp),
-                                            cornerRadius = 24.dp
-                                        )
-                                } else {
-                                    Modifier
-                                }
-                            )
-                    )
+                        )
+                    }
                 }
                 if (appearanceSurface != null) {
                     LyricAppearanceSection(
@@ -1339,6 +1356,7 @@ internal fun HomeScreen(
     if (showLanguageDialog) {
         val currentLanguage = currentUiLanguage(context)
         WindowDialog(
+            motion = appDialogMotion,
             title = englishInterfaceLanguageLabel(context),
             summary = stringResource(R.string.dialog_language_summary),
             show = true,
@@ -1365,6 +1383,7 @@ internal fun HomeScreen(
 
     if (showResetDefaultsDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.dialog_reset_defaults_title),
             summary = stringResource(R.string.dialog_reset_defaults_summary),
             show = true,
@@ -1398,6 +1417,7 @@ internal fun HomeScreen(
 
     if (showRestartDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.dialog_restart_systemui_title),
             summary =
                 stringResource(R.string.dialog_restart_systemui_summary),
@@ -1492,6 +1512,7 @@ internal fun HomeScreen(
 
     if (showPauseLingerDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_after_spotify_pauses),
             summary = stringResource(R.string.dialog_pause_summary),
             show = true,
@@ -1514,6 +1535,7 @@ internal fun HomeScreen(
 
     if (showLogRetentionDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_log_retention),
             show = true,
             onDismissRequest = { showLogRetentionDialog = false }
@@ -1535,6 +1557,7 @@ internal fun HomeScreen(
 
     if (showLogLevelDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_log_level),
             summary = stringResource(R.string.dialog_log_level_summary),
             show = true,
@@ -1557,6 +1580,7 @@ internal fun HomeScreen(
 
     if (showClearLogsDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.dialog_clear_logs_title),
             summary = stringResource(R.string.dialog_clear_logs_summary),
             show = true,

@@ -1,3 +1,4 @@
+import java.io.File
 import java.net.URI
 
 plugins {
@@ -64,6 +65,9 @@ val copyFaqAsset = tasks.register<Copy>("copyFaqAsset") {
 android {
     namespace = "com.eza.hyperglow"
     compileSdk = 37
+    // Compose 1.13 要求 API 37.1,Miuix 0.9.5 的 AAR 以 API 37.2 为目标;
+    // 只抬编译面,targetSdk 仍保持 37,不改变运行时行为。
+    compileSdkMinor = 2
 
     defaultConfig {
         // LSPosed 模块仓库按 applicationId(应用包名)索引。
@@ -139,7 +143,7 @@ android {
     }
 
     compileOptions {
-        // miuix 0.9.4 的产物编译在 JVM target 21:NavDisplay 的 entry/rememberNavBackStack 等
+        // miuix 0.9.5 的产物编译在 JVM target 21:NavDisplay 的 entry/rememberNavBackStack 等
         // inline API 会把库字节码内联进调用方,目标不一致时 Kotlin 报
         // "Cannot inline bytecode built with JVM target 21 into bytecode that is being built
         // with JVM target 17"。应用因此与 miuix 对齐到 21(CI 用 JDK 21,D8/R8 支持 class file 65)。
@@ -161,7 +165,7 @@ kotlin {
 
     sourceSets {
         getByName("main") {
-            assets.srcDir(faqAssetOutputDir.get().asFile)
+            assets.directories.add(faqAssetOutputDir.get().asFile.absolutePath)
         }
     }
 }
@@ -182,19 +186,25 @@ dependencies {
     implementation(project(":plugins:api"))
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-compose:1.12.4")
-    val composeBom = platform("androidx.compose:compose-bom:2026.04.01")
+    val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
     implementation(composeBom)
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4")
-    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4")
-    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.5-rc01")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.5-rc01")
+    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.5-rc01")
     // 背景生效时顶栏的渐变模糊(backdrop 渐进式纹理模糊,RuntimeShader 路径需 API 33+,与 minSdk 一致)。
-    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.5-rc01")
+    // 玻璃渲染原语:EdgeStroke / GlassShape / GlassStyle(0.9.5 起从 blur.highlight 迁移过来)。
+    implementation("top.yukonga.miuix.kmp:miuix-material-android:0.9.5-rc01")
+    // 官方玻璃组件:GlassNavigationBar / GlassSegmentedTabRow 等,材质由本项目的调参映射后传入。
+    implementation("top.yukonga.miuix.kmp:miuix-glass-android:0.9.5-rc01")
+    // 连续圆角(超椭圆):玻璃胶囊/分段的轮廓与裁剪共用同一 Path,避免圆弧折角。
+    implementation("top.yukonga.miuix.kmp:miuix-squircle-android:0.9.5-rc01")
     // miuix-nav:连续栈深度导航运行时,承载 App 内界面返回栈;系统预测性返回手势按 1:1
     // 跟手驱动转场(NavDisplay 内置 PredictiveBackHandler,经 androidx.navigationevent 接入)。
-    implementation("top.yukonga.miuix.kmp:miuix-nav-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-nav-android:0.9.5-rc01")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
     // DexKit — dynamic symbol resolution for Xiaomi symbols that get renamed across ROM
@@ -218,3 +228,35 @@ dependencies {
     // Robolectric: 用于依赖 Android 框架(Binder/PackageManager)的桥接层单测。
     testImplementation("org.robolectric:robolectric:4.16.1")
 }
+
+/**
+ * 本机构建产物加 p0/p1... 序号:assemble 完成后把默认 app-<variant>.apk 另存到
+ * outputs/apk/labeled/,编号只增不减,历史 APK 不会被 AGP 清输出目录时删掉。
+ * CI 仍从默认目录按 *.apk 查找,不受影响。
+ */
+fun registerApkSuffixTask(variant: String) {
+    val outputDir = layout.buildDirectory.dir("outputs/apk/$variant")
+    val labeledDir = layout.buildDirectory.dir("outputs/apk/labeled")
+    val suffixTask = tasks.register("suffix${variant.replaceFirstChar { it.uppercase() }}Apk") {
+        doLast {
+            val folder = outputDir.get().asFile
+            if (!folder.isDirectory) return@doLast
+            val source = folder.listFiles { file ->
+                file.isFile && file.extension == "apk" && !file.name.contains("-p")
+            }?.maxByOrNull { it.lastModified() } ?: return@doLast
+            val labeled = labeledDir.get().asFile.apply { mkdirs() }
+            val pattern = Regex("""^app-$variant-p(\d+)\.apk$""")
+            val next = labeled.listFiles().orEmpty()
+                .mapNotNull { pattern.matchEntire(it.name)?.groupValues?.get(1)?.toIntOrNull() }
+                .maxOrNull()?.plus(1) ?: 0
+            val target = File(labeled, "app-$variant-p$next.apk")
+            source.copyTo(target, overwrite = false)
+            println("APK -> ${target.absolutePath}")
+        }
+    }
+    tasks.matching { it.name == "assemble${variant.replaceFirstChar { it.uppercase() }}" }
+        .configureEach { finalizedBy(suffixTask) }
+}
+
+registerApkSuffixTask("debug")
+registerApkSuffixTask("release")

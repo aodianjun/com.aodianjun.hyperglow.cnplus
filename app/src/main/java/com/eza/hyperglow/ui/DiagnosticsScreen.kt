@@ -539,6 +539,7 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
 
     if (showCategoryDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.diagnostic_category),
             show = true,
             onDismissRequest = { showCategoryDialog = false }
@@ -569,6 +570,7 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
     }
     if (showPreviewDialog && previewJson != null) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.diagnostic_included_json),
             show = true,
             onDismissRequest = { showPreviewDialog = false }

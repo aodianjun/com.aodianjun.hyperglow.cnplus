@@ -472,6 +472,7 @@ internal fun PluginCacheScreen(
 
     detailEntry?.let { entry ->
         WindowDialog(
+            motion = appDialogMotion,
             title = entry.title,
             summary = entry.summary,
             show = true,
@@ -523,6 +524,7 @@ internal fun PluginCacheScreen(
 
     if (showClearAll) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.plugin_cache_clear_confirm_title),
             summary = stringResource(R.string.plugin_cache_clear_confirm_summary),
             show = true,
@@ -668,6 +670,7 @@ internal fun PluginChainCacheScreen(
 
     detailEntry?.let { entry ->
         WindowDialog(
+            motion = appDialogMotion,
             title = entry.displayTitle,
             summary = chainCacheEntrySummary(context, entry),
             show = true,
@@ -729,6 +732,7 @@ internal fun PluginChainCacheScreen(
 
     if (showClearAll) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.plugin_cache_clear_confirm_title),
             summary = stringResource(R.string.chain_cache_clear_confirm_summary),
             show = true,

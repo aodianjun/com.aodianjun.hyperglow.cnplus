@@ -283,6 +283,7 @@ internal class LyricCardMaterialRenderer(private val density: Float) {
                 val softLight = tuning.softLight.coerceIn(-50f, 50f)
                 val softReflection = tuning.softReflection.coerceIn(-50f, 50f)
                 val softLighten = tuning.softReflectionLighten.coerceIn(-50f, 50f)
+                val burn = tuning.burn.coerceIn(-50f, 50f) / 50f
                 val softEdge = (
                     tuning.softEdgeThickness.coerceIn(-50f, 50f) * 3f * density +
                         tuning.softShapeEdgeWidth.coerceIn(-50f, 50f) * 0.12f * density
@@ -290,25 +291,32 @@ internal class LyricCardMaterialRenderer(private val density: Float) {
                 val edgeAlpha = if (!tuning.highlight) {
                     0f
                 } else {
-                    (0.18f + softReflection / 100f * 0.5f + softLighten / 100f * 0.3f +
-                        softLight * 0.004f).coerceIn(0f, 1f)
-                }
+                    (
+                        0.18f + softReflection / 50f * 0.35f + softLighten / 50f * 0.2f +
+                            softLight / 50f * 0.22f + tuning.softShapeEdgePower / 50f * 0.15f
+                        ).coerceIn(0f, 1f) * (1f + burn * 0.5f)
+                }.coerceIn(0f, 1f)
                 MaterialSpec(
                     edgeWidthPx = softEdge,
                     edgeAlpha = edgeAlpha,
-                    shadowAlpha = (0.08f + tuning.softDarker.coerceIn(-50f, 50f) / 100f * 0.2f)
-                        .coerceIn(0f, 1f),
-                    refraction = (0.25f + tuning.softRefraction.coerceIn(-50f, 50f) / 100f * 0.5f)
-                        .coerceIn(0f, 1f),
+                    shadowAlpha = (
+                        0.08f + tuning.softDarker.coerceIn(-50f, 50f) / 50f * 0.15f
+                        ).coerceIn(0f, 1f) * (1f + burn * 0.3f),
+                    refraction = (
+                        0.25f + tuning.softRefraction.coerceIn(-50f, 50f) / 50f * 0.25f
+                        ).coerceIn(0f, 1f) * (1f + burn * 0.45f),
                     dispersion = 0f,
                     sheen = SheenKind.RADIAL,
-                    sheenAlpha = (0.1f + softLight * 0.002f + softReflection * 0.001f)
+                    sheenAlpha = (0.1f + softLight / 50f * 0.12f + softReflection / 50f * 0.08f)
                         .coerceIn(0f, 0.5f),
                     shapeEdgeWidth = tuning.softShapeEdgeWidth,
                     shapeEdgePower = tuning.softShapeEdgePower,
                     softLight = softLight,
                     reflectionLighten = softLighten,
-                    directionalLight = tuning.directionalLightIntensity
+                    // 滑条是 -50..50,映射成 0..2 倍;直接当乘数会让负半程整条边消失。
+                    directionalLight = (
+                        1f + tuning.directionalLightIntensity.coerceIn(-50f, 50f) / 50f
+                        ).coerceIn(0f, 2f)
                 )
             }
 
@@ -413,7 +421,7 @@ internal class LyricCardMaterialRenderer(private val density: Float) {
 
                 float facing = geometry.y;
                 float edge = geometry.z;
-                float ambient = max(uSoftLight, 0.0) * 0.002 * edge;
+                float ambient = max(uSoftLight, 0.0) * 0.006 * edge;
                 float bright = max(facing, 0.0) * edge * uEdgeAlpha
                     * (1.0 + uReflectionLighten / 100.0);
                 float opposite = max(-facing, 0.0) * edge * uEdgeShadow;

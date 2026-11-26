@@ -2,6 +2,7 @@ package com.eza.hyperglow.customization
 
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
+import kotlin.math.pow
 
 @Serializable
 data class CustomizationDocument(
@@ -502,6 +503,23 @@ const val CARD_MATERIAL_GAUSSIAN = "gaussian"
 const val CARD_MATERIAL_HIGHLIGHT = "highlight_glass"
 const val CARD_MATERIAL_LIQUID = "liquid_glass"
 const val CARD_MATERIAL_SOFT = "soft_glass"
+
+/** 材质压暗起始点:从哪一档背景亮度开始进入曲线。 */
+const val DARKEN_START_SHADOW = "shadow"
+const val DARKEN_START_MID = "mid"
+const val DARKEN_START_HIGHLIGHT = "highlight"
+const val DARKEN_START_WHITE = "white"
+
+val DARKEN_START_VALUES = listOf(
+    DARKEN_START_SHADOW,
+    DARKEN_START_MID,
+    DARKEN_START_HIGHLIGHT,
+    DARKEN_START_WHITE
+)
+
+/** 壁纸亮度采样间隔(ms);0 = 每次打开锁屏只采一次。 */
+val DARKEN_SAMPLE_VALUES = listOf(0, 500, 1000, 2000, 5000)
+const val DEFAULT_DARKEN_SAMPLE_MS = 1000
 const val DEFAULT_CARD_MATERIAL = CARD_MATERIAL_SOLID
 const val DEFAULT_CARD_MATERIAL_ALPHA = 100
 
@@ -539,7 +557,15 @@ data class CardMaterialTuning(
     val dispersion: Int = 18,
     val blendColor: String = "#FFFFFF",
     val blendOpacity: Int = 0,
-    val highlight: Boolean = true
+    val highlight: Boolean = true,
+    /** 白底压暗的最大透明度(0..100);0 关闭自动压暗。 */
+    val whiteDarkenMax: Int = 10,
+    /** 白底压暗灵敏度(0..100):越高越容易被浅色背景触发。 */
+    val whiteDarkenSensitivity: Int = 50,
+    /** 压暗起始点,见 [DARKEN_START_VALUES]。 */
+    val darkenStart: String = DARKEN_START_MID,
+    /** 壁纸亮度采样间隔(ms),见 [DARKEN_SAMPLE_VALUES];0 = 打开时采一次。 */
+    val darkenSampleMs: Int = DEFAULT_DARKEN_SAMPLE_MS
 )
 
 private val MATERIAL_BLEND_COLOR = Regex("""^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$""")
@@ -578,8 +604,37 @@ internal fun normalizeCardMaterialTuning(value: CardMaterialTuning): CardMateria
         dispersion = value.dispersion.coerceIn(0, 100),
         blendColor = normalizeMaterialBlendColor(value.blendColor),
         blendOpacity = value.blendOpacity.coerceIn(0, 100),
-        highlight = value.highlight
+        highlight = value.highlight,
+        whiteDarkenMax = value.whiteDarkenMax.coerceIn(0, 100),
+        whiteDarkenSensitivity = value.whiteDarkenSensitivity.coerceIn(0, 100),
+        darkenStart = value.darkenStart.takeIf { it in DARKEN_START_VALUES }
+            ?: DARKEN_START_MID,
+        darkenSampleMs = value.darkenSampleMs.takeIf { it in DARKEN_SAMPLE_VALUES }
+            ?: DEFAULT_DARKEN_SAMPLE_MS
     )
+}
+
+/**
+ * 材质压暗曲线:背景越亮,曲线斜率越高,压暗增长越快。
+ * - 上限 [CardMaterialTuning.whiteDarkenMax]:纯白背景的最大黑层 alpha
+ * - 灵敏度 [CardMaterialTuning.whiteDarkenSensitivity]:曲线指数 1..3,越高越只压亮部
+ * 返回 0..1 的黑层 alpha,由调用方按“起始点”做空间渐变。
+ */
+internal fun darkenCurveAlpha(luminance: Float, tuning: CardMaterialTuning): Float {
+    val max = tuning.whiteDarkenMax.coerceIn(0, 100) / 100f
+    if (max <= 0f) return 0f
+    val brightness = luminance.coerceIn(0f, 1f)
+    val start = when (tuning.darkenStart) {
+        DARKEN_START_SHADOW -> 0.15f
+        DARKEN_START_HIGHLIGHT -> 0.55f
+        DARKEN_START_WHITE -> 0.75f
+        else -> 0.35f
+    }
+    if (brightness <= start) return 0f
+    val sensitivity = tuning.whiteDarkenSensitivity.coerceIn(0, 100) / 100f
+    val exponent = 1f + sensitivity * 2f
+    val progress = ((brightness - start) / (1f - start)).coerceIn(0f, 1f)
+    return (max * progress.pow(exponent)).coerceIn(0f, 1f)
 }
 
 internal fun normalizeCardAlpha(value: Int): Int = value.coerceIn(0, 100)

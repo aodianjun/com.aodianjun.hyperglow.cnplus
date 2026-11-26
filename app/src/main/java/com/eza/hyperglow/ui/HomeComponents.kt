@@ -227,6 +227,7 @@ internal fun AboutHeroCard(systemUiVersion: String, aodVersion: String) {
 
     updateDialogVersion?.let { version ->
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.update_dialog_title),
             summary = stringResource(R.string.update_dialog_summary, version),
             show = true,

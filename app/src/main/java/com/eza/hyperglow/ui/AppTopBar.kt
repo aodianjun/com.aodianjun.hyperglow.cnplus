@@ -26,7 +26,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.ProgressiveBlur
-import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.material.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
@@ -64,7 +64,10 @@ internal fun AppTopBar(
                     .appGlassMaterial(
                         RoundedCornerShape(0.dp),
                         cornerRadius = 0.dp,
-                        tiltReactive = true
+                        tiltReactive = true,
+                        // 主页面顶栏用渐进模糊:向下 22% 渐隐,内容滚到边缘不再硬切;
+                        // 覆盖层(搜索/引导)背后是实色底,保持均匀材质。
+                        progressive = !overlay
                     )
             )
             Box(

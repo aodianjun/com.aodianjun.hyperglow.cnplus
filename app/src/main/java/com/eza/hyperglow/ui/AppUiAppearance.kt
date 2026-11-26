@@ -176,6 +176,9 @@ internal val LocalAppGlassTuning = staticCompositionLocalOf { CardMaterialTuning
 /** 应用内玻璃模糊强度,50 = 材质基础半径。 */
 internal val LocalAppGlassBlurPercent = staticCompositionLocalOf { 50 }
 
+/** 背景图平均亮度(0..1):材质压暗曲线的输入,不直接改背景画面。 */
+internal val LocalAppBackgroundLuminance = staticCompositionLocalOf { 0f }
+
 // 背景图片生效时的玻璃化透明度:顶栏最透、卡片轻透、底部悬浮导航最实——
 // 三档让壁纸透出的同时拉开层次(导航与卡片明度/实度差异即区分度来源)。
 internal const val APP_GLASS_TOP_BAR_ALPHA = 0.7f

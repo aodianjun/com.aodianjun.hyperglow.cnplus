@@ -532,6 +532,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
 
     if (showKeepAwakeDurationDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_keep_aod_active_for),
             summary = stringResource(R.string.dialog_keep_aod_duration_summary),
             show = true,
@@ -569,6 +570,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
 
     if (showKeepAwakeCustomDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.dialog_custom_duration_title),
             summary = stringResource(R.string.dialog_custom_duration_summary),
             show = true,
@@ -617,6 +619,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
 
     if (showBurnInPatternDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_aod_clock_image),
             show = true,
             onDismissRequest = { showBurnInPatternDialog = false }
@@ -658,6 +661,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
 
     if (showBurnInIntervalDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_movement_interval),
             show = true,
             onDismissRequest = { showBurnInIntervalDialog = false }
@@ -680,6 +684,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
 
     if (showRefreshRateCapDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_aod_refresh_rate_cap),
             show = true,
             onDismissRequest = { showRefreshRateCapDialog = false }
@@ -701,6 +706,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
 
     if (showRotationModeDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_aod_rotation_mode),
             show = true,
             onDismissRequest = { showRotationModeDialog = false }
@@ -722,6 +728,7 @@ internal fun AodBehaviorScreen(onBack: () -> Unit) {
 
     if (showRotationSettleDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_aod_rotation_settle),
             show = true,
             onDismissRequest = { showRotationSettleDialog = false }

@@ -431,6 +431,7 @@ private fun CreateConfigPresetDialog(
     }
 
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.config_preset_new),
         summary = stringResource(R.string.config_preset_new_summary),
         show = true,
@@ -1093,6 +1094,7 @@ internal fun ConfigPresetDetailScreen(
 
     if (showDelete) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.config_preset_delete_title),
             summary = stringResource(R.string.config_preset_delete_summary, active.name),
             show = true,
@@ -1135,6 +1137,7 @@ internal fun ConfigPresetDetailScreen(
 
     if (showDeleteCloud) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.preset_hub_delete_cloud_title),
             summary = stringResource(R.string.preset_hub_delete_cloud_summary, active.name),
             show = true,

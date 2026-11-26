@@ -512,6 +512,7 @@ private fun CustomThemeColorDialog(
     onDismiss: () -> Unit
 ) {
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.dialog_pick_color),
         show = true,
         onDismissRequest = onDismiss
@@ -567,6 +568,7 @@ private fun ControlColorDialog(
     onDismiss: () -> Unit
 ) {
     WindowDialog(
+        motion = appDialogMotion,
         title = title,
         show = true,
         onDismissRequest = onDismiss
@@ -657,6 +659,7 @@ private fun BackgroundImageDialog(
     }
     val backgroundEditable = pendingUri != null || hasBackgroundImage
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.setting_background_image),
         show = true,
         onDismissRequest = onDismiss

@@ -244,6 +244,7 @@ internal fun LyricSourcePickerDialog(onDismiss: () -> Unit) {
     val arbiter = LyricProducers.arbiterOrNull()
     val current by collectPreference()
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.section_lyric_source),
         summary = stringResource(R.string.dialog_lyric_source_summary),
         show = true,

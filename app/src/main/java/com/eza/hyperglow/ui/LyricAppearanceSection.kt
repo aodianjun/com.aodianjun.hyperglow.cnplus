@@ -1789,6 +1789,7 @@ internal fun LyricAppearanceSection(
 
     if (showMaterialTuningDialog) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_material_tuning),
             summary = stringResource(R.string.summary_material_tuning),
             show = true,
@@ -1846,6 +1847,7 @@ internal fun LyricAppearanceSection(
 
     if (activePartsEditor) {
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_song_info_parts),
             show = true,
             onDismissRequest = { activePartsEditor = false }
@@ -1954,6 +1956,7 @@ internal fun LyricAppearanceSection(
             mutableStateOf(selectedProfile.pureMusicText)
         }
         WindowDialog(
+            motion = appDialogMotion,
             title = stringResource(R.string.setting_pure_music_text),
             show = true,
             onDismissRequest = { activePureMusicTextEditor = false }
@@ -2011,6 +2014,7 @@ internal fun LyricAppearanceSection(
             // AodChoice.current 是打开弹窗那一刻的快照,拿它判勾选会永远停在打开时的样子。
             var mode by remember(selected) { mutableStateOf(selected.current) }
             WindowDialog(
+                motion = appDialogMotion,
                 title = stringResource(selected.kind.titleRes),
                 show = true,
                 onDismissRequest = { activeChoice = null }
@@ -2040,6 +2044,7 @@ internal fun LyricAppearanceSection(
             )
         } else {
             WindowDialog(
+                motion = appDialogMotion,
                 title = stringResource(selected.kind.titleRes),
                 show = true,
                 onDismissRequest = { activeChoice = null }
@@ -2543,6 +2548,7 @@ private fun FontChoiceDialog(
 ) {
     val context = LocalContext.current
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(selected.kind.titleRes),
         show = true,
         onDismissRequest = onDismiss
@@ -2629,6 +2635,7 @@ private fun PaletteColorPickerDialog(
     onDismiss: () -> Unit
 ) {
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.dialog_pick_color),
         summary = stringResource(key.titleRes),
         show = true,
@@ -2692,6 +2699,7 @@ private fun SpectrumColorPickerDialog(
     onDismiss: () -> Unit
 ) {
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.palette_spectrum),
         summary = stringResource(R.string.dialog_pick_color),
         show = true,
@@ -3174,17 +3182,18 @@ private fun AppearanceSectionRail(
     modifier: Modifier = Modifier
 ) {
     val glass = isAppGlassMaterialActive()
+    val pillShape = rememberSquircleShape(50.dp)
     Box(modifier.fillMaxWidth()) {
         if (!expanded) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 6.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(pillShape)
                     .then(
                         if (glass) {
                             Modifier.appGlassMaterial(
-                                RoundedCornerShape(50),
+                                pillShape,
                                 cornerRadius = 50.dp
                             )
                         } else {

@@ -14,8 +14,10 @@ import com.eza.hyperglow.customization.CARD_MATERIAL_SOFT
 import com.eza.hyperglow.customization.CARD_MATERIAL_SOLID
 import com.eza.hyperglow.customization.CardMaterialTuning
 import com.eza.hyperglow.customization.DEFAULT_CARD_MATERIAL_ALPHA
+import com.eza.hyperglow.customization.darkenCurveAlpha
 import com.eza.hyperglow.customization.normalizeCardMaterial
 import com.eza.hyperglow.customization.normalizeCardMaterialAlpha
+import com.eza.hyperglow.root.HookLogger
 import com.eza.hyperglow.root.aod.AodLyricCanvasView
 import kotlin.math.PI
 import kotlin.math.cos
@@ -46,6 +48,7 @@ internal class AdaptiveLyricCardBackgroundView(context: android.content.Context)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CARD_BACKGROUND_COLOR }
     private val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33000000 }
     private val glassTintPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val darkenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
     private val density = resources.displayMetrics.density
     private val materialRenderer = LyricCardMaterialRenderer(density)
@@ -58,6 +61,8 @@ internal class AdaptiveLyricCardBackgroundView(context: android.content.Context)
     private var hdrHighlight = false
     private var materialAlphaPercent = DEFAULT_CARD_MATERIAL_ALPHA
     private var tuning = CardMaterialTuning()
+    private var lastNativeActive: Boolean? = null
+    private var lastDarkenLogAlpha = -1f
 
     // 液态材质的光位:左上默认光,设备倾斜时低通跟随。其它材质保持材质页设置的光向。
     private var baseLightX = LyricCardMaterialRenderer.DEFAULT_LIGHT_X
@@ -93,7 +98,10 @@ internal class AdaptiveLyricCardBackgroundView(context: android.content.Context)
         if (cardEnabled == enabled) return
         cardEnabled = enabled
         visibility = if (enabled) VISIBLE else GONE
-        if (!enabled) nativeBlur.hide()
+        if (!enabled) {
+            nativeBlur.hide()
+            backdropRenderer.setSampleInterval(0)
+        }
         syncTiltSensor()
         invalidate()
     }
@@ -112,13 +120,23 @@ internal class AdaptiveLyricCardBackgroundView(context: android.content.Context)
         materialAlpha: Int = DEFAULT_CARD_MATERIAL_ALPHA,
         materialTuning: CardMaterialTuning = CardMaterialTuning()
     ) {
-        val alpha = (alphaPercent.coerceIn(0, 100) * 255 / 100).coerceIn(0, 255)
+        val token = normalizeCardMaterial(material)
+        // 柔光透明度同时作用于卡片本体与材质模糊强度;只改混色层几乎看不出来。
+        val transparencyScale = if (token == CARD_MATERIAL_SOFT) {
+            (1f + materialTuning.transparency.coerceIn(-50f, 50f) / 50f).coerceIn(0f, 2f)
+        } else {
+            1f
+        }
+        val alpha = (alphaPercent.coerceIn(0, 100) * 255 / 100 * transparencyScale)
+            .toInt().coerceIn(0, 255)
         val rgb = cardColorRgb(colorToken)
         paint.color = (alpha shl 24) or (rgb and 0x00FFFFFF)
-        materialToken = normalizeCardMaterial(material)
+        materialToken = token
         hdrHighlight = hdr
-        materialAlphaPercent = normalizeCardMaterialAlpha(materialAlpha)
+        materialAlphaPercent = (normalizeCardMaterialAlpha(materialAlpha) * transparencyScale)
+            .toInt().coerceIn(0, 100)
         tuning = materialTuning
+        backdropRenderer.setSampleInterval(tuning.darkenSampleMs)
         applyBaseLightDirection()
         if (materialToken != CARD_MATERIAL_SOLID) backdropRenderer.ensureLoaded()
         syncTiltSensor()
@@ -172,6 +190,10 @@ internal class AdaptiveLyricCardBackgroundView(context: android.content.Context)
                     cornerRadiusPx = radius,
                     blurRadiusPx = blurDp * density
                 )
+                if (lastNativeActive != nativeActive) {
+                    lastNativeActive = nativeActive
+                    HookLogger.w("LyricCardNativeBlur", "active=$nativeActive sdk=${android.os.Build.VERSION.SDK_INT}")
+                }
                 val drewBackground = if (nativeActive) {
                     true
                 } else {
@@ -198,6 +220,9 @@ internal class AdaptiveLyricCardBackgroundView(context: android.content.Context)
                 }
             }
         }
+        if (materialToken != CARD_MATERIAL_SOLID) {
+            drawMaterialDarken(canvas, rect, radius)
+        }
         materialRenderer.draw(
             canvas = canvas,
             bounds = rect,
@@ -208,6 +233,26 @@ internal class AdaptiveLyricCardBackgroundView(context: android.content.Context)
             lightY = lightY,
             tuning = tuning
         )
+    }
+
+    /**
+     * 材质内部压暗:OS4 走 SurfaceFlinger 实时模糊时不会经过静态壁纸渲染器,
+     * 所以统一在卡片本体上叠,保证 API 37 与非 37 两条路径一致。
+     */
+    private fun drawMaterialDarken(canvas: Canvas, bounds: RectF, radius: Float) {
+        val luminance = backdropRenderer.wallpaperLuminance
+        val alpha = darkenCurveAlpha(luminance, tuning)
+        if (kotlin.math.abs(alpha - lastDarkenLogAlpha) > 0.01f) {
+            lastDarkenLogAlpha = alpha
+            HookLogger.w(
+                "LyricCardDarken",
+                "luminance=$luminance alpha=$alpha start=${tuning.darkenStart} " +
+                    "max=${tuning.whiteDarkenMax} sensitivity=${tuning.whiteDarkenSensitivity}"
+            )
+        }
+        if (alpha <= 0f) return
+        darkenPaint.color = Color.argb((alpha * 255f).roundToInt().coerceIn(0, 255), 0, 0, 0)
+        canvas.drawRoundRect(bounds, radius, radius, darkenPaint)
     }
 
     /** 材质页的 blendColor/blendOpacity;柔光档再乘 transparency(HyperIsland 同义)。 */

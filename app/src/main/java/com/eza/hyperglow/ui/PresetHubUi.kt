@@ -390,6 +390,7 @@ internal fun PresetUploadDialog(
     }
 
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.preset_hub_upload),
         summary = stringResource(R.string.preset_hub_upload_summary),
         show = true,
@@ -515,6 +516,7 @@ internal fun PresetHubSettingsDialog(
     }
 
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.preset_hub_settings),
         summary = stringResource(R.string.preset_hub_settings_note),
         show = true,

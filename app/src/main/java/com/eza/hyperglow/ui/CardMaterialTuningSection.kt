@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -22,12 +26,19 @@ import com.eza.hyperglow.customization.CARD_MATERIAL_HIGHLIGHT
 import com.eza.hyperglow.customization.CARD_MATERIAL_LIQUID
 import com.eza.hyperglow.customization.CARD_MATERIAL_SOFT
 import com.eza.hyperglow.customization.CardMaterialTuning
+import com.eza.hyperglow.customization.DARKEN_SAMPLE_VALUES
+import com.eza.hyperglow.customization.DARKEN_START_HIGHLIGHT
+import com.eza.hyperglow.customization.DARKEN_START_MID
+import com.eza.hyperglow.customization.DARKEN_START_SHADOW
+import com.eza.hyperglow.customization.DARKEN_START_VALUES
+import com.eza.hyperglow.customization.DARKEN_START_WHITE
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.ColorPicker
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -48,6 +59,62 @@ internal fun CardMaterialTuningRows(
     when (material) {
         CARD_MATERIAL_HIGHLIGHT, CARD_MATERIAL_LIQUID -> GlassTuningRows(tuning, onChange)
         CARD_MATERIAL_SOFT -> SoftTuningRows(tuning, onChange)
+    }
+    if (material == CARD_MATERIAL_SOFT) {
+        Text(
+            text = stringResource(R.string.material_white_darken_section),
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            fontSize = MiuixTheme.textStyles.body2.fontSize,
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp)
+        )
+        var darkenStartExpanded by remember { mutableStateOf(false) }
+        ArrowPreference(
+            title = stringResource(R.string.material_darken_start),
+            summary = stringResource(darkenStartLabelRes(tuning.darkenStart)),
+            onClick = { darkenStartExpanded = !darkenStartExpanded }
+        )
+        if (darkenStartExpanded) {
+            DARKEN_START_VALUES.forEach { value ->
+                RadioButtonPreference(
+                    stringResource(darkenStartLabelRes(value)),
+                    tuning.darkenStart == value,
+                    {
+                        onChange(tuning.copy(darkenStart = value))
+                        darkenStartExpanded = false
+                    }
+                )
+            }
+        }
+        var darkenSampleExpanded by remember { mutableStateOf(false) }
+        ArrowPreference(
+            title = stringResource(R.string.material_darken_sample),
+            summary = stringResource(darkenSampleLabelRes(tuning.darkenSampleMs)),
+            onClick = { darkenSampleExpanded = !darkenSampleExpanded }
+        )
+        if (darkenSampleExpanded) {
+            DARKEN_SAMPLE_VALUES.forEach { value ->
+                RadioButtonPreference(
+                    stringResource(darkenSampleLabelRes(value)),
+                    tuning.darkenSampleMs == value,
+                    {
+                        onChange(tuning.copy(darkenSampleMs = value))
+                        darkenSampleExpanded = false
+                    }
+                )
+            }
+        }
+        IntSlider(
+            title = stringResource(R.string.material_white_darken_max),
+            value = tuning.whiteDarkenMax,
+            range = 0..100,
+            summary = stringResource(R.string.summary_material_white_darken_max)
+        ) { onChange(tuning.copy(whiteDarkenMax = it)) }
+        IntSlider(
+            title = stringResource(R.string.material_white_darken_sensitivity),
+            value = tuning.whiteDarkenSensitivity,
+            range = 0..100,
+            summary = stringResource(R.string.summary_material_white_darken_sensitivity)
+        ) { onChange(tuning.copy(whiteDarkenSensitivity = it)) }
     }
     Text(
         text = stringResource(R.string.material_blend_section),
@@ -180,17 +247,35 @@ private fun SoftTuningRows(
     ) { onChange(tuning.copy(backgroundBrightness = it)) }
 }
 
+private fun darkenStartLabelRes(value: String): Int = when (value) {
+    DARKEN_START_SHADOW -> R.string.material_darken_start_shadow
+    DARKEN_START_HIGHLIGHT -> R.string.material_darken_start_highlight
+    DARKEN_START_WHITE -> R.string.material_darken_start_white
+    DARKEN_START_MID -> R.string.material_darken_start_mid
+    else -> R.string.material_darken_start_mid
+}
+
+private fun darkenSampleLabelRes(ms: Int): Int = when (ms) {
+    500 -> R.string.material_darken_sample_500
+    1000 -> R.string.material_darken_sample_1000
+    2000 -> R.string.material_darken_sample_2000
+    5000 -> R.string.material_darken_sample_5000
+    else -> R.string.material_darken_sample_once
+}
+
 @Composable
 private fun IntSlider(
     title: String,
     value: Int,
     range: IntRange,
+    summary: String? = null,
     onChange: (Int) -> Unit
 ) {
     SliderPreference(
         value = value.toFloat(),
         onValueChange = { onChange(it.toInt()) },
         title = title,
+        summary = summary,
         valueText = value.toString(),
         valueRange = range.first.toFloat()..range.last.toFloat(),
         steps = (range.last - range.first - 1).coerceAtLeast(0)
@@ -225,6 +310,7 @@ internal fun MaterialBlendColorPickerDialog(
     onDismiss: () -> Unit
 ) {
     WindowDialog(
+        motion = appDialogMotion,
         title = stringResource(R.string.material_blend_color),
         summary = stringResource(R.string.dialog_pick_color),
         show = true,
