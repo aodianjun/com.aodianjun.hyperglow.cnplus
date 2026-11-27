@@ -84,6 +84,15 @@ class LyricInfoLyricProducer(
     @Volatile private var album: String = ""
     @Volatile private var durationMs: Long = 0L
 
+    /**
+     * 空 lyricInfo 首次出现的时刻(0 = 当前曲目还没见到 payload)。
+     *
+     * LyricInfo 63 起「识别到可信曲目身份就注入空 lyricInfo,歌词异步回来后刷新」,所以
+     * payload 存在 ≠ 歌词为空。窗口内按「还没到」处理(见 [lyricPendingAt]),
+     * 避免有歌词的曲目在慢网络下先闪纯音乐占位。换歌/会话丢失时清零。
+     */
+    @Volatile private var lyricInfoSeenAtMs: Long = 0L
+
     // --- Position extrapolation state ---
     @Volatile private var lastRealPositionMs: Long = 0L
     @Volatile private var lastRealPositionClockMs: Long = -1L
@@ -224,6 +233,7 @@ class LyricInfoLyricProducer(
                 timedLines = emptyList()
                 translationLines = emptyList()
                 romaLines = emptyList()
+                lyricInfoSeenAtMs = 0L
                 mutableState.value = null
             }
             if (mutableConnection.value != ProducerConnection.DISCONNECTED) {
@@ -271,6 +281,8 @@ class LyricInfoLyricProducer(
         // 不再误判切歌;一侧标题为空白时回退为"变化"。见 TrackIdentity.isSameTrackIdentity。
         if (!isSameTrackIdentity(title, artist, newTitle, newArtist)) {
             emitSequence.nextGeneration()
+            // 旧歌的「空 payload 待补」窗口不得带进新歌。
+            lyricInfoSeenAtMs = 0L
             // 旧歌的外推/容差状态不得带进新歌:换歌后第一条真实位置无条件接受。
             extrapolating = false
             // 旧歌的位置基线同样作废:新歌首次推送只建基线,不判跳转。
@@ -284,6 +296,9 @@ class LyricInfoLyricProducer(
         artist = newArtist
         album = newAlbum
         durationMs = meta.getLong(MEDIA_METADATA_KEY_DURATION).coerceAtLeast(0L)
+        // 「空 payload 待补」计时起点:同一曲目只记第一次(后续刷新不重置,否则歌词一直
+        // 迟到时窗口会被无限延长);换歌分支已清零。
+        if (lyricInfo != null && lyricInfoSeenAtMs == 0L) lyricInfoSeenAtMs = clock()
         timedLines = resolveLyricInfoTimedLines(payload).let { parsed ->
             // 开头元数据清理(issue #68 #4):版权/制作明细/标题歌手头,仅前 32 行且 ≤30s。
             val filtered = LyricOpeningFilter.filterOpeningMetadata(parsed)
@@ -583,6 +598,9 @@ class LyricInfoLyricProducer(
             words = null,
             renderModes = defaultRenderModes(),
             lyricKind = if (unsyncedLyrics != null) LyricKind.UNSYNCED else LyricKind.NONE,
+            // 有 lyricInfo payload 但还没解析出任何行:窗口内按「歌词在途」处理,
+            // 不让纯音乐空行兜底接管(LyricInfo 63 会先注入空 payload 再异步补歌词)。
+            lyricPending = unsyncedLyrics == null && lyricPendingAt(lyricInfoSeenAtMs, clock()),
             alignedRight = false,
             lineStartMs = 0L,
             lineEndMs = 0L,
@@ -892,3 +910,22 @@ internal fun resolveUnsyncedLyricFallback(
     val text = metadataLyrics?.takeIf { it.isNotBlank() } ?: return null
     return text.take(UNSYNCED_LYRICS_MAX_CHARS)
 }
+
+/**
+ * 空 lyricInfo 的「待补」窗口(毫秒)。
+ *
+ * LyricInfo 63 起先注入空 payload、再异步刷新真实歌词。窗口必须覆盖「网络慢 + 首次解析」
+ * 的常见上限,同时不能无限延长——纯音乐曲目的 payload 永远为空,超过窗口仍要交还给纯音乐
+ * 识别,否则「纯音乐识别」开关对 LyricInfo 源失效。8s = 3s 纯音乐确认窗口 + 5s 网络余量。
+ */
+internal const val LYRIC_PENDING_WINDOW_MS = 8_000L
+
+/**
+ * 「歌词还没到」判定(纯函数,可单测)。
+ *
+ * @param seenAtMs 空 payload 首次出现的时刻;0 = 当前曲目从未见过 payload(旧版 LyricInfo
+ *   或该源根本不可用),此时按历史语义立即允许纯音乐判定。
+ * @param nowMs 当前时钟(elapsedRealtime 口径,与 seenAtMs 同源)。
+ */
+internal fun lyricPendingAt(seenAtMs: Long, nowMs: Long): Boolean =
+    seenAtMs > 0L && nowMs - seenAtMs < LYRIC_PENDING_WINDOW_MS

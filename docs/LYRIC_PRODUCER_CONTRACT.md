@@ -113,6 +113,12 @@ be the wrong thing to show:
 - `isFaulted(state)` is `isStale(state) && state.playing`. **A paused state is never faulted.**
   Position streams go naturally silent while paused, so treating a frozen paused state as stale
   would clear the surface and hand it to a source with no lyrics.
+- `LyricProducerState.lyricPending` distinguishes "lyrics not here yet" from "no lyrics": the
+  producer has identified the track but cannot select an active line yet (SuperLyric sends
+  metadata only until the first line starts; LyricInfo 63 publishes an empty `lyricInfo` the
+  moment identity is known and refreshes it asynchronously). While it is true, the empty-rows
+  pure-music fallback must stand down, otherwise a track with a long intro or a slow network
+  flashes the placeholder before its first line. A real pure-music marker line still wins.
 
 The selector and the stale sweep MUST use the same predicate. They did not once: the sweep cleared a
 frozen state that the selector still considered usable, and signature de-duplication then never
@@ -308,6 +314,10 @@ issue #5 的兜底路径，该路径对「没有注入歌词的音乐应用」�
   测量（生产环境用 `SystemClock.elapsedRealtime`，测试注入）。
 - `isFaulted(state)` 即 `isStale(state) && state.playing`。**暂停状态永不判故障。** 位置流在暂停
   时天然静默，把冻结的暂停状态当作 stale 会清空 surface，并把它交给一个没有歌词的源。
+- `LyricProducerState.lyricPending` 区分「歌词还没到」与「没有歌词」：源已识别曲目、但还选不出
+  活动行（SuperLyric 首句前只发 metadata；LyricInfo 63 在识别到身份时先注入空 `lyricInfo`，
+  歌词异步返回后刷新）。为真时空行纯音乐兜底必须让路，否则长前奏或慢网络下会在首句前先闪占位；
+  真实的纯音乐标记行仍然优先命中。
 
 选源方与 stale sweep 必须使用同一谓词。曾经不是：sweep 清掉了一个选源方仍视为可用的冻结态，而签
 名去重让它永远不再被发布，`active` 死锁在 null、占位文案常驻（0.3.120，记录在

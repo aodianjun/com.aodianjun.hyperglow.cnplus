@@ -590,7 +590,8 @@ object AodProjectionEngine {
                 durationMs = state.durationMs,
                 positionMs = state.positionMs,
                 playing = state.playing,
-                producerNoLyrics = state.lyricKind == LyricKind.NONE
+                producerNoLyrics = state.lyricKind == LyricKind.NONE,
+                lyricPending = state.lyricPending
             )
         } else {
             resolvePureMusic(fullSongRows, state.line)

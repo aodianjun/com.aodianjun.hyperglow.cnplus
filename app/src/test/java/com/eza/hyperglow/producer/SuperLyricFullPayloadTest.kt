@@ -4,6 +4,7 @@ import com.hchen.superlyricapi.SuperLyricData
 import com.hchen.superlyricapi.SuperLyricLine
 import com.hchen.superlyricapi.SuperLyricWord
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
@@ -267,6 +268,108 @@ class SuperLyricFullPayloadTest {
     }
 
     @Test
+    fun perLineFullPayloadWithNewArrayReusesSnapshot() {
+        // SuperLyric 4.2 起服务端每跨一行重发整曲包：接收侧拿到的是全新数组与全新行对象，
+        // 内容不变。快照必须复用同一实例，否则插件链每行重跑、AOD 每行重投影
+        // （真机症状：整首歌期间 chain scheduled 与快照重建各出现每行一次）。
+        val first = arrayOf(line("r0", 0L, 2_000L), line("r1", 2_000L, 4_000L))
+        producer.receiver.onLyric(
+            "netease",
+            fullPayload("reuse-1", first, currentIndex = 0, durationMs = 60_000L)
+        )
+        val snapshot = producer.fullSongSnapshot()
+        assertNotNull(snapshot)
+
+        // 同一首歌的下一行：新数组、新行对象，内容逐字段相同（模拟 4.2 的 toLegacyFull）。
+        val resent = arrayOf(line("r0", 0L, 2_000L), line("r1", 2_000L, 4_000L))
+        producer.receiver.onLyric(
+            "netease",
+            fullPayload("reuse-1", resent, currentIndex = 1, durationMs = 60_000L)
+        )
+
+        assertEquals("r1", producer.state.value?.line)
+        assertSame(snapshot, producer.fullSongSnapshot())
+    }
+
+    @Test
+    fun perLineFullPayloadRebuildsSnapshotWhenRowsChange() {
+        // 内容指纹只认「行内容没变」：行级翻译后补、词表细化、整曲替换都必须让快照重建，
+        // 否则插件链会一直看到旧的空翻译行。
+        val plain = arrayOf(line("t0", 0L, 2_000L), line("t1", 2_000L, 4_000L))
+        producer.receiver.onLyric(
+            "netease",
+            fullPayload("reuse-2", plain, currentIndex = 0, durationMs = 60_000L)
+        )
+        val snapshot = producer.fullSongSnapshot()
+        assertNotNull(snapshot)
+        assertEquals("", snapshot!!.rows.first().translation)
+
+        // 4.2 的下一次整曲包把翻译带了下来：数组还是新的，但内容变了。
+        val translated = arrayOf(
+            line("t0", 0L, 2_000L, translation = "译0"),
+            line("t1", 2_000L, 4_000L)
+        )
+        producer.receiver.onLyric(
+            "netease",
+            fullPayload("reuse-2", translated, currentIndex = 0, durationMs = 60_000L)
+        )
+
+        val rebuilt = producer.fullSongSnapshot()
+        assertNotSame(snapshot, rebuilt)
+        assertEquals("译0", rebuilt?.rows?.first()?.translation)
+    }
+
+    @Test
+    fun metadataOnlyFullPayloadMarksLyricsPending() {
+        // 4.2 首句前只发 metadata(index=-1、无 allLyrics),但 lyricId 已在:歌词文档存在、
+        // 只是还没唱到第一行。长前奏下不能据此判纯音乐,必须置 lyricPending。
+        // 标题/歌手必须唯一:3.7 的静态 SuperLyricCache 会用「标题+歌手」反查 lyricId,
+        // 复用 FULL_TITLE 会命中别的用例缓存的全曲包,合成出假歌词。
+        val metadata = SuperLyricData().apply {
+            setTitle("Pending One")
+            setArtist("Pending Artist")
+            setLyricId("pending-1")
+            setDuration(240_000L)
+            setPosition(0L)
+            setCurrentLyricIndex(-1)
+        }
+
+        producer.receiver.onLyric("netease", metadata)
+
+        val state = producer.state.value
+        assertEquals("", state?.line)
+        assertEquals(LyricKind.NONE, state?.lyricKind)
+        assertTrue(state?.lyricPending == true)
+        // 没有 allLyrics:整首快照仍然拿不到(插件链回落聚合器的行为不变)。
+        assertNull(producer.fullSongSnapshot())
+    }
+
+    @Test
+    fun firstLineClearsLyricsPending() {
+        val metadata = SuperLyricData().apply {
+            setTitle("Pending Two")
+            setArtist("Pending Artist")
+            setLyricId("pending-2")
+            setDuration(240_000L)
+        }
+        producer.receiver.onLyric("netease", metadata)
+
+        val lines = arrayOf(line("p0", 0L, 2_000L), line("p1", 2_000L, 4_000L))
+        producer.receiver.onLyric(
+            "netease",
+            fullPayload(
+                "pending-2", lines, currentIndex = 0, durationMs = 240_000L,
+                title = "Pending Two", artist = "Pending Artist"
+            )
+        )
+
+        val state = producer.state.value
+        assertEquals("p0", state?.line)
+        assertEquals(LyricKind.LINE, state?.lyricKind)
+        assertFalse(state?.lyricPending == true)
+    }
+
+    @Test
     fun deltaAfterFullPayloadComposesIntoFullView() {
         // resolve 集成：先喂全量包（入静态缓存），再喂增量包（lyric=当前行 + 下标）→
         // 合成后仍有 allLyrics，活动行/下一行按下标取，快照仍是整首（元数据/歌长从缓存补齐）。
@@ -280,6 +383,7 @@ class SuperLyricFullPayloadTest {
             "netease",
             fullPayload("compose-1", lines, currentIndex = 0, durationMs = 60_000L)
         )
+        val beforeDelta = producer.fullSongSnapshot()
         val delta = SuperLyricData().apply {
             setTitle(FULL_TITLE)
             setArtist(FULL_ARTIST)
@@ -298,6 +402,8 @@ class SuperLyricFullPayloadTest {
         assertEquals(60_000L, state?.durationMs)
         val snapshot = producer.fullSongSnapshot()
         assertNotNull(snapshot)
+        // 旧发布端增量包：resolve 复用缓存里的 allLyrics 实例 → 引用路径命中，仍是同一快照。
+        assertSame(beforeDelta, snapshot)
         assertEquals(4, snapshot!!.rows.size)
         assertEquals("superlyric:compose-1", snapshot.trackUri)
     }

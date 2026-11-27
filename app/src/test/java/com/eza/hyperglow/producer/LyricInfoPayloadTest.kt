@@ -23,6 +23,16 @@ import org.robolectric.annotation.Config
 class LyricInfoPayloadTest {
 
     @Test
+    fun emptyPayloadStaysPendingOnlyWithinWindow() {
+        // LyricInfo 63 先注入空 lyricInfo 再异步补歌词:窗口内算「待补」,超窗交还纯音乐识别。
+        assertTrue(lyricPendingAt(seenAtMs = 1_000L, nowMs = 1_000L))
+        assertTrue(lyricPendingAt(1_000L, 1_000L + LYRIC_PENDING_WINDOW_MS - 1))
+        assertFalse(lyricPendingAt(1_000L, 1_000L + LYRIC_PENDING_WINDOW_MS))
+        // 从未见过 payload(旧版 LyricInfo / 无 payload 的会话):保持历史语义,不 pending。
+        assertFalse(lyricPendingAt(0L, 99_999L))
+    }
+
+    @Test
     fun parsesFullVersionCanonicalFormat() {
         val payload = parseLyricInfoPayload(
             """

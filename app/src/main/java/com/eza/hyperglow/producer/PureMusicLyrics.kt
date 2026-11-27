@@ -70,9 +70,13 @@ internal fun resolvePureMusicEnhanced(
     durationMs: Long,
     positionMs: Long,
     playing: Boolean,
-    producerNoLyrics: Boolean = false
+    producerNoLyrics: Boolean = false,
+    lyricPending: Boolean = false
 ): Boolean {
     if (resolvePureMusic(fullSongRows, currentLine)) return true
+    // 源已声明「歌词还没到」(SuperLyric 首句前的 metadata-only / LyricInfo 的空 lyricInfo):
+    // 空行兜底让路。标记文本命中已在上一行返回,真实歌词行不受影响。
+    if (lyricPending) return false
     val trackHasNoRows = (fullSongRows != null && fullSongRows.isEmpty()) ||
         (producerNoLyrics && currentLine.isNullOrBlank())
     if (!trackHasNoRows) return false

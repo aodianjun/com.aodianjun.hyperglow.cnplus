@@ -213,6 +213,16 @@ data class LyricProducerState(
      * 仅息屏面消费,锁屏恒 solo。
      */
     val duetLine: LyricDuetLine? = null,
+    /**
+     * 歌词「还没到」而不是「没有」:源已确认当前曲目身份、活动行尚未产生,但按该源的协议
+     * 歌词仍可能到达。两个真实来源:
+     * - SuperLyric 4.x 首句前只发 metadata(index = -1、无 allLyrics),长前奏可达数十秒;
+     * - LyricInfo 63 起在识别到曲目身份的瞬间先注入空 lyricInfo,歌词异步返回后再刷新。
+     *
+     * 为真时纯音乐空行兜底必须让路(见 [resolvePureMusicEnhanced]),否则有歌词的曲目会在
+     * 长前奏/慢网络下先闪一段「纯音乐/🎶」。标记文本命中不受影响(那是真实歌词行)。
+     */
+    val lyricPending: Boolean = false,
     val staleAfterMs: Long = STALE_AFTER_MS
 ) {
     companion object {

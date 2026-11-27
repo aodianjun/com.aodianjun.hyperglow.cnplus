@@ -143,11 +143,15 @@ class SuperLyricLyricProducer(
     internal var mediaSessionPositionReader: (String) -> Long? =
         { readSessionPosition(it) }
 
-    // [fullSongSnapshot] 结果缓存：按「allLyrics 数组身份 + 会话三元组 + 歌长」失效。数组引用
-    // 来自 resolve 缓存合成（同一会话内 SuperLyricCache 持有同一实例），所以同会话重复调用
-    // 只做引用比较；换歌/重新入缓存后身份变化才重建（接口 KDoc 要求实现廉价）。
+    // [fullSongSnapshot] 结果缓存：会话三元组 + 歌长 + 「数组身份或内容指纹」，任一失配即重建。
+    // - 旧模块（≤3.7 发布端）复用同一 allLyrics 实例：增量包经 SuperLyricCache 合成时
+    //   `setAllLyrics(cached.getAllLyrics())` 搬的是同一个数组，引用比较直接命中，不付指纹开销；
+    // - SuperLyric 4.2 起服务端每跨一行重发整曲包（新数组 + 新行对象，内容不变）：身份必然变化，
+    //   由 [contentSignature] 判定内容未变并复用快照，否则插件链与 AOD 投影会每行重算一次；
+    // - 行内容真变化（行级译/副文本补到、词表细化、整曲替换）指纹失配，照常重建。
     private val snapshotLock = Any()
     private var snapshotSource: Any? = null
+    private var snapshotSignature: Long = 0L
     private var snapshotTrackUri: String? = null
     private var snapshotDurationMs: Long = -1L
     private var snapshotGeneration: Int = -1
@@ -783,9 +787,10 @@ class SuperLyricLyricProducer(
      * SpicyBridgeDocument 一致,行级 translation/secondary 随行过桥(词表原样携带)。
      * 无 allLyrics(旧模块逐行推送)返回 null,管线自动回落到 LineStreamAggregator。
      *
-     * 实现廉价:结果按「allLyrics 数组身份 + 会话三元组 + 歌长」缓存,同会话重复调用只做
-     * 引用比较,不重新映射。会话三元组(producerId/generation/trackUri)与 [emit] 用同一
-     * 表达式构造,保证管线校验成立。
+     * 实现廉价:结果按「会话三元组 + 歌长 + 数组身份/内容指纹」缓存。旧模块的增量包复用
+     * 同一 allLyrics 实例,只做引用比较;SuperLyric 4.2 每行重发整曲包时身份每行都变,由
+     * [contentSignature] 判定内容未变后复用,不重新映射、不重建。会话三元组
+     * (producerId/generation/trackUri)与 [emit] 用同一表达式构造,保证管线校验成立。
      */
     override fun fullSongSnapshot(): LyricSongSnapshot? {
         val data = latestFullData ?: return null
@@ -793,11 +798,25 @@ class SuperLyricLyricProducer(
         if (lines.isEmpty()) return null
         val trackUri = trackUriOf(data)
         val durationMs = durationOf(data, lines)
+        // 旧模块路径：数组实例不变，引用比较直接命中，不算指纹（保持原有廉价性）。
         synchronized(snapshotLock) {
             val cached = snapshotCache
             if (cached != null && snapshotSource === lines && snapshotTrackUri == trackUri &&
                 snapshotDurationMs == durationMs && snapshotGeneration == generation
             ) {
+                return cached
+            }
+        }
+        // 4.2 路径：数组每行都是新的，用内容指纹判定是否同一份行表（计算在锁外）。
+        val signature = contentSignature(lines)
+        synchronized(snapshotLock) {
+            val cached = snapshotCache
+            if (cached != null && snapshotTrackUri == trackUri &&
+                snapshotDurationMs == durationMs && snapshotGeneration == generation &&
+                snapshotSignature == signature
+            ) {
+                // 内容未变，只把缓存身份换成本次数组，后续同包回到引用比较。
+                snapshotSource = lines
                 return cached
             }
         }
@@ -823,6 +842,7 @@ class SuperLyricLyricProducer(
         )
         synchronized(snapshotLock) {
             snapshotSource = lines
+            snapshotSignature = signature
             snapshotTrackUri = trackUri
             snapshotDurationMs = durationMs
             snapshotGeneration = generation
@@ -837,7 +857,49 @@ class SuperLyricLyricProducer(
             ?: lines.lastOrNull()?.endTime
             ?: 0L
 
-    /** 会话标识:3.7 起 `lyricId` 是稳定身份(也是缓存自愈的键),优先用它;旧模块退回标题。 */
+    /**
+     * 整曲行表内容指纹（64 位）。
+     *
+     * 只覆盖会进 [LyricSongRow] 的字段：行窗口、文本、行级译/副文本、词表。用途是识别
+     * 「数组身份变了但内容没变」——SuperLyric 4.2 起每跨一行都把整曲包重新序列化一遍，
+     * 接收侧拿到的是全新数组与全新行对象。旧发布端（≤3.7）的增量包经
+     * `SuperLyricCache` 合成时复用缓存里的同一数组，走 [snapshotSource] 引用快路径，
+     * 不会执行到这里之外的额外映射。
+     *
+     * 行内容真变化（译/副文本补到、词表细化、整曲替换）会让指纹失配，快照照常重建。
+     */
+    private fun contentSignature(lines: Array<SuperLyricLine>): Long {
+        var hash = SIGNATURE_SEED
+        hash = mixSignature(hash, lines.size.toLong())
+        for (line in lines) {
+            hash = mixSignature(hash, line.startTime)
+            hash = mixSignature(hash, line.endTime)
+            hash = mixSignature(hash, line.text.hashCode().toLong())
+            hash = mixSignature(hash, line.getTranslation()?.hashCode()?.toLong() ?: -1L)
+            hash = mixSignature(hash, line.getSecondary()?.hashCode()?.toLong() ?: -1L)
+            val words = line.words
+            hash = mixSignature(hash, (words?.size ?: -1).toLong())
+            if (words != null) {
+                for (word in words) {
+                    hash = mixSignature(hash, word.startTime)
+                    hash = mixSignature(hash, word.endTime)
+                    hash = mixSignature(hash, word.word.hashCode().toLong())
+                }
+            }
+        }
+        return hash
+    }
+
+    /** 逐值混合（FNV-1a 变体），把「行数/时间/文本」压成一个 64 位指纹。 */
+    private fun mixSignature(hash: Long, value: Long): Long {
+        var mixed = hash xor value
+        mixed *= SIGNATURE_PRIME
+        return mixed xor (mixed ushr 32)
+    }
+
+    /**
+     * 会话标识:3.7 起 `lyricId` 是稳定身份(也是缓存自愈的键),优先用它;旧模块退回标题。
+     */
     private fun trackUriOf(data: SuperLyricData?): String =
         data?.takeIf { it.hasLyricId() }?.lyricId
             ?.let { "superlyric:$it" }
@@ -851,6 +913,7 @@ class SuperLyricLyricProducer(
         latestFullData = null
         synchronized(snapshotLock) {
             snapshotSource = null
+            snapshotSignature = 0L
             snapshotTrackUri = null
             snapshotDurationMs = -1L
             snapshotGeneration = -1
@@ -984,6 +1047,10 @@ class SuperLyricLyricProducer(
             words = words,
             renderModes = defaultRenderModes(),
             lyricKind = lyricKind,
+            // 4.x 发布端首句前只发 metadata(index=-1、无 allLyrics),但 lyricId 已在:歌词
+            // 文档存在、只是还没唱到第一行。长前奏下不能据此判纯音乐(见 lyricPending)。
+            // 3.4/3.5 旧模块没有 lyricId,逐行包 line 恒非空,恒为 false,行为不变。
+            lyricPending = line == null && data?.hasLyricId() == true,
             alignedRight = false,
             lineStartMs = window?.beginMs ?: 0L,
             lineEndMs = window?.endMs ?: 0L,
@@ -1017,6 +1084,10 @@ class SuperLyricLyricProducer(
     companion object {
         private const val PRODUCER_ID = "superlyric"
         private const val AVAILABILITY_POLL_MS = 5_000L
+
+        /** [contentSignature] 的 64 位 FNV-1a 起点（0xcbf29ce484222325）与质数（0x100000001b3）。 */
+        private const val SIGNATURE_SEED = -0x340d631b7bdddcdbL
+        private const val SIGNATURE_PRIME = 0x100000001b3L
 
         /**
          * Staleness override for this channel: SuperLyric pushes only on line change, so a

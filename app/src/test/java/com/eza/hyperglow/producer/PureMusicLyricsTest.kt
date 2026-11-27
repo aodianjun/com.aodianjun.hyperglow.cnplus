@@ -135,6 +135,45 @@ class PureMusicLyricsTest {
     }
 
     @Test
+    fun pendingLyricsSuppressEmptyRowsFallback() {
+        // 源已声明「歌词还没到」(SuperLyric 首句前 metadata-only / LyricInfo 空 payload 窗口):
+        // 空行兜底必须让路,否则长前奏、慢网络的曲目会先闪一段纯音乐占位。
+        assertFalse(
+            resolvePureMusicEnhanced(
+                fullSongRows = null,
+                currentLine = "",
+                durationMs = 240_000L,
+                positionMs = 30_000L,
+                playing = true,
+                producerNoLyrics = true,
+                lyricPending = true
+            )
+        )
+        assertFalse(
+            resolvePureMusicEnhanced(
+                fullSongRows = emptyList(),
+                currentLine = "",
+                durationMs = 240_000L,
+                positionMs = 30_000L,
+                playing = true,
+                lyricPending = true
+            )
+        )
+        // 标记文本是真实歌词行:即使源同时声明 pending 也照常判定。
+        assertTrue(
+            resolvePureMusicEnhanced(
+                fullSongRows = listOf(row("纯音乐请欣赏")),
+                currentLine = "纯音乐请欣赏",
+                durationMs = 240_000L,
+                positionMs = 30_000L,
+                playing = true,
+                producerNoLyrics = true,
+                lyricPending = true
+            )
+        )
+    }
+
+    @Test
     fun producerNoLyricsFoldDetectsAfterConfirmWindow() {
         // Lyricon lines=0 主路径:它对空歌词不产出快照(fullSongSnapshot 返回 null),
         // 增强判定走 producer 歌级声明 lyricKind == NONE + 当前行空白。
